@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 import path from "path";
 
-const backendUrl = process.env.INTERNAL_API_URL || "http://crm-api:3001";
+const backendUrl = process.env.INTERNAL_API_URL || "http://api:3000";
 
 // Domínios Google necessários para GTM, Google Ads e Analytics
 const googleScriptSrc = [

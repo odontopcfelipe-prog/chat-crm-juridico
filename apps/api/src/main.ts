@@ -48,9 +48,6 @@ async function bootstrap() {
   );
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-  // Prefixo global /api — todas as rotas ficam em /api/*
-  app.setGlobalPrefix('api');
-
   // Validacao global de DTOs via class-validator
   app.useGlobalPipes(new ValidationPipe({
     whitelist: true,
