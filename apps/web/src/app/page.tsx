@@ -5,7 +5,7 @@ import { Playfair_Display } from 'next/font/google';
 import Script from 'next/script';
 import { Metadata } from 'next';
 
-const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://andrelustosaadvogados.com.br';
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL || '';
 
 const staticContent = {
   hero: {

@@ -1227,7 +1227,7 @@ export class AiProcessor extends WorkerHost {
         }
       }
 
-      const siteUrl = process.env.APP_URL || 'https://andrelustosaadvogados.com.br';
+      const siteUrl = process.env.APP_URL || '';
 
       // 10c. Buscar horários disponíveis do advogado atribuído (para agendamento)
       let availableSlots = 'Nenhum advogado atribuído — horários indisponíveis.';

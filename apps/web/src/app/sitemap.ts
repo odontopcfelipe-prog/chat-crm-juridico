@@ -1,7 +1,6 @@
 import { MetadataRoute } from 'next';
 
-const baseUrl =
-  process.env.NEXT_PUBLIC_APP_URL || 'https://andrelustosaadvogados.com.br';
+const baseUrl = process.env.NEXT_PUBLIC_APP_URL || '';
 
 export default function sitemap(): MetadataRoute.Sitemap {
   return [

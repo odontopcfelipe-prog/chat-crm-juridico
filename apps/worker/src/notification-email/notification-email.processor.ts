@@ -100,7 +100,7 @@ export class NotificationEmailProcessor extends WorkerHost {
         auth: { user: smtp.user, pass: smtp.pass },
       });
 
-      const appUrl = process.env.APP_URL || 'https://crm.andrelustosaadvogados.com.br';
+      const appUrl = process.env.APP_URL || '';
       const convoUrl = notification.data?.conversationId
         ? `${appUrl}/atendimento`
         : appUrl;

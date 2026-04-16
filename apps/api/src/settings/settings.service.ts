@@ -134,7 +134,7 @@ export class SettingsService {
     return {
       apiUrl: dbApiUrl || process.env.EVOLUTION_API_URL,
       apiKey: dbApiKey || process.env.EVOLUTION_GLOBAL_APIKEY,
-      webhookUrl: dbWebhookUrl || `${process.env.PUBLIC_API_URL || 'https://andrelustosaadvogados.com.br/api'}/webhooks/evolution`,
+      webhookUrl: dbWebhookUrl || (process.env.PUBLIC_API_URL ? `${process.env.PUBLIC_API_URL}/webhooks/evolution` : undefined),
     };
   }
 
