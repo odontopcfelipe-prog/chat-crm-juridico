@@ -48,6 +48,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
 
   const { socket: sharedSocket } = useSocket();
   const socketRef = useRef<Socket | null>(null);
+  const reconnectHandlerRef = useRef<(() => void) | null>(null);
 
   // Sincroniza ref para componentes que consomem socketRef
   useEffect(() => { socketRef.current = sharedSocket; }, [sharedSocket]);
@@ -91,6 +92,14 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
           // Registrar listeners no socket compartilhado
           if (sharedSocket) {
             sharedSocket.emit('join_conversation', convo.id);
+
+            // Re-join conversation room after reconnect when state recovery doesn't apply
+            reconnectHandlerRef.current = () => {
+              if (!(sharedSocket as any).recovered) {
+                sharedSocket.emit('join_conversation', convo.id);
+              }
+            };
+            sharedSocket.on('connect', reconnectHandlerRef.current);
 
             // Som NÃO toca aqui — SocketProvider já toca via incoming_message_notification
 
@@ -137,6 +146,10 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
     fetchData();
     return () => {
       if (sharedSocket) {
+        if (reconnectHandlerRef.current) {
+          sharedSocket.off('connect', reconnectHandlerRef.current);
+          reconnectHandlerRef.current = null;
+        }
         sharedSocket.off('newMessage');
         sharedSocket.off('messageUpdate');
         sharedSocket.off('messageReaction');
