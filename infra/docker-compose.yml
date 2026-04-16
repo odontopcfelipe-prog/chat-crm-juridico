@@ -1,0 +1,62 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: crm-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-chat_crm}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: crm-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+
+  # SeaweedFS Master Server
+  seaweed-master:
+    image: chrislusf/seaweedfs
+    container_name: crm-seaweed-master
+    ports:
+      - 9333:9333
+      - 19333:19333
+    command: "master -ip=seaweed-master"
+
+  # SeaweedFS Volume Server
+  seaweed-volume:
+    image: chrislusf/seaweedfs
+    container_name: crm-seaweed-volume
+    ports:
+      - 8080:8080
+      - 18080:18080
+    command: "volume -mserver=seaweed-master:9333 -port=8080 -ip=seaweed-volume"
+    depends_on:
+      - seaweed-master
+
+  # SeaweedFS Filer + S3 API Server
+  seaweed-filer:
+    image: chrislusf/seaweedfs
+    container_name: crm-seaweed-filer
+    ports:
+      - 8888:8888
+      - 18888:18888
+      - 8333:8333
+    # enable s3 api on port 8333
+    command: "filer -master=seaweed-master:9333 -s3"
+    depends_on:
+      - seaweed-master
+      - seaweed-volume
+
+volumes:
+  postgres-data:
+  redis-data:

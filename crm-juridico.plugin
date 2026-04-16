@@ -1,0 +1,22 @@
+{
+  "_instrucoes": {
+    "passo_1": "Faça login para gerar seu token MCP (válido por 1 ano):",
+    "passo_1_cmd": "curl -X POST https://andrelustosaadvogados.com.br/api/auth/login -H 'Content-Type: application/json' -d '{\"email\":\"SEU_EMAIL\",\"password\":\"SUA_SENHA\"}'",
+    "passo_1b": "Depois gere o token de longa duração:",
+    "passo_1b_cmd": "curl -X POST https://andrelustosaadvogados.com.br/api/auth/mcp-token -H 'Authorization: Bearer TOKEN_DO_LOGIN'",
+    "passo_2": "Copie o mcp_token retornado e cole abaixo em 'Bearer SEU_MCP_TOKEN'",
+    "passo_3": "Cole o bloco 'mcpServers' no claude_desktop_config.json:",
+    "local_config_mac":   "~/Library/Application Support/Claude/claude_desktop_config.json",
+    "local_config_win":   "%APPDATA%\\Claude\\claude_desktop_config.json",
+    "local_config_linux": "~/.config/Claude/claude_desktop_config.json",
+    "passo_4": "Reinicie o Claude Desktop"
+  },
+  "mcpServers": {
+    "crm-juridico": {
+      "url": "https://andrelustosaadvogados.com.br/api/mcp",
+      "headers": {
+        "Authorization": "Bearer SEU_MCP_TOKEN"
+      }
+    }
+  }
+}

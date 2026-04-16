@@ -1,0 +1,33 @@
+FROM node:20-alpine AS base
+WORKDIR /app
+
+FROM base AS builder
+# Copia o monorepo
+COPY . .
+RUN npm install --legacy-peer-deps
+# Builda apenas o APP informado no build-arg (ex: api)
+ARG APP
+RUN npm run db:generate -w @crm/shared
+RUN cd packages/shared && npm run build
+RUN cd apps/${APP} && npm run build
+
+FROM base AS runner
+ARG APP
+ENV NODE_ENV=production
+# Copia node_modules do root e pacote shared
+COPY --from=builder /app/package*.json ./
+COPY --from=builder /app/node_modules ./node_modules
+COPY --from=builder /app/packages/shared ./packages/shared
+# Copia app buildado (node_modules ficam hoisted na raiz em npm workspaces)
+COPY --from=builder /app/apps/${APP}/package*.json ./apps/${APP}/
+COPY --from=builder /app/apps/${APP}/dist ./apps/${APP}/dist
+# Seta dir de inicio
+WORKDIR /app/apps/${APP}
+# Gera Cliente Prisma em PROD
+RUN cd ../../packages/shared && npx prisma generate
+# Entrypoint com auto-migracao
+COPY infra/entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
+ENV APP=${APP}
+
+ENTRYPOINT ["/app/entrypoint.sh"]
