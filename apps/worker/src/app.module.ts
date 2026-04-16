@@ -24,6 +24,7 @@ import { NotificationEmailModule } from './notification-email/notification-email
       connection: {
         host: process.env.REDIS_HOST || 'localhost',
         port: parseInt(process.env.REDIS_PORT || '6379'),
+        password: process.env.REDIS_PASSWORD || undefined,
         maxRetriesPerRequest: null,        // BullMQ requer null
         enableReadyCheck: false,           // evita erros de startup
         retryStrategy: (times: number) => Math.min(times * 500, 5000),
