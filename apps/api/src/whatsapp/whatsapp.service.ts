@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@nestjs/common';
 import { SettingsService } from '../settings/settings.service';
 import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -220,44 +220,45 @@ export class WhatsappService {
       alwaysOnline: true,
     };
 
-    // Automação: Configurar Webhook diretamente no create para Evolution v2
-    if (config.webhookUrl) {
-      this.logger.log(`Provisionando instância ${instanceName} com webhook automático: ${config.webhookUrl}`);
-      payload.webhook = {
-        enabled: true,
-        url: config.webhookUrl,
-        byEvents: false,
-        base64: false,
-        retryDelay: 5000,
-        maxRetries: 5,
-        events: [
-          'APPLICATION_STARTUP',
-          'QRCODE_UPDATED',
-          'MESSAGES_SET',
-          'MESSAGES_UPSERT',
-          'MESSAGES_UPDATE',
-          'MESSAGES_DELETE',
-          'SEND_MESSAGE',
-          'CONTACTS_SET',
-          'CONTACTS_UPSERT',
-          'CONTACTS_UPDATE',
-          'PRESENCE_UPDATE',
-          'CHATS_SET',
-          'CHATS_UPSERT',
-          'CHATS_UPDATE',
-          'CHATS_DELETE',
-          'GROUP_PARTICIPANTS_UPDATE',
-          'GROUP_UPDATE',
-          'GROUPS_UPSERT',
-          'CONNECTION_UPDATE',
-          'CALL',
-          'TYPEBOT_START',
-          'TYPEBOT_CHANGE_STATUS'
-        ]
-      };
-    } else {
-      this.logger.warn(`⚠️ Webhook não configurado na criação de ${instanceName}: webhookUrl global está vazio.`);
+    if (!config.webhookUrl) {
+      throw new BadRequestException(
+        'URL do Webhook não configurada. Acesse Configurações → WhatsApp, preencha a URL do servidor Evolution e salve antes de criar uma instância.',
+      );
     }
+
+    this.logger.log(`Provisionando instância ${instanceName} com webhook: ${config.webhookUrl}`);
+    payload.webhook = {
+      enabled: true,
+      url: config.webhookUrl,
+      byEvents: false,
+      base64: false,
+      retryDelay: 5000,
+      maxRetries: 5,
+      events: [
+        'APPLICATION_STARTUP',
+        'QRCODE_UPDATED',
+        'MESSAGES_SET',
+        'MESSAGES_UPSERT',
+        'MESSAGES_UPDATE',
+        'MESSAGES_DELETE',
+        'SEND_MESSAGE',
+        'CONTACTS_SET',
+        'CONTACTS_UPSERT',
+        'CONTACTS_UPDATE',
+        'PRESENCE_UPDATE',
+        'CHATS_SET',
+        'CHATS_UPSERT',
+        'CHATS_UPDATE',
+        'CHATS_DELETE',
+        'GROUP_PARTICIPANTS_UPDATE',
+        'GROUP_UPDATE',
+        'GROUPS_UPSERT',
+        'CONNECTION_UPDATE',
+        'CALL',
+        'TYPEBOT_START',
+        'TYPEBOT_CHANGE_STATUS',
+      ],
+    };
 
     const result = await this.request('POST', 'instance/create', payload);
     this.logger.log(`✅ Instância ${instanceName} criada com provisionamento automático.`);
