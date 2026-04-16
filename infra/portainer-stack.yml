@@ -76,7 +76,7 @@ services:
       - REDIS_PORT=6379
       - JWT_SECRET=${JWT_SECRET:-troque_esta_secret}
       - JWT_EXPIRES_IN=365d
-      - EVOLUTION_API_URL=${EVOLUTION_API_URL}
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
       - EVOLUTION_GLOBAL_APIKEY=${EVOLUTION_GLOBAL_APIKEY}
       - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME}
       - PUBLIC_API_URL=${PUBLIC_API_URL:-https://sistema.institutoodontopassos.com.br/api}
@@ -125,7 +125,7 @@ services:
       - REDIS_PORT=6379
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - APP_URL=${APP_URL:-https://sistema.institutoodontopassos.com.br}
-      - EVOLUTION_API_URL=${EVOLUTION_API_URL}
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
       - EVOLUTION_GLOBAL_APIKEY=${EVOLUTION_GLOBAL_APIKEY}
       - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME}
       - S3_ENDPOINT=http://minio:9000
