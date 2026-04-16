@@ -27,7 +27,7 @@ for (const envPath of possiblePaths) {
 
 async function bootstrap() {
   const logger = new Logger('Bootstrap');
-  const port = process.env.PORT ?? 3005;
+  const port = process.env.PORT ?? 3000;
   const dbUrl = process.env.DATABASE_URL;
 
   logger.log('Iniciando Bootstrap...');
