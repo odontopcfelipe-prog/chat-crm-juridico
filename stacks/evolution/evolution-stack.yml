@@ -1,0 +1,32 @@
+version: '3.8'
+
+# Stack da Evolution API — institutoodontopassos
+# CF Tunnel termina o TLS → Traefik recebe HTTP puro → entrypoint web (porta 80)
+
+services:
+  evolution_api:
+    image: atendai/evolution-api:latest
+    networks:
+      - traefik_public
+    volumes:
+      - evolution_data:/evolution/instances
+    environment:
+      - SERVER_URL=${SERVER_URL:-https://evolution.institutoodontopassos.com.br}
+      - AUTHENTICATION_API_KEY=${EVOLUTION_GLOBAL_APIKEY}
+      # demais variáveis de ambiente configuradas via Portainer
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_public"
+        - "traefik.http.routers.evolution.rule=Host(`evolution.institutoodontopassos.com.br`)"
+        - "traefik.http.routers.evolution.entrypoints=web"
+        - "traefik.http.services.evolution.loadbalancer.server.port=8080"
+
+networks:
+  traefik_public:
+    external: true
+
+volumes:
+  evolution_data:

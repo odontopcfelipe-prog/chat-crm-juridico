@@ -1,0 +1,33 @@
+version: '3.8'
+
+# Stack do Portainer — institutoodontopassos
+# CF Tunnel termina o TLS → Traefik recebe HTTP puro → entrypoint web (porta 80)
+
+services:
+  portainer:
+    image: portainer/portainer-ce:latest
+    command: -H unix:///var/run/docker.sock
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer_data:/data
+    networks:
+      - traefik_public
+    deploy:
+      placement:
+        constraints:
+          - node.role == manager
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_public"
+        - "traefik.http.routers.portainer.rule=Host(`portainer.institutoodontopassos.com.br`)"
+        - "traefik.http.routers.portainer.entrypoints=web"
+        - "traefik.http.services.portainer.loadbalancer.server.port=9000"
+
+networks:
+  traefik_public:
+    external: true
+
+volumes:
+  portainer_data:
