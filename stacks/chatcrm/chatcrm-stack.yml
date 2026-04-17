@@ -132,6 +132,7 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
     networks:
       - chatcrm_network
+      - evolution_evolution_network
     deploy:
       restart_policy:
         condition: any
@@ -167,6 +168,8 @@ networks:
   chatcrm_network:
     driver: overlay
   traefik_public:
+    external: true
+  evolution_evolution_network:
     external: true
 
 volumes:
