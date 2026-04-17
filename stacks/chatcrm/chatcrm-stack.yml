@@ -1,0 +1,175 @@
+version: '3.8'
+
+# Stack de produção — institutoodontopassos
+# Arquitetura: CF Tunnel → Traefik v2.11 (HTTP:80) → serviços Docker Swarm
+# Traefik v3 descartado: bug em providers.swarm negocia Docker API v1.24 (mínimo suportado: v1.40)
+# Redirect HTTP→HTTPS removido: CF Tunnel envia tráfego HTTP para o Traefik na porta 80
+
+services:
+
+  # ------ Banco de Dados ------
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-crm_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-crm_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-lexcrm}
+    networks:
+      - chatcrm_network
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    ports:
+      - "45432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-crm_user}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ------ Redis ------
+  redis:
+    image: redis:alpine
+    command: redis-server --stop-writes-on-bgsave-error no --save 900 1 --save 300 100
+    ports:
+      - "46379:6379"
+    networks:
+      - chatcrm_network
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ------ MinIO (Mídias S3) ------
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    ports:
+      - '49000:9000'
+    environment:
+      - MINIO_ROOT_USER=${S3_ACCESS_KEY:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${S3_SECRET_KEY:-minioadmin}
+    networks:
+      - chatcrm_network
+    volumes:
+      - minio_data:/data
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ------ NestJS Core API ------
+  # Porta 3000 (padrão do código — PORT env não sobrescrito)
+  api:
+    image: odontopassos/chat-crm-juridico-api:latest
+    ports:
+      - "${API_PORT:-43001}:3000"
+    environment:
+      - NODE_ENV=production
+      - TZ=America/Sao_Paulo
+      - RUN_MIGRATIONS=true
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-crm_user}:${POSTGRES_PASSWORD:-crm_pass}@postgres:5432/${POSTGRES_DB:-lexcrm}?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - JWT_SECRET=${JWT_SECRET:-troque_esta_secret}
+      - JWT_EXPIRES_IN=365d
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
+      - EVOLUTION_GLOBAL_APIKEY=${EVOLUTION_GLOBAL_APIKEY}
+      - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME}
+      - PUBLIC_API_URL=${PUBLIC_API_URL:-https://sistema.institutoodontopassos.com.br/api}
+      - S3_ENDPOINT=${S3_ENDPOINT:-http://minio:9000}
+      - S3_REGION=${S3_REGION:-us-east-1}
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://sistema.institutoodontopassos.com.br}
+      - WEBHOOK_HMAC_REQUIRED=${WEBHOOK_HMAC_REQUIRED:-false}
+    networks:
+      - chatcrm_network
+      - traefik_public
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_public"
+        # --- API router ---
+        - "traefik.http.routers.chatcrm-api.rule=Host(`sistema.institutoodontopassos.com.br`) && PathPrefix(`/api`)"
+        - "traefik.http.routers.chatcrm-api.entrypoints=web"
+        - "traefik.http.routers.chatcrm-api.middlewares=chatcrm-strip-api"
+        - "traefik.http.middlewares.chatcrm-strip-api.stripprefix.prefixes=/api"
+        - "traefik.http.services.chatcrm-api.loadbalancer.server.port=3000"
+        # --- WebSocket router (reusa o service chatcrm-api) ---
+        - "traefik.http.routers.chatcrm-socket.rule=Host(`sistema.institutoodontopassos.com.br`) && PathPrefix(`/socket.io`)"
+        - "traefik.http.routers.chatcrm-socket.entrypoints=web"
+        - "traefik.http.routers.chatcrm-socket.service=chatcrm-api"
+
+  # ------ NestJS Worker (Mídias e IA) ------
+  worker:
+    image: odontopassos/chat-crm-juridico-worker:latest
+    environment:
+      - NODE_ENV=production
+      - TZ=America/Sao_Paulo
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-crm_user}:${POSTGRES_PASSWORD:-crm_pass}@postgres:5432/${POSTGRES_DB:-lexcrm}?schema=public
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      - APP_URL=${APP_URL:-https://sistema.institutoodontopassos.com.br}
+      - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
+      - EVOLUTION_GLOBAL_APIKEY=${EVOLUTION_GLOBAL_APIKEY}
+      - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME}
+      - S3_ENDPOINT=http://minio:9000
+      - S3_REGION=us-east-1
+      - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
+      - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
+      - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
+    networks:
+      - chatcrm_network
+    deploy:
+      restart_policy:
+        condition: any
+
+  # ------ Next.js Frontend ------
+  web:
+    image: odontopassos/chat-crm-juridico-web:latest
+    ports:
+      - "${WEB_PORT:-43000}:3000"
+    environment:
+      - NODE_ENV=production
+      - TZ=America/Sao_Paulo
+      - INTERNAL_API_URL=http://api:3000
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://sistema.institutoodontopassos.com.br/api}
+      - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://sistema.institutoodontopassos.com.br}
+      - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://sistema.institutoodontopassos.com.br}
+    networks:
+      - chatcrm_network
+      - traefik_public
+    deploy:
+      restart_policy:
+        condition: any
+      labels:
+        - "traefik.enable=true"
+        - "traefik.docker.network=traefik_public"
+        # --- Web (catch-all — menor prioridade) ---
+        - "traefik.http.routers.chatcrm-web.rule=Host(`sistema.institutoodontopassos.com.br`)"
+        - "traefik.http.routers.chatcrm-web.entrypoints=web"
+        - "traefik.http.routers.chatcrm-web.priority=1"
+        - "traefik.http.services.chatcrm-web.loadbalancer.server.port=3000"
+
+networks:
+  chatcrm_network:
+    driver: overlay
+  traefik_public:
+    external: true
+
+volumes:
+  pgdata:
+  redisdata:
+  minio_data:
