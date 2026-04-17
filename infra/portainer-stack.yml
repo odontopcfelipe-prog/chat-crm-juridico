@@ -95,6 +95,7 @@ services:
         condition: any
       labels:
         - "traefik.enable=true"
+        # CF Tunnel termina o TLS — Traefik recebe HTTP puro na porta 80
         # --- API router (main domain) ---
         - "traefik.http.routers.crm-api.rule=Host(`sistema.institutoodontopassos.com.br`) && PathPrefix(`/api`)"
         - "traefik.http.routers.crm-api.service=crm-api"
@@ -102,15 +103,13 @@ services:
         - "traefik.http.middlewares.strip-api.stripprefix.prefixes=/api"
         - "traefik.http.routers.crm-api.middlewares=strip-api"
         - "traefik.http.services.crm-api.loadbalancer.server.port=3001"
-        - "traefik.http.routers.crm-api.entrypoints=websecure"
-        - "traefik.http.routers.crm-api.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.crm-api.entrypoints=web"
         # --- WebSocket router (main domain) ---
         - "traefik.http.routers.crm-ws.rule=Host(`sistema.institutoodontopassos.com.br`) && PathPrefix(`/socket.io`)"
         - "traefik.http.routers.crm-ws.service=crm-ws"
         - "traefik.http.routers.crm-ws.priority=100"
         - "traefik.http.services.crm-ws.loadbalancer.server.port=3001"
-        - "traefik.http.routers.crm-ws.entrypoints=websecure"
-        - "traefik.http.routers.crm-ws.tls.certresolver=letsencrypt"
+        - "traefik.http.routers.crm-ws.entrypoints=web"
         - "traefik.docker.network=OrionNet"
 
   # ------ NestJS Worker (Mídias e IA) ------
@@ -163,16 +162,7 @@ services:
         # --- Web (main domain — LP + CRM) ---
         - "traefik.http.routers.crm-web.rule=Host(`sistema.institutoodontopassos.com.br`)"
         - "traefik.http.services.crm-web.loadbalancer.server.port=3000"
-        - "traefik.http.routers.crm-web.entrypoints=websecure"
-        - "traefik.http.routers.crm-web.tls.certresolver=letsencrypt"
-        # --- Redirect old atendimento subdomain → new path ---
-        - "traefik.http.routers.crm-web-old.rule=Host(`atendimento.sistema.institutoodontopassos.com.br`)"
-        - "traefik.http.routers.crm-web-old.entrypoints=websecure"
-        - "traefik.http.routers.crm-web-old.tls.certresolver=letsencrypt"
-        - "traefik.http.middlewares.redirect-atendimento.redirectregex.regex=^https://atendimento\\.institutoodontopassos\\.com\\.br/(.*)"
-        - "traefik.http.middlewares.redirect-atendimento.redirectregex.replacement=https://sistema.institutoodontopassos.com.br/atendimento/$${1}"
-        - "traefik.http.middlewares.redirect-atendimento.redirectregex.permanent=true"
-        - "traefik.http.routers.crm-web-old.middlewares=redirect-atendimento"
+        - "traefik.http.routers.crm-web.entrypoints=web"
         - "traefik.docker.network=OrionNet"
 
 networks:
