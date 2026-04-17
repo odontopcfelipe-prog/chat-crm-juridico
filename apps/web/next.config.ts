@@ -78,6 +78,17 @@ const nextConfig: NextConfig = {
         source: "/api/:path*",
         destination: `${backendUrl}/:path*`,
       },
+      // Proxy Socket.IO (polling + WebSocket upgrade) para o NestJS.
+      // O CF Tunnel roteia tudo para o Next.js; sem este rewrite /socket.io
+      // retorna 404 e mensagens em tempo real não funcionam.
+      {
+        source: "/socket.io",
+        destination: `${backendUrl}/socket.io`,
+      },
+      {
+        source: "/socket.io/:path*",
+        destination: `${backendUrl}/socket.io/:path*`,
+      },
     ];
   },
 };
