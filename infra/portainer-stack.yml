@@ -151,6 +151,7 @@ services:
     environment:
       - NODE_ENV=production
       - TZ=America/Sao_Paulo
+      - INTERNAL_API_URL=http://crm-api:3001
       - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-https://sistema.institutoodontopassos.com.br/api}
       - NEXT_PUBLIC_WS_URL=${NEXT_PUBLIC_WS_URL:-wss://sistema.institutoodontopassos.com.br}
       - NEXT_PUBLIC_APP_URL=${NEXT_PUBLIC_APP_URL:-https://sistema.institutoodontopassos.com.br}
