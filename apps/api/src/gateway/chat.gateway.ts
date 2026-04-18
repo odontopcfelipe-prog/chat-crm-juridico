@@ -209,6 +209,13 @@ export class ChatGateway {
     }
     client.join(`user:${userId}`);
     this.logger.log(`[SOCKET] Client ${client.id} joined user room: user:${userId}`);
+
+    // Entra automaticamente na sala do tenant para receber inboxUpdate
+    const tenantId = socketUser?.tenant_id;
+    if (tenantId) {
+      client.join(`tenant:${tenantId}`);
+      this.logger.log(`[SOCKET] Client ${client.id} joined tenant room: tenant:${tenantId}`);
+    }
   }
 
   async emitTransferRequest(toUserId: string, data: any) {
