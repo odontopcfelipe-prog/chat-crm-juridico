@@ -92,6 +92,11 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
           if (sharedSocket) {
             sharedSocket.emit('join_conversation', convo.id);
 
+            // Re-join ao reconectar fora da janela de recuperação de estado
+            sharedSocket.on('connect', () => {
+              sharedSocket.emit('join_conversation', convo.id);
+            });
+
             // Som NÃO toca aqui — SocketProvider já toca via incoming_message_notification
 
             sharedSocket.on('newMessage', (msg: any) => {
@@ -137,6 +142,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
     fetchData();
     return () => {
       if (sharedSocket) {
+        sharedSocket.off('connect');
         sharedSocket.off('newMessage');
         sharedSocket.off('messageUpdate');
         sharedSocket.off('messageReaction');

@@ -14,6 +14,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { MediaS3Service } from './s3.service';
+import { FileStorageService } from './filesystem.service';
 import { Public } from '../auth/decorators/public.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import * as https from 'https';
@@ -26,12 +27,12 @@ export class MediaController {
   constructor(
     private prisma: PrismaService,
     private s3: MediaS3Service,
+    private fileStorage: FileStorageService,
     @InjectQueue('media-jobs') private mediaQueue: Queue,
   ) {}
 
   /**
    * POST /media/:messageId/retry — re-enfileira download de mídia para mensagens com problema.
-   * Usado quando o worker falhou ou o áudio ficou indisponível.
    */
   @Post(':messageId/retry')
   @UseGuards(JwtAuthGuard)
@@ -43,13 +44,22 @@ export class MediaController {
 
     if (!message) throw new NotFoundException('Mensagem não encontrada');
 
-    // Se já tem mídia no S3, não precisa re-baixar
-    if (message.media) {
+    // Se já tem mídia no filesystem, não precisa re-baixar
+    if (message.media?.file_path) {
+      const exists = await this.fileStorage.exists(message.media.file_path);
+      if (exists) {
+        return { ok: true, message: 'Mídia já existe no storage', alreadyExists: true };
+      }
+      await this.prisma.media.delete({ where: { id: message.media.id } });
+      this.logger.warn(`[RETRY] Media record deletado para msg ${messageId} (arquivo ausente)`);
+    }
+
+    // Fallback: checa S3 legado
+    if (message.media?.s3_key) {
       try {
         await this.s3.getObjectStream(message.media.s3_key);
-        return { ok: true, message: 'Mídia já existe no storage', alreadyExists: true };
+        return { ok: true, message: 'Mídia já existe no S3 (legado)', alreadyExists: true };
       } catch {
-        // Mídia no banco mas não no S3 — deletar record e re-baixar
         await this.prisma.media.delete({ where: { id: message.media.id } });
         this.logger.warn(`[RETRY] Media record deletado para msg ${messageId} (S3 key ausente)`);
       }
@@ -65,7 +75,7 @@ export class MediaController {
     await this.mediaQueue.add('download_media', {
       message_id: message.id,
       conversation_id: message.conversation_id,
-      media_data: null, // Dados originais perdidos, worker baixará o essencial
+      media_data: null,
       remote_jid: null,
       msg_id: message.external_message_id,
       instance_name: instanceName,
@@ -90,103 +100,120 @@ export class MediaController {
 
     if (!media) throw new NotFoundException('Mídia não encontrada');
 
-    try {
-      // Tenta servir do S3/MinIO primeiro
-      let s3Available = true;
-      let s3Result: Awaited<ReturnType<typeof this.s3.getObjectStream>> | null = null;
-      try {
-        s3Result = await this.s3.getObjectStream(media.s3_key);
-      } catch (s3Err) {
-        s3Available = false;
-        this.logger.warn(`[MediaController] S3 key ausente para ${messageId}: ${(s3Err as Error).message}`);
-      }
+    const disposition = dl === '1' ? 'attachment' : 'inline';
 
-      // Fallback: proxy do original_url (Evolution API CDN) quando o S3 não tem o arquivo
-      if (!s3Available && media.original_url) {
-        this.logger.log(`[MediaController] Servindo via original_url para ${messageId}`);
-        const protocol = media.original_url.startsWith('https') ? https : http;
-        await new Promise<void>((resolve, reject) => {
-          const req2 = protocol.get(media.original_url!, (proxyRes) => {
-            // Forçar mime_type do banco quando proxy retorna genérico (ex: application/octet-stream)
-            const proxyCt = proxyRes.headers['content-type'] || '';
-            const ct = (proxyCt && proxyCt !== 'application/octet-stream') ? proxyCt : (media.mime_type || 'application/octet-stream');
-            const cl = proxyRes.headers['content-length'];
-            res.setHeader('Content-Type', ct);
-            res.setHeader('Cache-Control', 'private, max-age=86400');
-            res.setHeader('Accept-Ranges', 'none');
-            if (cl) res.setHeader('Content-Length', cl);
-            proxyRes.pipe(res);
-            proxyRes.on('end', resolve);
-            proxyRes.on('error', reject);
-          });
-          req2.on('error', reject);
-        });
-        return;
-      }
+    // ── 1. Filesystem (novo storage) ─────────────────────────────────────────
+    if (media.file_path) {
+      const exists = await this.fileStorage.exists(media.file_path);
+      if (exists) {
+        try {
+          const { size } = await this.fileStorage.getStream(media.file_path);
+          const filename = this.buildFilename(media);
+          const safeFilename = encodeURIComponent(filename);
+          const rangeHeader = req.headers['range'] as string | undefined;
 
-      if (!s3Available) {
-        throw new NotFoundException('Arquivo não encontrado no storage e sem URL de origem');
-      }
+          if (rangeHeader && size) {
+            const [startStr, endStr] = rangeHeader.replace('bytes=', '').split('-');
+            const start = parseInt(startStr, 10);
+            const end = endStr ? parseInt(endStr, 10) : size - 1;
+            const chunkSize = end - start + 1;
+            const { stream } = await this.fileStorage.getStream(media.file_path, start, end);
+            res.status(206);
+            res.setHeader('Content-Range', `bytes ${start}-${end}/${size}`);
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Content-Length', String(chunkSize));
+            res.setHeader('Content-Type', media.mime_type || 'application/octet-stream');
+            res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
+            res.setHeader('Cache-Control', 'private, max-age=3600');
+            stream.pipe(res);
+            return;
+          }
 
-      const { stream, contentType, contentLength } = s3Result!;
-
-      // Extrai extensão da s3_key, limpando possíveis parâmetros residuais
-      const ext = (media.s3_key.split('.').pop() || 'bin').split(';')[0].trim();
-
-      // Nome do arquivo: usa original_name se disponível (documentos),
-      // caso contrário deriva do mime_type
-      let filename: string;
-      if (media.original_name) {
-        filename = media.original_name;
-      } else {
-        const mime = (media.mime_type || '').toLowerCase();
-        if (mime.startsWith('image/')) {
-          filename = `imagem.${ext}`;
-        } else if (mime.startsWith('audio/')) {
-          filename = `audio.${ext}`;
-        } else if (mime.startsWith('video/')) {
-          filename = `video.${ext}`;
-        } else {
-          filename = `arquivo.${ext}`;
+          const { stream } = await this.fileStorage.getStream(media.file_path);
+          res.setHeader('Content-Type', media.mime_type || 'application/octet-stream');
+          res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
+          res.setHeader('Cache-Control', 'private, max-age=3600');
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Length', String(size));
+          stream.pipe(res);
+          return;
+        } catch (e: any) {
+          this.logger.warn(`[MediaController] Erro ao servir do filesystem para ${messageId}: ${e.message}`);
         }
       }
+    }
 
-      const disposition = dl === '1' ? 'attachment' : 'inline';
-      const safeFilename = encodeURIComponent(filename);
+    // ── 2. MinIO/S3 (legado — mídias anteriores à migração) ──────────────────
+    if (media.s3_key) {
+      try {
+        const s3Result = await this.s3.getObjectStream(media.s3_key);
+        const { stream, contentType, contentLength } = s3Result;
+        const filename = this.buildFilename(media);
+        const safeFilename = encodeURIComponent(filename);
+        const rangeHeader = req.headers['range'] as string | undefined;
 
-      // Suporte a Range requests (necessário para streaming de áudio/vídeo)
-      const rangeHeader = req.headers['range'] as string | undefined;
-      if (rangeHeader && contentLength) {
-        const [startStr, endStr] = rangeHeader.replace('bytes=', '').split('-');
-        const start = parseInt(startStr, 10);
-        const end = endStr ? parseInt(endStr, 10) : contentLength - 1;
-        const chunkSize = end - start + 1;
+        if (rangeHeader && contentLength) {
+          const [startStr, endStr] = rangeHeader.replace('bytes=', '').split('-');
+          const start = parseInt(startStr, 10);
+          const end = endStr ? parseInt(endStr, 10) : contentLength - 1;
+          const chunkSize = end - start + 1;
+          stream.destroy();
+          const ranged = await this.s3.getObjectStream(media.s3_key, start, end);
+          res.status(206);
+          res.setHeader('Content-Range', `bytes ${start}-${end}/${contentLength}`);
+          res.setHeader('Accept-Ranges', 'bytes');
+          res.setHeader('Content-Length', String(chunkSize));
+          res.setHeader('Content-Type', contentType);
+          res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
+          res.setHeader('Cache-Control', 'private, max-age=3600');
+          ranged.stream.pipe(res);
+          return;
+        }
 
-        // Re-fetch do S3 com range (se o stream já foi iniciado, destroi e recria)
-        stream.destroy();
-        const ranged = await this.s3.getObjectStream(media.s3_key, start, end);
-        res.status(206);
-        res.setHeader('Content-Range', `bytes ${start}-${end}/${contentLength}`);
-        res.setHeader('Accept-Ranges', 'bytes');
-        res.setHeader('Content-Length', String(chunkSize));
         res.setHeader('Content-Type', contentType);
         res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
         res.setHeader('Cache-Control', 'private, max-age=3600');
-        ranged.stream.pipe(res);
+        res.setHeader('Accept-Ranges', 'bytes');
+        if (contentLength) res.setHeader('Content-Length', String(contentLength));
+        stream.pipe(res);
         return;
+      } catch (s3Err) {
+        this.logger.warn(`[MediaController] S3 indisponível para ${messageId}: ${(s3Err as Error).message}`);
       }
-
-      res.setHeader('Content-Type', contentType);
-      res.setHeader('Content-Disposition', `${disposition}; filename*=UTF-8''${safeFilename}`);
-      res.setHeader('Cache-Control', 'private, max-age=3600');
-      res.setHeader('Accept-Ranges', 'bytes');
-      if (contentLength) res.setHeader('Content-Length', String(contentLength));
-
-      stream.pipe(res);
-    } catch (e) {
-      if (e instanceof NotFoundException) throw e;
-      this.logger.error(`Erro inesperado ao servir mídia ${messageId}: ${(e as Error).message}`);
-      throw new NotFoundException('Arquivo não encontrado no storage');
     }
+
+    // ── 3. Fallback Evolution CDN (URL original, expira em ~48h) ─────────────
+    if (media.original_url) {
+      this.logger.log(`[MediaController] Servindo via original_url para ${messageId}`);
+      const protocol = media.original_url.startsWith('https') ? https : http;
+      await new Promise<void>((resolve, reject) => {
+        const proxyReq = protocol.get(media.original_url!, (proxyRes) => {
+          const proxyCt = proxyRes.headers['content-type'] || '';
+          const ct = (proxyCt && proxyCt !== 'application/octet-stream') ? proxyCt : (media.mime_type || 'application/octet-stream');
+          const cl = proxyRes.headers['content-length'];
+          res.setHeader('Content-Type', ct);
+          res.setHeader('Cache-Control', 'private, max-age=86400');
+          res.setHeader('Accept-Ranges', 'none');
+          if (cl) res.setHeader('Content-Length', cl);
+          proxyRes.pipe(res);
+          proxyRes.on('end', resolve);
+          proxyRes.on('error', reject);
+        });
+        proxyReq.on('error', reject);
+      });
+      return;
+    }
+
+    throw new NotFoundException('Arquivo não encontrado no storage e sem URL de origem');
+  }
+
+  private buildFilename(media: any): string {
+    if (media.original_name) return media.original_name;
+    const ext = (media.file_path || media.s3_key || '').split('.').pop()?.split(';')[0]?.trim() || 'bin';
+    const mime = (media.mime_type || '').toLowerCase();
+    if (mime.startsWith('image/')) return `imagem.${ext}`;
+    if (mime.startsWith('audio/')) return `audio.${ext}`;
+    if (mime.startsWith('video/')) return `video.${ext}`;
+    return `arquivo.${ext}`;
   }
 }

@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import { MediaController } from './media.controller';
 import { MediaS3Service } from './s3.service';
+import { FileStorageService } from './filesystem.service';
 import { MediaEventsService } from './media-events.service';
 import { AiEventsService } from './ai-events.service';
 import { MediaDownloadService } from './media-download.service';
@@ -23,7 +24,7 @@ import { SettingsModule } from '../settings/settings.module';
     SettingsModule,
   ],
   controllers: [MediaController],
-  providers: [MediaS3Service, MediaEventsService, AiEventsService, MediaDownloadService],
-  exports: [MediaS3Service, MediaDownloadService],
+  providers: [MediaS3Service, FileStorageService, MediaEventsService, AiEventsService, MediaDownloadService],
+  exports: [MediaS3Service, FileStorageService, MediaDownloadService],
 })
 export class MediaModule {}

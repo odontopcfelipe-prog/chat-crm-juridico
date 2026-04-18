@@ -228,7 +228,8 @@ model MessageReaction {
 model Media {
   id            String   @id @default(uuid())
   message_id    String   @unique
-  s3_key        String
+  s3_key        String?
+  file_path     String?
   mime_type     String
   size          Int?
   duration      Int?

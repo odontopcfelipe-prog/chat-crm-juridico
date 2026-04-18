@@ -23,7 +23,7 @@ async function main() {
     create: {
       email: 'admin@lexcrm.com.br',
       name: 'Admin Master',
-      role: 'ADMIN',
+      roles: ['ADMIN'],
       password_hash: passwordHash,
       tenant_id: tenant.id
     },

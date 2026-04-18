@@ -1,4 +1,4 @@
-import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@nestjs/common';
 import { SettingsService } from '../settings/settings.service';
 import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -256,7 +256,7 @@ export class WhatsappService {
         ]
       };
     } else {
-      this.logger.warn(`⚠️ Webhook não configurado na criação de ${instanceName}: webhookUrl global está vazio.`);
+      throw new BadRequestException(`Webhook não configurado: defina a webhookUrl global antes de criar a instância "${instanceName}".`);
     }
 
     const result = await this.request('POST', 'instance/create', payload);

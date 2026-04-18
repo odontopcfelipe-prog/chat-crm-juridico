@@ -3,6 +3,7 @@ import { QueueEvents, Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
+import { FileStorageService } from './filesystem.service';
 import { MediaS3Service } from './s3.service';
 
 @Injectable()
@@ -15,6 +16,7 @@ export class MediaEventsService implements OnModuleInit, OnModuleDestroy {
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
     private driveService: GoogleDriveService,
+    private fileStorage: FileStorageService,
     private s3Service: MediaS3Service,
   ) {}
 
@@ -26,14 +28,12 @@ export class MediaEventsService implements OnModuleInit, OnModuleDestroy {
       enableReadyCheck: false,
     };
 
-    // Queue para buscar dados do job pelo ID
     const prefix = process.env.BULL_PREFIX || 'bull';
     this.queue = new Queue('media-jobs', { connection, prefix });
     this.queueEvents = new QueueEvents('media-jobs', { connection, prefix });
 
     this.queueEvents.on('completed', async ({ jobId }) => {
       try {
-        // Busca o job pelo ID para obter message_id e conversation_id do data
         const job = await this.queue.getJob(jobId);
         if (!job) {
           this.logger.warn(`[WS] Job ${jobId} não encontrado`);
@@ -48,16 +48,12 @@ export class MediaEventsService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
-        // Busca mensagem atualizada com mídia no banco
-        // Retry com delay: o worker pode ter retornado antes do Media record ser visível
-        // para esta conexão, ou a mensagem pode estar em commit pendente.
         let message = await this.prisma.message.findUnique({
           where: { id: messageId },
           include: { media: true },
         });
 
         if (!message || !message.media) {
-          // Aguarda 2s e tenta novamente — cobre race conditions de commit
           await new Promise(r => setTimeout(r, 2000));
           message = await this.prisma.message.findUnique({
             where: { id: messageId },
@@ -70,11 +66,9 @@ export class MediaEventsService implements OnModuleInit, OnModuleDestroy {
           return;
         }
 
-        // Emite evento para o room da conversa (fallback — usado quando download síncrono falhou)
         this.chatGateway.server?.to(conversationId).emit('messageUpdate', message);
         this.logger.log(`[WS] messageUpdate (media fallback) emitido: msg=${messageId} conv=${conversationId}`);
 
-        // Auto-upload de documentos para Google Drive (se lead tem pasta)
         if (message.media && message.direction === 'in') {
           this.uploadMediaToDrive(message, conversationId).catch(e =>
             this.logger.warn(`[DRIVE-SYNC] Falha: ${e.message}`),
@@ -94,36 +88,38 @@ export class MediaEventsService implements OnModuleInit, OnModuleDestroy {
 
   /**
    * Upload automático de mídia do chat para a pasta do lead no Google Drive.
-   * Só faz upload de documentos (PDF, DOC, imagens) — ignora áudios curtos.
+   * Lê do filesystem (novo) ou do S3 (legado). Só faz upload de documentos/imagens.
    */
   private async uploadMediaToDrive(message: any, conversationId: string) {
     const media = message.media;
-    if (!media?.s3_key || !media?.mime_type) return;
+    if (!media?.mime_type) return;
 
-    // Só fazer upload de documentos e imagens (não áudios de voz)
     const isDocument = media.mime_type.startsWith('application/') || media.mime_type.startsWith('image/');
     if (!isDocument) return;
 
-    // Buscar lead da conversa
     const conv = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       select: { lead_id: true, lead: { select: { id: true, name: true, google_drive_folder_id: true } } },
     });
 
-    if (!conv?.lead?.google_drive_folder_id) return; // Lead sem pasta no Drive
+    if (!conv?.lead?.google_drive_folder_id) return;
 
     try {
-      // Verificar se Drive está configurado
       const configured = await this.driveService.isConfigured();
       if (!configured) return;
 
-      // Baixar arquivo do S3
-      const fileBuffer = await this.s3Service.getFileBuffer(media.s3_key);
+      // Tenta filesystem primeiro, depois S3 legado
+      let fileBuffer: Buffer | null = null;
+      if (media.file_path) {
+        fileBuffer = await this.fileStorage.getBuffer(media.file_path);
+      }
+      if (!fileBuffer && media.s3_key) {
+        fileBuffer = await this.s3Service.getFileBuffer(media.s3_key);
+      }
       if (!fileBuffer) return;
 
       const fileName = media.original_name || `${message.id}${this.getExtension(media.mime_type)}`;
 
-      // Upload para Drive
       await this.driveService.uploadFile(
         conv.lead.google_drive_folder_id,
         fileName,
