@@ -87,6 +87,9 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://sistema.institutoodontopassos.com.br}
       - WEBHOOK_HMAC_REQUIRED=${WEBHOOK_HMAC_REQUIRED:-false}
+      - MEDIA_STORAGE_PATH=/var/lib/crm-media
+    volumes:
+      - crm_media:/var/lib/crm-media
     networks:
       - default
       - OrionNet
@@ -132,6 +135,9 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
+      - MEDIA_STORAGE_PATH=/var/lib/crm-media
+    volumes:
+      - crm_media:/var/lib/crm-media
     networks:
       - default
       - OrionNet
@@ -173,3 +179,4 @@ volumes:
   pgdata_v2:
   redisdata:
   minio_data:
+  crm_media:

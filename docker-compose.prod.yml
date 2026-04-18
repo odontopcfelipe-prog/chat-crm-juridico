@@ -75,6 +75,9 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-}
       - WEBHOOK_HMAC_REQUIRED=${WEBHOOK_HMAC_REQUIRED:-false}
+      - MEDIA_STORAGE_PATH=/var/lib/crm-media
+    volumes:
+      - crm_media:/var/lib/crm-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -102,6 +105,9 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
+      - MEDIA_STORAGE_PATH=/var/lib/crm-media
+    volumes:
+      - crm_media:/var/lib/crm-media
     depends_on:
       postgres:
         condition: service_healthy
@@ -127,3 +133,4 @@ volumes:
   pgdata:
   redisdata:
   minio_data:
+  crm_media:
