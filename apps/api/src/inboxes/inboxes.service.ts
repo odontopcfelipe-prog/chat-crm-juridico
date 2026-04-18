@@ -184,13 +184,23 @@ export class InboxesService {
     }
 
     // 1. Vincula a instância ao setor
+    const parentInbox = await this.inbox.findUnique({
+      where: { id: inboxId },
+      select: { tenant_id: true },
+    });
+    if (!parentInbox) throw new NotFoundException(`Inbox ${inboxId} não encontrado`);
     const instance = await this.instance.upsert({
       where: { name: instanceName },
-      update: { inbox_id: inboxId, type },
+      update: {
+        inbox_id: inboxId,
+        type,
+        ...(parentInbox.tenant_id ? { tenant_id: parentInbox.tenant_id } : {}),
+      },
       create: {
         name: instanceName,
         type,
-        inbox_id: inboxId
+        inbox_id: inboxId,
+        tenant_id: parentInbox.tenant_id,
       }
     });
 

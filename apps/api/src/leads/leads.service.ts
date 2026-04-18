@@ -208,12 +208,25 @@ export class LeadsService {
 
   async upsert(data: Prisma.LeadCreateInput): Promise<Lead> {
     const phone = to12Digits(data.phone);
-    // No UPDATE nunca sobrescreve nome, stage nem foto com valores piores:
+    // No UPDATE nunca sobrescreve nome, stage, foto nem tenant com valores piores:
     // - nome: só atualiza se o lead ainda não tem nome (null/vazio) E veio um nome no payload.
     //   Evita sobrescrever o nome real do cliente com o pushName do escritório.
     // - stage: webhook sempre envia 'NOVO', mas o stage é gerenciado pela IA.
     // - profile_picture_url: só atualiza se o lead não tem foto OU se chegou uma URL válida.
-    const { phone: _phone, name: incomingName, stage: _stage, profile_picture_url: incomingPhoto, ...updateData } = data as any;
+    // - tenant_id: jamais sobrescreve tenant de lead existente (isolamento multi-tenant);
+    //   só é preenchido quando o lead atual está com tenant_id nulo.
+    const {
+      phone: _phone,
+      name: incomingName,
+      stage: _stage,
+      profile_picture_url: incomingPhoto,
+      tenant_id: tenantIdFlat,
+      tenant: tenantRel,
+      ...updateData
+    } = data as any;
+    // tenant pode vir como { tenant_id } (plano) ou { tenant: { connect: { id } } } (relacional)
+    const incomingTenantId: string | null =
+      tenantIdFlat || tenantRel?.connect?.id || null;
 
     this.logger.debug(`Upsert lead: raw=${data.phone} → stored=${phone}`);
 
@@ -222,6 +235,14 @@ export class LeadsService {
       await this.prisma.lead.updateMany({
         where: { phone, name: null },
         data: { name: incomingName },
+      });
+    }
+
+    // Preenche tenant_id apenas se o lead existente estiver sem tenant (backfill defensivo)
+    if (incomingTenantId) {
+      await this.prisma.lead.updateMany({
+        where: { phone, tenant_id: null },
+        data: { tenant_id: incomingTenantId },
       });
     }
 

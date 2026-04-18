@@ -13,7 +13,7 @@ export class InboxesController {
     const userId = req.user?.id;
     const isAdmin = req.user?.roles?.includes('ADMIN');
     // ADMINs veem todos os inboxes; outros usuários só veem os que são membros
-    return this.inboxesService.findAll(undefined, isAdmin ? undefined : userId);
+    return this.inboxesService.findAll(req.user?.tenant_id, isAdmin ? undefined : userId);
   }
 
   @Get('operators')
@@ -29,8 +29,8 @@ export class InboxesController {
 
   @Post()
   @Roles('ADMIN')
-  async create(@Body() data: { name: string }) {
-    return this.inboxesService.create(data);
+  async create(@Body() data: { name: string }, @Request() req: any) {
+    return this.inboxesService.create({ ...data, tenant_id: req.user?.tenant_id });
   }
 
   @Put(':id')
