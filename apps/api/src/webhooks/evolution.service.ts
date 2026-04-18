@@ -96,12 +96,15 @@ export class EvolutionService implements OnApplicationBootstrap {
     this.logger.debug(`Payload: ${summarizePayload(payload)}`);
     const dataPayload = payload?.data as any;
     const inbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName) : null;
-    
+
     if (!inbox) {
       this.logger.warn(`[WEBHOOK] No inbox found for instanceName: ${instanceName}. Message might be lost or assigned to no tenant.`);
     }
 
     const inboxId = inbox?.inbox_id || null;
+    // Deriva tenant efetivo: prefere o da Instance, mas faz fallback para o Inbox pai.
+    // Isso cobre instâncias legadas que foram criadas sem tenant_id propagado.
+    const effectiveTenantId: string | null = (inbox as any)?.tenant_id || (inbox as any)?.inbox?.tenant_id || null;
 
     const messages = Array.isArray(dataPayload?.messages)
       ? (dataPayload.messages as any[])
@@ -208,7 +211,8 @@ export class EvolutionService implements OnApplicationBootstrap {
         phone,
         name: pushName,
         origin: 'whatsapp',
-      });
+        ...(effectiveTenantId ? { tenant: { connect: { id: effectiveTenantId } } } : {}),
+      } as any);
 
       // 1b. Lead PERDIDO/FINALIZADO voltou a falar → reativar para QUALIFICANDO
       // Sem isso, a conversa existe mas fica invisível no inbox (filtro de stage).
@@ -276,7 +280,7 @@ export class EvolutionService implements OnApplicationBootstrap {
               external_id: `${phone}@s.whatsapp.net`,
               inbox_id: inboxId,
               instance_name: instanceName,
-              tenant_id: inbox?.tenant_id || lead.tenant_id,
+              tenant_id: effectiveTenantId || lead.tenant_id,
             },
           });
         }
@@ -738,7 +742,8 @@ export class EvolutionService implements OnApplicationBootstrap {
       const updateData: any = {};
       if (inboxId && !conv.inbox_id) updateData.inbox_id = inboxId;
       if (instanceName) updateData.instance_name = instanceName;
-      if (inbox?.tenant_id && !conv.tenant_id) updateData.tenant_id = inbox.tenant_id;
+      const fallbackTenantId = (inbox as any)?.tenant_id || (inbox as any)?.inbox?.tenant_id || null;
+      if (fallbackTenantId && !conv.tenant_id) updateData.tenant_id = fallbackTenantId;
 
       if (Object.keys(updateData).length > 0) {
         await this.prisma.conversation.update({
@@ -1072,7 +1077,8 @@ export class EvolutionService implements OnApplicationBootstrap {
       const recentChats = await this.whatsappService.fetchChats(instanceName);
       const inbox = await this.inboxesService.findByInstanceName(instanceName);
       const inboxId = inbox?.inbox_id || null;
-      const tenantId = inbox?.tenant_id || null;
+      // Fallback: se a Instance não tem tenant_id, usa o do Inbox pai.
+      const tenantId: string | null = (inbox as any)?.tenant_id || (inbox as any)?.inbox?.tenant_id || null;
 
       // Filtrar apenas chats com mensagens recentes dentro da janela configurada
       const cutoffTs = Date.now() - cutoffHours * 3600 * 1000;
