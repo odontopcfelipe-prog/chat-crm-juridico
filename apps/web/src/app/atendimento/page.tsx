@@ -3155,6 +3155,7 @@ export default function Dashboard() {
           leadId={clientPanelLeadId}
           onClose={() => setClientPanelLeadId(null)}
           onLightbox={setLightbox}
+          isAdmin={isAdmin}
         />
       )}
 

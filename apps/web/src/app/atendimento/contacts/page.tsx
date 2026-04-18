@@ -48,7 +48,10 @@ function getIsAdminFromToken(): boolean {
     const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
     if (!token) return false;
     const payload = JSON.parse(atob(token.split('.')[1]));
-    return payload?.role === 'ADMIN';
+    // JWT carrega `roles` (array). Mantém fallback para `role` (string legada).
+    return Array.isArray(payload?.roles)
+      ? payload.roles.includes('ADMIN')
+      : payload?.role === 'ADMIN';
   } catch {
     return false;
   }
