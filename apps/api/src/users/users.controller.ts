@@ -1,4 +1,10 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import {
+  Controller, Get, Post, Patch, Delete, Body, Param,
+  UseGuards, Request, ForbiddenException, NotFoundException,
+  Res, UseInterceptors, UploadedFile,
+} from '@nestjs/common';
+import { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
@@ -11,6 +17,51 @@ export class UsersController {
     private readonly usersService: UsersService,
     private readonly chatGateway: ChatGateway,
   ) {}
+
+  /** Retorna perfil do usuário autenticado */
+  @Get('me')
+  getMe(@Request() req: any) {
+    return this.usersService.findById(req.user.id, req.user?.tenant_id);
+  }
+
+  /**
+   * Upload de foto de perfil — somente ADMIN.
+   * PATCH /users/:id/avatar  (multipart/form-data, campo "file")
+   */
+  @Post(':id/avatar')
+  @Roles('ADMIN')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async uploadAvatar(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Request() req: any,
+  ) {
+    if (!file) throw new ForbiddenException('Nenhum arquivo enviado.');
+    return this.usersService.updateAvatar(id, file.buffer, file.mimetype, req.user?.tenant_id);
+  }
+
+  /**
+   * Remove a foto de perfil — somente ADMIN.
+   */
+  @Delete(':id/avatar')
+  @Roles('ADMIN')
+  async removeAvatar(@Param('id') id: string, @Request() req: any) {
+    await this.usersService.removeAvatar(id, req.user?.tenant_id);
+    return { ok: true };
+  }
+
+  /**
+   * Serve a foto de perfil — qualquer usuário autenticado.
+   * GET /users/:id/avatar
+   */
+  @Get(':id/avatar')
+  async getAvatar(@Param('id') id: string, @Res() res: Response) {
+    const result = await this.usersService.getAvatarBuffer(id);
+    if (!result) throw new NotFoundException('Foto de perfil não encontrada.');
+    res.set('Content-Type', result.mimeType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.end(result.buffer);
+  }
 
   /** Retorna lista de usuários online (para admin ver quem está no sistema) */
   @Get('online')

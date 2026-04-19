@@ -9,6 +9,7 @@ import {
   LayoutDashboard, Gavel, Wallet, HelpCircle,
   ChevronRight, Plus, UserPlus, CheckSquare,
   CalendarPlus, FolderPlus, ClipboardList, Sparkles,
+  Camera, Loader2, Trash2,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -19,6 +20,20 @@ import { THEMES } from '@/components/ThemeSwitcher';
 // ─── Tooltip Styles (shared) ──────────────────────────────────────
 const TOOLTIP_CLS =
   'px-3 py-2 bg-card text-foreground text-[13px] font-semibold rounded-lg whitespace-nowrap shadow-xl border border-border flex items-center pointer-events-none';
+
+/** Gera cor de fundo determinística para o avatar de iniciais */
+function stringToColor(str: string): string {
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const colors = [
+    '#6366f1', '#8b5cf6', '#ec4899', '#f43f5e',
+    '#f97316', '#eab308', '#22c55e', '#14b8a6',
+    '#0ea5e9', '#3b82f6',
+  ];
+  return colors[Math.abs(hash) % colors.length];
+}
 
 interface NavItem {
   label: string;
@@ -49,6 +64,17 @@ export function Sidebar() {
   const [overdueCount, setOverdueCount] = useState<number>(0);
   const [djenUnread, setDjenUnread] = useState<number>(0);
   const [mounted, setMounted] = useState(false);
+
+  // ─── Foto de perfil ──────────────────────────────────────────
+  const [userName, setUserName] = useState<string>('');
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [avatarVersion, setAvatarVersion] = useState<number>(Date.now());
+  const [hasAvatar, setHasAvatar] = useState<boolean>(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  const [showAvatarMenu, setShowAvatarMenu] = useState(false);
+  const avatarFileRef = useRef<HTMLInputElement>(null);
+  const avatarMenuRef = useRef<HTMLDivElement>(null);
+  const avatarBtnRef = useRef<HTMLButtonElement>(null);
 
   // Fixed-position tooltip state
   const [navTooltip, setNavTooltip] = useState<{ label: React.ReactNode; y: number } | null>(null);
@@ -145,6 +171,102 @@ export function Sidebar() {
     window.addEventListener('unread_count_update', handler);
     return () => window.removeEventListener('unread_count_update', handler);
   }, []);
+
+  // ─── Busca dados do usuário logado (nome + avatar) ────────────
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    const controller = new AbortController();
+    fetch(`${API_BASE_URL}/users/me`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: controller.signal,
+    })
+      .then(r => r.ok ? r.json() : null)
+      .then((data: any) => {
+        if (!data) return;
+        setUserName(data.name || '');
+        setUserEmail(data.email || '');
+        setHasAvatar(!!data.profile_picture_url);
+      })
+      .catch(() => {});
+    return () => controller.abort();
+  }, [avatarVersion]);
+
+  // Fecha menu de avatar ao clicar fora
+  useEffect(() => {
+    if (!showAvatarMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        avatarMenuRef.current && !avatarMenuRef.current.contains(target) &&
+        avatarBtnRef.current && !avatarBtnRef.current.contains(target)
+      ) {
+        setShowAvatarMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showAvatarMenu]);
+
+  // Upload de foto de perfil
+  const handleAvatarFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setShowAvatarMenu(false);
+
+    if (!['image/jpeg', 'image/jpg', 'image/png', 'image/gif', 'image/webp'].includes(file.type)) {
+      alert('Tipo de arquivo não suportado. Use JPEG, PNG, GIF ou WebP.');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      alert('Imagem muito grande. Máximo 2 MB.');
+      return;
+    }
+
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setUploadingAvatar(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const userId = perms.userId;
+      const res = await fetch(`${API_BASE_URL}/users/${userId}/avatar`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setHasAvatar(true);
+      setAvatarVersion(Date.now()); // quebra o cache da imagem
+    } catch (err: any) {
+      alert('Erro ao enviar foto: ' + (err.message || 'tente novamente'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  // Remove a foto de perfil
+  const handleRemoveAvatar = async () => {
+    const token = localStorage.getItem('token');
+    if (!token) return;
+    setShowAvatarMenu(false);
+    setUploadingAvatar(true);
+    try {
+      const userId = perms.userId;
+      const res = await fetch(`${API_BASE_URL}/users/${userId}/avatar`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error(await res.text());
+      setHasAvatar(false);
+      setAvatarVersion(Date.now());
+    } catch (err: any) {
+      alert('Erro ao remover foto: ' + (err.message || 'tente novamente'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
 
   // DJEN unread badge (a cada 5 min)
   useEffect(() => {
@@ -511,8 +633,82 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {/* ─── Bottom: DB + Notificações + Tema + Sair ───────────────── */}
+      {/* ─── Bottom: Avatar + DB + Notificações + Tema + Sair ─────── */}
       <div className="mt-auto flex flex-col gap-1 w-full px-3 pt-3 border-t border-border/40">
+
+        {/* ─── Avatar do usuário ─── */}
+        <div className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 ${expanded ? '' : 'justify-center'}`}>
+          {/* Input de arquivo oculto */}
+          <input
+            ref={avatarFileRef}
+            type="file"
+            accept="image/jpeg,image/jpg,image/png,image/gif,image/webp"
+            className="hidden"
+            onChange={handleAvatarFileChange}
+          />
+
+          {/* Botão do avatar */}
+          <button
+            ref={avatarBtnRef}
+            onClick={() => perms.isAdmin ? setShowAvatarMenu(v => !v) : undefined}
+            onMouseEnter={(e) => {
+              if (perms.isAdmin) {
+                showTooltip(e, 'Alterar foto de perfil');
+              } else if (userName) {
+                showTooltip(e, userName);
+              }
+            }}
+            onMouseLeave={hideTooltip}
+            className={`relative shrink-0 rounded-full overflow-hidden focus:outline-none group ${perms.isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+            style={{ width: 32, height: 32 }}
+          >
+            {uploadingAvatar ? (
+              <div className="w-full h-full flex items-center justify-center bg-muted rounded-full">
+                <Loader2 size={16} className="animate-spin text-muted-foreground" />
+              </div>
+            ) : hasAvatar ? (
+              <>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`${API_BASE_URL}/users/${perms.userId}/avatar?v=${avatarVersion}`}
+                  alt={userName}
+                  className="w-full h-full object-cover rounded-full"
+                  onError={() => setHasAvatar(false)}
+                />
+                {perms.isAdmin && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                    <Camera size={12} className="text-white" />
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div
+                  className="w-full h-full rounded-full flex items-center justify-center text-[12px] font-bold text-white select-none"
+                  style={{ background: stringToColor(userName || userEmail || 'U') }}
+                >
+                  {(userName || userEmail || 'U').charAt(0).toUpperCase()}
+                </div>
+                {perms.isAdmin && (
+                  <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
+                    <Camera size={12} className="text-white" />
+                  </div>
+                )}
+              </>
+            )}
+          </button>
+
+          {expanded && (
+            <div className="flex flex-col min-w-0">
+              <span className="text-[13px] font-semibold text-foreground truncate leading-tight">
+                {userName || 'Usuário'}
+              </span>
+              <span className="text-[11px] text-muted-foreground truncate leading-tight">
+                {userEmail}
+              </span>
+            </div>
+          )}
+        </div>
 
         {/* DB status */}
         <div
@@ -619,6 +815,44 @@ export function Sidebar() {
               {theme === t.id && <Check size={14} className="text-primary" />}
             </button>
           ))}
+        </div>,
+        document.body
+      )}
+
+      {/* ─── Menu de avatar (portal) ─────────────────────────────────── */}
+      {mounted && showAvatarMenu && perms.isAdmin && avatarBtnRef.current && createPortal(
+        <div
+          ref={avatarMenuRef}
+          style={{
+            position: 'fixed',
+            bottom: (() => {
+              const rect = avatarBtnRef.current?.getBoundingClientRect();
+              return rect ? window.innerHeight - rect.top + 8 : 80;
+            })(),
+            left: 12,
+            zIndex: 9999,
+          }}
+          className="bg-card border border-border rounded-xl p-2 flex flex-col gap-0.5 min-w-[180px] shadow-2xl"
+        >
+          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2 pb-1 pt-0.5">
+            Foto de perfil
+          </p>
+          <button
+            onClick={() => { setShowAvatarMenu(false); avatarFileRef.current?.click(); }}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
+          >
+            <Camera size={14} className="text-muted-foreground shrink-0" />
+            {hasAvatar ? 'Alterar foto' : 'Adicionar foto'}
+          </button>
+          {hasAvatar && (
+            <button
+              onClick={handleRemoveAvatar}
+              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"
+            >
+              <Trash2 size={14} className="shrink-0" />
+              Remover foto
+            </button>
+          )}
         </div>,
         document.body
       )}

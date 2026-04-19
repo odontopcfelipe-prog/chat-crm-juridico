@@ -50,6 +50,7 @@ model User {
   specialties              String[]               @default([])
   oab_number               String?                // Número OAB (ex: "14209")
   oab_uf                   String?                // UF da OAB (ex: "AL")
+  profile_picture_url      String?                // Path relativo no filesystem (profiles/{id}.ext)
   created_at               DateTime               @default(now())
   updated_at               DateTime               @updatedAt
   audit_logs               AuditLog[]
