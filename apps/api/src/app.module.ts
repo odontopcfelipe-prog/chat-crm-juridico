@@ -50,6 +50,7 @@ import { MemoriesModule } from './memories/memories.module';
 import { PatientsModule } from './patients/patients.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { ProceduresModule } from './procedures/procedures.module';
+import { AnamnesisModule } from './anamnesis/anamnesis.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -125,6 +126,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     PatientsModule,
     SpecialtiesModule,
     ProceduresModule,
+    AnamnesisModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
