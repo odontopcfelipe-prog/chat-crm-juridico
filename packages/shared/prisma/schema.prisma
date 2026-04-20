@@ -37,6 +37,9 @@ model Tenant {
   djen_ignored_processes    DjenIgnoredProcess[]
   lead_honorarios           LeadHonorario[]
   notifications             Notification[]
+  memories                  Memory[]
+  lead_profiles             LeadProfile[]
+  organization_profile      OrganizationProfile?
 }
 
 model User {
@@ -115,6 +118,7 @@ model Lead {
   google_drive_folder_id String?
 
   memory               AiMemory?
+  profile              LeadProfile?
   conversations        Conversation[]
   tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   tasks                Task[]
@@ -148,6 +152,7 @@ model Conversation {
   status                     String              @default("ABERTO")
   ai_mode                    Boolean             @default(true)
   ai_mode_disabled_at        DateTime?           // Timestamp de quando ai_mode foi desligado (para auto-reativação)
+  ai_mode_source             String?             // "MANUAL" | "CRON_AFTER_HOURS" | null — origem da última mudança em ai_mode
   assigned_user_id           String?
   inbox_id                   String?
   instance_name              String? // Nome da instancia de origem (ex: wa1)
@@ -228,13 +233,13 @@ model MessageReaction {
 model Media {
   id            String   @id @default(uuid())
   message_id    String   @unique
-  s3_key        String?
-  file_path     String?
+  s3_key        String?  /// DEPRECATED: path no MinIO (mídias antigas). Novo: usar file_path.
+  file_path     String?  /// Path relativo a MEDIA_STORAGE_PATH (ex: "2026/04/uuid.ogg")
   mime_type     String
   size          Int?
   duration      Int?
   checksum      String?
-  original_url  String?
+  original_url  String?  /// URL temporária Evolution CDN (fallback, expira ~48h)
   original_name String?
   created_at    DateTime @default(now())
   message       Message  @relation(fields: [message_id], references: [id], onDelete: Cascade)
@@ -622,6 +627,9 @@ model DjenPublication {
   auto_task_id          String?
   parte_autora          String?
   parte_rea             String?
+  lawyer_analysis       Json?
+  client_analysis       Json?
+  analyzed_at           DateTime?
   client_notified_at    DateTime?
   created_at            DateTime   @default(now())
 
@@ -818,6 +826,8 @@ model CalendarEvent {
   task      Task?
   deadline  CaseDeadline?
   tenant    Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  created_by_ai Boolean @default(false) // true quando o evento foi criado por tool da IA (book_appointment)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1535,4 +1545,123 @@ model PushSubscription {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+}
+
+// ===============================================
+// Memory System — Lead + Organization memories
+// ===============================================
+
+/// Memória persistente sobre leads e sobre o escritório. Cada Memory é uma
+/// unidade atômica de conhecimento (1 frase / fato). A coluna `embedding`
+/// (pgvector) é adicionada via migration SQL — Prisma não suporta vector
+/// nativamente. Use $queryRaw/$executeRaw para operações envolvendo embedding.
+model Memory {
+  id            String    @id @default(uuid())
+  tenant_id     String
+
+  /// "lead" | "organization"
+  scope         String
+  /// ID do lead (scope=lead) ou ID do tenant (scope=organization)
+  scope_id      String
+
+  /// "semantic" | "episodic" | "procedural"
+  type          String    @default("semantic")
+  /// Subcategoria (scope=organization): office_info | team | fees | procedures | court_info | legal_knowledge | contacts | rules
+  subcategory   String?
+
+  content       String    @db.Text
+
+  /// Embedding OpenAI text-embedding-3-small (1536 dim). Tipo pgvector —
+  /// Prisma nao suporta nativamente, entao usamos Unsupported. Isso impede
+  /// que `prisma db push` REMOVA a coluna por nao reconhece-la no schema.
+  /// Leitura/escrita sempre via $queryRawUnsafe/$executeRawUnsafe.
+  /// IMPORTANTE: a extensao pgvector deve estar habilitada no Postgres antes
+  /// do primeiro `db push` em ambientes novos — ver manual-sql/2026-04-18-memory-system.sql.
+  embedding     Unsupported("vector(1536)")?
+
+  // Proveniência
+  /// "batch" | "manual" | "system" | "retroactive"
+  source_type   String
+  /// ID da conversa que originou (quando source_type=batch)
+  source_id     String?
+  confidence    Float     @default(1.0)
+
+  // Ciclo de vida
+  /// "active" | "superseded" | "archived"
+  status        String    @default("active")
+  /// Razão da substituição ou ID da memória substituta
+  superseded_by String?
+  access_count  Int       @default(0)
+  last_accessed DateTime?
+  expires_at    DateTime?
+
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
+
+  tenant        Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, scope, scope_id])
+  @@index([status])
+  @@index([tenant_id, subcategory])
+}
+
+/// Perfil consolidado do lead — summary em texto corrido + facts JSON.
+/// Regenerado pelo cron noturno após extração de memórias. É o "cartão" que
+/// a IA lê antes de responder para já conhecer o cliente sem repetir perguntas.
+model LeadProfile {
+  id            String    @id @default(uuid())
+  tenant_id     String
+  lead_id       String    @unique
+  lead          Lead      @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  tenant        Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  /// Texto corrido (~300 palavras) — injetado no system prompt
+  summary       String    @db.Text
+  /// JSON estruturado: name, cpf, cases[], preferences, pending, sentiment, risk_flags…
+  facts         Json      @default("{}")
+
+  generated_at  DateTime  @default(now())
+  message_count Int       @default(0)
+  version       Int       @default(1)
+
+  @@index([tenant_id])
+}
+
+/// Perfil consolidado do ESCRITORIO — resumo em prosa (4 secoes) que substitui
+/// a injecao crua das memorias organizacionais no prompt. Mesmo padrao do
+/// LeadProfile mas para tenant. 1 registro por tenant.
+///
+/// Regenerado:
+///   - Diariamente as 02h (OrgProfileConsolidationProcessor)
+///   - Sob demanda apos create/update/delete de memoria organizacional (debounce)
+///   - Via botao manual na tela /atendimento/settings/knowledge
+///
+/// Na injecao, substitui `{{office_memories}}` no prompt — reduz ruido,
+/// resolve conflitos e descarta memorias de baixa confianca.
+model OrganizationProfile {
+  id            String   @id @default(uuid())
+  tenant_id     String   @unique
+  tenant        Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  /// Texto estruturado em 4 secoes (About, Team, Procedures, Rules) — ~500 palavras
+  summary       String   @db.Text
+  /// JSON estruturado: office_info, team[], fees, procedures[], rules[], etc.
+  facts         Json     @default("{}")
+
+  /// Quantas memorias ativas foram usadas como fonte na ultima geracao
+  source_memory_count Int @default(0)
+
+  /// Timestamp da ultima edicao manual do admin. Quando nao-null, o cron
+  /// automatico das 02h PULA este tenant (nao sobrescreve a edicao). Limpo
+  /// quando o admin clica "Regenerar" explicitamente via UI/API.
+  manually_edited_at  DateTime?
+
+  /// Marca ate quando as memorias ja foram incorporadas ao summary
+  /// (modo incremental). Na proxima regen incremental, so processa memorias
+  /// criadas/deletadas APOS este timestamp — economiza LLM tokens e preserva
+  /// o texto existente. Resetado pelo botao "Refazer do zero" (from-scratch).
+  last_incorporated_at DateTime?
+
+  generated_at  DateTime @default(now())
+  version       Int      @default(1)
 }

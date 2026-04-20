@@ -1,8 +1,15 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
-import * as fs from 'fs';
-import * as path from 'path';
+import { promises as fs, createReadStream, existsSync } from 'fs';
 import { Readable } from 'stream';
+import * as path from 'path';
 
+/**
+ * Armazenamento de mídia no filesystem local da VPS.
+ * Substitui MediaS3Service (MinIO) para novas mídias.
+ *
+ * Organização: {MEDIA_STORAGE_PATH}/{YYYY}/{MM}/{messageId}.{ext}
+ * Permissões: diretórios 0700, arquivos 0600 (só o owner lê).
+ */
 @Injectable()
 export class FileStorageService implements OnModuleInit {
   private readonly logger = new Logger(FileStorageService.name);
@@ -14,95 +21,89 @@ export class FileStorageService implements OnModuleInit {
 
   async onModuleInit() {
     try {
-      await fs.promises.mkdir(this.basePath, { recursive: true, mode: 0o700 });
-      this.logger.log(`Storage de mídia iniciado em: ${this.basePath}`);
+      await fs.mkdir(this.basePath, { recursive: true, mode: 0o700 });
+      this.logger.log(`[FS] Media storage inicializado em ${this.basePath}`);
     } catch (e: any) {
-      this.logger.error(`Falha ao inicializar diretório de mídia: ${e.message}`);
+      this.logger.error(`[FS] Falha ao criar ${this.basePath}: ${e.message}`);
     }
   }
 
-  /**
-   * Resolve o path absoluto de forma segura (previne path traversal).
-   */
-  private resolvePath(relativePath: string): string {
-    const resolved = path.resolve(this.basePath, relativePath);
-    if (!resolved.startsWith(this.basePath)) {
-      throw new Error(`Path inválido: ${relativePath}`);
-    }
-    return resolved;
-  }
-
-  /**
-   * Gera o path relativo para um arquivo: YYYY/MM/{messageId}.{ext}
-   */
-  buildRelativePath(messageId: string, ext: string): string {
+  /** Converte messageId + extensão em path relativo particionado por YYYY/MM */
+  generatePath(messageId: string, ext: string): string {
     const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    return path.join(String(year), month, `${messageId}.${ext}`);
+    const year = now.getUTCFullYear().toString();
+    const month = (now.getUTCMonth() + 1).toString().padStart(2, '0');
+    const cleanExt = ext.replace(/^\./, '').toLowerCase() || 'bin';
+    return `${year}/${month}/${messageId}.${cleanExt}`;
   }
 
-  /**
-   * Salva buffer no filesystem. Retorna o path relativo salvo.
-   */
-  async write(relativePath: string, buffer: Buffer): Promise<string> {
-    const fullPath = this.resolvePath(relativePath);
-    await fs.promises.mkdir(path.dirname(fullPath), { recursive: true, mode: 0o700 });
-    await fs.promises.writeFile(fullPath, buffer, { mode: 0o600 });
-    this.logger.log(`[FS] Arquivo salvo: ${relativePath} (${buffer.length} bytes)`);
-    return relativePath;
+  /** Retorna o path absoluto (para Google Drive, etc) */
+  getFullPath(relativePath: string): string {
+    // Sanitiza para não permitir path traversal (../../)
+    const normalized = path.normalize(relativePath).replace(/^(\.\.[\/\\])+/, '');
+    return path.join(this.basePath, normalized);
   }
 
-  /**
-   * Verifica se o arquivo existe.
-   */
+  /** Escreve buffer no filesystem. Cria dirs se necessário. */
+  async write(relativePath: string, buffer: Buffer): Promise<void> {
+    const fullPath = this.getFullPath(relativePath);
+    const dir = path.dirname(fullPath);
+    await fs.mkdir(dir, { recursive: true, mode: 0o700 });
+    await fs.writeFile(fullPath, buffer, { mode: 0o600 });
+  }
+
+  /** Lê o arquivo inteiro como Buffer */
+  async read(relativePath: string): Promise<Buffer> {
+    return fs.readFile(this.getFullPath(relativePath));
+  }
+
+  /** Stream para servir áudio/vídeo com suporte a range requests */
+  readStream(relativePath: string, range?: { start: number; end?: number }): Readable {
+    const fullPath = this.getFullPath(relativePath);
+    if (range) {
+      return createReadStream(fullPath, { start: range.start, end: range.end });
+    }
+    return createReadStream(fullPath);
+  }
+
+  /** Verifica se o arquivo existe no disco */
   async exists(relativePath: string): Promise<boolean> {
     try {
-      const fullPath = this.resolvePath(relativePath);
-      await fs.promises.access(fullPath, fs.constants.R_OK);
+      await fs.access(this.getFullPath(relativePath));
       return true;
     } catch {
       return false;
     }
   }
 
-  /**
-   * Retorna stream de leitura + metadados para servir o arquivo.
-   */
-  async getStream(relativePath: string, rangeStart?: number, rangeEnd?: number): Promise<{
-    stream: Readable;
-    size: number;
-  }> {
-    const fullPath = this.resolvePath(relativePath);
-    const stat = await fs.promises.stat(fullPath);
-    const options: { start?: number; end?: number } = {};
-    if (rangeStart !== undefined) options.start = rangeStart;
-    if (rangeEnd !== undefined) options.end = rangeEnd;
-    const stream = fs.createReadStream(fullPath, options);
-    return { stream, size: stat.size };
-  }
-
-  /**
-   * Retorna o conteúdo completo como Buffer.
-   */
-  async getBuffer(relativePath: string): Promise<Buffer | null> {
+  /** Retorna o tamanho do arquivo em bytes (ou null se não existe) */
+  async getSize(relativePath: string): Promise<number | null> {
     try {
-      const fullPath = this.resolvePath(relativePath);
-      return await fs.promises.readFile(fullPath);
+      const stat = await fs.stat(this.getFullPath(relativePath));
+      return stat.size;
     } catch {
       return null;
     }
   }
 
-  /**
-   * Remove o arquivo do disco.
-   */
+  /** Deleta o arquivo (idempotente — não falha se não existe) */
   async delete(relativePath: string): Promise<void> {
     try {
-      const fullPath = this.resolvePath(relativePath);
-      await fs.promises.unlink(fullPath);
+      await fs.unlink(this.getFullPath(relativePath));
+    } catch (e: any) {
+      if (e.code !== 'ENOENT') throw e;
+    }
+  }
+
+  /** Health check — garante que o diretório base está escrevível */
+  async healthCheck(): Promise<{ ok: boolean; basePath: string; writable: boolean }> {
+    try {
+      const testFile = path.join(this.basePath, `.healthcheck-${Date.now()}`);
+      await fs.writeFile(testFile, '');
+      await fs.unlink(testFile);
+      return { ok: true, basePath: this.basePath, writable: true };
     } catch {
-      // Ignora se já não existir
+      return { ok: false, basePath: this.basePath, writable: false };
     }
   }
 }

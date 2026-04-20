@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import api from '@/lib/api';
 import type { PeriodFilter, TeamPerformanceResponse } from '../types';
+import type { Scope } from '../sectionVisibility';
 
-export function useTeamPerformance(period?: PeriodFilter, enabled = true) {
+export function useTeamPerformance(period?: PeriodFilter, enabled = true, scope?: Scope) {
   const [data, setData] = useState<TeamPerformanceResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -19,6 +20,7 @@ export function useTeamPerformance(period?: PeriodFilter, enabled = true) {
         params.startDate = period.startDate;
         params.endDate = period.endDate;
       }
+      if (scope) params.scope = scope;
       const r = await api.get('/dashboard/team-performance', { params });
       setData(r.data);
     } catch {
@@ -26,7 +28,7 @@ export function useTeamPerformance(period?: PeriodFilter, enabled = true) {
     } finally {
       setLoading(false);
     }
-  }, [period?.startDate, period?.endDate, enabled]);
+  }, [period?.startDate, period?.endDate, enabled, scope]);
 
   useEffect(() => { fetch(); }, [fetch]);
 

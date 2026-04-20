@@ -8,7 +8,7 @@ import {
   ChevronRight, Loader2, Plus, Link2, CheckCircle2, Eye,
   Gavel, AlertTriangle, Calendar, Sparkles, X, Clock,
   ArrowRight, CheckSquare, AlertCircle, ChevronDown,
-  Search, User, UserCheck, Scale, Ban,
+  Search, User, UserCheck, Scale, Ban, Users, Trash2, Save,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
@@ -1130,21 +1130,20 @@ function AiPanel({
   const [movingStage, setMovingStage] = useState(false);
   const [stageMoved, setStageMoved] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
+  const runAnalysis = (force = false) => {
     setLoading(true);
     setError(null);
     setAnalysis(null);
     setTaskCreated(false);
     setStageMoved(false);
 
-    api.post(`/djen/${pub.id}/analyze`)
-      .then(res => { if (!cancelled) setAnalysis(res.data); })
-      .catch(() => { if (!cancelled) setError('Erro ao analisar. Verifique se a OPENAI_API_KEY está configurada.'); })
-      .finally(() => { if (!cancelled) setLoading(false); });
+    api.post(`/djen/${pub.id}/analyze`, { force })
+      .then(res => setAnalysis(res.data))
+      .catch(() => setError('Erro ao analisar. Verifique se a OPENAI_API_KEY está configurada.'))
+      .finally(() => setLoading(false));
+  };
 
-    return () => { cancelled = true; };
-  }, [pub.id]);
+  useEffect(() => { runAnalysis(); }, [pub.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleCreateTask = async () => {
     if (!analysis) return;
@@ -1198,9 +1197,20 @@ function AiPanel({
             </p>
           </div>
         </div>
-        <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
-          <X size={14} />
-        </button>
+        <div className="flex items-center gap-1">
+          {analysis && !loading && (
+            <button
+              onClick={() => runAnalysis(true)}
+              title="Reanalisar com IA (gasta tokens)"
+              className="p-1.5 rounded-lg text-muted-foreground hover:text-violet-400 hover:bg-violet-500/10 transition-colors"
+            >
+              <RefreshCw size={13} />
+            </button>
+          )}
+          <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-colors">
+            <X size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Content: scrollable grid */}
@@ -1370,6 +1380,11 @@ function DjenPageContent() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [syncing, setSyncing] = useState(false);
+  const [syncOpen, setSyncOpen] = useState(false);
+  const [syncDateFrom, setSyncDateFrom] = useState(() => { const d = new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; });
+  const [syncDateTo, setSyncDateTo] = useState(() => { const d = new Date(); return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`; });
+  const [syncResult, setSyncResult] = useState<string | null>(null);
+  const syncRef = useRef<HTMLDivElement>(null);
   const [markingAll, setMarkingAll] = useState(false);
   const [days, setDays] = useState(30);
   const [selectedPub, setSelectedPub] = useState<DjenPublication | null>(null);
@@ -1377,6 +1392,13 @@ function DjenPageContent() {
   // Modal de criação de processo
   const [createModalPub, setCreateModalPub] = useState<DjenPublication | null>(null);
   const [createModalAnalysis, setCreateModalAnalysis] = useState<AiAnalysis | null>(null);
+
+  // Modal de advogados monitorados
+  const [lawyersOpen, setLawyersOpen] = useState(false);
+  const [lawyers, setLawyers] = useState<Array<{ oab: string; uf: string; nome: string }>>([]);
+  const [savingLawyers, setSavingLawyers] = useState(false);
+  const [lawyersMsg, setLawyersMsg] = useState<string | null>(null);
+  const [newLawyer, setNewLawyer] = useState({ nome: '', oab: '', uf: 'AL' });
 
   const fetchPubs = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -1403,12 +1425,86 @@ function DjenPageContent() {
     fetchPubs();
   }, [router, fetchPubs]);
 
+  const parseDateBR = (str: string): Date | null => {
+    const m = str.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!m) return null;
+    return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]), 12, 0, 0);
+  };
+
   const handleSync = async () => {
     setSyncing(true);
+    setSyncResult(null);
     try {
-      await api.post('/djen/sync');
+      const from = parseDateBR(syncDateFrom);
+      const to = parseDateBR(syncDateTo);
+      if (!from || !to) { setSyncResult('Formato inválido. Use dd/mm/aaaa'); setSyncing(false); return; }
+      if (from > to) { setSyncResult('Data inicial maior que final'); setSyncing(false); return; }
+      const dates: string[] = [];
+      const d = new Date(from);
+      while (d <= to) {
+        dates.push(d.toISOString().slice(0, 10));
+        d.setDate(d.getDate() + 1);
+      }
+      if (dates.length > 30) { setSyncResult('Máximo 30 dias por vez'); setSyncing(false); return; }
+
+      let totalSaved = 0;
+      let totalErrors = 0;
+      for (const date of dates) {
+        try {
+          const res = await api.post('/djen/sync', { date });
+          totalSaved += res.data?.saved || 0;
+          totalErrors += res.data?.errors || 0;
+        } catch {
+          totalErrors++;
+        }
+      }
       await fetchPubs(true);
-    } catch {} finally { setSyncing(false); }
+      setSyncResult(`${totalSaved} publicações salvas${totalErrors > 0 ? `, ${totalErrors} erros` : ''} (${dates.length} dia${dates.length > 1 ? 's' : ''})`);
+    } catch {
+      setSyncResult('Erro na sincronização');
+    } finally { setSyncing(false); }
+  };
+
+  // Fechar popover ao clicar fora
+  useEffect(() => {
+    if (!syncOpen) return;
+    const handler = (e: MouseEvent) => {
+      if (syncRef.current && !syncRef.current.contains(e.target as Node)) setSyncOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [syncOpen]);
+
+  // ─── Advogados monitorados ─────────────────────────
+  const loadLawyers = async () => {
+    try {
+      const res = await api.get('/settings/djen-lawyers');
+      setLawyers(Array.isArray(res.data) ? res.data : []);
+    } catch { setLawyers([]); }
+  };
+
+  const saveLawyers = async () => {
+    setSavingLawyers(true);
+    setLawyersMsg(null);
+    try {
+      await api.patch('/settings/djen-lawyers', { lawyers });
+      setLawyersMsg('Salvo com sucesso');
+    } catch {
+      setLawyersMsg('Erro ao salvar');
+    } finally { setSavingLawyers(false); }
+  };
+
+  const addLawyer = () => {
+    if (!newLawyer.nome.trim() || !newLawyer.oab.trim()) return;
+    if (lawyers.some(l => l.oab === newLawyer.oab.trim() && l.uf === newLawyer.uf)) return;
+    setLawyers([...lawyers, { nome: newLawyer.nome.trim(), oab: newLawyer.oab.trim(), uf: newLawyer.uf }]);
+    setNewLawyer({ nome: '', oab: '', uf: 'AL' });
+    setLawyersMsg(null);
+  };
+
+  const removeLawyer = (idx: number) => {
+    setLawyers(lawyers.filter((_, i) => i !== idx));
+    setLawyersMsg(null);
   };
 
   const handleMarkAllViewed = async () => {
@@ -1527,13 +1623,77 @@ function DjenPageContent() {
           )}
 
           <button
-            onClick={handleSync}
-            disabled={syncing}
-            className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-3 py-1.5 border border-sky-500/30 rounded-lg hover:bg-sky-500/5 transition-colors disabled:opacity-50"
+            onClick={() => { setLawyersOpen(true); loadLawyers(); setLawyersMsg(null); }}
+            className="flex items-center gap-1.5 text-[11px] font-semibold text-violet-400 hover:text-violet-300 px-3 py-1.5 border border-violet-500/30 rounded-lg hover:bg-violet-500/5 transition-colors"
           >
-            <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
-            Sincronizar
+            <Users size={12} />
+            Advogados
           </button>
+
+          <div className="relative" ref={syncRef}>
+            <button
+              onClick={() => { setSyncOpen(!syncOpen); setSyncResult(null); }}
+              disabled={syncing}
+              className="flex items-center gap-1.5 text-[11px] font-semibold text-sky-400 hover:text-sky-300 px-3 py-1.5 border border-sky-500/30 rounded-lg hover:bg-sky-500/5 transition-colors disabled:opacity-50"
+            >
+              <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} />
+              Sincronizar
+            </button>
+            {syncOpen && (
+              <div className="absolute right-0 top-full mt-1 z-50 bg-card border border-border rounded-xl shadow-xl p-4 w-[280px]">
+                <p className="text-[11px] font-semibold text-foreground mb-3">Buscar publicações por período</p>
+                <div className="flex flex-col gap-2 mb-3">
+                  <label className="text-[10px] text-muted-foreground font-medium">
+                    De
+                    <input
+                      type="text"
+                      placeholder="dd/mm/aaaa"
+                      maxLength={10}
+                      value={syncDateFrom}
+                      onChange={e => {
+                        let v = e.target.value.replace(/[^\d/]/g, '');
+                        const raw = v.replace(/\//g, '');
+                        if (raw.length >= 3 && !v.includes('/')) v = raw.slice(0,2) + '/' + raw.slice(2);
+                        if (raw.length >= 5 && v.split('/').length < 3) v = v.slice(0,5) + '/' + raw.slice(4);
+                        setSyncDateFrom(v.slice(0, 10));
+                      }}
+                      className="mt-0.5 w-full bg-background border border-border rounded-lg px-2 py-1.5 text-[11px] text-foreground"
+                    />
+                  </label>
+                  <label className="text-[10px] text-muted-foreground font-medium">
+                    Até
+                    <input
+                      type="text"
+                      placeholder="dd/mm/aaaa"
+                      maxLength={10}
+                      value={syncDateTo}
+                      onChange={e => {
+                        let v = e.target.value.replace(/[^\d/]/g, '');
+                        const raw = v.replace(/\//g, '');
+                        if (raw.length >= 3 && !v.includes('/')) v = raw.slice(0,2) + '/' + raw.slice(2);
+                        if (raw.length >= 5 && v.split('/').length < 3) v = v.slice(0,5) + '/' + raw.slice(4);
+                        setSyncDateTo(v.slice(0, 10));
+                      }}
+                      className="mt-0.5 w-full bg-background border border-border rounded-lg px-2 py-1.5 text-[11px] text-foreground"
+                    />
+                  </label>
+                </div>
+                <button
+                  onClick={handleSync}
+                  disabled={syncing}
+                  className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-white bg-sky-600 hover:bg-sky-500 px-3 py-2 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  {syncing ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
+                  {syncing ? 'Sincronizando...' : 'Buscar'}
+                </button>
+                {syncResult && (
+                  <p className={`mt-2 text-[10px] font-medium ${syncResult.includes('Erro') || syncResult.includes('Máximo') || syncResult.includes('maior') ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {syncResult}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -1627,6 +1787,92 @@ function DjenPageContent() {
             fetchPubs(true);
           }}
         />
+      )}
+
+      {/* Modal Advogados Monitorados */}
+      {lawyersOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setLawyersOpen(false)}>
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-border flex items-center justify-between">
+              <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+                <Scale size={16} className="text-violet-400" />
+                Advogados Monitorados
+              </h2>
+              <button onClick={() => setLawyersOpen(false)} className="text-muted-foreground hover:text-foreground"><X size={16} /></button>
+            </div>
+
+            <div className="px-5 py-4 max-h-[60vh] overflow-y-auto space-y-3">
+              {lawyers.length === 0 && (
+                <p className="text-[11px] text-muted-foreground text-center py-4">Nenhum advogado cadastrado</p>
+              )}
+              {lawyers.map((l, i) => (
+                <div key={i} className="flex items-center justify-between gap-2 bg-background/50 border border-border rounded-lg px-3 py-2.5">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[12px] font-semibold text-foreground truncate">{l.nome}</p>
+                    <p className="text-[10px] text-muted-foreground">OAB {l.oab}/{l.uf}</p>
+                  </div>
+                  <button onClick={() => removeLawyer(i)} className="text-red-400 hover:text-red-300 shrink-0 p-1 rounded hover:bg-red-500/10 transition-colors">
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+
+              <div className="border-t border-border pt-3 mt-3">
+                <p className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-2">Adicionar advogado</p>
+                <div className="space-y-2">
+                  <input
+                    type="text"
+                    placeholder="Nome completo"
+                    value={newLawyer.nome}
+                    onChange={e => setNewLawyer({ ...newLawyer, nome: e.target.value })}
+                    className="w-full bg-background border border-border rounded-lg px-3 py-2 text-[11px] text-foreground placeholder:text-muted-foreground/50"
+                  />
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nº OAB"
+                      value={newLawyer.oab}
+                      onChange={e => setNewLawyer({ ...newLawyer, oab: e.target.value.replace(/\D/g, '') })}
+                      className="flex-1 bg-background border border-border rounded-lg px-3 py-2 text-[11px] text-foreground placeholder:text-muted-foreground/50"
+                    />
+                    <select
+                      value={newLawyer.uf}
+                      onChange={e => setNewLawyer({ ...newLawyer, uf: e.target.value })}
+                      className="w-20 bg-background border border-border rounded-lg px-2 py-2 text-[11px] text-foreground"
+                    >
+                      {['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG','PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO'].map(uf => (
+                        <option key={uf} value={uf}>{uf}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <button
+                    onClick={addLawyer}
+                    disabled={!newLawyer.nome.trim() || !newLawyer.oab.trim()}
+                    className="w-full flex items-center justify-center gap-1.5 text-[11px] font-semibold text-violet-400 hover:text-violet-300 px-3 py-2 border border-violet-500/30 rounded-lg hover:bg-violet-500/5 transition-colors disabled:opacity-30"
+                  >
+                    <Plus size={12} />
+                    Adicionar
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="px-5 py-3 border-t border-border flex items-center justify-between">
+              {lawyersMsg && (
+                <p className={`text-[10px] font-medium ${lawyersMsg.includes('Erro') ? 'text-red-400' : 'text-emerald-400'}`}>{lawyersMsg}</p>
+              )}
+              {!lawyersMsg && <span />}
+              <button
+                onClick={saveLawyers}
+                disabled={savingLawyers}
+                className="flex items-center gap-1.5 text-[11px] font-semibold text-white bg-violet-600 hover:bg-violet-500 px-4 py-2 rounded-lg transition-colors disabled:opacity-50"
+              >
+                {savingLawyers ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

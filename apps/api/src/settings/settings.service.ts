@@ -132,10 +132,30 @@ export class SettingsService {
     const dbWebhookUrl = await this.get('WEBHOOK_URL');
 
     return {
-      apiUrl: dbApiUrl || process.env.EVOLUTION_API_URL,
+      apiUrl: this.normalizeHttpUrl(dbApiUrl || process.env.EVOLUTION_API_URL, 'EVOLUTION_API_URL'),
       apiKey: dbApiKey || process.env.EVOLUTION_GLOBAL_APIKEY,
-      webhookUrl: dbWebhookUrl || (process.env.PUBLIC_API_URL ? `${process.env.PUBLIC_API_URL}/webhooks/evolution` : undefined),
+      webhookUrl: dbWebhookUrl || `${process.env.PUBLIC_API_URL || 'https://andrelustosaadvogados.com.br/api'}/webhooks/evolution`,
     };
+  }
+
+  /**
+   * Normaliza URLs vindas do banco: se o usuário salvou sem protocolo
+   * (ex: "api.example.com" em vez de "https://api.example.com"), adiciona
+   * https:// automaticamente. Evita erro "Invalid URL" silencioso em
+   * axios/fetch que quebra downloads de mídia e outras integrações.
+   */
+  private normalizeHttpUrl(url: string | undefined | null, keyName: string): string | undefined {
+    if (!url) return undefined;
+    const trimmed = url.trim();
+    if (!trimmed) return undefined;
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      return trimmed.replace(/\/+$/, ''); // remove trailing slash
+    }
+    // Sem protocolo: adiciona https:// + loga warn pra ajudar diagnóstico
+    this.logger.warn(
+      `[Settings] ${keyName} salvo sem protocolo ("${trimmed}") — normalizado para "https://${trimmed}". Corrija o valor no banco para evitar este warn.`,
+    );
+    return `https://${trimmed}`.replace(/\/+$/, '');
   }
 
   async setWhatsAppConfig(apiUrl: string, apiKey?: string, webhookUrl?: string) {
@@ -1077,29 +1097,13 @@ IMPORTANTE: NÃO altere status, area ou next_step — o cliente já está FINALI
         },
       ];
 
-      // Upsert por name: sincroniza TODOS os campos do código com o DB.
-      // Garante que atualizações nos prompts, modelo, tokens, etc. sejam aplicadas automaticamente.
+      // Create-if-missing: só cria skills que não existem no banco.
+      // Skills existentes NUNCA são sobrescritas — respeita edições feitas
+      // pelo admin via tela de settings. Para propagar novo default, o admin
+      // pode editar via UI ou deletar a skill no banco para ser recriada.
       for (const s of defaultSkills) {
         const existing = await (this.prisma as any).promptSkill.findFirst({ where: { name: s.name } });
-        if (existing) {
-          await (this.prisma as any).promptSkill.update({
-            where: { id: existing.id },
-            data: {
-              system_prompt: s.system_prompt,
-              model: s.model,
-              max_tokens: s.max_tokens,
-              temperature: s.temperature,
-              area: s.area,
-              order: s.order,
-              description: s.description,
-              trigger_keywords: s.trigger_keywords,
-              skill_type: s.skill_type,
-              provider: s.provider,
-              handoff_signal: s.handoff_signal,
-              active: s.active,
-            },
-          });
-        } else {
+        if (!existing) {
           await (this.prisma as any).promptSkill.create({ data: s });
         }
       }
@@ -2009,6 +2013,8 @@ Salvar em form_data. Não perguntar tudo de uma vez.`,
         },
       ];
 
+      // Create-if-missing: mesma política das skills — não sobrescreve
+      // references existentes, respeita edições via admin.
       for (const { skillName, refs } of defaultReferences) {
         const skill = await (this.prisma as any).promptSkill.findFirst({ where: { name: skillName } });
         if (!skill) continue;
@@ -2028,11 +2034,6 @@ Salvar em form_data. Não perguntar tudo de uma vez.`,
                 mime_type: 'text/markdown',
                 size: ref.content_text.length,
               },
-            });
-          } else {
-            await (this.prisma as any).skillAsset.update({
-              where: { id: existing.id },
-              data: { content_text: ref.content_text, inject_mode: 'full_text' },
             });
           }
         }

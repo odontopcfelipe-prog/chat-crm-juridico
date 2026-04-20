@@ -184,6 +184,12 @@ async function bootstrap() {
     if (socketUser?.tenant_id) {
       socket.join(`tenant:${socketUser.tenant_id}`);
     }
+    // Auto-join rooms de notificacao (inbox:{id} e operators:{tenantId}).
+    // Broadcasts de pool (conversa/lead sem operador) so chegam aos operadores
+    // do setor correto; ADVOGADO puro nao entra no pool de leads.
+    if (socketUser?.sub) {
+      chatGateway.autoJoinRooms(socketUser.sub, socketUser.tenant_id, socket).catch(() => {});
+    }
 
     socket.on('disconnect', (reason) => {
       socketRateLimits.delete(socket.id);

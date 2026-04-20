@@ -96,7 +96,7 @@ export class EvolutionService implements OnApplicationBootstrap {
     this.logger.debug(`Payload: ${summarizePayload(payload)}`);
     const dataPayload = payload?.data as any;
     const inbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName) : null;
-
+    
     if (!inbox) {
       this.logger.warn(`[WEBHOOK] No inbox found for instanceName: ${instanceName}. Message might be lost or assigned to no tenant.`);
     }
@@ -207,12 +207,15 @@ export class EvolutionService implements OnApplicationBootstrap {
       // 1. Upsert Lead (via LeadsService para garantir normalização)
       // stage não é passado: o upsert nunca sobrescreve stage em updates existentes,
       // e em creates o campo usa o default 'NOVO' definido no schema Prisma.
-      const lead = await this.leadsService.upsert({
-        phone,
-        name: pushName,
-        origin: 'whatsapp',
-        ...(effectiveTenantId ? { tenant: { connect: { id: effectiveTenantId } } } : {}),
-      } as any);
+      const lead = await this.leadsService.upsert(
+        {
+          phone,
+          name: pushName,
+          origin: 'whatsapp',
+          ...(effectiveTenantId ? { tenant: { connect: { id: effectiveTenantId } } } : {}),
+        } as any,
+        inboxId, // isola notificacao de lead novo ao inbox do setor
+      );
 
       // 1b. Lead PERDIDO/FINALIZADO voltou a falar → reativar para QUALIFICANDO
       // Sem isso, a conversa existe mas fica invisível no inbox (filtro de stage).
@@ -444,63 +447,34 @@ export class EvolutionService implements OnApplicationBootstrap {
         data: { last_message_at: new Date() },
       });
 
-      // ─── 4. Mídia: download síncrono (estilo Chatwoot) ───────────────────
-      // Para mensagens com mídia, tenta baixar ANTES de emitir WebSocket.
-      // Se o download falhar, emite sem mídia e enfileira fallback no BullMQ.
-      let msgToEmit: any = msg;
+      // ─── 4. Emit newMessage IMEDIATAMENTE (frontend vê a mensagem já) ───
+      // Para mídia: emite sem media record, frontend mostra "Baixando..." por 10s
+      // depois botão "Recarregar" se ainda não chegou.
+      this.chatGateway.emitNewMessage(conv.id, msg);
 
+      // ─── 5. Download de mídia em background (mesmo processo, não-await) ──
+      // MediaDownloadService faz retry interno (3x com backoff 2s/5s/10s)
+      // e emite messageUpdate ao final (sucesso ou falha final).
+      // Sem worker BullMQ — fluxo simplificado estilo Chatwoot.
       if (msgType !== 'text') {
         const mediaData = (data.message as any)?.[messageType];
-        try {
-          const mediaRecord = await this.mediaDownloadService.downloadAndStore({
-            messageId: msg.id,
-            conversationId: conv.id,
-            externalMessageId,
-            instanceName,
-            mediaData,
-          });
-
-          if (mediaRecord) {
-            // Busca mensagem completa com mídia para emitir via WebSocket
-            const fullMsg = await this.prisma.message.findUnique({
-              where: { id: msg.id },
-              include: { media: true, skill: { select: { id: true, name: true, area: true } } },
-            });
-            if (fullMsg) msgToEmit = fullMsg;
-          } else {
-            // Download retornou null — enfileira fallback no worker
-            this.logger.warn(`[MEDIA-SYNC] Fallback BullMQ para msg ${msg.id}`);
-            await this.mediaQueue.add('download_media', {
-              message_id: msg.id,
-              conversation_id: conv.id,
-              media_data: mediaData,
-              remote_jid: remoteJid,
-              msg_id: externalMessageId,
-              instance_name: instanceName,
-            }, { delay: 5000 });
-          }
-        } catch (err: any) {
-          // Erro inesperado — enfileira fallback
+        this.mediaDownloadService.downloadAndStore({
+          messageId: msg.id,
+          conversationId: conv.id,
+          externalMessageId,
+          instanceName,
+          mediaData,
+        }).catch(err => {
           this.logger.error(`[MEDIA-SYNC] Erro inesperado para msg ${msg.id}: ${err.message}`);
-          await this.mediaQueue.add('download_media', {
-            message_id: msg.id,
-            conversation_id: conv.id,
-            media_data: mediaData,
-            remote_jid: remoteJid,
-            msg_id: externalMessageId,
-            instance_name: instanceName,
-          }, { delay: 5000 });
-        }
+        });
       }
-
-      // ─── 5. Emit WebSocket (com mídia se download foi OK) ─────────────
-      this.chatGateway.emitNewMessage(conv.id, msgToEmit);
       this.chatGateway.emitConversationsUpdate(conv.tenant_id ?? null, true);
 
       // Notify operator(s) about incoming message (sound + unread badge)
       if (!isOutgoing) {
         this.chatGateway.emitIncomingMessageNotification(
           conv.tenant_id ?? null,
+          conv.inbox_id ?? null,
           conv.assigned_user_id || null,
           { conversationId: conv.id, contactName: lead.name || lead.phone },
           conv.assigned_lawyer_id || null,
@@ -681,6 +655,8 @@ export class EvolutionService implements OnApplicationBootstrap {
     const instanceName = payload?.instance || payload?.instanceId;
     const inbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName) : null;
     const inboxId = inbox?.inbox_id || null;
+    // Deriva tenant efetivo: prefere o da Instance, mas faz fallback para o Inbox pai.
+    const effectiveTenantId: string | null = (inbox as any)?.tenant_id || (inbox as any)?.inbox?.tenant_id || null;
 
     const chats = Array.isArray(dataPayload)
       ? (dataPayload as any[])
@@ -742,8 +718,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       const updateData: any = {};
       if (inboxId && !conv.inbox_id) updateData.inbox_id = inboxId;
       if (instanceName) updateData.instance_name = instanceName;
-      const fallbackTenantId = (inbox as any)?.tenant_id || (inbox as any)?.inbox?.tenant_id || null;
-      if (fallbackTenantId && !conv.tenant_id) updateData.tenant_id = fallbackTenantId;
+      if (effectiveTenantId && !conv.tenant_id) updateData.tenant_id = effectiveTenantId;
 
       if (Object.keys(updateData).length > 0) {
         await this.prisma.conversation.update({
@@ -1110,13 +1085,16 @@ export class EvolutionService implements OnApplicationBootstrap {
         const pushName = (chat.pushName as string) || (chat.name as string) || null;
         if (!existingLead && !pushName) continue; // Sem lead e sem nome → ignorar
 
-        const lead = await this.leadsService.upsert({
-          phone,
-          name: existingLead?.name ? null : pushName,
-          ...(chat.profilePicUrl ? { profile_picture_url: chat.profilePicUrl as string } : {}),
-          origin: 'whatsapp',
-          ...(tenantId ? { tenant: { connect: { id: tenantId } } } : {}),
-        });
+        const lead = await this.leadsService.upsert(
+          {
+            phone,
+            name: existingLead?.name ? null : pushName,
+            ...(chat.profilePicUrl ? { profile_picture_url: chat.profilePicUrl as string } : {}),
+            origin: 'whatsapp',
+            ...(tenantId ? { tenant: { connect: { id: tenantId } } } : {}),
+          },
+          inboxId, // isola notificacao de lead novo ao inbox do setor (resync pos-reconexao)
+        );
 
         // Reabrir conversa fechada ou criar nova
         let conv = await this.prisma.conversation.findFirst({

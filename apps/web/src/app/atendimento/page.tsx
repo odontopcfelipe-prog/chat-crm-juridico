@@ -22,6 +22,7 @@ import {
 } from '@/lib/desktopNotifications';
 import api from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
+import { activeConversationRef } from '@/lib/activeConversation';
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
 import { showError, showSuccess } from '@/lib/toast';
@@ -225,6 +226,9 @@ export default function Dashboard() {
     if (typeof window !== 'undefined') try { sessionStorage.removeItem('unreadCounts'); } catch {} // limpar dados antigos
     return {};
   });
+  // Badges globais Leads/Clientes — independentes do clientMode ativo (a lista
+  // só contém a aba ativa, mas os badges do topo da sidebar mostram as duas).
+  const [unreadSummary, setUnreadSummary] = useState<{ leads: number; clients: number }>({ leads: 0, clients: 0 });
   // Current user ID decoded from JWT (lazy init, never changes)
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -272,7 +276,12 @@ export default function Dashboard() {
   // Keep refs in sync
   useEffect(() => { selectedInboxIdRef.current = selectedInboxId; }, [selectedInboxId]);
   useEffect(() => { clientModeRef.current = clientMode; }, [clientMode]);
-  useEffect(() => { selectedIdRef.current = selectedId; }, [selectedId]);
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+    // Expoe para o SocketProvider silenciar som quando msg chega na conversa
+    // em foco (cross-module via lib/activeConversation.ts).
+    activeConversationRef.current = selectedId;
+  }, [selectedId]);
   useEffect(() => { currentUserIdRef.current = currentUserId; }, [currentUserId]);
 
   // unlockAudioContext agora é feito pelo SocketProvider (sem duplicação)
@@ -618,7 +627,14 @@ export default function Dashboard() {
     }
   };
 
+  // Guard para nao empilhar requests (se a API demorar >intervalo do polling)
+  const pendingTransfersInFlightRef = useRef(false);
   const fetchPendingTransfers = useCallback(async (silent = false) => {
+    // Pula se offline — evita avalanche de Network Error no console
+    if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+    // Pula se ja existe request em andamento
+    if (pendingTransfersInFlightRef.current) return;
+    pendingTransfersInFlightRef.current = true;
     try {
       const res = await api.get('/conversations/pending-transfers', {
         ...(silent ? { _silent401: true } as any : {}),
@@ -628,6 +644,8 @@ export default function Dashboard() {
       if (e.response?.status !== 401 || !silent) {
         console.error('Failed to fetch pending transfers', e);
       }
+    } finally {
+      pendingTransfersInFlightRef.current = false;
     }
   }, []);
 
@@ -678,7 +696,23 @@ export default function Dashboard() {
         api.get('/conversations/unread-counts', { _silent401: true } as any)
           .then(r => {
             if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
-              setUnreadCounts(r.data as Record<string, number>);
+              const fresh = { ...(r.data as Record<string, number>) };
+              // Conversa aberta no momento permanece com zero local — o markAsRead
+              // é assíncrono e pode não ter terminado antes do refetch; sem esta
+              // proteção o badge reaparece na sidebar enquanto o operador lê.
+              const activeId = selectedIdRef.current;
+              if (activeId && fresh[activeId]) delete fresh[activeId];
+              setUnreadCounts(fresh);
+            }
+          })
+          .catch(() => {});
+        api.get('/conversations/unread-summary', { _silent401: true } as any)
+          .then(r => {
+            if (r.data && typeof r.data === 'object') {
+              setUnreadSummary({
+                leads: Number(r.data.leads) || 0,
+                clients: Number(r.data.clients) || 0,
+              });
             }
           })
           .catch(() => {});
@@ -797,10 +831,35 @@ export default function Dashboard() {
       setTimeout(() => setTaskReminderToast(null), 12000);
     };
 
+    // conversation_read: emitido pelo backend apos POST /mark-read.
+    // Chega ao user em TODAS as abas/dispositivos — permite zerar o badge
+    // daquela conversa sem esperar o refetch debounced do inboxUpdate (que
+    // antes era disparado por mark-read para o tenant inteiro).
+    const onConversationRead = (data: { conversationId: string }) => {
+      if (!data?.conversationId) return;
+      setUnreadCounts(prev => {
+        if (!prev[data.conversationId]) return prev;
+        const next = { ...prev };
+        delete next[data.conversationId];
+        return next;
+      });
+      api.get('/conversations/unread-summary', { _silent401: true } as any)
+        .then(r => {
+          if (r.data && typeof r.data === 'object') {
+            setUnreadSummary({
+              leads: Number(r.data.leads) || 0,
+              clients: Number(r.data.clients) || 0,
+            });
+          }
+        })
+        .catch(() => {});
+    };
+
     sharedSocket.on('inboxUpdate', onInboxUpdate);
     sharedSocket.on('newNote', onNewNote);
     sharedSocket.on('typing_indicator', onTypingIndicator);
     sharedSocket.on('incoming_message_notification', onIncomingNotif);
+    sharedSocket.on('conversation_read', onConversationRead);
     sharedSocket.on('transfer_request', onTransferRequest);
     sharedSocket.on('transfer_cancelled', onTransferCancelled);
     sharedSocket.on('transfer_response', onTransferResponse);
@@ -816,6 +875,7 @@ export default function Dashboard() {
       sharedSocket.off('newNote', onNewNote);
       sharedSocket.off('typing_indicator', onTypingIndicator);
       sharedSocket.off('incoming_message_notification', onIncomingNotif);
+      sharedSocket.off('conversation_read', onConversationRead);
       sharedSocket.off('transfer_request', onTransferRequest);
       sharedSocket.off('transfer_cancelled', onTransferCancelled);
       sharedSocket.off('transfer_response', onTransferResponse);
@@ -832,10 +892,23 @@ export default function Dashboard() {
     api.get('/conversations/unread-counts', { _silent401: true } as any)
       .then(r => {
         if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
-          setUnreadCounts(r.data as Record<string, number>);
+          const fresh = { ...(r.data as Record<string, number>) };
+          const activeId = selectedIdRef.current;
+          if (activeId && fresh[activeId]) delete fresh[activeId];
+          setUnreadCounts(fresh);
         }
       })
       .catch(() => {}); // falha silenciosa — badges partem do zero se API indisponível
+    api.get('/conversations/unread-summary', { _silent401: true } as any)
+      .then(r => {
+        if (r.data && typeof r.data === 'object') {
+          setUnreadSummary({
+            leads: Number(r.data.leads) || 0,
+            clients: Number(r.data.clients) || 0,
+          });
+        }
+      })
+      .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Initial data load + refetch on inbox filter change or clientMode change
@@ -848,14 +921,20 @@ export default function Dashboard() {
   }, [fetchConversations, fetchAdiadoConversations, fetchPendingTransfers, selectedInboxId, clientMode]);
 
   // Polling de transferências pendentes (30s) — resiliência caso o socket perca o evento
+  // Pula quando offline para nao gerar cascata de Network Error no console
   useEffect(() => {
-    const interval = setInterval(() => fetchPendingTransfers(true), 30_000);
+    const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
+      fetchPendingTransfers(true);
+    }, 30_000);
     return () => clearInterval(interval);
   }, [fetchPendingTransfers]);
 
   // Polling de conversas (60s) — resiliência para mensagens recebidas quando offline
+  // Pula quando offline (o reconnect do socket ja re-sincroniza quando voltar)
   useEffect(() => {
     const interval = setInterval(() => {
+      if (typeof navigator !== 'undefined' && !navigator.onLine) return;
       fetchConversations(selectedInboxIdRef.current, true);
     }, 60_000);
     return () => clearInterval(interval);
@@ -923,14 +1002,9 @@ export default function Dashboard() {
       .catch(() => {});
   }, [selectedId, conversations]);
 
-  // Polling de transferências pendentes: fallback quando o evento socket direto é perdido
-  // silent=true: nunca causa logout — se o token expirar, só o load inicial ou ação do usuário redireciona
-  useEffect(() => {
-    const interval = setInterval(() => {
-      fetchPendingTransfers(true);
-    }, 12000);
-    return () => clearInterval(interval);
-  }, [fetchPendingTransfers]);
+  // (Duplicata removida — polling de pending-transfers ja acontece a cada 30s acima.
+  // Havia um segundo setInterval de 12s aqui que gerava cascata de Network Error
+  // no console quando a rede oscilava. Ficou so o de 30s.)
 
   // Auto-abrir popup para transferências ainda não exibidas ao usuário
   useEffect(() => {
@@ -978,6 +1052,11 @@ export default function Dashboard() {
           socketRef.current.on('newMessage', (msg: MessageItem) => {
             // Guard estrito: ignora mensagens de outra conversa
             if (msg.conversation_id !== selectedIdRef.current) return;
+            // Msg recebida na conversa ATIVA: marca como lida imediatamente para
+            // que o refetch debounced de /unread-counts não traga o badge de volta.
+            if (msg.direction === 'in') {
+              api.post(`/conversations/${msg.conversation_id}/mark-read`, {}, { _silent401: true } as any).catch(() => {});
+            }
             const addMsg = () => setMessages(prev => {
               // Dedup: já existe pelo ID real
               if (prev.some(m => m.id === msg.id)) return prev;
@@ -2153,6 +2232,7 @@ export default function Dashboard() {
         userInboxes={userInboxes}
         pendingTransfers={pendingTransfers}
         unreadCounts={unreadCounts}
+        unreadSummary={unreadSummary}
         currentUserId={currentUserId}
         selectedId={selectedId}
         selectedInboxId={selectedInboxId}
@@ -3156,6 +3236,10 @@ export default function Dashboard() {
           onClose={() => setClientPanelLeadId(null)}
           onLightbox={setLightbox}
           isAdmin={isAdmin}
+          onDeleteSuccess={(id) => {
+            setClientPanelLeadId(null);
+            setConversations((prev) => prev.filter((c) => c.leadId !== id));
+          }}
         />
       )}
 

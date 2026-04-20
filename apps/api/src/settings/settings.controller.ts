@@ -7,6 +7,8 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { S3Service } from '../s3/s3.service';
 import { CreateSkillDto, UpdateSkillDto, CreateSkillToolDto, UpdateSkillToolDto } from './dto/settings.dto';
+import { PrismaService } from '../prisma/prisma.service';
+import { computeBusinessHoursInfo } from '@crm/shared';
 
 /** Mascara uma chave de API, mostrando apenas os primeiros 4 e últimos 4 caracteres */
 function maskApiKey(key: string | null | undefined): string | null {
@@ -24,6 +26,7 @@ export class SettingsController {
     private readonly settingsService: SettingsService,
     private readonly whatsappService: WhatsappService,
     private readonly s3Service: S3Service,
+    private readonly prisma: PrismaService,
   ) {}
 
   // ─── Generic Settings ─────────────────────────────────
@@ -38,6 +41,102 @@ export class SettingsController {
   @Roles('ADMIN')
   async upsert(@Body() data: { key: string; value: string }) {
     return this.settingsService.upsert(data.key, data.value);
+  }
+
+  // ─── DJEN Lawyers ──────────────────────────────────────
+
+  @Get('djen-lawyers')
+  @Roles('ADMIN', 'ADVOGADO')
+  async getDjenLawyers() {
+    const raw = await this.settingsService.get('DJEN_LAWYERS');
+    if (raw) {
+      try { return JSON.parse(raw); } catch {}
+    }
+    // Fallback: montar a partir dos settings legados
+    const oab  = (await this.settingsService.get('DJEN_OAB_NUMBER'))  || '14209';
+    const uf   = (await this.settingsService.get('DJEN_OAB_UF'))      || 'AL';
+    const nome = (await this.settingsService.get('DJEN_LAWYER_NAME')) || 'André Freire Lustosa';
+    return [{ oab, uf, nome }];
+  }
+
+  @Patch('djen-lawyers')
+  @Roles('ADMIN')
+  async saveDjenLawyers(@Body() body: { lawyers: Array<{ oab: string; uf: string; nome: string }> }) {
+    await this.settingsService.upsert('DJEN_LAWYERS', JSON.stringify(body.lawyers));
+    return { message: 'Advogados DJEN salvos com sucesso', count: body.lawyers.length };
+  }
+
+  // ─── Horário do Escritório (afeta cron AfterHours e {{business_hours_info}}) ───
+
+  @Get('office-hours')
+  @Roles('ADMIN')
+  async getOfficeHours() {
+    const [enabled, start, end, days, tz] = await Promise.all([
+      this.settingsService.get('AFTER_HOURS_AI_ENABLED'),
+      this.settingsService.get('AFTER_HOURS_START'),
+      this.settingsService.get('AFTER_HOURS_END'),
+      this.settingsService.get('BUSINESS_DAYS'),
+      this.settingsService.get('TIMEZONE'),
+    ]);
+    return {
+      // NOTA: na var `AFTER_HOURS_START` está a hora que o escritório FECHA.
+      // Na UI exportamos como "close" pra não confundir o admin.
+      ai_enabled: (enabled ?? 'true').toLowerCase() !== 'false',
+      open_time:  end   ?? '08:00', // AFTER_HOURS_END  = abertura
+      close_time: start ?? '17:00', // AFTER_HOURS_START = fechamento
+      business_days: (days ?? '1,2,3,4,5')
+        .split(',')
+        .map((v) => Number.parseInt(v.trim(), 10))
+        .filter((n) => Number.isFinite(n) && n >= 0 && n <= 6),
+      timezone: tz ?? 'America/Maceio',
+    };
+  }
+
+  @Put('office-hours')
+  @Roles('ADMIN')
+  async saveOfficeHours(@Body() body: {
+    ai_enabled?: boolean;
+    open_time?: string;
+    close_time?: string;
+    business_days?: number[];
+    timezone?: string;
+  }) {
+    if (typeof body.ai_enabled === 'boolean') {
+      await this.settingsService.upsert('AFTER_HOURS_AI_ENABLED', body.ai_enabled ? 'true' : 'false');
+    }
+    if (body.open_time && /^\d{2}:\d{2}$/.test(body.open_time)) {
+      await this.settingsService.upsert('AFTER_HOURS_END', body.open_time);
+    }
+    if (body.close_time && /^\d{2}:\d{2}$/.test(body.close_time)) {
+      await this.settingsService.upsert('AFTER_HOURS_START', body.close_time);
+    }
+    if (Array.isArray(body.business_days)) {
+      const clean = body.business_days
+        .filter((n) => Number.isInteger(n) && n >= 0 && n <= 6)
+        .join(',');
+      if (clean) await this.settingsService.upsert('BUSINESS_DAYS', clean);
+    }
+    if (body.timezone && body.timezone.length > 0) {
+      await this.settingsService.upsert('TIMEZONE', body.timezone);
+    }
+    return { message: 'Horário do escritório salvo' };
+  }
+
+  /**
+   * Preview das variáveis DINÂMICAS do sistema (calculadas em tempo real).
+   * Usado pela UI de skills para mostrar ao editor o que cada variável
+   * resolveria AGORA — evita surpresa no prompt final.
+   *
+   * Só inclui variáveis globais (não por-lead). Para variáveis por-lead
+   * (lead_name, lead_memory, etc), mostrar "ex:" em vez de preview real.
+   */
+  @Get('variable-preview')
+  @Roles('ADMIN')
+  async getVariablePreview() {
+    const businessHoursInfo = await computeBusinessHoursInfo(this.prisma).catch(() => '');
+    return {
+      business_hours_info: businessHoursInfo,
+    };
   }
 
   @Get('whatsapp-config/health')

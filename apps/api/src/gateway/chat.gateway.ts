@@ -146,6 +146,64 @@ export class ChatGateway {
     return (this.onlineUsers.get(userId)?.size ?? 0) > 0;
   }
 
+  /**
+   * Ao conectar, o socket entra em rooms de escopo de notificacao:
+   *   - inbox:{id}       → conversas pool daquele setor (membros do inbox + ADMINs)
+   *   - operators:{tenantId} → novo lead sem inbox (ADMIN + OPERADOR/COMERCIAL;
+   *                            ADVOGADO puro nao entra, evitando ding de lead
+   *                            que ele nao vai atender)
+   *
+   * Regra:
+   *  - OPERADOR/COMERCIAL: joina seus inboxes + operators room
+   *  - ADVOGADO puro: nenhuma inbox, nenhum operators room (so user:{id})
+   *  - ADMIN: joina TODOS inboxes do tenant + operators room (ve tudo)
+   */
+  async autoJoinRooms(userId: string, tenantId: string | null | undefined, client: Socket): Promise<void> {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+        include: { inboxes: { select: { id: true } } },
+      });
+      if (!user) return;
+
+      const userRoles: string[] = Array.isArray(user.roles)
+        ? (user.roles as string[])
+        : (user.roles ? [user.roles as string] : []);
+      const isAdmin = userRoles.includes('ADMIN');
+      const isOperador =
+        userRoles.includes('OPERADOR') ||
+        userRoles.includes('COMERCIAL') ||
+        userRoles.includes('Atendente Comercial');
+
+      // Inbox rooms
+      let inboxIds: string[];
+      if (isAdmin && tenantId) {
+        const all = await this.prisma.inbox.findMany({
+          where: { tenant_id: tenantId },
+          select: { id: true },
+        });
+        inboxIds = all.map(i => i.id);
+      } else {
+        inboxIds = (user.inboxes || []).map((i: any) => i.id);
+      }
+      for (const id of inboxIds) {
+        client.join(`inbox:${id}`);
+      }
+
+      // Operators room (pool de leads sem inbox — formulario web, criacao manual via CRM)
+      const joinOperators = !!tenantId && (isAdmin || isOperador);
+      if (joinOperators) {
+        client.join(`operators:${tenantId}`);
+      }
+
+      this.logger.log(
+        `[SOCKET] ${client.id} rooms: ${inboxIds.length} inbox(es), operators=${joinOperators} (admin=${isAdmin}, operador=${isOperador})`,
+      );
+    } catch (e: any) {
+      this.logger.warn(`[SOCKET] autoJoinRooms falhou para user ${userId}: ${e.message}`);
+    }
+  }
+
   async handleJoinConversation(conversationId: string, client: Socket) {
     const socketUser = client.data.user;
     if (!socketUser?.sub) {
@@ -260,6 +318,17 @@ export class ChatGateway {
   }
 
   /**
+   * Sinaliza ao user (em todas as abas/dispositivos) que uma conversa foi
+   * marcada como lida — permite frontend zerar o badge daquela conversa sem
+   * disparar refetch completo via inboxUpdate. Evita overhead de atualizar
+   * toda a lista do tenant por conta de uma leitura individual.
+   */
+  emitConversationRead(userId: string, conversationId: string) {
+    this.logger.log(`[SOCKET] Emitting conversation_read to user:${userId} for conv ${conversationId}`);
+    this.server.to(`user:${userId}`).emit('conversation_read', { conversationId });
+  }
+
+  /**
    * Emite inboxUpdate com debounce para evitar flood.
    * Múltiplas chamadas dentro de 2s resultam em UMA única emissão.
    * Use immediate=true para emitir instantaneamente (ex: nova mensagem).
@@ -304,10 +373,12 @@ export class ChatGateway {
    * Regra de negócio:
    *  - Lead com operador atribuído   → notifica SOMENTE o operador (assigned_user_id)
    *  - Cliente com operador atribuído → notifica operador E advogado (assigned_lawyer_id), se distintos
-   *  - Sem operador atribuído        → notifica todo o tenant para alguém assumir
+   *  - Sem operador atribuído + inboxId → notifica apenas operadores daquele setor (room inbox:{id})
+   *  - Sem operador e sem inbox (legado) → fallback tenant (como antes)
    */
   async emitIncomingMessageNotification(
     tenantId: string | null,
+    inboxId: string | null,
     assignedUserId: string | null,
     data: { conversationId: string; contactName?: string },
     assignedLawyerId?: string | null,
@@ -366,9 +437,14 @@ export class ChatGateway {
           data: { conversationId: data.conversationId },
         }).catch(() => {});
       }
+    } else if (inboxId) {
+      // Sem operador: isola o pool aos operadores daquele setor (room inbox:{id}).
+      // ADMINs fazem auto-join em todos os inboxes do tenant, entao continuam vendo.
+      this.logger.log(`[SOCKET] incoming_message_notification → inbox:${inboxId} (pool do setor)`);
+      this.server.to(`inbox:${inboxId}`).emit('incoming_message_notification', basePayload);
     } else if (tenantId) {
-      // Sem operador: notifica todos do tenant (sem _prefs individuais — usa defaults no frontend)
-      this.logger.log(`[SOCKET] incoming_message_notification → tenant:${tenantId} (sem atribuicao)`);
+      // Conversa legada sem inbox_id: fallback para tenant (comportamento antigo).
+      this.logger.log(`[SOCKET] incoming_message_notification → tenant:${tenantId} (sem inbox, fallback)`);
       this.server.to(`tenant:${tenantId}`).emit('incoming_message_notification', basePayload);
     } else {
       this.prisma.tenant.findFirst().then((t) => {
@@ -389,6 +465,75 @@ export class ChatGateway {
   emitNewLegalCase(lawyerId: string, data: { caseId: string; leadName: string }) {
     this.logger.log(`[SOCKET] Emitting new_legal_case to user:${lawyerId}`);
     this.server.to(`user:${lawyerId}`).emit('new_legal_case', data);
+  }
+
+  /**
+   * Emit new lead notification.
+   *
+   * Regra de negócio:
+   *  - Lead com atendente vinculado (cs_user_id) → notifica SOMENTE o atendente
+   *  - Lead sem atendente                        → broadcast ao tenant (alguém precisa assumir)
+   *
+   * Dispara socket + persistência + Web Push (respeita mute/preferências).
+   */
+  async emitNewLeadNotification(
+    tenantId: string | null,
+    assignedUserId: string | null,
+    inboxId: string | null,
+    data: { leadId: string; leadName?: string | null; phone?: string | null; origin?: string | null },
+  ) {
+    const contactName = data.leadName || data.phone || 'Novo lead';
+    const title = 'Novo lead';
+    const body = data.origin
+      ? `${contactName} chegou via ${data.origin}`
+      : `${contactName} acabou de chegar`;
+    const basePayload = { ...data, assignedUserId };
+
+    if (assignedUserId) {
+      const prefs = await this.notifSettings
+        .getNotifFlags(assignedUserId, 'new_lead' as NotifEventType)
+        .catch(() => ({ skipSound: false, skipDesktop: false }));
+      const payload = { ...basePayload, _prefs: prefs };
+
+      this.logger.log(`[SOCKET] new_lead_notification → user:${assignedUserId} (sound=${!prefs.skipSound}, desktop=${!prefs.skipDesktop})`);
+      this.server.to(`user:${assignedUserId}`).emit('new_lead_notification', payload);
+
+      this.notificationsService.create({
+        userId: assignedUserId,
+        tenantId,
+        type: 'new_lead',
+        title,
+        body,
+        data: { leadId: data.leadId },
+      }).catch(() => {});
+
+      this.pushService.sendToUser(assignedUserId, {
+        title,
+        body,
+        tag: `new-lead-${data.leadId}`,
+        url: `/atendimento/crm`,
+        data: { leadId: data.leadId },
+      }).catch(() => {});
+      return;
+    }
+
+    // Sem atendente: prioridade inbox (pool do setor) → operators (fallback
+    // sem inbox — lead via formulario, API externa, criacao manual). Nunca
+    // tenant: advogados puros nao devem receber ding de lead novo.
+    const emitTo = (room: string) => {
+      this.logger.log(`[SOCKET] new_lead_notification → ${room}`);
+      this.server.to(room).emit('new_lead_notification', basePayload);
+    };
+
+    if (inboxId) {
+      emitTo(`inbox:${inboxId}`);
+    } else if (tenantId) {
+      emitTo(`operators:${tenantId}`);
+    } else {
+      this.prisma.tenant.findFirst().then((t) => {
+        if (t) emitTo(`operators:${t.id}`);
+      }).catch(() => {});
+    }
   }
 
   emitTaskComment(userId: string, data: { taskId: string; text: string; fromUserName: string }) {

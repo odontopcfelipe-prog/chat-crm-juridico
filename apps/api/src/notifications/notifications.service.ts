@@ -10,12 +10,12 @@ export class NotificationsService {
 
   constructor(
     private prisma: PrismaService,
-    @InjectQueue('notification-email') private emailQueue: Queue,
+    @InjectQueue('notification-whatsapp') private whatsappQueue: Queue,
   ) {}
 
   /** Cria uma notificação persistente (fire-and-forget, chamado pelo ChatGateway).
-   *  Enfileira email fallback com delay de 5min — se a notificação for lida
-   *  via socket/push antes do delay, o email não é enviado. */
+   *  Enfileira WhatsApp fallback com delay de 5min — se a notificação for lida
+   *  via socket/push antes do delay, o WhatsApp não é enviado. */
   async create(params: {
     userId: string;
     tenantId?: string | null;
@@ -36,10 +36,10 @@ export class NotificationsService {
         },
       });
 
-      // Enfileira email fallback com delay de 5 minutos
-      // O processor checa: já lida? Email habilitado? Dedup 30min por conversa?
-      this.emailQueue.add(
-        'send-notification-email',
+      // Enfileira WhatsApp fallback com delay de 5 minutos
+      // O processor checa: já lida? WhatsApp habilitado? Usuário tem phone? Dedup 30min?
+      this.whatsappQueue.add(
+        'send-notification-whatsapp',
         { notificationId: notification.id, userId: params.userId },
         { delay: 5 * 60 * 1000, removeOnComplete: true, removeOnFail: 10 },
       ).catch(() => {});
@@ -93,6 +93,23 @@ export class NotificationsService {
   async markAllRead(userId: string) {
     return (this.prisma as any).notification.updateMany({
       where: { user_id: userId, read_at: null },
+      data: { read_at: new Date() },
+    });
+  }
+
+  /** Marca notificacoes de mensagens relacionadas a uma conversa como lidas.
+   *  Chamado quando o operador abre a conversa (via ConversationsService.markAsRead)
+   *  para zerar o badge do sino em sincronia com o desaparecimento do badge
+   *  da sidebar — antes o sino ficava desacoplado e so decrescia ao clicar
+   *  diretamente nos itens do NotificationCenter. */
+  async markByConversation(userId: string, conversationId: string) {
+    return (this.prisma as any).notification.updateMany({
+      where: {
+        user_id: userId,
+        read_at: null,
+        notification_type: 'incoming_message',
+        data: { path: ['conversationId'], equals: conversationId },
+      },
       data: { read_at: new Date() },
     });
   }

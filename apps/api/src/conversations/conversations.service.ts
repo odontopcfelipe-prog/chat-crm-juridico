@@ -2,6 +2,7 @@ import { Injectable, ForbiddenException, BadRequestException, Logger, NotFoundEx
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { NotificationsService } from '../notifications/notifications.service';
 import { Prisma, Conversation } from '@crm/shared';
 import { effectiveRole } from '../common/utils/permissions.util';
 
@@ -13,6 +14,7 @@ export class ConversationsService {
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
     private whatsappService: WhatsappService,
+    private notificationsService: NotificationsService,
   ) {}
 
   async create(data: Prisma.ConversationCreateInput): Promise<Conversation> {
@@ -316,12 +318,14 @@ export class ConversationsService {
   }
 
   async setAiMode(id: string, ai_mode: boolean): Promise<Conversation> {
+    // Toggle do operador SEMPRE marca como MANUAL — protege a conversa do
+    // cron AfterHours, que só mexe em entradas sem origem manual.
     return this.prisma.conversation.update({
       where: { id },
       data: {
         ai_mode,
-        // Registra timestamp quando desligou; limpa quando religou
         ai_mode_disabled_at: ai_mode ? null : new Date(),
+        ai_mode_source: 'MANUAL',
       },
     });
   }
@@ -329,7 +333,12 @@ export class ConversationsService {
   async assign(id: string, userId: string): Promise<Conversation> {
     return this.prisma.conversation.update({
       where: { id },
-      data: { assigned_user_id: userId, ai_mode: false, ai_mode_disabled_at: new Date() },
+      data: {
+        assigned_user_id: userId,
+        ai_mode: false,
+        ai_mode_disabled_at: new Date(),
+        ai_mode_source: 'MANUAL',
+      },
     });
   }
 
@@ -444,6 +453,7 @@ export class ConversationsService {
             origin_assigned_user_id: current.pending_transfer_from_id,
             ai_mode: false,
             ai_mode_disabled_at: new Date(),
+            ai_mode_source: 'MANUAL',
             pending_transfer_to_id: null,
             pending_transfer_from_id: null,
             pending_transfer_reason: null,
@@ -600,6 +610,7 @@ export class ConversationsService {
           origin_assigned_user_id: null,
           ai_mode: false,
           ai_mode_disabled_at: new Date(),
+          ai_mode_source: 'MANUAL',
           linked_agent_ids: { push: linkedIds },
         },
       });
@@ -677,16 +688,18 @@ export class ConversationsService {
   /**
    * Retorna a contagem real de mensagens não lidas por conversa (fonte: banco de dados).
    *
-   * Regra de negócio (notificações — mais restritiva que visibilidade):
+   * Regra de negócio (notificações — badges alinhados com o ding recebido via socket):
    *  - ADMIN: badges apenas das conversas atribuídas a ele (assigned_user_id)
-   *  - ADVOGADO: badges apenas de clientes atribuídos a ele (assigned_lawyer_id)
-   *  - OPERADOR: badges apenas de leads/clientes atribuídos a ele (assigned_user_id)
-   *  - ADVOGADO+OPERADOR: combina ambos (clientes como advogado + leads como operador)
+   *  - ADVOGADO: badges apenas de clientes atribuídos como advogado (assigned_lawyer_id, is_client=true)
+   *  - OPERADOR: conversas atribuídas + POOL do inbox (assigned_user_id=null nos inboxes dele) —
+   *              espelha o ding que ele recebe via room inbox:{id} (FIX #6)
+   *  - ADVOGADO+OPERADOR: união (clientes como advogado + atribuídas + pool do inbox)
    *  - Exclui leads PERDIDO/FINALIZADO
    *
    * Nota: findAll() controla VISIBILIDADE (o que aparece na lista).
    *       getUnreadCounts() controla NOTIFICAÇÃO (o que mostra badge vermelho).
-   *       Admin pode ver todas as conversas mas só recebe badge das suas.
+   *       Admin pode ver todas as conversas mas só recebe badge das suas — evita
+   *       poluição visual com o pool inteiro do tenant.
    */
   async getUnreadCounts(tenantId?: string, userId?: string) {
     let conversationIds: string[] | undefined;
@@ -703,6 +716,7 @@ export class ConversationsService {
       const isAdvogadoUser = userRoles.includes('ADVOGADO') || userRoles.includes('Advogados');
       const isOperadorUser = userRoles.includes('OPERADOR') || userRoles.includes('COMERCIAL') || userRoles.includes('Atendente Comercial');
       const isAdminUser = userRoles.includes('ADMIN');
+      const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
 
       // Filtro base: tenant + exclui leads PERDIDO/FINALIZADO
       const convWhere: any = {
@@ -727,6 +741,16 @@ export class ConversationsService {
 
         // Conversas atribuídas diretamente (qualquer role)
         orConditions.push({ assigned_user_id: userId });
+
+        // OPERADOR: também inclui pool do inbox (conversas sem operador nos
+        // seus inboxes). Alinha o badge visual com o ding que ele recebe via
+        // room inbox:{id} (FIX #6) — antes ouvia som mas contador nao mostrava.
+        if (isOperadorUser && userInboxIds.length > 0) {
+          orConditions.push({
+            inbox_id: { in: userInboxIds },
+            assigned_user_id: null,
+          });
+        }
       }
 
       // Fallback (estagiário puro, financeiro)
@@ -771,13 +795,43 @@ export class ConversationsService {
     return result;
   }
 
-  async markAsRead(conversationId: string) {
+  /**
+   * Resumo global de não-lidas agrupado por lead.is_client.
+   * Usado pelos badges das abas Leads/Clientes da InboxSidebar, que precisam
+   * mostrar o total de cada categoria INDEPENDENTE do clientMode ativo
+   * (a lista de conversas só traz uma aba por vez; o badge é global).
+   */
+  async getUnreadSummary(tenantId?: string, userId?: string): Promise<{ leads: number; clients: number }> {
+    const counts = await this.getUnreadCounts(tenantId, userId);
+    const convIds = Object.keys(counts);
+    if (convIds.length === 0) return { leads: 0, clients: 0 };
+
+    const convs = await this.prisma.conversation.findMany({
+      where: { id: { in: convIds } },
+      select: { id: true, lead: { select: { is_client: true } } },
+    });
+
+    let leads = 0;
+    let clients = 0;
+    for (const c of convs) {
+      const n = counts[c.id] || 0;
+      if ((c as any).lead?.is_client) clients += n;
+      else leads += n;
+    }
+    return { leads, clients };
+  }
+
+  async markAsRead(conversationId: string, userId?: string) {
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
     });
 
     if (!convo || !convo.lead?.phone || !convo.instance_name) {
+      // Mesmo sem phone/instance (conversa demo ou incompleta), sincroniza o sino
+      if (userId) {
+        await this.notificationsService.markByConversation(userId, conversationId).catch(() => {});
+      }
       return { marked: 0 };
     }
 
@@ -790,6 +844,14 @@ export class ConversationsService {
       },
       select: { id: true, external_message_id: true },
     });
+
+    // Marca notificacoes do sino relacionadas a esta conversa como lidas —
+    // sincroniza com o desaparecimento do badge da sidebar. Mesmo que nao
+    // haja mensagens "recebido/entregue" (user ja havia aberto), pode haver
+    // notificacoes persistidas pendentes do NotificationCenter.
+    if (userId) {
+      await this.notificationsService.markByConversation(userId, conversationId).catch(() => {});
+    }
 
     if (unreadMessages.length === 0) return { marked: 0 };
 
@@ -811,8 +873,14 @@ export class ConversationsService {
       data: { status: 'lido' },
     });
 
-    // Emitir atualização para todos os clientes conectados (limpar badge de não-lidas)
-    if (convo.tenant_id) {
+    // Sinaliza ao proprio user (todas as abas/dispositivos) que esta conversa
+    // foi lida — frontend zera o badge sem precisar de refetch completo.
+    // Outros operadores do tenant nao precisam saber: cada um ve os proprios
+    // badges (filtrados por role em getUnreadCounts).
+    if (userId) {
+      this.chatGateway.emitConversationRead(userId, conversationId);
+    } else if (convo.tenant_id) {
+      // Fallback para callers internos sem userId: mantem comportamento antigo.
       this.chatGateway.emitConversationsUpdate(convo.tenant_id);
     }
 

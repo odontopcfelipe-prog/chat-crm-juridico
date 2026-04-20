@@ -1,9 +1,10 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bell, X, MessageSquare, ArrowRightLeft, Clock, Calendar, Scale, FileText, Check, CheckCheck, Loader2 } from 'lucide-react';
+import { Bell, X, MessageSquare, ArrowRightLeft, Clock, Calendar, Scale, FileText, Check, CheckCheck, Loader2, UserPlus } from 'lucide-react';
 import api from '@/lib/api';
 import { useRouter } from 'next/navigation';
 import { useSocketEvent } from '@/lib/SocketProvider';
+import { activeConversationRef } from '@/lib/activeConversation';
 
 interface NotifItem {
   id: string;
@@ -23,6 +24,7 @@ const TYPE_ICONS: Record<string, any> = {
   legal_case_update: Scale,
   petition_status:   FileText,
   contract_signed:   FileText,
+  new_lead:          UserPlus,
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -33,11 +35,13 @@ const TYPE_LABELS: Record<string, string> = {
   legal_case_update: 'Processo',
   petition_status:   'Petição',
   contract_signed:   'Contrato',
+  new_lead:          'Novo lead',
 };
 
 const TABS = [
   { key: 'all',      label: 'Todas' },
   { key: 'messages', label: 'Mensagens', types: ['incoming_message'] },
+  { key: 'leads',    label: 'Leads',     types: ['new_lead'] },
   { key: 'tasks',    label: 'Tarefas',   types: ['task_overdue', 'calendar_reminder'] },
   { key: 'cases',    label: 'Processos', types: ['legal_case_update', 'petition_status', 'contract_signed'] },
 ] as const;
@@ -86,9 +90,30 @@ export function NotificationCenter() {
     return () => clearInterval(interval);
   }, [fetchUnreadCount]);
 
-  // Incrementa badge em tempo real quando chega notificação
-  useSocketEvent('incoming_message_notification', () => {
+  // Incrementa badge em tempo real quando chega notificação.
+  // Se a msg chega na conversa que o operador ja esta lendo com a aba em foco,
+  // o backend ja marcou como lida via mark-read automatico do listener newMessage
+  // (page.tsx); aqui apenas suprimimos o +1 visual para evitar badge flicker.
+  useSocketEvent('incoming_message_notification', (data: { conversationId?: string }) => {
+    if (
+      data?.conversationId &&
+      activeConversationRef.current === data.conversationId &&
+      typeof document !== 'undefined' &&
+      document.hasFocus()
+    ) {
+      return;
+    }
     setUnreadCount(prev => prev + 1);
+  });
+  useSocketEvent('new_lead_notification', () => {
+    setUnreadCount(prev => prev + 1);
+  });
+  // Quando conversa e marcada como lida no backend (operador abriu via sidebar),
+  // o markAsRead tambem marca notifs de incoming_message dessa conversa como
+  // lidas e emite conversation_read direto para o user (todas as abas).
+  // Refetcha para sincronizar o badge do sino.
+  useSocketEvent('conversation_read', () => {
+    fetchUnreadCount();
   });
 
   const load = async () => {
@@ -128,6 +153,9 @@ export function NotificationCenter() {
       setOpen(false);
     } else if (item.notification_type === 'legal_case_update' || item.notification_type === 'petition_status') {
       router.push('/atendimento/processos');
+      setOpen(false);
+    } else if (item.notification_type === 'new_lead') {
+      router.push('/atendimento/crm');
       setOpen(false);
     }
   };

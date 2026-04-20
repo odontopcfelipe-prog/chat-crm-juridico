@@ -33,6 +33,11 @@ export class ConversationsController {
     return this.conversationsService.getUnreadCounts(req.user?.tenant_id, req.user?.id);
   }
 
+  @Get('unread-summary')
+  getUnreadSummary(@Request() req: any) {
+    return this.conversationsService.getUnreadSummary(req.user?.tenant_id, req.user?.id);
+  }
+
   @Get('open-count')
   getOpenCount(@Request() req: any) {
     return this.conversationsService.countOpen(req.user?.id).then(count => ({ count }));
@@ -134,8 +139,8 @@ export class ConversationsController {
   }
 
   @Post(':id/mark-read')
-  markAsRead(@Param('id') id: string) {
-    return this.conversationsService.markAsRead(id);
+  markAsRead(@Param('id') id: string, @Request() req: any) {
+    return this.conversationsService.markAsRead(id, req.user?.id);
   }
 
   @Post(':id/presence')

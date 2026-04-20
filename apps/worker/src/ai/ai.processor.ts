@@ -11,53 +11,21 @@ import { ToolExecutor } from './tool-executor';
 import { PromptBuilder } from './prompt-builder';
 import { buildHandlerMap } from './tool-handlers';
 import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
+import { computeBusinessHoursInfo } from '@crm/shared';
+import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
 
-// ─── Long Memory System Prompt (infraestrutura interna, não é skill) ───
-const LONG_MEMORY_SYSTEM_PROMPT = `Você é uma IA especializada em gerenciamento de memória de longo prazo (LONG MEMORY) de leads e casos jurídicos, multiárea.
-
-Objetivo:
-Manter um "case_state" estruturado, enxuto e acionável para:
-1) Redação de petições (ex.: inicial) com base em fatos e documentos.
-2) Atendimento contínuo do cliente ao longo do tempo.
-
-Você SEMPRE receberá:
-- old_memory: a memória anterior (pode estar vazia).
-- new_event: uma nova informação para guardar.
-
-REGRAS OBRIGATÓRIAS:
-1) NUNCA apague fatos já registrados.
-2) Você PODE atualizar o estado atual ("current") quando houver informação mais específica ou correção, MAS deve registrar a mudança em "timeline" como "retificação/atualização" com data e origem.
-3) NÃO copie o transcript inteiro. NÃO salve "oi", "ok", cumprimentos, nem falas irrelevantes.
-4) Para rastreabilidade, quando possível inclua "source_ref".
-5) Seja multiárea: não presuma área; só preencha se vier no new_event.
-
-DEDUPE E CONTROLE DE TAMANHO:
-- Deduplicar fatos repetidos.
-- "summary" no máximo 800 caracteres.
-- "core_facts" no máximo 25 itens. "open_questions" no máximo 20.
-- Se exceder, consolidar: manter o essencial e registrar o excesso como "consolidação".
-
-ORIGEM (origin) deve ser UMA destas strings:
-"Lead" | "AtendenteHumano" | "AgenteSDR"
-
-Retorne SOMENTE o JSON no schema:
-{
-  "lead": { "first_name": null, "full_name": null, "mother_name": null, "cpf": null, "phones": [], "emails": [], "city": null, "state": null },
-  "case": { "area": null, "subarea": null, "status": "triage", "summary": null, "tags": [] },
-  "parties": { "client_role": null, "counterparty_name": null, "counterparty_id": null, "counterparty_type": null },
-  "facts": {
-    "current": { "employment_status": null, "main_issue": null, "key_dates": {}, "key_values": {} },
-    "core_facts": [],
-    "timeline": [{ "date": null, "event": null, "origin": null, "source_ref": null }]
-  },
-  "evidence": { "has_evidence": null, "items": [{ "type": null, "status": "unknown", "notes": null, "source_ref": null }] },
-  "open_questions": [],
-  "next_actions": [],
-  "meta": { "last_updated_at": null, "memory_version": 1 }
-}`;
+// LONG_MEMORY_SYSTEM_PROMPT REMOVIDO em 2026-04-20 (Divida 2 do MEMORY_SYSTEM.md).
+//
+// O sistema antigo (updateLongMemory + AiMemory.facts_json com case_state)
+// foi substituido pelo sistema novo: extracao batch noturna + Memory entries
+// + ProfileConsolidationProcessor (incremental 02h) + LeadProfile (prosa).
+//
+// Leitura de AiMemory permanece como fallback para ~19 leads legacy sem
+// tenant_id que nao puderam ser migrados em massa — quando eles interagem
+// de novo, a extracao noturna cria Memory entries e LeadProfile automaticamente.
 
 @Processor('ai-jobs')
 export class AiProcessor extends WorkerHost {
@@ -70,6 +38,7 @@ export class AiProcessor extends WorkerHost {
     private settings: SettingsService,
     private s3: S3Service,
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
+    private memoryRetrieval: MemoryRetrievalService,
   ) {
     super();
   }
@@ -479,22 +448,15 @@ export class AiProcessor extends WorkerHost {
       }
     }
 
-    // d. lead_summary → AiMemory.summary
-    if (updates.lead_summary) {
-      await this.prisma.aiMemory.upsert({
-        where: { lead_id: leadId },
-        create: {
-          lead_id: leadId,
-          summary: updates.lead_summary,
-          facts_json: {},
-        },
-        update: {
-          summary: updates.lead_summary,
-          last_updated_at: new Date(),
-          version: { increment: 1 },
-        },
-      });
-    }
+    // d. lead_summary → AiMemory: REMOVIDO em 2026-04-20
+    //
+    // O sistema novo (LeadProfile + Memory entries via extracao batch noturna
+    // e ProfileConsolidationProcessor) agora e a fonte unica de verdade para
+    // contexto do lead. Ver MEMORY_SYSTEM.md secao 9.6 (migracao case_state).
+    //
+    // A leitura de AiMemory continua na linha ~970 como fallback para leads
+    // sem LeadProfile (principalmente os 19 leads legacy sem tenant_id que
+    // nao puderam ser migrados em massa).
 
     // e. next_step + notes → Conversation
     const convUpdate: any = {};
@@ -797,77 +759,16 @@ export class AiProcessor extends WorkerHost {
     return counts[0]?.id ?? null;
   }
 
-  // ─── Atualiza Long Memory estruturada com GPT-4.1 ───
-  private async updateLongMemory(
-    ai: OpenAI,
-    leadId: string,
-    historyText: string,
-    latestUpdates: any,
-  ) {
-    const existing = await this.prisma.aiMemory.findUnique({
-      where: { lead_id: leadId },
-    });
-    const oldMemory = (existing?.facts_json as any) || {};
-
-    const memoryModel = await this.settings.getMemoryModel();
-
-    const newEvent = `Últimas mensagens:\n${historyText.slice(-3000)}\n\nUpdates do agente: ${JSON.stringify(latestUpdates || {})}`;
-
-    const memoryResult = await ai.chat.completions.create({
-      model: memoryModel,
-      messages: [
-        { role: 'system', content: LONG_MEMORY_SYSTEM_PROMPT },
-        {
-          role: 'user',
-          content: JSON.stringify({
-            old_memory: oldMemory,
-            new_event: newEvent,
-          }),
-        },
-      ],
-      ...this.tokenParam(memoryModel, 4000),
-      temperature: 0.3,
-      response_format: { type: 'json_object' },
-    });
-
-    const rawContent =
-      memoryResult.choices[0]?.message?.content || '{}';
-
-    // Registra uso de tokens da memória para dashboard de custos
-    await this.saveUsage({
-      model: memoryModel,
-      call_type: 'memory',
-      usage: memoryResult.usage,
-    });
-
-    const parsed = JSON.parse(rawContent);
-
-    if (parsed.lead || parsed.case || parsed.facts) {
-      // Prioridade para summary: updates do agente AI > gerado pelo modelo de memória > anterior
-      const newSummary =
-        latestUpdates?.lead_summary ||
-        parsed?.case?.summary ||
-        existing?.summary ||
-        '';
-      await this.prisma.aiMemory.upsert({
-        where: { lead_id: leadId },
-        create: {
-          lead_id: leadId,
-          summary: newSummary,
-          facts_json: parsed,
-        },
-        update: {
-          facts_json: parsed,
-          summary: newSummary,
-          last_updated_at: new Date(),
-          version: { increment: 1 },
-        },
-      });
-      this.logger.log(
-        `[AI] Long Memory atualizada (v${(existing?.version || 0) + 1}) para lead ${leadId} (model=${memoryModel})`,
-      );
-    }
-  }
+  // updateLongMemory() REMOVIDO em 2026-04-20 — Divida 2 do MEMORY_SYSTEM.md.
+  //
+  // Sistema antigo: chamada GPT-4.1 a cada mensagem pra atualizar AiMemory.
+  // Custo: ~$0.03 por mensagem recebida. Escrevia case_state em JSON verboso.
+  //
+  // Sistema novo: extracao batch noturna (DailyMemoryBatchProcessor 00h)
+  // processa TODAS as conversas do dia de uma vez. Memory entries sao
+  // consolidadas pelo ProfileConsolidationProcessor (incremental 02h) em
+  // LeadProfile.summary (prosa natural). Custo: ~$0.01/dia por tenant
+  // (constante, ~70% menor).
 
   // ─── Processo principal ───
   async process(job: Job<any, any, string>): Promise<any> {
@@ -907,39 +808,13 @@ export class AiProcessor extends WorkerHost {
       // 3. Verificar ai_mode ativo
       if (!convo) return;
 
-      // 3a. Mesmo sem ai_mode, atualiza Long Memory para conversas do operador humano.
-      // Isso garante que o "Resumo dos Fatos" seja atualizado mesmo quando um humano atende.
+      // 3a. Quando ai_mode=false (operador humano atende), nada a fazer aqui.
+      //
+      // O sistema antigo atualizava AiMemory sincronamente neste ponto. Hoje,
+      // a extracao batch noturna (DailyMemoryBatchProcessor 00h) processa as
+      // conversas de operadores humanos junto com as da IA, gerando Memory
+      // entries e atualizando LeadProfile automaticamente.
       if (!convo.ai_mode) {
-        if (convo.messages.length > 0) {
-          try {
-            const aiForMemory = new OpenAI({ apiKey: openAiKey });
-            const chronologicalMemory = [...convo.messages].reverse();
-            const historyForMemory = chronologicalMemory
-              .map((m: any) => {
-                const sender =
-                  m.direction === 'in'
-                    ? 'Cliente'
-                    : m.external_message_id?.startsWith('sys_')
-                      ? 'Sophia'
-                      : 'Operador';
-                const content =
-                  m.text ||
-                  (m.type === 'audio'
-                    ? '[áudio sem transcrição]'
-                    : m.type === 'image'
-                      ? `[imagem${m.media?.original_name ? ': ' + m.media.original_name : ''}]`
-                      : m.type === 'document'
-                        ? `[documento${m.media?.original_name ? ': ' + m.media.original_name : ''}]`
-                        : '[mídia]');
-                return `${sender}: ${content}`;
-              })
-              .join('\n');
-            await this.updateLongMemory(aiForMemory, convo.lead_id, historyForMemory, null);
-            this.logger.log(`[AI] Long Memory atualizada para conversa do operador humano (conv ${conversation_id})`);
-          } catch (memErr: any) {
-            this.logger.warn(`[AI] Falha ao atualizar Long Memory (modo operador): ${memErr.message}`);
-          }
-        }
         return;
       }
 
@@ -1227,7 +1102,7 @@ export class AiProcessor extends WorkerHost {
         }
       }
 
-      const siteUrl = process.env.APP_URL || '';
+      const siteUrl = process.env.APP_URL || 'https://andrelustosaadvogados.com.br';
 
       // 10c. Buscar horários disponíveis do advogado atribuído (para agendamento)
       let availableSlots = 'Nenhum advogado atribuído — horários indisponíveis.';
@@ -1382,6 +1257,27 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
 `;
       }
 
+      // Variável dinâmica: bloco informativo sobre horário de expediente.
+      // Vazio se dentro do expediente; multi-linha (inclui motivo + próximo
+      // horário útil) se fora. A skill decide como usar via {{business_hours_info}}.
+      // Passa null quando tenant_id é string vazia/UUID dummy — evita filtrar
+      // holidays por tenant inexistente.
+      const rawTenantId = (convo as any).tenant_id;
+      const tenantIdForBH =
+        rawTenantId && rawTenantId !== '00000000-0000-0000-0000-000000000000'
+          ? rawTenantId
+          : null;
+      const businessHoursInfo = await computeBusinessHoursInfo(
+        this.prisma,
+        tenantIdForBH,
+      ).catch((e: any) => {
+        this.logger.warn(`[AI] Falha ao calcular business_hours_info: ${e.message}`);
+        return '';
+      });
+      this.logger.log(
+        `[AI] business_hours_info len=${businessHoursInfo.length} tenant="${tenantIdForBH}" preview="${businessHoursInfo.slice(0, 120).replace(/\n/g, '\\n')}"`,
+      );
+
       const vars: Record<string, string> = {
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
@@ -1407,6 +1303,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         operator_notes: operatorNotesBlock,
         ai_notes: aiNotesBlock,
         active_cases_info: activeCasesInfoBlock,
+        business_hours_info: businessHoursInfo,
       };
 
       // Cabeçalho fixo de capacidades — injetado antes de qualquer skill prompt
@@ -1421,6 +1318,11 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // O conteúdo de personalidade, roteiro e comportamento está no skill.system_prompt (editável no admin).
       const CORE_RULES = `DATA E HORA ATUAL: {{data_hoje}} (fuso horário de Maceió/AL).
 
+═══════════════════════════════════════════════════
+IDENTIDADE DO CONTATO ATUAL (NUNCA pergunte de qual número ou com quem está falando — esta é a verdade):
+- Nome: {{lead_name}}
+- Telefone WhatsApp: {{lead_phone}}
+- Conversa ID: {{conversation_id}}
 ═══════════════════════════════════════════════════
 MEMÓRIA DO LEAD (tudo que já foi coletado sobre este cliente):
 {{lead_memory}}
@@ -1446,6 +1348,22 @@ PROIBIDO REPETIR PERGUNTAS:
 - ANTES de perguntar algo, verifique SE a informação já foi dita no histórico OU na memória.
 - Se perceber que repetiu, reconheça e avance.
 
+PROIBIDO CONFUNDIR A IDENTIDADE DO CONTATO:
+- O telefone do cliente que está conversando agora é {{lead_phone}}. Isso é fato.
+- Se o lead mencionar um número diferente na conversa (ex: "meu fixo é X"), é info ADICIONAL — NUNCA pergunte "você está falando daquele número?" ou "qual número você está usando?".
+- Se uma mensagem chega, ELA VEIO de {{lead_phone}}. Nunca questione.
+- Se precisar confirmar qual é o contato principal, use o {{lead_phone}} já exibido acima.
+
+RESPONDER A PERGUNTA DO CLIENTE VEM SEMPRE PRIMEIRO (CRÍTICO):
+- Se o cliente fez uma PERGUNTA direta, RESPONDA essa pergunta ANTES de qualquer outra ação.
+- NUNCA ignore a pergunta pra seguir seu roteiro. Responda primeiro, depois continue com o que precisar.
+- Se a pergunta for sobre OS PRÓPRIOS DADOS dele (nome, telefone, email, CPF), CONFIRME usando o bloco "IDENTIDADE DO CONTATO ATUAL" acima. Exemplos:
+  * "qual meu número?" → "Seu número é {{lead_phone}}."
+  * "qual meu nome cadastrado?" → "Temos {{lead_name}} aqui."
+  * "qual o telefone que aparece pra vocês?" → "Aparece {{lead_phone}}."
+- Se a pergunta for sobre o ESCRITÓRIO (endereço, horário, equipe, honorários), RESPONDA com base nas informações de "Sobre nosso escritório" (se sua skill tem essa seção) ou diga que precisa confirmar com a equipe.
+- NUNCA responda "não tenho essa informação" pra dados que estão claramente no contexto acima.
+
 HORÁRIOS DISPONÍVEIS DO ADVOGADO (use SOMENTE estes — NUNCA invente datas ou horários):
 {{available_slots}}
 REGRAS DE AGENDAMENTO: sábado e domingo NÃO são dias úteis. NUNCA ofereça fim de semana. Use {{data_hoje}} para calcular dias da semana corretamente.
@@ -1454,6 +1372,96 @@ STATUS DA FICHA:
 {{ficha_status}}
 `;
 
+
+      // ─── Sistema de memoria (3 camadas) ──────────────────────────────
+      // Camada 1: Memorias organizacionais (escritorio) — so com tenant valido
+      // Camada 2: LeadProfile.summary (perfil consolidado do cliente)
+      // Camada 3: Memorias episodicas recentes do lead
+      //
+      // Distribuicao:
+      //   - Bloco completo (memoryBlock) anexado automaticamente ao final do
+      //     system prompt APENAS se a skill nao referenciar as variaveis novas
+      //     (ver PromptBuilder.buildSystemPrompt — detecta uso das {{...}})
+      //   - Cada camada tambem e exposta como variavel {{office_memories}},
+      //     {{lead_profile}}, {{recent_episodes}} e {{memory_block}} para
+      //     skill writers controlarem o posicionamento manualmente.
+      // Fallback: caso o sistema novo ainda nao tenha memorias populadas,
+      // strings ficam vazias e o prompt usa o {{lead_memory}} antigo (case_state).
+      let memoryBlock = '';
+      let officeMemoriesStr = '';
+      let leadProfileStr = '';
+      let recentEpisodesStr = '';
+      try {
+        const leadIdForMem = convo.lead_id || convo.lead?.id || null;
+        if (tenantIdForBH && leadIdForMem) {
+          const [orgProfile, orgMems, profile, recentEpisodes] = await Promise.all([
+            // OrganizationProfile consolidado (prosa) — fonte principal
+            this.prisma.organizationProfile.findUnique({
+              where: { tenant_id: tenantIdForBH },
+              select: { summary: true },
+            }),
+            // Memorias org cruas — fallback se perfil nao existir ainda
+            this.prisma.memory.findMany({
+              where: {
+                tenant_id: tenantIdForBH,
+                scope: 'organization',
+                scope_id: tenantIdForBH,
+                status: 'active',
+              },
+              orderBy: [{ subcategory: 'asc' }, { confidence: 'desc' }],
+              select: { content: true, subcategory: true },
+            }),
+            this.prisma.leadProfile.findUnique({
+              where: { lead_id: leadIdForMem },
+              select: { summary: true },
+            }),
+            this.prisma.memory.findMany({
+              where: {
+                tenant_id: tenantIdForBH,
+                scope: 'lead',
+                scope_id: leadIdForMem,
+                status: 'active',
+                type: 'episodic',
+              },
+              orderBy: { created_at: 'desc' },
+              take: 5,
+              select: { content: true },
+            }),
+          ]);
+
+          // Prioridade: OrgProfile.summary (prosa consolidada, ~500 palavras)
+          // Fallback: bloco agrupado cru quando perfil ainda nao foi gerado
+          if (orgProfile?.summary?.trim()) {
+            officeMemoriesStr = orgProfile.summary.trim();
+          } else {
+            officeMemoriesStr = this.promptBuilder.buildOrganizationMemoryBlock(orgMems) || '';
+          }
+          leadProfileStr = profile?.summary?.trim() || '';
+          recentEpisodesStr = recentEpisodes.length
+            ? recentEpisodes.map((m) => `- ${m.content}`).join('\n')
+            : '';
+          memoryBlock = this.promptBuilder.buildMemoryLayers({
+            orgSummary: officeMemoriesStr || null,
+            leadProfileSummary: leadProfileStr || null,
+            recentEpisodes,
+          });
+          if (memoryBlock) {
+            this.logger.log(
+              `[AI] memoryBlock: orgProfile=${orgProfile ? 1 : 0} orgMemsRaw=${orgMems.length} profile=${profile ? 1 : 0} episodes=${recentEpisodes.length} chars=${memoryBlock.length}`,
+            );
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao montar memoryBlock: ${e.message}`);
+      }
+
+      // Expoe as 3 camadas como variaveis do template — skill writer pode
+      // usar {{office_memories}}, {{lead_profile}}, {{recent_episodes}} ou
+      // {{memory_block}} (bloco completo) em qualquer posicao do system prompt.
+      vars.office_memories = officeMemoriesStr;
+      vars.lead_profile = leadProfileStr;
+      vars.recent_episodes = recentEpisodesStr;
+      vars.memory_block = memoryBlock;
 
       if (skill) {
         // Injetar references (SkillAssets com inject_mode=full_text) no prompt via PromptBuilder
@@ -1468,7 +1476,15 @@ STATUS DA FICHA:
           references,
           maxContextTokens: skill.max_context_tokens || 4000,
           vars,
+          memoryBlock,
         });
+        // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
+        // no prompt final enviado ao LLM.
+        const hasLiteralVar = systemPrompt.includes('{{business_hours_info}}');
+        const hasResolved = systemPrompt.includes('ESCRITÓRIO FECHADO');
+        this.logger.log(
+          `[AI] systemPrompt: literal_var=${hasLiteralVar} resolved_block=${hasResolved} length=${systemPrompt.length}`,
+        );
         model = this.normalizeModelId(skill.model || (await this.settings.getDefaultModel()));
         maxTokens = Math.max(skill.max_tokens || 500, 800);
         temperature = skill.temperature ?? 0.7;
@@ -1500,6 +1516,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           references: [],
           maxContextTokens: 4000,
           vars,
+          memoryBlock,
         });
         model = await this.settings.getDefaultModel();
         maxTokens = 1500;
@@ -1676,6 +1693,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             s3: this.s3,
             skillAssets: skill.assets || [],
             reminderQueue: this.reminderQueue,
+            memoryRetrieval: this.memoryRetrieval,
+            tenantId: tenantIdForBH || undefined,
           },
         });
 
@@ -2133,24 +2152,14 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         }
       }
 
-      // 19. Atualizar Long Memory (TODA mensagem recebida — sem economizar tokens)
-      const inboundTotal = convo.messages.filter(
-        (m) => m.direction === 'in',
-      ).length;
-      if (inboundTotal > 0) {
-        try {
-          await this.updateLongMemory(
-            ai,
-            convo.lead_id,
-            historyText,
-            updates,
-          );
-        } catch (memErr: any) {
-          this.logger.warn(
-            `[AI] Falha ao atualizar Long Memory: ${memErr.message}`,
-          );
-        }
-      }
+      // 19. Sistema antigo (updateLongMemory/AiMemory) REMOVIDO em 2026-04-20.
+      //
+      // Substituido por: extracao batch noturna (00h) -> Memory entries ->
+      // ProfileConsolidationProcessor (02h incremental) -> LeadProfile.
+      // Ver MEMORY_SYSTEM.md secao 9.6 (migracao case_state -> LeadProfile).
+      //
+      // Leitura de AiMemory permanece como fallback na linha ~970 para
+      // leads legacy sem tenant_id que nao puderam ser migrados em massa.
 
       // 20. Retorna IDs para o AiEventsService da API emitir WebSocket em tempo real
       return { conversationId: convo.id, messageId: savedMsg.id };

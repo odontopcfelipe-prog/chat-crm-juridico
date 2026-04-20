@@ -183,11 +183,8 @@ export class DjenService {
     this.logger.log('[DJEN] Sync diário concluído.');
   }
 
-  async syncForDate(date: string): Promise<{ date: string; saved: number; errors: number; tasksCreated: number }> {
-    const oabNumber  = (await this.settings.get('DJEN_OAB_NUMBER'))  || '14209';
-    const oabUf      = (await this.settings.get('DJEN_OAB_UF'))      || 'AL';
-    const lawyerName = (await this.settings.get('DJEN_LAWYER_NAME')) || 'André Freire Lustosa';
-
+  /** Busca items da API DJEN para uma OAB específica em uma data, com retry */
+  private async fetchDjenItems(oabNumber: string, oabUf: string, lawyerName: string, date: string): Promise<any[]> {
     const params = new URLSearchParams({
       numeroOab: oabNumber,
       ufOab: oabUf,
@@ -196,23 +193,63 @@ export class DjenService {
       dataDisponibilizacaoFim: date,
     });
 
-    let items: any[] = [];
-    try {
-      const res = await fetch(`${this.API_BASE}?${params}`, {
-        headers: { accept: 'application/json' },
-        signal: AbortSignal.timeout(15000),
-      });
-      if (!res.ok) {
-        this.logger.warn(`[DJEN] API retornou ${res.status} para ${date}`);
-        return { date, saved: 0, errors: 1, tasksCreated: 0 };
+    const MAX_RETRIES = 3;
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        const timeoutMs = attempt === 1 ? 30000 : 60000;
+        const res = await fetch(`${this.API_BASE}?${params}`, {
+          headers: { accept: 'application/json' },
+          signal: AbortSignal.timeout(timeoutMs),
+        });
+        if (!res.ok) {
+          this.logger.warn(`[DJEN] API retornou ${res.status} para OAB ${oabNumber}/${oabUf} em ${date} (tentativa ${attempt}/${MAX_RETRIES})`);
+          if (attempt < MAX_RETRIES) { await new Promise(r => setTimeout(r, 5000)); continue; }
+          return [];
+        }
+        const data: any = await res.json();
+        const items = data?.items || data?.content || data?.data || (Array.isArray(data) ? data : []);
+        this.logger.log(`[DJEN] ${items.length} publicações para OAB ${oabNumber}/${oabUf} em ${date}`);
+        return items;
+      } catch (e) {
+        this.logger.error(`[DJEN] Erro OAB ${oabNumber}/${oabUf} em ${date} (tentativa ${attempt}/${MAX_RETRIES}): ${e}`);
+        if (attempt < MAX_RETRIES) { await new Promise(r => setTimeout(r, 5000)); continue; }
+        return [];
       }
-      const data: any = await res.json();
-      items = data?.items || data?.content || data?.data || (Array.isArray(data) ? data : []);
-      this.logger.log(`[DJEN] ${items.length} publicações encontradas para ${date}`);
-    } catch (e) {
-      this.logger.error(`[DJEN] Erro ao consultar API para ${date}: ${e}`);
-      return { date, saved: 0, errors: 1, tasksCreated: 0 };
     }
+    return [];
+  }
+
+  /** Carrega lista de advogados do settings. Formato DJEN_LAWYERS: JSON array [{oab,uf,nome},...] */
+  private async getOabList(): Promise<Array<{ oab: string; uf: string; nome: string }>> {
+    const lawyersJson = await this.settings.get('DJEN_LAWYERS');
+    if (lawyersJson) {
+      try {
+        const parsed = JSON.parse(lawyersJson);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      } catch { /* fallback para settings individuais */ }
+    }
+    // Fallback: settings legados de advogado único
+    const oab  = (await this.settings.get('DJEN_OAB_NUMBER'))  || '14209';
+    const uf   = (await this.settings.get('DJEN_OAB_UF'))      || 'AL';
+    const nome = (await this.settings.get('DJEN_LAWYER_NAME')) || 'André Freire Lustosa';
+    return [{ oab, uf, nome }];
+  }
+
+  async syncForDate(date: string): Promise<{ date: string; saved: number; errors: number; tasksCreated: number }> {
+    const lawyers = await this.getOabList();
+    this.logger.log(`[DJEN] Sincronizando ${date} para ${lawyers.length} advogado(s): ${lawyers.map(l => `${l.nome} (${l.oab}/${l.uf})`).join(', ')}`);
+
+    // Buscar publicações de todas as OABs e deduplicar por comunicacao_id
+    const itemsMap = new Map<number | string, any>();
+    for (const lawyer of lawyers) {
+      const items = await this.fetchDjenItems(lawyer.oab, lawyer.uf, lawyer.nome, date);
+      for (const item of items) {
+        const cid = item.id ?? item.idComunicacao ?? item.comunicacaoId;
+        if (cid && !itemsMap.has(cid)) itemsMap.set(cid, item);
+      }
+    }
+    const items = Array.from(itemsMap.values());
+    this.logger.log(`[DJEN] ${items.length} publicações únicas para ${date} (após deduplicação)`);
 
     let saved = 0;
     let errors = 0;
@@ -250,9 +287,8 @@ export class DjenService {
           if (legalCase) legalCaseId = legalCase.id;
         }
 
-        const dataDisp = item.dataDisponibilizacao
-          ? new Date(item.dataDisponibilizacao)
-          : new Date(date);
+        const dataDispRaw = item.dataDisponibilizacao || date;
+        const dataDisp = new Date(dataDispRaw + (String(dataDispRaw).includes('T') ? '' : 'T12:00:00'));
 
         const tipoComunicacao = item.tipoComunicacao || item.tipo || null;
         const assunto = item.assunto || null;
@@ -269,7 +305,7 @@ export class DjenService {
             assunto,
             tipo_comunicacao: tipoComunicacao,
             conteudo,
-            nome_advogado: item.nomeAdvogado || lawyerName,
+            nome_advogado: item.nomeAdvogado || lawyers.map(l => l.nome).join(', '),
             raw_json: item,
             legal_case_id: legalCaseId,
           },
@@ -877,7 +913,7 @@ export class DjenService {
     return legalCase;
   }
 
-  async analyzePublication(id: string): Promise<{
+  async analyzePublication(id: string, force = false): Promise<{
     resumo: string;
     urgencia: 'URGENTE' | 'NORMAL' | 'BAIXA';
     tipo_acao: string;
@@ -896,6 +932,15 @@ export class DjenService {
     valor_causa: string | null;
     data_audiencia: string | null;
     data_prazo: string | null;
+    // Campos CLIENT (linguagem acessível) — só usados internamente p/ notificação WhatsApp
+    client: {
+      resumo_cliente: string | null;
+      proximo_passo_cliente: string | null;
+      fase_processo_cliente: string | null;
+      orientacao_cliente: string | null;
+      prazo_cliente: string | null;
+      local_evento: string | null;
+    };
   }> {
     const pub = await this.prisma.djenPublication.findUniqueOrThrow({
       where: { id },
@@ -905,6 +950,23 @@ export class DjenService {
         },
       },
     });
+
+    // Cache: retorna análise salva se existir e não for forçada reanálise
+    const CACHE_HOURS = 24;
+    const pubAny = pub as any;
+    if (!force && pubAny.lawyer_analysis && pubAny.analyzed_at) {
+      const age = Date.now() - new Date(pubAny.analyzed_at).getTime();
+      if (age < CACHE_HOURS * 3600000) {
+        this.logger.log(`[DJEN] Análise em cache (${Math.round(age / 60000)}min) para publicação ${id}`);
+        return {
+          ...pubAny.lawyer_analysis,
+          client: pubAny.client_analysis || {
+            resumo_cliente: null, proximo_passo_cliente: null, fase_processo_cliente: null,
+            orientacao_cliente: null, prazo_cliente: null, local_evento: null,
+          },
+        };
+      }
+    }
 
     // Sem processo vinculado: análise ocorre normalmente, mas event_type será forçado a TAREFA no retorno
     const hasLinkedCase = !!pub.legal_case_id;
@@ -1020,7 +1082,8 @@ ${pub.conteudo.slice(0, 6000)}`;
     let parsed: any = {};
     try { parsed = JSON.parse(raw); } catch { parsed = {}; }
 
-    const result = {
+    // ─── Separar campos LAWYER (estratégicos/internos) e CLIENT (público) ─────
+    const lawyerFields = {
       resumo: parsed.resumo || 'Não foi possível gerar o resumo.',
       urgencia: (['URGENTE', 'NORMAL', 'BAIXA'].includes(parsed.urgencia) ? parsed.urgencia : 'NORMAL') as any,
       tipo_acao: parsed.tipo_acao || 'Verificar publicação',
@@ -1029,10 +1092,8 @@ ${pub.conteudo.slice(0, 6000)}`;
       tarefa_titulo: parsed.tarefa_titulo || 'Verificar publicação DJEN',
       tarefa_descricao: parsed.tarefa_descricao || '',
       orientacoes: parsed.orientacoes || '',
-      // Sem processo vinculado: não sugerir criação de eventos de audiência/prazo
       event_type: (!hasLinkedCase ? 'TAREFA' : (['AUDIENCIA', 'PRAZO', 'TAREFA'].includes(parsed.event_type) ? parsed.event_type : 'TAREFA')) as 'AUDIENCIA' | 'PRAZO' | 'TAREFA',
       model_used: configuredModel,
-      // Dados extraídos
       parte_autora: parsed.parte_autora || null,
       parte_rea: parsed.parte_rea || null,
       juizo: parsed.juizo || null,
@@ -1042,16 +1103,28 @@ ${pub.conteudo.slice(0, 6000)}`;
       data_prazo: parsed.data_prazo || null,
     };
 
-    // Persistir parte_autora e parte_rea na publicação para matching futuro com leads
-    if (result.parte_autora || result.parte_rea) {
-      await this.prisma.djenPublication.update({
-        where: { id },
-        data: {
-          parte_autora: result.parte_autora || null,
-          parte_rea: result.parte_rea || null,
-        },
-      }).catch(e => this.logger.warn(`[DJEN] Falha ao salvar partes na publicação ${id}: ${e.message}`));
-    }
+    const clientFields = {
+      resumo_cliente: parsed.resumo_cliente || null,
+      proximo_passo_cliente: parsed.proximo_passo_cliente || null,
+      fase_processo_cliente: parsed.fase_processo_cliente || null,
+      orientacao_cliente: parsed.orientacao_cliente || null,
+      prazo_cliente: parsed.prazo_cliente || null,
+      local_evento: parsed.local_evento || null,
+    };
+
+    const result = { ...lawyerFields, client: clientFields };
+
+    // Persistir análise em DOIS campos separados (evita vazamento para área do cliente)
+    await this.prisma.djenPublication.update({
+      where: { id },
+      data: {
+        lawyer_analysis: lawyerFields as any,
+        client_analysis: clientFields as any,
+        analyzed_at: new Date(),
+        parte_autora: lawyerFields.parte_autora || null,
+        parte_rea: lawyerFields.parte_rea || null,
+      } as any,
+    }).catch(e => this.logger.warn(`[DJEN] Falha ao salvar análise na publicação ${id}: ${e.message}`));
 
     // Salva insights da análise na memória do lead para enriquecer contexto futuro da IA
     const leadId = (pub.legal_case as any)?.lead?.id;
@@ -1291,12 +1364,14 @@ ${pub.conteudo.slice(0, 6000)}`;
     const processoFmt = numeroProcesso.length > 20 ? numeroProcesso.slice(0, 20) + '…' : numeroProcesso;
 
     // Campos orientados ao CLIENTE (gerados pela IA)
-    const resumoCliente = aiAnalysis?.resumo_cliente || aiAnalysis?.resumo || '';
-    const proximoPassoCliente = aiAnalysis?.proximo_passo_cliente || '';
-    const faseProcessoCliente = aiAnalysis?.fase_processo_cliente || '';
-    const orientacaoCliente = aiAnalysis?.orientacao_cliente || '';
-    const prazoCliente = aiAnalysis?.prazo_cliente || '';
-    const localEvento = aiAnalysis?.local_evento || '';
+    // Campos do cliente vêm agora em aiAnalysis.client.* (separados dos internos)
+    const clientData = aiAnalysis?.client || {};
+    const resumoCliente = clientData.resumo_cliente || aiAnalysis?.resumo || '';
+    const proximoPassoCliente = clientData.proximo_passo_cliente || '';
+    const faseProcessoCliente = clientData.fase_processo_cliente || '';
+    const orientacaoCliente = clientData.orientacao_cliente || '';
+    const prazoCliente = clientData.prazo_cliente || '';
+    const localEvento = clientData.local_evento || '';
 
     const customTemplate = await this.settings.getDjenNotifyTemplate();
 

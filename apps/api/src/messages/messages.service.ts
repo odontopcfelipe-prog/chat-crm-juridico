@@ -371,9 +371,9 @@ export class MessagesService {
       },
     });
 
-    // 2. Salvar no filesystem usando o ID da mensagem como chave
+    // 2. Escreve no filesystem local (substitui MinIO)
     const ext = mimeToExt(file.mimetype);
-    const filePath = this.fileStorage.buildRelativePath(msg.id, ext);
+    const filePath = this.fileStorage.generatePath(msg.id, ext);
     await this.fileStorage.write(filePath, file.buffer);
 
     // 3. Criar registro de mídia
@@ -483,7 +483,7 @@ export class MessagesService {
     });
 
     const ext = mimeToExt(mime);
-    const filePath = this.fileStorage.buildRelativePath(msg.id, ext);
+    const filePath = this.fileStorage.generatePath(msg.id, ext);
     await this.fileStorage.write(filePath, file.buffer);
 
     await this.prisma.media.create({
@@ -642,21 +642,21 @@ export class MessagesService {
     const { apiKey: openAiKey } = await this.settings.getAiConfig();
     if (!openAiKey) throw new BadRequestException('OPENAI_API_KEY não configurada');
 
-    // Download — filesystem primeiro, fallback S3 legado
+    // Dual-read: prefere filesystem (novo), cai no S3/MinIO (legado)
     let buffer: Buffer;
-    let mimeBase: string;
+    let contentType: string | undefined;
     if (message.media.file_path) {
-      const fsBuffer = await this.fileStorage.getBuffer(message.media.file_path);
-      if (!fsBuffer) throw new BadRequestException('Arquivo de mídia não encontrado no storage');
-      buffer = fsBuffer;
-      mimeBase = message.media.mime_type.split(';')[0].trim();
+      buffer = await this.fileStorage.read(message.media.file_path);
+      contentType = message.media.mime_type;
     } else if (message.media.s3_key) {
-      const { stream, contentType } = await this.s3.getObjectStream(message.media.s3_key);
-      buffer = await this.streamToBuffer(stream);
-      mimeBase = (contentType || message.media.mime_type).split(';')[0].trim();
+      const s3Result = await this.s3.getObjectStream(message.media.s3_key);
+      buffer = await this.streamToBuffer(s3Result.stream);
+      contentType = s3Result.contentType;
     } else {
-      throw new BadRequestException('Mídia sem storage disponível');
+      throw new BadRequestException('Mídia sem file_path nem s3_key — inconsistente');
     }
+
+    const mimeBase = (contentType || message.media.mime_type).split(';')[0].trim();
     const ext = mimeBase.split('/')[1] || 'ogg';
 
     // Transcrição via Whisper
