@@ -5,9 +5,9 @@ import { createPortal } from 'react-dom';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LogOut, Users, Briefcase, Settings, Palette, Check,
-  MessageSquare, BarChart2, Scale, BookOpen, Calendar,
-  LayoutDashboard, Gavel, Wallet, HelpCircle,
-  ChevronRight, ClipboardList, Sparkles,
+  MessageSquare, BarChart2, Calendar,
+  LayoutDashboard, Wallet, HelpCircle,
+  ChevronRight, Sparkles,
   Camera, Loader2, Trash2,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -368,36 +368,6 @@ export function Sidebar() {
       badge: overdueCount,
       show: true,
     },
-    estagiario: {
-      label: 'Meu Painel',
-      href: '/atendimento/estagiario',
-      icon: <ClipboardList size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/estagiario'),
-      badge: internBadge,
-      show: perms.isEstagiario,
-    },
-    advogado: {
-      label: 'Triagem & Petições',
-      href: '/atendimento/advogado',
-      icon: <Scale size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/advogado'),
-      show: perms.canViewAdvogado,
-    },
-    processos: {
-      label: 'Processos',
-      href: '/atendimento/processos',
-      icon: <BookOpen size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/processos'),
-      show: perms.canViewLegalCases,
-    },
-    djen: {
-      label: 'DJEN — Publicações',
-      href: '/atendimento/djen',
-      icon: <Gavel size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/djen'),
-      badge: djenUnread,
-      show: perms.canViewDjen,
-    },
     followup: {
       label: 'Follow-up IA',
       href: '/atendimento/followup',
@@ -440,11 +410,6 @@ export function Sidebar() {
       id: 'principal',
       label: 'Principal',
       items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.contacts, allItems.agenda].filter(i => i.show),
-    },
-    {
-      id: 'juridico',
-      label: 'Jurídico',
-      items: [allItems.estagiario, allItems.advogado, allItems.processos, allItems.djen].filter(i => i.show),
     },
     {
       id: 'gestao',
