@@ -36,7 +36,7 @@ const settingsSections: MenuSection[] = [
     ],
   },
   {
-    title: 'Escritório',
+    title: 'Clínica',
     items: [
       { label: 'Agenda & Horários', href: '/atendimento/settings/office', icon: Calendar },
       { label: 'Contratos & Assinatura', href: '/atendimento/settings/contracts', icon: FileSignature },
