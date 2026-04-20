@@ -11,8 +11,8 @@ const ubuntuSans = Ubuntu_Sans({
 });
 
 export const metadata: Metadata = {
-  title: 'André Lustosa Advogados | Advocacia Especializada',
-  description: 'Escritório de advocacia especializado em direito previdenciário, trabalhista e cível em Alagoas.',
+  title: 'Instituto Odonto Passos | Clínica Odontológica',
+  description: 'Clínica odontológica especializada em atendimento personalizado e tratamentos modernos.',
 };
 
 export default function RootLayout({
