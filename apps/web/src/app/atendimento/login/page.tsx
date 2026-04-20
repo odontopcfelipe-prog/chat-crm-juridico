@@ -4,7 +4,6 @@ import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { Mail, Lock, AlertCircle, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
 import { motion } from 'framer-motion';
-import Image from 'next/image';
 import api, { API_BASE_URL } from '@/lib/api';
 
 export default function LoginPage() {
@@ -104,33 +103,30 @@ export default function LoginPage() {
             {/* ── Left — Branding ─────────────────────────────────── */}
             <div className="hidden flex-col justify-center lg:flex">
               <div className="mb-12">
-                <Image
-                  src="/logo_andre_lustosa.png"
-                  alt="André Lustosa Advogados"
-                  width={320}
-                  height={100}
-                  className="h-20 w-auto object-contain"
-                />
+                {/* TODO: substituir pelo logo oficial do Instituto Odonto Passos em /public */}
+                <h2 className="text-3xl font-black uppercase tracking-tight text-[#A89048]">
+                  Instituto Odonto Passos
+                </h2>
               </div>
 
               <h1 className="mb-6 text-5xl font-black leading-tight text-white uppercase tracking-tight">
                 Excelência em <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e3c788] via-[#d4b568] to-[#c8aa62]">
-                  Justiça Digital
+                  Odontologia
                 </span>
               </h1>
 
               <p className="mb-10 text-lg text-slate-400 font-medium leading-relaxed max-w-md">
-                Acesse sua plataforma exclusiva de gestão estratégica.
-                Tecnologia de ponta a serviço do seu direito.
+                Acesse sua plataforma de gestão odontológica.
+                Tecnologia a serviço do seu sorriso.
               </p>
 
               <div className="space-y-5">
                 {[
-                  'Gestão Estratégica de Processos',
-                  'Inteligência Jurídica Avançada',
+                  'Gestão Integrada de Pacientes',
+                  'Inteligência Clínica Avançada',
                   'Ambiente Seguro e Privativo',
-                  'Atendimento Nacional Digital',
+                  'Atendimento Personalizado',
                 ].map((feature, i) => (
                   <div key={i} className="flex items-center gap-4 group">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#A89048]/10 border border-[#A89048]/30 transition-all group-hover:bg-[#A89048]/20 group-hover:scale-110 shrink-0">
@@ -147,15 +143,11 @@ export default function LoginPage() {
               <div className="w-full max-w-md border border-white/[0.08] bg-[#111111] shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-[2rem] overflow-hidden">
                 <div className="p-8 md:p-12">
 
-                  {/* Mobile logo */}
+                  {/* Mobile logo — TODO: substituir pelo logo oficial quando disponivel */}
                   <div className="mb-10 flex flex-col items-center justify-center lg:hidden">
-                    <Image
-                      src="/logo_andre_lustosa.png"
-                      alt="André Lustosa Advogados"
-                      width={200}
-                      height={60}
-                      className="h-12 w-auto object-contain"
-                    />
+                    <h2 className="text-2xl font-black uppercase tracking-tight text-[#A89048] text-center">
+                      Instituto Odonto Passos
+                    </h2>
                   </div>
 
                   {/* Heading */}
