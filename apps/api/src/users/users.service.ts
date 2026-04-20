@@ -1,5 +1,6 @@
 import { Injectable, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FileStorageService } from '../media/filesystem.service';
 import { Prisma, User } from '@crm/shared';
 import * as argon2 from 'argon2';
 
@@ -40,7 +41,10 @@ function normalizeRoles(roles: string[] | undefined | null, legacyRole?: string)
 @Injectable()
 export class UsersService {
   private readonly logger = new Logger(UsersService.name);
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fileStorage: FileStorageService,
+  ) {}
 
   private tenantWhere(tenantId?: string) {
     return tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {};
@@ -297,6 +301,84 @@ export class UsersService {
       include: {
         supervisors: { select: { id: true, name: true } },
       },
+    });
+  }
+
+  // ─── Avatar / Foto de Perfil ──────────────────────────────────
+
+  /**
+   * Salva o buffer da imagem no filesystem e atualiza profile_picture_url do usuário.
+   * Somente ADMIN pode chamar este método.
+   */
+  async updateAvatar(userId: string, buffer: Buffer, mimeType: string, tenantId?: string): Promise<{ relativePath: string }> {
+    await this.verifyTenantOwnership(userId, tenantId);
+
+    const ALLOWED_MIMES: Record<string, string> = {
+      'image/jpeg': 'jpg',
+      'image/jpg': 'jpg',
+      'image/png': 'png',
+      'image/gif': 'gif',
+      'image/webp': 'webp',
+    };
+    const ext = ALLOWED_MIMES[mimeType?.toLowerCase()];
+    if (!ext) throw new BadRequestException('Tipo de imagem não suportado. Use JPEG, PNG, GIF ou WebP.');
+    if (buffer.length > 2 * 1024 * 1024) throw new BadRequestException('Imagem muito grande. Máximo 2 MB.');
+
+    // Apaga arquivos antigos de outras extensões (limpeza)
+    for (const oldExt of Object.values(ALLOWED_MIMES)) {
+      if (oldExt !== ext) {
+        await this.fileStorage.delete(`profiles/${userId}.${oldExt}`);
+      }
+    }
+
+    const relativePath = `profiles/${userId}.${ext}`;
+    await this.fileStorage.write(relativePath, buffer);
+
+    await (this.prisma as any).user.update({
+      where: { id: userId },
+      data: { profile_picture_url: relativePath },
+    });
+
+    this.logger.log(`[AVATAR] Foto de perfil atualizada para usuário ${userId}: ${relativePath}`);
+    return { relativePath };
+  }
+
+  /**
+   * Retorna o buffer da foto de perfil + mimeType para servir via HTTP.
+   */
+  async getAvatarBuffer(userId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const user = await (this.prisma as any).user.findUnique({
+      where: { id: userId },
+      select: { profile_picture_url: true },
+    });
+    if (!user?.profile_picture_url) return null;
+
+    const relativePath = user.profile_picture_url as string;
+    const ext = relativePath.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeMap: Record<string, string> = { png: 'image/png', gif: 'image/gif', webp: 'image/webp', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+    const mimeType = mimeMap[ext] ?? 'image/jpeg';
+
+    const buffer = await this.fileStorage.read(relativePath);
+    if (!buffer) return null;
+    return { buffer, mimeType };
+  }
+
+  /**
+   * Remove a foto de perfil do usuário.
+   * Somente ADMIN pode chamar este método.
+   */
+  async removeAvatar(userId: string, tenantId?: string): Promise<void> {
+    await this.verifyTenantOwnership(userId, tenantId);
+    const user = await (this.prisma as any).user.findUnique({
+      where: { id: userId },
+      select: { profile_picture_url: true },
+    });
+    if (user?.profile_picture_url) {
+      await this.fileStorage.delete(user.profile_picture_url);
+    }
+    await (this.prisma as any).user.update({
+      where: { id: userId },
+      data: { profile_picture_url: null },
     });
   }
 }
