@@ -40,6 +40,11 @@ model Tenant {
   memories                  Memory[]
   lead_profiles             LeadProfile[]
   organization_profile      OrganizationProfile?
+  // Odontologia (Fase 2)
+  patients                  Patient[]
+  specialties               Specialty[]
+  procedures                Procedure[]
+  anamnesis_templates       AnamnesisTemplate[]
 }
 
 model User {
@@ -90,6 +95,12 @@ model User {
   conversation_mutes       ConversationMute[]
   notifications            Notification[]
   push_subscriptions       PushSubscription[]
+  // Odontologia (Fase 2)
+  specialties_rel               Specialty[]         @relation("UserSpecialties")
+  primary_patients              Patient[]           @relation("PrimaryDentist")
+  clinical_notes_authored       ClinicalNote[]      @relation("ClinicalNoteAuthor")
+  quotes_created                Quote[]             @relation("QuoteCreator")
+  treatment_plan_items_executed TreatmentPlanItem[] @relation("TreatmentPlanItemExecutor")
 }
 
 model Lead {
@@ -120,6 +131,7 @@ model Lead {
 
   memory               AiMemory?
   profile              LeadProfile?
+  patient              Patient?
   conversations        Conversation[]
   tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   tasks                Task[]
@@ -801,6 +813,7 @@ model CalendarEvent {
   location    String?
 
   lead_id             String?
+  patient_id          String?
   conversation_id     String?
   legal_case_id       String?
   assigned_user_id    String?
@@ -816,6 +829,7 @@ model CalendarEvent {
   child_events    CalendarEvent[] @relation("RecurrenceChildren")
 
   lead             Lead?            @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  patient          Patient?         @relation("PatientAppointments", fields: [patient_id], references: [id], onDelete: SetNull)
   conversation     Conversation?    @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
   legal_case       LegalCase?       @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   assigned_user    User?            @relation("EventAssigned", fields: [assigned_user_id], references: [id], onDelete: SetNull)
@@ -827,6 +841,9 @@ model CalendarEvent {
   task      Task?
   deadline  CaseDeadline?
   tenant    Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  // Odontologia (Fase 2)
+  clinical_notes        ClinicalNote[]      @relation("AppointmentNotes")
+  treatment_plan_items  TreatmentPlanItem[] @relation("TreatmentPlanItemAppointment")
 
   created_by_ai Boolean @default(false) // true quando o evento foi criado por tool da IA (book_appointment)
 
@@ -1190,8 +1207,10 @@ model ContractSignature {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  lead         Lead         @relation(fields: [lead_id], references: [id], onDelete: Cascade)
-  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  lead           Lead           @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  conversation   Conversation   @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  // Odontologia (Fase 2)
+  treatment_plan TreatmentPlan?
 
   @@index([lead_id])
   @@index([conversation_id])
@@ -1665,4 +1684,479 @@ model OrganizationProfile {
 
   generated_at  DateTime @default(now())
   version       Int      @default(1)
+}
+
+// ============================================================================
+// ODONTOLOGIA — Fase 2 — Entidades clinicas core
+// ============================================================================
+// Models adicionados na refatoracao odontologica do Instituto Odonto Passos.
+// Convive com entidades juridicas legado (Lead/LegalCase/etc) — limpeza dos
+// modulos juridicos residuais sera feita em fases posteriores.
+// ============================================================================
+
+/// Paciente — cliente ativo da clinica. Criado quando um Lead agenda a primeira
+/// consulta. Mantem link opcional ao Lead de origem para preservar o historico
+/// de conversas WhatsApp.
+model Patient {
+  id                String    @id @default(uuid())
+  tenant_id         String
+  lead_id           String?   @unique
+
+  // Identificacao
+  name              String
+  cpf               String?
+  rg                String?
+  birth_date        DateTime?
+  gender            String? // "M" | "F" | "OTHER"
+  phone             String?
+  email             String?
+
+  // Endereco
+  address             String?
+  address_number      String?
+  address_complement  String?
+  neighborhood        String?
+  city                String?
+  state               String?
+  zip_code            String?
+
+  // Clinico basico (info nao-sensivel; anamnese tem os dados profundos)
+  blood_type              String?
+  emergency_contact_name  String?
+  emergency_contact_phone String?
+
+  // Relacionamento clinico
+  primary_dentist_id String?
+  referred_by        String? // nome de quem indicou
+
+  // Status do paciente
+  status          String    @default("ACTIVE") // "ACTIVE" | "INACTIVE" | "ARCHIVED"
+  first_visit_at  DateTime?
+  last_visit_at   DateTime?
+
+  // Notas administrativas (nao clinicas — nao e prontuario)
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant          Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  lead            Lead?               @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  primary_dentist User?               @relation("PrimaryDentist", fields: [primary_dentist_id], references: [id], onDelete: SetNull)
+  allergies       PatientAllergy[]
+  medications     PatientMedication[]
+  anamneses       Anamnesis[]
+  medical_record  MedicalRecord?
+  odontogram      Odontogram?
+  clinical_images ClinicalImage[]
+  consents        ConsentRecord[]
+  quotes          Quote[]
+  treatment_plans TreatmentPlan[]
+  appointments    CalendarEvent[]     @relation("PatientAppointments")
+
+  @@unique([tenant_id, cpf])
+  @@index([tenant_id, name])
+  @@index([tenant_id, phone])
+  @@index([primary_dentist_id])
+}
+
+model PatientAllergy {
+  id         String   @id @default(uuid())
+  patient_id String
+  allergen   String // ex: "Penicilina", "Latex", "Anestesico local"
+  severity   String? // "MILD" | "MODERATE" | "SEVERE"
+  notes      String?
+  created_at DateTime @default(now())
+
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([patient_id])
+}
+
+model PatientMedication {
+  id          String    @id @default(uuid())
+  patient_id  String
+  medication  String
+  dosage      String? // "500mg"
+  frequency   String? // "1x ao dia", "de 8 em 8h"
+  reason      String?
+  started_at  DateTime?
+  ended_at    DateTime?
+  created_at  DateTime  @default(now())
+
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([patient_id])
+}
+
+// ============================================================================
+// CATALOGO CLINICO — Specialty + Procedure
+// ============================================================================
+
+model Specialty {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  name        String // "Clinica Geral", "Ortodontia" etc.
+  description String?
+  icon        String? // nome de icone lucide (opcional — UI)
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant     Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  procedures Procedure[]
+  dentists   User[]      @relation("UserSpecialties")
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+}
+
+model Procedure {
+  id           String  @id @default(uuid())
+  tenant_id    String
+  specialty_id String?
+
+  name          String
+  code_tuss     String? // Codigo TUSS (opcional)
+  internal_code String? // Codigo interno da clinica
+
+  description         String?
+  duration_minutes    Int      @default(30)
+  base_price          Decimal  @default(0) @db.Decimal(10, 2)
+  requires_x_ray      Boolean  @default(false)
+  requires_anesthesia Boolean  @default(false)
+
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant               Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  specialty            Specialty?          @relation(fields: [specialty_id], references: [id], onDelete: SetNull)
+  quote_items          QuoteItem[]
+  treatment_plan_items TreatmentPlanItem[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+  @@index([specialty_id])
+}
+
+// ============================================================================
+// ANAMNESE — Template versionado + respostas do paciente
+// ============================================================================
+
+/// Template de perguntas (1 por tenant, versionado). Admin pode editar;
+/// anamneses ja preenchidas preservam snapshot do schema vigente na hora.
+model AnamnesisTemplate {
+  id        String @id @default(uuid())
+  tenant_id String
+  version   Int    @default(1)
+
+  /// Estrutura das perguntas:
+  /// { "sections": [ { "id": "...", "title": "...", "questions": [...] } ] }
+  schema Json
+
+  active     Boolean  @default(true)
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant    Tenant      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  anamneses Anamnesis[]
+
+  @@unique([tenant_id, version])
+  @@index([tenant_id, active])
+}
+
+model Anamnesis {
+  id          String @id @default(uuid())
+  patient_id  String
+  template_id String
+
+  /// Respostas: { "question_id": "answer" }
+  answers         Json @default("{}")
+  /// Snapshot do schema usado (preserva historico mesmo se template mudar)
+  template_schema Json
+
+  filled_by_user_id String?
+  filled_at         DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  patient  Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  template AnamnesisTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
+
+  @@index([patient_id, filled_at])
+}
+
+// ============================================================================
+// PRONTUARIO — MedicalRecord + ClinicalNote (SOAP)
+// ============================================================================
+
+/// Raiz do prontuario. 1 por paciente. Armazena meta-info; as notas reais ficam
+/// em ClinicalNote.
+model MedicalRecord {
+  id              String    @id @default(uuid())
+  patient_id      String    @unique
+  chief_complaint String? // queixa principal
+  history         String? // historia da doenca atual
+
+  opened_at  DateTime  @default(now())
+  closed_at  DateTime? // quando paciente recebe alta
+  updated_at DateTime  @updatedAt
+
+  patient Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  notes   ClinicalNote[]
+
+  @@index([patient_id])
+}
+
+/// Nota clinica (formato SOAP). Imutavel apos is_finalized=true (so addendum).
+model ClinicalNote {
+  id                String  @id @default(uuid())
+  medical_record_id String
+  appointment_id    String?
+  author_user_id    String
+
+  subjective String? // "S" — relato do paciente
+  objective  String? // "O" — exame clinico
+  assessment String? // "A" — diagnostico
+  plan       String? // "P" — plano imediato
+
+  /// IDs de TreatmentPlanItem executados nesta sessao
+  executed_items String[] @default([])
+
+  is_finalized Boolean   @default(false)
+  finalized_at DateTime?
+
+  /// Correcao apos finalizacao — so adiciona, nao sobrescreve
+  addendum    String?
+  addendum_at DateTime?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  medical_record  MedicalRecord   @relation(fields: [medical_record_id], references: [id], onDelete: Cascade)
+  author          User            @relation("ClinicalNoteAuthor", fields: [author_user_id], references: [id], onDelete: Restrict)
+  appointment     CalendarEvent?  @relation("AppointmentNotes", fields: [appointment_id], references: [id], onDelete: SetNull)
+  clinical_images ClinicalImage[]
+
+  @@index([medical_record_id, created_at])
+  @@index([author_user_id])
+  @@index([appointment_id])
+}
+
+// ============================================================================
+// ODONTOGRAMA — Odontogram + ToothRecord (notacao FDI)
+// ============================================================================
+
+/// Estado odontologico atual. 1 por paciente. Dentes higidos nao geram
+/// ToothRecord — so os que tem anotacao (carie, restauracao, ausencia, etc).
+model Odontogram {
+  id         String @id @default(uuid())
+  patient_id String @unique
+
+  /// Meta JSON: { "dentition_stage": "permanent"|"mixed"|"deciduous", "notes": "..." }
+  meta Json @default("{}")
+
+  last_updated_by_user_id String?
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+
+  patient Patient       @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  teeth   ToothRecord[]
+}
+
+/// Registro de dente. Notacao FDI: 11-48 (permanente), 51-85 (deciduo).
+model ToothRecord {
+  id            String @id @default(uuid())
+  odontogram_id String
+  tooth_fdi     String // "11", "36", "51"
+  face          String? // "M","D","O","V","L","INCISAL" ou null = dente inteiro
+
+  state    String // "CARIE","RESTAURADO","AUSENTE","PROTESE","IMPLANTE","ENDODONTIA","EXTRACAO_INDICADA","COROA","FRATURA","OUTROS"
+  material String? // "COMPOSITE","AMALGAMA","PORCELANA","METAL"
+
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  odontogram Odontogram @relation(fields: [odontogram_id], references: [id], onDelete: Cascade)
+
+  @@index([odontogram_id, tooth_fdi])
+}
+
+// ============================================================================
+// IMAGENS CLINICAS — Raio-X, foto intraoral, foto facial
+// ============================================================================
+
+model ClinicalImage {
+  id               String  @id @default(uuid())
+  patient_id       String
+  media_id         String? // link com Media (binario)
+  clinical_note_id String?
+
+  kind        String // "XRAY_PANORAMIC","XRAY_BITEWING","XRAY_PERIAPICAL","PHOTO_INTRAORAL_FRONT","PHOTO_INTRAORAL_OCCLUSAL","PHOTO_FACE","PHOTO_OTHER"
+  tooth_fdi   String?
+  description String?
+  date_taken  DateTime
+
+  uploaded_by_user_id String?
+  created_at          DateTime @default(now())
+
+  patient       Patient       @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  clinical_note ClinicalNote? @relation(fields: [clinical_note_id], references: [id], onDelete: SetNull)
+
+  @@index([patient_id, date_taken])
+  @@index([clinical_note_id])
+}
+
+// ============================================================================
+// CONSENTIMENTO — LGPD + TCLE + Imagem
+// ============================================================================
+
+model ConsentRecord {
+  id                String  @id @default(uuid())
+  patient_id        String
+  treatment_plan_id String?
+
+  type         String // "LGPD_DATA_PROCESSING" | "TREATMENT_CONSENT" | "IMAGE_USE" | "ANESTHESIA"
+  version_text String // versao do termo aceito (texto/identificador)
+
+  consented_at         DateTime @default(now())
+  consented_by_user_id String?
+  ip_address           String?
+  user_agent           String?
+
+  // ClickSign (quando aplicavel — TCLE clinico de plano)
+  clicksign_document_key String?
+  clicksign_signed_at    DateTime?
+  signed_document_s3_key String?
+
+  // Revogacao (LGPD direito ao esquecimento)
+  revoked_at     DateTime?
+  revoked_reason String?
+
+  created_at DateTime @default(now())
+
+  patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  treatment_plan TreatmentPlan? @relation(fields: [treatment_plan_id], references: [id], onDelete: SetNull)
+
+  @@index([patient_id, type])
+  @@index([treatment_plan_id])
+}
+
+// ============================================================================
+// ORCAMENTO + PLANO DE TRATAMENTO
+// ============================================================================
+
+model Quote {
+  id                 String    @id @default(uuid())
+  patient_id         String
+  created_by_user_id String
+
+  status      String    @default("DRAFT") // "DRAFT"|"SENT"|"ACCEPTED"|"REJECTED"|"EXPIRED"
+  valid_until DateTime?
+
+  subtotal         Decimal @default(0) @db.Decimal(10, 2)
+  discount_percent Decimal @default(0) @db.Decimal(5, 2)
+  discount_value   Decimal @default(0) @db.Decimal(10, 2)
+  total_value      Decimal @default(0) @db.Decimal(10, 2)
+
+  payment_terms String? // "A vista", "10x sem juros"
+  notes         String?
+
+  sent_at          DateTime?
+  accepted_at      DateTime?
+  rejected_at      DateTime?
+  rejection_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  created_by     User           @relation("QuoteCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
+  items          QuoteItem[]
+  treatment_plan TreatmentPlan?
+
+  @@index([patient_id, status])
+  @@index([status, valid_until])
+}
+
+model QuoteItem {
+  id           String  @id @default(uuid())
+  quote_id     String
+  procedure_id String
+  tooth_fdi    String?
+
+  quantity    Int     @default(1)
+  unit_price  Decimal @db.Decimal(10, 2)
+  total_price Decimal @db.Decimal(10, 2)
+  notes       String?
+  order_index Int     @default(0)
+
+  quote     Quote     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+
+  @@index([quote_id])
+}
+
+model TreatmentPlan {
+  id         String  @id @default(uuid())
+  patient_id String
+  quote_id   String? @unique
+
+  status String @default("PENDING_SIGNATURE") // "PENDING_SIGNATURE"|"ACTIVE"|"PAUSED"|"COMPLETED"|"CANCELLED"
+
+  start_date         DateTime?
+  end_date           DateTime?
+  estimated_sessions Int?
+  total_value        Decimal   @default(0) @db.Decimal(10, 2)
+
+  /// ClickSign — plano so fica ACTIVE apos assinatura
+  contract_signature_id String? @unique
+
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  patient            Patient             @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  quote              Quote?              @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+  contract_signature ContractSignature?  @relation(fields: [contract_signature_id], references: [id], onDelete: SetNull)
+  items              TreatmentPlanItem[]
+  consents           ConsentRecord[]
+
+  @@index([patient_id, status])
+  @@index([status])
+}
+
+model TreatmentPlanItem {
+  id                String  @id @default(uuid())
+  treatment_plan_id String
+  procedure_id      String
+  tooth_fdi         String?
+
+  quantity    Int     @default(1)
+  unit_price  Decimal @db.Decimal(10, 2)
+  total_price Decimal @db.Decimal(10, 2)
+
+  status String @default("PENDING") // "PENDING"|"SCHEDULED"|"IN_PROGRESS"|"DONE"|"CANCELLED"
+
+  scheduled_at             DateTime?
+  scheduled_appointment_id String?
+
+  executed_at         DateTime?
+  executed_by_user_id String?
+
+  notes       String?
+  order_index Int     @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  treatment_plan        TreatmentPlan  @relation(fields: [treatment_plan_id], references: [id], onDelete: Cascade)
+  procedure             Procedure      @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+  scheduled_appointment CalendarEvent? @relation("TreatmentPlanItemAppointment", fields: [scheduled_appointment_id], references: [id], onDelete: SetNull)
+  executed_by           User?          @relation("TreatmentPlanItemExecutor", fields: [executed_by_user_id], references: [id], onDelete: SetNull)
+
+  @@index([treatment_plan_id, status])
+  @@index([scheduled_appointment_id])
+  @@index([executed_by_user_id])
 }
