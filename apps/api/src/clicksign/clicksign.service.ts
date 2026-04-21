@@ -193,6 +193,99 @@ export class ClicksignService {
     return requestKey;
   }
 
+  // ── Método generico — qualquer documento (TCLE, contratos clinicos etc.) ──
+  // Reutilizavel: TreatmentPlanContractService usa para enviar TCLE odontologico.
+
+  async createGenericSignature(params: {
+    leadId: string;
+    conversationId: string;
+    buffer: Buffer;
+    filename: string;
+    signerName: string;
+    signerEmail: string;
+    signerPhone: string;
+    /** Mensagem que ClickSign mostra na pagina de assinatura. */
+    signerMessage?: string;
+    /** Texto do WhatsApp enviado ao signatario. Se omitido, padrao generico. */
+    whatsappMessage?: string;
+    whatsappInstance?: string;
+  }): Promise<{ signingUrl: string; contractSignatureId: string }> {
+    const { baseUrl, token } = await this.getCfg();
+    if (!token) {
+      throw new BadRequestException('Clicksign nao configurado — acesse Configuracoes › Contratos & Assinatura');
+    }
+
+    const documentKey = await this.uploadDocument(params.buffer, params.filename);
+    const signerKey = await this.createSigner(
+      params.signerName,
+      params.signerEmail,
+      params.signerPhone,
+    );
+
+    // Reutiliza addSignerToDocument com mensagem customizada se informada.
+    // Se nao, mensagem generica.
+    const requestSignatureKey = params.signerMessage
+      ? await this.addSignerToDocumentCustom(documentKey, signerKey, params.signerMessage)
+      : await this.addSignerToDocument(documentKey, signerKey);
+
+    const signingUrl = `${baseUrl}/sign/${requestSignatureKey}`;
+
+    const signature = await this.prisma.contractSignature.create({
+      data: {
+        lead_id: params.leadId,
+        conversation_id: params.conversationId,
+        cs_document_key: documentKey,
+        cs_signer_key: signerKey,
+        cs_request_signature_key: requestSignatureKey,
+        signing_url: signingUrl,
+        status: 'PENDENTE',
+      },
+    });
+    this.logger.log(`[Clicksign] ContractSignature generica criada: ${signature.id}`);
+
+    if (params.signerPhone) {
+      const msg =
+        params.whatsappMessage ||
+        `📝 *Documento para assinatura*\n\nOlá ${params.signerName.split(' ')[0]}!\n\n` +
+        `Seu documento está pronto para assinatura digital.\n\n` +
+        `🔒 A assinatura é segura e válida juridicamente (Lei 14.063/2020).\n\n` +
+        `✍️ *Clique aqui para assinar:*\n${signingUrl}`;
+      try {
+        await this.whatsapp.sendText(params.signerPhone, msg, params.whatsappInstance);
+        this.logger.log(`[Clicksign] Link enviado via WhatsApp para ${params.signerPhone}`);
+      } catch (e: any) {
+        this.logger.warn(`[Clicksign] Falha ao enviar WhatsApp: ${e.message}`);
+      }
+    }
+
+    return { signingUrl, contractSignatureId: signature.id };
+  }
+
+  /** Variante de addSignerToDocument que aceita mensagem customizada. */
+  private async addSignerToDocumentCustom(
+    documentKey: string,
+    signerKey: string,
+    message: string,
+  ): Promise<string> {
+    const payload = {
+      list: {
+        document_key: documentKey,
+        signer_key: signerKey,
+        sign_as: 'party',
+        refusable: false,
+        message,
+        delivery: 'link',
+      },
+    };
+    const result = await this.clicksignFetch<{ list: ClicksignList }>('POST', '/lists', payload);
+    const requestKey = result?.list?.request_signature_key;
+    if (!requestKey) {
+      throw new InternalServerErrorException('Clicksign nao retornou request_signature_key');
+    }
+    this.logger.log(`[Clicksign] Signatario adicionado (custom msg), request_key: ${requestKey}`);
+    return requestKey;
+  }
+
   // ── Método principal: solicitar assinatura ─────────────────────────────────
 
   async requestSignature(params: {
@@ -496,6 +589,24 @@ export class ClicksignService {
         ...(signedS3Key ? { signed_s3_key: signedS3Key } : {}),
       },
     });
+
+    // ─── Auto-ativar TreatmentPlan vinculado (Fase 4 — odonto) ───────────
+    // Se este ContractSignature e o TCLE de um TreatmentPlan PENDING_SIGNATURE,
+    // ativa o plano automaticamente assim que o paciente assina.
+    try {
+      const linkedPlan = await this.prisma.treatmentPlan.findUnique({
+        where: { contract_signature_id: sig.id },
+      });
+      if (linkedPlan && linkedPlan.status === 'PENDING_SIGNATURE') {
+        await this.prisma.treatmentPlan.update({
+          where: { id: linkedPlan.id },
+          data: { status: 'ACTIVE', start_date: linkedPlan.start_date || signedAt },
+        });
+        this.logger.log(`[Clicksign] TreatmentPlan ${linkedPlan.id} ativado automaticamente apos assinatura`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[Clicksign] Falha ao ativar TreatmentPlan vinculado: ${e.message}`);
+    }
 
     // Enviar PDF assinado ao cliente via WhatsApp (se disponível)
     if (signedS3Key && this.publicApiUrl) {

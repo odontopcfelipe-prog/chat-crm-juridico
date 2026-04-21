@@ -3,6 +3,7 @@ import {
 } from '@nestjs/common';
 import { QuotesService } from './quotes.service';
 import { TreatmentPlansService } from './treatment-plans.service';
+import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CreateQuoteDto, UpdateQuoteDto, CreateQuoteItemDto, UpdateQuoteItemDto, RejectQuoteDto,
@@ -15,6 +16,7 @@ export class CommercialController {
   constructor(
     private readonly quotesService: QuotesService,
     private readonly plansService: TreatmentPlansService,
+    private readonly contractService: TreatmentPlanContractService,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -124,6 +126,13 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.plansService.update(id, tenantId, dto as any);
+  }
+
+  @Post('treatment-plans/:id/send-for-signature')
+  sendPlanForSignature(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.contractService.sendForSignature(id, tenantId);
   }
 
   @Post('treatment-plans/:id/activate')
