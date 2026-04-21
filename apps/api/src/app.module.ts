@@ -62,6 +62,7 @@ import { CommissionsModule } from './commissions/commissions.module';
 import { InstallmentsModule } from './installments/installments.module';
 import { PortalModule } from './portal/portal.module';
 import { ReportsModule } from './reports/reports.module';
+import { ClinicsModule } from './clinics/clinics.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -155,6 +156,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     PortalModule,
     // Fase 14 — Hub de Relatorios
     ReportsModule,
+    // Fase 15 — Multi-unidade / Franquias
+    ClinicsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

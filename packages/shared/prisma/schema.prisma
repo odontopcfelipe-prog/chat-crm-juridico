@@ -63,6 +63,8 @@ model Tenant {
   installments              Installment[]
   // Portal do paciente (Fase 13)
   portal_tokens             PortalToken[]
+  // Multi-unidade (Fase 15)
+  clinics                   Clinic[]
 }
 
 model User {
@@ -130,6 +132,8 @@ model User {
   commission_rules              CommissionRule[]       @relation("CommissionRuleProfessional")
   commissions_received          Commission[]           @relation("CommissionRecipient")
   goals_assigned                Goal[]                 @relation("GoalProfessional")
+  // Multi-unidade (Fase 15)
+  user_clinics                  UserClinic[]
 }
 
 model Lead {
@@ -2926,4 +2930,72 @@ model PortalToken {
   @@index([tenant_id, patient_id])
   @@index([token])
   @@index([expires_at])
+}
+
+// ============================================================================
+// FASE 15 — MULTI-UNIDADE / FRANQUIAS (Enterprise)
+// ============================================================================
+//
+// Clinic representa uma sub-unidade dentro do tenant (rede ou franquia).
+// Para franquias com tenant proprio, Clinic e overlay opcional.
+//
+// UserClinic e relacao N:N: um usuario pode ter acesso a multiplas
+// unidades, com role/permissoes configuradas por unidade.
+//
+// Patient/CalendarEvent/Quote/Installment NAO ganham clinic_id nesta fase
+// (refator gigante). Esta fase entrega cadastro + ranking comparativo
+// agregado via tenant_id (cada Clinic pode ser tag para futura migration).
+
+model Clinic {
+  id          String  @id @default(uuid())
+  tenant_id   String
+  name        String
+  short_name  String? // "Centro SP", "Moema", "Copacabana RJ"
+  address     String?
+  city        String?
+  state       String? // UF
+  phone       String?
+  email       String?
+  cnpj        String?
+  // Tipo (Clinicorp distingue dental vs aesthetic)
+  type        String  @default("MIXED") // DENTAL | AESTHETIC | MIXED
+  // Horario de funcionamento (JSON por dia da semana)
+  working_hours Json?
+  // Logo / branding
+  logo_url    String?
+  brand_color String? // Hex (ex: #F58220)
+  // Status
+  active      Boolean @default(true)
+  // Para franquias
+  is_franchise Boolean @default(false)
+  franchisee_owner_user_id String? // Dono da franquia (se franquia)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant       Tenant       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user_clinics UserClinic[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+  @@index([is_franchise])
+}
+
+/// Relacao N:N entre User e Clinic com role/permissoes opcionais.
+/// Quando um User nao tem registros UserClinic, tem acesso a TODAS as
+/// clinicas do tenant (default backward-compatible).
+model UserClinic {
+  id          String   @id @default(uuid())
+  user_id     String
+  clinic_id   String
+  role        String?  // OPERADOR | ADVOGADO | GESTOR | ADMIN | DENTISTA — sobrepoe roles globais nesta unidade
+  is_default  Boolean  @default(false) // Unidade default ao logar
+  created_at  DateTime @default(now())
+
+  user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  clinic Clinic @relation(fields: [clinic_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, clinic_id])
+  @@index([user_id])
+  @@index([clinic_id])
 }
