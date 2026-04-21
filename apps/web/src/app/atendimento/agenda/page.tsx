@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useNextCalendarApp, ScheduleXCalendar } from '@schedule-x/react';
+import { AgendaResourceView } from './AgendaResourceView';
 import { createViewDay, createViewWeek, createViewMonthGrid } from '@schedule-x/calendar';
 import { createEventsServicePlugin } from '@schedule-x/events-service';
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop';
@@ -330,6 +331,9 @@ export default function AgendaPage() {
 
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
+  // Fase 12 PR2: visualizacao multi-coluna por profissional (DayPilot Lite)
+  const [calendarMode, setCalendarMode] = useState<'week' | 'professional'>('week');
+  const [resourceDate, setResourceDate] = useState<Date>(new Date());
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('tab') === 'tasks') setActiveTab('tasks');
@@ -398,7 +402,7 @@ export default function AgendaPage() {
 
   // ─── openCreateModal — definido ANTES dos useEffects e callbacks que o usam ──
   // useCallback com [currentUserId] para evitar stale closure no atalho de teclado
-  const openCreateModal = useCallback((dateTime?: string) => {
+  const openCreateModal = useCallback((dateTime?: string, presetUserId?: string) => {
     const now = new Date();
     let date: string;
     let time: string;
@@ -438,7 +442,7 @@ export default function AgendaPage() {
       all_day: false,
       priority: 'NORMAL',
       location: '',
-      assigned_user_id: currentUserId,
+      assigned_user_id: presetUserId || currentUserId,
       lead_id: '',
       legal_case_id: '',
       reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }],
@@ -1522,16 +1526,117 @@ export default function AgendaPage() {
             </div>
           </div>
         ) : (
-        /* ══ CALENDÁRIO SCHEDULE-X ══ */
+        /* ══ CALENDÁRIO SCHEDULE-X ou DayPilot Resources (Fase 12 PR2) ══ */
         <div className="flex-1 overflow-auto">
-          <div className="sx-react-calendar-wrapper h-full min-h-[500px]" style={{
-            ['--sx-color-primary' as any]: 'hsl(var(--primary))',
-            ['--sx-color-surface' as any]: 'hsl(var(--card))',
-            ['--sx-color-on-surface' as any]: 'hsl(var(--foreground))',
-            ['--sx-color-surface-variant' as any]: 'hsl(var(--accent))',
-          }}>
-            {calendar && <ScheduleXCalendar calendarApp={calendar} />}
+          {/* Toggle Semana | Por profissional */}
+          <div className="px-4 py-2 border-b border-border flex items-center gap-3">
+            <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
+              <button
+                onClick={() => setCalendarMode('week')}
+                className={`px-3 py-1 rounded text-xs font-medium ${
+                  calendarMode === 'week'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Semana
+              </button>
+              <button
+                onClick={() => setCalendarMode('professional')}
+                className={`px-3 py-1 rounded text-xs font-medium ${
+                  calendarMode === 'professional'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                Por profissional
+              </button>
+            </div>
+            {calendarMode === 'professional' && (
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => {
+                    const d = new Date(resourceDate);
+                    d.setDate(d.getDate() - 1);
+                    setResourceDate(d);
+                  }}
+                  className="px-2 py-1 rounded hover:bg-accent text-xs"
+                >
+                  ←
+                </button>
+                <span className="text-xs font-medium">
+                  {resourceDate.toLocaleDateString('pt-BR', {
+                    weekday: 'short',
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                  })}
+                </span>
+                <button
+                  onClick={() => {
+                    const d = new Date(resourceDate);
+                    d.setDate(d.getDate() + 1);
+                    setResourceDate(d);
+                  }}
+                  className="px-2 py-1 rounded hover:bg-accent text-xs"
+                >
+                  →
+                </button>
+                <button
+                  onClick={() => setResourceDate(new Date())}
+                  className="px-2 py-1 rounded hover:bg-accent text-xs"
+                >
+                  Hoje
+                </button>
+              </div>
+            )}
           </div>
+
+          {calendarMode === 'professional' ? (
+            <div className="p-3">
+              <AgendaResourceView
+                date={resourceDate}
+                professionals={users.map((u) => ({ id: u.id, name: u.name }))}
+                events={events as any}
+                onEventClick={(eventId) => {
+                  const ev = eventsRef.current.find((e) => e.id === eventId);
+                  if (ev) openEditModal(ev);
+                }}
+                onSlotClick={({ start, assigned_user_id }) => {
+                  // Converte ISO para "YYYY-MM-DD HH:mm" usado por openCreateModal
+                  const d = new Date(start);
+                  const local = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
+                  openCreateModal(local, assigned_user_id);
+                }}
+                onMove={async ({ id, start, end, assigned_user_id }) => {
+                  try {
+                    await api.patch(`/calendar/events/${id}`, {
+                      start_at: start,
+                      end_at: end,
+                      assigned_user_id,
+                    });
+                    setEvents((prev) =>
+                      prev.map((e) =>
+                        e.id === id ? { ...e, start_at: start, end_at: end, assigned_user_id } : e,
+                      ),
+                    );
+                  } catch {
+                    // rollback via refetch
+                    if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
+                  }
+                }}
+              />
+            </div>
+          ) : (
+            <div className="sx-react-calendar-wrapper h-full min-h-[500px]" style={{
+              ['--sx-color-primary' as any]: 'hsl(var(--primary))',
+              ['--sx-color-surface' as any]: 'hsl(var(--card))',
+              ['--sx-color-on-surface' as any]: 'hsl(var(--foreground))',
+              ['--sx-color-surface-variant' as any]: 'hsl(var(--accent))',
+            }}>
+              {calendar && <ScheduleXCalendar calendarApp={calendar} />}
+            </div>
+          )}
         </div>
         )}
 
