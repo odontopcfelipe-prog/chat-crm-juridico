@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Loader2, User, Phone, Mail, Cake, IdCard, MapPin,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
-  AlertTriangle, Pill, Trash2,
+  AlertTriangle, Pill, Trash2, Sparkles,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -14,6 +14,7 @@ import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
 import OrcamentoTab from '../components/OrcamentoTab';
 import TratamentoTab from '../components/TratamentoTab';
+import EsteticaFacialTab from '../components/EsteticaFacialTab';
 
 interface Patient {
   id: string;
@@ -43,6 +44,7 @@ const TABS = [
   { id: 'anamnesis', label: 'Anamnese', icon: FileText },
   { id: 'medical-record', label: 'Prontuário', icon: Stethoscope },
   { id: 'odontogram', label: 'Odontograma', icon: Activity },
+  { id: 'esthetic', label: 'Estética facial', icon: Sparkles },
   { id: 'quotes', label: 'Orçamentos', icon: DollarSign },
   { id: 'treatment-plans', label: 'Tratamentos', icon: ClipboardList },
 ] as const;
@@ -158,6 +160,7 @@ export default function PacienteFichaPage() {
       {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
       {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
       {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}
+      {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'quotes' && <OrcamentoTab patientId={patient.id} />}
       {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
     </div>
