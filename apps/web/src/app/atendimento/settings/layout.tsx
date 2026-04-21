@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout, Briefcase,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain,
+  Brain, DoorOpen, Tag,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -39,6 +39,8 @@ const settingsSections: MenuSection[] = [
     title: 'Clínica',
     items: [
       { label: 'Agenda & Horários', href: '/atendimento/settings/office', icon: Calendar },
+      { label: 'Salas & Cadeiras', href: '/atendimento/settings/rooms', icon: DoorOpen },
+      { label: 'Marcadores de Agenda', href: '/atendimento/settings/appointment-markers', icon: Tag },
       { label: 'Contratos & Assinatura', href: '/atendimento/settings/contracts', icon: FileSignature },
     ],
   },

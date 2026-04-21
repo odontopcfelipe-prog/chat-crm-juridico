@@ -8,7 +8,7 @@ import {
   MessageSquare, BarChart2, Calendar,
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, Sparkles, HeartPulse,
-  Camera, Loader2, Trash2, Package,
+  Camera, Loader2, Trash2, Package, Bell,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -382,6 +382,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/estoque'),
       show: true,
     },
+    returnAlerts: {
+      label: 'Retornos',
+      href: '/atendimento/return-alerts',
+      icon: <Bell size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/return-alerts'),
+      show: true,
+    },
     followup: {
       label: 'Follow-up IA',
       href: '/atendimento/followup',
@@ -423,7 +430,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.estoque].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.returnAlerts, allItems.estoque].filter(i => i.show),
     },
     {
       id: 'gestao',
