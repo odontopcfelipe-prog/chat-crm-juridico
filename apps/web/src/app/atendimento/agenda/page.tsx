@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { useNextCalendarApp, ScheduleXCalendar } from '@schedule-x/react';
 import { AgendaResourceView } from './AgendaResourceView';
+import { AgendaResourceLayout } from './AgendaResourceLayout';
 import { createViewDay, createViewWeek, createViewMonthGrid } from '@schedule-x/calendar';
 import { createEventsServicePlugin } from '@schedule-x/events-service';
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop';
@@ -1552,50 +1553,13 @@ export default function AgendaPage() {
                 Por profissional
               </button>
             </div>
-            {calendarMode === 'professional' && (
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => {
-                    const d = new Date(resourceDate);
-                    d.setDate(d.getDate() - 1);
-                    setResourceDate(d);
-                  }}
-                  className="px-2 py-1 rounded hover:bg-accent text-xs"
-                >
-                  ←
-                </button>
-                <span className="text-xs font-medium">
-                  {resourceDate.toLocaleDateString('pt-BR', {
-                    weekday: 'short',
-                    day: '2-digit',
-                    month: 'short',
-                    year: 'numeric',
-                  })}
-                </span>
-                <button
-                  onClick={() => {
-                    const d = new Date(resourceDate);
-                    d.setDate(d.getDate() + 1);
-                    setResourceDate(d);
-                  }}
-                  className="px-2 py-1 rounded hover:bg-accent text-xs"
-                >
-                  →
-                </button>
-                <button
-                  onClick={() => setResourceDate(new Date())}
-                  className="px-2 py-1 rounded hover:bg-accent text-xs"
-                >
-                  Hoje
-                </button>
-              </div>
-            )}
           </div>
 
           {calendarMode === 'professional' ? (
-            <div className="p-3">
-              <AgendaResourceView
+            <div className="p-3 h-full">
+              <AgendaResourceLayout
                 date={resourceDate}
+                setDate={setResourceDate}
                 professionals={users.map((u) => ({ id: u.id, name: u.name }))}
                 events={events as any}
                 onEventClick={(eventId) => {
@@ -1603,7 +1567,6 @@ export default function AgendaPage() {
                   if (ev) openEditModal(ev);
                 }}
                 onSlotClick={({ start, assigned_user_id }) => {
-                  // Converte ISO para "YYYY-MM-DD HH:mm" usado por openCreateModal
                   const d = new Date(start);
                   const local = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')} ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
                   openCreateModal(local, assigned_user_id);
@@ -1621,7 +1584,6 @@ export default function AgendaPage() {
                       ),
                     );
                   } catch {
-                    // rollback via refetch
                     if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
                   }
                 }}
