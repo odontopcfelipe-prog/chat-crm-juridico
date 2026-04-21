@@ -7,7 +7,7 @@ import {
   LogOut, Users, Briefcase, Settings, Palette, Check,
   MessageSquare, BarChart2, Calendar,
   LayoutDashboard, Wallet, HelpCircle,
-  ChevronRight, Sparkles,
+  ChevronRight, Sparkles, HeartPulse,
   Camera, Loader2, Trash2,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
@@ -353,6 +353,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/crm'),
       show: true,
     },
+    pacientes: {
+      label: 'Pacientes',
+      href: '/atendimento/pacientes',
+      icon: <HeartPulse size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/pacientes'),
+      show: true,
+    },
     contacts: {
       label: 'Contatos',
       href: '/atendimento/contacts',
@@ -409,7 +416,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.contacts, allItems.agenda].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda].filter(i => i.show),
     },
     {
       id: 'gestao',
