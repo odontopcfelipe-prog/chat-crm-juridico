@@ -5,7 +5,7 @@ import { useParams, useRouter } from 'next/navigation';
 import {
   ArrowLeft, Loader2, User, Phone, Mail, Cake, IdCard, MapPin,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
-  AlertTriangle, Pill, Trash2, Sparkles,
+  AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -75,6 +75,30 @@ export default function PacienteFichaPage() {
     load();
   }, [params?.id]);
 
+  const handleSendPortalLink = async () => {
+    if (!patient) return;
+    if (!patient.phone) {
+      showError('Paciente sem telefone — cadastre antes de enviar o portal');
+      return;
+    }
+    if (!confirm(`Enviar link do Portal do Paciente para ${patient.name} via WhatsApp (${patient.phone})?`)) return;
+    try {
+      const { data } = await api.post('/portal/magic-link', {
+        patient_id: patient.id,
+        channel: 'WHATSAPP',
+      });
+      if (data?.dispatch?.status === 'SENT') {
+        showSuccess(`Link enviado para ${patient.phone}!`);
+      } else if (data?.dispatch?.status === 'FAILED') {
+        showError(`Token gerado mas envio falhou: ${data.dispatch.reason}. Link: ${data.link}`);
+      } else {
+        showSuccess(`Link gerado: ${data.link}`);
+      }
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao gerar link');
+    }
+  };
+
   const handleArchive = async () => {
     if (!patient) return;
     if (!confirm(`Arquivar o paciente ${patient.name}? Esta ação preserva todos os dados.`)) return;
@@ -121,14 +145,25 @@ export default function PacienteFichaPage() {
             </div>
           </div>
         </div>
-        {patient.status !== 'ARCHIVED' && (
-          <button
-            onClick={handleArchive}
-            className="text-xs text-destructive hover:bg-destructive/10 px-3 py-2 rounded-lg flex items-center gap-1"
-          >
-            <Trash2 size={14} /> Arquivar
-          </button>
-        )}
+        <div className="flex items-center gap-2">
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={handleSendPortalLink}
+              className="text-xs text-primary hover:bg-primary/10 border border-primary/20 px-3 py-2 rounded-lg flex items-center gap-1"
+              title="Enviar link do portal do paciente via WhatsApp"
+            >
+              <MessageCircle size={14} /> Enviar portal
+            </button>
+          )}
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={handleArchive}
+              className="text-xs text-destructive hover:bg-destructive/10 px-3 py-2 rounded-lg flex items-center gap-1"
+            >
+              <Trash2 size={14} /> Arquivar
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}

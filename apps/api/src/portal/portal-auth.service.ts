@@ -1,7 +1,9 @@
 import { Injectable, Logger, NotFoundException, BadRequestException, UnauthorizedException, GoneException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { randomBytes } from 'crypto';
+import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
+import { SettingsService } from '../settings/settings.service';
 
 @Injectable()
 export class PortalAuthService {
@@ -13,14 +15,15 @@ export class PortalAuthService {
   constructor(
     private prisma: PrismaService,
     private jwt: JwtService,
+    private settings: SettingsService,
   ) {}
 
   /**
    * Recepcao chama com tenantId+patientId+(opcional) channel.
-   * Gera token aleatorio, salva, retorna token + url do portal.
+   * Gera token aleatorio, salva e — se canal=WHATSAPP e Evolution
+   * configurada — dispara mensagem com o link automaticamente.
    *
-   * O envio do WhatsApp e responsabilidade do worker/servico
-   * separado — esta funcao apenas registra o token.
+   * Retorna token + url + status do envio (para feedback na UI).
    */
   async createMagicLink(
     tenantId: string,
@@ -47,16 +50,88 @@ export class PortalAuthService {
       },
     });
 
+    // Monta URL completa do magic link
+    const publicUrl =
+      process.env.PORTAL_PUBLIC_URL ||
+      process.env.PUBLIC_WEB_URL ||
+      'https://sistema.institutoodontopassos.com.br';
+    const link = `${publicUrl.replace(/\/+$/, '')}/area-paciente/login?token=${created.token}`;
+
+    // Auto-dispatch via WhatsApp (best-effort)
+    let dispatch: { status: 'SENT' | 'SKIPPED' | 'FAILED'; reason?: string } = {
+      status: 'SKIPPED',
+    };
+
+    if (channel === 'WHATSAPP' && patient.phone) {
+      dispatch = await this.dispatchWhatsApp(tenantId, patient.phone, patient.name, link);
+    } else if (channel === 'WHATSAPP' && !patient.phone) {
+      dispatch = { status: 'SKIPPED', reason: 'Paciente sem telefone' };
+    }
+
     return {
       token: created.token,
       expires_at: created.expires_at,
+      link,
       patient: {
         id: patient.id,
         name: patient.name,
         phone: patient.phone,
         email: patient.email,
       },
+      dispatch,
     };
+  }
+
+  /**
+   * Dispara mensagem WhatsApp via Evolution. Resolve instance do tenant
+   * (primeira ativa). Best-effort: nunca derruba o fluxo de criacao do
+   * token — falhas viram dispatch.status=FAILED.
+   */
+  private async dispatchWhatsApp(
+    tenantId: string,
+    phone: string,
+    name: string,
+    link: string,
+  ): Promise<{ status: 'SENT' | 'FAILED'; reason?: string }> {
+    try {
+      const cfg = await this.settings.getWhatsAppConfig();
+      if (!cfg.apiUrl || !cfg.apiKey) {
+        return { status: 'FAILED', reason: 'Evolution API nao configurada' };
+      }
+      const instance = await this.prisma.instance.findFirst({
+        where: { tenant_id: tenantId },
+        select: { name: true },
+        orderBy: { name: 'asc' },
+      });
+      if (!instance) {
+        return { status: 'FAILED', reason: 'Sem Evolution instance no tenant' };
+      }
+
+      const firstName = name.split(' ')[0];
+      const text =
+        `Ola ${firstName}! 👋\n\n` +
+        `Seu portal do paciente esta pronto. Acesse para ver:\n` +
+        `📅 Agendamentos\n` +
+        `💰 Parcelas\n` +
+        `📋 Anamnese\n\n` +
+        `${link}\n\n` +
+        `Link valido por 7 dias e de uso unico.`;
+
+      await axios.post(
+        `${cfg.apiUrl}/message/sendText/${instance.name}`,
+        { number: phone, text },
+        {
+          headers: { 'Content-Type': 'application/json', apikey: cfg.apiKey },
+          timeout: 15000,
+        },
+      );
+      this.logger.log(`[Portal] Magic link enviado para ${name} (${phone})`);
+      return { status: 'SENT' };
+    } catch (err: any) {
+      const reason = err?.response?.data?.message || err?.message || 'erro';
+      this.logger.warn(`[Portal] Falha ao enviar WhatsApp para ${phone}: ${reason}`);
+      return { status: 'FAILED', reason };
+    }
   }
 
   /**
