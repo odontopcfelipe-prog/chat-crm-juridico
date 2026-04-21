@@ -135,6 +135,29 @@ function getEventColor(type: string) {
   return EVENT_TYPES.find(t => t.id === type)?.color || '#6b7280';
 }
 
+/**
+ * Mapeia evento para um dos slots semanticos Clinicorp.
+ * Convencao do mercado odontologico (Clinicorp/Dental Office/etc.):
+ *   - rosa  (#F8D7DA): horario agendado, paciente nao confirmou
+ *   - verde (#28A745): paciente confirmou presenca
+ *   - cinza (#6C757D): consulta concluida ou no_show
+ *   - amarelo (#FFC107): adiado/aguardando
+ *   - vermelho (#DC3545): cancelado / conflito
+ *
+ * Para eventos NAO-CONSULTA (TAREFA/AUDIENCIA/PRAZO/PERICIA), mantem
+ * cor por tipo (preserva semantica juridica antiga).
+ */
+function getSemanticCalendarId(ev: { type: string; status: string }): string {
+  if (ev.type !== 'CONSULTA') return ev.type; // mantem comportamento antigo
+  switch (ev.status) {
+    case 'CONFIRMADO': return 'SLOT_CONFIRMED';
+    case 'CONCLUIDO': return 'SLOT_DONE';
+    case 'CANCELADO': return 'SLOT_CANCELLED';
+    case 'ADIADO':    return 'SLOT_DEFERRED';
+    default:          return 'SLOT_BOOKED'; // AGENDADO / outros
+  }
+}
+
 function toLocalDateTime(isoStr: string): string {
   // App usa UTC "naive" — horários salvos como UTC = horário local de Maceió
   const d = new Date(isoStr);
@@ -545,6 +568,61 @@ export default function AgendaPage() {
     },
     plugins: [eventsServicePlugin, createDragAndDropPlugin()],
     events: [],
+    // Cores semanticas Clinicorp (Fase 12) — slots de consulta odontologica
+    calendars: {
+      // CONSULTA: mapeada por status via getSemanticCalendarId
+      SLOT_BOOKED: {
+        colorName: 'agendado',
+        lightColors: { main: '#E91E63', container: '#F8D7DA', onContainer: '#5C0011' },
+        darkColors:  { main: '#F8D7DA', container: '#5C0011', onContainer: '#F8D7DA' },
+      },
+      SLOT_CONFIRMED: {
+        colorName: 'confirmado',
+        lightColors: { main: '#28A745', container: '#D4EDDA', onContainer: '#0F4416' },
+        darkColors:  { main: '#28A745', container: '#0F4416', onContainer: '#D4EDDA' },
+      },
+      SLOT_DONE: {
+        colorName: 'concluido',
+        lightColors: { main: '#6C757D', container: '#E9ECEF', onContainer: '#1A1D20' },
+        darkColors:  { main: '#9E9E9E', container: '#2A2D30', onContainer: '#E9ECEF' },
+      },
+      SLOT_CANCELLED: {
+        colorName: 'cancelado',
+        lightColors: { main: '#DC3545', container: '#F5C6CB', onContainer: '#491217' },
+        darkColors:  { main: '#FF5252', container: '#491217', onContainer: '#F5C6CB' },
+      },
+      SLOT_DEFERRED: {
+        colorName: 'adiado',
+        lightColors: { main: '#FFC107', container: '#FFF3CD', onContainer: '#664D03' },
+        darkColors:  { main: '#FFD54F', container: '#664D03', onContainer: '#FFF3CD' },
+      },
+      // Tipos juridicos (mantidos por compatibilidade)
+      TAREFA: {
+        colorName: 'tarefa',
+        lightColors: { main: '#22c55e', container: '#dcfce7', onContainer: '#14532d' },
+        darkColors:  { main: '#22c55e', container: '#14532d', onContainer: '#dcfce7' },
+      },
+      AUDIENCIA: {
+        colorName: 'audiencia',
+        lightColors: { main: '#ef4444', container: '#fee2e2', onContainer: '#7f1d1d' },
+        darkColors:  { main: '#ef4444', container: '#7f1d1d', onContainer: '#fee2e2' },
+      },
+      PERICIA: {
+        colorName: 'pericia',
+        lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
+        darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
+      },
+      PRAZO: {
+        colorName: 'prazo',
+        lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
+        darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
+      },
+      OUTRO: {
+        colorName: 'outro',
+        lightColors: { main: '#6b7280', container: '#f3f4f6', onContainer: '#1f2937' },
+        darkColors:  { main: '#6b7280', container: '#1f2937', onContainer: '#f3f4f6' },
+      },
+    },
   });
 
   useEffect(() => {
@@ -645,7 +723,8 @@ export default function AgendaPage() {
             title: `${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${userPrefix}${e.title}${caseTag}${e.status === 'ADIADO' ? ' ⏸️' : ''}${e.status === 'CANCELADO' ? ' ✖️' : ''}${(e as any).recurrence_rule || (e as any).parent_event_id ? ' 🔁' : ''}${e._count?.comments ? ` 💬${e._count.comments}` : ''}`,
             start: startSx,
             end: endSx,
-            calendarId: e.type,
+            // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
+            calendarId: getSemanticCalendarId(e),
             _customContent: {},
           };
         });
