@@ -8,7 +8,7 @@ import {
   MessageSquare, BarChart2, Calendar,
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, Sparkles, HeartPulse,
-  Camera, Loader2, Trash2, Package, Bell, Banknote, Target,
+  Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -403,6 +403,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/metas'),
       show: true,
     },
+    relatorios: {
+      label: 'Relatórios',
+      href: '/atendimento/relatorios',
+      icon: <BarChart3 size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/relatorios'),
+      show: true,
+    },
     parcelas: {
       label: 'Parcelas',
       href: '/atendimento/financeiro/parcelas',
@@ -451,7 +458,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.relatorios].filter(i => i.show),
     },
     {
       id: 'gestao',
