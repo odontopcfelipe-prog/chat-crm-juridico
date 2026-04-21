@@ -55,6 +55,10 @@ model Tenant {
   rooms                     Room[]
   appointment_markers       AppointmentMarker[]
   return_alerts             ReturnAlert[]
+  // Comissoes + metas (Fase 8)
+  commission_rules          CommissionRule[]
+  commissions               Commission[]
+  goals                     Goal[]
 }
 
 model User {
@@ -118,6 +122,10 @@ model User {
   // Agenda evoluida (Fase 7)
   return_alerts_owned           ReturnAlert[]          @relation("ReturnAlertProfessional")
   return_alerts_contacted       ReturnAlert[]          @relation("ReturnAlertContact")
+  // Comissoes + metas (Fase 8)
+  commission_rules              CommissionRule[]       @relation("CommissionRuleProfessional")
+  commissions_received          Commission[]           @relation("CommissionRecipient")
+  goals_assigned                Goal[]                 @relation("GoalProfessional")
 }
 
 model Lead {
@@ -1787,6 +1795,8 @@ model Patient {
   adverse_reactions     AdverseReaction[]
   // Agenda evoluida (Fase 7)
   return_alerts         ReturnAlert[]
+  // Comissoes (Fase 8)
+  commissions           Commission[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -1889,6 +1899,8 @@ model Procedure {
   consumables           ProcedureConsumable[]
   esthetic_applications EstheticApplication[]
   adverse_reactions     AdverseReaction[]     @relation("ProcedureAdverseReactions")
+  // Fase 8 — comissoes
+  commissions           Commission[]          @relation("CommissionProcedure")
 
   @@unique([tenant_id, name])
   @@index([tenant_id, active])
@@ -2134,6 +2146,8 @@ model Quote {
   created_by     User           @relation("QuoteCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
   items          QuoteItem[]
   treatment_plan TreatmentPlan?
+  // Fase 8 — comissoes geradas pelos pagamentos deste orcamento
+  commissions    Commission[]   @relation("CommissionQuote")
 
   @@index([patient_id, status])
   @@index([status, valid_until])
@@ -2215,6 +2229,8 @@ model TreatmentPlanItem {
   scheduled_appointment CalendarEvent?        @relation("TreatmentPlanItemAppointment", fields: [scheduled_appointment_id], references: [id], onDelete: SetNull)
   executed_by           User?                 @relation("TreatmentPlanItemExecutor", fields: [executed_by_user_id], references: [id], onDelete: SetNull)
   esthetic_applications EstheticApplication[]
+  // Fase 8 — comissao gerada por execucao deste item
+  commissions           Commission[]          @relation("CommissionTreatmentItem")
 
   @@index([treatment_plan_id, status])
   @@index([scheduled_appointment_id])
@@ -2646,5 +2662,146 @@ model ReturnAlert {
   @@index([tenant_id, scheduled_for])
   @@index([patient_id])
   @@index([status, scheduled_for])
+  @@index([professional_user_id])
+}
+
+// ============================================================================
+// FASE 8 — COMISSOES + METAS
+// ============================================================================
+//
+// Comissoes:
+//  - CommissionRule define regra (% ou fixo, por profissional/procedimento/
+//    categoria) com prioridade implicita por especificidade.
+//  - Commission e a comissao gerada por execucao — transita DEVIDA -> DISPONIVEL
+//    (quando paciente paga) -> PAGA (quando clinica liquida com profissional).
+//  - Trigger configuravel: ON_EXECUTION (libera ja na execucao) ou ON_PAYMENT
+//    (so libera quando paciente paga — modelo Clinicorp, alinha incentivo).
+//
+// Metas:
+//  - Goal com tipo (vendas/primeiras consultas/ocupacao/faltas), escopo
+//    (clinica ou profissional), direcao (atingir vs nao ultrapassar), periodo.
+//  - Cache current_value + projected_value (preenchido por job cron).
+
+// ============================================================================
+// CommissionRule — regra de comissao configuravel
+// ============================================================================
+
+model CommissionRule {
+  id                   String @id @default(uuid())
+  tenant_id            String
+  professional_user_id String
+
+  // Escopo (todos opcionais — quanto mais especifico, maior prioridade)
+  procedure_id       String?
+  procedure_category String?
+
+  // Valor (use percentage OU fixed_value, nao ambos)
+  percentage  Decimal? @db.Decimal(5, 2) // % sobre valor pago
+  fixed_value Decimal? @db.Decimal(10, 2) // R$ fixo por execucao
+
+  // Quando libera comissao (Clinicorp libera no recebimento)
+  trigger String @default("ON_PAYMENT") // "ON_EXECUTION" | "ON_PAYMENT"
+
+  // Vigencia
+  active    Boolean   @default(true)
+  starts_at DateTime?
+  ends_at   DateTime?
+
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant       Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional User   @relation("CommissionRuleProfessional", fields: [professional_user_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, professional_user_id])
+  @@index([active])
+}
+
+// ============================================================================
+// Commission — comissao gerada por execucao
+// ============================================================================
+
+model Commission {
+  id                   String  @id @default(uuid())
+  tenant_id            String
+  professional_user_id String
+  patient_id           String
+  procedure_id         String?
+
+  // Vinculo opcional ao item de plano executado
+  treatment_plan_item_id String?
+  // Vinculo opcional ao orcamento/pagamento que liberou
+  quote_id               String?
+
+  // Valor base e calculado
+  base_value  Decimal  @db.Decimal(10, 2)
+  percentage  Decimal? @db.Decimal(5, 2)
+  fixed_value Decimal? @db.Decimal(10, 2)
+  amount      Decimal  @db.Decimal(10, 2)
+
+  // Status / fluxo
+  status         String    @default("DEVIDA") // "DEVIDA" | "DISPONIVEL" | "PAGA" | "CANCELADA"
+  available_at   DateTime?
+  paid_at        DateTime?
+  payment_method String? // PIX, TRANSFERENCIA, DINHEIRO
+
+  reference_month String? // "2026-04" para agrupar mensalmente
+  notes           String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant              Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional        User               @relation("CommissionRecipient", fields: [professional_user_id], references: [id])
+  patient             Patient            @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure           Procedure?         @relation("CommissionProcedure", fields: [procedure_id], references: [id], onDelete: SetNull)
+  treatment_plan_item TreatmentPlanItem? @relation("CommissionTreatmentItem", fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
+  quote               Quote?             @relation("CommissionQuote", fields: [quote_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, professional_user_id, reference_month])
+  @@index([status])
+  @@index([available_at])
+}
+
+// ============================================================================
+// Goal — meta com projecao
+// ============================================================================
+
+model Goal {
+  id        String @id @default(uuid())
+  tenant_id String
+
+  // Tipo de meta
+  metric String // "SALES_VALUE" | "FIRST_CONSULTATIONS" | "MISSES_PCT" | "OCCUPATION_PCT" | "NEW_PATIENTS" | "CONVERSIONS" | "CUSTOM"
+
+  // Escopo
+  scope                String  @default("CLINIC") // "CLINIC" | "PROFESSIONAL"
+  professional_user_id String?
+
+  // Direcao (atingir vs nao ultrapassar)
+  direction    String  @default("ACHIEVE") // "ACHIEVE" (vendas) | "LIMIT" (faltas)
+  target_value Decimal @db.Decimal(12, 2)
+
+  // Periodo
+  period_type  String   @default("MONTHLY") // "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "YEARLY" | "CUSTOM"
+  period_start DateTime
+  period_end   DateTime
+
+  // Cache (preenchido por job cron)
+  current_value      Decimal?  @default(0) @db.Decimal(12, 2)
+  projected_value    Decimal?  @db.Decimal(12, 2) // "no ritmo atual"
+  last_calculated_at DateTime?
+
+  // Status
+  active     Boolean  @default(true)
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant       Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional User?  @relation("GoalProfessional", fields: [professional_user_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, period_start])
+  @@index([metric, active])
   @@index([professional_user_id])
 }
