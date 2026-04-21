@@ -51,5 +51,29 @@ jobs:
           tags: odontopassos/chat-crm-juridico-${{ matrix.suffix }}:latest
           no-cache: true
 
+  # Espelha master -> main apos o build do Docker passar.
+  # Mantem main alinhada sem rodar Docker build duas vezes (main nao
+  # esta nos triggers acima). Aparece como step deste workflow — nao
+  # como workflow separado na lista.
+  mirror-to-main:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fast-forward main to master
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin main:main || git branch main origin/master
+          git checkout main
+          git merge --ff-only origin/master
+          git push origin main
+
   # Deploy manual via Claude Code na VPS após o build — sem SSH automático aqui
   # para manter controle sobre o momento de aplicar em produção.
