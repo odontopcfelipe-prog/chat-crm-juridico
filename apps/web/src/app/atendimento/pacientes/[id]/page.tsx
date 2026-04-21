@@ -9,6 +9,11 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import AnamneseTab from '../components/AnamneseTab';
+import ProntuarioTab from '../components/ProntuarioTab';
+import OdontogramaTab from '../components/OdontogramaTab';
+import OrcamentoTab from '../components/OrcamentoTab';
+import TratamentoTab from '../components/TratamentoTab';
 
 interface Patient {
   id: string;
@@ -150,11 +155,11 @@ export default function PacienteFichaPage() {
 
       {/* Tab content */}
       {tab === 'overview' && <OverviewTab patient={patient} onReload={load} />}
-      {tab === 'anamnesis' && <Placeholder label="Anamnese — disponível na próxima entrega" />}
-      {tab === 'medical-record' && <Placeholder label="Prontuário — disponível na próxima entrega" />}
-      {tab === 'odontogram' && <Placeholder label="Odontograma — disponível na próxima entrega" />}
-      {tab === 'quotes' && <Placeholder label="Orçamentos — disponível na próxima entrega" />}
-      {tab === 'treatment-plans' && <Placeholder label="Planos de tratamento — disponível na próxima entrega" />}
+      {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
+      {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
+      {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}
+      {tab === 'quotes' && <OrcamentoTab patientId={patient.id} />}
+      {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
     </div>
   );
 }
@@ -273,10 +278,3 @@ function Field({ label, value }: { label: string; value: string | null | undefin
   );
 }
 
-function Placeholder({ label }: { label: string }) {
-  return (
-    <div className="bg-card border border-border border-dashed rounded-xl p-12 text-center text-muted-foreground">
-      {label}
-    </div>
-  );
-}
