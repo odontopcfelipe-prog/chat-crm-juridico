@@ -57,6 +57,7 @@ import { CommercialModule } from './commercial/commercial.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { EstheticModule } from './esthetic/esthetic.module';
 import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.module';
+import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -140,6 +141,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     InventoryModule,
     EstheticModule,
     AdverseReactionsModule,
+    // Fase 7 — Agenda evoluida
+    AgendaExtendedModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
