@@ -35,6 +35,54 @@ export class PaymentGatewayService {
 
   // ─── Customer sync ─────────────────────────────────────
 
+  /** Variante para Patient (Fase 4 — odontologia). CPF vem do proprio Patient. */
+  async ensureCustomerForPatient(patientId: string, tenantId: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: {
+        id: true, name: true, phone: true, email: true, cpf: true,
+        tenant_id: true, lead_id: true,
+      },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    if (patient.tenant_id !== tenantId) throw new BadRequestException('Acesso negado');
+    if (!patient.cpf) {
+      throw new BadRequestException('Paciente sem CPF — cadastre antes de gerar cobranca');
+    }
+    if (!patient.lead_id) {
+      throw new BadRequestException(
+        'Paciente nao vinculado a Lead — necessario para gerar cobranca via Asaas',
+      );
+    }
+
+    // Reusa customer existente do mesmo Lead, se houver.
+    const existing = await this.prisma.paymentGatewayCustomer.findFirst({
+      where: { lead_id: patient.lead_id, gateway: 'ASAAS' },
+    });
+    if (existing) return existing;
+
+    const asaasCustomer = await this.asaas.createCustomer({
+      name: patient.name,
+      cpfCnpj: patient.cpf,
+      email: patient.email || undefined,
+      phone: patient.phone || undefined,
+      externalReference: patient.id,
+    });
+    this.logger.log(`[CUSTOMER] Criado no Asaas para paciente ${patientId}: ${asaasCustomer.id}`);
+
+    return this.prisma.paymentGatewayCustomer.create({
+      data: {
+        tenant_id: tenantId,
+        lead_id: patient.lead_id,
+        gateway: 'ASAAS',
+        external_id: asaasCustomer.id,
+        cpf_cnpj: patient.cpf,
+        sync_status: 'SYNCED',
+        last_synced_at: new Date(),
+      },
+    });
+  }
+
   async ensureCustomer(leadId: string, tenantId?: string) {
     // Verificar se ja existe registro local
     const existing = await this.prisma.paymentGatewayCustomer.findFirst({

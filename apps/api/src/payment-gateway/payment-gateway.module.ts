@@ -19,6 +19,6 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
   ],
   controllers: [PaymentGatewayController, PaymentGatewayWebhookController],
   providers: [PaymentGatewayService, AsaasClient],
-  exports: [PaymentGatewayService],
+  exports: [PaymentGatewayService, AsaasClient],
 })
 export class PaymentGatewayModule {}

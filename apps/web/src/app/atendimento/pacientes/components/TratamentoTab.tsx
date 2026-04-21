@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, ClipboardList, ArrowLeft, Check, CheckCircle2, Circle, XCircle, Play } from 'lucide-react';
+import { Loader2, ClipboardList, ArrowLeft, Check, CheckCircle2, Circle, XCircle, Play, FileSignature, CreditCard, ExternalLink } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -40,6 +40,13 @@ interface PlanListItem {
 interface PlanDetail extends PlanListItem {
   estimated_sessions: number | null;
   notes: string | null;
+  contract_signature_id: string | null;
+  contract_signature?: {
+    id: string;
+    status: string;
+    signing_url: string | null;
+    signed_at: string | null;
+  } | null;
   items: PlanItem[];
   quote: { id: string; created_at: string } | null;
 }
@@ -212,6 +219,52 @@ function PlanDetailView({
     }
   };
 
+  const sendForSignature = async () => {
+    if (!confirm('Gerar TCLE e enviar para assinatura digital via WhatsApp?')) return;
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/treatment-plans/${plan.id}/send-for-signature`);
+      showSuccess('TCLE enviado — paciente recebe link via WhatsApp');
+      await onReload();
+      // Abrir link em nova aba pra dentista poder visualizar
+      if (data?.signingUrl) window.open(data.signingUrl, '_blank');
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao enviar TCLE');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const createCharges = async () => {
+    const billingType = prompt('Forma de pagamento (PIX, BOLETO ou CREDIT_CARD):', 'PIX');
+    if (!billingType) return;
+    if (!['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType.toUpperCase())) {
+      showError('Forma inválida. Use PIX, BOLETO ou CREDIT_CARD');
+      return;
+    }
+    const installments = prompt('Quantas parcelas? (1-24)', '6');
+    if (!installments) return;
+    const installmentCount = parseInt(installments, 10);
+    if (!installmentCount || installmentCount < 1 || installmentCount > 24) {
+      showError('Número de parcelas inválido (1-24)');
+      return;
+    }
+    setSaving(true);
+    try {
+      const { data } = await api.post(`/treatment-plans/${plan.id}/create-charges`, {
+        billingType: billingType.toUpperCase(),
+        installmentCount,
+      });
+      showSuccess(`${installmentCount}x cobranças geradas no Asaas`);
+      if (data?.boleto?.url) window.open(data.boleto.url, '_blank');
+      else if (data?.charge?.invoice_url) window.open(data.charge.invoice_url, '_blank');
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao criar cobranças');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const updateItemStatus = async (itemId: string, status: ItemStatus) => {
     try {
       await api.patch(`/treatment-plan-items/${itemId}`, { status });
@@ -266,16 +319,63 @@ function PlanDetailView({
         )}
       </div>
 
+      {/* Status assinatura digital */}
+      {plan.contract_signature && (
+        <div className="bg-card border border-border rounded-xl p-3 mb-4 flex items-center gap-3">
+          <FileSignature size={18} className="text-primary shrink-0" />
+          <div className="flex-1 text-sm">
+            <p className="font-medium">
+              TCLE digital — {plan.contract_signature.status === 'ASSINADO' ? '✅ Assinado' : '⏳ Aguardando assinatura'}
+            </p>
+            <p className="text-xs text-muted-foreground">
+              {plan.contract_signature.signed_at
+                ? `Assinado em ${new Date(plan.contract_signature.signed_at).toLocaleString('pt-BR')}`
+                : 'Paciente recebeu o link via WhatsApp'}
+            </p>
+          </div>
+          {plan.contract_signature.signing_url && (
+            <a
+              href={plan.contract_signature.signing_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-primary hover:bg-primary/10 px-2 py-1 rounded flex items-center gap-1"
+            >
+              <ExternalLink size={12} /> Abrir link
+            </a>
+          )}
+        </div>
+      )}
+
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
+        {isPending && !plan.contract_signature_id && (
+          <button
+            onClick={sendForSignature}
+            disabled={saving}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
+          >
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <FileSignature size={14} />}
+            Enviar TCLE para assinatura
+          </button>
+        )}
         {isPending && (
           <button
             onClick={activate}
             disabled={saving}
             className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm hover:bg-emerald-600 disabled:opacity-50"
+            title="Ativa manualmente sem ClickSign (uso administrativo)"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Ativar plano (após assinatura)
+            Ativar manualmente
+          </button>
+        )}
+        {isActive && (
+          <button
+            onClick={createCharges}
+            disabled={saving}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600 disabled:opacity-50"
+          >
+            <CreditCard size={14} /> Gerar cobrança Asaas
           </button>
         )}
         {isActive && doneItems === totalItems && totalItems > 0 && (

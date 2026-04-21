@@ -4,6 +4,7 @@ import {
 import { QuotesService } from './quotes.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
+import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CreateQuoteDto, UpdateQuoteDto, CreateQuoteItemDto, UpdateQuoteItemDto, RejectQuoteDto,
@@ -17,6 +18,7 @@ export class CommercialController {
     private readonly quotesService: QuotesService,
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
+    private readonly billingService: TreatmentPlanBillingService,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -133,6 +135,26 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.contractService.sendForSignature(id, tenantId);
+  }
+
+  @Post('treatment-plans/:id/create-charges')
+  createInstallmentCharges(
+    @Param('id') id: string,
+    @Body() dto: { billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD'; installmentCount: number; firstDueDate?: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!dto?.billingType) throw new BadRequestException('billingType obrigatorio (PIX, BOLETO, CREDIT_CARD)');
+    if (!dto?.installmentCount) throw new BadRequestException('installmentCount obrigatorio (1-24)');
+    return this.billingService.createInstallmentCharges(id, tenantId, dto);
+  }
+
+  @Get('treatment-plans/:id/charges')
+  listPlanCharges(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.billingService.listCharges(id, tenantId);
   }
 
   @Post('treatment-plans/:id/activate')
