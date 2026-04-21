@@ -32,6 +32,7 @@ import { ComparisonsBoard } from './components/ComparisonsBoard';
 import { UpcomingEvents } from './components/UpcomingEvents';
 import { DjenPublications } from './components/DjenPublications';
 import { QuickActions } from './components/QuickActions';
+import { TodaysTasks } from './components/TodaysTasks';
 import { TeamOnline } from './components/TeamOnline';
 import { OperatorPerformanceStrip } from './components/OperatorPerformanceStrip';
 
@@ -324,6 +325,11 @@ export default function DashboardPage() {
             </DashboardSection>
           )}
         </div>
+
+        {/* Tarefas do dia (Fase 9) — agrega retornos + confirmacoes + comissoes + metas */}
+        <MotionWidget delay={0.05}>
+          <TodaysTasks />
+        </MotionWidget>
 
         {/* Ações rápidas no rodapé (sempre) */}
         <MotionWidget delay={0.1}>
