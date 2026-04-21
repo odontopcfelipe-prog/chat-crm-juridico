@@ -3,8 +3,7 @@ name: Build and Push to Docker Hub
 on:
   push:
     branches:
-      - main
-      - master
+      - master  # main e mantida apenas como mirror — CI roda so em master
   workflow_dispatch:  # permite acionar manualmente pelo GitHub UI
 
 jobs:
