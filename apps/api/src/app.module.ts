@@ -60,6 +60,7 @@ import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.mo
 import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
 import { CommissionsModule } from './commissions/commissions.module';
 import { InstallmentsModule } from './installments/installments.module';
+import { PortalModule } from './portal/portal.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -149,6 +150,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     CommissionsModule,
     // Fase 11 — Regua de cobranca
     InstallmentsModule,
+    // Fase 13 — Portal do paciente (PWA)
+    PortalModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

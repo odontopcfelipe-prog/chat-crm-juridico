@@ -61,6 +61,8 @@ model Tenant {
   goals                     Goal[]
   // Regua de cobranca (Fase 11)
   installments              Installment[]
+  // Portal do paciente (Fase 13)
+  portal_tokens             PortalToken[]
 }
 
 model User {
@@ -1801,6 +1803,8 @@ model Patient {
   commissions           Commission[]
   // Regua de cobranca (Fase 11)
   installments          Installment[]
+  // Portal do paciente (Fase 13)
+  portal_tokens         PortalToken[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -2888,4 +2892,38 @@ model CollectionAttempt {
   @@index([installment_id, stage])
   @@index([sent_at])
   @@index([delivery_status])
+}
+
+// ============================================================================
+// FASE 13 — PORTAL DO PACIENTE (PWA)
+// ============================================================================
+//
+// Login magico: recepcao gera token unico via API, dispara WhatsApp com
+// link contendo o token. Paciente clica no link, valida o token, ganha
+// JWT proprio e acessa o portal.
+//
+// PortalToken: uso unico para troca por JWT. Expira em 7 dias.
+
+model PortalToken {
+  id          String    @id @default(uuid())
+  tenant_id   String
+  patient_id  String
+  // Token aleatorio (sera incluido no link enviado por WhatsApp)
+  token       String    @unique
+  // Quando ja foi usado (1x apenas — gera JWT e marca consumido)
+  consumed_at DateTime?
+  // Validade (default created_at + 7 dias)
+  expires_at  DateTime
+  // Metadados
+  ip_address  String?
+  user_agent  String?
+  channel     String    @default("WHATSAPP") // WHATSAPP | EMAIL | SMS | MANUAL
+  created_at  DateTime  @default(now())
+
+  tenant  Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, patient_id])
+  @@index([token])
+  @@index([expires_at])
 }
