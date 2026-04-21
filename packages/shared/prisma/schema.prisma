@@ -8,25 +8,25 @@ datasource db {
 }
 
 model Tenant {
-  id                 String             @id @default(uuid())
-  name               String
-  conversations      Conversation[]
-  leads              Lead[]
-  tasks              Task[]
-  users              User[]
-  inboxes            Inbox[]
-  instances          Instance[]
-  legal_cases        LegalCase[]
-  calendar_events    CalendarEvent[]
-  appointment_types  AppointmentType[]
-  holidays           Holiday[]
-  case_documents     CaseDocument[]
-  case_deadlines     CaseDeadline[]
-  petitions          CasePetition[]
-  legal_templates    LegalTemplate[]
-  case_honorarios        CaseHonorario[]
-  ai_chats               AiChat[]
-  followup_sequences     FollowupSequence[]
+  id                        String                   @id @default(uuid())
+  name                      String
+  conversations             Conversation[]
+  leads                     Lead[]
+  tasks                     Task[]
+  users                     User[]
+  inboxes                   Inbox[]
+  instances                 Instance[]
+  legal_cases               LegalCase[]
+  calendar_events           CalendarEvent[]
+  appointment_types         AppointmentType[]
+  holidays                  Holiday[]
+  case_documents            CaseDocument[]
+  case_deadlines            CaseDeadline[]
+  petitions                 CasePetition[]
+  legal_templates           LegalTemplate[]
+  case_honorarios           CaseHonorario[]
+  ai_chats                  AiChat[]
+  followup_sequences        FollowupSequence[]
   financial_transactions    FinancialTransaction[]
   financial_categories      FinancialCategory[]
   payment_gateway_customers PaymentGatewayCustomer[]
@@ -37,6 +37,31 @@ model Tenant {
   djen_ignored_processes    DjenIgnoredProcess[]
   lead_honorarios           LeadHonorario[]
   notifications             Notification[]
+
+  // ─── Domínio odontológico ────────────────────────────
+  patients            Patient[]
+  anamnese_templates  AnamneseTemplate[]
+  anamneses           Anamnese[]
+  dental_events       DentalEvent[]
+  clinical_evolutions ClinicalEvolution[]
+  procedures          Procedure[]
+  treatment_plans     TreatmentPlan[]
+  budgets             Budget[]
+  installments        Installment[]
+  rooms               Room[]
+  appointment_markers AppointmentMarker[]
+  return_alerts       ReturnAlert[]
+  suppliers           Supplier[]
+  products            Product[]
+  stock_movements     StockMovement[]
+  commission_rules    CommissionRule[]
+  commissions         Commission[]
+  goals               Goal[]
+
+  // ─── Estética facial ─────────────────────────────────
+  esthetic_applications EstheticApplication[]
+  patient_photos        PatientPhoto[]
+  adverse_reactions     AdverseReaction[]
 }
 
 model User {
@@ -48,8 +73,8 @@ model User {
   password_hash            String
   roles                    String[]               @default(["OPERADOR"])
   specialties              String[]               @default([])
-  oab_number               String?                // Número OAB (ex: "14209")
-  oab_uf                   String?                // UF da OAB (ex: "AL")
+  oab_number               String? // Número OAB (ex: "14209")
+  oab_uf                   String? // UF da OAB (ex: "AL")
   created_at               DateTime               @default(now())
   updated_at               DateTime               @updatedAt
   audit_logs               AuditLog[]
@@ -86,45 +111,66 @@ model User {
   conversation_mutes       ConversationMute[]
   notifications            Notification[]
   push_subscriptions       PushSubscription[]
+
+  // ─── Domínio odontológico ────────────────────────────
+  patients_responsible         Patient[]           @relation("PatientDentist")
+  anamneses_filled             Anamnese[]          @relation("AnamneseFiller")
+  dental_events_recorded       DentalEvent[]       @relation("DentalEventRecorder")
+  clinical_evolutions_authored ClinicalEvolution[] @relation("EvolutionAuthor")
+  treatment_plans_owned        TreatmentPlan[]     @relation("TreatmentPlanProfessional")
+  treatment_items_executed     TreatmentPlanItem[] @relation("TreatmentItemExecutor")
+  budgets_made                 Budget[]            @relation("BudgetProfessional")
+  budgets_approved             Budget[]            @relation("BudgetApprover")
+  return_alerts_owned          ReturnAlert[]       @relation("ReturnAlertProfessional")
+  return_alerts_contacted      ReturnAlert[]       @relation("ReturnAlertContact")
+  stock_movements_performed    StockMovement[]     @relation("StockMover")
+  commission_rules             CommissionRule[]    @relation("CommissionRuleProfessional")
+  commissions_received         Commission[]        @relation("CommissionRecipient")
+  goals_assigned               Goal[]              @relation("GoalProfessional")
+
+  // ─── Estética facial ─────────────────────────────────
+  esthetic_applications_done EstheticApplication[] @relation("EstheticApplicationApplicator")
+  patient_photos_captured    PatientPhoto[]        @relation("PatientPhotoCapturer")
+  adverse_reactions_reported AdverseReaction[]     @relation("AdverseReactionReporter")
 }
 
 model Lead {
-  id                   String               @id @default(uuid())
-  tenant_id            String?
-  name                 String?
-  phone                String               @unique
-  email                String?
-  origin               String?
-  stage                String               @default("NOVO")
-  stage_entered_at     DateTime             @default(now())
-  loss_reason          String?
-  profile_picture_url  String?
-  tags                 String[]
-  created_at           DateTime             @default(now())
-  updated_at           DateTime             @updatedAt
+  id                  String   @id @default(uuid())
+  tenant_id           String?
+  name                String?
+  phone               String   @unique
+  email               String?
+  origin              String?
+  stage               String   @default("NOVO")
+  stage_entered_at    DateTime @default(now())
+  loss_reason         String?
+  profile_picture_url String?
+  tags                String[]
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
   // ─── Separação Lead vs Cliente ────────────────────────────
   // Quando true: lead se tornou cliente (contrato assinado/FINALIZADO)
-  is_client            Boolean              @default(false)
-  became_client_at     DateTime?
+  is_client        Boolean   @default(false)
+  became_client_at DateTime?
   // Operador que fechou a venda — mantém vínculo pós-conversão
-  cs_user_id           String?
-  cs_user              User?                @relation("CSManager", fields: [cs_user_id], references: [id], onDelete: SetNull)
+  cs_user_id       String?
+  cs_user          User?     @relation("CSManager", fields: [cs_user_id], references: [id], onDelete: SetNull)
 
   // Google Drive
   google_drive_folder_id String?
 
-  memory               AiMemory?
-  conversations        Conversation[]
-  tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  tasks                Task[]
-  legal_cases          LegalCase[]
-  ficha_trabalhista    FichaTrabalhista?
-  calendar_events      CalendarEvent[]
-  last_followup_at     DateTime?
-  notes                LeadNote[]
-  stage_history        LeadStageHistory[]
-  contract_signatures  ContractSignature[]
+  memory                    AiMemory?
+  conversations             Conversation[]
+  tenant                    Tenant?                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tasks                     Task[]
+  legal_cases               LegalCase[]
+  ficha_trabalhista         FichaTrabalhista?
+  calendar_events           CalendarEvent[]
+  last_followup_at          DateTime?
+  notes                     LeadNote[]
+  stage_history             LeadStageHistory[]
+  contract_signatures       ContractSignature[]
   followup_enrollments      FollowupEnrollment[]
   financial_transactions    FinancialTransaction[]
   payment_gateway_customers PaymentGatewayCustomer[]
@@ -132,6 +178,10 @@ model Lead {
   broadcast_items           BroadcastItem[]
   lead_honorarios           LeadHonorario[]
   cpf_cnpj                  String? // CPF ou CNPJ — facilita match com Asaas
+
+  // ─── Domínio odontológico ────────────────────────────
+  // Quando o lead é convertido em paciente da clínica
+  converted_patient Patient? @relation("LeadConvertedPatient")
 
   @@index([tenant_id, phone])
   @@index([stage])
@@ -147,7 +197,7 @@ model Conversation {
   external_id                String?
   status                     String              @default("ABERTO")
   ai_mode                    Boolean             @default(true)
-  ai_mode_disabled_at        DateTime?           // Timestamp de quando ai_mode foi desligado (para auto-reativação)
+  ai_mode_disabled_at        DateTime? // Timestamp de quando ai_mode foi desligado (para auto-reativação)
   assigned_user_id           String?
   inbox_id                   String?
   instance_name              String? // Nome da instancia de origem (ex: wa1)
@@ -238,6 +288,11 @@ model Media {
   original_name String?
   created_at    DateTime @default(now())
   message       Message  @relation(fields: [message_id], references: [id], onDelete: Cascade)
+
+  // ─── Domínio odontológico ────────────────────────────
+  // Quando esta mídia (foto intraoral, radiografia) está vinculada a
+  // eventos do odontograma de um paciente.
+  dental_events DentalEvent[]
 }
 
 model Task {
@@ -487,47 +542,47 @@ model Sector {
 }
 
 model LegalCase {
-  id               String    @id @default(uuid())
-  tenant_id        String?
-  lead_id          String
-  conversation_id  String?
-  lawyer_id        String
-  case_number      String?
-  legal_area       String?
-  stage            String    @default("VIABILIDADE")
-  in_tracking      Boolean   @default(false) // true = passou para menu Processos
-  tracking_stage   String? // stage dentro do menu Processos
-  filed_at         DateTime? // quando foi protocolado/ajuizado
-  archived         Boolean   @default(false)
-  archive_reason   String?
-  renounced        Boolean   @default(false) // renúncia: advogado não atua mais no processo
-  renounced_at     DateTime?
-  notes            String?
-  court            String?
-  action_type      String? // Tipo de ação (Reclamatória Trabalhista, Indenizatória, etc.)
-  claim_value      Decimal? // Valor da causa
-  sentence_value   Decimal? // Valor da condenação (preenchido na EXECUCAO)
-  sentence_date    DateTime? // Data da sentença/acórdão
-  sentence_type    String? // PROCEDENTE, PARCIAL, IMPROCEDENTE, ACORDO
-  opposing_party   String? // Parte contrária (nome)
-  judge            String? // Juiz/Desembargador
-  priority         String    @default("NORMAL") // URGENTE | NORMAL | BAIXA
+  id                     String    @id @default(uuid())
+  tenant_id              String?
+  lead_id                String
+  conversation_id        String?
+  lawyer_id              String
+  case_number            String?
+  legal_area             String?
+  stage                  String    @default("VIABILIDADE")
+  in_tracking            Boolean   @default(false) // true = passou para menu Processos
+  tracking_stage         String? // stage dentro do menu Processos
+  filed_at               DateTime? // quando foi protocolado/ajuizado
+  archived               Boolean   @default(false)
+  archive_reason         String?
+  renounced              Boolean   @default(false) // renúncia: advogado não atua mais no processo
+  renounced_at           DateTime?
+  notes                  String?
+  court                  String?
+  action_type            String? // Tipo de ação (Reclamatória Trabalhista, Indenizatória, etc.)
+  claim_value            Decimal? // Valor da causa
+  sentence_value         Decimal? // Valor da condenação (preenchido na EXECUCAO)
+  sentence_date          DateTime? // Data da sentença/acórdão
+  sentence_type          String? // PROCEDENTE, PARCIAL, IMPROCEDENTE, ACORDO
+  opposing_party         String? // Parte contrária (nome)
+  judge                  String? // Juiz/Desembargador
+  priority               String    @default("NORMAL") // URGENTE | NORMAL | BAIXA
   google_drive_folder_id String? // Pasta do caso no Google Drive
-  stage_changed_at DateTime  @default(now()) // quando mudou de etapa
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  stage_changed_at       DateTime  @default(now()) // quando mudou de etapa
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
 
-  lead              Lead              @relation(fields: [lead_id], references: [id], onDelete: Cascade)
-  conversation      Conversation?     @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
-  lawyer            User              @relation("LawyerCases", fields: [lawyer_id], references: [id])
-  tenant            Tenant?           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  tasks             Task[]
-  events            CaseEvent[]
-  djen_publications DjenPublication[]
-  calendar_events   CalendarEvent[]
-  documents         CaseDocument[]
-  deadlines         CaseDeadline[]
-  petitions         CasePetition[]
+  lead                   Lead                   @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  conversation           Conversation?          @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
+  lawyer                 User                   @relation("LawyerCases", fields: [lawyer_id], references: [id])
+  tenant                 Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tasks                  Task[]
+  events                 CaseEvent[]
+  djen_publications      DjenPublication[]
+  calendar_events        CalendarEvent[]
+  documents              CaseDocument[]
+  deadlines              CaseDeadline[]
+  petitions              CasePetition[]
   honorarios             CaseHonorario[]
   financial_transactions FinancialTransaction[]
   gateway_charges        PaymentGatewayCharge[]
@@ -542,18 +597,18 @@ model LegalCase {
 model CaseEvent {
   id            String    @id @default(uuid())
   case_id       String
-  type          String    // MOVIMENTACAO, PUBLICACAO, MANUAL, etc.
+  type          String // MOVIMENTACAO, PUBLICACAO, MANUAL, etc.
   title         String
   description   String?
-  source        String?   // ESAJ, DJEN, MANUAL
+  source        String? // ESAJ, DJEN, MANUAL
   reference_url String?
   event_date    DateTime?
   created_at    DateTime  @default(now())
 
   // Campos para sync ESAJ — dedup e notificação
-  movement_hash String?   @unique  // SHA256(case_number|date|description)
-  notified_at   DateTime?           // quando WhatsApp foi enviado ao advogado
-  source_raw    Json?               // dado bruto da movimentação
+  movement_hash String?   @unique // SHA256(case_number|date|description)
+  notified_at   DateTime? // quando WhatsApp foi enviado ao advogado
+  source_raw    Json? // dado bruto da movimentação
 
   legal_case LegalCase @relation(fields: [case_id], references: [id], onDelete: Cascade)
 
@@ -729,45 +784,45 @@ model FollowupMessage {
 // ===============================================
 
 model BroadcastJob {
-  id             String          @id @default(cuid())
-  tenant_id      String?
-  name           String
-  type           String          @default("AUDIENCIA")
-  status         String          @default("PENDENTE")
-  filter_json    Json?
-  custom_prompt  String?         @db.Text
-  total_targets  Int             @default(0)
-  sent_count     Int             @default(0)
-  failed_count   Int             @default(0)
-  interval_ms    Int             @default(10000)
-  started_at     DateTime?
-  completed_at   DateTime?
-  created_by_id  String
-  created_at     DateTime        @default(now())
-  updated_at     DateTime        @updatedAt
+  id            String    @id @default(cuid())
+  tenant_id     String?
+  name          String
+  type          String    @default("AUDIENCIA")
+  status        String    @default("PENDENTE")
+  filter_json   Json?
+  custom_prompt String?   @db.Text
+  total_targets Int       @default(0)
+  sent_count    Int       @default(0)
+  failed_count  Int       @default(0)
+  interval_ms   Int       @default(10000)
+  started_at    DateTime?
+  completed_at  DateTime?
+  created_by_id String
+  created_at    DateTime  @default(now())
+  updated_at    DateTime  @updatedAt
 
-  tenant         Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  created_by     User            @relation(fields: [created_by_id], references: [id])
-  items          BroadcastItem[]
+  tenant     Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  created_by User            @relation(fields: [created_by_id], references: [id])
+  items      BroadcastItem[]
 
   @@index([tenant_id, status])
   @@index([created_at])
 }
 
 model BroadcastItem {
-  id             String       @id @default(cuid())
+  id             String    @id @default(cuid())
   broadcast_id   String
   lead_id        String
   event_id       String?
   phone          String
-  generated_text String?      @db.Text
-  status         String       @default("PENDENTE")
+  generated_text String?   @db.Text
+  status         String    @default("PENDENTE")
   sent_at        DateTime?
   error          String?
-  created_at     DateTime     @default(now())
+  created_at     DateTime  @default(now())
 
-  broadcast      BroadcastJob @relation(fields: [broadcast_id], references: [id], onDelete: Cascade)
-  lead           Lead         @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  broadcast BroadcastJob @relation(fields: [broadcast_id], references: [id], onDelete: Cascade)
+  lead      Lead         @relation(fields: [lead_id], references: [id], onDelete: Cascade)
 
   @@index([broadcast_id, status])
   @@index([lead_id])
@@ -798,6 +853,11 @@ model CalendarEvent {
   created_by_id       String
   appointment_type_id String?
 
+  // ─── Domínio odontológico ────────────────────────────
+  patient_id   String?
+  room_id      String?
+  procedure_id String?
+
   // Recurrence
   recurrence_rule String? // DAILY, WEEKLY, BIWEEKLY, MONTHLY, CUSTOM
   recurrence_end  DateTime?
@@ -813,6 +873,21 @@ model CalendarEvent {
   created_by       User             @relation("EventCreator", fields: [created_by_id], references: [id])
   appointment_type AppointmentType? @relation(fields: [appointment_type_id], references: [id], onDelete: SetNull)
 
+  // Domínio odontológico — relações
+  patient               Patient?                      @relation("PatientAppointments", fields: [patient_id], references: [id], onDelete: SetNull)
+  room                  Room?                         @relation("AppointmentRoom", fields: [room_id], references: [id], onDelete: SetNull)
+  procedure             Procedure?                    @relation("AppointmentProcedure", fields: [procedure_id], references: [id], onDelete: SetNull)
+  markers               AppointmentMarkerAssignment[] @relation("AppointmentMarkers")
+  confirmations         AppointmentConfirmation[]     @relation("AppointmentConfirmations")
+  source_return_alerts  ReturnAlert[]                 @relation("AppointmentSourceAlerts")
+  scheduled_by_alert    ReturnAlert[]                 @relation("AppointmentScheduledByAlert")
+  evolutions            ClinicalEvolution[]           @relation("AppointmentEvolutions")
+  dental_events         DentalEvent[]                 @relation("AppointmentDentalEvents")
+  stock_movements       StockMovement[]               @relation("AppointmentStockMovements")
+  // Estética facial
+  esthetic_applications EstheticApplication[]         @relation("AppointmentEstheticApplications")
+  photos                PatientPhoto[]                @relation("AppointmentPhotos")
+
   reminders EventReminder[]
   comments  CalendarEventComment[]
   task      Task?
@@ -827,6 +902,8 @@ model CalendarEvent {
   @@index([lead_id])
   @@index([legal_case_id])
   @@index([parent_event_id])
+  @@index([patient_id, start_at])
+  @@index([room_id, start_at])
 }
 
 model EventReminder {
@@ -992,13 +1069,13 @@ model CaseDeadline {
 // ===============================================
 
 model CasePetition {
-  id            String   @id @default(uuid())
-  tenant_id     String?
-  legal_case_id String
-  created_by_id String
-  title         String
-  type          String // INICIAL, CONTESTACAO, REPLICA, EMBARGOS, RECURSO, MANIFESTACAO, OUTRO
-  status         String   @default("RASCUNHO") // RASCUNHO, EM_REVISAO, APROVADA, PROTOCOLADA
+  id             String    @id @default(uuid())
+  tenant_id      String?
+  legal_case_id  String
+  created_by_id  String
+  title          String
+  type           String // INICIAL, CONTESTACAO, REPLICA, EMBARGOS, RECURSO, MANIFESTACAO, OUTRO
+  status         String    @default("RASCUNHO") // RASCUNHO, EM_REVISAO, APROVADA, PROTOCOLADA
   content_json   Json? // Tiptap JSON (editor state)
   content_html   String? // HTML renderizado (para export)
   template_id    String? // Se gerada a partir de template
@@ -1008,8 +1085,8 @@ model CasePetition {
   reviewed_at    DateTime? // Quando revisou
   google_doc_id  String? // Google Docs document ID
   google_doc_url String? // URL completa do Google Doc
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  created_at     DateTime  @default(now())
+  updated_at     DateTime  @updatedAt
 
   legal_case  LegalCase         @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
   created_by  User              @relation("PetitionAuthor", fields: [created_by_id], references: [id])
@@ -1064,22 +1141,22 @@ model LegalTemplate {
 }
 
 model CaseHonorario {
-  id                   String    @id @default(uuid())
-  tenant_id            String?
-  legal_case_id        String
-  type                 String // CONTRATUAL, SUCUMBENCIA, ENTRADA, ACORDO
-  total_value          Decimal
-  success_percentage   Decimal?  // Percentual de sucumbência (ex: 20.00 = 20%)
-  calculated_value     Decimal?  // Auto-calculado: sentence_value × percentage / 100
-  sentence_value       Decimal?  // Valor da condenação (SUCUMBENCIA)
-  interest_rate        Decimal?  // Taxa de juros mensal (padrão: 1% = juros legais)
-  base_date            DateTime? // Data base para cálculo de juros
-  status               String    @default("ATIVO") // ATIVO, FINALIZADO, CANCELADO
-  installment_count    Int       @default(1)
-  contract_date        DateTime?
-  notes                String?
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  id                 String    @id @default(uuid())
+  tenant_id          String?
+  legal_case_id      String
+  type               String // CONTRATUAL, SUCUMBENCIA, ENTRADA, ACORDO
+  total_value        Decimal
+  success_percentage Decimal? // Percentual de sucumbência (ex: 20.00 = 20%)
+  calculated_value   Decimal? // Auto-calculado: sentence_value × percentage / 100
+  sentence_value     Decimal? // Valor da condenação (SUCUMBENCIA)
+  interest_rate      Decimal? // Taxa de juros mensal (padrão: 1% = juros legais)
+  base_date          DateTime? // Data base para cálculo de juros
+  status             String    @default("ATIVO") // ATIVO, FINALIZADO, CANCELADO
+  installment_count  Int       @default(1)
+  contract_date      DateTime?
+  notes              String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
 
   legal_case LegalCase          @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
   tenant     Tenant?            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
@@ -1100,7 +1177,7 @@ model HonorarioPayment {
   notes          String?
   created_at     DateTime  @default(now())
 
-  honorario             CaseHonorario          @relation(fields: [honorario_id], references: [id], onDelete: Cascade)
+  honorario             CaseHonorario         @relation(fields: [honorario_id], references: [id], onDelete: Cascade)
   financial_transaction FinancialTransaction?
   gateway_charge        PaymentGatewayCharge?
 
@@ -1113,19 +1190,19 @@ model HonorarioPayment {
 // ===============================================
 
 model LeadHonorario {
-  id                 String    @id @default(uuid())
+  id                 String   @id @default(uuid())
   tenant_id          String?
   lead_id            String
-  type               String    // CONTRATUAL, ENTRADA, ACORDO
+  type               String // CONTRATUAL, ENTRADA, ACORDO
   total_value        Decimal
-  success_percentage Decimal?  // % sucumbência negociada antecipadamente
-  installment_count  Int       @default(1)
-  entry_value        Decimal?  // Valor de entrada separado
+  success_percentage Decimal? // % sucumbência negociada antecipadamente
+  installment_count  Int      @default(1)
+  entry_value        Decimal? // Valor de entrada separado
   notes              String?
-  status             String    @default("NEGOCIANDO") // NEGOCIANDO, ACEITO, RECUSADO, CONVERTIDO
-  promoted_to_id     String?   // ID do CaseHonorario após conversão
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
+  status             String   @default("NEGOCIANDO") // NEGOCIANDO, ACEITO, RECUSADO, CONVERTIDO
+  promoted_to_id     String? // ID do CaseHonorario após conversão
+  created_at         DateTime @default(now())
+  updated_at         DateTime @updatedAt
 
   lead     Lead                   @relation(fields: [lead_id], references: [id], onDelete: Cascade)
   tenant   Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
@@ -1136,15 +1213,15 @@ model LeadHonorario {
 }
 
 model LeadHonorarioPayment {
-  id                  String    @id @default(uuid())
-  lead_honorario_id   String
-  amount              Decimal
-  due_date            DateTime?
-  paid_at             DateTime?
-  payment_method      String?   // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
-  status              String    @default("PENDENTE") // PENDENTE, PAGO, ATRASADO
-  notes               String?
-  created_at          DateTime  @default(now())
+  id                String    @id @default(uuid())
+  lead_honorario_id String
+  amount            Decimal
+  due_date          DateTime?
+  paid_at           DateTime?
+  payment_method    String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
+  status            String    @default("PENDENTE") // PENDENTE, PAGO, ATRASADO
+  notes             String?
+  created_at        DateTime  @default(now())
 
   lead_honorario        LeadHonorario         @relation(fields: [lead_honorario_id], references: [id], onDelete: Cascade)
   financial_transaction FinancialTransaction?
@@ -1244,46 +1321,46 @@ model AutomationRule {
 // ===============================================
 
 model FinancialTransaction {
-  id                   String    @id @default(uuid())
-  tenant_id            String?
-  type                 String // RECEITA, DESPESA
-  category             String // HONORARIO, CONSULTA, CUSTAS_JUDICIAIS, PERICIA, DESLOCAMENTO, ESCRITORIO, OUTRO
-  description          String
-  amount               Decimal
-  date                 DateTime  @default(now()) // data da transação
-  due_date             DateTime? // vencimento (para receitas/despesas futuras)
-  paid_at              DateTime? // quando foi efetivamente pago/recebido
-  payment_method       String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
-  status               String    @default("PENDENTE") // PENDENTE, PAGO, CANCELADO
-  reference_id         String? // ID externo (gateway, NFS-e, etc.)
-  notes                String?
-  visible_to_lawyer    Boolean   @default(true) // Se false, advogado não vê esta despesa
+  id                String    @id @default(uuid())
+  tenant_id         String?
+  type              String // RECEITA, DESPESA
+  category          String // HONORARIO, CONSULTA, CUSTAS_JUDICIAIS, PERICIA, DESLOCAMENTO, ESCRITORIO, OUTRO
+  description       String
+  amount            Decimal
+  date              DateTime  @default(now()) // data da transação
+  due_date          DateTime? // vencimento (para receitas/despesas futuras)
+  paid_at           DateTime? // quando foi efetivamente pago/recebido
+  payment_method    String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
+  status            String    @default("PENDENTE") // PENDENTE, PAGO, CANCELADO
+  reference_id      String? // ID externo (gateway, NFS-e, etc.)
+  notes             String?
+  visible_to_lawyer Boolean   @default(true) // Se false, advogado não vê esta despesa
 
   // Recorrência
   is_recurring          Boolean   @default(false)
-  recurrence_pattern    String?   // MENSAL, TRIMESTRAL, SEMESTRAL, ANUAL
-  recurrence_day        Int?      // Dia do mês para vencimento (1-31)
+  recurrence_pattern    String? // MENSAL, TRIMESTRAL, SEMESTRAL, ANUAL
+  recurrence_day        Int? // Dia do mês para vencimento (1-31)
   recurrence_end_date   DateTime? // Quando parar (null = indefinido)
-  parent_transaction_id String?   // Referência à transação mãe
+  parent_transaction_id String? // Referência à transação mãe
 
   // Vínculos opcionais
-  legal_case_id        String?
-  lead_id              String?
-  lawyer_id            String?
-  honorario_payment_id        String?   @unique // 1:1 com HonorarioPayment
-  lead_honorario_payment_id   String?   @unique // 1:1 com LeadHonorarioPayment
+  legal_case_id             String?
+  lead_id                   String?
+  lawyer_id                 String?
+  honorario_payment_id      String? @unique // 1:1 com HonorarioPayment
+  lead_honorario_payment_id String? @unique // 1:1 com LeadHonorarioPayment
 
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  tenant            Tenant?           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  legal_case        LegalCase?        @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
-  lead              Lead?             @relation(fields: [lead_id], references: [id], onDelete: SetNull)
-  lawyer            User?             @relation("FinancialLawyer", fields: [lawyer_id], references: [id], onDelete: SetNull)
-  honorario_payment      HonorarioPayment?      @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
-  lead_honorario_payment LeadHonorarioPayment?  @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
+  tenant                 Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  legal_case             LegalCase?            @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
+  lead                   Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  lawyer                 User?                 @relation("FinancialLawyer", fields: [lawyer_id], references: [id], onDelete: SetNull)
+  honorario_payment      HonorarioPayment?     @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
+  lead_honorario_payment LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
   gateway_charge         PaymentGatewayCharge?
-  nota_fiscal       NotaFiscal?
+  nota_fiscal            NotaFiscal?
 
   @@index([tenant_id, date])
   @@index([type, status])
@@ -1315,15 +1392,15 @@ model FinancialCategory {
 // ===============================================
 
 model PaymentGatewayCustomer {
-  id             String    @id @default(uuid())
+  id             String   @id @default(uuid())
   tenant_id      String?
   lead_id        String
-  gateway        String    @default("ASAAS") // ASAAS, EFIBANK
+  gateway        String   @default("ASAAS") // ASAAS, EFIBANK
   external_id    String // ID do cliente no gateway
   cpf_cnpj       String?
-  sync_status    String    @default("SYNCED") // SYNCED, ERROR
-  last_synced_at DateTime  @default(now())
-  created_at     DateTime  @default(now())
+  sync_status    String   @default("SYNCED") // SYNCED, ERROR
+  last_synced_at DateTime @default(now())
+  created_at     DateTime @default(now())
 
   lead   Lead    @relation(fields: [lead_id], references: [id], onDelete: Cascade)
   tenant Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
@@ -1334,46 +1411,46 @@ model PaymentGatewayCustomer {
 }
 
 model PaymentGatewayCharge {
-  id                   String    @id @default(uuid())
+  id                   String   @id @default(uuid())
   tenant_id            String?
-  honorario_payment_id String?   @unique
-  transaction_id       String?   @unique
+  honorario_payment_id String?  @unique
+  transaction_id       String?  @unique
   legal_case_id        String?
-  gateway              String    @default("ASAAS")
-  external_id          String    @unique // ID da cobrança no gateway
+  gateway              String   @default("ASAAS")
+  external_id          String   @unique // ID da cobrança no gateway
   customer_external_id String // ID do cliente no gateway
   billing_type         String // PIX, BOLETO, CREDIT_CARD
   amount               Decimal
   due_date             DateTime
-  status               String    @default("PENDING") // PENDING, RECEIVED, CONFIRMED, OVERDUE, REFUNDED, DELETED, CANCELLED
+  status               String   @default("PENDING") // PENDING, RECEIVED, CONFIRMED, OVERDUE, REFUNDED, DELETED, CANCELLED
   description          String?
 
   // PIX
-  pix_qr_code          String?
-  pix_copy_paste       String?
-  pix_expiration_date  DateTime?
+  pix_qr_code         String?
+  pix_copy_paste      String?
+  pix_expiration_date DateTime?
 
   // Boleto
-  boleto_url           String?
-  boleto_barcode       String?
+  boleto_url     String?
+  boleto_barcode String?
 
   // Resultado
-  invoice_url          String?
-  paid_at              DateTime?
-  payment_date         DateTime?
-  net_value            Decimal?
-  webhook_payload      Json?
+  invoice_url     String?
+  paid_at         DateTime?
+  payment_date    DateTime?
+  net_value       Decimal?
+  webhook_payload Json?
 
-  idempotency_key      String?   @unique
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  idempotency_key String?  @unique
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
-  lead_honorario_payment_id String?  @unique
-  honorario_payment    HonorarioPayment?      @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
-  lead_honorario_payment LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
-  transaction          FinancialTransaction?  @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  legal_case           LegalCase?             @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
-  tenant               Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  lead_honorario_payment_id String?               @unique
+  honorario_payment         HonorarioPayment?     @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
+  lead_honorario_payment    LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
+  transaction               FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  legal_case                LegalCase?            @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
+  tenant                    Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id, status])
   @@index([customer_external_id])
@@ -1386,42 +1463,42 @@ model PaymentGatewayCharge {
 // ===============================================
 
 model NotaFiscal {
-  id                   String    @id @default(uuid())
+  id                   String  @id @default(uuid())
   tenant_id            String?
-  transaction_id       String?   @unique // 1:1 com FinancialTransaction
+  transaction_id       String? @unique // 1:1 com FinancialTransaction
   honorario_payment_id String?
   lead_id              String?
 
   // NFS-e data
-  numero               String?
-  codigo_verificacao   String?
-  status               String    @default("PENDENTE") // PENDENTE, EMITIDA, CANCELADA, ERRO
-  servico_codigo       String?   // Código CNAE ou LC 116
-  servico_descricao    String    @default("Serviços advocatícios")
-  valor                Decimal
-  aliquota_iss         Decimal?  @default(5.00)
-  valor_iss            Decimal?
+  numero             String?
+  codigo_verificacao String?
+  status             String   @default("PENDENTE") // PENDENTE, EMITIDA, CANCELADA, ERRO
+  servico_codigo     String? // Código CNAE ou LC 116
+  servico_descricao  String   @default("Serviços advocatícios")
+  valor              Decimal
+  aliquota_iss       Decimal? @default(5.00)
+  valor_iss          Decimal?
 
   // Tomador (cliente)
-  tomador_cpf_cnpj     String?
-  tomador_nome         String?
-  tomador_email        String?
+  tomador_cpf_cnpj String?
+  tomador_nome     String?
+  tomador_email    String?
 
   // Integração com agregador
-  provider             String?   // ENOTAS, NFEIO, FOCUSNFE
-  external_id          String?   @unique
-  xml_url              String?
-  pdf_url              String?
-  error_message        String?
+  provider      String? // ENOTAS, NFEIO, FOCUSNFE
+  external_id   String? @unique
+  xml_url       String?
+  pdf_url       String?
+  error_message String?
 
-  emitida_em           DateTime?
-  cancelada_em         DateTime?
-  created_at           DateTime  @default(now())
-  updated_at           DateTime  @updatedAt
+  emitida_em   DateTime?
+  cancelada_em DateTime?
+  created_at   DateTime  @default(now())
+  updated_at   DateTime  @updatedAt
 
-  transaction          FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  lead                 Lead?                @relation(fields: [lead_id], references: [id], onDelete: SetNull)
-  tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  transaction FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
+  lead        Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  tenant      Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id, status])
   @@index([lead_id])
@@ -1433,43 +1510,43 @@ model NotaFiscal {
 // ===============================================
 
 model TaxRecord {
-  id               String    @id @default(uuid())
-  tenant_id        String?
-  lawyer_id        String
-  year             Int
-  month            Int // 1-12
+  id        String  @id @default(uuid())
+  tenant_id String?
+  lawyer_id String
+  year      Int
+  month     Int // 1-12
 
-  total_revenue    Decimal   @default(0)
-  total_deductions Decimal   @default(0)
-  taxable_income   Decimal   @default(0)
-  tax_due          Decimal   @default(0)
+  total_revenue    Decimal @default(0)
+  total_deductions Decimal @default(0)
+  taxable_income   Decimal @default(0)
+  tax_due          Decimal @default(0)
 
-  darf_code        String    @default("0190") // Carnê-Leão
-  darf_due_date    DateTime?
-  darf_paid        Boolean   @default(false)
-  darf_paid_at     DateTime?
-  notes            String?
+  darf_code     String    @default("0190") // Carnê-Leão
+  darf_due_date DateTime?
+  darf_paid     Boolean   @default(false)
+  darf_paid_at  DateTime?
+  notes         String?
 
-  created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  lawyer           User      @relation("TaxRecordLawyer", fields: [lawyer_id], references: [id], onDelete: Cascade)
-  tenant           Tenant?   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  lawyer User    @relation("TaxRecordLawyer", fields: [lawyer_id], references: [id], onDelete: Cascade)
+  tenant Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@unique([tenant_id, lawyer_id, year, month])
   @@index([lawyer_id, year])
 }
 
 model ConversationNote {
-  id              String       @id @default(uuid())
+  id              String   @id @default(uuid())
   conversation_id String
   user_id         String
   text            String
-  created_at      DateTime     @default(now())
-  updated_at      DateTime     @updatedAt
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
 
-  conversation    Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
-  user            User         @relation("ConversationNoteAuthor", fields: [user_id], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
+  user         User         @relation("ConversationNoteAuthor", fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([conversation_id, created_at])
 }
@@ -1508,10 +1585,10 @@ model Notification {
   id                String    @id @default(uuid())
   user_id           String
   tenant_id         String?
-  notification_type String    /// incoming_message, transfer_request, task_overdue, etc.
+  notification_type String /// incoming_message, transfer_request, task_overdue, etc.
   title             String
   body              String?
-  data              Json?     /// { conversationId, taskId, caseId, etc. }
+  data              Json? /// { conversationId, taskId, caseId, etc. }
   read_at           DateTime?
   created_at        DateTime  @default(now())
 
@@ -1524,9 +1601,9 @@ model Notification {
 
 /// Subscriptions de Web Push — permite notificações com a aba do navegador fechada.
 model PushSubscription {
-  id         String   @id @default(uuid())
-  user_id    String
-  endpoint   String   @unique
+  id          String   @id @default(uuid())
+  user_id     String
+  endpoint    String   @unique
   keys_p256dh String
   keys_auth   String
   user_agent  String?
@@ -1535,4 +1612,1114 @@ model PushSubscription {
   user User @relation(fields: [user_id], references: [id], onDelete: Cascade)
 
   @@index([user_id])
+}
+
+// ╔═══════════════════════════════════════════════════════════════════╗
+// ║  DOMÍNIO ODONTOLÓGICO (Fase 1 — Refatoração para Clinicorp-like) ║
+// ╚═══════════════════════════════════════════════════════════════════╝
+//
+// Schema inspirado no Clinicorp, cumprindo CFM 1.821/2007 (prontuário
+// eletrônico append-only) e LGPD (dados de saúde sensíveis).
+//
+// Convenções:
+// - Lead permanece como pré-paciente (canal de captação). Quando vira
+//   paciente da clínica, gera-se um Patient vinculado (lead_id opcional).
+// - Notação dental FDI: tooth_number string "11"-"48" (adulto) e
+//   "51"-"85" (decíduos). Strings (não Int) para evitar leading-zero
+//   issues e permitir supranumerários ("11s" etc.) no futuro.
+// - Status genéricos como String com comentário inline (mesmo padrão
+//   que o resto do schema usa para Lead.stage, Conversation.status).
+// - Decimal para qualquer valor monetário (consistente com Honorario).
+
+// ───────────────────────────────────────────────────────────────────
+// PACIENTES
+// ───────────────────────────────────────────────────────────────────
+
+/// Paciente da clínica. Pode ter sido convertido a partir de um Lead
+/// (canal de captação) ou cadastrado diretamente pela recepção.
+model Patient {
+  id                     String    @id @default(uuid())
+  tenant_id              String?
+  // Pode ter origem em um Lead (CRM/captação) — opcional
+  lead_id                String?   @unique
+  // Identificação civil
+  full_name              String
+  social_name            String? // Nome social (LGPD/inclusão)
+  cpf                    String?
+  rg                     String?
+  cns                    String? // Cartão Nacional de Saúde (SUS)
+  birth_date             DateTime?
+  gender                 String? // M, F, OUTRO, NAO_INFORMADO
+  marital_status         String? // SOLTEIRO, CASADO, DIVORCIADO, VIUVO, UNIAO_ESTAVEL
+  occupation             String?
+  // Contato
+  phone                  String?
+  phone_secondary        String?
+  email                  String?
+  whatsapp               String?
+  // Endereço
+  zip_code               String?
+  street                 String?
+  street_number          String?
+  complement             String?
+  neighborhood           String?
+  city                   String?
+  state                  String? // UF
+  // Demografia/captação
+  origin                 String? // INDICACAO, INSTAGRAM, GOOGLE, WHATSAPP, SITE, OUTRO
+  referrer_patient_id    String? // Quem indicou (paciente embaixador)
+  // Mídia
+  profile_picture_url    String?
+  // Dentista responsável (opcional — paciente pode ser de qualquer profissional)
+  responsible_dentist_id String?
+  // Status
+  status                 String    @default("ATIVO") // ATIVO, INATIVO, BLOQUEADO
+  blocked_reason         String?
+  // Observações livres da recepção/clínica
+  notes                  String?
+  tags                   String[]  @default([])
+  // LGPD
+  lgpd_consent_at        DateTime?
+  lgpd_consent_ip        String?
+  // Timestamps
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
+  tenant              Tenant?   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  lead                Lead?     @relation("LeadConvertedPatient", fields: [lead_id], references: [id], onDelete: SetNull)
+  responsible_dentist User?     @relation("PatientDentist", fields: [responsible_dentist_id], references: [id], onDelete: SetNull)
+  referrer_patient    Patient?  @relation("PatientReferral", fields: [referrer_patient_id], references: [id], onDelete: SetNull)
+  referred_patients   Patient[] @relation("PatientReferral")
+
+  // Domínio clínico
+  guardians           Guardian[]
+  anamneses           Anamnese[]
+  dental_events       DentalEvent[]
+  clinical_evolutions ClinicalEvolution[]
+  treatment_plans     TreatmentPlan[]
+  budgets             Budget[]
+  installments        Installment[]
+  return_alerts       ReturnAlert[]
+  appointments        CalendarEvent[]     @relation("PatientAppointments")
+  commissions         Commission[]
+
+  // Estética facial
+  esthetic_applications EstheticApplication[]
+  photos                PatientPhoto[]
+  adverse_reactions     AdverseReaction[]
+
+  @@index([tenant_id, full_name])
+  @@index([tenant_id, cpf])
+  @@index([tenant_id, phone])
+  @@index([responsible_dentist_id])
+  @@index([referrer_patient_id])
+  @@index([status])
+}
+
+/// Responsável legal (para menores ou pacientes com restrição cognitiva).
+model Guardian {
+  id           String    @id @default(uuid())
+  patient_id   String
+  full_name    String
+  cpf          String?
+  rg           String?
+  birth_date   DateTime?
+  relationship String // PAI, MAE, AVO, TIO, RESPONSAVEL_LEGAL, OUTRO
+  phone        String?
+  email        String?
+  is_primary   Boolean   @default(true)
+  created_at   DateTime  @default(now())
+
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+
+  @@index([patient_id])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ANAMNESE (formulário clínico personalizável)
+// ───────────────────────────────────────────────────────────────────
+
+/// Template de anamnese — pode ser genérica adulto, infantil, cirurgia,
+/// harmonização orofacial, ortodontia, etc. A clínica configura.
+/// `schema_json` define a estrutura: array de seções com perguntas
+/// (text, radio, checkbox, dropdown, date, signature) e regras
+/// condicionais (showIf).
+model AnamneseTemplate {
+  id            String   @id @default(uuid())
+  tenant_id     String?
+  name          String // "Anamnese Genérica Adulto", "Infantil", "Cirurgia", "HOF"
+  description   String?
+  category      String   @default("GERAL") // GERAL, INFANTIL, CIRURGIA, ORTODONTIA, HOF, ALINHADORES, ESTETICA
+  schema_json   Json // Estrutura das perguntas (React Hook Form schema)
+  // Validade temporal — anamnese expira após N dias e pede atualização
+  validity_days Int?     @default(180)
+  is_default    Boolean  @default(false)
+  active        Boolean  @default(true)
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  tenant    Tenant?    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  anamneses Anamnese[]
+
+  @@index([tenant_id, category])
+  @@index([active])
+}
+
+/// Anamnese preenchida por um paciente. Não é editável após assinada
+/// (CFM 1.821/2007); para corrigir, cria-se nova versão.
+model Anamnese {
+  id                      String    @id @default(uuid())
+  tenant_id               String?
+  patient_id              String
+  template_id             String
+  // Quem preencheu
+  filled_by               String    @default("PROFISSIONAL") // PROFISSIONAL, PACIENTE, RECEPCAO
+  filled_by_user_id       String? // Se filled_by = PROFISSIONAL/RECEPCAO
+  // Token público para preenchimento remoto pelo paciente (link WhatsApp/email)
+  public_token            String?   @unique
+  public_token_expires_at DateTime?
+  // Respostas
+  responses_json          Json // { sectionId: { questionId: answer } }
+  // Assinatura eletrônica
+  signed_at               DateTime?
+  signature_ip            String?
+  signature_user_agent    String?
+  signature_token         String?
+  // PDF gerado e arquivado
+  pdf_s3_key              String?
+  // Versionamento (CFM)
+  parent_anamnese_id      String?
+  version                 Int       @default(1)
+  // Status
+  status                  String    @default("RASCUNHO") // RASCUNHO, AGUARDANDO_PACIENTE, PREENCHIDA, ASSINADA, EXPIRADA
+  // Timestamps
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  tenant          Tenant?          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient         Patient          @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  template        AnamneseTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
+  filled_by_user  User?            @relation("AnamneseFiller", fields: [filled_by_user_id], references: [id], onDelete: SetNull)
+  parent_anamnese Anamnese?        @relation("AnamneseVersions", fields: [parent_anamnese_id], references: [id], onDelete: SetNull)
+  child_versions  Anamnese[]       @relation("AnamneseVersions")
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, signed_at])
+  @@index([status])
+  @@index([public_token])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ODONTOGRAMA (eventos dentais por dente + face)
+// ───────────────────────────────────────────────────────────────────
+
+/// Evento clínico em um dente específico. O odontograma do paciente
+/// é a agregação de todos os DentalEvents dele. Permite múltiplos
+/// eventos por dente (histórico completo) e por face (V/L/M/D/O/I).
+///
+/// FDI (notação numérica padrão):
+///   Adulto: quadrante 1-4 + posição 1-8 → "11" a "48"
+///   Decíduo: quadrante 5-8 + posição 1-5 → "51" a "85"
+model DentalEvent {
+  id                     String    @id @default(uuid())
+  tenant_id              String?
+  patient_id             String
+  // Identificação anatômica
+  tooth_number           String // "11"-"48" adulto | "51"-"85" decíduo
+  tooth_face             String? // V (vestibular), L (lingual/palatina), M (mesial), D (distal), O (oclusal), I (incisal). Null = dente inteiro
+  // Condição/procedimento registrado
+  condition              String // CARIE, RESTAURACAO_RESINA, RESTAURACAO_AMALGAMA, CANAL, COROA, EXTRACAO, IMPLANTE, PROTESE_FIXA, PROTESE_REMOVIVEL, AUSENTE_CONGENITO, AGENESIA, SADIO, OUTRO
+  status                 String    @default("PLANEJADO") // PLANEJADO, EXECUTADO, EXISTENTE
+  // Vínculos opcionais
+  treatment_plan_item_id String? // Se este evento veio de um item do plano
+  procedure_id           String? // Procedimento do catálogo
+  evolution_id           String? // Evolução clínica que registrou
+  appointment_id         String? // Consulta em que foi executado
+  // Imagem associada (foto intraoral, radiografia, etc.)
+  media_id               String?
+  // Observações livres
+  notes                  String?
+  // Auditoria
+  recorded_by_id         String
+  recorded_at            DateTime  @default(now())
+  executed_at            DateTime? // Quando virou EXECUTADO
+  created_at             DateTime  @default(now())
+  updated_at             DateTime  @updatedAt
+
+  tenant              Tenant?            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient             Patient            @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure           Procedure?         @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
+  evolution           ClinicalEvolution? @relation(fields: [evolution_id], references: [id], onDelete: SetNull)
+  appointment         CalendarEvent?     @relation("AppointmentDentalEvents", fields: [appointment_id], references: [id], onDelete: SetNull)
+  treatment_plan_item TreatmentPlanItem? @relation(fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
+  media               Media?             @relation(fields: [media_id], references: [id], onDelete: SetNull)
+  recorded_by         User               @relation("DentalEventRecorder", fields: [recorded_by_id], references: [id])
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, tooth_number])
+  @@index([patient_id, status])
+  @@index([recorded_at(sort: Desc)])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// EVOLUÇÃO CLÍNICA (append-only, CFM 1.821/2007)
+// ───────────────────────────────────────────────────────────────────
+
+/// Anotação clínica de uma sessão/atendimento. Não é editável após
+/// 24h da criação (CFM 1.821/2007). Para corrigir, cria-se um adendo
+/// (nova ClinicalEvolution com `addendum_to_id` apontando para a original).
+model ClinicalEvolution {
+  id              String    @id @default(uuid())
+  tenant_id       String?
+  patient_id      String
+  appointment_id  String? // Se ligada a uma consulta da agenda
+  professional_id String // Quem assinou (autor)
+  // Conteúdo
+  title           String? // Ex: "Restauração dente 36"
+  text            String // Anotação livre (markdown ou texto)
+  prescription    String? // Medicação prescrita (se houver)
+  guidance        String? // Orientações ao paciente
+  // Referências
+  procedure_ids   String[]  @default([]) // Procedimentos realizados nesta sessão
+  // Adendo (correção)
+  addendum_to_id  String?
+  // Soft delete (recuperável em 30d por admin)
+  deleted_at      DateTime?
+  // Timestamps
+  created_at      DateTime  @default(now())
+  // updated_at intencionalmente AUSENTE — append-only
+
+  tenant                Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient               Patient               @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  professional          User                  @relation("EvolutionAuthor", fields: [professional_id], references: [id])
+  appointment           CalendarEvent?        @relation("AppointmentEvolutions", fields: [appointment_id], references: [id], onDelete: SetNull)
+  addendum_to           ClinicalEvolution?    @relation("EvolutionAddenda", fields: [addendum_to_id], references: [id], onDelete: SetNull)
+  addenda               ClinicalEvolution[]   @relation("EvolutionAddenda")
+  dental_events         DentalEvent[]
+  esthetic_applications EstheticApplication[] @relation("EvolutionEstheticApplications")
+  photos                PatientPhoto[]        @relation("EvolutionPhotos")
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, created_at(sort: Desc)])
+  @@index([professional_id])
+  @@index([appointment_id])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// CATÁLOGO DE PROCEDIMENTOS
+// ───────────────────────────────────────────────────────────────────
+
+/// Procedimento odontológico/estético oferecido pela clínica.
+/// Usado como item de orçamento, plano de tratamento e base de comissão.
+model Procedure {
+  id                       String   @id @default(uuid())
+  tenant_id                String?
+  // Identificação
+  code                     String? // Código interno ou TUSS
+  tuss_code                String? // Padrão ANS para convênios
+  name                     String
+  description              String?
+  category                 String? // PROFILAXIA, DENTISTICA, ENDODONTIA, PERIODONTIA, ORTODONTIA, IMPLANTE, PROTESE, CIRURGIA, ESTETICA, HOF
+  specialty                String? // Especialidade que normalmente executa
+  // Aplicabilidade
+  per_tooth                Boolean  @default(false) // Se cobra por dente
+  per_face                 Boolean  @default(false) // Se cobra por face
+  // Tempo médio
+  default_duration_minutes Int?     @default(30)
+  // Preço de tabela
+  default_price            Decimal?
+  cost_price               Decimal? // Custo da clínica (insumos + lab) — para margem
+  // Comissão padrão sobre este procedimento
+  default_commission_pct   Decimal?
+  // Status
+  active                   Boolean  @default(true)
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  tenant                Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  consumables           ProcedureConsumable[]
+  budget_items          BudgetItem[]
+  treatment_plan_items  TreatmentPlanItem[]
+  dental_events         DentalEvent[]
+  commissions           Commission[]
+  appointments          CalendarEvent[]       @relation("AppointmentProcedure")
+  // Estética facial
+  esthetic_applications EstheticApplication[]
+  photos                PatientPhoto[]        @relation("ProcedurePhotos")
+  adverse_reactions     AdverseReaction[]     @relation("ProcedureAdverseReactions")
+
+  @@index([tenant_id, name])
+  @@index([tenant_id, category])
+  @@index([active])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// PLANO DE TRATAMENTO
+// ───────────────────────────────────────────────────────────────────
+
+/// Plano de tratamento — sequência ordenada de procedimentos a realizar
+/// em um paciente. Originado de uma avaliação/orçamento aprovado.
+model TreatmentPlan {
+  id              String    @id @default(uuid())
+  tenant_id       String?
+  patient_id      String
+  budget_id       String?   @unique // Plano nasce de um orçamento aprovado
+  professional_id String? // Profissional responsável pelo plano
+  title           String
+  description     String?
+  status          String    @default("ATIVO") // ATIVO, PAUSADO, CONCLUIDO, CANCELADO
+  // Datas
+  started_at      DateTime?
+  expected_end_at DateTime?
+  completed_at    DateTime?
+  // Timestamps
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  tenant       Tenant?             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient      Patient             @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  professional User?               @relation("TreatmentPlanProfessional", fields: [professional_id], references: [id], onDelete: SetNull)
+  budget       Budget?             @relation(fields: [budget_id], references: [id], onDelete: SetNull)
+  items        TreatmentPlanItem[]
+  photos       PatientPhoto[]      @relation("TreatmentPlanPhotos")
+
+  @@index([tenant_id, patient_id])
+  @@index([status])
+}
+
+/// Item de plano de tratamento — procedimento × dente × face × ordem.
+model TreatmentPlanItem {
+  id                String    @id @default(uuid())
+  treatment_plan_id String
+  procedure_id      String
+  // Aplicação anatômica (opcional)
+  tooth_number      String?
+  tooth_face        String?
+  // Sequência e status
+  sequence          Int       @default(1)
+  status            String    @default("PENDENTE") // PENDENTE, EM_ANDAMENTO, EXECUTADO, CANCELADO, ADIADO
+  sessions_total    Int       @default(1)
+  sessions_done     Int       @default(0)
+  // Datas
+  scheduled_at      DateTime?
+  executed_at       DateTime?
+  // Quem executou
+  executed_by_id    String?
+  // Notas
+  notes             String?
+  created_at        DateTime  @default(now())
+  updated_at        DateTime  @updatedAt
+
+  treatment_plan        TreatmentPlan         @relation(fields: [treatment_plan_id], references: [id], onDelete: Cascade)
+  procedure             Procedure             @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+  executed_by           User?                 @relation("TreatmentItemExecutor", fields: [executed_by_id], references: [id], onDelete: SetNull)
+  dental_events         DentalEvent[]
+  esthetic_applications EstheticApplication[] @relation("TreatmentItemEstheticApplications")
+
+  @@index([treatment_plan_id, sequence])
+  @@index([status])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ORÇAMENTO E PARCELAS
+// ───────────────────────────────────────────────────────────────────
+
+/// Orçamento apresentado ao paciente. Pode ter sido gerado pela IA
+/// (DIO — Diagnóstico Inteligente de Orçamento) ou manualmente.
+/// Quando aprovado: gera `Installment`s + opcionalmente `TreatmentPlan`.
+model Budget {
+  id                 String    @id @default(uuid())
+  tenant_id          String?
+  patient_id         String
+  professional_id    String? // Quem fez a avaliação
+  // Identificação
+  number             String? // Numeração visível ao paciente (ex: "ORC-2026-001")
+  title              String?
+  // Totais
+  subtotal           Decimal   @default(0)
+  discount_value     Decimal   @default(0)
+  discount_pct       Decimal?
+  total_value        Decimal   @default(0)
+  // Pagamento proposto
+  entry_value        Decimal?
+  installment_count  Int       @default(1)
+  payment_method     String? // PIX, BOLETO, CARTAO, DINHEIRO, RECORRENCIA, MISTO
+  payment_terms_json Json? // Detalhes de parcelas customizadas
+  // Status
+  status             String    @default("RASCUNHO") // RASCUNHO, ENVIADO, APROVADO, PARCIALMENTE_APROVADO, RECUSADO, EXPIRADO, CANCELADO
+  // Validade
+  expires_at         DateTime?
+  // Aprovação
+  approved_at        DateTime?
+  approved_by_id     String? // Usuário que registrou a aprovação
+  approval_method    String? // PRESENCIAL, WHATSAPP, EMAIL, CLICKSIGN
+  approval_signature String? // Token de assinatura eletrônica
+  rejected_at        DateTime?
+  rejection_reason   String?
+  // Origem
+  generated_by_ai    Boolean   @default(false)
+  ai_chat_id         String?
+  // PDF arquivado
+  pdf_s3_key         String?
+  // Notas internas
+  notes              String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  tenant         Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  professional   User?          @relation("BudgetProfessional", fields: [professional_id], references: [id], onDelete: SetNull)
+  approved_by    User?          @relation("BudgetApprover", fields: [approved_by_id], references: [id], onDelete: SetNull)
+  items          BudgetItem[]
+  installments   Installment[]
+  treatment_plan TreatmentPlan?
+
+  @@index([tenant_id, patient_id])
+  @@index([status])
+  @@index([created_at(sort: Desc)])
+}
+
+/// Item de orçamento — procedimento × dente × face × valor.
+model BudgetItem {
+  id             String   @id @default(uuid())
+  budget_id      String
+  procedure_id   String
+  // Aplicação anatômica
+  tooth_number   String?
+  tooth_face     String?
+  // Quantidade e preço
+  quantity       Int      @default(1)
+  unit_price     Decimal
+  discount_value Decimal  @default(0)
+  discount_pct   Decimal?
+  total          Decimal
+  // Status individual (orçamentos parciais)
+  approved       Boolean  @default(true)
+  notes          String?
+  created_at     DateTime @default(now())
+
+  budget    Budget    @relation(fields: [budget_id], references: [id], onDelete: Cascade)
+  procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+
+  @@index([budget_id])
+}
+
+/// Parcela first-class — substitui HonorarioPayment para o domínio
+/// odontológico. Ciclo de vida próprio com régua de cobrança.
+model Installment {
+  id                       String    @id @default(uuid())
+  tenant_id                String?
+  budget_id                String
+  patient_id               String
+  // Identificação
+  sequence                 Int // 1/12, 2/12, etc.
+  total_count              Int // 12 (para mostrar "1 de 12")
+  // Valores
+  amount                   Decimal
+  amount_paid              Decimal   @default(0)
+  discount_value           Decimal   @default(0)
+  fee_value                Decimal   @default(0) // Juros/multa por atraso
+  // Datas
+  due_date                 DateTime
+  paid_at                  DateTime?
+  // Pagamento
+  payment_method           String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA, MAQUININHA
+  status                   String    @default("ABERTA") // ABERTA, PAGA, PARCIAL, ATRASADA, CANCELADA, RENEGOCIADA
+  // Vínculos
+  gateway_charge_id        String?   @unique // Cobrança no Asaas/EfiBank
+  nota_fiscal_id           String?   @unique
+  financial_transaction_id String?   @unique
+  // Renegociação
+  renegotiated_to_id       String?
+  // Régua de cobrança (estado da máquina)
+  collection_stage         String? // PRE_DUE_3D, DUE_DAY, D_PLUS_1, D_PLUS_7, D_PLUS_15, D_PLUS_30
+  last_collection_at       DateTime?
+  notes                    String?
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  tenant              Tenant?             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  budget              Budget              @relation(fields: [budget_id], references: [id], onDelete: Cascade)
+  patient             Patient             @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  renegotiated_to     Installment?        @relation("InstallmentRenegotiation", fields: [renegotiated_to_id], references: [id], onDelete: SetNull)
+  renegotiated_from   Installment[]       @relation("InstallmentRenegotiation")
+  collection_attempts CollectionAttempt[]
+  commissions         Commission[]
+
+  @@index([tenant_id, due_date])
+  @@index([patient_id, status])
+  @@index([status, due_date])
+  @@index([budget_id, sequence])
+}
+
+/// Tentativa individual da régua de cobrança — auditável por canal.
+model CollectionAttempt {
+  id              String    @id @default(uuid())
+  installment_id  String
+  stage           String // PRE_DUE_3D, DUE_DAY, D_PLUS_1, D_PLUS_7, D_PLUS_15, D_PLUS_30
+  channel         String // WHATSAPP, SMS, EMAIL, LIGACAO, APP_PUSH
+  message_text    String?
+  sent_at         DateTime  @default(now())
+  delivery_status String? // SENT, DELIVERED, READ, FAILED, BOUNCED
+  response_at     DateTime?
+  response_text   String?
+  // Vínculo opcional ao Message do WhatsApp
+  message_id      String?
+
+  installment Installment @relation(fields: [installment_id], references: [id], onDelete: Cascade)
+
+  @@index([installment_id, stage])
+  @@index([sent_at(sort: Desc)])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// AGENDA EVOLUÍDA (recursos, marcadores, confirmação, alerta)
+// ───────────────────────────────────────────────────────────────────
+
+/// Sala/cadeira da clínica — recurso físico que pode ser reservado
+/// numa consulta. Permite agenda multi-recurso (profissional × cadeira).
+model Room {
+  id          String   @id @default(uuid())
+  tenant_id   String?
+  name        String // "Cadeira 1", "Sala de Cirurgia", "Sala HOF"
+  description String?
+  color       String?
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+
+  tenant       Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  appointments CalendarEvent[] @relation("AppointmentRoom")
+
+  @@index([tenant_id, active])
+}
+
+/// Marcador/tag aplicável a agendamentos (Indicação, VIP, Plano X, etc.).
+model AppointmentMarker {
+  id         String   @id @default(uuid())
+  tenant_id  String?
+  name       String
+  color      String?
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+
+  tenant      Tenant?                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  assignments AppointmentMarkerAssignment[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+}
+
+/// Pivot N:N — marcador aplicado a um agendamento.
+model AppointmentMarkerAssignment {
+  id             String   @id @default(uuid())
+  appointment_id String
+  marker_id      String
+  created_at     DateTime @default(now())
+
+  appointment CalendarEvent     @relation("AppointmentMarkers", fields: [appointment_id], references: [id], onDelete: Cascade)
+  marker      AppointmentMarker @relation(fields: [marker_id], references: [id], onDelete: Cascade)
+
+  @@unique([appointment_id, marker_id])
+  @@index([marker_id])
+}
+
+/// Tentativa de confirmação por canal — auditável (cada disparo é
+/// um registro). Substitui a flag binária "confirmado/não confirmado".
+model AppointmentConfirmation {
+  id              String    @id @default(uuid())
+  appointment_id  String
+  channel         String // WHATSAPP, SMS, EMAIL, APP_PUSH, CLOUDIA, MANUAL
+  scheduled_for   DateTime? // Quando deveria sair (ex: 24h antes)
+  sent_at         DateTime?
+  message_text    String?
+  // Resposta do paciente
+  response_status String    @default("PENDENTE") // PENDENTE, CONFIRMADO, REJEITADO, REMARCADO, SEM_RESPOSTA
+  response_at     DateTime?
+  response_text   String?
+  // Vínculo opcional ao Message do WhatsApp recebido
+  message_id      String?
+  created_at      DateTime  @default(now())
+
+  appointment CalendarEvent @relation("AppointmentConfirmations", fields: [appointment_id], references: [id], onDelete: Cascade)
+
+  @@index([appointment_id, channel])
+  @@index([response_status])
+  @@index([scheduled_for])
+}
+
+/// Alerta de retorno — programado ao final de um atendimento ("voltar
+/// em 6 meses para revisão"). Vira tarefa da recepção na data-alvo.
+/// Carro-chefe do Clinicorp para receita recorrente.
+model ReturnAlert {
+  id                       String    @id @default(uuid())
+  tenant_id                String?
+  patient_id               String
+  professional_id          String?
+  // Origem
+  source_appointment_id    String? // Consulta que originou o alerta
+  // Alvo
+  scheduled_for            DateTime // Quando entra na lista da recepção
+  reason                   String? // "Retorno limpeza 6m", "Refinamento alinhador", etc.
+  notes                    String?
+  // Status
+  status                   String    @default("PENDENTE") // PENDENTE, CONTATADO, AGENDADO, REJEITADO, EXPIRADO
+  contacted_at             DateTime?
+  contacted_by_id          String?
+  scheduled_appointment_id String? // Se gerou novo agendamento
+  // Timestamps
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  tenant                Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient               Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  professional          User?          @relation("ReturnAlertProfessional", fields: [professional_id], references: [id], onDelete: SetNull)
+  contacted_by          User?          @relation("ReturnAlertContact", fields: [contacted_by_id], references: [id], onDelete: SetNull)
+  source_appointment    CalendarEvent? @relation("AppointmentSourceAlerts", fields: [source_appointment_id], references: [id], onDelete: SetNull)
+  scheduled_appointment CalendarEvent? @relation("AppointmentScheduledByAlert", fields: [scheduled_appointment_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, scheduled_for])
+  @@index([patient_id])
+  @@index([status, scheduled_for])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// ESTOQUE
+// ───────────────────────────────────────────────────────────────────
+
+/// Fornecedor (lab. de prótese, distribuidora de insumos, etc.).
+model Supplier {
+  id           String   @id @default(uuid())
+  tenant_id    String?
+  name         String
+  cnpj         String?
+  category     String? // LABORATORIO, INSUMOS, EQUIPAMENTOS, SERVICOS, OUTRO
+  contact_name String?
+  phone        String?
+  email        String?
+  address      String?
+  notes        String?
+  active       Boolean  @default(true)
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  tenant    Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  products  Product[]
+  movements StockMovement[]
+
+  @@index([tenant_id, name])
+  @@index([active])
+}
+
+/// Produto de estoque (resina, anestésico, escova, brackets, toxina
+/// botulínica, ácido hialurônico, bioestimulador, fio PDO, etc.).
+///
+/// Para produtos injetáveis usados em estética facial (toxina, AH,
+/// bioestimuladores), `requires_lot_tracking` deve ser true — exigência
+/// regulatória ANVISA para rastreabilidade caso ocorra reação adversa
+/// ou recall. Cada EstheticApplication referencia o lote utilizado.
+model Product {
+  id                    String   @id @default(uuid())
+  tenant_id             String?
+  supplier_id           String?
+  // Identificação
+  name                  String
+  brand                 String? // Marca comercial (Botox/Allergan, Juvederm, Sculptra…)
+  sku                   String?
+  barcode               String?
+  // Categorias (odonto + estética facial)
+  // Odonto:    ANESTESICO, RESINA, BRACKETS, EQUIPAMENTO, DESCARTAVEL
+  // Estética:  TOXINA_BOTULINICA, ACIDO_HIALURONICO, BIOESTIMULADOR,
+  //            FIO_PDO, FIO_PLLA, ENZIMA, PEELING_QUIMICO, SKINBOOSTER,
+  //            COSMETICO, ANESTESICO_TOPICO
+  category              String?
+  unit                  String   @default("UN") // UN, ML, MG, UI (unidades int.), CAIXA, KIT
+  description           String?
+  // Regulatório (ANVISA)
+  anvisa_registration   String? // Nº de registro ANVISA
+  is_injectable         Boolean  @default(false) // Aplicação injetável (regra mais rígida)
+  is_controlled         Boolean  @default(false) // Substância controlada
+  requires_lot_tracking Boolean  @default(false) // Lote obrigatório por aplicação
+  // Estoque
+  current_stock         Decimal  @default(0)
+  min_stock             Decimal? // Alerta de reposição
+  max_stock             Decimal?
+  // Preço
+  cost_price            Decimal? // Preço de custo (para cálculo de margem)
+  sale_price            Decimal? // Para procedimentos vendidos avulso
+  // Validade controlada?
+  has_expiration        Boolean  @default(false)
+  // Status
+  active                Boolean  @default(true)
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
+
+  tenant                Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  supplier              Supplier?             @relation(fields: [supplier_id], references: [id], onDelete: SetNull)
+  movements             StockMovement[]
+  consumables           ProcedureConsumable[]
+  esthetic_applications EstheticApplication[]
+
+  @@index([tenant_id, name])
+  @@index([tenant_id, category])
+  @@index([anvisa_registration])
+  @@index([active])
+}
+
+/// Movimento de estoque (entrada de compra, saída por procedimento,
+/// ajuste manual, descarte por vencimento).
+model StockMovement {
+  id              String    @id @default(uuid())
+  tenant_id       String?
+  product_id      String
+  supplier_id     String?
+  // Tipo
+  type            String // ENTRADA, SAIDA, AJUSTE, DESCARTE_VENCIMENTO, PERDA
+  // Quantidade (positiva sempre — o type define a direção)
+  quantity        Decimal
+  unit_cost       Decimal?
+  total_cost      Decimal?
+  // Lote/validade
+  batch_number    String?
+  expiration_date DateTime?
+  // Vínculos
+  appointment_id  String? // Saída associada a um atendimento
+  notes           String?
+  performed_by_id String?
+  performed_at    DateTime  @default(now())
+  created_at      DateTime  @default(now())
+
+  tenant       Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  product      Product        @relation(fields: [product_id], references: [id], onDelete: Restrict)
+  supplier     Supplier?      @relation(fields: [supplier_id], references: [id], onDelete: SetNull)
+  appointment  CalendarEvent? @relation("AppointmentStockMovements", fields: [appointment_id], references: [id], onDelete: SetNull)
+  performed_by User?          @relation("StockMover", fields: [performed_by_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, product_id])
+  @@index([type, performed_at])
+  @@index([expiration_date])
+}
+
+/// Insumos consumidos por um procedimento (para baixa automática
+/// no estoque ao executar e cálculo do custo real do procedimento).
+model ProcedureConsumable {
+  id           String   @id @default(uuid())
+  procedure_id String
+  product_id   String
+  quantity     Decimal // Quantidade do insumo consumida por execução
+  notes        String?
+  created_at   DateTime @default(now())
+
+  procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Cascade)
+  product   Product   @relation(fields: [product_id], references: [id], onDelete: Cascade)
+
+  @@unique([procedure_id, product_id])
+  @@index([product_id])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// COMISSÕES
+// ───────────────────────────────────────────────────────────────────
+
+/// Regra de comissão configurável por profissional/procedimento/categoria.
+/// Quando vazia para um profissional, usa-se Procedure.default_commission_pct.
+model CommissionRule {
+  id                 String    @id @default(uuid())
+  tenant_id          String?
+  professional_id    String
+  // Escopo (todos opcionais — quanto mais específico, maior prioridade)
+  procedure_id       String?
+  procedure_category String?
+  // Valor
+  percentage         Decimal? // % sobre valor pago (modelo Clinicorp)
+  fixed_value        Decimal? // Valor fixo por procedimento executado
+  // Quando libera (Clinicorp libera no recebimento)
+  trigger            String    @default("ON_PAYMENT") // ON_EXECUTION, ON_PAYMENT
+  // Vigência
+  active             Boolean   @default(true)
+  starts_at          DateTime?
+  ends_at            DateTime?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  tenant       Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional User    @relation("CommissionRuleProfessional", fields: [professional_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, professional_id])
+  @@index([active])
+}
+
+/// Comissão devida a um profissional por execução de procedimento.
+/// Status reflete ciclo: gerada (DEVIDA) → liberada quando paciente
+/// paga (DISPONIVEL) → quitada com o profissional (PAGA).
+model Commission {
+  id              String    @id @default(uuid())
+  tenant_id       String?
+  professional_id String
+  patient_id      String
+  procedure_id    String?
+  installment_id  String? // Vincula ao recebimento que liberou
+  // Valor
+  base_value      Decimal // Valor que serviu de base de cálculo
+  percentage      Decimal? // % aplicado
+  fixed_value     Decimal?
+  amount          Decimal // Valor final da comissão
+  // Status / fluxo
+  status          String    @default("DEVIDA") // DEVIDA, DISPONIVEL, PAGA, CANCELADA
+  available_at    DateTime? // Quando paciente pagou e liberou
+  paid_at         DateTime? // Quando clínica pagou ao profissional
+  payment_method  String?
+  reference_month String? // "2026-04" para agrupar mensalmente
+  notes           String?
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+
+  tenant       Tenant?      @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional User         @relation("CommissionRecipient", fields: [professional_id], references: [id])
+  patient      Patient      @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure    Procedure?   @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
+  installment  Installment? @relation(fields: [installment_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, professional_id, reference_month])
+  @@index([status])
+  @@index([available_at])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// METAS (com projeção)
+// ───────────────────────────────────────────────────────────────────
+
+/// Meta da clínica/profissional. Sistema de acompanhamento com
+/// projeção "no ritmo atual…" — diferencial do Clinicorp.
+model Goal {
+  id                 String    @id @default(uuid())
+  tenant_id          String?
+  // Tipo de meta
+  metric             String // SALES_VALUE, FIRST_CONSULTATIONS, MISSES_PCT, OCCUPATION_PCT, NEW_PATIENTS, CONVERSIONS, CUSTOM
+  // Escopo
+  scope              String    @default("CLINIC") // CLINIC, PROFESSIONAL
+  professional_id    String? // Se scope=PROFESSIONAL
+  // Direção (atingir vs não ultrapassar)
+  direction          String    @default("ACHIEVE") // ACHIEVE (ex: vendas), LIMIT (ex: faltas)
+  target_value       Decimal
+  // Período
+  period_type        String    @default("MONTHLY") // DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY, CUSTOM
+  period_start       DateTime
+  period_end         DateTime
+  // Cache de cálculo (atualizado por job)
+  current_value      Decimal?  @default(0)
+  projected_value    Decimal? // "no ritmo atual"
+  last_calculated_at DateTime?
+  // Status
+  active             Boolean   @default(true)
+  notes              String?
+  created_at         DateTime  @default(now())
+  updated_at         DateTime  @updatedAt
+
+  tenant       Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  professional User?   @relation("GoalProfessional", fields: [professional_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, period_start])
+  @@index([metric, active])
+  @@index([professional_id])
+}
+
+// ╔═══════════════════════════════════════════════════════════════════╗
+// ║  DOMÍNIO ESTÉTICA FACIAL (Harmonização + procedimentos avançados) ║
+// ╚═══════════════════════════════════════════════════════════════════╝
+//
+// Cobre toxina botulínica, ácido hialurônico, bioestimuladores, fios
+// de PDO/PLLA, peelings químicos, microagulhamento, skinboosters,
+// laser, radiofrequência, ultrassom microfocado, lipo enzimática.
+//
+// Análogo ao odontograma, a estética facial usa "pontos de aplicação"
+// padronizados (frontal, glabela, pés-de-galinha, nasolabial, etc.)
+// — aqui modelados como string `application_point` por flexibilidade
+// (cada clínica pode adicionar pontos próprios) com biblioteca-padrão.
+//
+// Conformidade:
+// - ANVISA: rastreabilidade obrigatória de lote/validade para injetáveis
+// - CFO Resolução 230/2020: HOF é especialidade odontológica reconhecida
+// - CFM: dermato/cirurgião plástico tem suas próprias regras
+// - Fotos antes/depois requerem TCLE específico para uso de imagem
+
+// ───────────────────────────────────────────────────────────────────
+// APLICAÇÃO ESTÉTICA (mapa facial análogo ao DentalEvent)
+// ───────────────────────────────────────────────────────────────────
+
+/// Aplicação de procedimento estético em ponto facial específico.
+/// Cada aplicação registra produto + lote + volume + ponto, gerando
+/// rastreabilidade ANVISA e histórico para o paciente.
+model EstheticApplication {
+  id                       String    @id @default(uuid())
+  tenant_id                String?
+  patient_id               String
+  // Vínculos
+  procedure_id             String? // Procedimento do catálogo (ex: "Botox glabela")
+  evolution_id             String? // Evolução clínica que registrou
+  appointment_id           String? // Consulta em que foi executado
+  treatment_plan_item_id   String?
+  // Anatomia facial
+  // Biblioteca-padrão de pontos:
+  //   FRONTAL, GLABELA, PE_DE_GALINHA_DIR, PE_DE_GALINHA_ESQ,
+  //   SUPRACILIAR_DIR, SUPRACILIAR_ESQ, NASAL_DORSO, PONTA_NASAL,
+  //   BUNNY_LINES, MENTO, MASSETER_DIR, MASSETER_ESQ,
+  //   NASOLABIAL_DIR, NASOLABIAL_ESQ, MARIONETE_DIR, MARIONETE_ESQ,
+  //   LABIO_SUPERIOR, LABIO_INFERIOR, COMISSURA_DIR, COMISSURA_ESQ,
+  //   MALAR_DIR, MALAR_ESQ, MANDIBULA_DIR, MANDIBULA_ESQ,
+  //   PESCOCO, PLATISMA, COLO, TEMPORAL_DIR, TEMPORAL_ESQ
+  application_point        String
+  side                     String? // DIREITA, ESQUERDA, BILATERAL, CENTRAL
+  // Produto aplicado (rastreabilidade ANVISA)
+  product_id               String?
+  brand                    String? // Snapshot — produto pode ter sido descontinuado
+  batch_number             String? // LOTE — obrigatório para injetáveis
+  expiration_date          DateTime? // Validade do lote usado
+  // Quantidade
+  volume                   Decimal? // Volume aplicado (mL/UI)
+  unit                     String? // ML, UI, MG
+  dilution                 String? // Ex: "100UI/2mL"
+  needle_gauge             String? // Ex: "30G", "27G"
+  // Técnica
+  technique                String? // BOLUS, RETROINJECAO, FANNING, CROSSHATCH, MAP, ROLAMENTO, OUTRO
+  depth                    String? // SUPERFICIAL, MEDIO, PROFUNDO, SUPRAPERIOSTAL, SUBDERMICO
+  // Resultado/observações
+  notes                    String?
+  // Validade do efeito (gera ReturnAlert automático)
+  expected_duration_months Int? // Ex: AH=12-18, Botox=4-6, Sculptra=24
+  expected_revisit_at      DateTime? // Calculado: applied_at + duration
+  // Auditoria
+  applied_by_id            String
+  applied_at               DateTime  @default(now())
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  tenant              Tenant?            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient             Patient            @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure           Procedure?         @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
+  evolution           ClinicalEvolution? @relation("EvolutionEstheticApplications", fields: [evolution_id], references: [id], onDelete: SetNull)
+  appointment         CalendarEvent?     @relation("AppointmentEstheticApplications", fields: [appointment_id], references: [id], onDelete: SetNull)
+  treatment_plan_item TreatmentPlanItem? @relation("TreatmentItemEstheticApplications", fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
+  product             Product?           @relation(fields: [product_id], references: [id], onDelete: SetNull)
+  applied_by          User               @relation("EstheticApplicationApplicator", fields: [applied_by_id], references: [id])
+  adverse_reactions   AdverseReaction[]
+  photos              PatientPhoto[]     @relation("EstheticApplicationPhotos")
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, applied_at(sort: Desc)])
+  @@index([batch_number]) // Rastreabilidade reversa: dado um lote, quem usou?
+  @@index([product_id])
+  @@index([expected_revisit_at])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// FOTOS PADRONIZADAS (antes/depois)
+// ───────────────────────────────────────────────────────────────────
+
+/// Foto clínica padronizada do paciente. Usada em estética facial e
+/// odontologia para documentação antes/depois e evidência de evolução.
+/// Requer TCLE do paciente caso saia da ficha (marketing, redes sociais).
+model PatientPhoto {
+  id                      String    @id @default(uuid())
+  tenant_id               String?
+  patient_id              String
+  // Tipo padronizado
+  // Estética:    FRONTAL_REPOUSO, FRONTAL_SORRISO, PERFIL_DIR, PERFIL_ESQ,
+  //              TRES_QUARTOS_DIR, TRES_QUARTOS_ESQ, OBLIQUO_DIR, OBLIQUO_ESQ,
+  //              VISTA_SUPERIOR, VISTA_INFERIOR
+  // Odonto:      INTRAORAL_FRONTAL, INTRAORAL_LATERAL_DIR, INTRAORAL_LATERAL_ESQ,
+  //              OCLUSAL_SUPERIOR, OCLUSAL_INFERIOR, EXTRAORAL_SORRISO,
+  //              EXTRAORAL_REPOUSO, RAIO_X_PANORAMICO, RAIO_X_PERIAPICAL,
+  //              CEFALOMETRIA, FOTO_CASO_GERAL
+  photo_type              String
+  // Momento (antes/durante/depois)
+  stage                   String    @default("DURANTE") // ANTES, DURANTE, DEPOIS_IMEDIATO, DEPOIS_30D, DEPOIS_60D, DEPOIS_90D, DEPOIS_180D, DEPOIS_1ANO
+  // Procedimento de referência
+  procedure_id            String?
+  treatment_plan_id       String?
+  appointment_id          String?
+  evolution_id            String?
+  esthetic_application_id String?
+  // Anatomia (opcional para vincular a dente ou ponto facial)
+  tooth_number            String?
+  facial_point            String?
+  // Arquivo
+  s3_key                  String
+  thumbnail_s3_key        String?
+  mime_type               String    @default("image/jpeg")
+  width                   Int?
+  height                  Int?
+  size                    Int?
+  // Metadados captura
+  captured_at             DateTime  @default(now())
+  captured_by_id          String?
+  device                  String? // CAMERA_INTRAORAL, IPHONE, DSLR, OUTRO
+  // Consentimento para uso externo (marketing)
+  marketing_consent       Boolean   @default(false)
+  marketing_consent_at    DateTime?
+  marketing_consent_token String?
+  // Notas
+  notes                   String?
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient              Patient              @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure            Procedure?           @relation("ProcedurePhotos", fields: [procedure_id], references: [id], onDelete: SetNull)
+  treatment_plan       TreatmentPlan?       @relation("TreatmentPlanPhotos", fields: [treatment_plan_id], references: [id], onDelete: SetNull)
+  appointment          CalendarEvent?       @relation("AppointmentPhotos", fields: [appointment_id], references: [id], onDelete: SetNull)
+  evolution            ClinicalEvolution?   @relation("EvolutionPhotos", fields: [evolution_id], references: [id], onDelete: SetNull)
+  esthetic_application EstheticApplication? @relation("EstheticApplicationPhotos", fields: [esthetic_application_id], references: [id], onDelete: SetNull)
+  captured_by          User?                @relation("PatientPhotoCapturer", fields: [captured_by_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, photo_type, stage])
+  @@index([procedure_id])
+  @@index([treatment_plan_id])
+  @@index([captured_at(sort: Desc)])
+}
+
+// ───────────────────────────────────────────────────────────────────
+// REAÇÃO ADVERSA (rastreabilidade clínica + ANVISA NOTIVISA)
+// ───────────────────────────────────────────────────────────────────
+
+/// Registro de reação adversa pós-aplicação estética/odontológica.
+/// Obrigação ético-legal do profissional. Permite alimentar a base
+/// para eventual notificação NOTIVISA/ANVISA.
+model AdverseReaction {
+  id                      String    @id @default(uuid())
+  tenant_id               String?
+  patient_id              String
+  esthetic_application_id String?
+  procedure_id            String?
+  // Classificação
+  severity                String // LEVE, MODERADA, GRAVE, AMEACA_VIDA
+  reaction_type           String // EDEMA, EQUIMOSE, NODULO, INFECCAO, NECROSE, ALERGIA, ASSIMETRIA, MIGRACAO, EMBOLIA, OUTRO
+  // Descrição clínica
+  description             String
+  onset_at                DateTime // Início dos sintomas
+  resolved_at             DateTime?
+  resolution_notes        String?
+  // Conduta
+  treatment_given         String? // Hialuronidase, antibiótico, corticoide, observação…
+  hospitalized            Boolean   @default(false)
+  // Notificação regulatória
+  notivisa_reported       Boolean   @default(false)
+  notivisa_reported_at    DateTime?
+  notivisa_protocol       String?
+  // Auditoria
+  reported_by_id          String
+  reported_at             DateTime  @default(now())
+  created_at              DateTime  @default(now())
+  updated_at              DateTime  @updatedAt
+
+  tenant               Tenant?              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient              Patient              @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  esthetic_application EstheticApplication? @relation(fields: [esthetic_application_id], references: [id], onDelete: SetNull)
+  procedure            Procedure?           @relation("ProcedureAdverseReactions", fields: [procedure_id], references: [id], onDelete: SetNull)
+  reported_by          User                 @relation("AdverseReactionReporter", fields: [reported_by_id], references: [id])
+
+  @@index([tenant_id, patient_id])
+  @@index([severity])
+  @@index([esthetic_application_id])
+  @@index([reported_at(sort: Desc)])
 }
