@@ -7,6 +7,7 @@ import { BookAppointmentHandler } from './book-appointment';
 import { CheckAvailabilityHandler } from './check-availability';
 import { SearchReferencesHandler } from './search-references';
 import { SearchMemoryHandler } from './search-memory';
+import { GetProceduresHandler } from './get-procedures';
 
 /**
  * Registry central de tool handlers built-in.
@@ -22,6 +23,7 @@ const BUILTIN_HANDLERS: ToolHandler[] = [
   new CheckAvailabilityHandler(),
   new SearchReferencesHandler(),
   new SearchMemoryHandler(),
+  new GetProceduresHandler(),
 ];
 
 /**
