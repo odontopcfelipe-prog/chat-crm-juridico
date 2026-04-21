@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout, Briefcase,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain, DoorOpen, Tag,
+  Brain, DoorOpen, Tag, Percent,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -49,6 +49,7 @@ const settingsSections: MenuSection[] = [
     items: [
       { label: 'Gateway de Pagamento', href: '/atendimento/settings/payment-gateway', icon: CreditCard },
       { label: 'Nota Fiscal (NFS-e)', href: '/atendimento/settings/nota-fiscal', icon: FileText },
+      { label: 'Regras de Comissão', href: '/atendimento/settings/commission-rules', icon: Percent },
     ],
   },
   {
