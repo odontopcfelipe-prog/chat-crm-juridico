@@ -403,6 +403,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/metas'),
       show: true,
     },
+    parcelas: {
+      label: 'Parcelas',
+      href: '/atendimento/financeiro/parcelas',
+      icon: <Wallet size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/financeiro/parcelas'),
+      show: true,
+    },
     followup: {
       label: 'Follow-up IA',
       href: '/atendimento/followup',
@@ -444,7 +451,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.returnAlerts, allItems.estoque, allItems.comissoes, allItems.metas].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas].filter(i => i.show),
     },
     {
       id: 'gestao',
