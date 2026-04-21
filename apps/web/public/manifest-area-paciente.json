@@ -1,0 +1,19 @@
+{
+  "name": "Instituto Odonto Passos — Portal do Paciente",
+  "short_name": "Odonto Passos",
+  "description": "Acompanhe seus agendamentos, parcelas e anamnese.",
+  "start_url": "/area-paciente",
+  "scope": "/area-paciente",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#F58220",
+  "icons": [
+    {
+      "src": "/landing/logo-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
