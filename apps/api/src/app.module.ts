@@ -53,6 +53,7 @@ import { ProceduresModule } from './procedures/procedures.module';
 import { AnamnesisModule } from './anamnesis/anamnesis.module';
 import { ClinicalRecordsModule } from './clinical-records/clinical-records.module';
 import { OdontogramModule } from './odontogram/odontogram.module';
+import { CommercialModule } from './commercial/commercial.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -131,6 +132,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AnamnesisModule,
     ClinicalRecordsModule,
     OdontogramModule,
+    CommercialModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
