@@ -7,6 +7,7 @@ import { Palette } from 'lucide-react';
 export const THEMES = [
   { id: 'escuro', name: 'Escuro', color: '#000000', accent: '#a1773d', dark: true },
   { id: 'claro', name: 'Claro', color: '#ffffff', accent: '#8b6630', dark: false },
+  { id: 'odonto', name: 'Odonto', color: '#ffffff', accent: '#f58220', dark: false },
   { id: 'rose', name: 'Rosé', color: '#fdf2f3', accent: '#c4254a', dark: false },
   { id: 'azul', name: 'Azul', color: '#f0f4fa', accent: '#2952a3', dark: false },
   { id: 'verde', name: 'Verde', color: '#f0faf5', accent: '#1a7a4a', dark: false },

@@ -137,6 +137,29 @@
     --border-default: rgba(26, 122, 74, 0.20);
   }
 
+  /* ══ ODONTO — Laranja Clinicorp para clínicas migrando ══
+     Usa a paleta exata do Clinicorp (laranja #F58220 + cinza/branco)
+     para reduzir curva de aprendizado de equipes que ja usam o
+     sistema concorrente. Recomendado como default para clinicas
+     odontologicas/esteticas que querem familiaridade visual. */
+  [data-theme="odonto"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-tertiary: #f5f5f5;
+    --bg-elevated: #ffffff;
+    --bg-hover: #fff3e6;
+
+    --accent-primary: #f58220;
+    --accent-secondary: #ff6a1a;
+
+    --text-primary: #2d2d2d;
+    --text-secondary: #4a4a4a;
+    --text-muted: #757575;
+
+    --border-subtle: rgba(0, 0, 0, 0.08);
+    --border-default: rgba(0, 0, 0, 0.14);
+  }
+
   *, ::before, ::after {
     border-color: var(--color-border);
   }

@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
+import { PatientSearch } from '@/components/PatientSearch';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
@@ -199,9 +200,19 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
       </div>
 
       {/* Main content */}
-      <main className="flex-1 overflow-hidden">
-        {children}
-      </main>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header global com busca de paciente — esconde em rotas de chat */}
+        {!pathname.startsWith('/atendimento/chat') && (
+          <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card/50 backdrop-blur-sm shrink-0">
+            <div className="flex-1 max-w-xl">
+              <PatientSearch />
+            </div>
+          </header>
+        )}
+        <main className="flex-1 overflow-hidden">
+          {children}
+        </main>
+      </div>
 
       {/* ─── Popup de alertas de tarefas (tempo real) ──────── */}
       <TaskAlertPopup />
