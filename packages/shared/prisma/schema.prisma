@@ -51,6 +51,10 @@ model Tenant {
   stock_movements           StockMovement[]
   esthetic_applications     EstheticApplication[]
   adverse_reactions         AdverseReaction[]
+  // Agenda evoluida (Fase 7)
+  rooms                     Room[]
+  appointment_markers       AppointmentMarker[]
+  return_alerts             ReturnAlert[]
 }
 
 model User {
@@ -111,6 +115,9 @@ model User {
   stock_movements_performed     StockMovement[]        @relation("StockMover")
   esthetic_applications_done    EstheticApplication[]  @relation("EstheticApplicator")
   adverse_reactions_reported    AdverseReaction[]      @relation("AdverseReactionReporter")
+  // Agenda evoluida (Fase 7)
+  return_alerts_owned           ReturnAlert[]          @relation("ReturnAlertProfessional")
+  return_alerts_contacted       ReturnAlert[]          @relation("ReturnAlertContact")
 }
 
 model Lead {
@@ -829,6 +836,8 @@ model CalendarEvent {
   assigned_user_id    String?
   created_by_id       String
   appointment_type_id String?
+  // Fase 7 — agenda multi-recurso
+  room_id             String?
 
   // Recurrence
   recurrence_rule String? // DAILY, WEEKLY, BIWEEKLY, MONTHLY, CUSTOM
@@ -850,13 +859,19 @@ model CalendarEvent {
   comments              CalendarEventComment[]
   task                  Task?
   deadline              CaseDeadline?
-  tenant                Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant                Tenant?                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   // Odontologia (Fase 2)
-  clinical_notes        ClinicalNote[]         @relation("AppointmentNotes")
-  treatment_plan_items  TreatmentPlanItem[]    @relation("TreatmentPlanItemAppointment")
+  clinical_notes        ClinicalNote[]                @relation("AppointmentNotes")
+  treatment_plan_items  TreatmentPlanItem[]           @relation("TreatmentPlanItemAppointment")
   // Estetica facial + estoque (Fase 6)
-  esthetic_applications EstheticApplication[]  @relation("AppointmentEstheticApplications")
-  stock_movements       StockMovement[]        @relation("AppointmentStockMovements")
+  esthetic_applications EstheticApplication[]         @relation("AppointmentEstheticApplications")
+  stock_movements       StockMovement[]               @relation("AppointmentStockMovements")
+  // Agenda evoluida (Fase 7)
+  room                  Room?                         @relation("AppointmentRoom", fields: [room_id], references: [id], onDelete: SetNull)
+  markers               AppointmentMarkerAssignment[] @relation("AppointmentMarkers")
+  confirmations         AppointmentConfirmation[]     @relation("AppointmentConfirmations")
+  source_return_alerts  ReturnAlert[]                 @relation("AppointmentSourceAlerts")
+  scheduled_by_alert    ReturnAlert[]                 @relation("AppointmentScheduledByAlert")
 
   created_by_ai Boolean @default(false) // true quando o evento foi criado por tool da IA (book_appointment)
 
@@ -868,6 +883,8 @@ model CalendarEvent {
   @@index([lead_id])
   @@index([legal_case_id])
   @@index([parent_event_id])
+  @@index([patient_id, start_at])
+  @@index([room_id, start_at])
 }
 
 model EventReminder {
@@ -1768,6 +1785,8 @@ model Patient {
   // Estetica facial (Fase 6)
   esthetic_applications EstheticApplication[]
   adverse_reactions     AdverseReaction[]
+  // Agenda evoluida (Fase 7)
+  return_alerts         ReturnAlert[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -2481,4 +2500,151 @@ model AdverseReaction {
   @@index([severity])
   @@index([esthetic_application_id])
   @@index([reported_at])
+}
+
+// ============================================================================
+// FASE 7 — AGENDA EVOLUIDA (multi-recurso, marcadores, confirmacao, retorno)
+// ============================================================================
+//
+// Adiciona ao modulo de agenda:
+//  - Sala/cadeira como recurso fisico reservavel (Room)
+//  - Marcadores (tags) reutilizaveis aplicados a agendamentos
+//  - Confirmacao por canal (auditavel)
+//  - Alerta de retorno programado (carro-chefe Clinicorp)
+//
+// CalendarEvent ganha room_id (nullable) — eventos antigos continuam validos.
+// Cores semanticas (cinza/branco/rosa/vermelho) sao calculadas no front-end
+// a partir dos campos status + start_at/end_at, nao precisam de coluna nova.
+
+// ============================================================================
+// Room — sala/cadeira
+// ============================================================================
+
+/// Recurso fisico (cadeira odontologica, sala de cirurgia, sala de HOF).
+/// Permite agenda multi-recurso (profissional × cadeira) e detectar
+/// conflitos de sala alem de conflitos de profissional.
+model Room {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  name        String // "Cadeira 1", "Sala de Cirurgia", "Sala HOF"
+  description String?
+  color       String? // Cor hex para destaque na agenda (#FF6A1A)
+  capacity    Int      @default(1) // Quantos pacientes simultaneos a sala suporta
+  active      Boolean  @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant       Tenant          @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  appointments CalendarEvent[] @relation("AppointmentRoom")
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+}
+
+// ============================================================================
+// AppointmentMarker — tags reutilizaveis para agendamentos
+// ============================================================================
+
+/// Marcador (tag) aplicavel a agendamento: "Indicacao", "VIP", "Plano X",
+/// "Retorno 6 meses", "Primeira consulta", etc. Geram relatorios filtrados.
+model AppointmentMarker {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  name       String
+  color      String? // Hex para badge na UI (#28A745)
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant      Tenant                        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  assignments AppointmentMarkerAssignment[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id, active])
+}
+
+/// Pivot N:N entre CalendarEvent e AppointmentMarker.
+model AppointmentMarkerAssignment {
+  id             String   @id @default(uuid())
+  appointment_id String
+  marker_id      String
+  created_at     DateTime @default(now())
+
+  appointment CalendarEvent     @relation("AppointmentMarkers", fields: [appointment_id], references: [id], onDelete: Cascade)
+  marker      AppointmentMarker @relation(fields: [marker_id], references: [id], onDelete: Cascade)
+
+  @@unique([appointment_id, marker_id])
+  @@index([marker_id])
+}
+
+// ============================================================================
+// AppointmentConfirmation — tentativa de confirmacao auditavel por canal
+// ============================================================================
+
+/// Cada disparo de confirmacao (WhatsApp/SMS/email/app/manual) gera um
+/// registro proprio com timestamp, mensagem enviada, canal e resposta do
+/// paciente. Substitui flag binaria "confirmou/nao confirmou" — permite
+/// auditoria completa e contagem de tentativas por canal.
+model AppointmentConfirmation {
+  id              String    @id @default(uuid())
+  appointment_id  String
+  channel         String // "WHATSAPP" | "SMS" | "EMAIL" | "APP_PUSH" | "CLOUDIA" | "MANUAL"
+  scheduled_for   DateTime? // Quando deveria sair (ex: 24h antes)
+  sent_at         DateTime?
+  message_text    String?
+  // Resposta do paciente
+  response_status String    @default("PENDENTE") // "PENDENTE" | "CONFIRMADO" | "REJEITADO" | "REMARCADO" | "SEM_RESPOSTA"
+  response_at     DateTime?
+  response_text   String?
+  // Vinculo opcional ao Message do WhatsApp recebido
+  message_id      String?
+  delivery_status String? // "SENT" | "DELIVERED" | "READ" | "FAILED"
+  created_at      DateTime  @default(now())
+
+  appointment CalendarEvent @relation("AppointmentConfirmations", fields: [appointment_id], references: [id], onDelete: Cascade)
+
+  @@index([appointment_id, channel])
+  @@index([response_status])
+  @@index([scheduled_for])
+}
+
+// ============================================================================
+// ReturnAlert — alerta de retorno programado (carro-chefe Clinicorp)
+// ============================================================================
+
+/// Ao final de um atendimento, o profissional programa um alerta de retorno
+/// ("voltar em 6 meses para revisao", "refinamento alinhador em 90 dias",
+/// "retorno HOF em 4 meses"). Quando chega scheduled_for, vira tarefa da
+/// recepcao para reagendar — gera receita recorrente com pacientes que
+/// "somem depois do primeiro atendimento".
+model ReturnAlert {
+  id                       String    @id @default(uuid())
+  tenant_id                String
+  patient_id               String
+  professional_user_id     String?
+  source_appointment_id    String? // Consulta que originou o alerta
+  // Alvo
+  scheduled_for            DateTime // Quando entra na lista da recepcao
+  reason                   String? // "Retorno limpeza 6m", "Refinamento alinhador", etc.
+  notes                    String?
+  // Status
+  status                   String    @default("PENDENTE") // "PENDENTE" | "CONTATADO" | "AGENDADO" | "REJEITADO" | "EXPIRADO"
+  contacted_at             DateTime?
+  contacted_by_user_id     String?
+  scheduled_appointment_id String? // Se gerou novo agendamento
+  // Timestamps
+  created_at               DateTime  @default(now())
+  updated_at               DateTime  @updatedAt
+
+  tenant                Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient               Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  professional          User?          @relation("ReturnAlertProfessional", fields: [professional_user_id], references: [id], onDelete: SetNull)
+  contacted_by          User?          @relation("ReturnAlertContact", fields: [contacted_by_user_id], references: [id], onDelete: SetNull)
+  source_appointment    CalendarEvent? @relation("AppointmentSourceAlerts", fields: [source_appointment_id], references: [id], onDelete: SetNull)
+  scheduled_appointment CalendarEvent? @relation("AppointmentScheduledByAlert", fields: [scheduled_appointment_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, scheduled_for])
+  @@index([patient_id])
+  @@index([status, scheduled_for])
+  @@index([professional_user_id])
 }
