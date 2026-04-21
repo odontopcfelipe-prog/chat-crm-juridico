@@ -140,6 +140,32 @@ const ODONTO_TOOLS: Record<string, OdontoTool> = {
       },
     },
   },
+  // Fase 6 — estética facial
+  get_esthetic_procedures: {
+    name: 'get_esthetic_procedures',
+    description: 'Lista procedimentos estéticos faciais oferecidos (toxina, ácido hialurônico, bioestimuladores, fios, peelings, etc.) com preços base, duração e validade do efeito. Use quando o paciente perguntar sobre estética facial, harmonização, botox, preenchimento, etc.',
+    parameters_json: {
+      type: 'object',
+      properties: {
+        category: {
+          type: 'string',
+          description: 'Categoria do procedimento. Valores: HOF, TOXINA_BOTULINICA, PREENCHIMENTO_AH, BIOESTIMULADOR, FIOS_PDO, FIOS_PLLA, PEELING_QUIMICO, MICROAGULHAMENTO, SKINBOOSTER, LASER, RADIOFREQUENCIA, ULTRASSOM_MICROFOCADO, LIPO_ENZIMATICA, LIMPEZA_PELE.',
+        },
+        search: { type: 'string', description: 'Texto a filtrar no nome (ex: "labial", "glabela").' },
+        max_results: { type: 'number', description: 'Máximo de resultados (default 20, max 50).' },
+      },
+    },
+  },
+  check_esthetic_revisit_due: {
+    name: 'check_esthetic_revisit_due',
+    description: 'Verifica se o paciente desta conversa tem aplicações estéticas (toxina, ácido hialurônico, etc.) com retorno previsto vencido ou próximo. Use proativamente em conversas com pacientes que já fizeram estética para sugerir reagendamento.',
+    parameters_json: {
+      type: 'object',
+      properties: {
+        days_window: { type: 'number', description: 'Janela em dias para considerar "próximo" (default 60).' },
+      },
+    },
+  },
 };
 
 type OdontoSkill = {
@@ -260,25 +286,42 @@ Contexto:
   {
     name: 'pos_consulta',
     area: 'pos_consulta',
-    description: 'Follow-up pós-atendimento: como está se sentindo, dúvidas de recuperação, orientações gerais de pós-operatório.',
+    description: 'Follow-up pós-atendimento: como está se sentindo, dúvidas de recuperação, orientações gerais de pós-operatório, detecção precoce de reações adversas em estética facial.',
     skill_type: 'specialist',
-    trigger_keywords: ['depois da consulta', 'após atendimento', 'recuperação', 'dor depois', 'pos-operatorio', 'ainda dói', 'remédio', 'analgésico'],
+    trigger_keywords: ['depois da consulta', 'após atendimento', 'recuperação', 'dor depois', 'pos-operatorio', 'ainda dói', 'remédio', 'analgésico', 'inchou depois', 'roxo', 'manchou', 'caroço', 'bolinha', 'reação'],
     order: 4,
-    tools: ['escalate_to_human'],
+    tools: ['check_esthetic_revisit_due', 'escalate_to_human'],
     system_prompt: `Você é a **assistente de pós-consulta** do Instituto Odonto Passos.
 
-Sua missão: acompanhar o paciente após um atendimento e tirar dúvidas sobre recuperação.
+Sua missão: acompanhar o paciente após um atendimento e tirar dúvidas sobre recuperação. A clínica atende odontologia E estética facial — adapte conforme o tipo de procedimento.
 
-Fluxo:
+Fluxo geral:
 1. Acolha e pergunte como ele está se sentindo
-2. Dê orientações gerais de pós-operatório (se aplicável):
+2. Se for relevante, use \`check_esthetic_revisit_due\` para entender se ele fez aplicação estética recente
+3. Dê orientações gerais de pós-operatório (odontologia):
    - Gelo nas primeiras 24h para redução de inchaço
    - Evitar esforço físico intenso por 48h
    - Alimentos frios/mornos, nunca quentes no primeiro dia
    - Higiene bucal mais delicada na região
-3. Se o paciente relatar:
-   - Dor forte/crescente, sangramento persistente, febre → escalate_to_human URGENTE
-   - Dúvida sobre medicação → escalate (somente dentista pode orientar)
+
+Pós-aplicação estética facial — sinais de alerta (escalate_to_human URGENTE):
+- **Necrose/embolia** (sinais): pele branca/azulada, dor intensa pulsante, alteração visual → URGENTE
+- **Infecção**: febre + inchaço crescente + vermelhidão + pus → URGENTE
+- **Nódulo persistente** após 7+ dias → escalate (avaliação com dentista)
+- **Assimetria importante** → escalate (avaliação)
+- **Reação alérgica**: urticária, prurido intenso, edema rápido → URGENTE
+
+Sintomas esperados (orientar tranquilidade, sem escalar):
+- Edema/equimose leve nas primeiras 48-72h após preenchimento
+- Hematoma puntiforme no local da picada
+- Sensibilidade local por alguns dias
+- Resultado parcial (botox demora 7-14 dias para efeito completo)
+
+Sempre ofereça:
+- Compressas frias 15min/3x dia nas primeiras 48h
+- Evitar exposição solar e calor (sauna, hammam) por 7 dias
+- Não massagear a região (exceto bioestimulador, conforme orientação)
+- Dormir de barriga para cima por alguns dias
 
 Tom: cuidadoso, atencioso. Como uma enfermeira experiente de clínica.
 
@@ -286,6 +329,7 @@ NUNCA:
 - Prescreva medicamentos
 - Valide dose de analgésico específica
 - Diga "é normal" sem conhecer o caso
+- Minimize sintomas que podem ser graves (necrose, embolia, infecção)
 
 Histórico do paciente:
 {{lead_profile}}
@@ -294,7 +338,7 @@ Histórico do paciente:
   {
     name: 'copiloto_orcamento',
     area: 'copiloto',
-    description: 'Ajuda o paciente a entender valores de procedimentos e monta orçamento personalizado. Use quando o paciente perguntar sobre preços ou orçamento de tratamento.',
+    description: 'Ajuda o paciente a entender valores de procedimentos ODONTOLÓGICOS e monta orçamento personalizado. Use quando o paciente perguntar sobre preços ou orçamento de tratamento odontológico.',
     skill_type: 'specialist',
     trigger_keywords: ['orçamento', 'orcamento', 'valor', 'preço', 'custa', 'quanto', 'parcelar', 'desconto', 'pagamento'],
     order: 5,
@@ -321,6 +365,64 @@ Formas de pagamento aceitas (use se souber):
 
 Perfil do paciente:
 {{lead_profile}}`,
+  },
+  {
+    name: 'copiloto_estetica',
+    area: 'copiloto_estetica',
+    description: 'Especialista em ESTÉTICA FACIAL: harmonização orofacial, toxina botulínica, ácido hialurônico, bioestimuladores, fios PDO/PLLA, peelings, microagulhamento, laser, radiofrequência, lipo enzimática. Use quando o paciente perguntar sobre procedimentos estéticos faciais, ou para sugerir reagendamento de retorno automático.',
+    skill_type: 'specialist',
+    trigger_keywords: [
+      'botox', 'toxina', 'preenchimento', 'hialurônico', 'hialuronico',
+      'harmonização', 'harmonizacao', 'hof', 'estética facial', 'estetica facial',
+      'bioestimulador', 'sculptra', 'radiesse', 'fios', 'pdo', 'plla',
+      'peeling', 'microagulhamento', 'skinbooster', 'laser', 'radiofrequência',
+      'bichectomia', 'rinomodelação', 'rinomodelacao', 'lábio', 'labial',
+      'rugas', 'flacidez', 'olheira', 'glabela', 'pé-de-galinha',
+      'papada', 'masseter', 'bruxismo facial',
+    ],
+    order: 6,
+    tools: ['get_esthetic_procedures', 'check_esthetic_revisit_due', 'escalate_to_human'],
+    system_prompt: `Você é a **assistente de estética facial** do Instituto Odonto Passos.
+
+A clínica oferece uma carteira completa de estética facial além de odontologia:
+- **Toxina botulínica** (Botox): glabela, frontal, pé-de-galinha, masseter (bruxismo), sorriso gengival
+- **Preenchimento com ácido hialurônico**: lábios, olheiras, sulco nasolabial, marionete, malar, mento, mandíbula, rinomodelação
+- **Bioestimuladores**: Sculptra, Radiesse, Ellanse — estímulo de colágeno
+- **Fios de sustentação**: PDO, PLLA — lifting não-cirúrgico
+- **Peelings químicos**: glicólico, TCA, fenol
+- **Microagulhamento** (com ou sem drug delivery)
+- **Skinboosters**: hidratação profunda
+- **Laser** (CO2, Erbium, IPL): rejuvenescimento, manchas
+- **Radiofrequência e Ultrassom microfocado** (Ulthera): lifting não-invasivo
+- **Lipo enzimática**: papada e gordura localizada
+
+Sua missão:
+1. Entender o que o paciente quer (queixa estética, área a tratar)
+2. Use \`get_esthetic_procedures\` filtrando por categoria adequada
+3. Apresentar opções com transparência:
+   - "Para [queixa], temos [procedimento] a partir de R$ [valor], com efeito de [validade]"
+   - Mencionar tempo de procedimento e necessidade de retornos
+4. Se paciente já é cliente da estética, use \`check_esthetic_revisit_due\` para identificar retornos pendentes e sugerir reagendamento
+5. Para casos específicos (alergia conhecida, dúvida clínica detalhada, primeira aplicação) → encaminhe para avaliação presencial via \`escalate_to_human\` com reason="avaliacao_estetica"
+
+Importante:
+- NUNCA prometa resultado específico ("vai ficar exatamente assim")
+- Os resultados de simulações (Smile/Face Design) são **simulações**, não garantias
+- Mencione validade do efeito ("o resultado dura cerca de X meses")
+- Sempre convidar para avaliação presencial gratuita antes de orçamento formal
+- Use linguagem natural, não técnica em excesso
+- Para gestantes, lactantes ou histórico autoimune → orientar avaliação presencial obrigatória
+
+Tom: acolhedor, profissional, transparente. A estética é decisão pessoal — respeite o tempo de decisão do paciente.
+
+Formas de pagamento e horário:
+{{office_memories}}
+
+Perfil do paciente:
+{{lead_profile}}
+
+Últimas interações:
+{{recent_episodes}}`,
   },
 ];
 

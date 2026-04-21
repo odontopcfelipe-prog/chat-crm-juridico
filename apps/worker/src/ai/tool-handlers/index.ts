@@ -8,6 +8,8 @@ import { CheckAvailabilityHandler } from './check-availability';
 import { SearchReferencesHandler } from './search-references';
 import { SearchMemoryHandler } from './search-memory';
 import { GetProceduresHandler } from './get-procedures';
+import { GetEstheticProceduresHandler } from './get-esthetic-procedures';
+import { CheckEstheticRevisitDueHandler } from './check-esthetic-revisit-due';
 
 /**
  * Registry central de tool handlers built-in.
@@ -24,6 +26,9 @@ const BUILTIN_HANDLERS: ToolHandler[] = [
   new SearchReferencesHandler(),
   new SearchMemoryHandler(),
   new GetProceduresHandler(),
+  // Fase 6 — estetica facial
+  new GetEstheticProceduresHandler(),
+  new CheckEstheticRevisitDueHandler(),
 ];
 
 /**
