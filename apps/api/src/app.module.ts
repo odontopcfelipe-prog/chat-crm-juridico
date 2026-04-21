@@ -59,6 +59,7 @@ import { EstheticModule } from './esthetic/esthetic.module';
 import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.module';
 import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
 import { CommissionsModule } from './commissions/commissions.module';
+import { InstallmentsModule } from './installments/installments.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -146,6 +147,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AgendaExtendedModule,
     // Fase 8 — Comissoes + Metas
     CommissionsModule,
+    // Fase 11 — Regua de cobranca
+    InstallmentsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
