@@ -16,6 +16,7 @@ import OrcamentoTab from '../components/OrcamentoTab';
 import TratamentoTab from '../components/TratamentoTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
+import RadiografiasTab from '../components/RadiografiasTab';
 
 interface Patient {
   id: string;
@@ -47,6 +48,7 @@ const TABS = [
   { id: 'odontogram', label: 'Odontograma', icon: Activity },
   { id: 'esthetic', label: 'Estética facial', icon: Sparkles },
   { id: 'smile-design', label: 'Smile Design', icon: Sparkles },
+  { id: 'radiografias', label: 'Radiografias', icon: Activity },
   { id: 'quotes', label: 'Orçamentos', icon: DollarSign },
   { id: 'treatment-plans', label: 'Tratamentos', icon: ClipboardList },
 ] as const;
@@ -199,6 +201,7 @@ export default function PacienteFichaPage() {
       {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
+      {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
       {tab === 'quotes' && <OrcamentoTab patientId={patient.id} />}
       {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
     </div>

@@ -64,6 +64,7 @@ import { PortalModule } from './portal/portal.module';
 import { ReportsModule } from './reports/reports.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { SmileDesignModule } from './smile-design/smile-design.module';
+import { RadiographyModule } from './radiography/radiography.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -161,6 +162,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     ClinicsModule,
     // Fase 16 — Smile/Face Design Studio
     SmileDesignModule,
+    // Fase 17 — Integracao radiologia
+    RadiographyModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

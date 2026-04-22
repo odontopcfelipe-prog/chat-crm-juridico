@@ -67,6 +67,9 @@ model Tenant {
   clinics                   Clinic[]
   // Smile/Face Design (Fase 16)
   smile_simulations         SmileSimulation[]
+  // Radiologia (Fase 17)
+  radiography_providers     RadiographyProvider[]
+  radiography_exams         RadiographyExam[]
 }
 
 model User {
@@ -138,6 +141,8 @@ model User {
   user_clinics                  UserClinic[]
   // Smile/Face Design (Fase 16)
   smile_simulations_created     SmileSimulation[]      @relation("SmileSimulationCreator")
+  // Radiologia (Fase 17)
+  radiography_exams_linked      RadiographyExam[]      @relation("RadiographyLinker")
 }
 
 model Lead {
@@ -1815,6 +1820,8 @@ model Patient {
   portal_tokens         PortalToken[]
   // Smile/Face Design (Fase 16)
   smile_simulations     SmileSimulation[]
+  // Radiologia (Fase 17)
+  radiography_exams     RadiographyExam[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -3057,4 +3064,100 @@ model SmileSimulation {
   @@index([tenant_id, patient_id])
   @@index([patient_id, created_at])
   @@index([status])
+}
+
+// ============================================================================
+// FASE 17 — INTEGRACAO RADIOLOGIA (Image2Doc / Proradis / DICOM)
+// ============================================================================
+//
+// Modelo de exames radiograficos recebidos automaticamente de centros
+// radiologicos parceiros. O parceiro chama nosso webhook publico
+// /webhooks/radiography com:
+//   - cpf ou identificador externo do paciente
+//   - tipo do exame (PANORAMIC, PERIAPICAL, BITEWING, CT, CBCT)
+//   - URL para download da imagem (ou base64 inline)
+//   - laudo opcional
+// Validacao por X-Radiography-Provider-Key (chave configurada por provider).
+//
+// Provider tracking:
+//   - source = nome do provider (image2doc, proradis, manual, etc.)
+//   - source_external_id = ID do exame no sistema do provider (idempotencia)
+//
+// Integracao DICOM e overlay para o futuro — esta fase trabalha com
+// imagens JPG/PNG renderizadas pelo provider, nao DICOM raw.
+
+/// Provider de radiologia configurado (Image2Doc, Proradis etc).
+/// Cada provider tem sua chave secreta (api_key_hash) usada no header
+/// X-Radiography-Provider-Key para autenticar o webhook.
+model RadiographyProvider {
+  id             String   @id @default(uuid())
+  tenant_id      String
+  name           String   // 'Image2Doc' | 'Proradis' | etc
+  source_slug    String   // 'image2doc' | 'proradis' (lowercase, para webhook)
+  api_key_hash   String   // bcrypt/argon2 da chave secreta
+  active         Boolean  @default(true)
+  webhook_count  Int      @default(0)
+  last_received_at DateTime?
+  notes          String?
+  created_at     DateTime @default(now())
+  updated_at     DateTime @updatedAt
+
+  tenant Tenant            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  exams  RadiographyExam[]
+
+  @@unique([tenant_id, source_slug])
+  @@index([tenant_id, active])
+}
+
+model RadiographyExam {
+  id           String   @id @default(uuid())
+  tenant_id    String
+  patient_id   String?  // null se nao conseguimos casar com paciente (fica em backlog)
+
+  // Identificacao do parceiro
+  provider_id          String?
+  source               String   // image2doc | proradis | manual | other
+  source_external_id   String?  // ID no sistema do parceiro (idempotencia)
+
+  // Tipo do exame
+  exam_type    String   // PANORAMIC | PERIAPICAL | BITEWING | OCCLUSAL | LATERAL | PA | CT | CBCT | OTHER
+  tooth_fdi    String?  // Dente especifico (para periapical/bitewing)
+
+  // Imagem
+  image_s3_key String
+  thumbnail_s3_key String?
+  mime_type    String   @default("image/jpeg")
+
+  // Laudo
+  report_text  String?  // Texto livre do radiologista
+  report_html  String?  // HTML rico se vier
+
+  // Datas
+  performed_at DateTime?  // Data em que o exame foi feito
+  received_at  DateTime   @default(now())
+
+  // Status / triagem
+  status       String     @default("RECEIVED") // RECEIVED | LINKED | DISCARDED
+  linked_at    DateTime?  // Quando foi associado a um paciente
+  linked_by_user_id String?
+
+  // Match heuristico (CPF, nome, telefone do parceiro para casar com Patient)
+  external_patient_cpf String?
+  external_patient_name String?
+
+  // Observacoes da clinica
+  notes        String?
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  tenant    Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient   Patient?             @relation(fields: [patient_id], references: [id], onDelete: SetNull)
+  provider  RadiographyProvider? @relation(fields: [provider_id], references: [id], onDelete: SetNull)
+  linked_by User?                @relation("RadiographyLinker", fields: [linked_by_user_id], references: [id], onDelete: SetNull)
+
+  @@unique([source, source_external_id])
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, performed_at])
+  @@index([status, received_at])
+  @@index([external_patient_cpf])
 }
