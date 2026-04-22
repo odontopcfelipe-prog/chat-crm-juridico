@@ -65,6 +65,8 @@ model Tenant {
   portal_tokens             PortalToken[]
   // Multi-unidade (Fase 15)
   clinics                   Clinic[]
+  // Smile/Face Design (Fase 16)
+  smile_simulations         SmileSimulation[]
 }
 
 model User {
@@ -134,6 +136,8 @@ model User {
   goals_assigned                Goal[]                 @relation("GoalProfessional")
   // Multi-unidade (Fase 15)
   user_clinics                  UserClinic[]
+  // Smile/Face Design (Fase 16)
+  smile_simulations_created     SmileSimulation[]      @relation("SmileSimulationCreator")
 }
 
 model Lead {
@@ -1809,6 +1813,8 @@ model Patient {
   installments          Installment[]
   // Portal do paciente (Fase 13)
   portal_tokens         PortalToken[]
+  // Smile/Face Design (Fase 16)
+  smile_simulations     SmileSimulation[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -2998,4 +3004,57 @@ model UserClinic {
   @@unique([user_id, clinic_id])
   @@index([user_id])
   @@index([clinic_id])
+}
+
+// ============================================================================
+// FASE 16 — SMILE / FACE DESIGN STUDIO (IA de imagem antes/depois)
+// ============================================================================
+//
+// Profissional faz upload de foto do paciente. IA gera simulacao
+// antes/depois (sorriso ou harmonizacao facial). Usado como ferramenta
+// de venda — aumenta conversao mostrando resultado esperado.
+//
+// Provider e abstraido: pode ser Replicate, fal.ai, Stability, OpenAI
+// gpt-image-1, modelo proprio. Configurado via SettingsService.
+// Default: 'mock' (devolve a foto original — placeholder).
+//
+// CONFORMIDADE CFO Resolucao 118/2012:
+//   Toda simulacao deve ser CLARAMENTE rotulada como simulacao,
+//   nao garantia. Front-end exibe disclaimer. patient_consent
+//   e obrigatorio antes de gerar.
+
+model SmileSimulation {
+  id                  String    @id @default(uuid())
+  tenant_id           String
+  patient_id          String
+  created_by_user_id  String
+
+  simulation_type     String // SMILE | FACE_HARMONY | LIPS | RHINOMODULATION | OTHER
+
+  before_s3_key       String
+  before_url          String?
+  after_s3_key        String?
+  after_url           String?
+
+  provider            String    @default("mock") // mock | replicate | fal | stability | openai_image | custom
+  prompt              String?
+  provider_metadata   Json?
+
+  status              String    @default("PROCESSING") // PROCESSING | DONE | FAILED
+  error_message       String?
+
+  patient_consent     Boolean   @default(false)
+  patient_consent_at  DateTime?
+
+  notes               String?
+  created_at          DateTime  @default(now())
+  updated_at          DateTime  @updatedAt
+
+  tenant     Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient    Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  created_by User    @relation("SmileSimulationCreator", fields: [created_by_user_id], references: [id])
+
+  @@index([tenant_id, patient_id])
+  @@index([patient_id, created_at])
+  @@index([status])
 }
