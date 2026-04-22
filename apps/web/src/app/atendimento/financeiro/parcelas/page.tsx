@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   Wallet, Loader2, Search, AlertTriangle, CheckCircle, Clock, X, DollarSign, Phone,
+  CreditCard, QrCode, Copy, ExternalLink, Zap,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -19,10 +20,34 @@ interface Installment {
   status: string;
   notes: string | null;
   collection_stage: string | null;
-  patient: { id: string; name: string; phone: string | null; email: string | null };
+  gateway_charge_id: string | null;
+  patient: { id: string; name: string; phone: string | null; email: string | null; cpf?: string | null };
   quote: { id: string; total_value: string } | null;
   _count?: { collection_attempts: number };
 }
+
+interface PaymentCharge {
+  id: string;
+  external_id: string;
+  status: string;
+  billing_type: string;
+  amount: number | string;
+  invoice_url?: string | null;
+  boleto_url?: string | null;
+  pix_qr_code?: string | null;
+  pix_copy_paste?: string | null;
+  pix?: { qrCode?: string; copyPaste?: string; expirationDate?: string } | null;
+  boleto?: { url?: string; barcode?: string } | null;
+}
+
+const CHARGE_STATUS_CFG: Record<string, { label: string; cls: string }> = {
+  PENDING:   { label: 'Aguardando',    cls: 'bg-amber-500/10 text-amber-700 border-amber-500/20' },
+  RECEIVED:  { label: 'Pago',          cls: 'bg-green-500/10 text-green-700 border-green-500/20' },
+  CONFIRMED: { label: 'Confirmado',    cls: 'bg-green-500/10 text-green-700 border-green-500/20' },
+  OVERDUE:   { label: 'Vencido',       cls: 'bg-red-500/10 text-red-700 border-red-500/20' },
+  REFUNDED:  { label: 'Estornado',     cls: 'bg-purple-500/10 text-purple-700 border-purple-500/20' },
+  DELETED:   { label: 'Cancelado',     cls: 'bg-gray-500/10 text-gray-700 border-gray-500/20' },
+};
 
 interface OverdueSummary {
   total_overdue: number;
@@ -50,6 +75,7 @@ export default function ParcelasPage() {
   const [overdueOnly, setOverdueOnly] = useState(false);
   const [search, setSearch] = useState('');
   const [openPay, setOpenPay] = useState<Installment | null>(null);
+  const [openCharge, setOpenCharge] = useState<Installment | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -224,14 +250,30 @@ export default function ParcelasPage() {
                       ) : '—'}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {i.status !== 'PAGA' && i.status !== 'CANCELADA' && i.status !== 'RENEGOCIADA' && (
-                        <button
-                          onClick={() => setOpenPay(i)}
-                          className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90"
-                        >
-                          <DollarSign size={12} /> Receber
-                        </button>
-                      )}
+                      <div className="flex justify-end gap-1">
+                        {i.status !== 'PAGA' && i.status !== 'CANCELADA' && i.status !== 'RENEGOCIADA' && (
+                          <>
+                            <button
+                              onClick={() => setOpenCharge(i)}
+                              title={i.gateway_charge_id ? 'Ver cobranca Asaas' : 'Cobrar via Asaas (PIX/Boleto)'}
+                              className={`text-xs inline-flex items-center gap-1 px-2 py-1 rounded border ${
+                                i.gateway_charge_id
+                                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 hover:bg-emerald-500/20'
+                                  : 'border-border hover:bg-accent'
+                              }`}
+                            >
+                              <Zap size={12} />
+                              {i.gateway_charge_id ? 'Ver' : 'Cobrar'}
+                            </button>
+                            <button
+                              onClick={() => setOpenPay(i)}
+                              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90"
+                            >
+                              <DollarSign size={12} /> Receber
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 );
@@ -246,6 +288,14 @@ export default function ParcelasPage() {
           installment={openPay}
           onClose={() => setOpenPay(null)}
           onPaid={() => { setOpenPay(null); load(); }}
+        />
+      )}
+
+      {openCharge && (
+        <ChargeModal
+          installment={openCharge}
+          onClose={() => setOpenCharge(null)}
+          onChanged={load}
         />
       )}
     </div>
@@ -374,6 +424,219 @@ function PayModal({
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Modal de cobranca via gateway (Asaas) — gera PIX/Boleto/Cartao e mostra
+ * QR code/codigo de barras/link da fatura. Idempotente: se ja existe charge
+ * pra parcela, faz GET ao inves de POST.
+ */
+function ChargeModal({
+  installment, onClose, onChanged,
+}: { installment: Installment; onClose: () => void; onChanged: () => void }) {
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [charge, setCharge] = useState<PaymentCharge | null>(null);
+  const [billingType, setBillingType] = useState<'PIX' | 'BOLETO' | 'CREDIT_CARD'>('PIX');
+
+  const remaining = Number(installment.amount) - Number(installment.amount_paid);
+
+  // Carrega charge existente (se houver)
+  useEffect(() => {
+    if (!installment.gateway_charge_id) return;
+    setLoading(true);
+    api.get<{ local: PaymentCharge; gateway: any }>(`/payment-gateway/installments/${installment.id}/charge`)
+      .then((r) => {
+        const local = r.data.local;
+        const gw = r.data.gateway;
+        setCharge({
+          ...local,
+          // Se o gateway retornou QR/boleto fresco, usar
+          pix: local.pix_qr_code ? {
+            qrCode: local.pix_qr_code,
+            copyPaste: local.pix_copy_paste || undefined,
+          } : null,
+          boleto: local.boleto_url ? { url: local.boleto_url } : null,
+          invoice_url: gw?.invoiceUrl || local.invoice_url || null,
+        });
+      })
+      .catch((e) => showError(e?.response?.data?.message || 'Erro ao carregar cobranca'))
+      .finally(() => setLoading(false));
+  }, [installment.id, installment.gateway_charge_id]);
+
+  const handleCreate = async () => {
+    if (!installment.patient.cpf) {
+      showError('Paciente sem CPF — cadastre antes de gerar cobranca');
+      return;
+    }
+    setCreating(true);
+    try {
+      const r = await api.post<PaymentCharge>(
+        `/payment-gateway/installments/${installment.id}/charge`,
+        { billingType },
+      );
+      setCharge(r.data);
+      showSuccess('Cobranca gerada no Asaas');
+      onChanged();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao gerar cobranca');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard.writeText(text).then(() => showSuccess(`${label} copiado`));
+  };
+
+  const cfg = charge ? (CHARGE_STATUS_CFG[charge.status] || CHARGE_STATUS_CFG.PENDING) : null;
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-border sticky top-0 bg-card">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <Zap size={20} className="text-primary" /> Cobranca via Asaas
+          </h2>
+          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          <div className="text-sm bg-background border border-border rounded-lg p-3">
+            <p className="font-medium">{installment.patient.name}</p>
+            <p className="text-xs text-muted-foreground">
+              Parcela {installment.sequence}/{installment.total_count} · venc.{' '}
+              {new Date(installment.due_date).toLocaleDateString('pt-BR')}
+            </p>
+            <p className="text-xs mt-1">
+              Valor: <span className="font-mono font-bold">{fmt(remaining)}</span>
+            </p>
+          </div>
+
+          {loading ? (
+            <div className="p-8 flex items-center justify-center text-muted-foreground">
+              <Loader2 size={20} className="animate-spin mr-2" /> Carregando cobranca...
+            </div>
+          ) : !charge ? (
+            // ─── CRIAR NOVA COBRANÇA ───
+            <>
+              <div>
+                <label className="block text-xs font-medium mb-1">Forma de cobranca</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {([
+                    { v: 'PIX', label: 'PIX', icon: <QrCode size={14} /> },
+                    { v: 'BOLETO', label: 'Boleto', icon: <ExternalLink size={14} /> },
+                    { v: 'CREDIT_CARD', label: 'Cartao', icon: <CreditCard size={14} /> },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.v}
+                      onClick={() => setBillingType(opt.v)}
+                      className={`px-2 py-2 rounded-lg border text-xs font-medium inline-flex items-center justify-center gap-1 ${
+                        billingType === opt.v
+                          ? 'border-primary bg-primary/10 text-primary'
+                          : 'border-border hover:bg-accent'
+                      }`}
+                    >
+                      {opt.icon} {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              {!installment.patient.cpf && (
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-2 text-xs text-amber-700">
+                  Paciente sem CPF — cadastre na ficha antes de gerar cobranca.
+                </div>
+              )}
+              <button
+                onClick={handleCreate}
+                disabled={creating || !installment.patient.cpf}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+              >
+                {creating ? <Loader2 size={16} className="animate-spin" /> : <Zap size={16} />}
+                Gerar cobranca
+              </button>
+            </>
+          ) : (
+            // ─── COBRANÇA JÁ EXISTE ───
+            <>
+              <div className="flex items-center justify-between bg-background border border-border rounded-lg p-3">
+                <div>
+                  <div className="text-xs text-muted-foreground">Status no Asaas</div>
+                  {cfg && (
+                    <span className={`text-xs px-2 py-0.5 rounded border ${cfg.cls}`}>
+                      {cfg.label}
+                    </span>
+                  )}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-muted-foreground">{charge.billing_type}</div>
+                  <div className="text-sm font-mono font-bold">{fmt(charge.amount)}</div>
+                </div>
+              </div>
+
+              {/* PIX QR Code */}
+              {charge.billing_type === 'PIX' && charge.pix?.qrCode && (
+                <div className="bg-background border border-border rounded-lg p-3 space-y-2">
+                  <div className="flex items-center gap-2 text-xs font-medium text-muted-foreground">
+                    <QrCode size={14} /> QR Code PIX
+                  </div>
+                  <img
+                    src={`data:image/png;base64,${charge.pix.qrCode}`}
+                    alt="QR Code PIX"
+                    className="w-48 h-48 mx-auto"
+                  />
+                  {charge.pix.copyPaste && (
+                    <button
+                      onClick={() => copyToClipboard(charge.pix!.copyPaste!, 'PIX copia-e-cola')}
+                      className="w-full inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-border text-xs font-medium hover:bg-accent"
+                    >
+                      <Copy size={12} /> Copiar PIX copia-e-cola
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Boleto */}
+              {charge.billing_type === 'BOLETO' && charge.boleto?.url && (
+                <a
+                  href={charge.boleto.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent"
+                >
+                  <ExternalLink size={16} /> Abrir boleto (PDF)
+                </a>
+              )}
+
+              {/* Link da fatura (para qualquer billing_type) */}
+              {charge.invoice_url && (
+                <a
+                  href={charge.invoice_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+                >
+                  <ExternalLink size={16} /> Abrir fatura no Asaas
+                </a>
+              )}
+
+              <div className="text-[10px] text-muted-foreground text-center pt-2">
+                Quando o cliente pagar, o sistema marca automaticamente a parcela como PAGA via webhook.
+              </div>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

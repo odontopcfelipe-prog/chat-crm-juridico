@@ -1424,6 +1424,8 @@ model PaymentGatewayCharge {
   honorario_payment_id String?  @unique
   transaction_id       String?  @unique
   legal_case_id        String?
+  // Fase 18 — odontologia: cobranca pode estar vinculada a uma Installment
+  installment_id       String?  @unique
   gateway              String   @default("ASAAS")
   external_id          String   @unique // ID da cobrança no gateway
   customer_external_id String // ID do cliente no gateway
@@ -1459,11 +1461,13 @@ model PaymentGatewayCharge {
   transaction               FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
   legal_case                LegalCase?            @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   tenant                    Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  installment               Installment?          @relation(fields: [installment_id], references: [id], onDelete: SetNull)
 
   @@index([tenant_id, status])
   @@index([customer_external_id])
   @@index([due_date, status])
   @@index([legal_case_id])
+  @@index([installment_id])
 }
 
 // ===============================================
@@ -2838,49 +2842,51 @@ model Goal {
 // ============================================================================
 
 model Installment {
-  id                 String    @id @default(uuid())
-  tenant_id          String
-  patient_id         String
+  id         String  @id @default(uuid())
+  tenant_id  String
+  patient_id String
   // Origem (qual orcamento gerou)
-  quote_id           String?
+  quote_id   String?
 
   // Posicao
-  sequence           Int       @default(1)
-  total_count        Int       @default(1)
+  sequence    Int @default(1)
+  total_count Int @default(1)
 
   // Valores
-  amount             Decimal   @db.Decimal(10, 2)
-  amount_paid        Decimal   @default(0) @db.Decimal(10, 2)
-  discount_value     Decimal   @default(0) @db.Decimal(10, 2)
-  fee_value          Decimal   @default(0) @db.Decimal(10, 2) // juros/multa por atraso
+  amount         Decimal @db.Decimal(10, 2)
+  amount_paid    Decimal @default(0) @db.Decimal(10, 2)
+  discount_value Decimal @default(0) @db.Decimal(10, 2)
+  fee_value      Decimal @default(0) @db.Decimal(10, 2) // juros/multa por atraso
 
   // Datas
-  due_date           DateTime
-  paid_at            DateTime?
+  due_date DateTime
+  paid_at  DateTime?
 
   // Pagamento
-  payment_method     String? // PIX | BOLETO | CARTAO | DINHEIRO | TRANSFERENCIA | MAQUININHA
-  status             String    @default("ABERTA") // ABERTA | PAGA | PARCIAL | ATRASADA | CANCELADA | RENEGOCIADA
+  payment_method String? // PIX | BOLETO | CARTAO | DINHEIRO | TRANSFERENCIA | MAQUININHA
+  status         String  @default("ABERTA") // ABERTA | PAGA | PARCIAL | ATRASADA | CANCELADA | RENEGOCIADA
 
   // Vinculos opcionais
-  gateway_charge_id  String?   @unique
-  nota_fiscal_id     String?   @unique
+  gateway_charge_id  String? @unique
+  nota_fiscal_id     String? @unique
   renegotiated_to_id String?
 
   // Estado da regua de cobranca
   collection_stage   String? // PRE_DUE_3D | DUE_DAY | D_PLUS_1 | D_PLUS_7 | D_PLUS_15 | D_PLUS_30
   last_collection_at DateTime?
 
-  notes              String?
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  tenant              Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  patient             Patient             @relation(fields: [patient_id], references: [id], onDelete: Cascade)
-  quote               Quote?              @relation("QuoteInstallments", fields: [quote_id], references: [id], onDelete: SetNull)
-  renegotiated_to     Installment?        @relation("InstallmentRenegotiation", fields: [renegotiated_to_id], references: [id], onDelete: SetNull)
-  renegotiated_from   Installment[]       @relation("InstallmentRenegotiation")
+  tenant              Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient             Patient               @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  quote               Quote?                @relation("QuoteInstallments", fields: [quote_id], references: [id], onDelete: SetNull)
+  renegotiated_to     Installment?          @relation("InstallmentRenegotiation", fields: [renegotiated_to_id], references: [id], onDelete: SetNull)
+  renegotiated_from   Installment[]         @relation("InstallmentRenegotiation")
   collection_attempts CollectionAttempt[]
+  // Fase 18 — cobranca via gateway (Asaas/Iugu/etc)
+  payment_charge      PaymentGatewayCharge?
 
   @@index([tenant_id, due_date])
   @@index([patient_id, status])
@@ -2890,19 +2896,19 @@ model Installment {
 }
 
 model CollectionAttempt {
-  id              String   @id @default(uuid())
-  installment_id  String
+  id             String @id @default(uuid())
+  installment_id String
 
-  stage           String // PRE_DUE_3D | DUE_DAY | D_PLUS_1 | D_PLUS_7 | D_PLUS_15 | D_PLUS_30
-  channel         String // WHATSAPP | SMS | EMAIL | LIGACAO | APP_PUSH
+  stage   String // PRE_DUE_3D | DUE_DAY | D_PLUS_1 | D_PLUS_7 | D_PLUS_15 | D_PLUS_30
+  channel String // WHATSAPP | SMS | EMAIL | LIGACAO | APP_PUSH
 
   message_text    String?
-  sent_at         DateTime  @default(now())
+  sent_at         DateTime @default(now())
   delivery_status String? // SENT | DELIVERED | READ | FAILED | BOUNCED
 
-  response_at     DateTime?
-  response_text   String?
-  message_id      String?
+  response_at   DateTime?
+  response_text String?
+  message_id    String?
 
   installment Installment @relation(fields: [installment_id], references: [id], onDelete: Cascade)
 
@@ -2960,27 +2966,27 @@ model PortalToken {
 // agregado via tenant_id (cada Clinic pode ser tag para futura migration).
 
 model Clinic {
-  id          String  @id @default(uuid())
-  tenant_id   String
-  name        String
-  short_name  String? // "Centro SP", "Moema", "Copacabana RJ"
-  address     String?
-  city        String?
-  state       String? // UF
-  phone       String?
-  email       String?
-  cnpj        String?
+  id                       String  @id @default(uuid())
+  tenant_id                String
+  name                     String
+  short_name               String? // "Centro SP", "Moema", "Copacabana RJ"
+  address                  String?
+  city                     String?
+  state                    String? // UF
+  phone                    String?
+  email                    String?
+  cnpj                     String?
   // Tipo (Clinicorp distingue dental vs aesthetic)
-  type        String  @default("MIXED") // DENTAL | AESTHETIC | MIXED
+  type                     String  @default("MIXED") // DENTAL | AESTHETIC | MIXED
   // Horario de funcionamento (JSON por dia da semana)
-  working_hours Json?
+  working_hours            Json?
   // Logo / branding
-  logo_url    String?
-  brand_color String? // Hex (ex: #F58220)
+  logo_url                 String?
+  brand_color              String? // Hex (ex: #F58220)
   // Status
-  active      Boolean @default(true)
+  active                   Boolean @default(true)
   // Para franquias
-  is_franchise Boolean @default(false)
+  is_franchise             Boolean @default(false)
   franchisee_owner_user_id String? // Dono da franquia (se franquia)
 
   created_at DateTime @default(now())
@@ -2998,12 +3004,12 @@ model Clinic {
 /// Quando um User nao tem registros UserClinic, tem acesso a TODAS as
 /// clinicas do tenant (default backward-compatible).
 model UserClinic {
-  id          String   @id @default(uuid())
-  user_id     String
-  clinic_id   String
-  role        String?  // OPERADOR | ADVOGADO | GESTOR | ADMIN | DENTISTA — sobrepoe roles globais nesta unidade
-  is_default  Boolean  @default(false) // Unidade default ao logar
-  created_at  DateTime @default(now())
+  id         String   @id @default(uuid())
+  user_id    String
+  clinic_id  String
+  role       String? // OPERADOR | ADVOGADO | GESTOR | ADMIN | DENTISTA — sobrepoe roles globais nesta unidade
+  is_default Boolean  @default(false) // Unidade default ao logar
+  created_at DateTime @default(now())
 
   user   User   @relation(fields: [user_id], references: [id], onDelete: Cascade)
   clinic Clinic @relation(fields: [clinic_id], references: [id], onDelete: Cascade)
@@ -3031,31 +3037,31 @@ model UserClinic {
 //   e obrigatorio antes de gerar.
 
 model SmileSimulation {
-  id                  String    @id @default(uuid())
-  tenant_id           String
-  patient_id          String
-  created_by_user_id  String
+  id                 String @id @default(uuid())
+  tenant_id          String
+  patient_id         String
+  created_by_user_id String
 
-  simulation_type     String // SMILE | FACE_HARMONY | LIPS | RHINOMODULATION | OTHER
+  simulation_type String // SMILE | FACE_HARMONY | LIPS | RHINOMODULATION | OTHER
 
-  before_s3_key       String
-  before_url          String?
-  after_s3_key        String?
-  after_url           String?
+  before_s3_key String
+  before_url    String?
+  after_s3_key  String?
+  after_url     String?
 
-  provider            String    @default("mock") // mock | replicate | fal | stability | openai_image | custom
-  prompt              String?
-  provider_metadata   Json?
+  provider          String  @default("mock") // mock | replicate | fal | stability | openai_image | custom
+  prompt            String?
+  provider_metadata Json?
 
-  status              String    @default("PROCESSING") // PROCESSING | DONE | FAILED
-  error_message       String?
+  status        String  @default("PROCESSING") // PROCESSING | DONE | FAILED
+  error_message String?
 
-  patient_consent     Boolean   @default(false)
-  patient_consent_at  DateTime?
+  patient_consent    Boolean   @default(false)
+  patient_consent_at DateTime?
 
-  notes               String?
-  created_at          DateTime  @default(now())
-  updated_at          DateTime  @updatedAt
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   tenant     Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   patient    Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
@@ -3090,17 +3096,17 @@ model SmileSimulation {
 /// Cada provider tem sua chave secreta (api_key_hash) usada no header
 /// X-Radiography-Provider-Key para autenticar o webhook.
 model RadiographyProvider {
-  id             String   @id @default(uuid())
-  tenant_id      String
-  name           String   // 'Image2Doc' | 'Proradis' | etc
-  source_slug    String   // 'image2doc' | 'proradis' (lowercase, para webhook)
-  api_key_hash   String   // bcrypt/argon2 da chave secreta
-  active         Boolean  @default(true)
-  webhook_count  Int      @default(0)
+  id               String    @id @default(uuid())
+  tenant_id        String
+  name             String // 'Image2Doc' | 'Proradis' | etc
+  source_slug      String // 'image2doc' | 'proradis' (lowercase, para webhook)
+  api_key_hash     String // bcrypt/argon2 da chave secreta
+  active           Boolean   @default(true)
+  webhook_count    Int       @default(0)
   last_received_at DateTime?
-  notes          String?
-  created_at     DateTime @default(now())
-  updated_at     DateTime @updatedAt
+  notes            String?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
 
   tenant Tenant            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   exams  RadiographyExam[]
@@ -3110,45 +3116,45 @@ model RadiographyProvider {
 }
 
 model RadiographyExam {
-  id           String   @id @default(uuid())
-  tenant_id    String
-  patient_id   String?  // null se nao conseguimos casar com paciente (fica em backlog)
+  id         String  @id @default(uuid())
+  tenant_id  String
+  patient_id String? // null se nao conseguimos casar com paciente (fica em backlog)
 
   // Identificacao do parceiro
-  provider_id          String?
-  source               String   // image2doc | proradis | manual | other
-  source_external_id   String?  // ID no sistema do parceiro (idempotencia)
+  provider_id        String?
+  source             String // image2doc | proradis | manual | other
+  source_external_id String? // ID no sistema do parceiro (idempotencia)
 
   // Tipo do exame
-  exam_type    String   // PANORAMIC | PERIAPICAL | BITEWING | OCCLUSAL | LATERAL | PA | CT | CBCT | OTHER
-  tooth_fdi    String?  // Dente especifico (para periapical/bitewing)
+  exam_type String // PANORAMIC | PERIAPICAL | BITEWING | OCCLUSAL | LATERAL | PA | CT | CBCT | OTHER
+  tooth_fdi String? // Dente especifico (para periapical/bitewing)
 
   // Imagem
-  image_s3_key String
+  image_s3_key     String
   thumbnail_s3_key String?
-  mime_type    String   @default("image/jpeg")
+  mime_type        String  @default("image/jpeg")
 
   // Laudo
-  report_text  String?  // Texto livre do radiologista
-  report_html  String?  // HTML rico se vier
+  report_text String? // Texto livre do radiologista
+  report_html String? // HTML rico se vier
 
   // Datas
-  performed_at DateTime?  // Data em que o exame foi feito
-  received_at  DateTime   @default(now())
+  performed_at DateTime? // Data em que o exame foi feito
+  received_at  DateTime  @default(now())
 
   // Status / triagem
-  status       String     @default("RECEIVED") // RECEIVED | LINKED | DISCARDED
-  linked_at    DateTime?  // Quando foi associado a um paciente
+  status            String    @default("RECEIVED") // RECEIVED | LINKED | DISCARDED
+  linked_at         DateTime? // Quando foi associado a um paciente
   linked_by_user_id String?
 
   // Match heuristico (CPF, nome, telefone do parceiro para casar com Patient)
-  external_patient_cpf String?
+  external_patient_cpf  String?
   external_patient_name String?
 
   // Observacoes da clinica
-  notes        String?
-  created_at   DateTime @default(now())
-  updated_at   DateTime @updatedAt
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   tenant    Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   patient   Patient?             @relation(fields: [patient_id], references: [id], onDelete: SetNull)

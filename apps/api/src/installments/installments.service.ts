@@ -145,7 +145,7 @@ export class InstallmentsService {
         skip,
         take: limit,
         include: {
-          patient: { select: { id: true, name: true, phone: true, email: true } },
+          patient: { select: { id: true, name: true, phone: true, email: true, cpf: true } },
           quote: { select: { id: true, total_value: true } },
           _count: { select: { collection_attempts: true } },
         },

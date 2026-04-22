@@ -139,6 +139,43 @@ export class PaymentGatewayController {
     });
   }
 
+  // ─── FASE 18 — Cobrança para Installment (parcela odontológica) ──
+
+  /**
+   * Cria cobrança no Asaas para uma parcela. Idempotente: se já existe
+   * cobrança vinculada à parcela, retorna a existente.
+   * Body: { billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD' }
+   */
+  @Post('installments/:id/charge')
+  async createOdontoInstallmentCharge(
+    @Param('id') installmentId: string,
+    @Body() body: { billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD' },
+    @Req() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) {
+      throw new Error('tenant_id ausente no JWT');
+    }
+    return this.service.createChargeForInstallment(
+      installmentId,
+      body.billingType || 'PIX',
+      tenantId,
+    );
+  }
+
+  /** Retorna detalhes da cobrança vinculada a uma parcela (com refresh do Asaas). */
+  @Get('installments/:id/charge')
+  async getOdontoInstallmentCharge(
+    @Param('id') installmentId: string,
+    @Req() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) {
+      throw new Error('tenant_id ausente no JWT');
+    }
+    return this.service.getInstallmentChargeDetails(installmentId, tenantId);
+  }
+
   // ─── ROTAS COM PARÂMETROS (depois das fixas) ──────────────
 
   /** Detalhes completos de uma cobrança no Asaas */

@@ -359,6 +359,170 @@ export class PaymentGatewayService {
     };
   }
 
+  // ─── Cobrança para Installment (Fase 18 — Odontologia) ─
+
+  /**
+   * Cria cobranca no Asaas para uma Installment (parcela odontologica).
+   * Usa Patient.cpf + Patient.lead_id para garantir/criar customer Asaas.
+   * Idempotente: se a parcela ja tem charge, retorna a existente.
+   */
+  async createChargeForInstallment(
+    installmentId: string,
+    billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+    tenantId: string,
+  ) {
+    // Idempotencia
+    const existing = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { installment_id: installmentId },
+    });
+    if (existing) {
+      this.logger.warn(`[CHARGE-INST] Ja existe cobranca para installment ${installmentId}: ${existing.external_id}`);
+      // Retorna com PIX se aplicavel (cache local)
+      return {
+        ...existing,
+        pix: existing.pix_qr_code
+          ? {
+              qrCode: existing.pix_qr_code,
+              copyPaste: existing.pix_copy_paste,
+              expirationDate: existing.pix_expiration_date,
+            }
+          : null,
+        boleto: existing.boleto_url
+          ? { url: existing.boleto_url, barcode: existing.boleto_barcode }
+          : null,
+      };
+    }
+
+    // Buscar parcela
+    const installment = await this.prisma.installment.findFirst({
+      where: { id: installmentId, tenant_id: tenantId },
+      include: {
+        patient: { select: { id: true, name: true, cpf: true, lead_id: true } },
+        quote: { select: { id: true } },
+      },
+    });
+    if (!installment) throw new NotFoundException('Parcela nao encontrada');
+    if (installment.status === 'PAGA') {
+      throw new BadRequestException('Parcela ja foi paga');
+    }
+    if (installment.status === 'CANCELADA') {
+      throw new BadRequestException('Parcela cancelada');
+    }
+    if (!installment.patient.cpf) {
+      throw new BadRequestException('Paciente sem CPF — cadastre antes de gerar cobranca');
+    }
+    if (!installment.patient.lead_id) {
+      throw new BadRequestException('Paciente nao vinculado a Lead — necessario para Asaas');
+    }
+
+    // Garantir customer no Asaas (via Patient)
+    const customer = await this.ensureCustomerForPatient(installment.patient.id, tenantId);
+
+    // Valor liquido (amount - desconto + juros)
+    const value = Number(installment.amount)
+      - Number(installment.discount_value || 0)
+      + Number(installment.fee_value || 0);
+
+    const dueDate = new Date(installment.due_date);
+    const dueDateStr = dueDate.toISOString().slice(0, 10);
+    const description =
+      `Parcela ${installment.sequence}/${installment.total_count}` +
+      ` — ${installment.patient.name}`;
+
+    // Criar cobranca no Asaas
+    const asaasCharge = await this.asaas.createCharge({
+      customer: customer.external_id,
+      billingType,
+      value,
+      dueDate: dueDateStr,
+      description,
+      externalReference: installmentId,
+    });
+
+    this.logger.log(
+      `[CHARGE-INST] Criada no Asaas: ${asaasCharge.id} | ${billingType} | R$ ${value} | Venc: ${dueDateStr}`,
+    );
+
+    // PIX QR Code (se aplicavel)
+    let pixData: any = null;
+    if (billingType === 'PIX' && asaasCharge.id) {
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      catch (e: any) { this.logger.warn(`[CHARGE-INST] Falha QR Code PIX: ${e.message}`); }
+    }
+
+    // Salva localmente
+    const charge = await this.prisma.paymentGatewayCharge.create({
+      data: {
+        tenant_id: tenantId,
+        installment_id: installmentId,
+        gateway: 'ASAAS',
+        external_id: asaasCharge.id,
+        customer_external_id: customer.external_id,
+        billing_type: billingType,
+        amount: value,
+        due_date: dueDate,
+        status: asaasCharge.status || 'PENDING',
+        description,
+        pix_qr_code: pixData?.encodedImage || null,
+        pix_copy_paste: pixData?.payload || null,
+        pix_expiration_date: pixData?.expirationDate ? new Date(pixData.expirationDate) : null,
+        boleto_url: asaasCharge.bankSlipUrl || null,
+        boleto_barcode: asaasCharge.nossoNumero || null,
+        invoice_url: asaasCharge.invoiceUrl || null,
+      },
+    });
+
+    // Atualiza referencia gateway_charge_id na Installment (compat)
+    await this.prisma.installment.update({
+      where: { id: installmentId },
+      data: { gateway_charge_id: asaasCharge.id },
+    });
+
+    return {
+      ...charge,
+      pix: pixData
+        ? { qrCode: pixData.encodedImage, copyPaste: pixData.payload, expirationDate: pixData.expirationDate }
+        : null,
+      boleto: asaasCharge.bankSlipUrl
+        ? { url: asaasCharge.bankSlipUrl, barcode: asaasCharge.nossoNumero }
+        : null,
+    };
+  }
+
+  /** Detalhes da cobranca de uma Installment (com refresh do Asaas). */
+  async getInstallmentChargeDetails(installmentId: string, tenantId: string) {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { installment_id: installmentId },
+    });
+    if (!charge) {
+      throw new NotFoundException('Cobranca nao encontrada para esta parcela');
+    }
+    if (charge.tenant_id !== tenantId) {
+      throw new BadRequestException('Acesso negado');
+    }
+
+    let asaasData: any = null;
+    try {
+      asaasData = await this.asaas.getCharge(charge.external_id);
+      const mapped = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
+      if (mapped !== charge.status) {
+        await this.prisma.paymentGatewayCharge.update({
+          where: { id: charge.id },
+          data: {
+            status: mapped,
+            paid_at: asaasData.paymentDate ? new Date(asaasData.paymentDate) : charge.paid_at,
+            net_value: asaasData.netValue || charge.net_value,
+            invoice_url: asaasData.invoiceUrl || charge.invoice_url,
+          },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`[CHARGE-INST] Falha consulta Asaas: ${e.message}`);
+    }
+
+    return { local: charge, gateway: asaasData };
+  }
+
   // ─── Cobrança parcelada (Asaas installment) ────────────
 
   async createInstallmentCharge(
@@ -674,6 +838,44 @@ export class PaymentGatewayService {
         this.logger.error(
           `[WEBHOOK] Erro ao processar pagamento confirmado: ${e.message}`,
         );
+      }
+    }
+
+    // Fase 18: se pagamento RECEIVED/CONFIRMED e tem installment_id (parcela odonto),
+    // marcar Installment como PAGA
+    if (
+      (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') &&
+      charge.installment_id
+    ) {
+      try {
+        const inst = await this.prisma.installment.findUnique({
+          where: { id: charge.installment_id },
+          select: { id: true, amount: true, discount_value: true, fee_value: true, status: true },
+        });
+        if (inst && inst.status !== 'PAGA') {
+          const totalDue = Number(inst.amount) - Number(inst.discount_value) + Number(inst.fee_value);
+          await this.prisma.installment.update({
+            where: { id: inst.id },
+            data: {
+              status: 'PAGA',
+              amount_paid: totalDue,
+              paid_at: paymentData.paymentDate ? new Date(paymentData.paymentDate) : new Date(),
+              payment_method: charge.billing_type,
+            },
+          });
+          this.logger.log(`[WEBHOOK] Installment ${charge.installment_id} marcada como PAGA via Asaas`);
+
+          // Emitir evento via WebSocket
+          this.emitFinancialUpdate(charge.tenant_id, {
+            type: 'installment_paid',
+            chargeId: charge.id,
+            installmentId: charge.installment_id,
+            status: mappedStatus,
+            amount: Number(charge.amount),
+          });
+        }
+      } catch (e: any) {
+        this.logger.error(`[WEBHOOK] Erro ao marcar Installment como PAGA: ${e.message}`);
       }
     }
 
