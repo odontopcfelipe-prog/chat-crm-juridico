@@ -110,12 +110,20 @@ export class PromptBuilder {
     vars: Record<string, string>;
     extraInjections?: string; // ex: FORM_DATA_INJECTION legado
     memoryBlock?: string; // 3 camadas de memoria (org + perfil + episodios)
+    pipelinesBlock?: string; // Fase 4: bloco de funis CRM dinâmicos (ver pipeline-context.ts)
   }): string {
-    const { mediaCapabilities, behaviorRules, skillPrompt, references, maxContextTokens, vars, extraInjections, memoryBlock } = params;
+    const { mediaCapabilities, behaviorRules, skillPrompt, references, maxContextTokens, vars, extraInjections, memoryBlock, pipelinesBlock } = params;
 
     let prompt = mediaCapabilities + '\n\n';
     prompt += this.injectVariables(behaviorRules, vars) + '\n\n';
     prompt += this.injectVariables(skillPrompt, vars);
+
+    // Injeta bloco de funis CRM no system prompt quando o tenant tem Pipelines
+    // configurados. A IA usa os slugs de etapas/funis nas tools respond_to_client
+    // (updates.stage_slug / pipeline_slug) e o handler resolve pra IDs do Prisma.
+    if (pipelinesBlock && pipelinesBlock.trim()) {
+      prompt += '\n\n' + pipelinesBlock;
+    }
 
     // Injeta bloco de memoria automaticamente APENAS se a skill nao referenciar
     // nenhuma das variaveis de memoria novas ({{office_memories}},
@@ -205,16 +213,15 @@ export class PromptBuilder {
                 },
                 status: {
                   type: 'string',
-                  enum: [
-                    'QUALIFICANDO',
-                    'AGUARDANDO_FORM',
-                    'AGUARDANDO_DOCS',
-                    'AGUARDANDO_PROC',
-                    'REUNIAO_AGENDADA',
-                    'FINALIZADO',
-                    'PERDIDO',
-                  ],
-                  description: 'Novo estágio do lead no funil. Use QUALIFICANDO ao iniciar triagem, AGUARDANDO_FORM ao enviar formulário, AGUARDANDO_DOCS ao pedir documentos, AGUARDANDO_PROC ao pedir procuração, REUNIAO_AGENDADA ao confirmar reunião, FINALIZADO ao contratar, PERDIDO ao desistir.',
+                  description: 'DEPRECADO (legado): estágio fixo do funil jurídico. Prefira `stage_slug` + `pipeline_slug` do novo CRM dinâmico. Mantido pra compat com skills antigas. Valores aceitos: QUALIFICANDO, AGUARDANDO_FORM, AGUARDANDO_DOCS, AGUARDANDO_PROC, REUNIAO_AGENDADA, FINALIZADO, PERDIDO.',
+                },
+                stage_slug: {
+                  type: 'string',
+                  description: 'Slug da etapa para onde mover o lead no funil CRM dinâmico (ver bloco "FUNIS DISPONÍVEIS" no system prompt). Ex: "qualificando", "consulta-agendada", "orcamento-enviado". Use SEMPRE em vez de `status` quando o admin configurou funis.',
+                },
+                pipeline_slug: {
+                  type: 'string',
+                  description: 'Slug do funil onde classificar o lead (ver bloco "FUNIS DISPONÍVEIS"). Use no PRIMEIRO contato pra escolher o funil certo (ex: "odonto", "estetica"). Omita se o lead já está no funil correto.',
                 },
                 loss_reason: {
                   type: 'string',

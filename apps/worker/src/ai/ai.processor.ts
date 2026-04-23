@@ -13,6 +13,7 @@ import { buildHandlerMap } from './tool-handlers';
 import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
 import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
+import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -1463,6 +1464,18 @@ STATUS DA FICHA:
       vars.recent_episodes = recentEpisodesStr;
       vars.memory_block = memoryBlock;
 
+      // Carrega pipelines dinâmicos do tenant (Fase 4) — bloco é injetado no
+      // system prompt pra IA saber quais funis/etapas existem. Tolerante a
+      // falhas: se não há pipelines configurados, block fica vazio e a IA
+      // opera no modo legado (Lead.stage String hardcoded).
+      let pipelinesBlock = '';
+      try {
+        const pipelines = await loadPipelinesForTenant(this.prisma as any, (lead as any)?.tenant_id ?? null);
+        pipelinesBlock = buildPipelinesPromptBlock(pipelines);
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao carregar pipelines do tenant: ${e.message}`);
+      }
+
       if (skill) {
         // Injetar references (SkillAssets com inject_mode=full_text) no prompt via PromptBuilder
         const references = (skill.assets || [])
@@ -1477,6 +1490,7 @@ STATUS DA FICHA:
           maxContextTokens: skill.max_context_tokens || 4000,
           vars,
           memoryBlock,
+          pipelinesBlock,
         });
         // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
         // no prompt final enviado ao LLM.
@@ -1517,6 +1531,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           maxContextTokens: 4000,
           vars,
           memoryBlock,
+          pipelinesBlock,
         });
         model = await this.settings.getDefaultModel();
         maxTokens = 1500;
@@ -1724,6 +1739,29 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             updates.status = updateLeadCall.input.stage;
           } else if (updateLeadCall.input?.next_step && !updates.next_step) {
             updates.next_step = updateLeadCall.input.next_step;
+          }
+        }
+
+        // Fase 4: resolve stage_slug/pipeline_slug (CRM dinâmico) em IDs.
+        // Aplica direto no Lead — não passa pelo fluxo legado de status.
+        if (updates.stage_slug || updates.pipeline_slug) {
+          try {
+            const pipeUpdate = await resolveStageUpdate(this.prisma as any, lead_id, {
+              stage_slug: updates.stage_slug,
+              pipeline_slug: updates.pipeline_slug,
+            });
+            if (pipeUpdate) {
+              await (this.prisma as any).lead.update({ where: { id: lead_id }, data: pipeUpdate });
+              this.logger.log(
+                `[AI] CRM dinâmico aplicado ao lead ${lead_id}: ${JSON.stringify(pipeUpdate)}`,
+              );
+            } else {
+              this.logger.warn(
+                `[AI] Slug de pipeline/stage inválido — stage_slug=${updates.stage_slug}, pipeline_slug=${updates.pipeline_slug}. Lead não atualizado.`,
+              );
+            }
+          } catch (e: any) {
+            this.logger.error(`[AI] Falha ao aplicar CRM dinâmico: ${e.message}`);
           }
         }
 
