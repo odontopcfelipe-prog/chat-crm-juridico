@@ -20,6 +20,7 @@ model Tenant {
   appointment_types         AppointmentType[]
   holidays                  Holiday[]
   ai_chats                  AiChat[]
+  pipelines                 Pipeline[]
   followup_sequences        FollowupSequence[]
   financial_transactions    FinancialTransaction[]
   financial_categories      FinancialCategory[]
@@ -135,8 +136,15 @@ model Lead {
   phone               String   @unique
   email               String?
   origin              String?
+  // Pipeline dinâmico (Fase 1). `stage` String é legado — será deprecado
+  // quando todos os leads tiverem stage_id populado. Enquanto isso,
+  // ambos coexistem e o stage String é fonte de verdade para código legado.
   stage               String   @default("NOVO")
   stage_entered_at    DateTime @default(now())
+  pipeline_id         String?
+  stage_id            String?
+  pipeline            Pipeline?      @relation(fields: [pipeline_id], references: [id], onDelete: SetNull)
+  current_stage       PipelineStage? @relation("CurrentStage", fields: [stage_id], references: [id], onDelete: SetNull)
   loss_reason         String?
   profile_picture_url String?
   tags                String[]
@@ -175,6 +183,8 @@ model Lead {
 
   @@index([tenant_id, phone])
   @@index([stage])
+  @@index([pipeline_id])
+  @@index([stage_id])
   @@index([cpf_cnpj])
   @@index([is_client])
 }
@@ -478,6 +488,58 @@ model Instance {
 
   @@index([tenant_id])
   @@index([inbox_id])
+}
+
+// ─── CRM Dinâmico — Fase 1 ────────────────────────────────────────────────
+// Múltiplos funis por tenant (ex: "Odontologia", "Estética Facial", "B2B").
+// Cada funil tem etapas configuráveis via UI (settings/crm). A IA carrega
+// os funis dinamicamente antes de cada resposta e sabe mover o lead entre
+// etapas via tool `move_to_stage`.
+
+model Pipeline {
+  id          String          @id @default(uuid())
+  tenant_id   String?
+  name        String          // "Odontologia", "Estética Facial"
+  slug        String          // "odonto", "estetica" — usado pela IA pra classificar
+  description String?         // Contexto pra a IA entender quando usar esse funil
+  color       String?         // hex visual (#3b82f6)
+  is_default  Boolean         @default(false)
+  is_active   Boolean         @default(true)
+  position    Int             @default(0)
+  created_at  DateTime        @default(now())
+  updated_at  DateTime        @updatedAt
+
+  tenant      Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  stages      PipelineStage[]
+  leads       Lead[]
+
+  @@unique([tenant_id, slug])
+  @@index([tenant_id])
+}
+
+model PipelineStage {
+  id            String   @id @default(uuid())
+  pipeline_id   String
+  name          String   // "Qualificando", "Aguardando documentos"
+  slug          String   // "qualificando" — usado pela IA
+  color         String?  // hex (#3b82f6)
+  emoji         String?  // 🔍 📋 📅
+  description   String?  // Descreve QUANDO a IA deve mover o lead pra essa etapa
+  position      Int      @default(0)
+  is_initial    Boolean  @default(false) // lead novo cai aqui
+  is_won        Boolean  @default(false) // converteu (ex: FINALIZADO)
+  is_lost       Boolean  @default(false) // perdeu (ex: PERDIDO)
+  // Auto-ações disparadas ao entrar nessa etapa.
+  // Formato: [{ type: "create_drive_folder" }, { type: "enroll_followup", sequence_id: "..." }]
+  auto_actions  Json?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  pipeline      Pipeline @relation(fields: [pipeline_id], references: [id], onDelete: Cascade)
+  leads         Lead[]   @relation("CurrentStage")
+
+  @@unique([pipeline_id, slug])
+  @@index([pipeline_id])
 }
 
 model TransferAudio {
