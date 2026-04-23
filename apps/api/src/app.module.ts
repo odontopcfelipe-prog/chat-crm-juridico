@@ -18,6 +18,7 @@ import { NotificationSettingsModule } from './notification-settings/notification
 import { NotificationsModule } from './notifications/notifications.module';
 import { PushModule } from './push/push.module';
 import { InboxesModule } from './inboxes/inboxes.module';
+import { PipelinesModule } from './pipelines/pipelines.module';
 import { MediaModule } from './media/media.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TransferAudioModule } from './transfer-audio/transfer-audio.module';
@@ -95,6 +96,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     WhatsappModule,
     SettingsModule,
     InboxesModule,
+    PipelinesModule,
     MediaModule,
     AnalyticsModule,
     TransferAudioModule,
