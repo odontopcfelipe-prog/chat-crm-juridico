@@ -72,13 +72,13 @@ interface UserForm {
   inboxIds: string[];
   specialties: string[];
   supervisorIds: string[];
-  oab_number: string;
-  oab_uf: string;
+  cro_number: string;
+  cro_uf: string;
 }
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], oab_number: '', oab_uf: 'AL' };
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL' };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -162,8 +162,8 @@ export default function UsersSettingsPage() {
       inboxIds: user.inboxes?.map((i: any) => i.id) || [],
       specialties: user.specialties || [],
       supervisorIds: user.supervisors?.map((s: any) => s.id) || [],
-      oab_number: user.oab_number || '',
-      oab_uf: user.oab_uf || 'AL',
+      cro_number: user.cro_number || '',
+      cro_uf: user.cro_uf || 'AL',
     });
     setSpecialtyInput('');
     setError('');
@@ -210,8 +210,8 @@ export default function UsersSettingsPage() {
           roles: form.roles,
           inboxIds: form.inboxIds,
           specialties: form.specialties,
-          oab_number: form.oab_number || null,
-          oab_uf: form.oab_uf || null,
+          cro_number: form.cro_number || null,
+          cro_uf: form.cro_uf || null,
         };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editingId}`, payload);
@@ -231,8 +231,8 @@ export default function UsersSettingsPage() {
           roles: form.roles,
           inboxIds: form.inboxIds,
           specialties: form.specialties,
-          oab_number: form.oab_number || null,
-          oab_uf: form.oab_uf || null,
+          cro_number: form.cro_number || null,
+          cro_uf: form.cro_uf || null,
         });
         // Salvar vínculo de supervisores para novo usuário
         if (form.supervisorIds.length > 0 && res.data?.id) {
@@ -528,29 +528,29 @@ export default function UsersSettingsPage() {
                 )}
               </div>
 
-              {/* OAB — visível para advogados e admins (ambos podem ter OAB) */}
-              {(form.roles.includes('ADVOGADO') || form.roles.includes('ADMIN') || form.oab_number) && (
+              {/* CRO — registro no Conselho Regional de Odontologia (dentistas + admins) */}
+              {(form.roles.includes('ADVOGADO') || form.roles.includes('ADMIN') || form.cro_number) && (
                 <div className="space-y-1.5">
-                  <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Registro OAB</label>
+                  <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Registro CRO</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      value={form.oab_number}
-                      onChange={e => setForm({ ...form, oab_number: e.target.value.replace(/\D/g, '') })}
+                      value={form.cro_number}
+                      onChange={e => setForm({ ...form, cro_number: e.target.value.replace(/\D/g, '') })}
                       className="flex-1 px-4 py-2.5 border border-border rounded-xl bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all placeholder:text-muted-foreground/50"
-                      placeholder="Número OAB (ex: 14209)"
+                      placeholder="Número CRO (ex: 12345)"
                       maxLength={10}
                     />
                     <select
-                      value={form.oab_uf}
-                      onChange={e => setForm({ ...form, oab_uf: e.target.value })}
+                      value={form.cro_uf}
+                      onChange={e => setForm({ ...form, cro_uf: e.target.value })}
                       className="w-20 px-2 py-2.5 border border-border rounded-xl bg-background text-foreground focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none transition-all"
                     >
                       {UF_OPTIONS.map(uf => <option key={uf} value={uf}>{uf}</option>)}
                     </select>
                   </div>
                   <p className="text-[10px] text-muted-foreground opacity-70 ml-1">
-                    Usado para importar processos do tribunal via ESAJ.
+                    Registro no Conselho Regional de Odontologia do dentista.
                   </p>
                 </div>
               )}

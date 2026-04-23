@@ -108,8 +108,8 @@ export class UsersController {
       phone?: string;
       inboxIds?: string[];
       specialties?: string[];
-      oab_number?: string;
-      oab_uf?: string;
+      cro_number?: string;
+      cro_uf?: string;
     },
   ) {
     return this.usersService.create({ ...data, tenant_id: req.user.tenant_id });
@@ -117,7 +117,7 @@ export class UsersController {
 
   @Patch(':id')
   @Roles('ADMIN')
-  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; oab_number?: string; oab_uf?: string }) {
+  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }) {
     return this.usersService.update(id, data, req.user?.tenant_id);
   }
 

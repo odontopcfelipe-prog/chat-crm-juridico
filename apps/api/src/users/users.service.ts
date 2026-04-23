@@ -95,7 +95,7 @@ export class UsersService {
     return result;
   }
 
-  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; oab_number?: string; oab_uf?: string }): Promise<Omit<User, 'password_hash'>> {
+  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }): Promise<Omit<User, 'password_hash'>> {
     const password_hash = await argon2.hash(data.password);
     // Normaliza para o enum canônico. Aceita tanto `roles[]` (forma nova) quanto `role` (legado).
     const normalizedRoles = normalizeRoles(data.roles, data.role);
@@ -107,8 +107,8 @@ export class UsersService {
         password_hash,
         roles: normalizedRoles,
         specialties: data.specialties ?? [],
-        oab_number: data.oab_number || null,
-        oab_uf: data.oab_uf || null,
+        cro_number: data.cro_number || null,
+        cro_uf: data.cro_uf || null,
         tenant_id: data.tenant_id,
         inboxes: data.inboxIds ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
       },
@@ -118,7 +118,7 @@ export class UsersService {
     return result as any;
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; oab_number?: string; oab_uf?: string }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
@@ -132,8 +132,8 @@ export class UsersService {
     if (data.phone !== undefined) updateData.phone = data.phone || null;
     if (data.password) updateData.password_hash = await argon2.hash(data.password);
     if (data.specialties !== undefined) (updateData as any).specialties = { set: data.specialties };
-    if (data.oab_number !== undefined) updateData.oab_number = data.oab_number || null;
-    if (data.oab_uf !== undefined) updateData.oab_uf = data.oab_uf || null;
+    if (data.cro_number !== undefined) updateData.cro_number = data.cro_number || null;
+    if (data.cro_uf !== undefined) updateData.cro_uf = data.cro_uf || null;
 
     if (data.inboxIds) {
       updateData.inboxes = {
