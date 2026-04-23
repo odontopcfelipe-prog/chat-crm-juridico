@@ -1470,7 +1470,8 @@ STATUS DA FICHA:
       // opera no modo legado (Lead.stage String hardcoded).
       let pipelinesBlock = '';
       try {
-        const pipelines = await loadPipelinesForTenant(this.prisma as any, (lead as any)?.tenant_id ?? null);
+        const tenantIdForPipelines = (convo as any)?.tenant_id ?? null;
+        const pipelines = await loadPipelinesForTenant(this.prisma as any, tenantIdForPipelines);
         pipelinesBlock = buildPipelinesPromptBlock(pipelines);
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao carregar pipelines do tenant: ${e.message}`);
