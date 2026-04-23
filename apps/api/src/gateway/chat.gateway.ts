@@ -455,18 +455,6 @@ export class ChatGateway {
     }
   }
 
-  // ─── Legal Cases ────────────────────────────────────────────────
-
-  emitLegalCaseUpdate(lawyerId: string, data: { caseId: string; action: string; [key: string]: any }) {
-    this.logger.log(`[SOCKET] Emitting legal_case_update to user:${lawyerId}`);
-    this.server.to(`user:${lawyerId}`).emit('legal_case_update', data);
-  }
-
-  emitNewLegalCase(lawyerId: string, data: { caseId: string; leadName: string }) {
-    this.logger.log(`[SOCKET] Emitting new_legal_case to user:${lawyerId}`);
-    this.server.to(`user:${lawyerId}`).emit('new_legal_case', data);
-  }
-
   /**
    * Emit new lead notification.
    *

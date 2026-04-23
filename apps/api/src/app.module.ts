@@ -21,17 +21,7 @@ import { InboxesModule } from './inboxes/inboxes.module';
 import { MediaModule } from './media/media.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TransferAudioModule } from './transfer-audio/transfer-audio.module';
-import { LegalCasesModule } from './legal-cases/legal-cases.module';
-import { DjenModule } from './djen/djen.module';
-import { CourtScraperModule } from './court-scraper/court-scraper.module';
-import { EsajSyncModule } from './esaj-sync/esaj-sync.module';
-import { FichaTrabalhistaModule } from './ficha-trabalhista/ficha-trabalhista.module';
 import { CalendarModule } from './calendar/calendar.module';
-import { CaseDocumentsModule } from './case-documents/case-documents.module';
-import { CaseDeadlinesModule } from './case-deadlines/case-deadlines.module';
-import { PetitionsModule } from './petitions/petitions.module';
-import { LegalTemplatesModule } from './legal-templates/legal-templates.module';
-import { HonorariosModule } from './honorarios/honorarios.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { ClicksignModule } from './clicksign/clicksign.module';
@@ -108,18 +98,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     MediaModule,
     AnalyticsModule,
     TransferAudioModule,
-    LegalCasesModule,
-    DjenModule,
-    CourtScraperModule,
-    EsajSyncModule,
-    FichaTrabalhistaModule,
     CalendarModule,
-    CaseDocumentsModule,
-    CaseDeadlinesModule,
-    PetitionsModule,
     GoogleDriveModule,
-    LegalTemplatesModule,
-    HonorariosModule,
     DashboardModule,
     ContractsModule,
     ClicksignModule,

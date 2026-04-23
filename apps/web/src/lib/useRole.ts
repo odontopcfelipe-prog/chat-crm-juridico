@@ -14,14 +14,10 @@ export interface RoleInfo {
   isComercial: boolean;
   isEstagiario: boolean;
   isFinanceiro: boolean;
-  canManageLegalCases: boolean;  // criar, editar, arquivar processos
-  canViewLegalCases: boolean;    // visualizar processos
   canManageSettings: boolean;    // configurações do sistema
   canViewDashboard: boolean;     // dashboard
   canViewAnalytics: boolean;     // analytics/marketing
-  canViewDjen: boolean;          // publicações DJEN
   canViewFinanceiro: boolean;    // módulo financeiro
-  canViewAdvogado: boolean;      // triagem e peticionamento
 }
 
 /** Lê os roles do JWT salvo no localStorage e retorna helpers de permissão. */
@@ -66,13 +62,9 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     isComercial: roles.includes('COMERCIAL'),
     isEstagiario: roles.includes('ESTAGIARIO'),
     isFinanceiro: roles.includes('FINANCEIRO'),
-    canManageLegalCases: has(['ADMIN', 'ADVOGADO']),
-    canViewLegalCases: has(['ADMIN', 'ADVOGADO']),
     canManageSettings: roles.includes('ADMIN'),
     canViewDashboard: has(['ADMIN', 'ADVOGADO', 'OPERADOR', 'COMERCIAL']),
     canViewAnalytics: has(['ADMIN']),
-    canViewDjen: has(['ADMIN', 'ADVOGADO']),
     canViewFinanceiro: has(['ADMIN', 'FINANCEIRO', 'ADVOGADO']),
-    canViewAdvogado: has(['ADMIN', 'ADVOGADO']),
   };
 }

@@ -28,18 +28,6 @@ export function isAdmin(roles: string | string[]): boolean {
   return normalizeRoles(roles).includes(ROLES.ADMIN);
 }
 
-/** Verifica se pode gerenciar processos (criar, editar, arquivar) */
-export function canManageLegalCases(roles: string | string[]): boolean {
-  const r = normalizeRoles(roles);
-  return r.some(role => ['ADMIN', 'ADVOGADO'].includes(role));
-}
-
-/** Verifica se pode visualizar processos */
-export function canViewLegalCases(roles: string | string[]): boolean {
-  const r = normalizeRoles(roles);
-  return r.some(role => ['ADMIN', 'ADVOGADO', 'ESTAGIARIO'].includes(role));
-}
-
 /** Verifica se pode gerenciar leads/clientes */
 export function canManageLeads(roles: string | string[]): boolean {
   const r = normalizeRoles(roles);

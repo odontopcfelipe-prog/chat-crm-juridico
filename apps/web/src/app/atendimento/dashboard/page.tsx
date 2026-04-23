@@ -16,7 +16,7 @@ import { SectionNav } from './components/SectionNav';
 import { visibleSections } from './sectionVisibility';
 import {
   useRevenueTrend, useLeadFunnel, useTaskCompletion,
-  useCaseDuration, useCasesByArea, useFinancialAging, useAiUsage,
+  useFinancialAging, useAiUsage,
   useLeadSources, useResponseTime, useConversionVelocity,
 } from './hooks/useAnalyticsData';
 
@@ -26,11 +26,9 @@ import { StatsGrid } from './components/StatsGrid';
 import { InboxStats } from './components/InboxStats';
 import { FinancialStats } from './components/FinancialStats';
 import { LeadPipeline } from './components/LeadPipeline';
-import { LegalCasesPipeline } from './components/LegalCasesPipeline';
 import { TeamPerformanceBoard } from './components/TeamPerformanceBoard';
 import { ComparisonsBoard } from './components/ComparisonsBoard';
 import { UpcomingEvents } from './components/UpcomingEvents';
-import { DjenPublications } from './components/DjenPublications';
 import { QuickActions } from './components/QuickActions';
 import { TodaysTasks } from './components/TodaysTasks';
 import { TeamOnline } from './components/TeamOnline';
@@ -39,8 +37,6 @@ import { OperatorPerformanceStrip } from './components/OperatorPerformanceStrip'
 import { RevenueTrendChart } from './components/charts/RevenueTrendChart';
 import { LeadFunnelChart } from './components/charts/LeadFunnelChart';
 import { TaskCompletionChart } from './components/charts/TaskCompletionChart';
-import { CaseDurationChart } from './components/charts/CaseDurationChart';
-import { CasesByAreaChart } from './components/charts/CasesByAreaChart';
 import { FinancialAgingChart } from './components/charts/FinancialAgingChart';
 import { AiUsageChart } from './components/charts/AiUsageChart';
 import { LeadSourcesChart } from './components/charts/LeadSourcesChart';
@@ -59,7 +55,6 @@ export default function DashboardPage() {
   const { data, loading } = useDashboardData(period);
 
   const showGeral = sections.includes('geral');
-  const showAdvogados = sections.includes('advogados');
   const showComercial = sections.includes('comercial');
   const showFinanceiro = sections.includes('financeiro');
   const showEstagiarios = sections.includes('estagiarios');
@@ -80,10 +75,6 @@ export default function DashboardPage() {
   const responseTimeComercial = useResponseTime(period, showComercial ? 'comercial' : undefined);
   const velocityComercial = useConversionVelocity(period, showComercial ? 'comercial' : undefined);
   const tasksComercial = useTaskCompletion(period, showComercial ? 'comercial' : undefined);
-
-  // === Advogados — scope=juridico ===
-  const caseDuration = useCaseDuration(showAdvogados ? 'juridico' : undefined);
-  const casesByArea = useCasesByArea(showAdvogados ? 'juridico' : undefined);
 
   // === Financeiro — scope=financeiro ===
   const revenue = useRevenueTrend(12, showFinanceiro ? 'financeiro' : undefined);
@@ -231,28 +222,6 @@ export default function DashboardPage() {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <UpcomingEvents events={data.upcomingEvents} />
                 <TeamOnline />
-              </div>
-            </DashboardSection>
-          )}
-
-          {/* ═══════════ SEÇÃO: ADVOGADOS ═══════════ */}
-          {showAdvogados && (
-            <DashboardSection
-              id="advogados"
-              title="Advogados"
-              subtitle="Processos, prazos e publicações"
-              icon={<Scale size={20} strokeWidth={2} />}
-            >
-              <LegalCasesPipeline
-                legalCases={data.legalCases}
-                trackingCases={data.trackingCases}
-              />
-
-              <CasesByAreaChart data={casesByArea.data} loading={casesByArea.loading} />
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <CaseDurationChart data={caseDuration.data} loading={caseDuration.loading} />
-                <DjenPublications items={data.recentDjen} />
               </div>
             </DashboardSection>
           )}

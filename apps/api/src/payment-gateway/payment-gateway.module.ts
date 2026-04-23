@@ -5,7 +5,6 @@ import { PaymentGatewayWebhookController } from './payment-gateway-webhook.contr
 import { AsaasClient } from './asaas/asaas-client';
 import { SettingsModule } from '../settings/settings.module';
 import { GatewayModule } from '../gateway/gateway.module';
-import { HonorariosModule } from '../honorarios/honorarios.module';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
@@ -13,7 +12,6 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
   imports: [
     forwardRef(() => SettingsModule),
     GatewayModule,
-    forwardRef(() => HonorariosModule),
     forwardRef(() => FinanceiroModule),
     forwardRef(() => WhatsappModule),
   ],

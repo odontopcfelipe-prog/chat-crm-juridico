@@ -397,28 +397,6 @@ export class TasksService {
     }
   }
 
-  // ─── Legal Case Tasks ──────────────────────────────────────────
-
-  async findByLegalCase(legalCaseId: string, tenantId?: string) {
-    if (tenantId) {
-      const lc = await this.prisma.legalCase.findUnique({
-        where: { id: legalCaseId },
-        select: { tenant_id: true },
-      });
-      if (lc?.tenant_id && lc.tenant_id !== tenantId) {
-        throw new ForbiddenException('Acesso negado a este recurso');
-      }
-    }
-    return this.prisma.task.findMany({
-      where: { legal_case_id: legalCaseId },
-      include: {
-        assigned_user: { select: { id: true, name: true } },
-        _count: { select: { comments: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
-  }
-
   // ─── Task Comments ─────────────────────────────────────────────
 
   async addComment(taskId: string, userId: string, text: string, tenantId?: string) {

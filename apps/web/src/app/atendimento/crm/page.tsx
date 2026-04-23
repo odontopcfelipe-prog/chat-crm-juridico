@@ -1407,25 +1407,10 @@ export default function CrmPage() {
     setDetailLead(leads.find(l => l.id === lead.id) ?? lead);
   }, [leads]);
 
-  // Converte lead finalizado em caso jurídico
-  const convertLeadToCase = async (lead: CrmLead) => {
-    if (convertingCase) return;
-    setConvertingCase(true);
-    try {
-      const conv = lead.conversations?.[0];
-      await api.post('/legal-cases', {
-        lead_id: lead.id,
-        conversation_id: conv?.id ?? undefined,
-        legal_area: conv?.legal_area ?? undefined,
-      });
-      showSuccess(`Caso criado para ${lead.name || 'o lead'}! Redirecionando...`);
-      setDetailLead(null);
-      setTimeout(() => router.push('/atendimento/advogado'), 1200);
-    } catch {
-      showError('Erro ao criar caso. Tente novamente.');
-    } finally {
-      setConvertingCase(false);
-    }
+  // Conversão em "caso jurídico" foi removida na transição para o domínio odontológico.
+  // Mantido como stub — a próxima fase vai substituir por "converter em paciente/plano".
+  const convertLeadToCase = async (_lead: CrmLead) => {
+    showError('Conversão em caso jurídico foi descontinuada. A Fase 2 vai oferecer "converter em paciente".');
   };
 
   const openInChat = (lead: CrmLead) => {

@@ -49,12 +49,6 @@ export class CalendarController {
     });
   }
 
-  // IMPORTANTE: rotas com paths fixos ANTES de :id para evitar conflito
-  @Get('events/legal-case/:caseId')
-  findByLegalCase(@Param('caseId') caseId: string, @Query('type') type: string | undefined, @Request() req: any) {
-    return this.calendarService.findByLegalCase(caseId, type, req.user?.tenant_id);
-  }
-
   @Get('events/:id')
   findOne(@Param('id') id: string) {
     return this.calendarService.findOne(id);

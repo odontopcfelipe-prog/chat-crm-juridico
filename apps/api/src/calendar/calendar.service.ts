@@ -1035,24 +1035,6 @@ export class CalendarService {
     });
   }
 
-  // ─── Legal Case Tasks ─────────────────────────────────
-
-  async findByLegalCase(legalCaseId: string, type?: string, tenantId?: string) {
-    return this.prisma.calendarEvent.findMany({
-      where: {
-        legal_case_id: legalCaseId,
-        ...(type ? { type } : {}),
-        ...(tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {}),
-      },
-      include: {
-        assigned_user: { select: { id: true, name: true } },
-        created_by: { select: { id: true, name: true } },
-        _count: { select: { comments: true } },
-      },
-      orderBy: { created_at: 'desc' },
-    });
-  }
-
   // ─── Migrate Tasks ────────────────────────────────────
 
   async migrateOrphanTasks() {

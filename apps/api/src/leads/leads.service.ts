@@ -3,7 +3,6 @@ import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { Prisma, Lead } from '@crm/shared';
-import { LegalCasesService } from '../legal-cases/legal-cases.service';
 import { AutomationsService } from '../automations/automations.service';
 import { FollowupService } from '../followup/followup.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
@@ -29,7 +28,6 @@ export class LeadsService {
 
   constructor(
     private prisma: PrismaService,
-    private legalCasesService: LegalCasesService,
     private chatGateway: ChatGateway,
     private automationsService: AutomationsService,
     private moduleRef: ModuleRef,
@@ -412,28 +410,6 @@ export class LeadsService {
       }
     } catch {
       // FollowupModule pode não estar carregado em contextos de teste — ignorar silenciosamente
-    }
-
-    // Auto-criacao de LegalCase quando lead atinge FINALIZADO
-    if (stage === 'FINALIZADO') {
-      try {
-        const conv = await this.prisma.conversation.findFirst({
-          where: { lead_id: id, assigned_lawyer_id: { not: null } },
-          orderBy: { last_message_at: 'desc' },
-          select: { id: true, assigned_lawyer_id: true, tenant_id: true, legal_area: true },
-        });
-        if (conv?.assigned_lawyer_id) {
-          await this.legalCasesService.createFromFinalizado(
-            id,
-            conv.assigned_lawyer_id,
-            conv.id,
-            conv.tenant_id ?? undefined,
-          );
-          this.logger.log(`Auto-created LegalCase for lead ${id} -> lawyer ${conv.assigned_lawyer_id}`);
-        }
-      } catch (err) {
-        this.logger.warn(`Failed to auto-create LegalCase for lead ${id}: ${err}`);
-      }
     }
 
     return lead;

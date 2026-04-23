@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import api from '@/lib/api';
 import type {
   PeriodFilter, RevenueTrendData, LeadFunnelData, TaskCompletionData,
-  CaseDurationData, CasesByAreaData, FinancialAgingData, AiUsageData, LeadSourcesData,
+  FinancialAgingData, AiUsageData, LeadSourcesData,
   ResponseTimeData, ConversionVelocityData,
 } from '../types';
 import type { Scope } from '../sectionVisibility';
@@ -63,20 +63,6 @@ export function useTaskCompletion(period?: PeriodFilter, scope?: Scope) {
   return useAnalyticsEndpoint<TaskCompletionData>(
     '/dashboard/task-completion',
     withScope(periodParams(period), scope),
-  );
-}
-
-export function useCaseDuration(scope?: Scope) {
-  return useAnalyticsEndpoint<CaseDurationData>(
-    '/dashboard/case-duration',
-    withScope({}, scope),
-  );
-}
-
-export function useCasesByArea(scope?: Scope) {
-  return useAnalyticsEndpoint<CasesByAreaData>(
-    '/dashboard/cases-by-area',
-    withScope({}, scope),
   );
 }
 

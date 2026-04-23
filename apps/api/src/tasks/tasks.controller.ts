@@ -59,11 +59,6 @@ export class TasksController {
     });
   }
 
-  @Get('legal-case/:caseId')
-  findByLegalCase(@Param('caseId') caseId: string, @Request() req: any) {
-    return this.tasksService.findByLegalCase(caseId, req.user?.tenant_id);
-  }
-
   @Get('conversation/:conversationId/active')
   findActiveByConversation(@Param('conversationId') conversationId: string, @Request() req: any) {
     return this.tasksService.findActiveByConversation(conversationId, req.user?.tenant_id);
