@@ -1747,14 +1747,14 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         // Aplica direto no Lead — não passa pelo fluxo legado de status.
         if (updates.stage_slug || updates.pipeline_slug) {
           try {
-            const pipeUpdate = await resolveStageUpdate(this.prisma as any, lead_id, {
+            const pipeUpdate = await resolveStageUpdate(this.prisma as any, convo.lead_id, {
               stage_slug: updates.stage_slug,
               pipeline_slug: updates.pipeline_slug,
             });
             if (pipeUpdate) {
-              await (this.prisma as any).lead.update({ where: { id: lead_id }, data: pipeUpdate });
+              await (this.prisma as any).lead.update({ where: { id: convo.lead_id }, data: pipeUpdate });
               this.logger.log(
-                `[AI] CRM dinâmico aplicado ao lead ${lead_id}: ${JSON.stringify(pipeUpdate)}`,
+                `[AI] CRM dinâmico aplicado ao lead ${convo.lead_id}: ${JSON.stringify(pipeUpdate)}`,
               );
             } else {
               this.logger.warn(
