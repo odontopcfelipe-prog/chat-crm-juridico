@@ -68,7 +68,7 @@ export class TaskAlertCronService {
           level: mins <= 5 ? 'critical' : 'urgent',
           message: `Vence em ${mins} min`,
           client: task.lead?.name || null,
-          caseNumber: task.legal_case?.case_number || null,
+          caseNumber: null,
         });
       }
 
@@ -82,7 +82,7 @@ export class TaskAlertCronService {
           level: mins <= 5 ? 'critical' : 'urgent',
           message: `Vence em ${mins} min`,
           client: evt.lead?.name || null,
-          caseNumber: evt.legal_case?.case_number || null,
+          caseNumber: null,
         });
       }
     } catch (e: any) {

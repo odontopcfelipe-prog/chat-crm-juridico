@@ -91,7 +91,7 @@ function templateAdvogado(event: any, minutesBefore: number): string {
   const prazo = minutesLabel(minutesBefore);
   const dateStr = formatDateTime(event.start_at);
   const tipo = event.type;
-  const caseNum = event.legal_case?.case_number || event.title;
+  const caseNum = event.title;
   const advNome = (event.assigned_user?.name || 'Advogado').split(' ').slice(0, 2).join(' ');
 
   if (tipo === 'AUDIENCIA') {

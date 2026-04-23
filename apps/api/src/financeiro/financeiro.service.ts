@@ -171,8 +171,7 @@ export class FinanceiroService {
           tx.category !== 'HONORARIO' ||
           tx.status === 'PAGO' ||
           tx.status === 'CANCELADO' ||
-          !tx.due_date ||
-          !tx.honorario_payment_id
+          !tx.due_date
         ) {
           return { ...tx, interest_amount: 0, total_with_interest: Number(tx.amount) };
         }

@@ -214,12 +214,13 @@ export class ContractsService {
   }> {
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      include: { lead: { include: { memory: true, ficha_trabalhista: true } } },
+      include: { lead: { include: { memory: true } } },
     });
     if (!convo?.lead) throw new BadRequestException('Conversa inválida');
 
     const lead = convo.lead;
-    const ficha = (lead.ficha_trabalhista?.data as Record<string, any>) || {};
+    // STUBBED Fase 0.2: FichaTrabalhista removida — dados de contrato agora vêm apenas da memória da IA + lead.
+    const ficha: Record<string, any> = {};
     const mem = (lead.memory?.facts_json as any) || {};
 
     const v: ContratoVariaveis = {
