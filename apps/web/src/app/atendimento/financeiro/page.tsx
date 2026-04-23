@@ -655,7 +655,7 @@ function TransactionTable({ rows, onRefresh, currentUserId, canManageAll }: { ro
                 <td className="px-4 py-3 text-center"><StatusBadge status={t.status} /></td>
                 <td className="px-4 py-3 text-center">
                   {(() => {
-                    const canEdit = canManageAll || t.lawyer_id === currentUserId;
+                    const canEdit = canManageAll || t.dentist_id === currentUserId;
                     return (
                       <div className="flex items-center justify-center gap-1">
                         {canEdit && (
@@ -3485,7 +3485,7 @@ function ProcessosFinanceiroTab({ lawyerId }: { lawyerId: string }) {
   }, []);
 
   const filtered = cases.filter(c => {
-    if (lawyerId && c.lawyer_id !== lawyerId) return false;
+    if (lawyerId && c.dentist_id !== lawyerId) return false;
     if (searchQ) {
       const q = searchQ.toLowerCase();
       return (c.lead?.name || '').toLowerCase().includes(q) || (c.case_number || '').toLowerCase().includes(q);
