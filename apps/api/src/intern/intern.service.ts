@@ -41,6 +41,10 @@ export class InternService {
     };
   }
 
+  async getBadgeCount(_userId: string) {
+    return { count: 0 };
+  }
+
   async getKanbanDashboard(userId: string, _tenantId?: string) {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },

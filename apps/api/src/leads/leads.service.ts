@@ -202,13 +202,6 @@ export class LeadsService {
           orderBy: { created_at: 'desc' },
           take: 10,
         },
-        legal_cases: {
-          where: { archived: false },
-          orderBy: { created_at: 'desc' },
-          include: {
-            lawyer: { select: { id: true, name: true } },
-          },
-        },
         _count: {
           select: { conversations: true },
         },
