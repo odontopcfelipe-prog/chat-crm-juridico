@@ -153,14 +153,13 @@ export class UsersService {
   /** Retorna contadores do que o usuário possui (para o modal de transferência) */
   async getTransferSummary(id: string, tenantId?: string) {
     await this.verifyTenantOwnership(id, tenantId);
-    const [cases, conversations, tasks, events, leads] = await Promise.all([
-      this.prisma.legalCase.count({ where: { lawyer_id: id } }),
+    const [conversations, tasks, events, leads] = await Promise.all([
       this.prisma.conversation.count({ where: { OR: [{ assigned_user_id: id }, { assigned_lawyer_id: id }] } }),
       this.prisma.calendarEvent.count({ where: { OR: [{ assigned_user_id: id }, { created_by_id: id }] } }),
       this.prisma.calendarEvent.count({ where: { created_by_id: id } }),
       this.prisma.lead.count({ where: { cs_user_id: id } }),
     ]);
-    return { cases, conversations, tasks, events, leads };
+    return { cases: 0, conversations, tasks, events, leads };
   }
 
   async remove(id: string, tenantId?: string, transferToId?: string): Promise<void> {
@@ -173,11 +172,6 @@ export class UsersService {
 
       // Transferir tudo em uma transação
       await this.prisma.$transaction([
-        // Processos (lawyer_id)
-        this.prisma.legalCase.updateMany({
-          where: { lawyer_id: id },
-          data: { lawyer_id: transferToId },
-        }),
         // Conversas atribuídas como operador
         this.prisma.conversation.updateMany({
           where: { assigned_user_id: id },
@@ -208,16 +202,8 @@ export class UsersService {
       this.logger.log(`[USERS] Transferido tudo de ${id} para ${transferToId} antes da exclusão`);
     } else {
       // Sem transferência: verificar se tem registros bloqueantes
-      const [caseCount, createdEventCount] = await Promise.all([
-        this.prisma.legalCase.count({ where: { lawyer_id: id } }),
-        this.prisma.calendarEvent.count({ where: { created_by_id: id } }),
-      ]);
+      const createdEventCount = await this.prisma.calendarEvent.count({ where: { created_by_id: id } });
 
-      if (caseCount > 0) {
-        throw new ForbiddenException(
-          `Não é possível excluir: usuário possui ${caseCount} caso(s) jurídico(s). Informe para quem transferir.`,
-        );
-      }
       if (createdEventCount > 0) {
         throw new ForbiddenException(
           `Não é possível excluir: usuário criou ${createdEventCount} evento(s). Informe para quem transferir.`,

@@ -98,7 +98,6 @@ export class TasksService {
       include: {
         assigned_user: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true } },
-        legal_case: { select: { id: true, case_number: true } },
         comments: {
           include: { user: { select: { id: true, name: true } } },
           orderBy: { created_at: 'asc' },
@@ -138,7 +137,6 @@ export class TasksService {
     description?: string;
     lead_id?: string;
     conversation_id?: string;
-    legal_case_id?: string;
     assigned_user_id?: string;
     due_at?: string | Date;
     tenant_id?: string;
@@ -150,7 +148,6 @@ export class TasksService {
         description: data.description,
         lead_id: data.lead_id,
         conversation_id: data.conversation_id,
-        legal_case_id: data.legal_case_id,
         assigned_user_id: data.assigned_user_id,
         due_at: data.due_at ? new Date(data.due_at) : null,
         tenant_id: data.tenant_id,
@@ -374,7 +371,6 @@ export class TasksService {
         end_at: new Date(task.due_at.getTime() + 30 * 60000).toISOString(),
         assigned_user_id: task.assigned_user_id || createdById,
         lead_id: task.lead_id || undefined,
-        legal_case_id: task.legal_case_id || undefined,
         created_by_id: createdById,
         tenant_id: task.tenant_id || undefined,
         // Lembretes PUSH: no momento exato + 15min antes + 1h antes

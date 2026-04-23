@@ -289,24 +289,12 @@ export class CalendarReminderWorker extends WorkerHost {
     }
 
     // Carrega evento com todos os dados necessários para personalização
+    // STUBBED: LegalCase relation removida Fase 0.2
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
         lead: { select: { id: true, name: true, phone: true } },
-        legal_case: {
-          select: {
-            id: true,
-            case_number: true,
-            legal_area: true,
-            action_type: true,
-            opposing_party: true,
-            court: true,
-            judge: true,
-            claim_value: true,
-            notes: true,
-          },
-        },
       },
     });
 
@@ -347,27 +335,16 @@ export class CalendarReminderWorker extends WorkerHost {
   private async sendWhatsAppReminders(event: any, minutesBefore: number) {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
 
-    // Carrega contexto adicional do cliente (memória + ficha + publicações DJEN)
+    // Carrega contexto adicional do cliente (memória)
+    // STUBBED: LegalCase/DjenPublication/FichaTrabalhista removidos Fase 0.2
     const leadId = event.lead?.id;
-    const legalCaseId = event.legal_case?.id;
-    const [memory, ficha, djenPubs] = await Promise.all([
-      leadId
-        ? this.prisma.aiMemory.findUnique({ where: { lead_id: leadId } }).catch(() => null)
-        : null,
-      leadId && (event.legal_case?.legal_area?.toUpperCase().includes('TRABALHIST'))
-        ? this.prisma.fichaTrabalhista.findUnique({ where: { lead_id: leadId } }).catch(() => null)
-        : null,
-      legalCaseId
-        ? (this.prisma as any).djenPublication.findMany({
-            where: { legal_case_id: legalCaseId },
-            orderBy: { data_disponibilizacao: 'desc' },
-            take: 5,
-            select: { tipo_comunicacao: true, assunto: true, conteudo: true, data_disponibilizacao: true },
-          }).catch(() => [])
-        : Promise.resolve([]),
-    ]);
+    const memory = leadId
+      ? await this.prisma.aiMemory.findUnique({ where: { lead_id: leadId } }).catch(() => null)
+      : null;
+    const ficha: any = null;
+    const djenPubs: any[] = [];
 
-    const context = buildContext(event, memory, event.legal_case, ficha, djenPubs);
+    const context = buildContext(event, memory, null, ficha, djenPubs);
 
     // ── 1. Mensagem para o Advogado (sempre) ─────────────────────────
     if (event.assigned_user?.phone) {
@@ -466,17 +443,12 @@ export class CalendarReminderWorker extends WorkerHost {
   // ─── Notificação imediata de audiência agendada ───────────────────────────
 
   private async processHearingScheduled(eventId: string, isRescheduled = false) {
+    // STUBBED: LegalCase relation removida Fase 0.2
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
         lead: { select: { id: true, name: true, phone: true } },
-        legal_case: {
-          select: {
-            id: true, case_number: true, legal_area: true, action_type: true,
-            opposing_party: true, court: true, judge: true, claim_value: true, notes: true,
-          },
-        },
       },
     });
 
@@ -494,23 +466,12 @@ export class CalendarReminderWorker extends WorkerHost {
     }
 
     const leadId = event.lead.id;
-    const legalCaseId = event.legal_case?.id;
-    const [memory, ficha, djenPubs] = await Promise.all([
-      this.prisma.aiMemory.findUnique({ where: { lead_id: leadId } }).catch(() => null),
-      event.legal_case?.legal_area?.toUpperCase().includes('TRABALHIST')
-        ? this.prisma.fichaTrabalhista.findUnique({ where: { lead_id: leadId } }).catch(() => null)
-        : null,
-      legalCaseId
-        ? (this.prisma as any).djenPublication.findMany({
-            where: { legal_case_id: legalCaseId },
-            orderBy: { data_disponibilizacao: 'desc' },
-            take: 5,
-            select: { tipo_comunicacao: true, assunto: true, conteudo: true, data_disponibilizacao: true },
-          }).catch(() => [])
-        : Promise.resolve([]),
-    ]);
+    // STUBBED: LegalCase/DjenPublication/FichaTrabalhista removidos Fase 0.2
+    const memory = await this.prisma.aiMemory.findUnique({ where: { lead_id: leadId } }).catch(() => null);
+    const ficha: any = null;
+    const djenPubs: any[] = [];
 
-    const context = buildContext(event, memory, event.legal_case, ficha, djenPubs);
+    const context = buildContext(event, memory, null, ficha, djenPubs);
     const clientPhone = event.lead.phone.replace(/\D/g, '');
     const firstName = (event.lead.name || 'Cliente').split(' ')[0];
 

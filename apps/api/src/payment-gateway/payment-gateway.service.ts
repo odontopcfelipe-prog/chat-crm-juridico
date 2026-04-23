@@ -99,6 +99,7 @@ export class PaymentGatewayService {
     }
 
     // Buscar dados do lead
+    // STUBBED: FichaTrabalhista removida Fase 0.2
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
       select: {
@@ -108,15 +109,13 @@ export class PaymentGatewayService {
         email: true,
         cpf_cnpj: true,
         tenant_id: true,
-        ficha_trabalhista: { select: { data: true } },
       },
     });
 
     if (!lead) throw new NotFoundException('Lead nao encontrado');
 
-    // Buscar CPF/CNPJ: primeiro do painel do lead, depois da ficha trabalhista
-    const fichaData = (lead.ficha_trabalhista as any)?.data as Record<string, any> | undefined;
-    const cpfCnpj = lead.cpf_cnpj || fichaData?.cpf || fichaData?.cpfCnpj || fichaData?.cnpj || null;
+    // STUBBED: fallback via ficha trabalhista removido
+    const cpfCnpj = lead.cpf_cnpj || null;
 
     if (!cpfCnpj) {
       throw new BadRequestException(
@@ -157,122 +156,13 @@ export class PaymentGatewayService {
 
   async createCharge(
     honorarioPaymentId: string,
-    billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
-    tenantId?: string,
+    _billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+    _tenantId?: string,
   ) {
-    // Verificar se ja existe cobranca para este pagamento
-    const existingCharge = await this.prisma.paymentGatewayCharge.findUnique({
-      where: { honorario_payment_id: honorarioPaymentId },
-    });
-    if (existingCharge) {
-      this.logger.warn(`[CHARGE] Ja existe cobranca para payment ${honorarioPaymentId}: ${existingCharge.external_id}`);
-      return existingCharge;
-    }
-
-    // Buscar pagamento com relacoes
-    const payment = await this.prisma.honorarioPayment.findUnique({
-      where: { id: honorarioPaymentId },
-      include: {
-        honorario: {
-          include: {
-            legal_case: {
-              select: {
-                id: true,
-                case_number: true,
-                legal_area: true,
-                lead_id: true,
-                tenant_id: true,
-                lead: {
-                  select: { id: true, name: true, phone: true, email: true },
-                },
-              },
-            },
-          },
-        },
-      },
-    });
-
-    if (!payment) throw new NotFoundException('Pagamento de honorario nao encontrado');
-
-    const legalCase = (payment as any).honorario?.legal_case;
-    if (!legalCase?.lead_id) {
-      throw new BadRequestException('Caso juridico nao possui lead vinculado');
-    }
-
-    // Garantir que o customer existe no Asaas
-    const customer = await this.ensureCustomer(
-      legalCase.lead_id,
-      tenantId || legalCase.tenant_id,
-    );
-
-    // Criar cobranca no Asaas
-    const dueDate = payment.due_date ? new Date(payment.due_date) : new Date();
-    const dueDateStr = dueDate.toISOString().slice(0, 10); // YYYY-MM-DD
-
-    const asaasCharge = await this.asaas.createCharge({
-      customer: customer.external_id,
-      billingType,
-      value: Number(payment.amount),
-      dueDate: dueDateStr,
-      description: `Honorario - ${legalCase.case_number || 'Processo'} ${legalCase.legal_area ? `(${legalCase.legal_area})` : ''}`.trim(),
-      externalReference: honorarioPaymentId,
-    });
-
-    this.logger.log(
-      `[CHARGE] Criada no Asaas: ${asaasCharge.id} | ${billingType} | R$ ${Number(payment.amount)} | Venc: ${dueDateStr}`,
-    );
-
-    // Buscar dados de PIX se aplicavel
-    let pixData: any = null;
-    if (billingType === 'PIX' && asaasCharge.id) {
-      try {
-        pixData = await this.asaas.getPixQrCode(asaasCharge.id);
-      } catch (e: any) {
-        this.logger.warn(`[CHARGE] Falha ao buscar QR Code PIX: ${e.message}`);
-      }
-    }
-
-    // Salvar localmente
-    const charge = await this.prisma.paymentGatewayCharge.create({
-      data: {
-        tenant_id: tenantId || legalCase.tenant_id,
-        honorario_payment_id: honorarioPaymentId,
-        legal_case_id: legalCase?.id || null,
-        gateway: 'ASAAS',
-        external_id: asaasCharge.id,
-        customer_external_id: customer.external_id,
-        billing_type: billingType,
-        amount: Number(payment.amount),
-        due_date: dueDate,
-        status: asaasCharge.status || 'PENDING',
-        description: asaasCharge.description || null,
-        pix_qr_code: pixData?.encodedImage || null,
-        pix_copy_paste: pixData?.payload || null,
-        pix_expiration_date: pixData?.expirationDate
-          ? new Date(pixData.expirationDate)
-          : null,
-        boleto_url: asaasCharge.bankSlipUrl || null,
-        boleto_barcode: asaasCharge.nossoNumero || null,
-        invoice_url: asaasCharge.invoiceUrl || null,
-      },
-    });
-
-    return {
-      ...charge,
-      pix: pixData
-        ? {
-            qrCode: pixData.encodedImage,
-            copyPaste: pixData.payload,
-            expirationDate: pixData.expirationDate,
-          }
-        : null,
-      boleto: asaasCharge.bankSlipUrl
-        ? {
-            url: asaasCharge.bankSlipUrl,
-            barcode: asaasCharge.nossoNumero,
-          }
-        : null,
-    };
+    // STUBBED: HonorarioPayment/CaseHonorario/LegalCase removidos Fase 0.2
+    // Método preservado apenas para compat de assinatura.
+    this.logger.warn(`[STUB] createCharge chamado com ${honorarioPaymentId} — no-op Fase 0.2`);
+    throw new BadRequestException('Cobrança de honorário jurídico desativada (Fase 0.2 — migração odontológica)');
   }
 
   // ─── Cobrança para LeadHonorarioPayment ─────────────────
@@ -626,85 +516,20 @@ export class PaymentGatewayService {
 
   async createBatchCharges(
     honorarioId: string,
-    billingType: string,
-    tenantId?: string,
+    _billingType: string,
+    _tenantId?: string,
   ) {
-    const payments = await this.prisma.honorarioPayment.findMany({
-      where: {
-        honorario_id: honorarioId,
-        status: 'PENDENTE',
-        gateway_charge: null, // sem cobranca existente
-      },
-      orderBy: { due_date: 'asc' },
-    });
-
-    if (payments.length === 0) {
-      throw new BadRequestException('Nenhuma parcela pendente sem cobranca encontrada');
-    }
-
-    this.logger.log(
-      `[BATCH] Criando ${payments.length} cobrancas ${billingType} para honorario ${honorarioId}`,
-    );
-
-    const results: any[] = [];
-    const errors: any[] = [];
-
-    for (const payment of payments) {
-      try {
-        const charge = await this.createCharge(
-          payment.id,
-          billingType as 'PIX' | 'BOLETO' | 'CREDIT_CARD',
-          tenantId,
-        );
-        results.push(charge);
-      } catch (e: any) {
-        this.logger.error(
-          `[BATCH] Erro ao criar cobranca para payment ${payment.id}: ${e.message}`,
-        );
-        errors.push({ paymentId: payment.id, error: e.message });
-      }
-    }
-
-    return { created: results.length, errors: errors.length, results, errorDetails: errors };
+    // STUBBED: HonorarioPayment/CaseHonorario removidos Fase 0.2
+    this.logger.warn(`[STUB] createBatchCharges chamado com ${honorarioId} — no-op Fase 0.2`);
+    throw new BadRequestException('Cobrança em lote de honorário jurídico desativada (Fase 0.2 — migração odontológica)');
   }
 
   // ─── Charge details ────────────────────────────────────
 
-  async getChargeDetails(honorarioPaymentId: string, tenantId?: string) {
-    const charge = await this.prisma.paymentGatewayCharge.findUnique({
-      where: { honorario_payment_id: honorarioPaymentId },
-    });
-
-    if (!charge) {
-      throw new NotFoundException('Cobranca nao encontrada para este pagamento');
-    }
-
-    // Buscar dados frescos do Asaas
-    let asaasData: any = null;
-    try {
-      asaasData = await this.asaas.getCharge(charge.external_id);
-
-      // Atualizar status local se mudou
-      const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
-      if (mappedStatus !== charge.status) {
-        await this.prisma.paymentGatewayCharge.update({
-          where: { id: charge.id },
-          data: {
-            status: mappedStatus,
-            paid_at: asaasData.paymentDate ? new Date(asaasData.paymentDate) : charge.paid_at,
-            net_value: asaasData.netValue || charge.net_value,
-            invoice_url: asaasData.invoiceUrl || charge.invoice_url,
-          },
-        });
-      }
-    } catch (e: any) {
-      this.logger.warn(`[CHARGE] Falha ao consultar Asaas: ${e.message}`);
-    }
-
-    return {
-      local: charge,
-      gateway: asaasData,
-    };
+  async getChargeDetails(honorarioPaymentId: string, _tenantId?: string) {
+    // STUBBED: HonorarioPayment removido Fase 0.2 — método preservado p/ compat
+    this.logger.warn(`[STUB] getChargeDetails chamado com ${honorarioPaymentId} — no-op Fase 0.2`);
+    throw new NotFoundException('Cobranca nao encontrada para este pagamento');
   }
 
   // ─── Webhook handling ──────────────────────────────────
@@ -782,64 +607,7 @@ export class PaymentGatewayService {
       },
     });
 
-    // Se pagamento RECEIVED ou CONFIRMED, marcar HonorarioPayment como PAGO
-    if (
-      (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') &&
-      charge.honorario_payment_id
-    ) {
-      try {
-        // Atualizar parcela do honorario
-        await this.prisma.honorarioPayment.update({
-          where: { id: charge.honorario_payment_id },
-          data: {
-            status: 'PAGO',
-            paid_at: new Date(),
-            payment_method: charge.billing_type,
-          },
-        });
-
-        this.logger.log(
-          `[WEBHOOK] HonorarioPayment ${charge.honorario_payment_id} marcado como PAGO`,
-        );
-
-        // Criar transacao financeira via FinanceiroService
-        try {
-          const transaction = await this.financeiroService.createFromHonorarioPayment(
-            charge.honorario_payment_id,
-            charge.tenant_id || undefined,
-          );
-
-          // Vincular transacao a cobranca
-          if (transaction?.id) {
-            await this.prisma.paymentGatewayCharge.update({
-              where: { id: charge.id },
-              data: { transaction_id: transaction.id },
-            });
-          }
-
-          this.logger.log(
-            `[WEBHOOK] Transacao financeira criada: ${transaction?.id}`,
-          );
-        } catch (e: any) {
-          this.logger.warn(
-            `[WEBHOOK] Falha ao criar transacao financeira: ${e.message}`,
-          );
-        }
-
-        // Emitir evento via WebSocket
-        this.emitFinancialUpdate(charge.tenant_id, {
-          type: 'payment_confirmed',
-          chargeId: charge.id,
-          honorarioPaymentId: charge.honorario_payment_id,
-          status: mappedStatus,
-          amount: Number(charge.amount),
-        });
-      } catch (e: any) {
-        this.logger.error(
-          `[WEBHOOK] Erro ao processar pagamento confirmado: ${e.message}`,
-        );
-      }
-    }
+    // STUBBED: HonorarioPayment removido Fase 0.2 — branch desativado
 
     // Fase 18: se pagamento RECEIVED/CONFIRMED e tem installment_id (parcela odonto),
     // marcar Installment como PAGA
@@ -879,12 +647,12 @@ export class PaymentGatewayService {
       }
     }
 
-    // Se pagamento RECEIVED/CONFIRMED e tem transaction_id mas NÃO tem honorario (receita avulsa),
-    // dar baixa direta na FinancialTransaction
+    // Se pagamento RECEIVED/CONFIRMED e tem transaction_id, dar baixa na FinancialTransaction
+    // STUBBED: honorario_payment_id removido Fase 0.2 — sempre trata como avulsa
     if (
       (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') &&
       charge.transaction_id &&
-      !charge.honorario_payment_id
+      !(charge as any).honorario_payment_id
     ) {
       try {
         await this.prisma.financialTransaction.update({
@@ -1047,15 +815,7 @@ export class PaymentGatewayService {
         });
         if (lead) leadId = lead.id;
 
-        // Fallback: busca na ficha trabalhista
-        if (!leadId) {
-          const fichas = await this.prisma.fichaTrabalhista.findMany({
-            where: { data: { path: ['cpf'], equals: cpfClean } },
-            select: { lead_id: true },
-            take: 1,
-          });
-          if (fichas.length > 0) leadId = fichas[0].lead_id;
-        }
+        // STUBBED: FichaTrabalhista removida Fase 0.2 — fallback desativado
       }
 
       // Match 3: nome exato (case insensitive)

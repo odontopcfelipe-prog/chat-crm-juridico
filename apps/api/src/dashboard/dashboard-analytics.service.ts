@@ -123,36 +123,10 @@ export class DashboardAnalyticsService {
       lawyerClause = isAdmin ? '' : `AND lc.lawyer_id = '${userId}'`;
     }
 
-    const contracted = await this.prisma.$queryRawUnsafe<{ month: string; total: number }[]>(
-      `SELECT TO_CHAR(ch.contract_date, 'YYYY-MM') as month, SUM(ch.total_value)::float as total
-       FROM "CaseHonorario" ch
-       JOIN "LegalCase" lc ON lc.id = ch.legal_case_id
-       WHERE ch.contract_date >= $1 ${lawyerClause}
-       GROUP BY month ORDER BY month`,
-      since,
-    ).catch(() => []);
-
-    // Collected: group HonorarioPayment (PAGO) by month of paid_at
-    const collected = await this.prisma.$queryRawUnsafe<{ month: string; total: number }[]>(
-      `SELECT TO_CHAR(hp.paid_at, 'YYYY-MM') as month, SUM(hp.amount)::float as total
-       FROM "HonorarioPayment" hp
-       JOIN "CaseHonorario" ch ON ch.id = hp.honorario_id
-       JOIN "LegalCase" lc ON lc.id = ch.legal_case_id
-       WHERE hp.status = 'PAGO' AND hp.paid_at >= $1 ${lawyerClause}
-       GROUP BY month ORDER BY month`,
-      since,
-    ).catch(() => []);
-
-    // Receivable: group HonorarioPayment (PENDENTE) by month of due_date
-    const receivable = await this.prisma.$queryRawUnsafe<{ month: string; total: number }[]>(
-      `SELECT TO_CHAR(hp.due_date, 'YYYY-MM') as month, SUM(hp.amount)::float as total
-       FROM "HonorarioPayment" hp
-       JOIN "CaseHonorario" ch ON ch.id = hp.honorario_id
-       JOIN "LegalCase" lc ON lc.id = ch.legal_case_id
-       WHERE hp.status = 'PENDENTE' AND hp.due_date >= $1 ${lawyerClause}
-       GROUP BY month ORDER BY month`,
-      since,
-    ).catch(() => []);
+    // STUBBED: CaseHonorario/HonorarioPayment/LegalCase removidos na Fase 0.2
+    const contracted: { month: string; total: number }[] = [];
+    const collected: { month: string; total: number }[] = [];
+    const receivable: { month: string; total: number }[] = [];
 
     // Merge into unified month array
     const monthMap = new Map<string, { contracted: number; collected: number; receivable: number }>();
@@ -374,20 +348,12 @@ export class DashboardAnalyticsService {
       lawyerFilter = { lawyer_id: userId };
     }
 
-    const grouped = await this.prisma.legalCase.groupBy({
-      by: ['legal_area'],
-      _count: true,
-      where: {
-        archived: false,
-        ...lawyerFilter,
-        ...tw,
-      },
-    });
-
-    const total = grouped.reduce((s, g) => s + g._count, 0);
+    // STUBBED: LegalCase removido Fase 0.2
+    const grouped: any[] = [];
+    const total = grouped.reduce((s: number, g: any) => s + g._count, 0);
 
     const areas = grouped
-      .map((g) => ({
+      .map((g: any) => ({
         area: g.legal_area || 'Não classificado',
         count: g._count,
         percentage: total > 0 ? Math.round((g._count / total) * 1000) / 10 : 0,
@@ -420,15 +386,8 @@ export class DashboardAnalyticsService {
       lawyerFilter = { lawyer_id: userId };
     }
 
-    const cases = await this.prisma.legalCase.findMany({
-      where: {
-        in_tracking: true,
-        archived: false,
-        ...lawyerFilter,
-        ...tw,
-      },
-      select: { tracking_stage: true, stage_changed_at: true, created_at: true },
-    });
+    // STUBBED: LegalCase removido Fase 0.2
+    const cases: any[] = [];
 
     // Group by tracking_stage, calc avg days since stage_changed_at
     const stageMap = new Map<string, { totalDays: number; count: number }>();
@@ -474,14 +433,8 @@ export class DashboardAnalyticsService {
       }
     }
 
-    const overdue = await this.prisma.honorarioPayment.findMany({
-      where: {
-        status: 'PENDENTE',
-        due_date: { lt: now },
-        honorario: { legal_case: caseFilter },
-      },
-      select: { amount: true, due_date: true },
-    });
+    // STUBBED: HonorarioPayment removido Fase 0.2
+    const overdue: any[] = [];
 
     const buckets = [
       { range: '0-30 dias', min: 0, max: 30, count: 0, total: 0 },

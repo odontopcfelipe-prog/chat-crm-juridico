@@ -560,20 +560,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'get_legal_cases': {
-          const cases = await this.prisma.legalCase.findMany({
-            where: { lead_id: args.lead_id },
-            select: {
-              id: true, case_number: true,
-              legal_area: true, action_type: true,
-              stage: true, opposing_party: true,
-            },
-            orderBy: { created_at: 'desc' },
-            take: 8,
-          });
-          if (!cases.length) {
-            return { found: false, message: 'Nenhum processo encontrado para este cliente.' };
-          }
-          return { found: true, count: cases.length, cases };
+          return { found: false, message: 'Consulta de processos foi descontinuada na migração para o domínio odontológico.' };
         }
 
         case 'list_users': {
@@ -683,44 +670,15 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'list_overdue_payments': {
-          const limit = Math.min(args.limit || 10, 20);
-          const overdue = await this.prisma.honorarioPayment.findMany({
-            where: { status: { in: ['ATRASADO', 'PENDENTE'] }, due_date: { lt: new Date() } },
-            include: {
-              honorario: { include: { legal_case: { select: { case_number: true, lead: { select: { name: true, phone: true } } } } } },
-            },
-            orderBy: { due_date: 'asc' },
-            take: limit,
-          });
-          return {
-            count: overdue.length,
-            inadimplentes: overdue.map(p => ({
-              parcela_id: p.id,
-              cliente: (p as any).honorario?.legal_case?.lead?.name || 'Desconhecido',
-              telefone: (p as any).honorario?.legal_case?.lead?.phone || '',
-              processo: (p as any).honorario?.legal_case?.case_number || 'Sem número',
-              valor: `R$ ${Number(p.amount).toFixed(2)}`,
-              vencimento: p.due_date ? new Date(p.due_date).toLocaleDateString('pt-BR', { timeZone: 'UTC' }) : 'Sem vencimento',
-              dias_atraso: p.due_date ? Math.ceil((Date.now() - new Date(p.due_date).getTime()) / 86400000) : 0,
-            })),
-          };
+          // Cobrança de honorários processuais foi descontinuada. A Fase 2 vai substituir por cobrança de parcelamentos odontológicos (Installment).
+          return { count: 0, inadimplentes: [], message: 'Consulta de parcelas em atraso será reimplementada com base em Installment (odonto).' };
         }
 
         case 'create_charge': {
-          if (args.honorario_payment_id) {
-            const charge = await this.paymentGatewayService.createCharge(args.honorario_payment_id, args.billing_type, tenantId || undefined);
-            return {
-              success: true,
-              tipo: args.billing_type,
-              pix_copia_cola: charge.pix_copy_paste || null,
-              boleto_url: charge.boleto_url || null,
-              fatura_url: charge.invoice_url || null,
-              mensagem: `Cobrança ${args.billing_type} gerada com sucesso!`,
-            };
-          }
-          // Cobrança avulsa — ensure customer + create via Asaas
+          // Cobrança vinculada a honorario_payment foi descontinuada.
+          // A Fase 2 vai reimplementar via Installment (odonto).
           await this.paymentGatewayService.ensureCustomer(args.lead_id, tenantId || undefined);
-          return { success: true, mensagem: 'Cliente sincronizado. Para gerar cobrança vinculada a parcela, use create_charge com honorario_payment_id.' };
+          return { success: true, mensagem: 'Cliente sincronizado. Cobrança via parcelamento odonto será implementada na Fase 2.' };
         }
 
         case 'create_expense': {
@@ -732,7 +690,6 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
             date: args.date || new Date().toISOString(),
             status: 'PAGO',
             paid_at: args.date || new Date().toISOString(),
-            legal_case_id: args.legal_case_id,
             tenant_id: tenantId || undefined,
           });
           return {
@@ -751,7 +708,6 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
             status: 'PAGO',
             paid_at: args.date || new Date().toISOString(),
             lead_id: args.lead_id,
-            legal_case_id: args.legal_case_id,
             tenant_id: tenantId || undefined,
           });
           return {
@@ -761,44 +717,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
         }
 
         case 'mark_payment_received': {
-          // Buscar lead pelo nome
-          const leads = await this.prisma.lead.findMany({
-            where: { name: { contains: args.lead_name, mode: 'insensitive' }, ...(tenantId ? { tenant_id: tenantId } : {}) },
-            select: { id: true, name: true },
-            take: 3,
-          });
-          if (!leads.length) return { error: `Nenhum cliente encontrado com nome "${args.lead_name}"` };
-
-          // Buscar parcelas pendentes do lead
-          const payments = await this.prisma.honorarioPayment.findMany({
-            where: {
-              status: { in: ['PENDENTE', 'ATRASADO'] },
-              honorario: { legal_case: { lead_id: { in: leads.map(l => l.id) } } },
-              ...(args.amount ? { amount: args.amount } : {}),
-            },
-            include: { honorario: { select: { legal_case: { select: { case_number: true } } } } },
-            orderBy: { due_date: 'asc' },
-            take: 1,
-          });
-          if (!payments.length) return { error: `Nenhuma parcela pendente encontrada para "${args.lead_name}"${args.amount ? ` no valor de R$ ${args.amount}` : ''}` };
-
-          const payment = payments[0];
-          await this.prisma.honorarioPayment.update({
-            where: { id: payment.id },
-            data: { status: 'PAGO', paid_at: new Date(), payment_method: args.payment_method || null },
-          });
-          // Auto-criar transação financeira
-          try { await this.financeiroService.createFromHonorarioPayment(payment.id, tenantId || undefined); } catch {}
-
-          return {
-            success: true,
-            pagamento: {
-              cliente: leads[0].name,
-              valor: `R$ ${Number(payment.amount).toFixed(2)}`,
-              processo: (payment as any).honorario?.legal_case?.case_number || 'N/A',
-              metodo: args.payment_method || 'Não informado',
-            },
-          };
+          return { error: 'Marcação manual de pagamento foi descontinuada. A Fase 2 vai reimplementar via Installment (odonto).' };
         }
 
         default:

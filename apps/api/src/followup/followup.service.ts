@@ -291,12 +291,8 @@ export class FollowupService {
     const diasSemContato = convo?.last_message_at
       ? Math.floor((Date.now() - convo.last_message_at.getTime()) / 86400000) : 999;
 
-    // Processos
-    const casos = await this.prisma.legalCase.findMany({
-      where: { lead_id: lead.id },
-      select: { case_number: true, action_type: true, stage: true, legal_area: true },
-      take: 5,
-    });
+    // Processos — desativados na transição odonto (LegalCase removido)
+    const casos: any[] = [];
 
     // Mensagens anteriores desta sequência (para não repetir)
     const msgsAnteriores = await this.prisma.followupMessage.findMany({
@@ -419,39 +415,30 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
   // ─── Disparos em Massa (Broadcasts) ─────────────────────────────────────
 
   async previewBroadcast(type: string, daysAhead: number, tenantId?: string) {
-    // COMUNICADO: busca todos os clientes com processo ativo (não depende de CalendarEvent)
+    // COMUNICADO: busca todos os clientes ativos (LegalCase removido — usa Lead.is_client)
     if (type === 'COMUNICADO') {
-      const cases = await this.prisma.legalCase.findMany({
+      const clients = await this.prisma.lead.findMany({
         where: {
-          archived: false,
-          lead: {
-            phone: { not: '' },
-            is_client: true,
-            ...(tenantId ? { tenant_id: tenantId } : {}),
-          },
+          phone: { not: '' },
+          is_client: true,
+          ...(tenantId ? { tenant_id: tenantId } : {}),
         },
-        include: {
-          lead: { select: { id: true, name: true, phone: true, stage: true } },
-        },
-        orderBy: { created_at: 'desc' },
+        select: { id: true, name: true, phone: true, stage: true },
+        orderBy: { became_client_at: 'desc' },
       });
 
-      // Deduplica por lead_id (um lead pode ter vários processos)
-      const seen = new Set<string>();
-      return cases
-        .filter(c => { if (seen.has(c.lead_id)) return false; seen.add(c.lead_id); return true; })
-        .map(c => ({
+      return clients.map(l => ({
           event_id: null,
           event_title: null,
           event_date: null,
           event_location: null,
-          lead_id: c.lead!.id,
-          lead_name: c.lead!.name,
-          lead_phone: c.lead!.phone,
-          lead_stage: c.lead!.stage,
-          case_number: c.case_number,
-          case_type: c.action_type,
-          court: c.court,
+          lead_id: l.id,
+          lead_name: l.name,
+          lead_phone: l.phone,
+          lead_stage: l.stage,
+          case_number: null as string | null,
+          case_type: null,
+          court: null,
         }));
     }
 
@@ -469,7 +456,6 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
       },
       include: {
         lead: { select: { id: true, name: true, phone: true, stage: true } },
-        legal_case: { select: { id: true, case_number: true, action_type: true, court: true, opposing_party: true } },
       },
       orderBy: { start_at: 'asc' },
     });
@@ -483,9 +469,9 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
       lead_name: e.lead!.name,
       lead_phone: e.lead!.phone,
       lead_stage: e.lead!.stage,
-      case_number: e.legal_case?.case_number,
-      case_type: e.legal_case?.action_type,
-      court: e.legal_case?.court,
+      case_number: null,
+      case_type: null,
+      court: null,
     }));
   }
 

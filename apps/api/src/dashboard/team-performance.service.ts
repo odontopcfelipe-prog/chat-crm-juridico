@@ -126,64 +126,24 @@ export class TeamPerformanceService {
         where: { type: 'TAREFA', status: { in: ['AGENDADO', 'CONFIRMADO'] }, assigned_user_id: { in: allIds }, created_at: { gte: prevStart, lte: prevEnd }, ...tw },
       }),
 
-      // ── ADVOGADO: Cases ──
-      this.prisma.legalCase.groupBy({
-        by: ['lawyer_id'],
-        _count: true,
-        where: { lawyer_id: { in: advIds }, archived: false, ...tw },
-      }),
-      this.prisma.legalCase.groupBy({
-        by: ['lawyer_id'],
-        _count: true,
-        where: { lawyer_id: { in: advIds }, filed_at: { gte: start, lte: end }, ...tw },
-      }),
-      this.prisma.legalCase.groupBy({
-        by: ['lawyer_id'],
-        _count: true,
-        where: { lawyer_id: { in: advIds }, filed_at: { gte: prevStart, lte: prevEnd }, ...tw },
-      }),
-      // Sentenced cases with sentence_type
-      this.prisma.legalCase.groupBy({
-        by: ['lawyer_id', 'sentence_type'],
-        _count: true,
-        where: { lawyer_id: { in: advIds }, sentence_type: { not: null }, ...tw },
-      }),
-      // Deadlines
-      this.prisma.caseDeadline.groupBy({
-        by: ['created_by_id'],
-        _count: true,
-        where: { created_by_id: { in: [...advIds, ...estIds] } },
-      }),
-      // Petitions
-      this.prisma.casePetition.groupBy({
-        by: ['created_by_id', 'status'],
-        _count: true,
-        where: { created_by_id: { in: [...advIds, ...estIds] } },
-      }),
-      // Honorarios collected
-      this.prisma.honorarioPayment.groupBy({
-        by: ['honorario_id'],
-        _sum: { amount: true },
-        where: { status: 'PAGO', honorario: { legal_case: { lawyer_id: { in: advIds }, ...tw } } },
-      }),
-      // Honorarios receivable
-      this.prisma.honorarioPayment.groupBy({
-        by: ['honorario_id'],
-        _sum: { amount: true },
-        where: { status: 'PENDENTE', honorario: { legal_case: { lawyer_id: { in: advIds }, ...tw } } },
-      }),
-      // Honorarios contracted
-      this.prisma.caseHonorario.groupBy({
-        by: ['legal_case_id'],
-        _sum: { total_value: true },
-        where: { legal_case: { lawyer_id: { in: advIds }, ...tw } },
-      }),
-      // Previous collected
-      this.prisma.honorarioPayment.groupBy({
-        by: ['honorario_id'],
-        _sum: { amount: true },
-        where: { status: 'PAGO', paid_at: { gte: prevStart, lte: prevEnd }, honorario: { legal_case: { lawyer_id: { in: advIds }, ...tw } } },
-      }),
+      // ── ADVOGADO: Cases ── STUBBED: LegalCase/CaseHonorario/HonorarioPayment/CaseDeadline/CasePetition removidos Fase 0.2
+      Promise.resolve([] as any[]),
+      Promise.resolve([] as any[]),
+      Promise.resolve([] as any[]),
+      // Sentenced cases with sentence_type — STUBBED
+      Promise.resolve([] as any[]),
+      // Deadlines — STUBBED
+      Promise.resolve([] as any[]),
+      // Petitions — STUBBED
+      Promise.resolve([] as any[]),
+      // Honorarios collected — STUBBED
+      Promise.resolve([] as any[]),
+      // Honorarios receivable — STUBBED
+      Promise.resolve([] as any[]),
+      // Honorarios contracted — STUBBED
+      Promise.resolve([] as any[]),
+      // Previous collected — STUBBED
+      Promise.resolve([] as any[]),
 
       // ── OPERADOR: Conversations ──
       this.prisma.conversation.groupBy({
@@ -231,24 +191,12 @@ export class TeamPerformanceService {
         where: { actor_id: { in: opIds }, created_at: { gte: prevStart, lte: prevEnd } },
       }),
 
-      // ── ESTAGIARIO: Documents ──
-      this.prisma.caseDocument.groupBy({
-        by: ['uploaded_by_id'],
-        _count: true,
-        where: { uploaded_by_id: { in: estIds } },
-      }),
-      // Estagiario deadlines completed
-      this.prisma.caseDeadline.groupBy({
-        by: ['created_by_id'],
-        _count: true,
-        where: { created_by_id: { in: estIds }, completed: true },
-      }),
-      // Estagiario petitions (reuse from petitions above but filter)
-      this.prisma.casePetition.groupBy({
-        by: ['created_by_id', 'status'],
-        _count: true,
-        where: { created_by_id: { in: estIds } },
-      }),
+      // ── ESTAGIARIO: Documents ── STUBBED: CaseDocument/CaseDeadline/CasePetition removidos Fase 0.2
+      Promise.resolve([] as any[]),
+      // Estagiario deadlines completed — STUBBED
+      Promise.resolve([] as any[]),
+      // Estagiario petitions — STUBBED
+      Promise.resolve([] as any[]),
     ]);
 
     // ─── 3. Helper: extract count from groupBy result ──
@@ -257,23 +205,8 @@ export class TeamPerformanceService {
       return arr.find(r => r[key] === id)?._count || 0;
     };
 
-    // ─── 4. Build per-user financial maps (need to resolve honorario → case → lawyer) ──
-    // For honorarios, we need to map honorario_id → lawyer_id
-    const honorarioIds = [...new Set([
-      ...honorarioCollected.map(h => h.honorario_id),
-      ...honorarioReceivable.map(h => h.honorario_id),
-      ...prevCollected.map(h => h.honorario_id),
-    ])];
+    // ─── 4. Build per-user financial maps — STUBBED: CaseHonorario removido Fase 0.2 ──
     const honorarioToLawyer = new Map<string, string>();
-    if (honorarioIds.length > 0) {
-      const honorarios = await this.prisma.caseHonorario.findMany({
-        where: { id: { in: honorarioIds } },
-        select: { id: true, legal_case: { select: { lawyer_id: true } } },
-      });
-      for (const h of honorarios) {
-        if (h.legal_case?.lawyer_id) honorarioToLawyer.set(h.id, h.legal_case.lawyer_id);
-      }
-    }
 
     const sumByLawyer = (arr: any[], lawyerId: string): number => {
       return arr

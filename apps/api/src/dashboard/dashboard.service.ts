@@ -65,10 +65,8 @@ export class DashboardService {
       ...tw,
     };
 
-    // ─── Honorário payment filters ──
-    const paymentCaseFilter = isAdmin
-      ? { honorario: { legal_case: { ...tw } } }
-      : { honorario: { legal_case: { lawyer_id: userId, ...tw } } };
+    // ─── Honorário payment filters ── (STUBBED: models removidos na Fase 0.2)
+    const paymentCaseFilter: any = {};
 
     // ─── Leads em atendimento: leads ainda ativos (não-clientes, fora de
     // PERDIDO/FINALIZADO). Mesmo filtro usado pelo Inbox (Leads tab).
@@ -141,18 +139,10 @@ export class DashboardService {
         _count: true,
         where: tw,
       }),
-      // 5. Legal cases (pre-tracking)
-      this.prisma.legalCase.groupBy({
-        by: ['stage'],
-        _count: true,
-        where: { ...caseWhere, in_tracking: false },
-      }),
-      // 6. Tracking cases
-      this.prisma.legalCase.groupBy({
-        by: ['tracking_stage'],
-        _count: true,
-        where: { ...caseWhere, in_tracking: true },
-      }),
+      // 5. Legal cases (pre-tracking) — STUBBED: LegalCase removido na Fase 0.2
+      Promise.resolve([] as any[]),
+      // 6. Tracking cases — STUBBED
+      Promise.resolve([] as any[]),
       // 7. Upcoming events
       this.prisma.calendarEvent.findMany({
         where: eventWhere,
@@ -165,7 +155,6 @@ export class DashboardService {
           status: true,
           priority: true,
           lead: { select: { name: true } },
-          legal_case_id: true,
         },
         orderBy: { start_at: 'asc' },
         take: 20,
@@ -181,63 +170,18 @@ export class DashboardService {
           start_at: { lt: now },
         },
       }),
-      // 11. Total contracted (sum of honorario total_value)
-      this.prisma.caseHonorario.aggregate({
-        _sum: { total_value: true },
-        where: isAdmin
-          ? { legal_case: { archived: false, ...tw } }
-          : { legal_case: { lawyer_id: userId, archived: false, ...tw } },
-      }),
-      // 12. Total collected (PAGO payments)
-      this.prisma.honorarioPayment.aggregate({
-        _sum: { amount: true },
-        where: { status: 'PAGO', ...paymentCaseFilter },
-      }),
-      // 13. Total receivable (PENDENTE payments)
-      this.prisma.honorarioPayment.aggregate({
-        _sum: { amount: true },
-        where: { status: 'PENDENTE', ...paymentCaseFilter },
-      }),
-      // 14. Total overdue (PENDENTE + due_date < now)
-      this.prisma.honorarioPayment.aggregate({
-        _sum: { amount: true },
-        where: {
-          status: 'PENDENTE',
-          due_date: { lt: now },
-          ...paymentCaseFilter,
-        },
-      }),
-      // 15. Overdue count
-      this.prisma.honorarioPayment.count({
-        where: {
-          status: 'PENDENTE',
-          due_date: { lt: now },
-          ...paymentCaseFilter,
-        },
-      }),
-      // 16. Recent DJEN
-      this.prisma.djenPublication.findMany({
-        where: {
-          data_disponibilizacao: { gte: sevenDaysAgo },
-          ...(isAdmin
-            ? {}
-            : { legal_case: { lawyer_id: userId } }),
-        },
-        select: {
-          id: true,
-          numero_processo: true,
-          tipo_comunicacao: true,
-          data_disponibilizacao: true,
-          legal_case: {
-            select: {
-              id: true,
-              lead: { select: { name: true } },
-            },
-          },
-        },
-        orderBy: { data_disponibilizacao: 'desc' },
-        take: 10,
-      }),
+      // 11. Total contracted — STUBBED (CaseHonorario removido Fase 0.2)
+      Promise.resolve({ _sum: { total_value: null } } as any),
+      // 12. Total collected — STUBBED (HonorarioPayment removido Fase 0.2)
+      Promise.resolve({ _sum: { amount: null } } as any),
+      // 13. Total receivable — STUBBED
+      Promise.resolve({ _sum: { amount: null } } as any),
+      // 14. Total overdue — STUBBED
+      Promise.resolve({ _sum: { amount: null } } as any),
+      // 15. Overdue count — STUBBED
+      Promise.resolve(0),
+      // 16. Recent DJEN — STUBBED (DjenPublication removido Fase 0.2)
+      Promise.resolve([] as any[]),
       // 17. Team users (ADMIN only)
       isAdmin
         ? this.prisma.user.findMany({
@@ -279,9 +223,8 @@ export class DashboardService {
                 status: { not: 'FECHADO' },
               },
             }),
-            this.prisma.legalCase.count({
-              where: { lawyer_id: member.id, archived: false, ...tw },
-            }),
+            // STUBBED: LegalCase removido Fase 0.2
+            Promise.resolve(0),
             this.prisma.calendarEvent.count({
               where: {
                 type: 'TAREFA',
@@ -297,20 +240,9 @@ export class DashboardService {
                 start_at: { lt: now },
               },
             }),
-            this.prisma.honorarioPayment.aggregate({
-              _sum: { amount: true },
-              where: {
-                status: 'PAGO',
-                honorario: { legal_case: { lawyer_id: member.id, ...tw } },
-              },
-            }),
-            this.prisma.honorarioPayment.aggregate({
-              _sum: { amount: true },
-              where: {
-                status: 'PENDENTE',
-                honorario: { legal_case: { lawyer_id: member.id, ...tw } },
-              },
-            }),
+            // STUBBED: HonorarioPayment removido Fase 0.2
+            Promise.resolve({ _sum: { amount: null } } as any),
+            Promise.resolve({ _sum: { amount: null } } as any),
           ]);
 
           return {
@@ -329,8 +261,8 @@ export class DashboardService {
     }
 
     // ─── Assemble response ──
-    const legalTotal = legalCasesRaw.reduce((s, g) => s + g._count, 0);
-    const trackingTotal = trackingCasesRaw.reduce((s, g) => s + g._count, 0);
+    const legalTotal = legalCasesRaw.reduce((s: number, g: any) => s + g._count, 0);
+    const trackingTotal = trackingCasesRaw.reduce((s: number, g: any) => s + g._count, 0);
 
     return {
       user: {
@@ -351,14 +283,14 @@ export class DashboardService {
       })),
       legalCases: {
         total: legalTotal,
-        byStage: legalCasesRaw.map((g) => ({
+        byStage: legalCasesRaw.map((g: any) => ({
           stage: g.stage,
           count: g._count,
         })),
       },
       trackingCases: {
         total: trackingTotal,
-        byStage: trackingCasesRaw.map((g) => ({
+        byStage: trackingCasesRaw.map((g: any) => ({
           stage: g.tracking_stage || 'DISTRIBUIDO',
           count: g._count,
         })),
@@ -372,7 +304,6 @@ export class DashboardService {
         status: e.status,
         priority: e.priority,
         lead_name: e.lead?.name || null,
-        legal_case_id: e.legal_case_id,
       })),
       tasks: {
         pending: tasksPending,
@@ -386,14 +317,7 @@ export class DashboardService {
         totalOverdue: Number(totalOverdue._sum.amount || 0),
         overdueCount,
       },
-      recentDjen: recentDjen.map((d) => ({
-        id: d.id,
-        numero_processo: d.numero_processo,
-        tipo_comunicacao: d.tipo_comunicacao,
-        data_disponibilizacao: d.data_disponibilizacao,
-        lead_name: d.legal_case?.lead?.name || null,
-        legal_case_id: d.legal_case?.id || null,
-      })),
+      recentDjen: [] as any[],
       teamMetrics,
       inboxStats: {
         closedToday,
@@ -439,14 +363,9 @@ export class DashboardService {
       this.prisma.lead.count({
         where: { ...extraWhere, ...userFilter, ...tw, [dateField]: { gte: wStart, lte: wEnd } },
       });
-    const countCases = (wStart: Date, wEnd: Date) =>
-      this.prisma.legalCase.count({
-        where: { archived: false, ...lawyerFilter, ...tw, created_at: { gte: wStart, lte: wEnd } },
-      });
-    const countTracking = (wStart: Date, wEnd: Date) =>
-      this.prisma.legalCase.count({
-        where: { in_tracking: true, archived: false, ...lawyerFilter, ...tw, created_at: { gte: wStart, lte: wEnd } },
-      });
+    // STUBBED: LegalCase removido Fase 0.2
+    const countCases = (_wStart: Date, _wEnd: Date) => Promise.resolve(0);
+    const countTracking = (_wStart: Date, _wEnd: Date) => Promise.resolve(0);
     const countOverdueTasks = (wStart: Date, wEnd: Date) =>
       this.prisma.calendarEvent.count({
         where: {

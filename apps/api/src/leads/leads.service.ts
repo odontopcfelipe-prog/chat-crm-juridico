@@ -441,12 +441,6 @@ export class LeadsService {
       });
       const convIds = conversations.map(c => c.id);
 
-      const legalCases = await tx.legalCase.findMany({
-        where: { lead_id: id },
-        select: { id: true },
-      });
-      const caseIds = legalCases.map(c => c.id);
-
       const messages = convIds.length > 0
         ? await tx.message.findMany({
             where: { conversation_id: { in: convIds } },
@@ -459,7 +453,6 @@ export class LeadsService {
         where: {
           OR: [
             { lead_id: id },
-            ...(caseIds.length > 0 ? [{ legal_case_id: { in: caseIds } }] : []),
             ...(convIds.length > 0 ? [{ conversation_id: { in: convIds } }] : []),
           ],
         },
@@ -474,24 +467,9 @@ export class LeadsService {
         await tx.taskComment.deleteMany({ where: { task_id: { in: taskIds } } });
       }
 
-      // Publicações DJEN dos casos
-      if (caseIds.length > 0) {
-        await tx.djenPublication.deleteMany({ where: { legal_case_id: { in: caseIds } } });
-      }
-
-      // Eventos dos casos
-      if (caseIds.length > 0) {
-        await tx.caseEvent.deleteMany({ where: { case_id: { in: caseIds } } });
-      }
-
-      // Tarefas (do lead, dos casos e das conversas)
+      // Tarefas (do lead e das conversas)
       if (taskIds.length > 0) {
         await tx.task.deleteMany({ where: { id: { in: taskIds } } });
-      }
-
-      // Casos jurídicos
-      if (caseIds.length > 0) {
-        await tx.legalCase.deleteMany({ where: { id: { in: caseIds } } });
       }
 
       // Mídia das mensagens

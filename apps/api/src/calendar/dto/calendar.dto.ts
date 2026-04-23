@@ -64,9 +64,6 @@ export class CreateEventDto {
   conversation_id?: string;
 
   @IsOptional() @IsString()
-  legal_case_id?: string;
-
-  @IsOptional() @IsString()
   assigned_user_id?: string;
 
   @IsOptional() @IsString()
@@ -126,9 +123,6 @@ export class UpdateEventDto {
 
   @IsOptional() @IsString()
   conversation_id?: string;
-
-  @IsOptional() @IsString()
-  legal_case_id?: string;
 
   @IsOptional() @IsString()
   assigned_user_id?: string;

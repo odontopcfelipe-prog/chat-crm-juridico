@@ -351,22 +351,13 @@ export class GoogleDriveService {
    * Verifica acessibilidade da pasta (pode ter sido criada por SA antigo).
    */
   async ensureCaseFolder(
-    caseId: string,
+    _caseId: string,
     leadId: string,
     label: string,
   ): Promise<string> {
-    const legalCase = await this.prisma.legalCase.findUnique({
-      where: { id: caseId },
-      select: { google_drive_folder_id: true },
-    });
-
-    // Se já tem folder_id, verificar se é acessível
-    if (legalCase?.google_drive_folder_id) {
-      const accessible = await this.isFolderAccessible(legalCase.google_drive_folder_id);
-      if (accessible) return legalCase.google_drive_folder_id;
-      this.logger.warn(`Pasta do caso ${caseId} (${legalCase.google_drive_folder_id}) não acessível. Recriando...`);
-    }
-
+    // STUBBED Fase 0.2: LegalCase removido. Cria a pasta como subpasta do Lead
+    // sem persistir o folder_id (não há mais coluna). A Fase 2 (odonto) vai
+    // reimplementar com Patient/TreatmentPlan.
     const lead = await this.prisma.lead.findUnique({
       where: { id: leadId },
       select: { name: true },
@@ -381,28 +372,19 @@ export class GoogleDriveService {
       spaces: 'drive',
     });
 
-    let folderId: string;
     if (existing.data.files?.length) {
-      folderId = existing.data.files[0].id!;
-    } else {
-      const res = await drive.files.create({
-        requestBody: {
-          name: label,
-          mimeType: 'application/vnd.google-apps.folder',
-          parents: [leadFolderId],
-        },
-        fields: 'id',
-      });
-      folderId = res.data.id!;
-      this.logger.log(`Pasta do caso criada: ${label} (${folderId})`);
+      return existing.data.files[0].id!;
     }
-
-    await this.prisma.legalCase.update({
-      where: { id: caseId },
-      data: { google_drive_folder_id: folderId },
+    const res = await drive.files.create({
+      requestBody: {
+        name: label,
+        mimeType: 'application/vnd.google-apps.folder',
+        parents: [leadFolderId],
+      },
+      fields: 'id',
     });
-
-    return folderId;
+    this.logger.log(`Pasta criada: ${label} (${res.data.id})`);
+    return res.data.id!;
   }
 
   // ═══════════════════════════════════════════════════════════════

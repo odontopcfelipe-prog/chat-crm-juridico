@@ -204,43 +204,14 @@ export class AutomationsService {
   }
 
   // ─── Cron: PAYMENT_OVERDUE ─────────────────────────────────────
-
+  // Cron desativado na transição para odontologia. A Fase 2 vai
+  // reimplementar baseado em Installment (parcelamento odonto).
   @Cron(CronExpression.EVERY_DAY_AT_9AM)
   async checkPaymentOverdue() {
     const rules = await this.prisma.automationRule.findMany({
       where: { trigger: 'PAYMENT_OVERDUE', enabled: true },
     });
     if (rules.length === 0) return;
-
-    const now = new Date();
-    // HonorarioPayment → honorario (CaseHonorario) → legal_case (LegalCase) → lead_id + conversation_id
-    const overduePayments = await this.prisma.honorarioPayment.findMany({
-      where: { status: 'PENDENTE', due_date: { lt: now } },
-      select: {
-        id: true,
-        honorario: {
-          select: {
-            legal_case: {
-              select: {
-                lead_id: true,
-                conversation_id: true,
-              },
-            },
-          },
-        },
-      },
-    });
-
-    for (const payment of overduePayments) {
-      const leadId = payment.honorario?.legal_case?.lead_id ?? undefined;
-      const conversationId = payment.honorario?.legal_case?.conversation_id ?? undefined;
-      if (!leadId && !conversationId) continue;
-      for (const rule of rules) {
-        await this.executeAction(rule, { leadId, conversationId });
-      }
-    }
-    if (overduePayments.length > 0) {
-      this.logger.log(`PAYMENT_OVERDUE: executado em ${overduePayments.length} pagamento(s)`);
-    }
+    this.logger.warn('[AUTOMATIONS] PAYMENT_OVERDUE desativado temporariamente na transição odonto. Será reativado com Installment.');
   }
 }

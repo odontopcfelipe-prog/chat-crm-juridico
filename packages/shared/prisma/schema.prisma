@@ -16,15 +16,9 @@ model Tenant {
   users                     User[]
   inboxes                   Inbox[]
   instances                 Instance[]
-  legal_cases               LegalCase[]
   calendar_events           CalendarEvent[]
   appointment_types         AppointmentType[]
   holidays                  Holiday[]
-  case_documents            CaseDocument[]
-  case_deadlines            CaseDeadline[]
-  petitions                 CasePetition[]
-  legal_templates           LegalTemplate[]
-  case_honorarios           CaseHonorario[]
   ai_chats                  AiChat[]
   followup_sequences        FollowupSequence[]
   financial_transactions    FinancialTransaction[]
@@ -32,9 +26,7 @@ model Tenant {
   payment_gateway_customers PaymentGatewayCustomer[]
   payment_gateway_charges   PaymentGatewayCharge[]
   notas_fiscais             NotaFiscal[]
-  tax_records               TaxRecord[]
   broadcast_jobs            BroadcastJob[]
-  djen_ignored_processes    DjenIgnoredProcess[]
   lead_honorarios           LeadHonorario[]
   notifications             Notification[]
   memories                  Memory[]
@@ -94,7 +86,6 @@ model User {
   inboxes                       Inbox[]
   tasks                         Task[]
   tenant                        Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  lawyer_cases                  LegalCase[]            @relation("LawyerCases")
   task_comments                 TaskComment[]
   supervisors                   User[]                 @relation("InternSupervisors")
   interns                       User[]                 @relation("InternSupervisors")
@@ -103,16 +94,9 @@ model User {
   schedules                     UserSchedule[]
   calendar_event_comments       CalendarEventComment[]
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
-  uploaded_documents            CaseDocument[]         @relation("DocumentUploader")
-  created_deadlines             CaseDeadline[]         @relation("DeadlineCreator")
-  authored_petitions            CasePetition[]         @relation("PetitionAuthor")
-  reviewed_petitions            CasePetition[]         @relation("PetitionReviewer")
-  saved_versions                PetitionVersion[]      @relation("VersionSaver")
-  created_templates             LegalTemplate[]        @relation("TemplateCreator")
   ai_chats                      AiChat[]               @relation("AiChatOwner")
   cs_leads                      Lead[]                 @relation("CSManager")
   financial_transactions        FinancialTransaction[] @relation("FinancialLawyer")
-  tax_records                   TaxRecord[]            @relation("TaxRecordLawyer")
   conversation_notes            ConversationNote[]     @relation("ConversationNoteAuthor")
   broadcast_jobs                BroadcastJob[]
   notification_setting          NotificationSetting?
@@ -176,8 +160,6 @@ model Lead {
   conversations             Conversation[]
   tenant                    Tenant?                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   tasks                     Task[]
-  legal_cases               LegalCase[]
-  ficha_trabalhista         FichaTrabalhista?
   calendar_events           CalendarEvent[]
   last_followup_at          DateTime?
   notes                     LeadNote[]
@@ -229,7 +211,6 @@ model Conversation {
   inbox                      Inbox?              @relation(fields: [inbox_id], references: [id], onDelete: SetNull)
   messages                   Message[]
   tasks                      Task[]
-  legal_cases                LegalCase[]
   calendar_events            CalendarEvent[]
   transfer_audios            TransferAudio[]
   contract_signatures        ContractSignature[]
@@ -305,7 +286,6 @@ model Task {
   lead_id           String?
   conversation_id   String?
   message_id        String?
-  legal_case_id     String?
   calendar_event_id String?             @unique
   title             String
   description       String?
@@ -313,9 +293,7 @@ model Task {
   status            String              @default("A_FAZER")
   assigned_user_id  String?
   created_at        DateTime            @default(now())
-  // Conclusão
   completion_note   String?
-  // Adiamentos
   postpone_count    Int                 @default(0)
   created_by_id     String?
   assigned_user     User?               @relation(fields: [assigned_user_id], references: [id], onDelete: SetNull)
@@ -323,7 +301,6 @@ model Task {
   lead              Lead?               @relation(fields: [lead_id], references: [id], onDelete: SetNull)
   message           Message?            @relation(fields: [message_id], references: [id], onDelete: SetNull)
   tenant            Tenant?             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  legal_case        LegalCase?          @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   calendar_event    CalendarEvent?      @relation(fields: [calendar_event_id], references: [id], onDelete: SetNull)
   comments          TaskComment[]
   checklist_items   TaskChecklistItem[]
@@ -331,7 +308,6 @@ model Task {
 
   @@index([assigned_user_id, due_at])
   @@index([status])
-  @@index([legal_case_id])
   @@index([tenant_id])
   @@index([lead_id])
 }
@@ -539,80 +515,7 @@ model LpEvent {
   @@index([event_type])
 }
 
-model LegalCase {
-  id                     String    @id @default(uuid())
-  tenant_id              String?
-  lead_id                String
-  conversation_id        String?
-  lawyer_id              String
-  case_number            String?
-  legal_area             String?
-  stage                  String    @default("VIABILIDADE")
-  in_tracking            Boolean   @default(false) // true = passou para menu Processos
-  tracking_stage         String? // stage dentro do menu Processos
-  filed_at               DateTime? // quando foi protocolado/ajuizado
-  archived               Boolean   @default(false)
-  archive_reason         String?
-  renounced              Boolean   @default(false) // renúncia: advogado não atua mais no processo
-  renounced_at           DateTime?
-  notes                  String?
-  court                  String?
-  action_type            String? // Tipo de ação (Reclamatória Trabalhista, Indenizatória, etc.)
-  claim_value            Decimal? // Valor da causa
-  sentence_value         Decimal? // Valor da condenação (preenchido na EXECUCAO)
-  sentence_date          DateTime? // Data da sentença/acórdão
-  sentence_type          String? // PROCEDENTE, PARCIAL, IMPROCEDENTE, ACORDO
-  opposing_party         String? // Parte contrária (nome)
-  judge                  String? // Juiz/Desembargador
-  priority               String    @default("NORMAL") // URGENTE | NORMAL | BAIXA
-  google_drive_folder_id String? // Pasta do caso no Google Drive
-  stage_changed_at       DateTime  @default(now()) // quando mudou de etapa
-  created_at             DateTime  @default(now())
-  updated_at             DateTime  @updatedAt
 
-  lead                   Lead                   @relation(fields: [lead_id], references: [id], onDelete: Cascade)
-  conversation           Conversation?          @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
-  lawyer                 User                   @relation("LawyerCases", fields: [lawyer_id], references: [id])
-  tenant                 Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  tasks                  Task[]
-  events                 CaseEvent[]
-  djen_publications      DjenPublication[]
-  calendar_events        CalendarEvent[]
-  documents              CaseDocument[]
-  deadlines              CaseDeadline[]
-  petitions              CasePetition[]
-  honorarios             CaseHonorario[]
-  financial_transactions FinancialTransaction[]
-  gateway_charges        PaymentGatewayCharge[]
-
-  @@index([lawyer_id, stage])
-  @@index([lead_id])
-  @@index([stage])
-  @@index([in_tracking])
-  @@index([tenant_id])
-}
-
-model CaseEvent {
-  id            String    @id @default(uuid())
-  case_id       String
-  type          String // MOVIMENTACAO, PUBLICACAO, MANUAL, etc.
-  title         String
-  description   String?
-  source        String? // ESAJ, DJEN, MANUAL
-  reference_url String?
-  event_date    DateTime?
-  created_at    DateTime  @default(now())
-
-  // Campos para sync ESAJ — dedup e notificação
-  movement_hash String?   @unique // SHA256(case_number|date|description)
-  notified_at   DateTime? // quando WhatsApp foi enviado ao advogado
-  source_raw    Json? // dado bruto da movimentação
-
-  legal_case LegalCase @relation(fields: [case_id], references: [id], onDelete: Cascade)
-
-  @@index([case_id, created_at])
-  @@index([source, notified_at])
-}
 
 model TaskComment {
   id         String   @id @default(uuid())
@@ -640,64 +543,8 @@ model TaskChecklistItem {
   @@index([task_id])
 }
 
-model FichaTrabalhista {
-  id              String   @id @default(uuid())
-  lead_id         String   @unique
-  lead            Lead     @relation(fields: [lead_id], references: [id], onDelete: Cascade)
-  data            Json     @default("{}") // todos os ~80 campos do formulario
-  nome_completo   String? // espelho para busca rapida
-  nome_empregador String? // espelho para busca rapida
-  finalizado      Boolean  @default(false)
-  filled_by       String   @default("manual") // "manual" | "ai" | "lead"
-  completion_pct  Int      @default(0) // 0-100
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
 
-  @@index([lead_id])
-  @@index([finalizado])
-}
 
-model DjenPublication {
-  id                    String     @id @default(uuid())
-  comunicacao_id        Int        @unique
-  data_disponibilizacao DateTime
-  numero_processo       String
-  classe_processual     String?
-  assunto               String?
-  tipo_comunicacao      String?
-  conteudo              String
-  nome_advogado         String?
-  raw_json              Json
-  legal_case_id         String?
-  legal_case            LegalCase? @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
-  viewed_at             DateTime?
-  archived              Boolean    @default(false)
-  auto_task_id          String?
-  parte_autora          String?
-  parte_rea             String?
-  lawyer_analysis       Json?
-  client_analysis       Json?
-  analyzed_at           DateTime?
-  client_notified_at    DateTime?
-  created_at            DateTime   @default(now())
-
-  @@index([data_disponibilizacao])
-  @@index([numero_processo])
-  @@index([legal_case_id])
-  @@index([viewed_at])
-  @@index([archived])
-}
-
-model DjenIgnoredProcess {
-  id              String   @id @default(uuid())
-  numero_processo String   @unique
-  tenant_id       String?
-  reason          String?
-  created_at      DateTime @default(now())
-  tenant          Tenant?  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-
-  @@index([tenant_id])
-}
 
 // ===============================================
 // Follow-up IA — Sequências e Envios
@@ -850,7 +697,6 @@ model CalendarEvent {
   lead_id             String?
   patient_id          String?
   conversation_id     String?
-  legal_case_id       String?
   assigned_user_id    String?
   created_by_id       String
   appointment_type_id String?
@@ -868,7 +714,6 @@ model CalendarEvent {
   lead             Lead?            @relation(fields: [lead_id], references: [id], onDelete: SetNull)
   patient          Patient?         @relation("PatientAppointments", fields: [patient_id], references: [id], onDelete: SetNull)
   conversation     Conversation?    @relation(fields: [conversation_id], references: [id], onDelete: SetNull)
-  legal_case       LegalCase?       @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   assigned_user    User?            @relation("EventAssigned", fields: [assigned_user_id], references: [id], onDelete: SetNull)
   created_by       User             @relation("EventCreator", fields: [created_by_id], references: [id])
   appointment_type AppointmentType? @relation(fields: [appointment_type_id], references: [id], onDelete: SetNull)
@@ -876,7 +721,6 @@ model CalendarEvent {
   reminders             EventReminder[]
   comments              CalendarEventComment[]
   task                  Task?
-  deadline              CaseDeadline?
   tenant                Tenant?                       @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   // Odontologia (Fase 2)
   clinical_notes        ClinicalNote[]                @relation("AppointmentNotes")
@@ -899,7 +743,6 @@ model CalendarEvent {
   @@index([tenant_id, start_at])
   @@index([assigned_user_id, start_at])
   @@index([lead_id])
-  @@index([legal_case_id])
   @@index([parent_event_id])
   @@index([patient_id, start_at])
   @@index([room_id, start_at])
@@ -1009,180 +852,24 @@ model CalendarEventComment {
 // Case Documents (documentos organizados por caso)
 // ===============================================
 
-model CaseDocument {
-  id             String   @id @default(uuid())
-  tenant_id      String?
-  legal_case_id  String
-  uploaded_by_id String
-  folder         String   @default("OUTROS") // CLIENTE, PROVAS, CONTRATOS, PETICOES, DECISOES, PROCURACOES, OUTROS
-  name           String // Nome exibido
-  original_name  String // Nome original do arquivo
-  s3_key         String // Chave no MinIO/S3
-  mime_type      String
-  size           Int // bytes
-  version        Int      @default(1)
-  parent_id      String? // Para versionamento: aponta pro doc original
-  description    String?
-  created_at     DateTime @default(now())
-
-  legal_case  LegalCase      @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
-  uploaded_by User           @relation("DocumentUploader", fields: [uploaded_by_id], references: [id])
-  tenant      Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  parent      CaseDocument?  @relation("DocumentVersions", fields: [parent_id], references: [id], onDelete: SetNull)
-  versions    CaseDocument[] @relation("DocumentVersions")
-
-  @@index([legal_case_id, folder])
-  @@index([parent_id])
-}
 
 // ===============================================
 // Case Deadlines (prazos processuais)
 // ===============================================
 
-model CaseDeadline {
-  id                String    @id @default(uuid())
-  tenant_id         String?
-  legal_case_id     String
-  created_by_id     String
-  type              String // CONTESTACAO, RECURSO, IMPUGNACAO, MANIFESTACAO, AUDIENCIA, PERICIA, OUTRO
-  title             String
-  description       String?
-  due_at            DateTime
-  alert_days        Int       @default(2) // Dias antes para alertar
-  completed         Boolean   @default(false)
-  completed_at      DateTime?
-  calendar_event_id String?   @unique // Link para CalendarEvent gerado automaticamente
-  created_at        DateTime  @default(now())
-
-  legal_case     LegalCase      @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
-  created_by     User           @relation("DeadlineCreator", fields: [created_by_id], references: [id])
-  tenant         Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  calendar_event CalendarEvent? @relation(fields: [calendar_event_id], references: [id], onDelete: SetNull)
-
-  @@index([legal_case_id, due_at])
-  @@index([due_at, completed])
-}
 
 // ===============================================
 // Case Petitions (petições jurídicas com editor)
 // ===============================================
 
-model CasePetition {
-  id             String    @id @default(uuid())
-  tenant_id      String?
-  legal_case_id  String
-  created_by_id  String
-  title          String
-  type           String // INICIAL, CONTESTACAO, REPLICA, EMBARGOS, RECURSO, MANIFESTACAO, OUTRO
-  status         String    @default("RASCUNHO") // RASCUNHO, EM_REVISAO, APROVADA, PROTOCOLADA
-  content_json   Json? // Tiptap JSON (editor state)
-  content_html   String? // HTML renderizado (para export)
-  template_id    String? // Se gerada a partir de template
-  deadline_at    DateTime? // Prazo para conclusão da peça
-  review_notes   String? // Observações do advogado na revisão
-  reviewed_by_id String? // Quem revisou
-  reviewed_at    DateTime? // Quando revisou
-  google_doc_id  String? // Google Docs document ID
-  google_doc_url String? // URL completa do Google Doc
-  created_at     DateTime  @default(now())
-  updated_at     DateTime  @updatedAt
 
-  legal_case  LegalCase         @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
-  created_by  User              @relation("PetitionAuthor", fields: [created_by_id], references: [id])
-  reviewed_by User?             @relation("PetitionReviewer", fields: [reviewed_by_id], references: [id])
-  template    LegalTemplate?    @relation(fields: [template_id], references: [id], onDelete: SetNull)
-  tenant      Tenant?           @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  versions    PetitionVersion[]
-
-  @@index([legal_case_id, status])
-  @@index([created_by_id, status])
-}
-
-model PetitionVersion {
-  id           String   @id @default(uuid())
-  petition_id  String
-  version      Int
-  content_json Json
-  content_html String?
-  saved_by_id  String
-  created_at   DateTime @default(now())
-
-  petition CasePetition @relation(fields: [petition_id], references: [id], onDelete: Cascade)
-  saved_by User         @relation("VersionSaver", fields: [saved_by_id], references: [id])
-
-  @@index([petition_id, version])
-}
 
 // ===============================================
 // Legal Templates (banco de peças / modelos)
 // ===============================================
 
-model LegalTemplate {
-  id            String   @id @default(uuid())
-  tenant_id     String?
-  name          String
-  type          String // INICIAL, CONTESTACAO, RECURSO, MANIFESTACAO, OUTRO
-  legal_area    String? // TRABALHISTA, CIVIL, PREVIDENCIARIO, etc.
-  content_json  Json // Tiptap JSON com placeholders {{nome_cliente}}, etc.
-  variables     String[] @default([])
-  description   String?
-  is_global     Boolean  @default(false)
-  usage_count   Int      @default(0)
-  created_by_id String?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
 
-  petitions  CasePetition[]
-  created_by User?          @relation("TemplateCreator", fields: [created_by_id], references: [id])
-  tenant     Tenant?        @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
-  @@index([legal_area, type])
-}
-
-model CaseHonorario {
-  id                 String    @id @default(uuid())
-  tenant_id          String?
-  legal_case_id      String
-  type               String // CONTRATUAL, SUCUMBENCIA, ENTRADA, ACORDO
-  total_value        Decimal
-  success_percentage Decimal? // Percentual de sucumbência (ex: 20.00 = 20%)
-  calculated_value   Decimal? // Auto-calculado: sentence_value × percentage / 100
-  sentence_value     Decimal? // Valor da condenação (SUCUMBENCIA)
-  interest_rate      Decimal? // Taxa de juros mensal (padrão: 1% = juros legais)
-  base_date          DateTime? // Data base para cálculo de juros
-  status             String    @default("ATIVO") // ATIVO, FINALIZADO, CANCELADO
-  installment_count  Int       @default(1)
-  contract_date      DateTime?
-  notes              String?
-  created_at         DateTime  @default(now())
-  updated_at         DateTime  @updatedAt
-
-  legal_case LegalCase          @relation(fields: [legal_case_id], references: [id], onDelete: Cascade)
-  tenant     Tenant?            @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  payments   HonorarioPayment[]
-
-  @@index([legal_case_id])
-  @@index([tenant_id])
-}
-
-model HonorarioPayment {
-  id             String    @id @default(uuid())
-  honorario_id   String
-  amount         Decimal
-  due_date       DateTime? // Opcional para alvará judicial (SUCUMBENCIA)
-  paid_at        DateTime?
-  payment_method String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
-  status         String    @default("PENDENTE") // PENDENTE, PAGO, ATRASADO
-  notes          String?
-  created_at     DateTime  @default(now())
-
-  honorario             CaseHonorario         @relation(fields: [honorario_id], references: [id], onDelete: Cascade)
-  financial_transaction FinancialTransaction?
-  gateway_charge        PaymentGatewayCharge?
-
-  @@index([honorario_id, due_date])
-  @@index([status])
-}
 
 // ===============================================
 // Honorários Negociados (fase de negociação/lead)
@@ -1199,7 +886,7 @@ model LeadHonorario {
   entry_value        Decimal? // Valor de entrada separado
   notes              String?
   status             String   @default("NEGOCIANDO") // NEGOCIANDO, ACEITO, RECUSADO, CONVERTIDO
-  promoted_to_id     String? // ID do CaseHonorario após conversão
+  promoted_to_id     String? // ID do destino após conversão (deprecado — CaseHonorario removido; sera reutilizado p/ TreatmentPlan na Fase 0.3)
   created_at         DateTime @default(now())
   updated_at         DateTime @updatedAt
 
@@ -1345,27 +1032,22 @@ model FinancialTransaction {
   parent_transaction_id String? // Referência à transação mãe
 
   // Vínculos opcionais
-  legal_case_id             String?
   lead_id                   String?
-  lawyer_id                 String?
-  honorario_payment_id      String? @unique // 1:1 com HonorarioPayment
-  lead_honorario_payment_id String? @unique // 1:1 com LeadHonorarioPayment
+  lawyer_id                 String? // mantido — sera renomeado p/ dentist_id na Fase 0.3
+  lead_honorario_payment_id String? @unique // 1:1 com LeadHonorarioPayment (orçamento)
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   tenant                 Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  legal_case             LegalCase?            @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   lead                   Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
   lawyer                 User?                 @relation("FinancialLawyer", fields: [lawyer_id], references: [id], onDelete: SetNull)
-  honorario_payment      HonorarioPayment?     @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
   lead_honorario_payment LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
   gateway_charge         PaymentGatewayCharge?
   nota_fiscal            NotaFiscal?
 
   @@index([tenant_id, date])
   @@index([type, status])
-  @@index([legal_case_id])
   @@index([lead_id])
   @@index([lawyer_id])
   @@index([category])
@@ -1414,9 +1096,7 @@ model PaymentGatewayCustomer {
 model PaymentGatewayCharge {
   id                   String   @id @default(uuid())
   tenant_id            String?
-  honorario_payment_id String?  @unique
   transaction_id       String?  @unique
-  legal_case_id        String?
   // Fase 18 — odontologia: cobranca pode estar vinculada a uma Installment
   installment_id       String?  @unique
   gateway              String   @default("ASAAS")
@@ -1449,17 +1129,14 @@ model PaymentGatewayCharge {
   updated_at      DateTime @updatedAt
 
   lead_honorario_payment_id String?               @unique
-  honorario_payment         HonorarioPayment?     @relation(fields: [honorario_payment_id], references: [id], onDelete: SetNull)
   lead_honorario_payment    LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
   transaction               FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
-  legal_case                LegalCase?            @relation(fields: [legal_case_id], references: [id], onDelete: SetNull)
   tenant                    Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   installment               Installment?          @relation(fields: [installment_id], references: [id], onDelete: SetNull)
 
   @@index([tenant_id, status])
   @@index([customer_external_id])
   @@index([due_date, status])
-  @@index([legal_case_id])
   @@index([installment_id])
 }
 
@@ -1471,7 +1148,6 @@ model NotaFiscal {
   id                   String  @id @default(uuid())
   tenant_id            String?
   transaction_id       String? @unique // 1:1 com FinancialTransaction
-  honorario_payment_id String?
   lead_id              String?
 
   // NFS-e data
@@ -1514,33 +1190,6 @@ model NotaFiscal {
 // Controle Tributário — Carnê-Leão / DARF
 // ===============================================
 
-model TaxRecord {
-  id        String  @id @default(uuid())
-  tenant_id String?
-  lawyer_id String
-  year      Int
-  month     Int // 1-12
-
-  total_revenue    Decimal @default(0)
-  total_deductions Decimal @default(0)
-  taxable_income   Decimal @default(0)
-  tax_due          Decimal @default(0)
-
-  darf_code     String    @default("0190") // Carnê-Leão
-  darf_due_date DateTime?
-  darf_paid     Boolean   @default(false)
-  darf_paid_at  DateTime?
-  notes         String?
-
-  created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
-
-  lawyer User    @relation("TaxRecordLawyer", fields: [lawyer_id], references: [id], onDelete: Cascade)
-  tenant Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-
-  @@unique([tenant_id, lawyer_id, year, month])
-  @@index([lawyer_id, year])
-}
 
 model ConversationNote {
   id              String   @id @default(uuid())
@@ -1741,9 +1390,8 @@ model OrganizationProfile {
 // ============================================================================
 // ODONTOLOGIA — Fase 2 — Entidades clinicas core
 // ============================================================================
-// Models adicionados na refatoracao odontologica do Instituto Odonto Passos.
-// Convive com entidades juridicas legado (Lead/LegalCase/etc) — limpeza dos
-// modulos juridicos residuais sera feita em fases posteriores.
+// Models clinicos do Instituto Odonto Passos. Os modelos juridicos foram
+// removidos nas Fases 0.1 e 0.2 da refatoracao odontologica.
 // ============================================================================
 
 /// Paciente — cliente ativo da clinica. Criado quando um Lead agenda a primeira

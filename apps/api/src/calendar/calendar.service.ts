@@ -26,7 +26,6 @@ export class CalendarService {
     type?: string;
     userId?: string;
     leadId?: string;
-    legalCaseId?: string;
     tenantId?: string;
     search?: string;
   }) {
@@ -37,7 +36,6 @@ export class CalendarService {
     }
     if (query.type) where.type = query.type;
     if (query.leadId) where.lead_id = query.leadId;
-    if (query.legalCaseId) where.legal_case_id = query.legalCaseId;
 
     // Filtrar por userId:
     // - Se o evento TEM um responsável (assigned_user_id preenchido), apenas ele vê.
@@ -107,7 +105,6 @@ export class CalendarService {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true } },
-        legal_case: { select: { id: true, case_number: true, legal_area: true, lead: { select: { name: true } } } },
         appointment_type: true,
         reminders: true,
         _count: { select: { comments: true } },
@@ -123,7 +120,6 @@ export class CalendarService {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true } },
-        legal_case: { select: { id: true, case_number: true, legal_area: true, lead: { select: { name: true } } } },
         appointment_type: true,
         reminders: true,
         _count: { select: { comments: true } },
@@ -146,7 +142,6 @@ export class CalendarService {
     location?: string;
     lead_id?: string;
     conversation_id?: string;
-    legal_case_id?: string;
     assigned_user_id?: string;
     created_by_id: string;
     appointment_type_id?: string;
@@ -160,15 +155,8 @@ export class CalendarService {
       throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
     }
 
-    // Auto-preencher lead_id a partir do processo vinculado, se não informado
-    let resolvedLeadId = data.lead_id;
-    if (!resolvedLeadId && data.legal_case_id) {
-      const legalCase = await this.prisma.legalCase.findUnique({
-        where: { id: data.legal_case_id },
-        select: { lead_id: true },
-      });
-      if (legalCase?.lead_id) resolvedLeadId = legalCase.lead_id;
-    }
+    // STUBBED: LegalCase removido Fase 0.2 — lead_id deve vir direto
+    const resolvedLeadId = data.lead_id;
 
     const event = await this.prisma.calendarEvent.create({
       data: {
@@ -184,7 +172,6 @@ export class CalendarService {
         location: data.location,
         lead_id: resolvedLeadId,
         conversation_id: data.conversation_id,
-        legal_case_id: data.legal_case_id,
         assigned_user_id: data.assigned_user_id,
         created_by_id: data.created_by_id,
         appointment_type_id: data.appointment_type_id,
@@ -224,24 +211,8 @@ export class CalendarService {
     // Enqueue WhatsApp + Email reminders
     await this.enqueueReminders(event.id, event.start_at, event.reminders || []);
 
-    // Se não tem lead direto mas tem processo, buscar lead do processo
-    let leadPhone: string | undefined = event.lead?.phone || undefined;
-    if (!leadPhone && data.legal_case_id) {
-      try {
-        const lc = await this.prisma.legalCase.findUnique({
-          where: { id: data.legal_case_id },
-          select: { lead_id: true, lead: { select: { phone: true } } },
-        });
-        leadPhone = lc?.lead?.phone || undefined;
-        // Vincular lead_id ao evento para futuras referências
-        if (lc?.lead_id && !event.lead_id) {
-          await this.prisma.calendarEvent.update({
-            where: { id: event.id },
-            data: { lead_id: lc.lead_id },
-          }).catch(() => {});
-        }
-      } catch {}
-    }
+    // STUBBED: LegalCase removido Fase 0.2 — leadPhone vem direto do lead
+    const leadPhone: string | undefined = event.lead?.phone || undefined;
 
     // Notificação imediata ao cliente (1 min de delay) quando audiência ou perícia é agendada
     if ((data.type === 'AUDIENCIA' || data.type === 'PERICIA') && leadPhone) {
@@ -333,7 +304,6 @@ export class CalendarService {
       type?: string;
       lead_id?: string | null;
       conversation_id?: string | null;
-      legal_case_id?: string | null;
       assigned_user_id?: string | null;
       appointment_type_id?: string | null;
     },
@@ -350,14 +320,7 @@ export class CalendarService {
     if (data.end_at) updateData.end_at = new Date(data.end_at);
     if (data.end_at === null) updateData.end_at = null;
 
-    // Auto-preencher lead_id a partir do processo vinculado, se legal_case_id mudou e lead_id não foi informado
-    if (data.legal_case_id && data.lead_id === undefined) {
-      const legalCase = await this.prisma.legalCase.findUnique({
-        where: { id: data.legal_case_id },
-        select: { lead_id: true },
-      });
-      if (legalCase?.lead_id) updateData.lead_id = legalCase.lead_id;
-    }
+    // STUBBED: LegalCase removido Fase 0.2 — não há auto-preenchimento de lead a partir de processo
 
     // Carrega estado anterior para detectar mudanças relevantes na audiência
     const before = await this.prisma.calendarEvent.findUnique({
@@ -835,7 +798,6 @@ export class CalendarService {
           color: parentEvent.color,
           location: parentEvent.location,
           lead_id: parentEvent.lead_id,
-          legal_case_id: parentEvent.legal_case_id,
           assigned_user_id: parentEvent.assigned_user_id,
           created_by_id: parentEvent.created_by_id,
           appointment_type_id: parentEvent.appointment_type_id,
@@ -1062,7 +1024,6 @@ export class CalendarService {
           created_by_id: creatorId,
           lead_id: task.lead_id,
           conversation_id: task.conversation_id,
-          legal_case_id: task.legal_case_id,
           tenant_id: task.tenant_id,
         },
       });

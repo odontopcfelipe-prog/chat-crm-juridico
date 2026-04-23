@@ -26,7 +26,6 @@ export class CalendarController {
     @Query('type') type: string | undefined,
     @Query('userId') userId: string | undefined,
     @Query('leadId') leadId: string | undefined,
-    @Query('legalCaseId') legalCaseId: string | undefined,
     @Query('search') search: string | undefined,
     @Query('showAll') showAll: string | undefined,
     @Request() req: any,
@@ -43,7 +42,6 @@ export class CalendarController {
       type,
       userId: effectiveUserId,
       leadId,
-      legalCaseId,
       search,
       tenantId: req.user?.tenant_id,
     });
