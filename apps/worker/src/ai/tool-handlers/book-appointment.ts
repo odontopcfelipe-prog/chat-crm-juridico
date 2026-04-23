@@ -6,13 +6,13 @@ import type { ToolHandler, ToolContext } from '../tool-executor';
  * Agenda uma reunião/consulta para o lead.
  *
  * Efeitos:
- *  1. Cria CalendarEvent (type=CONSULTA, created_by_ai=true) para o advogado atribuído.
+ *  1. Cria CalendarEvent (type=CONSULTA, created_by_ai=true) para o dentista atribuído.
  *  2. Cria EventReminders de 30min (lembrete principal), 60min e 1440min (antecedência).
  *  3. Enfileira jobs na fila 'calendar-reminders' (canal WHATSAPP) para todos os lembretes.
- *  4. Dispara notificação IMEDIATA ao advogado via WhatsApp ("Novo agendamento pela IA").
+ *  4. Dispara notificação IMEDIATA ao dentista via WhatsApp ("Novo agendamento pela IA").
  *
  * Os lembretes viajam pelo ReminderProcessor existente, que já sabe enviar para
- * event.lead.phone (cliente) e event.assigned_user.phone (advogado).
+ * event.lead.phone (cliente) e event.assigned_user.phone (dentista).
  */
 export class BookAppointmentHandler implements ToolHandler {
   name = 'book_appointment';
@@ -41,17 +41,17 @@ export class BookAppointmentHandler implements ToolHandler {
       return { success: false, error: `Hora inválida: "${params.time}". Use HH:MM (24h).` };
     }
 
-    // Resolve assigned lawyer + tenant
+    // Resolve assigned dentist + tenant
     const convo = await prisma.conversation.findUnique({
       where: { id: context.conversationId },
-      select: { assigned_lawyer_id: true, assigned_user_id: true, tenant_id: true },
+      select: { assigned_dentist_id: true, assigned_user_id: true, tenant_id: true },
     });
 
-    const assignedUserId = convo?.assigned_lawyer_id || convo?.assigned_user_id;
+    const assignedUserId = convo?.assigned_dentist_id || convo?.assigned_user_id;
     if (!assignedUserId) {
       return {
         success: false,
-        error: 'Nenhum advogado atribuído a esta conversa. Use escalate_to_human antes de agendar.',
+        error: 'Nenhum dentista atribuído a esta conversa. Use escalate_to_human antes de agendar.',
       };
     }
 
@@ -68,7 +68,7 @@ export class BookAppointmentHandler implements ToolHandler {
       return { success: false, error: 'Data/hora já passou. Ofereça outro horário.' };
     }
 
-    // Conflito com evento existente do advogado
+    // Conflito com evento existente do dentista
     const conflict = await prisma.calendarEvent.findFirst({
       where: {
         assigned_user_id: assignedUserId,
@@ -147,11 +147,11 @@ export class BookAppointmentHandler implements ToolHandler {
       this.logger.warn('[book_appointment] reminderQueue indisponível — lembretes NÃO foram enfileirados');
     }
 
-    // Notificação imediata ao advogado via WhatsApp
+    // Notificação imediata ao dentista via WhatsApp
     try {
-      await this.notifyLawyer(event, prisma);
+      await this.notifyDentist(event, prisma);
     } catch (e: any) {
-      this.logger.warn(`[book_appointment] Falha ao notificar advogado: ${e.message}`);
+      this.logger.warn(`[book_appointment] Falha ao notificar dentista: ${e.message}`);
     }
 
     return {
@@ -160,15 +160,15 @@ export class BookAppointmentHandler implements ToolHandler {
       date: params.date,
       time: params.time,
       duration_minutes: durationMinutes,
-      lawyer_notified: !!event.assigned_user?.phone,
-      message: `Reunião agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min. O advogado foi notificado.`,
+      dentist_notified: !!event.assigned_user?.phone,
+      message: `Reunião agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min. O dentista foi notificado.`,
     };
   }
 
-  // ─── Notificação imediata ao advogado responsável ────────────────────
-  private async notifyLawyer(event: any, prisma: any): Promise<void> {
+  // ─── Notificação imediata ao dentista responsável ────────────────────
+  private async notifyDentist(event: any, prisma: any): Promise<void> {
     if (!event.assigned_user?.phone) {
-      this.logger.warn(`[book_appointment] Advogado ${event.assigned_user_id} sem telefone — notificação pulada`);
+      this.logger.warn(`[book_appointment] Dentista ${event.assigned_user_id} sem telefone — notificação pulada`);
       return;
     }
 
@@ -178,7 +178,7 @@ export class BookAppointmentHandler implements ToolHandler {
     let apiUrl = apiUrlRow?.value || process.env.EVOLUTION_API_URL || '';
     const apiKey = apiKeyRow?.value || process.env.EVOLUTION_GLOBAL_APIKEY || '';
     if (!apiUrl) {
-      this.logger.warn('[book_appointment] EVOLUTION_API_URL ausente — notificação ao advogado pulada');
+      this.logger.warn('[book_appointment] EVOLUTION_API_URL ausente — notificação ao dentista pulada');
       return;
     }
     if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
@@ -208,7 +208,7 @@ export class BookAppointmentHandler implements ToolHandler {
     );
 
     this.logger.log(
-      `[book_appointment] Notificação enviada ao advogado ${event.assigned_user.name} (${event.assigned_user.phone})`,
+      `[book_appointment] Notificação enviada ao dentista ${event.assigned_user.name} (${event.assigned_user.phone})`,
     );
   }
 

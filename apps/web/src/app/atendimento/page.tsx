@@ -137,7 +137,7 @@ export default function Dashboard() {
   const [selectedTransferUserId, setSelectedTransferUserId] = useState<string | null>(null);
   const [transferReason, setTransferReason] = useState('');
   const [transferAudioIds, setTransferAudioIds] = useState<string[]>([]);
-  // Popup de motivo (lawyer, operator ou return)
+  // Popup de motivo (dentist, operator ou return)
   const [showReasonPopup, setShowReasonPopup] = useState(false);
   const [reasonPopupContext, setReasonPopupContext] = useState<'lawyer' | 'operator' | 'return' | null>(null);
   const [reasonPopupTargetName, setReasonPopupTargetName] = useState('');
@@ -1539,10 +1539,10 @@ export default function Dashboard() {
       setTransferModal(false);
       setTransferReason('');
       setTransferAudioIds([]);
-      setPendingTransferMap(prev => ({ ...prev, [selectedId!]: 'advogado especialista' }));
-      setTransferSentMsg(`⚖️ Aguardando advogado especialista aceitar...`);
+      setPendingTransferMap(prev => ({ ...prev, [selectedId!]: 'dentista especialista' }));
+      setTransferSentMsg(`⚖️ Aguardando dentista especialista aceitar...`);
     } catch (e: any) {
-      setTransferError(e?.response?.data?.message || 'Erro ao transferir para advogado.');
+      setTransferError(e?.response?.data?.message || 'Erro ao transferir para dentista.');
     } finally {
       setTransferring(false);
     }
@@ -1584,20 +1584,20 @@ export default function Dashboard() {
     }
   };
 
-  const handleAssignLawyerInbox = async (lawyerId: string | null) => {
+  const handleAssignLawyerInbox = async (dentistId: string | null) => {
     const convId = selectedIdRef.current || selectedId;
     if (!convId) return;
     setShowLawyerDropdown(false);
     // Optimistic update — nome do especialista
-    const lawyerName = lawyerId ? allSpecialists.find(s => s.id === lawyerId)?.name || null : null;
-    setConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedLawyerId: lawyerId, assignedLawyerName: lawyerName } : c));
-    setAdiadoConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedLawyerId: lawyerId, assignedLawyerName: lawyerName } : c));
+    const dentistName = dentistId ? allSpecialists.find(s => s.id === dentistId)?.name || null : null;
+    setConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedDentistId: dentistId, assignedDentistName: dentistName } : c));
+    setAdiadoConversations(prev => prev.map(c => c.id === convId ? { ...c, assignedDentistId: dentistId, assignedDentistName: dentistName } : c));
     try {
-      await api.patch(`/conversations/${convId}/assign-lawyer`, { lawyerId });
+      await api.patch(`/conversations/${convId}/assign-lawyer`, { lawyerId: dentistId });
       fetchConversations(selectedInboxIdRef.current, true);
       fetchAdiadoConversations(selectedInboxIdRef.current);
     } catch (e: any) {
-      console.error('Failed to assign lawyer', e);
+      console.error('Failed to assign dentist', e);
       // Rollback
       fetchConversations(selectedInboxIdRef.current, true);
       fetchAdiadoConversations(selectedInboxIdRef.current);
@@ -2084,9 +2084,9 @@ export default function Dashboard() {
     }
     let result: ConversationSummary[];
     if (leadFilter === 'MINE') {
-      // Minhas conversas: atribuídas ao usuário atual (como operador OU advogado), SEM IA ativa
+      // Minhas conversas: atribuídas ao usuário atual (como operador OU dentista), SEM IA ativa
       result = conversations.filter(c =>
-        (c.assignedAgentId === currentUserId || c.assignedLawyerId === currentUserId) &&
+        (c.assignedAgentId === currentUserId || c.assignedDentistId === currentUserId) &&
         !c.aiMode && c.status !== 'CLOSED'
       );
     } else if (leadFilter === 'ACTIVE') {
@@ -2755,16 +2755,16 @@ export default function Dashboard() {
                           <div className="relative" ref={lawyerDropdownRef2}>
                             <button
                               onClick={() => setShowLawyerDropdown(v => !v)}
-                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors hover:opacity-80 active:scale-95 ${selected.assignedLawyerName ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted/40 text-muted-foreground border-border'}`}
+                              className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors hover:opacity-80 active:scale-95 ${selected.assignedDentistName ? 'bg-primary/10 text-primary border-primary/20' : 'bg-muted/40 text-muted-foreground border-border'}`}
                             >
                               <UserCheck size={10} />
-                              {selected.assignedLawyerName || 'Atribuir especialista'}
+                              {selected.assignedDentistName || 'Atribuir especialista'}
                               <ChevronDown size={10} className="opacity-70" />
                             </button>
                             {showLawyerDropdown && (
                               <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-xl shadow-xl w-56 py-1 text-[12px] z-[100]">
                                 <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">
-                                  {selected.assignedLawyerName ? 'Trocar especialista' : 'Escolher especialista'}
+                                  {selected.assignedDentistName ? 'Trocar especialista' : 'Escolher especialista'}
                                 </p>
                                 {allSpecialists.length === 0 && (
                                   <p className="px-3 py-2 text-[11px] text-muted-foreground">Nenhum especialista cadastrado</p>
@@ -2773,7 +2773,7 @@ export default function Dashboard() {
                                   <button
                                     key={u.id}
                                     onClick={() => handleAssignLawyerInbox(u.id)}
-                                    className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${u.id === selected.assignedLawyerId ? 'text-primary font-semibold' : 'text-foreground'}`}
+                                    className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${u.id === selected.assignedDentistId ? 'text-primary font-semibold' : 'text-foreground'}`}
                                   >
                                     <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0">
                                       {u.name.charAt(0)}
@@ -2784,7 +2784,7 @@ export default function Dashboard() {
                                     </div>
                                   </button>
                                 ))}
-                                {selected.assignedLawyerId && (
+                                {selected.assignedDentistId && (
                                   <button
                                     onClick={() => handleAssignLawyerInbox(null)}
                                     className="w-full text-left px-3 py-2 text-muted-foreground hover:bg-accent hover:text-destructive transition-colors text-[11px] border-t border-border mt-1"

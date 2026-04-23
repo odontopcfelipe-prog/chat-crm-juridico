@@ -48,7 +48,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const [editingMsg, setEditingMsg] = useState<{ id: string; text: string } | null>(null);
   const [specialty, setSpecialty] = useState<string | null>(null);
   const [fichaVisible, setFichaVisible] = useState(false);
-  const [assignedLawyer, setAssignedLawyer] = useState<{ id: string; name: string } | null>(null);
+  const [assignedDentist, setAssignedDentist] = useState<{ id: string; name: string } | null>(null);
   const [allSpecialists, setAllSpecialists] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
   const [showLawyerDropdown, setShowLawyerDropdown] = useState(false);
   const [originAssignedUserId, setOriginAssignedUserId] = useState<string | null>(null);
@@ -298,12 +298,12 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     }
   };
 
-  const handleAssignLawyer = async (lawyerId: string | null) => {
+  const handleAssignLawyer = async (dentistId: string | null) => {
     if (!convoId) return;
     try {
-      await api.patch(`/conversations/${convoId}/assign-lawyer`, { lawyerId });
-      const lawyer = lawyerId ? (allSpecialists.find((u) => u.id === lawyerId) || null) : null;
-      setAssignedLawyer(lawyer ? { id: lawyer.id, name: lawyer.name } : null);
+      await api.patch(`/conversations/${convoId}/assign-lawyer`, { lawyerId: dentistId });
+      const dentist = dentistId ? (allSpecialists.find((u) => u.id === dentistId) || null) : null;
+      setAssignedDentist(dentist ? { id: dentist.id, name: dentist.name } : null);
     } catch (e) {
       console.error('Erro ao atribuir especialista', e);
     } finally {
@@ -437,7 +437,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           setAiMode(!!convo.ai_mode);
           setMessages(convo.messages || []);
           setSpecialty(convo.specialty || null);
-          setAssignedLawyer(convo.assigned_lawyer || null);
+          setAssignedDentist(convo.assigned_dentist || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
 
           // Carregar lista de especialistas para o dropdown (agents = sem restrição de role)
@@ -636,14 +636,14 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                     <button
                       onClick={() => setShowLawyerDropdown(v => !v)}
                       className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${
-                        assignedLawyer
+                        assignedDentist
                           ? 'bg-primary/10 text-primary border-primary/20 hover:bg-primary/20'
                           : 'bg-muted/30 text-muted-foreground border-border hover:bg-muted/60'
                       }`}
-                      title={assignedLawyer ? 'Especialista pré-atribuído — clique para trocar' : 'Atribuir especialista'}
+                      title={assignedDentist ? 'Especialista pré-atribuído — clique para trocar' : 'Atribuir especialista'}
                     >
                       <UserCheck size={10} />
-                      {assignedLawyer ? assignedLawyer.name : 'Atribuir especialista'}
+                      {assignedDentist ? assignedDentist.name : 'Atribuir especialista'}
                     </button>
                     {showLawyerDropdown && (
                       <>
@@ -657,7 +657,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                               <button
                                 key={u.id}
                                 onClick={() => handleAssignLawyer(u.id)}
-                                className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${u.id === assignedLawyer?.id ? 'text-primary font-semibold' : 'text-foreground'}`}
+                                className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${u.id === assignedDentist?.id ? 'text-primary font-semibold' : 'text-foreground'}`}
                               >
                                 <span className="w-5 h-5 rounded-full bg-primary/10 flex items-center justify-center text-[9px] font-bold text-primary shrink-0">
                                   {u.name.charAt(0)}
@@ -669,7 +669,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                               </button>
                             ))
                           )}
-                          {assignedLawyer && (
+                          {assignedDentist && (
                             <button
                               onClick={() => handleAssignLawyer(null)}
                               className="w-full text-left px-3 py-2 text-muted-foreground hover:bg-accent hover:text-destructive transition-colors text-[11px] border-t border-border mt-1 pt-2"

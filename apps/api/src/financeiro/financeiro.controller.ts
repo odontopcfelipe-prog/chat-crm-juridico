@@ -35,7 +35,7 @@ export class FinanceiroController {
     @Query('status') status: string,
     @Query('legalCaseId') legalCaseId: string,
     @Query('leadId') leadId: string,
-    @Query('lawyerId') lawyerId: string,
+    @Query('dentistId') dentistId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('limit') limit: string,
@@ -49,7 +49,7 @@ export class FinanceiroController {
       status,
       legalCaseId,
       leadId,
-      lawyerId,
+      dentistId,
       startDate,
       endDate,
       limit: limit ? parseInt(limit, 10) : undefined,
@@ -97,14 +97,14 @@ export class FinanceiroController {
 
   @Get('audit-log')
   getAuditLog(
-    @Query('lawyerId') lawyerId: string,
+    @Query('dentistId') dentistId: string,
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('limit') limit: string,
     @Query('offset') offset: string,
     @Request() req: any,
   ) {
-    return this.service.getAuditLog(lawyerId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'));
+    return this.service.getAuditLog(dentistId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'));
   }
 
   // ─── Summary & Cash Flow ───────────────────────────────
@@ -113,10 +113,10 @@ export class FinanceiroController {
   getSummary(
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
-    @Query('lawyerId') lawyerId: string,
+    @Query('dentistId') dentistId: string,
     @Request() req: any,
   ) {
-    return this.service.getSummary(req.user.tenant_id, startDate, endDate, lawyerId);
+    return this.service.getSummary(req.user.tenant_id, startDate, endDate, dentistId);
   }
 
   @Get('cash-flow')

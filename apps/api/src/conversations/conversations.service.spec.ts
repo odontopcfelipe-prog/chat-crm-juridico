@@ -138,7 +138,7 @@ describe('ConversationsService', () => {
       );
     });
 
-    it('deve enriquecer com nomes de advogado e atendente de origem', async () => {
+    it('deve enriquecer com nomes de dentista e atendente de origem', async () => {
       const mockConversations = [{
         id: 'conv1',
         lead_id: 'lead1',
@@ -146,7 +146,7 @@ describe('ConversationsService', () => {
         status: 'ABERTO',
         ai_mode: false,
         assigned_user_id: 'user1',
-        assigned_lawyer_id: 'lawyer1',
+        assigned_dentist_id: 'dentist1',
         origin_assigned_user_id: 'origin1',
         last_message_at: new Date(),
         lead: { id: 'lead1', name: 'Test', phone: '551', email: null, stage: 'NOVO', profile_picture_url: null },
@@ -156,13 +156,13 @@ describe('ConversationsService', () => {
       prisma.conversation.findMany.mockResolvedValue(mockConversations);
       prisma.conversation.count.mockResolvedValue(1);
       prisma.user.findMany.mockResolvedValue([
-        { id: 'lawyer1', name: 'Dr. Lawyer' },
+        { id: 'dentist1', name: 'Dr. Dentista' },
         { id: 'origin1', name: 'Origin Agent' },
       ]);
 
       const result = await service.findAll();
 
-      expect(result.data[0].assignedLawyerName).toBe('Dr. Lawyer');
+      expect(result.data[0].assignedDentistName).toBe('Dr. Dentista');
       expect(result.data[0].originAssignedUserName).toBe('Origin Agent');
     });
   });

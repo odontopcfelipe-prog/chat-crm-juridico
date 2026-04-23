@@ -111,16 +111,16 @@ export function TransferModals({
                       </p>
                       {group.type === 'SECTOR' && group.auto_route ? (
                         <div className="space-y-2">
-                          {selected?.assignedLawyerId ? (
+                          {selected?.assignedDentistId ? (
                             (() => {
-                              const lawyer = group.users.find(u => u.id === selected.assignedLawyerId);
-                              const lawyerName = lawyer?.name || selected.assignedLawyerName || 'Advogado vinculado';
+                              const dentist = group.users.find(u => u.id === selected.assignedDentistId);
+                              const dentistName = dentist?.name || selected.assignedDentistName || 'Dentista vinculado';
                               return (
                                 <button
-                                  onClick={() => onOpenReasonPopup('lawyer', lawyerName)}
+                                  onClick={() => onOpenReasonPopup('lawyer', dentistName)}
                                   className="w-full py-3 bg-violet-500/10 border border-violet-500/30 text-violet-300 rounded-xl font-bold text-sm hover:bg-violet-500/20 transition-colors flex items-center justify-center gap-2"
                                 >
-                                  {"⚖️"} Transferir para {lawyerName}{selected.specialty ? ` (${selected.specialty})` : ''}
+                                  {"⚖️"} Transferir para {dentistName}{selected.specialty ? ` (${selected.specialty})` : ''}
                                 </button>
                               );
                             })()
@@ -144,7 +144,7 @@ export function TransferModals({
                               </div>
                             ) : (
                               <p className="text-sm text-muted-foreground text-center py-2 px-1 italic">
-                                Nenhum advogado especialista cadastrado.
+                                Nenhum dentista especialista cadastrado.
                               </p>
                             )
                           )}

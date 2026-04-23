@@ -88,13 +88,13 @@ export class PaymentGatewayController {
     }
   }
 
-  /** Lista cobranças locais (armazenadas no sistema), filtráveis por advogado */
+  /** Lista cobranças locais (armazenadas no sistema), filtráveis por dentista */
   @Get('charges')
   async listLocalCharges(
     @Query('status') status: string | undefined,
     @Query('limit') limit: string | undefined,
     @Query('offset') offset: string | undefined,
-    @Query('lawyerId') lawyerId: string | undefined,
+    @Query('dentistId') dentistId: string | undefined,
     @Req() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
@@ -102,11 +102,11 @@ export class PaymentGatewayController {
       ...(tenantId ? { tenant_id: tenantId } : {}),
       ...(status ? { status } : {}),
     };
-    // Filtrar por dentista (antigo lawyer): cobranças via LeadHonorarioPayment/conversation
-    if (lawyerId) {
+    // Filtrar por dentista: cobranças via LeadHonorarioPayment/conversation
+    if (dentistId) {
       where.lead_honorario_payment = {
         lead_honorario: {
-          lead: { conversations: { some: { assigned_lawyer_id: lawyerId } } },
+          lead: { conversations: { some: { assigned_dentist_id: dentistId } } },
         },
       };
     }

@@ -71,7 +71,7 @@ export class ConversationsService {
 
     } else {
       // Multi-role: combina visibilidade de todos os papéis do usuário
-      // ADVOGADO vê: assigned_lawyer_id + legal_cases.lawyer_id
+      // ADVOGADO vê: assigned_dentist_id + legal_cases.dentist_id
       // OPERADOR vê: assigned_user_id + cs_user_id (clientes)
       // Ambos: combina tudo via OR
       if (inboxId) {
@@ -84,14 +84,14 @@ export class ConversationsService {
       } else {
         const orConditions: any[] = [];
 
-        // Visibilidade de ADVOGADO: apenas CLIENTES atribuídos como advogada
-        // Na aba Leads: advogado NÃO vê leads de outros operadores via assigned_lawyer_id
+        // Visibilidade de ADVOGADO: apenas CLIENTES atribuídos como dentista
+        // Na aba Leads: dentista NÃO vê leads de outros operadores via assigned_dentist_id
         // STUBBED: relação legal_cases (LegalCase) removida na Fase 0.2
         if (isAdvogadoUser && clientMode === true) {
-          // Conversas onde o advogado está atribuído diretamente
-          orConditions.push({ assigned_lawyer_id: userId, lead: { is_client: true } });
-          // Clientes que têm QUALQUER conversa atribuída a este advogado (ex: atribuído via lead/IA)
-          orConditions.push({ lead: { is_client: true, conversations: { some: { assigned_lawyer_id: userId } } } });
+          // Conversas onde o dentista está atribuído diretamente
+          orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
+          // Clientes que têm QUALQUER conversa atribuída a este dentista (ex: atribuído via lead/IA)
+          orConditions.push({ lead: { is_client: true, conversations: { some: { assigned_dentist_id: userId } } } });
         }
 
         // Conversas atribuídas diretamente ao usuário (qualquer role)
@@ -131,10 +131,10 @@ export class ConversationsService {
       this.prisma.conversation.count({ where }),
     ]);
 
-    // Enrich with lawyer and origin-attendant names in a single query
-    const lawyerIds = [...new Set(conversations.map((c: any) => c.assigned_lawyer_id).filter(Boolean))] as string[];
+    // Enrich with dentist and origin-attendant names in a single query
+    const dentistIds = [...new Set(conversations.map((c: any) => c.assigned_dentist_id).filter(Boolean))] as string[];
     const originIds = [...new Set(conversations.map((c: any) => c.origin_assigned_user_id).filter(Boolean))] as string[];
-    const allEnrichIds = [...new Set([...lawyerIds, ...originIds])];
+    const allEnrichIds = [...new Set([...dentistIds, ...originIds])];
     const enrichUsers = allEnrichIds.length
       ? await this.prisma.user.findMany({
           where: { id: { in: allEnrichIds } },
@@ -176,8 +176,8 @@ export class ConversationsService {
       aiMode: c.ai_mode,
       profile_picture_url: c.lead?.profile_picture_url || null,
       specialty: (c as any).specialty || null,
-      assignedLawyerId: (c as any).assigned_lawyer_id || null,
-      assignedLawyerName: (c as any).assigned_lawyer_id ? (userNameMap[(c as any).assigned_lawyer_id] || null) : null,
+      assignedDentistId: (c as any).assigned_dentist_id || null,
+      assignedDentistName: (c as any).assigned_dentist_id ? (userNameMap[(c as any).assigned_dentist_id] || null) : null,
       originAssignedUserId: (c as any).origin_assigned_user_id || null,
       originAssignedUserName: (c as any).origin_assigned_user_id ? (userNameMap[(c as any).origin_assigned_user_id] || null) : null,
       leadStage: c.lead?.stage || null,
@@ -236,40 +236,40 @@ export class ConversationsService {
       },
     });
 
-    // Enriquecer com dados do advogado especialista pré-atribuído
-    const lawyerIds = [...new Set(convos.map((c: any) => c.assigned_lawyer_id).filter(Boolean))] as string[];
-    const lawyers = lawyerIds.length
+    // Enriquecer com dados do dentista especialista pré-atribuído
+    const dentistIds = [...new Set(convos.map((c: any) => c.assigned_dentist_id).filter(Boolean))] as string[];
+    const dentists = dentistIds.length
       ? await this.prisma.user.findMany({
-          where: { id: { in: lawyerIds } },
+          where: { id: { in: dentistIds } },
           select: { id: true, name: true, specialties: true },
         })
       : [];
-    const lawyerMap: Record<string, any> = Object.fromEntries(lawyers.map((l) => [l.id, l]));
+    const dentistMap: Record<string, any> = Object.fromEntries(dentists.map((l) => [l.id, l]));
 
     return convos.map((c: any) => ({
       ...c,
-      assigned_lawyer: c.assigned_lawyer_id ? (lawyerMap[c.assigned_lawyer_id] ?? null) : null,
+      assigned_dentist: c.assigned_dentist_id ? (dentistMap[c.assigned_dentist_id] ?? null) : null,
     }));
   }
 
-  async setAssignedLawyer(id: string, lawyerId: string | null): Promise<Conversation> {
+  async setAssignedLawyer(id: string, dentistId: string | null): Promise<Conversation> {
     const updated = await this.prisma.conversation.update({
       where: { id },
-      data: { assigned_lawyer_id: lawyerId } as any,
+      data: { assigned_dentist_id: dentistId } as any,
     });
 
     // Enviar notificação WhatsApp para o atendente atribuído
-    if (lawyerId) {
+    if (dentistId) {
       try {
-        const [lawyer, conv] = await Promise.all([
-          this.prisma.user.findUnique({ where: { id: lawyerId }, select: { name: true, phone: true } }),
+        const [dentist, conv] = await Promise.all([
+          this.prisma.user.findUnique({ where: { id: dentistId }, select: { name: true, phone: true } }),
           (this.prisma as any).conversation.findUnique({
             where: { id },
             include: { lead: { select: { name: true, phone: true } } },
           }),
         ]);
 
-        if (lawyer?.phone && conv?.lead) {
+        if (dentist?.phone && conv?.lead) {
           const leadName = conv.lead.name || 'Lead sem nome';
           const leadPhone = conv.lead.phone || '';
           const area = (conv as any).specialty || 'não identificada';
@@ -283,8 +283,8 @@ export class ConversationsService {
             `⚖️ *Área:* ${area}\n\n` +
             `Acesse o painel para continuar o atendimento.`;
 
-          await this.whatsappService.sendText(lawyer.phone, msg, instanceName);
-          this.logger.log(`[Assign] Notificação WhatsApp enviada para ${lawyer.name} (${lawyer.phone}) — lead: ${leadName}`);
+          await this.whatsappService.sendText(dentist.phone, msg, instanceName);
+          this.logger.log(`[Assign] Notificação WhatsApp enviada para ${dentist.name} (${dentist.phone}) — lead: ${leadName}`);
         }
       } catch (err: any) {
         this.logger.warn(`[Assign] Falha ao enviar notificação WhatsApp: ${err.message}`);
@@ -292,14 +292,14 @@ export class ConversationsService {
     }
 
     // Reatribui todos os eventos da conversa que ainda não foram concluídos/cancelados
-    if (lawyerId) {
+    if (dentistId) {
       try {
         await (this.prisma as any).calendarEvent.updateMany({
           where: {
             conversation_id: id,
             status: { notIn: ['CONCLUIDO', 'CANCELADO'] },
           },
-          data: { assigned_user_id: lawyerId },
+          data: { assigned_user_id: dentistId },
         });
       } catch (err: any) {
         this.logger.warn(`[Assign] Falha ao reatribuir eventos do calendário: ${err.message}`);
@@ -552,15 +552,15 @@ export class ConversationsService {
     const conv = await this.prisma.$transaction(async (tx) => {
       const existing = await (tx as any).conversation.findUnique({
         where: { id },
-        select: { assigned_user_id: true, assigned_lawyer_id: true, specialty: true },
+        select: { assigned_user_id: true, assigned_dentist_id: true, specialty: true },
       });
 
       if (!existing || existing.assigned_user_id !== fromUserId) {
         throw new ForbiddenException('Você só pode transferir conversas atribuídas a você.');
       }
-      if (!existing.assigned_lawyer_id) {
+      if (!existing.assigned_dentist_id) {
         throw new BadRequestException(
-          'Nenhum advogado foi vinculado a esta conversa pela IA. Aguarde a IA processar as mensagens ou faça transferência manual.',
+          'Nenhum dentista foi vinculado a esta conversa pela IA. Aguarde a IA processar as mensagens ou faça transferência manual.',
         );
       }
 
@@ -574,7 +574,7 @@ export class ConversationsService {
 
     return this.requestTransfer(
       id,
-      conv.assigned_lawyer_id,
+      conv.assigned_dentist_id,
       fromUserId,
       reason?.trim() || `Especialidade detectada pela IA: ${conv.specialty || 'Odontológica'}`,
       audioIds,
@@ -616,7 +616,7 @@ export class ConversationsService {
 
       return {
         originUserId: conv.origin_assigned_user_id,
-        returningUserName: returningUser?.name || 'Advogado',
+        returningUserName: returningUser?.name || 'Dentista',
         contactName: conv.lead?.name || conv.lead?.phone || 'Contato',
         tenantId: conv.tenant_id as string | null,
       };
@@ -636,7 +636,7 @@ export class ConversationsService {
     });
     this.chatGateway.emitNewMessage(id, returnMsg);
 
-    // Notificar o atendente de origem sobre a devolução com o contexto do advogado
+    // Notificar o atendente de origem sobre a devolução com o contexto do dentista
     this.chatGateway.emitTransferReturned(originUserId, {
       conversationId: id,
       fromUserName: returningUserName,
@@ -689,10 +689,10 @@ export class ConversationsService {
    *
    * Regra de negócio (notificações — badges alinhados com o ding recebido via socket):
    *  - ADMIN: badges apenas das conversas atribuídas a ele (assigned_user_id)
-   *  - ADVOGADO: badges apenas de clientes atribuídos como advogado (assigned_lawyer_id, is_client=true)
+   *  - ADVOGADO: badges apenas de clientes atribuídos como dentista (assigned_dentist_id, is_client=true)
    *  - OPERADOR: conversas atribuídas + POOL do inbox (assigned_user_id=null nos inboxes dele) —
    *              espelha o ding que ele recebe via room inbox:{id} (FIX #6)
-   *  - ADVOGADO+OPERADOR: união (clientes como advogado + atribuídas + pool do inbox)
+   *  - ADVOGADO+OPERADOR: união (clientes como dentista + atribuídas + pool do inbox)
    *  - Exclui leads PERDIDO/FINALIZADO
    *
    * Nota: findAll() controla VISIBILIDADE (o que aparece na lista).
@@ -728,14 +728,14 @@ export class ConversationsService {
       // ADMIN: badge apenas das conversas atribuídas diretamente a ele
       if (isAdminUser) {
         orConditions.push({ assigned_user_id: userId });
-        // Admin que também é advogado: clientes atribuídos como advogado
+        // Admin que também é dentista: clientes atribuídos como dentista
         if (isAdvogadoUser) {
-          orConditions.push({ assigned_lawyer_id: userId, lead: { is_client: true } });
+          orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
         }
       } else {
-        // ADVOGADO: badge apenas de CLIENTES onde é advogado responsável
+        // ADVOGADO: badge apenas de CLIENTES onde é dentista responsável
         if (isAdvogadoUser) {
-          orConditions.push({ assigned_lawyer_id: userId, lead: { is_client: true } });
+          orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
         }
 
         // Conversas atribuídas diretamente (qualquer role)

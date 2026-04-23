@@ -206,11 +206,11 @@ export class TeamPerformanceService {
     };
 
     // ─── 4. Build per-user financial maps — STUBBED: CaseHonorario removido Fase 0.2 ──
-    const honorarioToLawyer = new Map<string, string>();
+    const honorarioToDentist = new Map<string, string>();
 
-    const sumByLawyer = (arr: any[], lawyerId: string): number => {
+    const sumByDentist = (arr: any[], dentistId: string): number => {
       return arr
-        .filter(h => honorarioToLawyer.get(h.honorario_id) === lawyerId)
+        .filter(h => honorarioToDentist.get(h.honorario_id) === dentistId)
         .reduce((s, h) => s + Number(h._sum?.amount || 0), 0);
     };
 
@@ -233,10 +233,10 @@ export class TeamPerformanceService {
       let prevScore = 0;
 
       if (user.roles?.some((r: string) => ['ADVOGADO', 'ADMIN'].includes(r))) {
-        const active = gc(activeCases, 'lawyer_id', user.id);
-        const filed = gc(casesFiledCurrent, 'lawyer_id', user.id);
-        const totalSent = sentencedCases.filter(r => r.lawyer_id === user.id).reduce((s, r) => s + r._count, 0);
-        const won = sentencedCases.filter(r => r.lawyer_id === user.id && (r.sentence_type === 'PROCEDENTE' || r.sentence_type === 'PARCIALMENTE_PROCEDENTE')).reduce((s, r) => s + r._count, 0);
+        const active = gc(activeCases, 'dentist_id', user.id);
+        const filed = gc(casesFiledCurrent, 'dentist_id', user.id);
+        const totalSent = sentencedCases.filter(r => r.dentist_id === user.id).reduce((s, r) => s + r._count, 0);
+        const won = sentencedCases.filter(r => r.dentist_id === user.id && (r.sentence_type === 'PROCEDENTE' || r.sentence_type === 'PARCIALMENTE_PROCEDENTE')).reduce((s, r) => s + r._count, 0);
         const winRate = totalSent > 0 ? Math.round((won / totalSent) * 100) : 0;
 
         const dlCreated = gc(deadlines, 'created_by_id', user.id);
@@ -250,10 +250,10 @@ export class TeamPerformanceService {
         const petTotal = petDrafted + petApproved + petProtocoled;
         const petRate = petTotal > 0 ? Math.round(((petApproved + petProtocoled) / petTotal) * 100) : 0;
 
-        const collected = sumByLawyer(honorarioCollected, user.id);
-        const receivable = sumByLawyer(honorarioReceivable, user.id);
+        const collected = sumByDentist(honorarioCollected, user.id);
+        const receivable = sumByDentist(honorarioReceivable, user.id);
         const contracted = honorarioContracted.filter(h => {
-          // Need to check via legal_case_id → lawyer_id mapping
+          // Need to check via legal_case_id → dentist_id mapping
           return true; // simplified - use total
         }).reduce((s, h) => s + Number(h._sum?.total_value || 0), 0);
         const colRate = (collected + receivable) > 0 ? Math.round((collected / (collected + receivable)) * 100) : 0;
@@ -279,8 +279,8 @@ export class TeamPerformanceService {
         score += 10 - Math.min(10, (advKPIs.avgDaysToFile || 0) / 30 * 10); // velocity 10pts
 
         // Previous score (simplified)
-        const prevFiled = gc(casesFiledPrev, 'lawyer_id', user.id);
-        const prevColl = sumByLawyer(prevCollected, user.id);
+        const prevFiled = gc(casesFiledPrev, 'dentist_id', user.id);
+        const prevColl = sumByDentist(prevCollected, user.id);
         const prevCompleted = gc(prevTasksCompleted, 'assigned_user_id', user.id);
         const prevPend = gc(prevTasksPending, 'assigned_user_id', user.id);
         const prevTotal = prevCompleted + prevPend;

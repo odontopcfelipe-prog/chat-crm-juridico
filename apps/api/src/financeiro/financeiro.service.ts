@@ -78,7 +78,7 @@ export class FinanceiroService {
     status?: string;
     legalCaseId?: string;
     leadId?: string;
-    lawyerId?: string;
+    dentistId?: string;
     startDate?: string;
     endDate?: string;
     limit?: number;
@@ -97,14 +97,14 @@ export class FinanceiroService {
     }
     // STUBBED: legal_case_id removido Fase 0.2
     if (query.leadId) where.lead_id = query.leadId;
-    if (query.lawyerId) {
-      // Advogado vê: suas transações + despesas gerais visíveis (receitas só dele)
+    if (query.dentistId) {
+      // Dentista vê: suas transações + despesas gerais visíveis (receitas só dele)
       if (query.type === 'RECEITA') {
-        where.lawyer_id = query.lawyerId;
+        where.dentist_id = query.dentistId;
       } else {
         where.OR = [
-          { lawyer_id: query.lawyerId },
-          { lawyer_id: null, visible_to_lawyer: true },
+          { dentist_id: query.dentistId },
+          { dentist_id: null, visible_to_dentist: true },
         ];
       }
     }
@@ -139,7 +139,7 @@ export class FinanceiroService {
           lead: {
             select: { id: true, name: true, phone: true },
           },
-          lawyer: {
+          dentist: {
             select: { id: true, name: true, email: true },
           },
         },
@@ -214,10 +214,10 @@ export class FinanceiroService {
         payment_method: data.payment_method,
         status: data.status || 'PENDENTE',
         lead_id: data.lead_id,
-        lawyer_id: data.lawyer_id,
+        dentist_id: data.dentist_id,
         reference_id: data.reference_id,
         notes: data.notes,
-        visible_to_lawyer: data.visible_to_lawyer ?? true,
+        visible_to_dentist: data.visible_to_dentist ?? true,
         is_recurring: data.is_recurring ?? false,
         recurrence_pattern: data.is_recurring ? data.recurrence_pattern : null,
         recurrence_day: data.is_recurring ? data.recurrence_day : null,
@@ -225,7 +225,7 @@ export class FinanceiroService {
       } as any,
       include: {
         lead: { select: { id: true, name: true } },
-        lawyer: { select: { id: true, name: true } },
+        dentist: { select: { id: true, name: true } },
       },
     });
 
@@ -234,7 +234,7 @@ export class FinanceiroService {
       tipo: data.type, categoria: data.category, descricao: data.description,
       valor: data.amount, status: data.status || 'PENDENTE',
       cliente: (tx as any).lead?.name,
-      lawyer_id: data.lawyer_id,
+      dentist_id: data.dentist_id,
     });
 
     return tx;
@@ -256,7 +256,7 @@ export class FinanceiroService {
     if (data.status !== undefined) updateData.status = data.status;
     // STUBBED: legal_case_id/honorario_payment_id removidos Fase 0.2
     if (data.lead_id !== undefined) updateData.lead_id = data.lead_id;
-    if (data.lawyer_id !== undefined) updateData.lawyer_id = data.lawyer_id;
+    if (data.dentist_id !== undefined) updateData.dentist_id = data.dentist_id;
     if (data.reference_id !== undefined) updateData.reference_id = data.reference_id;
     if (data.notes !== undefined) updateData.notes = data.notes;
 
@@ -265,7 +265,7 @@ export class FinanceiroService {
       data: updateData,
       include: {
         lead: { select: { id: true, name: true } },
-        lawyer: { select: { id: true, name: true } },
+        dentist: { select: { id: true, name: true } },
       },
     });
 
@@ -277,7 +277,7 @@ export class FinanceiroService {
     await this.logAction(actorId || null, actionType, id, {
       campos: Object.keys(updateData), valor: updated.amount ? Number(updated.amount) : undefined,
       descricao: updated.description, status: updated.status,
-      metodo: updated.payment_method, lawyer_id: updated.lawyer_id,
+      metodo: updated.payment_method, dentist_id: (updated as any).dentist_id,
     });
 
     return updated;
@@ -318,7 +318,7 @@ export class FinanceiroService {
         payment_method: paymentMethod || original.payment_method,
         status: 'PAGO',
         lead_id: original.lead_id,
-        lawyer_id: original.lawyer_id,
+        dentist_id: (original as any).dentist_id,
         notes: `Recebimento parcial de R$ ${amount.toFixed(2)}`,
       } as any,
     });
@@ -339,7 +339,7 @@ export class FinanceiroService {
     await this.logAction(actorId || null, 'PAGAMENTO_PARCIAL', id, {
       valor_recebido: amount, saldo_restante: remaining,
       metodo: paymentMethod, descricao: original.description,
-      lawyer_id: original.lawyer_id,
+      dentist_id: (original as any).dentist_id,
     });
 
     return { partial: partialTx, remaining };
@@ -351,7 +351,7 @@ export class FinanceiroService {
     const actionType = tx.type === 'DESPESA' ? 'DESPESA_EXCLUIDA' : 'RECEITA_EXCLUIDA';
     await this.logAction(actorId || null, actionType, id, {
       descricao: tx.description, valor: Number(tx.amount),
-      tipo: tx.type, categoria: tx.category, lawyer_id: tx.lawyer_id,
+      tipo: tx.type, categoria: tx.category, dentist_id: (tx as any).dentist_id,
     });
 
     return this.prisma.financialTransaction.update({
@@ -429,7 +429,7 @@ export class FinanceiroService {
 
   // ─── Audit Log ─────────────────────────────────────────
 
-  async getAuditLog(lawyerId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0) {
+  async getAuditLog(dentistId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0) {
     const where: any = { entity: 'FINANCEIRO' };
 
     if (startDate || endDate) {
@@ -438,9 +438,9 @@ export class FinanceiroService {
       if (endDate) where.created_at.lte = new Date(endDate);
     }
 
-    // Filtrar por advogado via meta_json (PostgreSQL JSONB)
-    if (lawyerId) {
-      where.meta_json = { path: ['lawyer_id'], equals: lawyerId };
+    // Filtrar por dentista via meta_json (PostgreSQL JSONB)
+    if (dentistId) {
+      where.meta_json = { path: ['dentist_id'], equals: dentistId };
     }
 
     const [data, total] = await Promise.all([
@@ -461,7 +461,7 @@ export class FinanceiroService {
 
   // ─── Summary & Analytics ───────────────────────────────
 
-  async getSummary(tenantId?: string, startDate?: string, endDate?: string, lawyerId?: string) {
+  async getSummary(tenantId?: string, startDate?: string, endDate?: string, dentistId?: string) {
     const where: any = {};
     if (tenantId) where.tenant_id = tenantId;
     // Exclude cancelled from aggregation
@@ -476,10 +476,10 @@ export class FinanceiroService {
     // STUBBED: HonorarioPayment/CaseHonorario/LegalCase removidos Fase 0.2
     // honorarioWhere mantido vazio apenas para estrutura
 
-    // Filtros específicos por tipo para advogado
-    const receitaWhere = lawyerId ? { ...where, lawyer_id: lawyerId } : where;
-    const despesaWhere = lawyerId
-      ? { ...where, OR: [{ lawyer_id: lawyerId }, { lawyer_id: null, visible_to_lawyer: true }] }
+    // Filtros específicos por tipo para dentista
+    const receitaWhere = dentistId ? { ...where, dentist_id: dentistId } : where;
+    const despesaWhere = dentistId
+      ? { ...where, OR: [{ dentist_id: dentistId }, { dentist_id: null, visible_to_dentist: true }] }
       : where;
 
     // Where para parcelas de lead honorários negociados
@@ -492,12 +492,12 @@ export class FinanceiroService {
     }
 
     const [totalRevenue, totalExpenses, totalPayable, totalReceivable, totalOverdue, leadReceivable, leadOverdue] = await Promise.all([
-      // Receita efetiva (regime de caixa: só PAGO) — advogado só dele
+      // Receita efetiva (regime de caixa: só PAGO) — dentista só dele
       this.prisma.financialTransaction.aggregate({
         where: { ...receitaWhere, type: 'RECEITA', status: 'PAGO' },
         _sum: { amount: true },
       }),
-      // Despesas pagas — advogado vê dele + gerais visíveis
+      // Despesas pagas — dentista vê dele + gerais visíveis
       this.prisma.financialTransaction.aggregate({
         where: { ...despesaWhere, type: 'DESPESA', status: 'PAGO' },
         _sum: { amount: true },

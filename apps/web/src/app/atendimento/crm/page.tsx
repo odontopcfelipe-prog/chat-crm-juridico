@@ -24,12 +24,12 @@ interface CrmLead {
   conversations: Array<{
     id: string;
     specialty: string | null;
-    assigned_lawyer_id: string | null;
+    assigned_dentist_id: string | null;
     next_step: string | null;
     last_message_at: string;
     messages: Array<{ text: string | null; direction: string; created_at: string }>;
     assigned_user: { id: string; name: string } | null;
-    assigned_lawyer: { id: string; name: string } | null;
+    assigned_dentist: { id: string; name: string } | null;
   }>;
   calendar_events?: Array<{
     id: string;
@@ -87,7 +87,7 @@ function computeLeadScore(lead: CrmLead): number {
   let score = STAGE_BASE_SCORES[normalized] ?? 20;
   const conv = lead.conversations?.[0];
   if (conv?.specialty) score += 8;
-  if (conv?.assigned_lawyer_id) score += 5;
+  if (conv?.assigned_dentist_id) score += 5;
   if (conv?.next_step && conv.next_step !== 'duvidas') score += 5;
   const days = daysInStage(lead.stage_entered_at);
   if (days > 3) score -= Math.min(25, (days - 3) * 3);
@@ -142,7 +142,7 @@ function getScoreFactors(lead: CrmLead): string[] {
   const base = STAGE_BASE_SCORES[normalized] ?? 20;
   factors.push(`+${base} etapa atual`);
   if (conv?.specialty) factors.push('+8 especialidade definida');
-  if (conv?.assigned_lawyer_id) factors.push('+5 advogado atribuído');
+  if (conv?.assigned_dentist_id) factors.push('+5 dentista atribuído');
   if (conv?.next_step && conv.next_step !== 'duvidas') factors.push('+5 próximo passo definido');
   if (days > 3) factors.push(`-${Math.min(25, (days - 3) * 3)} estagnado há ${days}d`);
   return factors;
@@ -155,7 +155,7 @@ function validateStageTransition(lead: CrmLead, newStage: string): string | null
   }
   if (newStage === 'FINALIZADO') {
     if (!conv?.specialty) return 'Defina a especialidade antes de finalizar.';
-    if (!conv?.assigned_lawyer_id) return 'Atribua um advogado antes de finalizar.';
+    if (!conv?.assigned_dentist_id) return 'Atribua um dentista antes de finalizar.';
   }
   return null;
 }
@@ -200,7 +200,7 @@ function LeadCard({
   const conv = lead.conversations?.[0];
   const lastMsg = conv?.messages?.[0];
   const specialty = conv?.specialty;
-  const lawyerName = conv?.assigned_lawyer?.name;
+  const dentistName = conv?.assigned_dentist?.name;
   const nextStep = conv?.next_step ? NEXT_STEP_MAP[conv.next_step] : null;
   const normalizedStage = normalizeStage(lead.stage);
   const days = daysInStage(lead.stage_entered_at);
@@ -326,9 +326,9 @@ function LeadCard({
             ⚖️ {specialty}
           </span>
         )}
-        {lawyerName && (
+        {dentistName && (
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-blue-500/12 text-blue-400 text-[9px] font-bold border border-blue-500/20">
-            <UserCheck size={9} /> {lawyerName.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0]}
+            <UserCheck size={9} /> {dentistName.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0]}
           </span>
         )}
         {nextStep && (
@@ -582,10 +582,10 @@ function LeadDetailPanel({
                 <span>{conv.specialty}</span>
               </div>
             )}
-            {conv?.assigned_lawyer && (
+            {conv?.assigned_dentist && (
               <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                 <UserCheck size={12} className="shrink-0" />
-                <span>{conv.assigned_lawyer.name}</span>
+                <span>{conv.assigned_dentist.name}</span>
               </div>
             )}
             {conv?.next_step && NEXT_STEP_MAP[conv.next_step] && (
@@ -837,7 +837,7 @@ function LeadListView({
             <th className="pb-2 pr-4">Score</th>
             <th className="pb-2 pr-4">Tempo</th>
             <th className="pb-2 pr-4">Área</th>
-            <th className="pb-2 pr-4">Advogado</th>
+            <th className="pb-2 pr-4">Dentista</th>
             <th className="pb-2 pr-4">Última msg</th>
             <th className="pb-2" />
           </tr>
@@ -892,7 +892,7 @@ function LeadListView({
                 </td>
                 <td className="py-2.5 pr-4 text-muted-foreground">{conv?.specialty || '—'}</td>
                 <td className="py-2.5 pr-4 text-muted-foreground truncate max-w-[120px]">
-                  {conv?.assigned_lawyer?.name?.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0] || '—'}
+                  {conv?.assigned_dentist?.name?.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0] || '—'}
                 </td>
                 <td className="py-2.5 pr-4 text-muted-foreground/60">{timeAgo(conv?.last_message_at)}</td>
                 <td className="py-2.5">
@@ -1086,7 +1086,7 @@ export default function CrmPage() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [areaFilter, setAreaFilter] = useState('');
-  const [lawyerFilter, setLawyerFilter] = useState('');
+  const [dentistFilter, setDentistFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [agingFilter, setAgingFilter] = useState(''); // '', 'ok', 'warning', 'critical'
   const [sortBy, setSortBy] = useState<'activity' | 'score'>('activity');
@@ -1424,16 +1424,16 @@ export default function CrmPage() {
     leads.flatMap(l => l.conversations?.map(c => c.specialty).filter(Boolean) ?? [])
   )].sort() as string[];
 
-  const allLawyers = [...new Map(
-    leads.flatMap(l => l.conversations?.map(c => c.assigned_lawyer).filter(Boolean) ?? [])
-      .map(lawyer => [lawyer!.id, lawyer!])
+  const allDentists = [...new Map(
+    leads.flatMap(l => l.conversations?.map(c => c.assigned_dentist).filter(Boolean) ?? [])
+      .map(dentist => [dentist!.id, dentist!])
   ).values()].sort((a, b) => a.name.localeCompare(b.name));
 
   const allTags = [...new Set(
     leads.flatMap(l => l.tags ?? [])
   )].sort();
 
-  const activeFilterCount = [areaFilter, lawyerFilter, tagFilter, agingFilter].filter(Boolean).length;
+  const activeFilterCount = [areaFilter, dentistFilter, tagFilter, agingFilter].filter(Boolean).length;
 
   // Filtrar leads
   const filteredLeads = leads.filter(lead => {
@@ -1447,9 +1447,9 @@ export default function CrmPage() {
       const hasArea = lead.conversations?.some(c => c.specialty === areaFilter);
       if (!hasArea) return false;
     }
-    if (lawyerFilter) {
-      const hasLawyer = lead.conversations?.some(c => c.assigned_lawyer?.id === lawyerFilter);
-      if (!hasLawyer) return false;
+    if (dentistFilter) {
+      const hasDentist = lead.conversations?.some(c => c.assigned_dentist?.id === dentistFilter);
+      if (!hasDentist) return false;
     }
     if (tagFilter) {
       if (!lead.tags?.includes(tagFilter)) return false;
@@ -1493,7 +1493,7 @@ export default function CrmPage() {
               {filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead{filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''} {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
               {activeFilterCount > 0 && (
                 <button
-                  onClick={() => { setAreaFilter(''); setLawyerFilter(''); setTagFilter(''); setAgingFilter(''); }}
+                  onClick={() => { setAreaFilter(''); setDentistFilter(''); setTagFilter(''); setAgingFilter(''); }}
                   className="ml-2 text-primary hover:underline"
                 >
                   Limpar filtros ({activeFilterCount})
@@ -1519,16 +1519,16 @@ export default function CrmPage() {
               </div>
             )}
 
-            {/* Filtro por advogado */}
-            {allLawyers.length > 0 && (
+            {/* Filtro por dentista */}
+            {allDentists.length > 0 && (
               <div className="relative">
                 <select
-                  value={lawyerFilter}
-                  onChange={e => setLawyerFilter(e.target.value)}
+                  value={dentistFilter}
+                  onChange={e => setDentistFilter(e.target.value)}
                   className="appearance-none pl-3 pr-7 py-1.5 text-[12px] bg-accent/50 border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
                 >
-                  <option value="">Todos os advogados</option>
-                  {allLawyers.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  <option value="">Todos os dentistas</option>
+                  {allDentists.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                 </select>
                 <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
               </div>

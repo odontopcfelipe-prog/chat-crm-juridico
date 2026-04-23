@@ -47,8 +47,8 @@ interface Transaction {
   status: 'PAGO' | 'PENDENTE' | 'CANCELADO';
   legal_case: { id: string; case_number: string; specialty: string } | null;
   lead: { id: string; name: string; phone: string } | null;
-  lawyer: { id: string; name: string } | null;
-  lawyer_id?: string | null;
+  dentist: { id: string; name: string } | null;
+  dentist_id?: string | null;
   honorario_payment_id?: string | null;
   notes?: string | null;
   interest_amount?: number;
@@ -239,7 +239,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
-  const [visibleToLawyer, setVisibleToLawyer] = useState(true);
+  const [visibleToDentist, setVisibleToDentist] = useState(true);
   const [isPaid, setIsPaid] = useState(false);
   const [isRecurring, setIsRecurring] = useState(false);
   const [recurrencePattern, setRecurrencePattern] = useState('MENSAL');
@@ -250,7 +250,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
   const [savingCat, setSavingCat] = useState(false);
   const [deletingCatId, setDeletingCatId] = useState<string | null>(null);
 
-  const reset = () => { setDesc(''); setAmount(''); setCategory(categories[0]); setDate(new Date().toISOString().slice(0, 10)); setDueDate(''); setPaymentMethod(''); setVisibleToLawyer(true); setIsPaid(false); setIsRecurring(false); setRecurrencePattern('MENSAL'); setRecurrenceDay(''); setRecurrenceEndDate(''); };
+  const reset = () => { setDesc(''); setAmount(''); setCategory(categories[0]); setDate(new Date().toISOString().slice(0, 10)); setDueDate(''); setPaymentMethod(''); setVisibleToDentist(true); setIsPaid(false); setIsRecurring(false); setRecurrencePattern('MENSAL'); setRecurrenceDay(''); setRecurrenceEndDate(''); };
 
   const handleAddCategory = async () => {
     if (!newCatName.trim()) return;
@@ -293,7 +293,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
         payment_method: paymentMethod || undefined,
         status: isPaid ? 'PAGO' : 'PENDENTE',
         paid_at: isPaid ? new Date().toISOString() : undefined,
-        visible_to_lawyer: type === 'DESPESA' ? visibleToLawyer : true,
+        visible_to_dentist: type === 'DESPESA' ? visibleToDentist : true,
         is_recurring: isRecurring,
         recurrence_pattern: isRecurring ? recurrencePattern : undefined,
         recurrence_day: isRecurring && recurrenceDay ? parseInt(recurrenceDay) : undefined,
@@ -406,7 +406,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
         {/* Visibilidade para advogado (só despesas) */}
         {type === 'DESPESA' && (
           <label className="flex items-center gap-2 cursor-pointer">
-            <input type="checkbox" checked={!visibleToLawyer} onChange={e => setVisibleToLawyer(!e.target.checked)}
+            <input type="checkbox" checked={!visibleToDentist} onChange={e => setVisibleToDentist(!e.target.checked)}
               className="w-3.5 h-3.5 rounded border-border accent-primary" />
             <span className="text-xs text-muted-foreground">Ocultar do advogado</span>
           </label>

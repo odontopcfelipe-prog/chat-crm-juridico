@@ -5,7 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 /**
  * Notificação de dívidas e recebíveis vencidos a cada 2 horas (horário comercial).
  * - Admin/Financeiro: vê tudo
- * - Advogado: vê apenas do seus processos
+ * - Dentista: vê apenas do seus processos
  * Notifica via WebSocket (toast no frontend).
  */
 @Injectable()
@@ -29,7 +29,7 @@ export class OverdueAlertsService {
           status: 'PENDENTE',
           due_date: { lt: now },
         },
-        select: { id: true, description: true, amount: true, due_date: true, lawyer_id: true, visible_to_lawyer: true },
+        select: { id: true, description: true, amount: true, due_date: true, dentist_id: true, visible_to_dentist: true },
       });
 
       // 2. Honorários pendentes/atrasados (recebíveis vencidos) — descontinuado na transição odonto.

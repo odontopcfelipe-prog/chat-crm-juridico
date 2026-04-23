@@ -48,7 +48,7 @@ function computeScore(conv: ConversationSummary): number {
   const stage = normalizeStage(conv.leadStage || '');
   let score = STAGE_BASE_SCORES[stage] ?? 20;
   if (conv.specialty) score += 8;
-  if (conv.assignedLawyerId) score += 5;
+  if (conv.assignedDentistId) score += 5;
   if (conv.nextStep && conv.nextStep !== 'duvidas') score += 5;
   if (conv.stageEnteredAt) {
     const days = Math.floor((Date.now() - new Date(conv.stageEnteredAt).getTime()) / 86400000);
@@ -602,9 +602,9 @@ export function InboxSidebar({
                           <span className="inline-flex items-center gap-1 text-[10px] text-violet-400 font-bold border border-violet-500/20 bg-violet-500/10 rounded-md px-1.5 py-0.5">
                             ⚖️ {conv.specialty}
                           </span>
-                          {conv.assignedLawyerName && (
+                          {conv.assignedDentistName && (
                             <span className="text-[10px] text-violet-300 font-medium truncate">
-                              Adv. {conv.assignedLawyerName}
+                              Dr(a). {conv.assignedDentistName}
                             </span>
                           )}
                         </div>

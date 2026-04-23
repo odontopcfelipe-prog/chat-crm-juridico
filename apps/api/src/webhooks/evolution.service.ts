@@ -174,7 +174,7 @@ export class EvolutionService implements OnApplicationBootstrap {
         '';
 
       // ── Admin Command Bot ──────────────────────────────────────────────────
-      // Mensagens vindas de um admin/advogado do sistema são interceptadas aqui
+      // Mensagens vindas de um admin/dentista do sistema são interceptadas aqui
       // para serem processadas como comandos CRM via IA (function calling).
       if (!isFromMe && messageContentCheck && await this.adminBotService.isEnabled()) {
         const sessionKey = `${instanceName}:${phone}`;
@@ -483,7 +483,7 @@ export class EvolutionService implements OnApplicationBootstrap {
           conv.inbox_id ?? null,
           conv.assigned_user_id || null,
           { conversationId: conv.id, contactName: lead.name || lead.phone },
-          conv.assigned_lawyer_id || null,
+          (conv as any).assigned_dentist_id || null,
           lead.is_client,
         );
 
@@ -618,7 +618,7 @@ export class EvolutionService implements OnApplicationBootstrap {
           where: { id: enrollment.id },
           data: { status: 'CONVERTIDO' },
         });
-        // Criar tarefa urgente para o advogado
+        // Criar tarefa urgente para o dentista
         await this.prisma.task.create({
           data: {
             title: `Lead quente respondeu: ${enrollment.lead.name || enrollment.lead.phone}`,

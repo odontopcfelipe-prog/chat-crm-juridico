@@ -383,11 +383,11 @@ export class AiProcessor extends WorkerHost {
       try {
         const conv = await (this.prisma as any).conversation.findUnique({
           where: { id: convoId },
-          select: { assigned_lawyer_id: true },
+          select: { assigned_dentist_id: true },
         });
-        const lawyerId = conv?.assigned_lawyer_id;
+        const dentistId = conv?.assigned_dentist_id;
 
-        if (lawyerId) {
+        if (dentistId) {
           const taskMap: Record<string, string> = {
             AGUARDANDO_DOCS: 'Cobrar documentos do lead',
             AGUARDANDO_PROC: 'Cobrar procuração do lead',
@@ -404,13 +404,13 @@ export class AiProcessor extends WorkerHost {
               title: `${taskTitle} — ${lead?.name || 'Lead'}`,
               description: `Tarefa automática criada pela IA ao mover lead para ${resolvedStage}`,
               start_at: new Date(Date.now() + 24 * 60 * 60 * 1000),
-              assigned_user_id: lawyerId,
+              assigned_user_id: dentistId,
               lead_id: leadId,
               conversation_id: convoId,
-              created_by_id: lawyerId,
+              created_by_id: dentistId,
             });
             this.logger.log(
-              `[AI] Tarefa automática criada: "${taskTitle}" para advogado ${lawyerId}`,
+              `[AI] Tarefa automática criada: "${taskTitle}" para dentista ${dentistId}`,
             );
           }
         }
@@ -423,7 +423,7 @@ export class AiProcessor extends WorkerHost {
     if (updates.area && updates.area !== 'null') {
       const conv = await (this.prisma as any).conversation.findUnique({
         where: { id: convoId },
-        select: { specialty: true, assigned_lawyer_id: true },
+        select: { specialty: true, assigned_dentist_id: true },
       });
       if (!conv?.specialty) {
         await (this.prisma as any).conversation.update({
@@ -433,15 +433,15 @@ export class AiProcessor extends WorkerHost {
         this.logger.log(`[AI] Especialidade classificada: "${updates.area}"`);
 
         // Auto-atribuir o especialista menos ocupado (só se ainda não houver um)
-        if (!conv?.assigned_lawyer_id) {
-          const lawyerId = await this.findLeastBusySpecialist(updates.area);
-          if (lawyerId) {
+        if (!conv?.assigned_dentist_id) {
+          const dentistId = await this.findLeastBusySpecialist(updates.area);
+          if (dentistId) {
             await (this.prisma as any).conversation.update({
               where: { id: convoId },
-              data: { assigned_lawyer_id: lawyerId },
+              data: { assigned_dentist_id: dentistId },
             });
             this.logger.log(
-              `[AI] Especialista pré-atribuído: ${lawyerId} (especialidade: ${updates.area})`,
+              `[AI] Especialista pré-atribuído: ${dentistId} (especialidade: ${updates.area})`,
             );
           }
         }
@@ -630,7 +630,7 @@ export class AiProcessor extends WorkerHost {
     return event;
   }
 
-  // ─── Consulta disponibilidade de horários de um advogado ───
+  // ─── Consulta disponibilidade de horários de um dentista ───
   private async getAvailability(
     userId: string,
     dateStr: string,
@@ -746,7 +746,7 @@ export class AiProcessor extends WorkerHost {
     const counts = await Promise.all(
       specialists.map(async (s) => {
         const count = await (this.prisma as any).conversation.count({
-          where: { assigned_lawyer_id: s.id, status: 'ABERTO' },
+          where: { assigned_dentist_id: s.id, status: 'ABERTO' },
         });
         return { id: s.id as string, count };
       }),
@@ -1104,10 +1104,10 @@ export class AiProcessor extends WorkerHost {
 
       const siteUrl = process.env.APP_URL || 'https://andrelustosaadvogados.com.br';
 
-      // 10c. Buscar horários disponíveis do advogado atribuído (para agendamento)
-      let availableSlots = 'Nenhum advogado atribuído — horários indisponíveis.';
-      const assignedLawyerId = (convo as any).assigned_lawyer_id;
-      if (assignedLawyerId) {
+      // 10c. Buscar horários disponíveis do dentista atribuído (para agendamento)
+      let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
+      const assignedDentistId = (convo as any).assigned_dentist_id;
+      if (assignedDentistId) {
         try {
           const now = new Date();
           const formatDateBR = (d: Date) =>
@@ -1118,7 +1118,7 @@ export class AiProcessor extends WorkerHost {
             const day = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
             if (day.getDay() === 0 || day.getDay() === 6) continue; // pular fim de semana
             const dateStr = day.toISOString().split('T')[0];
-            const slots = await this.getAvailability(assignedLawyerId, dateStr, 60);
+            const slots = await this.getAvailability(assignedDentistId, dateStr, 60);
             if (slots.length > 0) {
               const slotsStr = slots.slice(0, 6).map((s) => s.start).join(', ');
               slotParts.push(`${formatDateBR(day)} (${dateStr}): ${slotsStr}`);
@@ -1493,14 +1493,14 @@ STATUS DA FICHA:
         );
       } else {
         const fallbackSkillPrompt = `Você é Sophia, assistente de pré-atendimento do escritório André Lustosa Advogados.
-Seu objetivo é coletar informações sobre o caso do cliente para o advogado conseguir avaliar.
+Seu objetivo é coletar informações sobre o caso do cliente para o dentista conseguir avaliar.
 
 ROTEIRO (siga na ordem, UMA pergunta por vez):
 1. Cumprimente e pergunte o nome do cliente.
 2. Pergunte qual é o problema principal (deixe o cliente descrever com as próprias palavras).
 3. Colete detalhes: quando ocorreu, quem é a outra parte (empresa ou pessoa), se há valores envolvidos.
 4. Pergunte se possui documentos ou provas (contrato, mensagens, fotos, etc.).
-5. Quando tiver informações suficientes, informe que o advogado vai analisar e oriente o próximo passo.
+5. Quando tiver informações suficientes, informe que o dentista vai analisar e oriente o próximo passo.
 
 Retorne SOMENTE JSON válido: {"reply":"texto para enviar","updates":{"name":null,"status":"INICIAL","area":null,"lead_summary":"resumo","next_step":"duvidas","notes":"","loss_reason":null,"form_data":null},"scheduling_action":null}
 
@@ -1881,12 +1881,12 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // 15b. Processar scheduling_action (agendamento automático de reunião)
       if (scheduling_action?.action === 'confirm_slot' && scheduling_action.date && scheduling_action.time) {
         try {
-          const lawyerId = (await (this.prisma as any).conversation.findUnique({
+          const dentistId = (await (this.prisma as any).conversation.findUnique({
             where: { id: convo.id },
-            select: { assigned_lawyer_id: true },
-          }))?.assigned_lawyer_id;
+            select: { assigned_dentist_id: true },
+          }))?.assigned_dentist_id;
 
-          if (lawyerId) {
+          if (dentistId) {
             const [h, m] = scheduling_action.time.split(':').map(Number);
             const startAt = new Date(scheduling_action.date + 'T00:00:00');
             startAt.setHours(h, m, 0, 0);
@@ -1898,13 +1898,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
               description: `Reunião agendada automaticamente pela IA`,
               start_at: startAt,
               end_at: endAt,
-              assigned_user_id: lawyerId,
+              assigned_user_id: dentistId,
               lead_id: convo.lead.id,
               conversation_id: convo.id,
-              created_by_id: lawyerId,
+              created_by_id: dentistId,
             });
             this.logger.log(
-              `[AI] Consulta agendada: ${scheduling_action.date} ${scheduling_action.time} — advogado ${lawyerId}`,
+              `[AI] Consulta agendada: ${scheduling_action.date} ${scheduling_action.time} — dentista ${dentistId}`,
             );
           }
         } catch (e: any) {

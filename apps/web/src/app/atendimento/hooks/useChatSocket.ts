@@ -17,8 +17,8 @@ interface UseChatSocketResult {
   setAiMode: React.Dispatch<React.SetStateAction<boolean>>;
   specialty: string | null;
   setSpecialty: React.Dispatch<React.SetStateAction<string | null>>;
-  assignedLawyer: { id: string; name: string } | null;
-  setAssignedLawyer: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>;
+  assignedDentist: { id: string; name: string } | null;
+  setAssignedDentist: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>;
   allSpecialists: { id: string; name: string; specialties: string[] }[];
   originAssignedUserId: string | null;
   contactPresence: string;
@@ -39,7 +39,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
   const [convoStatus, setConvoStatus] = useState<string>('ABERTO');
   const [aiMode, setAiMode] = useState(false);
   const [specialty, setSpecialty] = useState<string | null>(null);
-  const [assignedLawyer, setAssignedLawyer] = useState<{ id: string; name: string } | null>(null);
+  const [assignedDentist, setAssignedDentist] = useState<{ id: string; name: string } | null>(null);
   const [allSpecialists, setAllSpecialists] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
   const [originAssignedUserId, setOriginAssignedUserId] = useState<string | null>(null);
   const [contactPresence, setContactPresence] = useState<string>('unavailable');
@@ -69,7 +69,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
           setAiMode(!!convo.ai_mode);
           setMessages(convo.messages || []);
           setSpecialty(convo.specialty || null);
-          setAssignedLawyer(convo.assigned_lawyer || null);
+          setAssignedDentist(convo.assigned_dentist || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
 
           api.get('/users/agents').then((r) => {
@@ -169,8 +169,8 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
     setAiMode,
     specialty,
     setSpecialty,
-    assignedLawyer,
-    setAssignedLawyer,
+    assignedDentist,
+    setAssignedDentist,
     allSpecialists,
     originAssignedUserId,
     contactPresence,

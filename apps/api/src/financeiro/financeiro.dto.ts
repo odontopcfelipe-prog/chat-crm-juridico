@@ -57,7 +57,7 @@ export class CreateTransactionDto {
 
   @IsOptional()
   @IsString()
-  lawyer_id?: string;
+  dentist_id?: string;
 
   @IsOptional()
   @IsString()
@@ -73,7 +73,7 @@ export class CreateTransactionDto {
 
   @IsOptional()
   @IsBoolean()
-  visible_to_lawyer?: boolean;
+  visible_to_dentist?: boolean;
 
   @IsOptional()
   @IsBoolean()
@@ -141,7 +141,7 @@ export class UpdateTransactionDto {
 
   @IsOptional()
   @IsString()
-  lawyer_id?: string;
+  dentist_id?: string;
 
   @IsOptional()
   @IsString()

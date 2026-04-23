@@ -1,7 +1,7 @@
 import type { ToolHandler, ToolContext } from '../tool-executor';
 
 /**
- * Verifica horários disponíveis de um advogado para agendamento.
+ * Verifica horários disponíveis de um dentista para agendamento.
  * Consulta UserSchedule, Holidays e CalendarEvents existentes.
  *
  * UTC naive: as datas são armazenadas com os componentes locais como se fossem
@@ -19,12 +19,12 @@ export class CheckAvailabilityHandler implements ToolHandler {
 
     const convo = await prisma.conversation.findUnique({
       where: { id: context.conversationId },
-      select: { assigned_lawyer_id: true, assigned_user_id: true },
+      select: { assigned_dentist_id: true, assigned_user_id: true },
     });
 
-    const userId = convo?.assigned_lawyer_id || convo?.assigned_user_id;
+    const userId = convo?.assigned_dentist_id || convo?.assigned_user_id;
     if (!userId) {
-      return { available: false, message: 'Nenhum advogado atribuído a esta conversa.' };
+      return { available: false, message: 'Nenhum dentista atribuído a esta conversa.' };
     }
 
     const daysToCheck = params.days_ahead ?? 7;
@@ -75,13 +75,13 @@ export class CheckAvailabilityHandler implements ToolHandler {
     });
     if (holiday > 0) return [];
 
-    // Agenda do advogado para o dia da semana
+    // Agenda do dentista para o dia da semana
     const schedule = await prisma.userSchedule.findUnique({
       where: { user_id_day_of_week: { user_id: userId, day_of_week: dayStart.getUTCDay() } },
     });
     if (!schedule) return [];
 
-    // Eventos existentes do advogado no dia
+    // Eventos existentes do dentista no dia
     const events = await prisma.calendarEvent.findMany({
       where: {
         assigned_user_id: userId,

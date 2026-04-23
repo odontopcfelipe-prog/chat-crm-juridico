@@ -108,19 +108,19 @@ export class DashboardAnalyticsService {
 
     const resolved = await this.resolveScope(scope, userId, roleArr, tenantId);
 
-    // Monta cláusula SQL de lawyer_id baseada no escopo resolvido ou lógica padrão
-    let lawyerClause = '';
+    // Monta cláusula SQL de dentist_id baseada no escopo resolvido ou lógica padrão
+    let dentistClause = '';
     if (resolved?.bypass) {
       if (resolved.userIds === null) {
-        lawyerClause = ''; // todos
+        dentistClause = ''; // todos
       } else if (resolved.userIds.length === 0) {
-        lawyerClause = `AND lc.lawyer_id IN ('__none__')`; // nenhum
+        dentistClause = `AND lc.dentist_id IN ('__none__')`; // nenhum
       } else {
         const ids = resolved.userIds.map((id) => `'${id}'`).join(',');
-        lawyerClause = `AND lc.lawyer_id IN (${ids})`;
+        dentistClause = `AND lc.dentist_id IN (${ids})`;
       }
     } else {
-      lawyerClause = isAdmin ? '' : `AND lc.lawyer_id = '${userId}'`;
+      dentistClause = isAdmin ? '' : `AND lc.dentist_id = '${userId}'`;
     }
 
     // STUBBED: CaseHonorario/HonorarioPayment/LegalCase removidos na Fase 0.2
@@ -337,15 +337,15 @@ export class DashboardAnalyticsService {
     const tw = this.tenantWhere(tenantId);
 
     const resolved = await this.resolveScope(scope, userId, roleArr, tenantId);
-    let lawyerFilter: any = {};
+    let dentistFilter: any = {};
     if (resolved?.bypass) {
       if (resolved.userIds !== null) {
-        lawyerFilter = {
-          lawyer_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
+        dentistFilter = {
+          dentist_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
         };
       }
     } else if (!isAdmin) {
-      lawyerFilter = { lawyer_id: userId };
+      dentistFilter = { dentist_id: userId };
     }
 
     // STUBBED: LegalCase removido Fase 0.2
@@ -375,15 +375,15 @@ export class DashboardAnalyticsService {
     const tw = this.tenantWhere(tenantId);
 
     const resolved = await this.resolveScope(scope, userId, roleArr, tenantId);
-    let lawyerFilter: any = {};
+    let dentistFilter: any = {};
     if (resolved?.bypass) {
       if (resolved.userIds !== null) {
-        lawyerFilter = {
-          lawyer_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
+        dentistFilter = {
+          dentist_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
         };
       }
     } else if (!isAdmin) {
-      lawyerFilter = { lawyer_id: userId };
+      dentistFilter = { dentist_id: userId };
     }
 
     // STUBBED: LegalCase removido Fase 0.2
@@ -421,13 +421,13 @@ export class DashboardAnalyticsService {
     const now = new Date();
 
     const resolved = await this.resolveScope(scope, userId, roleArr, tenantId);
-    let caseFilter: any = isAdmin ? { ...tw } : { lawyer_id: userId, ...tw };
+    let caseFilter: any = isAdmin ? { ...tw } : { dentist_id: userId, ...tw };
     if (resolved?.bypass) {
       if (resolved.userIds === null) {
         caseFilter = { ...tw };
       } else {
         caseFilter = {
-          lawyer_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
+          dentist_id: { in: resolved.userIds.length ? resolved.userIds : ['__none__'] },
           ...tw,
         };
       }

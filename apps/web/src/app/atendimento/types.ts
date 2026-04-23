@@ -22,8 +22,8 @@ export interface ConversationSummary {
   profile_picture_url?: string | null;
   inboxId?: string | null;
   specialty?: string | null;
-  assignedLawyerId?: string | null;
-  assignedLawyerName?: string | null;
+  assignedDentistId?: string | null;
+  assignedDentistName?: string | null;
   originAssignedUserId?: string | null;
   originAssignedUserName?: string | null;
   leadStage?: string | null;

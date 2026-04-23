@@ -49,7 +49,7 @@ export class DashboardService {
     // ─── Case filters ──
     const caseWhere = isAdmin
       ? { archived: false, ...tw }
-      : { archived: false, lawyer_id: userId, ...tw };
+      : { archived: false, dentist_id: userId, ...tw };
 
     // ─── Task filters (CalendarEvent type=TAREFA) ──
     const calTaskWhere = (statuses: string[]) =>
@@ -355,7 +355,7 @@ export class DashboardService {
     const yearStart = new Date(start); yearStart.setFullYear(yearStart.getFullYear() - 1);
 
     const userFilter = isAdmin ? {} : { cs_user_id: userId };
-    const lawyerFilter = isAdmin ? {} : { lawyer_id: userId };
+    const dentistFilter = isAdmin ? {} : { dentist_id: userId };
     const taskUserFilter = isAdmin ? {} : { assigned_user_id: userId };
 
     // Helper: conta leads dentro de uma janela por um campo de data

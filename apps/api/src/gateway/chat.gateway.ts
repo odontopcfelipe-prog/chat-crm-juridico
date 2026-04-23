@@ -223,7 +223,7 @@ export class ChatGateway {
     // Verificar se a conversa existe
     const conversation = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
-      select: { inbox_id: true, assigned_user_id: true, assigned_lawyer_id: true },
+      select: { inbox_id: true, assigned_user_id: true, assigned_dentist_id: true },
     });
 
     if (!conversation) {
@@ -240,7 +240,7 @@ export class ChatGateway {
     const userInboxIds = (user?.inboxes || []).map((i: any) => i.id);
     const hasAccess =
       conversation.assigned_user_id === socketUser.sub ||
-      conversation.assigned_lawyer_id === socketUser.sub ||
+      conversation.assigned_dentist_id === socketUser.sub ||
       ((conversation as any).inbox_id && userInboxIds.includes((conversation as any).inbox_id));
 
     if (!hasAccess) {
@@ -372,7 +372,7 @@ export class ChatGateway {
    *
    * Regra de negócio:
    *  - Lead com operador atribuído   → notifica SOMENTE o operador (assigned_user_id)
-   *  - Cliente com operador atribuído → notifica operador E advogado (assigned_lawyer_id), se distintos
+   *  - Cliente com operador atribuído → notifica operador E dentista (assigned_dentist_id), se distintos
    *  - Sem operador atribuído + inboxId → notifica apenas operadores daquele setor (room inbox:{id})
    *  - Sem operador e sem inbox (legado) → fallback tenant (como antes)
    */
@@ -381,7 +381,7 @@ export class ChatGateway {
     inboxId: string | null,
     assignedUserId: string | null,
     data: { conversationId: string; contactName?: string },
-    assignedLawyerId?: string | null,
+    assignedDentistId?: string | null,
     isClient?: boolean,
   ) {
     const basePayload = { ...data, assignedUserId };
@@ -418,18 +418,18 @@ export class ChatGateway {
         }).catch(() => {});
       }
 
-      // Para clientes: notifica também o advogado responsável (se diferente do operador)
-      if (isClient && assignedLawyerId && assignedLawyerId !== assignedUserId) {
-        const lawyerMuted = await this.notificationsService.isConversationMuted(assignedLawyerId, data.conversationId).catch(() => false);
-        const lawyerPrefs = lawyerMuted
+      // Para clientes: notifica também o dentista responsável (se diferente do operador)
+      if (isClient && assignedDentistId && assignedDentistId !== assignedUserId) {
+        const dentistMuted = await this.notificationsService.isConversationMuted(assignedDentistId, data.conversationId).catch(() => false);
+        const dentistPrefs = dentistMuted
           ? { skipSound: true, skipDesktop: true }
-          : await this.notifSettings.getNotifFlags(assignedLawyerId, 'incoming_message').catch(() => ({ skipSound: false, skipDesktop: false }));
-        const lawyerPayload = { ...basePayload, _prefs: lawyerPrefs };
-        this.logger.log(`[SOCKET] incoming_message_notification → lawyer:${assignedLawyerId} (cliente)`);
-        this.server.to(`user:${assignedLawyerId}`).emit('incoming_message_notification', lawyerPayload);
+          : await this.notifSettings.getNotifFlags(assignedDentistId, 'incoming_message').catch(() => ({ skipSound: false, skipDesktop: false }));
+        const dentistPayload = { ...basePayload, _prefs: dentistPrefs };
+        this.logger.log(`[SOCKET] incoming_message_notification → dentist:${assignedDentistId} (cliente)`);
+        this.server.to(`user:${assignedDentistId}`).emit('incoming_message_notification', dentistPayload);
 
         this.notificationsService.create({
-          userId: assignedLawyerId,
+          userId: assignedDentistId,
           tenantId,
           type: 'incoming_message',
           title: data.contactName || 'Nova mensagem',
@@ -507,7 +507,7 @@ export class ChatGateway {
 
     // Sem atendente: prioridade inbox (pool do setor) → operators (fallback
     // sem inbox — lead via formulario, API externa, criacao manual). Nunca
-    // tenant: advogados puros nao devem receber ding de lead novo.
+    // tenant: dentistas puros nao devem receber ding de lead novo.
     const emitTo = (room: string) => {
       this.logger.log(`[SOCKET] new_lead_notification → ${room}`);
       this.server.to(room).emit('new_lead_notification', basePayload);

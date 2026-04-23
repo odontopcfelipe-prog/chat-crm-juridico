@@ -110,13 +110,13 @@ export class LeadsService {
       const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
 
       if (!isAdminUser) {
-        // CRM Pipeline: operador/advogado vê apenas leads explicitamente atribuídos.
+        // CRM Pipeline: operador/dentista vê apenas leads explicitamente atribuídos.
         // Diferente do chat inbox (que mostra fila da inbox), aqui só mostra leads
-        // onde o usuário é assigned_user, assigned_lawyer, cs_user ou lawyer do caso.
+        // onde o usuário é assigned_user, assigned_dentist, cs_user ou dentist do caso.
         const orConditions: any[] = [];
 
         if (isAdvogadoUser) {
-          orConditions.push({ conversations: { some: { assigned_lawyer_id: userId } } });
+          orConditions.push({ conversations: { some: { assigned_dentist_id: userId } } });
         }
 
         if (isOperadorUser || isAdvogadoUser) {
@@ -150,7 +150,7 @@ export class LeadsService {
             take: 1,
           },
           assigned_user: { select: { id: true, name: true } },
-          assigned_lawyer: { select: { id: true, name: true } },
+          assigned_dentist: { select: { id: true, name: true } },
         },
       },
       calendar_events: {
@@ -319,7 +319,7 @@ export class LeadsService {
       const conv = await this.prisma.conversation.findFirst({
         where: { lead_id: id },
         orderBy: { last_message_at: 'desc' },
-        select: { specialty: true, assigned_lawyer_id: true },
+        select: { specialty: true, assigned_dentist_id: true },
       });
       if (!conv?.specialty) {
         throw new ForbiddenException('Lead precisa ter especialidade definida para ser finalizado');
@@ -643,7 +643,7 @@ export class LeadsService {
       if (!isAdminUser) {
         const orConditions: any[] = [];
         if (isAdvogadoUser) {
-          orConditions.push({ conversations: { some: { assigned_lawyer_id: userId } } });
+          orConditions.push({ conversations: { some: { assigned_dentist_id: userId } } });
         }
         if (isOperadorUser || isAdvogadoUser) {
           orConditions.push({ conversations: { some: { assigned_user_id: userId } } });
@@ -665,7 +665,7 @@ export class LeadsService {
         conversations: {
           orderBy: { last_message_at: 'desc' },
           take: 1,
-          select: { specialty: true, assigned_lawyer: { select: { name: true } } },
+          select: { specialty: true, assigned_dentist: { select: { name: true } } },
         },
       },
     });
@@ -680,7 +680,7 @@ export class LeadsService {
     const daysInStage = (d: Date | string) =>
       Math.floor((Date.now() - new Date(d).getTime()) / msPerDay);
 
-    const header = ['Nome', 'Telefone', 'Email', 'Estágio', 'Especialidade', 'Advogado', 'Tags', 'Dias no Estágio', 'Criado em'];
+    const header = ['Nome', 'Telefone', 'Email', 'Estágio', 'Especialidade', 'Dentista', 'Tags', 'Dias no Estágio', 'Criado em'];
     const rows = leads.map(l => {
       const conv = (l as any).conversations?.[0];
       return [
@@ -689,7 +689,7 @@ export class LeadsService {
         escape(l.email),
         escape(l.stage),
         escape(conv?.specialty),
-        escape(conv?.assigned_lawyer?.name),
+        escape(conv?.assigned_dentist?.name),
         escape((l.tags || []).join('; ')),
         escape(String(daysInStage(l.stage_entered_at))),
         escape(new Date(l.created_at).toLocaleDateString('pt-BR')),

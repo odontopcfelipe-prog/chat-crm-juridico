@@ -9,7 +9,7 @@ import * as argon2 from 'argon2';
  * variações de acentuação) para o enum canônico usado pelo sistema de permissões.
  *
  * Motivação: historicamente o formulário de usuários salvava o nome do
- * departamento como role (ex: "Advogados", "Estagiário", "Atendente Comercial").
+ * departamento como role (ex: "Dentistas", "Estagiário", "Atendente Comercial").
  * Isso quebrava todos os checks de permissão (`roles.includes('ADVOGADO')` etc.).
  * Essa camada garante que, independente do que chegue via API, o banco só
  * receba os 6 enums canônicos suportados por useRole.ts.
@@ -154,7 +154,7 @@ export class UsersService {
   async getTransferSummary(id: string, tenantId?: string) {
     await this.verifyTenantOwnership(id, tenantId);
     const [conversations, tasks, events, leads] = await Promise.all([
-      this.prisma.conversation.count({ where: { OR: [{ assigned_user_id: id }, { assigned_lawyer_id: id }] } }),
+      this.prisma.conversation.count({ where: { OR: [{ assigned_user_id: id }, { assigned_dentist_id: id }] } }),
       this.prisma.calendarEvent.count({ where: { OR: [{ assigned_user_id: id }, { created_by_id: id }] } }),
       this.prisma.calendarEvent.count({ where: { created_by_id: id } }),
       this.prisma.lead.count({ where: { cs_user_id: id } }),
@@ -177,10 +177,10 @@ export class UsersService {
           where: { assigned_user_id: id },
           data: { assigned_user_id: transferToId },
         }),
-        // Conversas atribuídas como advogado
+        // Conversas atribuídas como dentista
         this.prisma.conversation.updateMany({
-          where: { assigned_lawyer_id: id },
-          data: { assigned_lawyer_id: transferToId },
+          where: { assigned_dentist_id: id },
+          data: { assigned_dentist_id: transferToId },
         }),
         // Tarefas atribuídas
         this.prisma.calendarEvent.updateMany({
@@ -220,9 +220,9 @@ export class UsersService {
     await this.prisma.user.delete({ where: { id } });
   }
 
-  // ─── Lawyer / Intern helpers ──────────────────────────────────
+  // ─── Dentist / Intern helpers ──────────────────────────────────
 
-  /** Lista advogados (role ADVOGADO ou ADMIN com specialties) */
+  /** Lista dentistas (role ADVOGADO ou ADMIN com specialties) */
   async findLawyers(tenantId?: string) {
     const tenantFilter = this.tenantWhere(tenantId);
     return this.prisma.user.findMany({
@@ -243,7 +243,7 @@ export class UsersService {
     });
   }
 
-  /** Lista estagiários vinculados a um advogado */
+  /** Lista estagiários vinculados a um dentista */
   async findInterns(supervisorId: string) {
     return this.prisma.user.findMany({
       where: { supervisors: { some: { id: supervisorId } } },
@@ -252,12 +252,12 @@ export class UsersService {
     });
   }
 
-  /** Define os supervisores (advogados) de um estagiário */
-  async linkSupervisors(internId: string, lawyerIds: string[]) {
+  /** Define os supervisores (dentistas) de um estagiário */
+  async linkSupervisors(internId: string, dentistIds: string[]) {
     return this.prisma.user.update({
       where: { id: internId },
       data: {
-        supervisors: { set: lawyerIds.map(id => ({ id })) },
+        supervisors: { set: dentistIds.map(id => ({ id })) },
       },
       include: {
         supervisors: { select: { id: true, name: true } },

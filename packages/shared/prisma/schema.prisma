@@ -80,7 +80,7 @@ model User {
   updated_at                    DateTime               @updatedAt
   audit_logs                    AuditLog[]
   assigned_convos               Conversation[]         @relation("AssignedUser")
-  lawyer_convos                 Conversation[]         @relation("AssignedLawyer")
+  dentist_convos                Conversation[]         @relation("AssignedDentist")
   lead_notes                    LeadNote[]
   stage_history_actor           LeadStageHistory[]     @relation("StageHistoryActor")
   inboxes                       Inbox[]
@@ -96,7 +96,7 @@ model User {
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
   ai_chats                      AiChat[]               @relation("AiChatOwner")
   cs_leads                      Lead[]                 @relation("CSManager")
-  financial_transactions        FinancialTransaction[] @relation("FinancialLawyer")
+  financial_transactions        FinancialTransaction[] @relation("FinancialDentist")
   conversation_notes            ConversationNote[]     @relation("ConversationNoteAuthor")
   broadcast_jobs                BroadcastJob[]
   notification_setting          NotificationSetting?
@@ -197,7 +197,7 @@ model Conversation {
   pending_transfer_reason    String?
   pending_transfer_audio_ids String[]            @default([])
   specialty                  String? // Especialidade odontológica detectada pela IA (endodontia, ortodontia, periodontia, etc.)
-  assigned_lawyer_id         String? // Advogado pre-designado pela IA
+  assigned_dentist_id        String? // Dentista pre-designado pela IA
   origin_assigned_user_id    String? // Quem transferiu (para devolucao)
   linked_agent_ids           String[]            @default([]) // Todos os agentes que atenderam
   next_step                  String? // Proximo passo: "duvidas" | "triagem_concluida" | "formulario" | "reuniao" | "encerrado"
@@ -205,7 +205,7 @@ model Conversation {
   reminder_context           Json? // Contexto do ultimo lembrete WhatsApp enviado ao cliente (audiencia/prazo)
   last_message_at            DateTime            @default(now())
   assigned_user              User?               @relation("AssignedUser", fields: [assigned_user_id], references: [id], onDelete: SetNull)
-  assigned_lawyer            User?               @relation("AssignedLawyer", fields: [assigned_lawyer_id], references: [id], onDelete: SetNull)
+  assigned_dentist           User?               @relation("AssignedDentist", fields: [assigned_dentist_id], references: [id], onDelete: SetNull)
   lead                       Lead                @relation(fields: [lead_id], references: [id], onDelete: Cascade)
   tenant                     Tenant?             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   inbox                      Inbox?              @relation(fields: [inbox_id], references: [id], onDelete: SetNull)
@@ -1022,7 +1022,7 @@ model FinancialTransaction {
   status            String    @default("PENDENTE") // PENDENTE, PAGO, CANCELADO
   reference_id      String? // ID externo (gateway, NFS-e, etc.)
   notes             String?
-  visible_to_lawyer Boolean   @default(true) // Se false, advogado não vê esta despesa
+  visible_to_dentist Boolean   @default(true) // Se false, dentista não vê esta despesa
 
   // Recorrência
   is_recurring          Boolean   @default(false)
@@ -1033,7 +1033,7 @@ model FinancialTransaction {
 
   // Vínculos opcionais
   lead_id                   String?
-  lawyer_id                 String? // mantido — sera renomeado p/ dentist_id na Fase 0.3
+  dentist_id                String? // mantido — sera usado pra filtrar transacoes visiveis ao dentista
   lead_honorario_payment_id String? @unique // 1:1 com LeadHonorarioPayment (orçamento)
 
   created_at DateTime @default(now())
@@ -1041,7 +1041,7 @@ model FinancialTransaction {
 
   tenant                 Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   lead                   Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
-  lawyer                 User?                 @relation("FinancialLawyer", fields: [lawyer_id], references: [id], onDelete: SetNull)
+  dentist                User?                 @relation("FinancialDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
   lead_honorario_payment LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
   gateway_charge         PaymentGatewayCharge?
   nota_fiscal            NotaFiscal?
@@ -1049,7 +1049,7 @@ model FinancialTransaction {
   @@index([tenant_id, date])
   @@index([type, status])
   @@index([lead_id])
-  @@index([lawyer_id])
+  @@index([dentist_id])
   @@index([category])
   @@index([due_date, status])
 }
