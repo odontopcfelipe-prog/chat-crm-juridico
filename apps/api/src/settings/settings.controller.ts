@@ -188,7 +188,7 @@ export class SettingsController {
 
   @Post('ai-config')
   @Roles('ADMIN')
-  async setAiConfig(@Body() data: { apiKey?: string; adminKey?: string; anthropicApiKey?: string; defaultModel?: string; djenModel?: string; djenPrompt?: string; djenNotifyTemplate?: string; adminBotEnabled?: boolean; cooldownSeconds?: number }) {
+  async setAiConfig(@Body() data: { apiKey?: string; adminKey?: string; anthropicApiKey?: string; defaultModel?: string; djenModel?: string; djenPrompt?: string; djenNotifyTemplate?: string; adminBotEnabled?: boolean; whatsappAiEnabled?: boolean; cooldownSeconds?: number }) {
     if (data.apiKey)    await this.settingsService.setAiConfig(data.apiKey);
     if (data.adminKey)  await this.settingsService.setAdminKey(data.adminKey);
     if (data.anthropicApiKey) await this.settingsService.upsert('ANTHROPIC_API_KEY', data.anthropicApiKey);
@@ -197,6 +197,7 @@ export class SettingsController {
     if (data.djenPrompt !== undefined) await this.settingsService.setDjenPrompt(data.djenPrompt);
     if (data.djenNotifyTemplate !== undefined) await this.settingsService.setDjenNotifyTemplate(data.djenNotifyTemplate);
     if (data.adminBotEnabled !== undefined) await this.settingsService.setAdminBotEnabled(data.adminBotEnabled);
+    if (data.whatsappAiEnabled !== undefined) await this.settingsService.setWhatsappAiEnabled(data.whatsappAiEnabled);
     if (data.cooldownSeconds !== undefined) await this.settingsService.setCooldownSeconds(Number(data.cooldownSeconds));
     return { message: 'Configurações de IA salvas com sucesso' };
   }

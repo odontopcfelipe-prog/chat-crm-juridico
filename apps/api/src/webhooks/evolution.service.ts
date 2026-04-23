@@ -492,8 +492,18 @@ export class EvolutionService implements OnApplicationBootstrap {
       // 5. Se AI_Mode ativo e mensagem recebida (não enviada), agenda job para a IA responder
       // Debounce: cancela job pendente e cria novo com timer resetado, acumulando mensagens
       // rápidas. Quando o lead para de digitar, o job dispara e a IA responde tudo de uma vez.
+      //
+      // Kill switch global (WHATSAPP_AI_ENABLED): quando false, NÃO enfileira resposta —
+      // usado pelo admin ao cadastrar instância nova sem querer que a IA responda ainda.
       this.logger.debug(`[AI-CHECK] conv=${conv.id} ai_mode=${conv.ai_mode} isOutgoing=${isOutgoing}`);
       if (!isOutgoing && conv.ai_mode) {
+        const killSwitch = await this.prisma.globalSetting.findUnique({
+          where: { key: 'WHATSAPP_AI_ENABLED' },
+        });
+        const aiEnabled = (killSwitch?.value ?? 'true') !== 'false';
+        if (!aiEnabled) {
+          this.logger.log(`[AI] Kill switch global desativado — ignorando resposta para conv ${conv.id}`);
+        } else {
         try {
           const cooldownRaw = await this.prisma.globalSetting.findUnique({
             where: { key: 'AI_COOLDOWN_SECONDS' },
@@ -534,6 +544,7 @@ export class EvolutionService implements OnApplicationBootstrap {
           }
         } catch (queueErr: any) {
           this.logger.error(`[AI] ERRO ao enfileirar job de IA: ${queueErr.message}`);
+        }
         }
       }
 

@@ -178,6 +178,8 @@ export class SettingsService {
     const djenNotifyTemplate = await this.get('DJEN_CLIENT_NOTIFY_TEMPLATE');
     const adminBotEnabledRaw = await this.get('ADMIN_BOT_ENABLED');
     const adminBotEnabled = adminBotEnabledRaw !== 'false';
+    const whatsappAiEnabledRaw = await this.get('WHATSAPP_AI_ENABLED');
+    const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
     const cooldownRaw = await this.get('AI_COOLDOWN_SECONDS');
     const cooldownSeconds = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
     return {
@@ -192,6 +194,7 @@ export class SettingsService {
       djenNotifyTemplate: djenNotifyTemplate || '',
       djenNotifyTemplateIsCustom: !!djenNotifyTemplate,
       adminBotEnabled,
+      whatsappAiEnabled,
       cooldownSeconds: isNaN(cooldownSeconds) ? 8 : cooldownSeconds,
     };
   }
@@ -247,6 +250,16 @@ export class SettingsService {
 
   async setAdminBotEnabled(enabled: boolean): Promise<void> {
     await this.set('ADMIN_BOT_ENABLED', enabled ? 'true' : 'false');
+  }
+
+  /** Kill switch global da IA no WhatsApp. Quando false, mensagens recebidas não disparam resposta automática. */
+  async getWhatsappAiEnabled(): Promise<boolean> {
+    const val = await this.get('WHATSAPP_AI_ENABLED');
+    return val !== 'false'; // padrão: habilitado
+  }
+
+  async setWhatsappAiEnabled(enabled: boolean): Promise<void> {
+    await this.set('WHATSAPP_AI_ENABLED', enabled ? 'true' : 'false');
   }
 
   async getSkills() {

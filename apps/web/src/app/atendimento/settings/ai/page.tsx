@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Volume2 } from 'lucide-react';
+import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Volume2, Power, PowerOff } from 'lucide-react';
 import api from '@/lib/api';
 
 interface SkillTool {
@@ -193,6 +193,7 @@ export default function AiSettingsPage() {
   const [djenNotifyTemplateIsCustom, setDjenNotifyTemplateIsCustom] = useState(false);
   const [showDjenNotifyTemplate, setShowDjenNotifyTemplate] = useState(false);
   const [adminBotEnabled, setAdminBotEnabled] = useState(true);
+  const [whatsappAiEnabled, setWhatsappAiEnabled] = useState(true);
   const [cooldownSeconds, setCooldownSeconds] = useState(8);
   const [isConfigured, setIsConfigured] = useState(false);
   const [isAdminKeyConfigured, setIsAdminKeyConfigured] = useState(false);
@@ -252,6 +253,7 @@ export default function AiSettingsPage() {
       setDjenNotifyTemplate(configRes.data.djenNotifyTemplate || DEFAULT_DJEN_NOTIFY_TEMPLATE);
       setDjenNotifyTemplateIsCustom(configRes.data.djenNotifyTemplateIsCustom ?? false);
       setAdminBotEnabled(configRes.data.adminBotEnabled ?? true);
+      setWhatsappAiEnabled(configRes.data.whatsappAiEnabled ?? true);
       setCooldownSeconds(configRes.data.cooldownSeconds ?? 8);
       setSkills(skillsRes.data);
       setTtsEnabled(ttsRes.data.enabled ?? false);
@@ -266,6 +268,19 @@ export default function AiSettingsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
+  // ---------- Kill Switch: salva imediatamente pra o admin poder
+  //            ligar/desligar a IA sem precisar clicar em "Salvar"
+  const toggleWhatsappAi = async () => {
+    const next = !whatsappAiEnabled;
+    setWhatsappAiEnabled(next);
+    try {
+      await api.post('/settings/ai-config', { whatsappAiEnabled: next });
+    } catch (e) {
+      setWhatsappAiEnabled(!next);
+      alert('Erro ao alterar estado da IA. Verifique se você é administrador.');
+    }
+  };
+
   // ---------- Config Global ----------
   const handleSaveConfig = async () => {
     setSavingConfig(true);
@@ -274,7 +289,7 @@ export default function AiSettingsPage() {
       // Isso garante que atualizações futuras do default no código sejam aplicadas automaticamente
       const effectiveDjenPrompt = djenPrompt === DEFAULT_DJEN_PROMPT ? '' : djenPrompt;
       const effectiveDjenNotifyTemplate = djenNotifyTemplate === DEFAULT_DJEN_NOTIFY_TEMPLATE ? '' : djenNotifyTemplate;
-      const payload: any = { defaultModel, djenModel, djenPrompt: effectiveDjenPrompt, djenNotifyTemplate: effectiveDjenNotifyTemplate, adminBotEnabled, cooldownSeconds };
+      const payload: any = { defaultModel, djenModel, djenPrompt: effectiveDjenPrompt, djenNotifyTemplate: effectiveDjenNotifyTemplate, adminBotEnabled, whatsappAiEnabled, cooldownSeconds };
       if (apiKey.trim())       payload.apiKey         = apiKey.trim();
       if (adminKey.trim())     payload.adminKey       = adminKey.trim();
       if (anthropicKey.trim()) payload.anthropicApiKey = anthropicKey.trim();
@@ -444,6 +459,63 @@ export default function AiSettingsPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 flex flex-col gap-6">
+
+        {/* ── Kill Switch: IA Global ── */}
+        <div
+          className={`rounded-2xl border-2 p-5 transition-colors ${
+            whatsappAiEnabled
+              ? 'bg-emerald-500/5 border-emerald-500/30'
+              : 'bg-red-500/5 border-red-500/30'
+          }`}
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-4">
+              <div
+                className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
+                  whatsappAiEnabled
+                    ? 'bg-emerald-500/15 text-emerald-500'
+                    : 'bg-red-500/15 text-red-500'
+                }`}
+              >
+                {whatsappAiEnabled ? <Power size={22} /> : <PowerOff size={22} />}
+              </div>
+              <div>
+                <h3 className="text-sm font-bold text-foreground tracking-tight flex items-center gap-2">
+                  IA no WhatsApp
+                  <span
+                    className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
+                      whatsappAiEnabled
+                        ? 'bg-emerald-500/15 text-emerald-600'
+                        : 'bg-red-500/15 text-red-600'
+                    }`}
+                  >
+                    {whatsappAiEnabled ? 'LIGADA' : 'DESLIGADA'}
+                  </span>
+                </h3>
+                <p className="text-[12px] text-muted-foreground mt-0.5 max-w-md">
+                  {whatsappAiEnabled
+                    ? 'A IA está respondendo automaticamente mensagens recebidas no WhatsApp.'
+                    : 'Nenhuma mensagem recebida será respondida pela IA. Use ao cadastrar uma instância nova ou em manutenção.'}
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={toggleWhatsappAi}
+              disabled={loading}
+              className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
+                whatsappAiEnabled ? 'bg-emerald-500' : 'bg-red-500'
+              }`}
+              title={whatsappAiEnabled ? 'Clique para desligar' : 'Clique para ligar'}
+            >
+              <span
+                className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${
+                  whatsappAiEnabled ? 'translate-x-7' : 'translate-x-0'
+                }`}
+              />
+            </button>
+          </div>
+        </div>
 
         {/* ── Config Global ── */}
         <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
