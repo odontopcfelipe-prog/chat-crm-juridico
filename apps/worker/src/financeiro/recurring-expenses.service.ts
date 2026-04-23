@@ -80,7 +80,6 @@ export class RecurringExpensesService {
             status: 'PENDENTE',
             visible_to_lawyer: parent.visible_to_lawyer,
             lawyer_id: parent.lawyer_id,
-            legal_case_id: parent.legal_case_id,
             lead_id: parent.lead_id,
             notes: parent.notes,
             parent_transaction_id: parent.id,

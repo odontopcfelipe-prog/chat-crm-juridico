@@ -97,16 +97,6 @@ export class ProfileConsolidationProcessor {
             take: 3,
             orderBy: { last_message_at: 'desc' },
           },
-          legal_cases: {
-            where: { archived: false },
-            select: {
-              case_number: true,
-              legal_area: true,
-              stage: true,
-              court: true,
-              action_type: true,
-            },
-          },
         },
       }),
       this.prisma.leadProfile.findUnique({ where: { lead_id: leadId } }),
@@ -128,7 +118,7 @@ export class ProfileConsolidationProcessor {
         stage: lead.stage,
         tags: lead.tags,
       },
-      cases: lead.legal_cases,
+      cases: [],
       memories: memories.map((m) => ({
         content: m.content,
         type: m.type,

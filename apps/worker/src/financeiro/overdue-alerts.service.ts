@@ -32,22 +32,9 @@ export class OverdueAlertsService {
         select: { id: true, description: true, amount: true, due_date: true, lawyer_id: true, visible_to_lawyer: true },
       });
 
-      // 2. Honorários pendentes/atrasados (recebíveis vencidos)
-      const overdueHonorarios = await this.prisma.honorarioPayment.findMany({
-        where: {
-          status: { in: ['PENDENTE', 'ATRASADO'] },
-          due_date: { lt: now, not: null },
-        },
-        select: {
-          id: true, amount: true, due_date: true,
-          honorario: {
-            select: {
-              type: true,
-              legal_case: { select: { case_number: true, lawyer_id: true, lead: { select: { name: true } } } },
-            },
-          },
-        },
-      });
+      // 2. Honorários pendentes/atrasados (recebíveis vencidos) — descontinuado na transição odonto.
+      // Será reativado via Installment na Fase 2.
+      const overdueHonorarios: any[] = [];
 
       const totalDespesasVencidas = overdueDespesas.reduce((s, d) => s + Number(d.amount), 0);
       const totalRecebiveisVencidos = overdueHonorarios.reduce((s, h) => s + Number(h.amount), 0);

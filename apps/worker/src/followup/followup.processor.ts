@@ -263,7 +263,6 @@ export class FollowupProcessor extends WorkerHost {
       where: { id: item.event_id },
       include: {
         lead: true,
-        legal_case: { select: { case_number: true, action_type: true, court: true, opposing_party: true, judge: true, legal_area: true } },
       },
     }) : null;
 
@@ -365,10 +364,7 @@ DADOS DO EVENTO:
 - Título: ${event?.title || 'Audiência'}
 - Data/Hora: ${dataEvento}
 - Local: ${event?.location || 'A confirmar'}
-${event?.legal_case ? `- Processo: ${event.legal_case.case_number || 'N/A'}
-- Tipo de ação: ${event.legal_case.action_type || 'N/A'}
-- Vara/Tribunal: ${event.legal_case.court || 'N/A'}
-- Parte contrária: ${event.legal_case.opposing_party || 'N/A'}` : ''}
+
 
 DADOS DO CLIENTE:
 - Nome: ${lead.name || 'Cliente'}
