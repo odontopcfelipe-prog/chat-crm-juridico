@@ -72,7 +72,6 @@ export class UsersService {
       orderBy: { created_at: 'desc' },
       include: {
         inboxes: { select: { id: true, name: true } },
-        sectors: { select: { id: true, name: true } },
         supervisors: { select: { id: true, name: true } },
       },
     });
@@ -89,29 +88,11 @@ export class UsersService {
       where: { id },
       include: {
         inboxes: { select: { id: true, name: true } },
-        sectors: { select: { id: true, name: true } },
       },
     });
     if (!user) return null;
     const { password_hash, ...result } = user as any;
     return result;
-  }
-
-  private async syncSector(userId: string, role: string) {
-    if (role === 'ADMIN') {
-      await (this.prisma as any).user.update({
-        where: { id: userId },
-        data: { sectors: { set: [] } },
-      });
-    } else {
-      const sector = await (this.prisma as any).sector.findFirst({
-        where: { name: { equals: role, mode: 'insensitive' } },
-      });
-      await (this.prisma as any).user.update({
-        where: { id: userId },
-        data: { sectors: { set: sector ? [{ id: sector.id }] : [] } },
-      });
-    }
   }
 
   async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; oab_number?: string; oab_uf?: string }): Promise<Omit<User, 'password_hash'>> {
@@ -133,8 +114,6 @@ export class UsersService {
       },
       include: { inboxes: { select: { id: true, name: true } } }
     });
-    // Auto-sync department based on primary role
-    await this.syncSector(user.id, normalizedRoles[0]);
     const { password_hash: _, ...result } = user;
     return result as any;
   }
@@ -167,10 +146,6 @@ export class UsersService {
       data: updateData,
       include: { inboxes: { select: { id: true, name: true } } }
     });
-    // Auto-sync department when primary role changes
-    if (normalizedRoles && normalizedRoles.length > 0) {
-      await this.syncSector(id, normalizedRoles[0]);
-    }
     const { password_hash, ...result } = user;
     return result as any;
   }

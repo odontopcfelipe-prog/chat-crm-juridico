@@ -14,16 +14,13 @@ export class InboxesService {
   }
 
   async findAllOperators() {
-    const [inboxes, sectors, allEligible, allOperators] = await Promise.all([
+    const [inboxes, allEligible, allOperators] = await Promise.all([
       this.inbox.findMany({
         include: { users: { select: { id: true, name: true } } },
-      }),
-      (this.prisma as any).sector.findMany({
-        include: { users: { select: { id: true, name: true, roles: true } } },
         orderBy: { name: 'asc' },
       }),
       (this.prisma as any).user.findMany({
-        where: { roles: { hasSome: ['OPERADOR', 'ADVOGADO', 'ADMIN'] } },
+        where: { roles: { hasSome: ['OPERADOR', 'ADVOGADO', 'ADMIN', 'COMERCIAL', 'FINANCEIRO', 'ESTAGIARIO'] } },
         select: { id: true, name: true, roles: true },
         orderBy: { name: 'asc' },
       }),
@@ -35,43 +32,32 @@ export class InboxesService {
     ]);
 
     const inboxUserIds = new Set(inboxes.flatMap((i: any) => (i.users || []).map((u: any) => u.id)));
-    const operatorIds = new Set((allOperators as any[]).map((u: any) => u.id));
 
-    // Operadores sem inbox → injetar no primeiro inbox (Comercial)
+    // Operadores sem inbox → injetar no primeiro inbox (se existir)
     const operatorsNotInInbox = (allOperators as { id: string; name: string }[]).filter(
       u => !inboxUserIds.has(u.id),
     );
 
+    // Tipo preservado ('INBOX' | 'SECTOR') para compatibilidade com TransferModals.
+    // Inboxes com auto_route=true são expostos como SECTOR para manter a UX especial
+    // (ícone ⚖️, IA sugere especialista). Inboxes comuns viram INBOX.
     const inboxGroups = inboxes.map((inbox: any, idx: number) => ({
       id: inbox.id,
       name: inbox.name,
-      type: 'INBOX' as const,
-      auto_route: false,
-      // Adicionar operadores sem inbox ao primeiro inbox (Comercial)
+      type: inbox.auto_route ? ('SECTOR' as const) : ('INBOX' as const),
+      auto_route: inbox.auto_route ?? false,
       users: idx === 0
-        ? [...inbox.users as { id: string; name: string }[], ...operatorsNotInInbox]
-        : inbox.users as { id: string; name: string }[],
+        ? [...(inbox.users as { id: string; name: string }[]), ...operatorsNotInInbox]
+        : (inbox.users as { id: string; name: string }[]),
     }));
 
-    // Setores de advogados: remover usuários com role OPERADOR (eles já aparecem em Comercial)
-    const sectorGroups = sectors.map((sector: any) => ({
-      id: sector.id,
-      name: sector.name,
-      type: 'SECTOR' as const,
-      auto_route: sector.auto_route ?? false,
-      users: sector.auto_route
-        ? (sector.users as any[]).filter((u: any) => !operatorIds.has(u.id)).map((u: any) => ({ id: u.id, name: u.name }))
-        : (sector.users as any[]).map((u: any) => ({ id: u.id, name: u.name })),
-    }));
-
-    const sectorUserIds = new Set(sectors.flatMap((s: any) => (s.users || []).map((u: any) => u.id)));
-
-    // Equipe: usuários sem inbox e sem setor (não operadores já inclusos acima)
+    // Equipe: usuários elegíveis sem inbox e que não são OPERADOR (esses já foram injetados acima)
+    const operatorIds = new Set((allOperators as any[]).map((u: any) => u.id));
     const ungroupedUsers = (allEligible as { id: string; name: string }[]).filter(
-      u => !inboxUserIds.has(u.id) && !sectorUserIds.has(u.id) && !operatorIds.has(u.id),
+      u => !inboxUserIds.has(u.id) && !operatorIds.has(u.id),
     );
 
-    const result = [...inboxGroups, ...sectorGroups];
+    const result: any[] = [...inboxGroups];
 
     if (ungroupedUsers.length > 0) {
       result.push({
@@ -88,7 +74,7 @@ export class InboxesService {
 
   async findAll(tenantId?: string, userId?: string) {
     return this.inbox.findMany({
-      where: { 
+      where: {
         tenant_id: tenantId,
         users: userId ? { some: { id: userId } } : undefined
       },
@@ -98,7 +84,8 @@ export class InboxesService {
         _count: {
           select: { users: true, conversations: true }
         }
-      }
+      },
+      orderBy: { name: 'asc' }
     });
   }
 
@@ -115,7 +102,7 @@ export class InboxesService {
     return inbox;
   }
 
-  async create(data: { name: string; tenant_id?: string }) {
+  async create(data: { name: string; color?: string | null; auto_route?: boolean; tenant_id?: string }) {
     return this.inbox.create({
       data,
       include: {
@@ -128,16 +115,18 @@ export class InboxesService {
     });
   }
 
-  async update(id: string, data: { name?: string }) {
+  async update(id: string, data: { name?: string; color?: string | null; auto_route?: boolean }) {
     return this.inbox.update({
       where: { id },
-      data
+      data,
+      include: {
+        instances: true,
+        users: { select: { id: true, name: true, email: true } },
+      }
     });
   }
 
   async remove(id: string) {
-    // Desassociar conversas e instancias antes de deletar
-    // (onDelete: SetNull no schema cuida disso, mas garantimos manualmente)
     await Promise.all([
       (this.prisma as any).conversation.updateMany({
         where: { inbox_id: id },
@@ -174,7 +163,6 @@ export class InboxesService {
   // --- Gestão de Instâncias ---
 
   async addInstance(inboxId: string, instanceName: string, type: 'whatsapp' | 'instagram') {
-    // Verifica se a instância já está vinculada a outro inbox
     const existing = await this.instance.findUnique({ where: { name: instanceName } });
     if (existing?.inbox_id && existing.inbox_id !== inboxId) {
       const otherInbox = await this.inbox.findUnique({ where: { id: existing.inbox_id }, select: { name: true } });
@@ -183,7 +171,6 @@ export class InboxesService {
       );
     }
 
-    // 1. Vincula a instância ao setor
     const parentInbox = await this.inbox.findUnique({
       where: { id: inboxId },
       select: { tenant_id: true },
@@ -204,14 +191,94 @@ export class InboxesService {
       }
     });
 
-    // 2. MIGRACAO: Vincula todas as conversas existentes desta instancia ao novo setor
-    // Isso garante que contatos antigos "apareçam" no novo setor imediatamente
+    // Conversas antigas desta instância passam a aparecer no novo setor
     await (this.prisma as any).conversation.updateMany({
       where: { instance_name: instanceName },
       data: { inbox_id: inboxId }
     });
 
     return instance;
+  }
+
+  /** Desvincula a instância do setor sem apagá-la (fica órfã). */
+  async removeInstance(inboxId: string, instanceName: string) {
+    const existing = await this.instance.findUnique({ where: { name: instanceName } });
+    if (!existing || existing.inbox_id !== inboxId) {
+      throw new NotFoundException('Instância não está vinculada a este setor');
+    }
+    return this.instance.update({
+      where: { name: instanceName },
+      data: { inbox_id: null },
+    });
+  }
+
+  /**
+   * Cria um Setor completo de forma atômica (nome, cor, auto_route, instância opcional e operadores).
+   * Usado pelo modal unificado de criação na UI de Setores.
+   */
+  async createFull(params: {
+    name: string;
+    color?: string | null;
+    autoRoute?: boolean;
+    instanceName?: string | null;
+    instanceType?: 'whatsapp' | 'instagram';
+    operatorIds?: string[];
+    tenant_id?: string;
+  }) {
+    const { name, color, autoRoute, instanceName, instanceType = 'whatsapp', operatorIds = [], tenant_id } = params;
+
+    if (instanceName) {
+      const existing = await this.instance.findUnique({ where: { name: instanceName } });
+      if (existing?.inbox_id) {
+        const other = await this.inbox.findUnique({ where: { id: existing.inbox_id }, select: { name: true } });
+        throw new ConflictException(
+          `A instância "${instanceName}" já está vinculada ao setor "${other?.name ?? existing.inbox_id}".`
+        );
+      }
+    }
+
+    return (this.prisma as any).$transaction(async (tx: any) => {
+      const created = await tx.inbox.create({
+        data: {
+          name,
+          color: color ?? null,
+          auto_route: autoRoute ?? false,
+          tenant_id,
+          users: operatorIds.length > 0 ? { connect: operatorIds.map(id => ({ id })) } : undefined,
+        },
+      });
+
+      if (instanceName) {
+        await tx.instance.upsert({
+          where: { name: instanceName },
+          update: {
+            inbox_id: created.id,
+            type: instanceType,
+            ...(tenant_id ? { tenant_id } : {}),
+          },
+          create: {
+            name: instanceName,
+            type: instanceType,
+            inbox_id: created.id,
+            tenant_id,
+          },
+        });
+
+        await tx.conversation.updateMany({
+          where: { instance_name: instanceName },
+          data: { inbox_id: created.id },
+        });
+      }
+
+      return tx.inbox.findUnique({
+        where: { id: created.id },
+        include: {
+          instances: true,
+          users: { select: { id: true, name: true, email: true } },
+          _count: { select: { users: true, conversations: true } },
+        },
+      });
+    });
   }
 
   async findByInstanceName(instanceName: string) {
@@ -238,14 +305,12 @@ export class InboxesService {
 
       if (!inbox?.users?.length) return null;
 
-      // Filtra por operadores online (se fornecido)
       let users: { id: string }[] = inbox.users;
       if (onlineUserIds) {
         users = users.filter((u: any) => onlineUserIds.includes(u.id));
-        if (users.length === 0) return null; // Ninguém online neste inbox
+        if (users.length === 0) return null;
       }
 
-      // Round-robin sobre os operadores disponíveis
       const currentIdx = inbox.rr_pointer
         ? users.findIndex((u: any) => u.id === inbox.rr_pointer)
         : -1;

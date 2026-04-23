@@ -92,7 +92,6 @@ model User {
   lead_notes                    LeadNote[]
   stage_history_actor           LeadStageHistory[]     @relation("StageHistoryActor")
   inboxes                       Inbox[]
-  sectors                       Sector[]               @relation("SectorUsers")
   tasks                         Task[]
   tenant                        Tenant?                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   lawyer_cases                  LegalCase[]            @relation("LawyerCases")
@@ -475,6 +474,8 @@ model Inbox {
   id            String         @id @default(uuid())
   tenant_id     String?
   name          String
+  color         String? // hex (#ef4444) escolhido na UI para identificação visual
+  auto_route    Boolean        @default(false) // se true, IA roteia automaticamente (antes vivia em Sector)
   rr_pointer    String? // ID do ultimo usuario atribuido (round-robin)
   is_active     Boolean        @default(true)
   created_at    DateTime       @default(now())
@@ -536,14 +537,6 @@ model LpEvent {
 
   @@index([page_path, created_at])
   @@index([event_type])
-}
-
-model Sector {
-  id         String   @id @default(uuid())
-  name       String
-  auto_route Boolean  @default(false)
-  created_at DateTime @default(now())
-  users      User[]   @relation("SectorUsers")
 }
 
 model LegalCase {

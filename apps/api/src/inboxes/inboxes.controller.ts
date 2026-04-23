@@ -12,13 +12,11 @@ export class InboxesController {
   async findAll(@Request() req: any) {
     const userId = req.user?.id;
     const isAdmin = req.user?.roles?.includes('ADMIN');
-    // ADMINs veem todos os inboxes; outros usuários só veem os que são membros
     return this.inboxesService.findAll(req.user?.tenant_id, isAdmin ? undefined : userId);
   }
 
   @Get('operators')
   async getAllOperators() {
-    // Qualquer usuário autenticado pode listar operadores (necessário para transferências)
     return this.inboxesService.findAllOperators();
   }
 
@@ -29,13 +27,40 @@ export class InboxesController {
 
   @Post()
   @Roles('ADMIN')
-  async create(@Body() data: { name: string }, @Request() req: any) {
+  async create(
+    @Body() data: { name: string; color?: string | null; auto_route?: boolean },
+    @Request() req: any,
+  ) {
     return this.inboxesService.create({ ...data, tenant_id: req.user?.tenant_id });
+  }
+
+  /**
+   * Criação atômica de Setor completo — usado pelo modal unificado do frontend.
+   * Cria o inbox, vincula instância WhatsApp (opcional) e conecta operadores numa única transação.
+   */
+  @Post('full')
+  @Roles('ADMIN')
+  async createFull(
+    @Body()
+    data: {
+      name: string;
+      color?: string | null;
+      autoRoute?: boolean;
+      instanceName?: string | null;
+      instanceType?: 'whatsapp' | 'instagram';
+      operatorIds?: string[];
+    },
+    @Request() req: any,
+  ) {
+    return this.inboxesService.createFull({ ...data, tenant_id: req.user?.tenant_id });
   }
 
   @Put(':id')
   @Roles('ADMIN')
-  async update(@Param('id') id: string, @Body() data: { name: string }) {
+  async update(
+    @Param('id') id: string,
+    @Body() data: { name?: string; color?: string | null; auto_route?: boolean },
+  ) {
     return this.inboxesService.update(id, data);
   }
 
@@ -68,5 +93,11 @@ export class InboxesController {
     @Body() data: { name: string; type: 'whatsapp' | 'instagram' }
   ) {
     return this.inboxesService.addInstance(id, data.name, data.type);
+  }
+
+  @Delete(':id/instances/:name')
+  @Roles('ADMIN')
+  async removeInstance(@Param('id') id: string, @Param('name') name: string) {
+    return this.inboxesService.removeInstance(id, name);
   }
 }

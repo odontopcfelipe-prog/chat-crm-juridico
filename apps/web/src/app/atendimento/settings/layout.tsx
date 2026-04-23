@@ -2,7 +2,7 @@
 
 import { useRouter, usePathname } from 'next/navigation';
 import {
-  UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout, Briefcase,
+  UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
   Brain, DoorOpen, Tag, Percent, Network,
@@ -22,13 +22,12 @@ const settingsSections: MenuSection[] = [
     items: [
       { label: 'Usuários & Perfis', href: '/atendimento/settings/users', icon: UserCog },
       { label: 'Permissões', href: '/atendimento/settings/permissions', icon: Shield },
-      { label: 'Departamentos', href: '/atendimento/settings/sectors', icon: Briefcase },
     ],
   },
   {
     title: 'Atendimento',
     items: [
-      { label: 'Setores (Inboxes)', href: '/atendimento/settings/inboxes', icon: Layout },
+      { label: 'Setores', href: '/atendimento/settings/inboxes', icon: Layout },
       { label: 'Respostas Rápidas', href: '/atendimento/settings/canned-responses', icon: Zap },
       { label: 'CRM Pipeline', href: '/atendimento/settings/crm', icon: Kanban },
       { label: 'Notificações', href: '/atendimento/settings/notifications', icon: Bell },
