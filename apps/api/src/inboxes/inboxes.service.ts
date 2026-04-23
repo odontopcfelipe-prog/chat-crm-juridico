@@ -191,11 +191,27 @@ export class InboxesService {
       }
     });
 
-    // Conversas antigas desta instância passam a aparecer no novo setor
+    // Conversas antigas desta instância passam a aparecer no novo setor.
+    // Também faz backfill de tenant_id quando null — conversas criadas antes do vínculo
+    // ficavam com tenant=null (porque a Instance não tinha tenant na época) e eram
+    // filtradas por /conversations (que sempre aplica where.tenant_id = tenantId).
     await (this.prisma as any).conversation.updateMany({
       where: { instance_name: instanceName },
-      data: { inbox_id: inboxId }
+      data: { inbox_id: inboxId },
     });
+    if (parentInbox.tenant_id) {
+      await (this.prisma as any).conversation.updateMany({
+        where: { instance_name: instanceName, tenant_id: null },
+        data: { tenant_id: parentInbox.tenant_id },
+      });
+      await (this.prisma as any).lead.updateMany({
+        where: {
+          tenant_id: null,
+          conversations: { some: { instance_name: instanceName } },
+        },
+        data: { tenant_id: parentInbox.tenant_id },
+      });
+    }
 
     return instance;
   }
@@ -268,6 +284,20 @@ export class InboxesService {
           where: { instance_name: instanceName },
           data: { inbox_id: created.id },
         });
+        // Backfill tenant_id em conversas/leads criados antes do vínculo
+        if (tenant_id) {
+          await tx.conversation.updateMany({
+            where: { instance_name: instanceName, tenant_id: null },
+            data: { tenant_id },
+          });
+          await tx.lead.updateMany({
+            where: {
+              tenant_id: null,
+              conversations: { some: { instance_name: instanceName } },
+            },
+            data: { tenant_id },
+          });
+        }
       }
 
       return tx.inbox.findUnique({

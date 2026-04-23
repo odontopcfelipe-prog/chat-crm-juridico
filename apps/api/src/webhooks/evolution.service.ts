@@ -287,11 +287,17 @@ export class EvolutionService implements OnApplicationBootstrap {
             },
           });
         }
-      } else if (!conv.inbox_id && inboxId) {
-        // Se a conversa existe mas não tem setor, vincula ao setor da instância
+      } else if ((!conv.inbox_id && inboxId) || (!conv.tenant_id && effectiveTenantId)) {
+        // Conversa existe mas está sem inbox_id ou sem tenant_id — backfill a partir
+        // da instância/inbox. Sem isso, conversas antigas (criadas antes do vínculo
+        // instância-setor) ficam invisíveis no filtro `/conversations` que sempre
+        // aplica where.tenant_id = user.tenant_id.
+        const updateData: any = { instance_name: instanceName };
+        if (!conv.inbox_id && inboxId) updateData.inbox_id = inboxId;
+        if (!conv.tenant_id && effectiveTenantId) updateData.tenant_id = effectiveTenantId;
         conv = await this.prisma.conversation.update({
           where: { id: conv.id },
-          data: { inbox_id: inboxId, instance_name: instanceName }
+          data: updateData,
         });
       }
 
