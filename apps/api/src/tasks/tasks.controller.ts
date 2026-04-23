@@ -44,10 +44,10 @@ export class TasksController {
     const roles = req?.user?.roles || [];
     const userId = req?.user?.id;
 
-    // ADMIN/ADVOGADO podem ver todas as tarefas (viewAll=true) ou filtrar por assignedUserId
-    // ESTAGIARIO/OPERADOR veem apenas as próprias tarefas por padrão
+    // ADMIN/DENTIST podem ver todas as tarefas (viewAll=true) ou filtrar por assignedUserId
+    // ASSISTANT/OPERADOR veem apenas as próprias tarefas por padrão
     let effectiveAssignedUserId = assignedUserId;
-    if (!effectiveAssignedUserId && !roles.some((r: string) => ['ADMIN', 'ADVOGADO'].includes(r)) && viewAll !== 'true') {
+    if (!effectiveAssignedUserId && !roles.some((r: string) => ['ADMIN', 'DENTIST'].includes(r)) && viewAll !== 'true') {
       effectiveAssignedUserId = userId;
     }
 

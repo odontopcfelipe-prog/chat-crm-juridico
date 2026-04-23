@@ -63,8 +63,8 @@ const COLOR_PALETTE = [
 ];
 
 // Roles que podem ser operadores de um setor. Qualquer papel humano pode operar um setor
-// — estagiário transferindo para advogado, financeiro atendendo cobrança, etc.
-const OPERATOR_ROLES = ['ADMIN', 'ADVOGADO', 'OPERADOR', 'COMERCIAL', 'ESTAGIARIO', 'FINANCEIRO'];
+// — assistente transferindo para dentista, financeiro atendendo cobrança, etc.
+const OPERATOR_ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'ASSISTANT', 'FINANCEIRO'];
 
 export default function InboxesSettingsPage() {
   const [inboxes, setInboxes] = useState<Inbox[]>([]);

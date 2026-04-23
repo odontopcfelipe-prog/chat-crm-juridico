@@ -36,7 +36,7 @@ export class DashboardAnalyticsService {
     if (!scope) return null;
 
     const isAdmin = requesterRoles.includes('ADMIN');
-    const isAdvogado = requesterRoles.includes('ADVOGADO');
+    const isDentist = requesterRoles.includes('DENTIST');
     const isComercial = requesterRoles.includes('COMERCIAL') || requesterRoles.includes('OPERADOR');
     const isFinanceiro = requesterRoles.includes('FINANCEIRO');
 
@@ -44,7 +44,7 @@ export class DashboardAnalyticsService {
 
     switch (scope) {
       case 'comercial': {
-        if (!isAdmin && !isComercial && !isAdvogado) return null;
+        if (!isAdmin && !isComercial && !isDentist) return null;
         const users = await this.prisma.user.findMany({
           where: { ...tenantFilter, roles: { hasSome: ['OPERADOR', 'COMERCIAL'] } },
           select: { id: true },
@@ -55,18 +55,18 @@ export class DashboardAnalyticsService {
       case 'juridico': {
         if (isAdmin) {
           const users = await this.prisma.user.findMany({
-            where: { ...tenantFilter, roles: { has: 'ADVOGADO' } },
+            where: { ...tenantFilter, roles: { has: 'DENTIST' } },
             select: { id: true },
           });
           return { userIds: users.map((u) => u.id), bypass: true };
         }
-        if (isAdvogado) return { userIds: [requesterId], bypass: true };
+        if (isDentist) return { userIds: [requesterId], bypass: true };
         return null;
       }
 
       case 'financeiro': {
         if (isAdmin) return { userIds: null, bypass: true };
-        if (isAdvogado) return { userIds: [requesterId], bypass: true };
+        if (isDentist) return { userIds: [requesterId], bypass: true };
         if (isFinanceiro) return { userIds: [requesterId], bypass: true };
         return null;
       }
@@ -74,12 +74,12 @@ export class DashboardAnalyticsService {
       case 'estagiarios': {
         if (isAdmin) {
           const users = await this.prisma.user.findMany({
-            where: { ...tenantFilter, roles: { has: 'ESTAGIARIO' } },
+            where: { ...tenantFilter, roles: { has: 'ASSISTANT' } },
             select: { id: true },
           });
           return { userIds: users.map((u) => u.id), bypass: true };
         }
-        if (isAdvogado) {
+        if (isDentist) {
           const interns = await this.prisma.user.findMany({
             where: { supervisors: { some: { id: requesterId } } },
             select: { id: true },

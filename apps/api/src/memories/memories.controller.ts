@@ -43,7 +43,7 @@ export class MemoriesController {
   }
 
   @Post('organization/regenerate-profile')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async regenerateOrgProfile(@Request() req: any) {
     if (!req.user?.tenant_id) throw new BadRequestException('tenant_id ausente');
     return this.memoriesService.regenerateOrganizationProfile(req.user.tenant_id);
@@ -133,7 +133,7 @@ export class MemoriesController {
   }
 
   @Put('organization/profile')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async updateOrgProfile(
     @Request() req: any,
     @Body() body: { summary: string },
@@ -146,7 +146,7 @@ export class MemoriesController {
   }
 
   @Post('organization')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async createOrg(
     @Request() req: any,
     @Body() body: { content: string; subcategory: string; confidence?: number },
@@ -156,7 +156,7 @@ export class MemoriesController {
   }
 
   @Put(':id')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async updateMemory(
     @Request() req: any,
     @Param('id') id: string,
@@ -167,7 +167,7 @@ export class MemoriesController {
   }
 
   @Delete(':id')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async deleteMemory(@Request() req: any, @Param('id') id: string) {
     if (!req.user?.tenant_id) throw new BadRequestException('tenant_id ausente');
     return this.memoriesService.deleteMemory(id, req.user.tenant_id);
@@ -202,7 +202,7 @@ export class MemoriesController {
   }
 
   @Post('lead/:leadId')
-  @Roles('ADMIN', 'ADVOGADO', 'OPERADOR')
+  @Roles('ADMIN', 'DENTIST', 'OPERADOR')
   async createLeadMemory(
     @Request() req: any,
     @Param('leadId') leadId: string,
@@ -213,7 +213,7 @@ export class MemoriesController {
   }
 
   @Post('lead/:leadId/regenerate')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async regenerateProfile(@Request() req: any, @Param('leadId') leadId: string) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');

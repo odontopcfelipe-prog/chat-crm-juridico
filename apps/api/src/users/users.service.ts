@@ -14,17 +14,19 @@ import * as argon2 from 'argon2';
  * Essa camada garante que, independente do que chegue via API, o banco só
  * receba os 6 enums canônicos suportados por useRole.ts.
  */
-const CANONICAL_ROLES = ['ADMIN', 'ADVOGADO', 'OPERADOR', 'COMERCIAL', 'ESTAGIARIO', 'FINANCEIRO'] as const;
+const CANONICAL_ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'ASSISTANT', 'FINANCEIRO'] as const;
 type CanonicalRole = typeof CANONICAL_ROLES[number];
 
 function normalizeRole(raw: string): CanonicalRole {
   if (!raw) return 'OPERADOR';
   const upper = raw.toString().toUpperCase().trim();
   if (upper === 'ADMIN') return 'ADMIN';
-  if (upper === 'ADVOGADO' || upper === 'ADVOGADOS') return 'ADVOGADO';
+  // Compat: aceita roles legados do domínio jurídico (ADVOGADO/ESTAGIARIO) — banco
+  // pré-migração pode conter esses valores; normalizamos para o enum odontológico.
+  if (upper === 'ADVOGADO' || upper === 'ADVOGADOS' || upper === 'DENTIST' || upper === 'DENTISTS') return 'DENTIST';
   if (upper === 'OPERADOR' || upper === 'OPERADORES') return 'OPERADOR';
   if (upper === 'COMERCIAL' || upper === 'ATENDENTE COMERCIAL') return 'COMERCIAL';
-  if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS') return 'ESTAGIARIO';
+  if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS' || upper === 'ASSISTANT' || upper === 'ASSISTANTS') return 'ASSISTANT';
   if (upper === 'FINANCEIRO') return 'FINANCEIRO';
   return 'OPERADOR'; // fallback seguro
 }
@@ -222,7 +224,7 @@ export class UsersService {
 
   // ─── Dentist / Intern helpers ──────────────────────────────────
 
-  /** Lista dentistas (role ADVOGADO ou ADMIN com specialties) */
+  /** Lista dentistas (role DENTIST ou ADMIN com specialties) */
   async findLawyers(tenantId?: string) {
     const tenantFilter = this.tenantWhere(tenantId);
     return this.prisma.user.findMany({
@@ -230,7 +232,7 @@ export class UsersService {
         AND: [
           {
             OR: [
-              { roles: { has: 'ADVOGADO' } },
+              { roles: { has: 'DENTIST' } },
               { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
             ],
           },

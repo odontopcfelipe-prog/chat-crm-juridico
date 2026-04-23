@@ -648,13 +648,15 @@ export default function AgendaPage() {
         }
       }
     } catch {}
-    // Buscar apenas advogados e admins para o filtro de usuários
+    // Buscar apenas dentistas e admins para o filtro de usuários. Aceita também
+    // o role legado ADVOGADO para compat com banco pré-migração.
     api.get('/users?limit=100').then(r => {
       const data: any[] = r.data?.data || r.data?.users || r.data || [];
-      const lawyers = data.filter((u: any) =>
-        u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') || u.role === 'ADVOGADO' || u.role === 'ADMIN'
+      const dentists = data.filter((u: any) =>
+        u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') ||
+        u.role === 'DENTIST' || u.role === 'ADVOGADO' || u.role === 'ADMIN'
       );
-      setUsers(lawyers.map((u: any) => ({ id: u.id, name: u.name })));
+      setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(() => {});
     api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(() => {});
 
@@ -691,7 +693,7 @@ export default function AgendaPage() {
           return !isNaN(startMs);
         })
         .map(e => {
-          // No modo "Todos", prefixar com o nome do advogado responsável
+          // No modo "Todos", prefixar com o nome do dentista responsável
           const userPrefix = (showAllUsers && !filterUserId && e.assigned_user)
             ? `[${e.assigned_user.name.split(' ')[0]}] `
             : '';
@@ -1175,10 +1177,10 @@ export default function AgendaPage() {
           </div>
         </div>
 
-        {/* Filtro por advogado (admin) */}
+        {/* Filtro por dentista (admin) */}
         <div className="px-3 py-2">
           <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Advogado</p>
+            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
             <button
               onClick={() => setShowAllUsers(v => !v)}
               className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
@@ -1197,7 +1199,7 @@ export default function AgendaPage() {
               onChange={e => setFilterUserId(e.target.value)}
               className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
             >
-              <option value="">Todos os advogados</option>
+              <option value="">Todos os dentistas</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           )}
@@ -1829,9 +1831,9 @@ export default function AgendaPage() {
                 </div>
               </div>
 
-              {/* Advogado */}
+              {/* Dentista */}
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Advogado / Responsavel</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Dentista / Responsavel</label>
                 <select
                   value={formData.assigned_user_id}
                   onChange={e => setFormData(f => ({ ...f, assigned_user_id: e.target.value }))}

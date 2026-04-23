@@ -7,7 +7,7 @@ import { PodiumCards } from './PodiumCards';
 import { PerformanceTable } from './PerformanceTable';
 import type { TeamPerformanceResponse } from '../types';
 
-type RoleTab = 'TODOS' | 'ADVOGADO' | 'OPERADOR' | 'ESTAGIARIO';
+type RoleTab = 'TODOS' | 'DENTIST' | 'OPERADOR' | 'ASSISTANT';
 
 interface Props {
   data: TeamPerformanceResponse | null;
@@ -16,9 +16,9 @@ interface Props {
 
 const TABS: { key: RoleTab; label: string }[] = [
   { key: 'TODOS', label: 'Todos' },
-  { key: 'ADVOGADO', label: 'Advogados' },
+  { key: 'DENTIST', label: 'Dentistas' },
   { key: 'OPERADOR', label: 'Operadores' },
-  { key: 'ESTAGIARIO', label: 'Estagiarios' },
+  { key: 'ASSISTANT', label: 'Assistentes' },
 ];
 
 export function TeamPerformanceBoard({ data, loading }: Props) {
@@ -48,9 +48,9 @@ export function TeamPerformanceBoard({ data, loading }: Props) {
 
   const tabCounts: Record<string, number> = {
     TODOS: data.members.length,
-    ADVOGADO: data.members.filter(m => m.role === 'ADVOGADO').length,
+    DENTIST: data.members.filter(m => m.role === 'DENTIST').length,
     OPERADOR: data.members.filter(m => m.role === 'OPERADOR').length,
-    ESTAGIARIO: data.members.filter(m => m.role === 'ESTAGIARIO').length,
+    ASSISTANT: data.members.filter(m => m.role === 'ASSISTANT').length,
   };
 
   // Sort by score for podium

@@ -105,7 +105,8 @@ export class LeadsService {
 
       const userRoles = normalizeRoles(user?.roles as any);
       const isAdminUser = userRoles.includes('ADMIN');
-      const isAdvogadoUser = userRoles.includes('ADVOGADO');
+      // Aceita DENTIST e o role legado ADVOGADO (banco pré-migração).
+      const isDentistUser = userRoles.includes('DENTIST') || userRoles.includes('ADVOGADO');
       const isOperadorUser = userRoles.includes('OPERADOR') || userRoles.includes('COMERCIAL');
       const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
 
@@ -115,11 +116,11 @@ export class LeadsService {
         // onde o usuário é assigned_user, assigned_dentist, cs_user ou dentist do caso.
         const orConditions: any[] = [];
 
-        if (isAdvogadoUser) {
+        if (isDentistUser) {
           orConditions.push({ conversations: { some: { assigned_dentist_id: userId } } });
         }
 
-        if (isOperadorUser || isAdvogadoUser) {
+        if (isOperadorUser || isDentistUser) {
           orConditions.push({ conversations: { some: { assigned_user_id: userId } } });
           orConditions.push({ cs_user_id: userId });
         }
@@ -637,15 +638,16 @@ export class LeadsService {
       });
       const userRoles = normalizeRoles(user?.roles as any);
       const isAdminUser = userRoles.includes('ADMIN');
-      const isAdvogadoUser = userRoles.includes('ADVOGADO');
+      // Aceita DENTIST e o role legado ADVOGADO (banco pré-migração).
+      const isDentistUser = userRoles.includes('DENTIST') || userRoles.includes('ADVOGADO');
       const isOperadorUser = userRoles.includes('OPERADOR') || userRoles.includes('COMERCIAL');
 
       if (!isAdminUser) {
         const orConditions: any[] = [];
-        if (isAdvogadoUser) {
+        if (isDentistUser) {
           orConditions.push({ conversations: { some: { assigned_dentist_id: userId } } });
         }
-        if (isOperadorUser || isAdvogadoUser) {
+        if (isOperadorUser || isDentistUser) {
           orConditions.push({ conversations: { some: { assigned_user_id: userId } } });
           orConditions.push({ cs_user_id: userId });
         }

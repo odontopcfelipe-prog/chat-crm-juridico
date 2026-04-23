@@ -46,7 +46,7 @@ export class SettingsController {
   // ─── DJEN Lawyers ──────────────────────────────────────
 
   @Get('djen-lawyers')
-  @Roles('ADMIN', 'ADVOGADO')
+  @Roles('ADMIN', 'DENTIST')
   async getDjenLawyers() {
     const raw = await this.settingsService.get('DJEN_LAWYERS');
     if (raw) {

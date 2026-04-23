@@ -72,15 +72,15 @@ export type MessageDirection = (typeof MessageDirection)[keyof typeof MessageDir
 // ─── User Role ──────────────────────────────────────────────────────────────
 export const UserRole = {
   ADMIN: 'ADMIN',
-  ADVOGADO: 'ADVOGADO',
+  DENTIST: 'DENTIST',
   OPERADOR: 'OPERADOR',
-  ESTAGIARIO: 'ESTAGIARIO',
+  ASSISTANT: 'ASSISTANT',
 } as const;
 export type UserRole = (typeof UserRole)[keyof typeof UserRole];
 
 export const USER_ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: 'Administrador',
-  ADVOGADO: 'Advogado',
+  DENTIST: 'Dentista',
   OPERADOR: 'Operador',
-  ESTAGIARIO: 'Estagiário',
+  ASSISTANT: 'Assistente',
 };

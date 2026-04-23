@@ -26,15 +26,15 @@ export class TeamPerformanceService {
   ) {
     const roleArr = Array.isArray(roles) ? roles : (roles ? [roles] : []);
     const isAdmin = roleArr.includes('ADMIN');
-    const isAdvogado = roleArr.includes('ADVOGADO');
+    const isDentist = roleArr.includes('DENTIST');
     const isComercial = roleArr.includes('OPERADOR') || roleArr.includes('COMERCIAL');
 
     // Autorização: ADMIN sempre; outros só com scope apropriado ao seu papel
     const allowed =
       isAdmin ||
-      (scope === 'comercial' && (isComercial || isAdvogado)) ||
-      (scope === 'juridico' && isAdvogado) ||
-      (scope === 'estagiarios' && isAdvogado);
+      (scope === 'comercial' && (isComercial || isDentist)) ||
+      (scope === 'juridico' && isDentist) ||
+      (scope === 'estagiarios' && isDentist);
 
     if (!allowed) {
       return { members: [], teamAverages: {}, period: {}, previousPeriod: {} };
@@ -54,15 +54,15 @@ export class TeamPerformanceService {
       userWhere = { ...tw, roles: { hasSome: ['OPERADOR', 'COMERCIAL'] } };
     } else if (scope === 'juridico') {
       if (isAdmin) {
-        userWhere = { ...tw, roles: { has: 'ADVOGADO' } };
+        userWhere = { ...tw, roles: { has: 'DENTIST' } };
       } else {
         userWhere = { ...tw, id: userId };
       }
     } else if (scope === 'estagiarios') {
       if (isAdmin) {
-        userWhere = { ...tw, roles: { has: 'ESTAGIARIO' } };
+        userWhere = { ...tw, roles: { has: 'ASSISTANT' } };
       } else {
-        // Advogado: apenas estagiários supervisionados
+        // Dentista: apenas assistentes supervisionados
         userWhere = { ...tw, supervisors: { some: { id: userId } } };
       }
     }
@@ -73,9 +73,9 @@ export class TeamPerformanceService {
       orderBy: { name: 'asc' },
     });
 
-    const advogados = users.filter(u => u.roles?.includes('ADVOGADO'));
+    const advogados = users.filter(u => u.roles?.includes('DENTIST'));
     const operadores = users.filter(u => u.roles?.includes('OPERADOR'));
-    const estagiarios = users.filter(u => u.roles?.includes('ESTAGIARIO'));
+    const estagiarios = users.filter(u => u.roles?.includes('ASSISTANT'));
     const admins = users.filter(u => u.roles?.includes('ADMIN'));
     const allIds = users.map(u => u.id);
     const advIds = advogados.map(u => u.id);
@@ -232,7 +232,7 @@ export class TeamPerformanceService {
       let score = 0;
       let prevScore = 0;
 
-      if (user.roles?.some((r: string) => ['ADVOGADO', 'ADMIN'].includes(r))) {
+      if (user.roles?.some((r: string) => ['DENTIST', 'ADMIN'].includes(r))) {
         const active = gc(activeCases, 'dentist_id', user.id);
         const filed = gc(casesFiledCurrent, 'dentist_id', user.id);
         const totalSent = sentencedCases.filter(r => r.dentist_id === user.id).reduce((s, r) => s + r._count, 0);
@@ -320,7 +320,7 @@ export class TeamPerformanceService {
         prevScore = (convRate / 100) * 30 + 25 + Math.min(15, prevClosed / 5 * 1.5) + (taskRate / 100) * 15 + Math.min(10, prevStages / 10 * 2);
       }
 
-      if (user.roles?.includes('ESTAGIARIO')) {
+      if (user.roles?.includes('ASSISTANT')) {
         const docs = gc(docsUploaded, 'uploaded_by_id', user.id);
         const dlManaged = gc(deadlines, 'created_by_id', user.id);
         const dlOnTime = estDeadlines.find(d => d.created_by_id === user.id)?._count || 0;
@@ -385,9 +385,9 @@ export class TeamPerformanceService {
       }
     };
 
-    rankGroup('ADVOGADO');
+    rankGroup('DENTIST');
     rankGroup('OPERADOR');
-    rankGroup('ESTAGIARIO');
+    rankGroup('ASSISTANT');
     rankGroup('ADMIN');
 
     // ─── 7. Team averages ──

@@ -50,9 +50,9 @@ Módulos principais:
         body: `O sistema possui 5 papéis com permissões diferentes:
 
 • Admin — Acesso total. Configura IA, gerencia equipe, vê todas as conversas e métricas.
-• Advogado — Vê processos atribuídos, workspace do caso, agenda, documentos e financeiro.
+• Dentista — Vê pacientes atribuídos, workspace do caso, agenda, documentos e financeiro.
 • Operador — Atende leads na aba de chat. Vê apenas conversas atribuídas a ele.
-• Estagiário — Acesso limitado a tarefas, agenda e processos (sem financeiro).
+• Assistente — Acesso limitado a tarefas, agenda e prontuários (sem financeiro).
 • Financeiro — Acesso ao módulo financeiro, honorários e notas fiscais.`,
       },
     ],
@@ -124,7 +124,7 @@ Cada especialista tem 3 documentos de referência:
 Etapa 1: Pergunta o dia ("Quer vir amanhã ou prefere outro dia?")
 Etapa 2: Mostra horários disponíveis via lista clicável do WhatsApp
 
-Os horários vêm da agenda do advogado (configurada no sistema). A IA nunca inventa horários.
+Os horários vêm da agenda do dentista (configurada no sistema). A IA nunca inventa horários.
 
 Ao confirmar, o lead vai para REUNIÃO_AGENDADA e um evento é criado na agenda com lembrete automático por WhatsApp.`,
       },
@@ -145,7 +145,7 @@ O lead vai para AGUARDANDO_DOCS enquanto os documentos são coletados.`,
         body: `Modelos de cobrança por área:
 
 • Êxito (30%) — Trabalhista, Consumidor, Civil, Previdenciário. O lead não paga nada agora, só se ganhar.
-• Fixo — Penal, Empresarial. O advogado define o valor diretamente.
+• Fixo — Penal, Empresarial. O dentista define o valor diretamente.
 • Misto — Imobiliário, Família. Depende do caso (êxito se tem proveito econômico, fixo se não).
 
 Após definir honorários, o contrato é enviado via ClickSign para assinatura digital. O lead vai para AGUARDANDO_PROC.`,
@@ -162,7 +162,7 @@ O que acontece automaticamente:
 • Aparece na aba "Clientes"
 • Um LegalCase é criado com stage=VIABILIDADE
 • A IA é desligada na conversa
-• O advogado mais disponível na área é atribuído
+• O dentista mais disponível na área é atribuído
 
 O lead continua podendo mandar mensagem pelo WhatsApp — agora aparece na aba Clientes.`,
       },
@@ -216,7 +216,7 @@ O operador pode religar a IA a qualquer momento pelo toggle no chat.`,
       {
         id: 'transferencia',
         title: 'Como transferir conversa',
-        body: `Para transferir uma conversa para outro operador ou advogado:
+        body: `Para transferir uma conversa para outro operador ou dentista:
 
 1. Abrir a conversa
 2. Clicar no botão de transferência (no header do chat)
@@ -250,7 +250,7 @@ Essas perguntas são atualizadas a cada mensagem e ajudam o operador a saber o q
 INICIAL — Primeiro contato, ainda sendo identificado
 QUALIFICANDO — IA ou operador investigando o caso
 AGUARDANDO_FORM — Esperando formulário de intake
-REUNIÃO_AGENDADA — Reunião marcada com o advogado
+REUNIÃO_AGENDADA — Reunião marcada com o dentista
 AGUARDANDO_DOCS — Esperando documentos do lead
 AGUARDANDO_PROC — Esperando contrato/procuração assinados
 FINALIZADO — Convertido em cliente (sai do CRM, vai para Clientes)
@@ -264,7 +264,7 @@ Os leads podem ser arrastados entre estágios manualmente.`,
         body: `Cada lead tem um score de 0 a 100 que indica a probabilidade de conversão:
 
 Base por estágio: INICIAL=10, QUALIFICANDO=25, REUNIÃO_AGENDADA=50, etc.
-Bônus: +8 se área jurídica definida, +5 se advogado atribuído, +5 se próximo passo definido
+Bônus: +8 se área jurídica definida, +5 se dentista atribuído, +5 se próximo passo definido
 Penalidade: -3 por dia parado no mesmo estágio (máx -25)
 
 Cores: Verde (70+), Amarelo (45-69), Laranja (20-44), Vermelho (<20)`,
@@ -296,7 +296,7 @@ Cada evento pode ter lembretes automáticos por WhatsApp (ex: 1 dia antes, 1 hor
         body: `O sistema envia lembretes por WhatsApp automaticamente:
 
 • Para o cliente: lembrete da reunião/audiência com data, hora e local
-• Para o advogado: lembrete com detalhes do caso e número do processo
+• Para o dentista: lembrete com detalhes do caso e número do processo
 
 Os lembretes são configuráveis por evento:
 - minutes_before: 1440 (1 dia), 60 (1 hora), 120 (2 horas)
@@ -313,8 +313,8 @@ Audiências criadas pelo DJEN já vêm com lembretes pré-configurados.`,
     content: [
       {
         id: 'preparacao',
-        title: 'Preparação do caso (Menu Advogado)',
-        body: `Quando o lead vira cliente, um LegalCase é criado com stage=VIABILIDADE. O advogado trabalha nas seguintes etapas:
+        title: 'Preparação do caso (Menu Dentista)',
+        body: `Quando o lead vira cliente, um LegalCase é criado com stage=VIABILIDADE. O dentista trabalha nas seguintes etapas:
 
 VIABILIDADE — Análise inicial: o caso tem mérito? Vale ajuizar?
 DOCUMENTAÇÃO — Reunir todos os documentos necessários
@@ -322,7 +322,7 @@ PETIÇÃO — Redigir a petição inicial
 REVISÃO — Revisar antes de protocolar
 PROTOCOLO — Pronto para protocolar no tribunal
 
-Cada etapa tem seu card no menu "Advogado". Ao protocolar, o caso vai para o menu "Processos".`,
+Cada etapa tem seu card no menu "Dentista". Ao protocolar, o caso vai para o menu "Processos".`,
       },
       {
         id: 'acompanhamento',
@@ -359,7 +359,7 @@ O DJEN atualiza automaticamente o estágio quando detecta publicações relevant
       {
         id: 'o-que-e-djen',
         title: 'O que é o DJEN',
-        body: `O DJEN (Diário da Justiça Eletrônico Nacional) é o sistema que publica movimentações de processos judiciais. O sistema sincroniza automaticamente todas as publicações que mencionam o advogado cadastrado.
+        body: `O DJEN (Diário da Justiça Eletrônico Nacional) é o sistema que publica movimentações de processos judiciais. O sistema sincroniza automaticamente todas as publicações que mencionam o dentista cadastrado.
 
 O sync roda diariamente às 8h e busca publicações do dia anterior e do dia atual. Também pode ser acionado manualmente pelo botão "Sincronizar".`,
       },
@@ -370,7 +370,7 @@ O sync roda diariamente às 8h e busca publicações do dia anterior e do dia at
 
 • Resumo — O que aconteceu em 3 frases
 • Urgência — URGENTE, NORMAL ou BAIXA
-• Tipo de ação — O que o advogado precisa fazer
+• Tipo de ação — O que o dentista precisa fazer
 • Prazo — Dias úteis para cumprir
 • Estágio sugerido — Para onde mover o processo
 • Partes — Parte autora e parte ré
@@ -404,7 +404,7 @@ O que acontece:
         title: 'Notificação automática ao cliente',
         body: `Quando uma nova publicação é vinculada a um processo existente, o cliente recebe uma notificação por WhatsApp automaticamente:
 
-"Olá [nome]! Houve uma nova movimentação no seu processo nº [número]. Nosso advogado já foi notificado e vai analisar."
+"Olá [nome]! Houve uma nova movimentação no seu processo nº [número]. Nosso dentista já foi notificado e vai analisar."
 
 Controles:
 • Só envia 1x por publicação (não repete)
@@ -507,7 +507,7 @@ Em Configurações > Inboxes: criar/editar inboxes, atribuir operadores`,
         title: 'Equipe e permissões',
         body: `Em Configurações > Usuários:
 • Criar/editar usuários
-• Atribuir papel (Admin, Advogado, Operador, Estagiário, Financeiro)
+• Atribuir papel (Admin, Dentista, Operador, Assistente, Financeiro)
 • Definir áreas de especialidade (para auto-atribuição)
 • Vincular a inboxes
 
@@ -520,7 +520,7 @@ Em Configurações > Permissões:
         title: 'Automações',
         body: `Em Configurações > Automações:
 • Regras que disparam ações automáticas
-• Exemplos: "Quando lead ficar 3 dias parado → enviar follow-up", "Quando lead for FINALIZADO → criar tarefa para advogado"
+• Exemplos: "Quando lead ficar 3 dias parado → enviar follow-up", "Quando lead for FINALIZADO → criar tarefa para dentista"
 • Configuração de sequências de follow-up por estágio`,
       },
     ],
@@ -703,7 +703,7 @@ function highlightSearch(text: string, query: string): React.ReactElement {
 
 export default function ManualPage() {
   return (
-    <RouteGuard allowedRoles={['ADMIN', 'ADVOGADO', 'OPERADOR', 'ESTAGIARIO', 'FINANCEIRO', 'COMERCIAL']}>
+    <RouteGuard allowedRoles={['ADMIN', 'DENTIST', 'OPERADOR', 'ASSISTANT', 'FINANCEIRO', 'COMERCIAL']}>
       <ManualContent />
     </RouteGuard>
   );

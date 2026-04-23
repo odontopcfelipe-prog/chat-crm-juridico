@@ -20,7 +20,7 @@ export class InboxesService {
         orderBy: { name: 'asc' },
       }),
       (this.prisma as any).user.findMany({
-        where: { roles: { hasSome: ['OPERADOR', 'ADVOGADO', 'ADMIN', 'COMERCIAL', 'FINANCEIRO', 'ESTAGIARIO'] } },
+        where: { roles: { hasSome: ['OPERADOR', 'DENTIST', 'ADMIN', 'COMERCIAL', 'FINANCEIRO', 'ASSISTANT'] } },
         select: { id: true, name: true, roles: true },
         orderBy: { name: 'asc' },
       }),

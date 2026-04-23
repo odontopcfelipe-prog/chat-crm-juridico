@@ -9,27 +9,28 @@ const SPECIALTY_SUGGESTIONS = ['Trabalhista', 'Civil', 'Criminal', 'Tributário'
 
 // Roles canônicos aceitos pelo sistema. DEVEM bater com AppRole em apps/web/src/lib/useRole.ts
 // e com os checks do backend (Guards/Roles). Qualquer valor fora dessa lista quebra permissões.
-type RoleKey = 'ADMIN' | 'ADVOGADO' | 'OPERADOR' | 'COMERCIAL' | 'ESTAGIARIO' | 'FINANCEIRO';
+type RoleKey = 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
 
 const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: string }[] = [
   { key: 'ADMIN', label: 'Administrador', emoji: '🛡️', description: 'Acesso total ao sistema' },
-  { key: 'ADVOGADO', label: 'Advogado', emoji: '⚖️', description: 'Processos, DJEN, petições' },
+  { key: 'DENTIST', label: 'Dentista', emoji: '🦷', description: 'Atendimento clínico, prontuários, prescrições' },
   { key: 'OPERADOR', label: 'Operador', emoji: '💬', description: 'Atendimento no chat e CRM' },
   { key: 'COMERCIAL', label: 'Comercial', emoji: '💼', description: 'Captação e pré-venda' },
-  { key: 'ESTAGIARIO', label: 'Estagiário', emoji: '🎓', description: 'Tarefas supervisionadas' },
+  { key: 'ASSISTANT', label: 'Assistente', emoji: '🧑‍⚕️', description: 'Auxilia dentistas em procedimentos e atendimento' },
   { key: 'FINANCEIRO', label: 'Financeiro', emoji: '💰', description: 'Honorários e receitas' },
 ];
 
-// Mapeia rótulos legados (nomes de departamento) para o enum canônico. Qualquer valor
-// desconhecido cai em OPERADOR, garantindo que um usuário antigo não fique sem nenhum role.
+// Mapeia rótulos legados (nomes de departamento ou roles jurídicos) para o enum canônico
+// odontológico. Aceita ADVOGADO/ESTAGIARIO porque o banco pré-migração pode conter esses
+// valores — o frontend normaliza para DENTIST/ASSISTANT até a migration SQL rodar.
 function normalizeLegacyRole(raw: string): RoleKey {
   if (!raw) return 'OPERADOR';
   const upper = raw.toUpperCase().trim();
   if (upper === 'ADMIN') return 'ADMIN';
-  if (upper === 'ADVOGADO' || upper === 'ADVOGADOS') return 'ADVOGADO';
+  if (upper === 'ADVOGADO' || upper === 'ADVOGADOS' || upper === 'DENTIST' || upper === 'DENTISTS') return 'DENTIST';
   if (upper === 'OPERADOR' || upper === 'OPERADORES') return 'OPERADOR';
   if (upper === 'COMERCIAL' || upper === 'ATENDENTE COMERCIAL') return 'COMERCIAL';
-  if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS') return 'ESTAGIARIO';
+  if (upper === 'ESTAGIARIO' || upper === 'ESTAGIÁRIO' || upper === 'ESTAGIARIOS' || upper === 'ESTAGIÁRIOS' || upper === 'ASSISTANT' || upper === 'ASSISTANTS') return 'ASSISTANT';
   if (upper === 'FINANCEIRO') return 'FINANCEIRO';
   return 'OPERADOR';
 }
@@ -48,9 +49,9 @@ function roleBadges(roles: string[] | undefined | null) {
             ? 'bg-red-900/30 text-red-300 border-red-800/30'
             : r === 'FINANCEIRO'
               ? 'bg-emerald-900/30 text-emerald-300 border-emerald-800/30'
-              : r === 'ADVOGADO'
+              : r === 'DENTIST'
                 ? 'bg-violet-900/30 text-violet-300 border-violet-800/30'
-                : r === 'ESTAGIARIO'
+                : r === 'ASSISTANT'
                   ? 'bg-amber-900/30 text-amber-300 border-amber-800/30'
                   : 'bg-primary/10 text-primary border-primary/20';
         return (
@@ -121,7 +122,7 @@ export default function UsersSettingsPage() {
       const res = await api.get('/users/lawyers');
       setLawyers(res.data || []);
     } catch (e) {
-      console.error('Erro ao buscar advogados:', e);
+      console.error('Erro ao buscar dentistas:', e);
     }
   };
 
@@ -529,7 +530,7 @@ export default function UsersSettingsPage() {
               </div>
 
               {/* CRO — registro no Conselho Regional de Odontologia (dentistas + admins) */}
-              {(form.roles.includes('ADVOGADO') || form.roles.includes('ADMIN') || form.cro_number) && (
+              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN') || form.cro_number) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Registro CRO</label>
                   <div className="flex gap-2">
@@ -626,11 +627,11 @@ export default function UsersSettingsPage() {
                 </div>
               )}
 
-              {/* Supervisores (Advogados) */}
+              {/* Supervisores (Dentistas) */}
               {lawyers.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
-                    👨‍⚖️ Supervisores (Advogados)
+                    🦷 Supervisores (Dentistas)
                   </label>
                   <div className="grid grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
                     {lawyers.map(lawyer => (
@@ -656,7 +657,7 @@ export default function UsersSettingsPage() {
                     ))}
                   </div>
                   <p className="text-[10px] text-muted-foreground opacity-70 ml-1">
-                    Vincule este usuário como estagiário de um ou mais advogados.
+                    Vincule este usuário como assistente de um ou mais dentistas.
                   </p>
                 </div>
               )}
@@ -702,7 +703,7 @@ export default function UsersSettingsPage() {
               <>
                 <div className="rounded-xl bg-amber-500/5 border border-amber-500/20 p-3 space-y-1.5">
                   <p className="text-[11px] font-bold text-amber-400">Este usuário possui:</p>
-                  {deleteSummary.cases > 0 && <p className="text-[11px] text-muted-foreground">⚖️ {deleteSummary.cases} processo(s) como advogado</p>}
+                  {deleteSummary.cases > 0 && <p className="text-[11px] text-muted-foreground">🦷 {deleteSummary.cases} caso(s) como dentista</p>}
                   {deleteSummary.conversations > 0 && <p className="text-[11px] text-muted-foreground">💬 {deleteSummary.conversations} conversa(s) atribuída(s)</p>}
                   {deleteSummary.tasks > 0 && <p className="text-[11px] text-muted-foreground">📋 {deleteSummary.tasks} tarefa(s)/evento(s)</p>}
                   {deleteSummary.leads > 0 && <p className="text-[11px] text-muted-foreground">👤 {deleteSummary.leads} lead(s) como responsável</p>}

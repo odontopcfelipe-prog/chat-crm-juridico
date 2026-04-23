@@ -62,7 +62,8 @@ export class ConversationsService {
     // ─── Controle de acesso por role (multi-role aware) ────────────────
     const userRoles: string[] = Array.isArray(user?.roles) ? user.roles : [userRole];
     const isAdminUser = userRoles.includes('ADMIN');
-    const isAdvogadoUser = userRoles.includes('ADVOGADO') || userRoles.includes('Advogados');
+    // Aceita DENTIST e o role legado ADVOGADO (banco pré-migração) para não quebrar permissões.
+    const isDentistUser = userRoles.includes('DENTIST') || userRoles.includes('ADVOGADO') || userRoles.includes('Advogados');
     const isOperadorUser = userRoles.includes('OPERADOR') || userRoles.includes('COMERCIAL') || userRoles.includes('Atendente Comercial');
 
     if (isAdminUser) {
@@ -71,7 +72,7 @@ export class ConversationsService {
 
     } else {
       // Multi-role: combina visibilidade de todos os papéis do usuário
-      // ADVOGADO vê: assigned_dentist_id + legal_cases.dentist_id
+      // DENTIST vê: assigned_dentist_id + legal_cases.dentist_id
       // OPERADOR vê: assigned_user_id + cs_user_id (clientes)
       // Ambos: combina tudo via OR
       if (inboxId) {
@@ -84,10 +85,10 @@ export class ConversationsService {
       } else {
         const orConditions: any[] = [];
 
-        // Visibilidade de ADVOGADO: apenas CLIENTES atribuídos como dentista
+        // Visibilidade de DENTIST: apenas CLIENTES atribuídos como dentista
         // Na aba Leads: dentista NÃO vê leads de outros operadores via assigned_dentist_id
         // STUBBED: relação legal_cases (LegalCase) removida na Fase 0.2
-        if (isAdvogadoUser && clientMode === true) {
+        if (isDentistUser && clientMode === true) {
           // Conversas onde o dentista está atribuído diretamente
           orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
           // Clientes que têm QUALQUER conversa atribuída a este dentista (ex: atribuído via lead/IA)
@@ -689,10 +690,10 @@ export class ConversationsService {
    *
    * Regra de negócio (notificações — badges alinhados com o ding recebido via socket):
    *  - ADMIN: badges apenas das conversas atribuídas a ele (assigned_user_id)
-   *  - ADVOGADO: badges apenas de clientes atribuídos como dentista (assigned_dentist_id, is_client=true)
+   *  - DENTIST: badges apenas de clientes atribuídos como dentista (assigned_dentist_id, is_client=true)
    *  - OPERADOR: conversas atribuídas + POOL do inbox (assigned_user_id=null nos inboxes dele) —
    *              espelha o ding que ele recebe via room inbox:{id} (FIX #6)
-   *  - ADVOGADO+OPERADOR: união (clientes como dentista + atribuídas + pool do inbox)
+   *  - DENTIST+OPERADOR: união (clientes como dentista + atribuídas + pool do inbox)
    *  - Exclui leads PERDIDO/FINALIZADO
    *
    * Nota: findAll() controla VISIBILIDADE (o que aparece na lista).
@@ -712,7 +713,8 @@ export class ConversationsService {
       const userRoles: string[] = Array.isArray(user?.roles)
         ? user.roles
         : [effectiveRole(user?.roles ?? 'OPERADOR')];
-      const isAdvogadoUser = userRoles.includes('ADVOGADO') || userRoles.includes('Advogados');
+      // Aceita DENTIST e o role legado ADVOGADO para compat com banco pré-migração.
+      const isDentistUser = userRoles.includes('DENTIST') || userRoles.includes('ADVOGADO') || userRoles.includes('Advogados');
       const isOperadorUser = userRoles.includes('OPERADOR') || userRoles.includes('COMERCIAL') || userRoles.includes('Atendente Comercial');
       const isAdminUser = userRoles.includes('ADMIN');
       const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
@@ -729,12 +731,12 @@ export class ConversationsService {
       if (isAdminUser) {
         orConditions.push({ assigned_user_id: userId });
         // Admin que também é dentista: clientes atribuídos como dentista
-        if (isAdvogadoUser) {
+        if (isDentistUser) {
           orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
         }
       } else {
-        // ADVOGADO: badge apenas de CLIENTES onde é dentista responsável
-        if (isAdvogadoUser) {
+        // DENTIST: badge apenas de CLIENTES onde é dentista responsável
+        if (isDentistUser) {
           orConditions.push({ assigned_dentist_id: userId, lead: { is_client: true } });
         }
 

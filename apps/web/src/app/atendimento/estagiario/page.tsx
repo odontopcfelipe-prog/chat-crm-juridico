@@ -1150,7 +1150,7 @@ function InternDashboard() {
 
 export default function EstagiarioPage() {
   return (
-    <RouteGuard allowedRoles={['ADMIN', 'ESTAGIARIO']}>
+    <RouteGuard allowedRoles={['ADMIN', 'ASSISTANT']}>
       <InternDashboard />
     </RouteGuard>
   );

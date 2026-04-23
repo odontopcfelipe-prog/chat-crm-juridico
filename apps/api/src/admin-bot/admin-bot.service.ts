@@ -82,7 +82,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
   // ─── Public API ───────────────────────────────────────────────────────────
 
   /**
-   * Verifica se o telefone pertence a um usuário ADMIN ou ADVOGADO do sistema.
+   * Verifica se o telefone pertence a um usuário ADMIN ou DENTIST do sistema.
    * Retorna o user se encontrado, null caso contrário.
    */
   async findAdminByPhone(phone: string): Promise<any | null> {
@@ -90,7 +90,7 @@ export class AdminBotService implements OnModuleInit, OnModuleDestroy {
     return this.prisma.user.findFirst({
       where: {
         phone: { in: [normalized, phone] },
-        roles: { hasSome: ['ADMIN', 'ADVOGADO'] },
+        roles: { hasSome: ['ADMIN', 'DENTIST'] },
       },
       select: { id: true, name: true, roles: true, tenant_id: true },
     });
@@ -565,7 +565,7 @@ Para qual processo? (responda 1, 2, 3 ou "nenhum")`;
 
         case 'list_users': {
           const users = await this.prisma.user.findMany({
-            where: { roles: { hasSome: ['ADMIN', 'ADVOGADO', 'OPERADOR'] } },
+            where: { roles: { hasSome: ['ADMIN', 'DENTIST', 'OPERADOR'] } },
             select: { id: true, name: true, roles: true },
             orderBy: { name: 'asc' },
           });

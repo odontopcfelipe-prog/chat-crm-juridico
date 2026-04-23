@@ -7,21 +7,21 @@ import api from '@/lib/api';
 
 // ─── Matriz de permissões ─────────────────────────────────────────────────────
 
-const ROLES = ['ADMIN', 'ADVOGADO', 'OPERADOR', 'ESTAGIARIO'] as const;
+const ROLES = ['ADMIN', 'DENTIST', 'OPERADOR', 'ASSISTANT'] as const;
 type Role = typeof ROLES[number];
 
 const ROLE_LABELS: Record<Role, string> = {
   ADMIN: 'Administrador',
-  ADVOGADO: 'Advogado',
+  DENTIST: 'Dentista',
   OPERADOR: 'Operador',
-  ESTAGIARIO: 'Estagiário',
+  ASSISTANT: 'Assistente',
 };
 
 const ROLE_COLORS: Record<Role, string> = {
   ADMIN: 'bg-red-500/10 text-red-400 border-red-500/20',
-  ADVOGADO: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
+  DENTIST: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
   OPERADOR: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
-  ESTAGIARIO: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
+  ASSISTANT: 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20',
 };
 
 type Permission = 'full' | 'partial' | 'none';
@@ -36,82 +36,82 @@ const MATRIX: MatrixRow[] = [
   {
     label: 'Dashboard',
     description: 'Painel com métricas e visão geral',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'none' },
   },
   {
     label: 'Inbox — Leads',
     description: 'Conversas com leads (não clientes)',
-    permissions: { ADMIN: 'full', ADVOGADO: 'none', OPERADOR: 'partial', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'none', OPERADOR: 'partial', ASSISTANT: 'partial' },
   },
   {
     label: 'Inbox — Clientes',
     description: 'Conversas com clientes convertidos',
-    permissions: { ADMIN: 'full', ADVOGADO: 'partial', OPERADOR: 'partial', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'none' },
   },
   {
     label: 'Leads & CRM',
     description: 'Gestão do funil comercial',
-    permissions: { ADMIN: 'full', ADVOGADO: 'partial', OPERADOR: 'partial', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'none' },
   },
   {
     label: 'Contatos',
     description: 'Lista de todos os contatos',
-    permissions: { ADMIN: 'full', ADVOGADO: 'partial', OPERADOR: 'partial', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'none' },
   },
   {
     label: 'Tarefas',
     description: 'Gerenciamento de tarefas',
-    permissions: { ADMIN: 'full', ADVOGADO: 'partial', OPERADOR: 'partial', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'partial' },
   },
   {
     label: 'Agenda',
     description: 'Calendário e eventos',
-    permissions: { ADMIN: 'full', ADVOGADO: 'partial', OPERADOR: 'none', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'none', ASSISTANT: 'partial' },
   },
   {
     label: 'Follow-up IA',
     description: 'Sequências automáticas de mensagens',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'partial', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'partial', ASSISTANT: 'none' },
   },
   {
     label: 'Triagem e Peticionamento',
     description: 'Área jurídica de triagem',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'partial' },
   },
   {
     label: 'Processos',
     description: 'Gestão de processos judiciais',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'partial' },
   },
   {
     label: 'Processos — criar/editar',
     description: 'Cadastrar e alterar processos',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'none' },
   },
   {
     label: 'DJEN — Publicações',
     description: 'Diário da Justiça Eletrônico Nacional',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'partial' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'partial' },
   },
   {
     label: 'Analytics',
     description: 'Relatórios e métricas avançadas',
-    permissions: { ADMIN: 'full', ADVOGADO: 'full', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'full', OPERADOR: 'none', ASSISTANT: 'none' },
   },
   {
     label: 'Configurações',
     description: 'Ajustes gerais do sistema',
-    permissions: { ADMIN: 'full', ADVOGADO: 'none', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'none', OPERADOR: 'none', ASSISTANT: 'none' },
   },
   {
     label: 'Usuários & Perfis',
     description: 'Criar e editar usuários',
-    permissions: { ADMIN: 'full', ADVOGADO: 'none', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'none', OPERADOR: 'none', ASSISTANT: 'none' },
   },
   {
     label: 'Automações',
     description: 'Regras automáticas do sistema',
-    permissions: { ADMIN: 'full', ADVOGADO: 'none', OPERADOR: 'none', ESTAGIARIO: 'none' },
+    permissions: { ADMIN: 'full', DENTIST: 'none', OPERADOR: 'none', ASSISTANT: 'none' },
   },
 ];
 

@@ -112,10 +112,14 @@ export default function OfficeSettingsPage() {
     try {
       const res = await api.get('/users?limit=100');
       const data = (res.data?.data || res.data?.users || res.data || []) as UserOption[];
-      // Mostrar apenas advogados e admins (não atendentes comerciais)
+      // Mostrar apenas dentistas e admins (não atendentes comerciais). Aceita o role legado
+      // ADVOGADO para compat com banco pré-migração.
       const lawyers = data
         .map((u: any) => ({ id: u.id, name: u.name, role: u.role, roles: u.roles }))
-        .filter((u: any) => u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') || u.role === 'ADVOGADO' || u.role === 'ADMIN');
+        .filter((u: any) =>
+          u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') ||
+          u.role === 'DENTIST' || u.role === 'ADVOGADO' || u.role === 'ADMIN',
+        );
       setUsers(lawyers);
     } catch {}
   };
@@ -433,7 +437,7 @@ export default function OfficeSettingsPage() {
             </div>
           </div>
 
-          {/* Seletor de advogado — visível apenas para ADMIN */}
+          {/* Seletor de dentista — visível apenas para ADMIN */}
           {isAdmin && users.length > 0 && (
             <div className="flex items-center gap-2 mb-5 p-3 rounded-xl bg-muted/20 border border-border/50">
               <Users size={14} className="text-muted-foreground shrink-0" />

@@ -8,9 +8,9 @@
 
 export const ROLES = {
   ADMIN: 'ADMIN',
-  ADVOGADO: 'ADVOGADO',
+  DENTIST: 'DENTIST',
   OPERADOR: 'OPERADOR',
-  ESTAGIARIO: 'ESTAGIARIO',
+  ASSISTANT: 'ASSISTANT',
   FINANCEIRO: 'FINANCEIRO',
 } as const;
 
@@ -31,13 +31,13 @@ export function isAdmin(roles: string | string[]): boolean {
 /** Verifica se pode gerenciar leads/clientes */
 export function canManageLeads(roles: string | string[]): boolean {
   const r = normalizeRoles(roles);
-  return r.some(role => ['ADMIN', 'ADVOGADO', 'OPERADOR'].includes(role));
+  return r.some(role => ['ADMIN', 'DENTIST', 'OPERADOR'].includes(role));
 }
 
 /** Verifica se tem acesso ao modo cliente no chat */
 export function canViewClients(roles: string | string[]): boolean {
   const r = normalizeRoles(roles);
-  return r.some(role => ['ADMIN', 'ADVOGADO', 'OPERADOR'].includes(role));
+  return r.some(role => ['ADMIN', 'DENTIST', 'OPERADOR'].includes(role));
 }
 
 /** Verifica se pode gerenciar configurações do sistema */
@@ -58,10 +58,10 @@ export function canViewFinanceiro(roles: string | string[]): boolean {
 
 /**
  * Retorna o role de maior privilégio para decisões de visibilidade.
- * Ordem: ADMIN > ADVOGADO > OPERADOR > ESTAGIARIO > FINANCEIRO
+ * Ordem: ADMIN > DENTIST > OPERADOR > ASSISTANT > FINANCEIRO
  */
 export function effectiveRole(roles: string | string[]): string {
   const r = normalizeRoles(roles);
-  const priority = [ROLES.ADMIN, ROLES.ADVOGADO, ROLES.OPERADOR, ROLES.ESTAGIARIO, ROLES.FINANCEIRO];
+  const priority = [ROLES.ADMIN, ROLES.DENTIST, ROLES.OPERADOR, ROLES.ASSISTANT, ROLES.FINANCEIRO];
   return priority.find(p => r.includes(p)) || r[0] || 'OPERADOR';
 }
