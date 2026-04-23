@@ -156,12 +156,12 @@ export class ConversationsController {
     return this.conversationsService.setAssignedLawyer(id, lawyerId ?? null);
   }
 
-  @Patch(':id/legal-area')
-  setLegalArea(
+  @Patch(':id/specialty')
+  setSpecialty(
     @Param('id') id: string,
-    @Body('legalArea') legalArea: string | null,
+    @Body('specialty') specialty: string | null,
   ) {
-    return this.conversationsService.setLegalArea(id, legalArea ?? null);
+    return this.conversationsService.setSpecialty(id, specialty ?? null);
   }
 
   // ── Notas internas fixas ──────────────────────────────────────

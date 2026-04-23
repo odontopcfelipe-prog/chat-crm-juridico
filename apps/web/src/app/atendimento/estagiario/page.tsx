@@ -42,7 +42,7 @@ interface TaskItem {
   legal_case: {
     id: string;
     case_number: string | null;
-    legal_area: string | null;
+    specialty: string | null;
     stage: string;
     tracking_stage: string | null;
     opposing_party: string | null;
@@ -61,7 +61,7 @@ interface PetitionItem {
   legal_case: {
     id: string;
     case_number: string | null;
-    legal_area: string | null;
+    specialty: string | null;
     lead: { id: string; name: string | null } | null;
     lawyer: { id: string; name: string } | null;
   } | null;
@@ -83,7 +83,7 @@ interface KanbanPetition {
   legal_case: {
     id: string;
     case_number: string | null;
-    legal_area: string | null;
+    specialty: string | null;
     stage: string;
     lead: { id: string; name: string | null; phone: string };
     lawyer: { id: string; name: string };
@@ -232,7 +232,7 @@ function TaskCard({
   const due = task.start_at ? daysUntil(task.start_at) : null;
   const clientName = task.legal_case?.lead?.name || task.lead?.name || null;
   const clientPhone = task.legal_case?.lead?.phone || task.lead?.phone || null;
-  const area = task.legal_case?.legal_area || null;
+  const area = task.legal_case?.specialty || null;
   const caseNumber = task.legal_case?.case_number || null;
   const lawyerName = task.legal_case?.lawyer?.name || task.created_by?.name || null;
   const isConfirmado = task.status === 'CONFIRMADO';
@@ -420,7 +420,7 @@ function KanbanPetitionCard({
   const typeColor = PETITION_TYPE_COLORS[petition.type] || PETITION_TYPE_COLORS.OUTRO;
   const clientName = petition.legal_case?.lead?.name || 'Sem nome';
   const lawyerName = petition.legal_case?.lawyer?.name || '';
-  const area = petition.legal_case?.legal_area || null;
+  const area = petition.legal_case?.specialty || null;
   const days = daysSince(petition.updated_at);
   const hasCorrection = petition._count.versions > 0 && petition.status === 'RASCUNHO';
   const hasReviewNotes = petition.review_notes && petition.status === 'RASCUNHO';

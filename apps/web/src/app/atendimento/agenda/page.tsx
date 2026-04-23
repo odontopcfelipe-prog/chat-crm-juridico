@@ -47,7 +47,7 @@ interface CalendarEvent {
   assigned_user?: { id: string; name: string } | null;
   created_by?: { id: string; name: string } | null;
   lead?: { id: string; name: string | null; phone: string } | null;
-  legal_case?: { id: string; case_number: string | null; legal_area: string | null; lead?: { name: string | null } | null } | null;
+  legal_case?: { id: string; case_number: string | null; specialty: string | null; lead?: { name: string | null } | null } | null;
   _count?: { comments: number };
 }
 
@@ -1257,7 +1257,7 @@ export default function AgendaPage() {
                     {ev.legal_case && (
                       <p className="text-[10px] text-primary/70 font-semibold truncate mt-0.5">
                         📂 {ev.legal_case.case_number ?? 'Processo vinculado'}
-                        {ev.legal_case.legal_area ? ` · ${ev.legal_case.legal_area}` : ''}
+                        {ev.legal_case.specialty ? ` · ${ev.legal_case.specialty}` : ''}
                       </p>
                     )}
                     {ev.legal_case?.lead?.name && (
@@ -1622,7 +1622,7 @@ export default function AgendaPage() {
             {hoverTooltip.event.legal_case && (
               <p className="text-primary/80 font-semibold truncate">
                 📂 {hoverTooltip.event.legal_case.case_number ?? 'Processo vinculado'}
-                {hoverTooltip.event.legal_case.legal_area ? ` · ${hoverTooltip.event.legal_case.legal_area}` : ''}
+                {hoverTooltip.event.legal_case.specialty ? ` · ${hoverTooltip.event.legal_case.specialty}` : ''}
               </p>
             )}
             {hoverTooltip.event.legal_case?.lead?.name && (
@@ -1752,8 +1752,8 @@ export default function AgendaPage() {
                     {editingEvent.legal_case.lead?.name && (
                       <p className="text-[11px] text-foreground/80 truncate">👤 {editingEvent.legal_case.lead.name}</p>
                     )}
-                    {editingEvent.legal_case.legal_area && (
-                      <p className="text-[10px] text-muted-foreground">{editingEvent.legal_case.legal_area}</p>
+                    {editingEvent.legal_case.specialty && (
+                      <p className="text-[10px] text-muted-foreground">{editingEvent.legal_case.specialty}</p>
                     )}
                   </div>
                   <button

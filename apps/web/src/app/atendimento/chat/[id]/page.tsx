@@ -46,7 +46,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
   const [docPreview, setDocPreview] = useState<{ url: string; name: string; mime: string } | null>(null);
   const [transcribing, setTranscribing] = useState<Record<string, boolean>>({});
   const [editingMsg, setEditingMsg] = useState<{ id: string; text: string } | null>(null);
-  const [legalArea, setLegalArea] = useState<string | null>(null);
+  const [specialty, setSpecialty] = useState<string | null>(null);
   const [fichaVisible, setFichaVisible] = useState(false);
   const [assignedLawyer, setAssignedLawyer] = useState<{ id: string; name: string } | null>(null);
   const [allSpecialists, setAllSpecialists] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
@@ -436,7 +436,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
           setConvoStatus(convo.status || 'ABERTO');
           setAiMode(!!convo.ai_mode);
           setMessages(convo.messages || []);
-          setLegalArea(convo.legal_area || null);
+          setSpecialty(convo.specialty || null);
           setAssignedLawyer(convo.assigned_lawyer || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
 
@@ -627,9 +627,9 @@ export default function ChatPage({ params }: { params: { id: string } }) {
                 </span>
               )}
               <div className="flex items-center gap-2 flex-wrap mt-1.5">
-                  {legalArea && (
+                  {specialty && (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-violet-500/15 text-violet-400 text-[10px] font-bold border border-violet-500/20">
-                      ⚖️ {legalArea}
+                      ⚖️ {specialty}
                     </span>
                   )}
                   <div className="relative">
@@ -685,7 +685,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
             </div>
           </div>
           <div className="flex gap-2 items-center">
-            {legalArea?.toLowerCase().includes('trabalhist') && (
+            {specialty?.toLowerCase().includes('trabalhist') && (
               <>
                 {!isClosed && (
                   <button

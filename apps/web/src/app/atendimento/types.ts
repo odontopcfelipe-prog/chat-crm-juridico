@@ -21,7 +21,7 @@ export interface ConversationSummary {
   aiMode: boolean;
   profile_picture_url?: string | null;
   inboxId?: string | null;
-  legalArea?: string | null;
+  specialty?: string | null;
   assignedLawyerId?: string | null;
   assignedLawyerName?: string | null;
   originAssignedUserId?: string | null;

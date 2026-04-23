@@ -124,7 +124,7 @@ server.tool(
       .string()
       .optional()
       .describe('Etapa do lead (ex: NOVO, QUALIFICADO, CONVERTIDO, PERDIDO)'),
-    legal_area: z.string().optional().describe('Área jurídica de interesse'),
+    specialty: z.string().optional().describe('Especialidade odontológica de interesse'),
     notes: z.string().optional().describe('Observações internas'),
   },
   async ({ id, ...rest }) => {
@@ -211,10 +211,10 @@ server.tool(
   'Cria um novo processo/caso jurídico vinculado a um cliente.',
   {
     lead_id: z.string().describe('ID do cliente (UUID)'),
-    legal_area: z
+    specialty: z
       .string()
       .optional()
-      .describe('Área jurídica (ex: TRABALHISTA, CIVEL, CRIMINAL, PREVIDENCIARIO, FAMILIA)'),
+      .describe('Especialidade odontológica (livre — ex: endodontia, ortodontia, implantodontia)'),
     action_type: z.string().optional().describe('Tipo de ação (ex: Reclamação Trabalhista)'),
     claim_value: z.number().positive().optional().describe('Valor da causa em reais'),
     opposing_party: z.string().optional().describe('Nome da parte contrária'),

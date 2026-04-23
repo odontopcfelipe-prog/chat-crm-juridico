@@ -137,7 +137,7 @@ export class CrmClient {
 
   criarProcesso(data: {
     lead_id: string;
-    legal_area?: string;
+    specialty?: string;
     action_type?: string;
     claim_value?: number;
     opposing_party?: string;

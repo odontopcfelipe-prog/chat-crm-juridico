@@ -175,7 +175,7 @@ export class ConversationsService {
       assignedAgentName: c.assigned_user?.name || null,
       aiMode: c.ai_mode,
       profile_picture_url: c.lead?.profile_picture_url || null,
-      legalArea: (c as any).legal_area || null,
+      specialty: (c as any).specialty || null,
       assignedLawyerId: (c as any).assigned_lawyer_id || null,
       assignedLawyerName: (c as any).assigned_lawyer_id ? (userNameMap[(c as any).assigned_lawyer_id] || null) : null,
       originAssignedUserId: (c as any).origin_assigned_user_id || null,
@@ -272,7 +272,7 @@ export class ConversationsService {
         if (lawyer?.phone && conv?.lead) {
           const leadName = conv.lead.name || 'Lead sem nome';
           const leadPhone = conv.lead.phone || '';
-          const area = (conv as any).legal_area || 'não identificada';
+          const area = (conv as any).specialty || 'não identificada';
 
           // Buscar instância da conversa para enviar pelo mesmo número
           const instanceName = (conv as any).instance_name || undefined;
@@ -309,10 +309,10 @@ export class ConversationsService {
     return updated;
   }
 
-  async setLegalArea(id: string, legalArea: string | null): Promise<Conversation> {
+  async setSpecialty(id: string, specialty: string | null): Promise<Conversation> {
     return (this.prisma as any).conversation.update({
       where: { id },
-      data: { legal_area: legalArea },
+      data: { specialty },
     });
   }
 
@@ -552,7 +552,7 @@ export class ConversationsService {
     const conv = await this.prisma.$transaction(async (tx) => {
       const existing = await (tx as any).conversation.findUnique({
         where: { id },
-        select: { assigned_user_id: true, assigned_lawyer_id: true, legal_area: true },
+        select: { assigned_user_id: true, assigned_lawyer_id: true, specialty: true },
       });
 
       if (!existing || existing.assigned_user_id !== fromUserId) {
@@ -576,7 +576,7 @@ export class ConversationsService {
       id,
       conv.assigned_lawyer_id,
       fromUserId,
-      reason?.trim() || `Área detectada pela IA: ${conv.legal_area || 'Jurídica'}`,
+      reason?.trim() || `Especialidade detectada pela IA: ${conv.specialty || 'Odontológica'}`,
       audioIds,
     );
   }

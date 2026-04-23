@@ -83,7 +83,7 @@ const AVAILABLE_MODELS = [...OPENAI_MODELS, ...ANTHROPIC_MODELS];
 const TEMPLATE_VARS = [
   { key: '{{lead_name}}', desc: 'Nome do cliente' },
   { key: '{{lead_phone}}', desc: 'Telefone' },
-  { key: '{{legal_area}}', desc: 'Área jurídica detectada' },
+  { key: '{{specialty}}', desc: 'Especialidade detectada' },
   { key: '{{firm_name}}', desc: 'Nome do escritório' },
   { key: '{{lead_memory}}', desc: 'Memória antiga do lead (case_state — será substituída por {{lead_profile}})' },
   { key: '{{lead_summary}}', desc: 'Resumo do caso' },
@@ -871,7 +871,7 @@ export default function AiSettingsPage() {
               <div>
                 <h4 className="text-sm font-bold text-foreground">Skills da IA</h4>
                 <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                  Prompts especializados por área jurídica
+                  Prompts especializados por especialidade
                 </p>
               </div>
             </div>

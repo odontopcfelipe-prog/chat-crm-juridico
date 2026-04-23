@@ -161,7 +161,6 @@ function buildContext(event: any, memory: any, legalCase: any, ficha: any, djenP
   if (legalCase) {
     lines.push(`\n## PROCESSO`);
     if (legalCase.case_number) lines.push(`Número: ${legalCase.case_number}`);
-    if (legalCase.legal_area) lines.push(`Área: ${legalCase.legal_area}`);
     if (legalCase.action_type) lines.push(`Tipo de ação: ${legalCase.action_type}`);
     if (legalCase.opposing_party) lines.push(`Parte contrária: ${legalCase.opposing_party}`);
     if (legalCase.court) lines.push(`Tribunal/Vara: ${legalCase.court}`);

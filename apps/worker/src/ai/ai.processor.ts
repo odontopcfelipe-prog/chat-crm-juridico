@@ -107,14 +107,14 @@ export class AiProcessor extends WorkerHost {
     }
   }
 
-  // ─── Seleciona a skill baseado na área jurídica ───
-  private selectSkill(skills: any[], legalArea: string | null): any | null {
+  // ─── Seleciona a skill baseado na especialidade ───
+  private selectSkill(skills: any[], specialty: string | null): any | null {
     if (!skills.length) return null;
-    if (legalArea) {
+    if (specialty) {
       const specialist = skills.find(
         (s) =>
-          s.area.toLowerCase().includes(legalArea.toLowerCase()) ||
-          legalArea.toLowerCase().includes(s.area.toLowerCase()),
+          s.area.toLowerCase().includes(specialty.toLowerCase()) ||
+          specialty.toLowerCase().includes(s.area.toLowerCase()),
       );
       if (specialist) return specialist;
     }
@@ -419,18 +419,18 @@ export class AiProcessor extends WorkerHost {
       }
     }
 
-    // c. Área → Conversation.legal_area (só se não classificada) + auto-atribuir especialista
+    // c. Especialidade → Conversation.specialty (só se não classificada) + auto-atribuir especialista
     if (updates.area && updates.area !== 'null') {
       const conv = await (this.prisma as any).conversation.findUnique({
         where: { id: convoId },
-        select: { legal_area: true, assigned_lawyer_id: true },
+        select: { specialty: true, assigned_lawyer_id: true },
       });
-      if (!conv?.legal_area) {
+      if (!conv?.specialty) {
         await (this.prisma as any).conversation.update({
           where: { id: convoId },
-          data: { legal_area: updates.area },
+          data: { specialty: updates.area },
         });
-        this.logger.log(`[AI] Área classificada: "${updates.area}"`);
+        this.logger.log(`[AI] Especialidade classificada: "${updates.area}"`);
 
         // Auto-atribuir o especialista menos ocupado (só se ainda não houver um)
         if (!conv?.assigned_lawyer_id) {
@@ -441,7 +441,7 @@ export class AiProcessor extends WorkerHost {
               data: { assigned_lawyer_id: lawyerId },
             });
             this.logger.log(
-              `[AI] Especialista pré-atribuído: ${lawyerId} (área: ${updates.area})`,
+              `[AI] Especialista pré-atribuído: ${lawyerId} (especialidade: ${updates.area})`,
             );
           }
         }
@@ -513,14 +513,14 @@ export class AiProcessor extends WorkerHost {
       }
     }
 
-    // g. Se next_step = "formulario" e área = Trabalhista, preencher ficha com memória
+    // g. Se next_step = "formulario" e especialidade = Trabalhista, preencher ficha com memória
     if (updates.next_step === 'formulario') {
       try {
         const conv = await (this.prisma as any).conversation.findUnique({
           where: { id: convoId },
-          select: { legal_area: true },
+          select: { specialty: true },
         });
-        if (conv?.legal_area?.toLowerCase().includes('trabalhist')) {
+        if (conv?.specialty?.toLowerCase().includes('trabalhist')) {
           const memory = await this.prisma.aiMemory.findUnique({
             where: { lead_id: leadId },
           });
@@ -720,7 +720,7 @@ export class AiProcessor extends WorkerHost {
     return slots;
   }
 
-  // ─── Encontra o especialista menos ocupado para uma área jurídica ───
+  // ─── Encontra o especialista menos ocupado para uma especialidade ───
   private async findLeastBusySpecialist(area: string): Promise<string | null> {
     const allUsers = await (this.prisma as any).user.findMany({
       where: { specialties: { isEmpty: false } },
@@ -1004,7 +1004,7 @@ export class AiProcessor extends WorkerHost {
         if (lead?.is_client) {
           activeCases = await (this.prisma as any).legalCase.findMany({
             where: { lead_id: convo.lead_id, archived: false },
-            select: { id: true, case_number: true, legal_area: true, tracking_stage: true, in_tracking: true, stage: true, opposing_party: true },
+            select: { id: true, case_number: true, specialty: true, tracking_stage: true, in_tracking: true, stage: true, opposing_party: true },
             orderBy: { stage_changed_at: 'desc' },
           });
           if (activeCases.length > 0) isActiveClient = true;
@@ -1014,7 +1014,7 @@ export class AiProcessor extends WorkerHost {
       }
 
       // 9. Selecionar skill — via Router inteligente ou fallback area-matching
-      const legalArea = (convo as any).legal_area || null;
+      const specialty = (convo as any).specialty || null;
       const nextStep = (convo as any).next_step || null;
       const routerConfig = await this.settings.getRouterConfig();
       let skill: any = null;
@@ -1046,7 +1046,7 @@ export class AiProcessor extends WorkerHost {
             const routerResult = await this.skillRouter.selectSkill({
               skills: activeSkills,
               lastMessages: lastMsgs,
-              legalArea,
+              specialty,
               nextStep,
               routerModel: routerConfig.model,
               routerProvider: routerConfig.provider as LLMProvider,
@@ -1064,7 +1064,7 @@ export class AiProcessor extends WorkerHost {
 
       // Fallback: area-matching original
       if (!skill) {
-        skill = this.selectSkill(activeSkills, legalArea);
+        skill = this.selectSkill(activeSkills, specialty);
         routerReason = routerReason || 'fallback: area matching';
       }
 
@@ -1074,9 +1074,9 @@ export class AiProcessor extends WorkerHost {
       let maxTokens: number;
       let temperature: number;
 
-      // 10b. Buscar status da ficha trabalhista (se área trabalhista)
+      // 10b. Buscar status da ficha trabalhista (se especialidade trabalhista)
       let fichaStatus = '';
-      if (legalArea?.toLowerCase().includes('trabalhist')) {
+      if (specialty?.toLowerCase().includes('trabalhist')) {
         try {
           const ficha = await (this.prisma as any).fichaTrabalhista.findUnique({
             where: { lead_id: convo.lead_id },
@@ -1246,7 +1246,7 @@ export class AiProcessor extends WorkerHost {
           const stageLabel = c.in_tracking
             ? (TRACKING_LABELS[c.tracking_stage] || c.tracking_stage || 'Em acompanhamento')
             : (PREP_LABELS[c.stage] || c.stage || 'Em preparação');
-          return `  - Nº ${c.case_number || 'Sem número'} | ${c.legal_area || 'Área não definida'} | Estágio: ${stageLabel}${c.opposing_party ? ` | vs ${c.opposing_party}` : ''}`;
+          return `  - Nº ${c.case_number || 'Sem número'} | ${c.specialty || 'Especialidade não definida'} | Estágio: ${stageLabel}${c.opposing_party ? ` | vs ${c.opposing_party}` : ''}`;
         });
         activeCasesInfoBlock = `═══════════════════════════════════════════════════
 ⚖️ PROCESSOS ATIVOS DO CLIENTE (${activeCases.length}):
@@ -1281,7 +1281,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       const vars: Record<string, string> = {
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
-        legal_area: legalArea || 'a ser identificada',
+        specialty: specialty || 'a ser identificada',
         firm_name: 'André Lustosa Advogados',
         lead_memory: leadMemory,
         lead_summary: memory?.summary || '',

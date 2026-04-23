@@ -23,7 +23,7 @@ export default function NewContactModal({ onClose, onCreated }: {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
-  const [legalArea, setLegalArea] = useState('');
+  const [specialty, setSpecialty] = useState('');
   const [selectedLawyerId, setSelectedLawyerId] = useState('');
   const [lawyers, setLawyers] = useState<{ id: string; name: string | null }[]>([]);
   const [checking, setChecking] = useState(false);
@@ -109,9 +109,9 @@ export default function NewContactModal({ onClose, onCreated }: {
         await api.patch(`/conversations/${convR.data.id}/assign-lawyer`, { lawyerId: selectedLawyerId }).catch(() => {});
       }
 
-      // Definir área jurídica
-      if (legalArea) {
-        await api.patch(`/conversations/${convR.data.id}/legal-area`, { legalArea }).catch(() => {});
+      // Definir especialidade
+      if (specialty) {
+        await api.patch(`/conversations/${convR.data.id}/specialty`, { specialty }).catch(() => {});
       }
 
       onCreated(convR.data.id);
@@ -170,10 +170,10 @@ export default function NewContactModal({ onClose, onCreated }: {
               className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-[13px] text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all placeholder:text-muted-foreground/40" />
           </div>
 
-          {/* Área Jurídica */}
+          {/* Especialidade */}
           <div className="flex flex-col gap-1.5">
-            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Área Jurídica <span className="normal-case font-normal opacity-60">(opcional)</span></label>
-            <select value={legalArea} onChange={e => setLegalArea(e.target.value)}
+            <label className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">Especialidade <span className="normal-case font-normal opacity-60">(opcional)</span></label>
+            <select value={specialty} onChange={e => setSpecialty(e.target.value)}
               className="w-full px-3.5 py-2.5 bg-background border border-border rounded-xl text-[13px] text-foreground outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary transition-all">
               <option value="">Selecionar...</option>
               {LEGAL_AREAS.map(a => <option key={a} value={a}>{a}</option>)}

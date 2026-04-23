@@ -15,8 +15,8 @@ interface UseChatSocketResult {
   setConvoStatus: React.Dispatch<React.SetStateAction<string>>;
   aiMode: boolean;
   setAiMode: React.Dispatch<React.SetStateAction<boolean>>;
-  legalArea: string | null;
-  setLegalArea: React.Dispatch<React.SetStateAction<string | null>>;
+  specialty: string | null;
+  setSpecialty: React.Dispatch<React.SetStateAction<string | null>>;
   assignedLawyer: { id: string; name: string } | null;
   setAssignedLawyer: React.Dispatch<React.SetStateAction<{ id: string; name: string } | null>>;
   allSpecialists: { id: string; name: string; specialties: string[] }[];
@@ -38,7 +38,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
   const [convoId, setConvoId] = useState<string | null>(null);
   const [convoStatus, setConvoStatus] = useState<string>('ABERTO');
   const [aiMode, setAiMode] = useState(false);
-  const [legalArea, setLegalArea] = useState<string | null>(null);
+  const [specialty, setSpecialty] = useState<string | null>(null);
   const [assignedLawyer, setAssignedLawyer] = useState<{ id: string; name: string } | null>(null);
   const [allSpecialists, setAllSpecialists] = useState<{ id: string; name: string; specialties: string[] }[]>([]);
   const [originAssignedUserId, setOriginAssignedUserId] = useState<string | null>(null);
@@ -68,7 +68,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
           setConvoStatus(convo.status || 'ABERTO');
           setAiMode(!!convo.ai_mode);
           setMessages(convo.messages || []);
-          setLegalArea(convo.legal_area || null);
+          setSpecialty(convo.specialty || null);
           setAssignedLawyer(convo.assigned_lawyer || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
 
@@ -167,8 +167,8 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
     setConvoStatus,
     aiMode,
     setAiMode,
-    legalArea,
-    setLegalArea,
+    specialty,
+    setSpecialty,
     assignedLawyer,
     setAssignedLawyer,
     allSpecialists,

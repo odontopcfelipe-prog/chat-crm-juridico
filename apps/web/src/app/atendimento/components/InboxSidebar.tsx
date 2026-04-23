@@ -47,7 +47,7 @@ const STAGE_BASE_SCORES: Record<string, number> = {
 function computeScore(conv: ConversationSummary): number {
   const stage = normalizeStage(conv.leadStage || '');
   let score = STAGE_BASE_SCORES[stage] ?? 20;
-  if (conv.legalArea) score += 8;
+  if (conv.specialty) score += 8;
   if (conv.assignedLawyerId) score += 5;
   if (conv.nextStep && conv.nextStep !== 'duvidas') score += 5;
   if (conv.stageEnteredAt) {
@@ -597,10 +597,10 @@ export function InboxSidebar({
                           );
                         })()}
                       </div>
-                      {conv.legalArea && (
+                      {conv.specialty && (
                         <div className="mb-1.5 flex items-center gap-1.5 flex-wrap">
                           <span className="inline-flex items-center gap-1 text-[10px] text-violet-400 font-bold border border-violet-500/20 bg-violet-500/10 rounded-md px-1.5 py-0.5">
-                            ⚖️ {conv.legalArea}
+                            ⚖️ {conv.specialty}
                           </span>
                           {conv.assignedLawyerName && (
                             <span className="text-[10px] text-violet-300 font-medium truncate">

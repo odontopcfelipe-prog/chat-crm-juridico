@@ -215,8 +215,8 @@ export default function Dashboard() {
   const [taskReminderToast, setTaskReminderToast] = useState<{ eventId: string; title: string; type: string; start_at: string; minutesBefore: number } | null>(null);
   // Contact presence (online/composing/unavailable) — ephemeral
   const [contactPresence, setContactPresence] = useState<string>('unavailable');
-  const [showLegalAreaDropdown, setShowLegalAreaDropdown] = useState(false);
-  const legalAreaDropdownRef = useRef<HTMLDivElement>(null);
+  const [showSpecialtyDropdown, setShowSpecialtyDropdown] = useState(false);
+  const specialtyDropdownRef = useRef<HTMLDivElement>(null);
   const touchStartXRef = useRef<number>(0);
   const touchStartYRef = useRef<number>(0);
   const [searchQuery, setSearchQuery] = useState('');
@@ -517,7 +517,7 @@ export default function Dashboard() {
   // Fechar dropdowns ao trocar de conversa
   useEffect(() => {
     setShowLawyerDropdown(false);
-    setShowLegalAreaDropdown(false);
+    setShowSpecialtyDropdown(false);
     setShowDetailsPanel(false);
     setMsgSearchOpen(false);
     setMsgSearchQuery('');
@@ -531,15 +531,15 @@ export default function Dashboard() {
 
   // Fechar dropdown de área ao clicar fora
   useEffect(() => {
-    if (!showLegalAreaDropdown) return;
+    if (!showSpecialtyDropdown) return;
     const handler = (e: MouseEvent) => {
-      if (legalAreaDropdownRef.current && !legalAreaDropdownRef.current.contains(e.target as Node)) {
-        setShowLegalAreaDropdown(false);
+      if (specialtyDropdownRef.current && !specialtyDropdownRef.current.contains(e.target as Node)) {
+        setShowSpecialtyDropdown(false);
       }
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
-  }, [showLegalAreaDropdown]);
+  }, [showSpecialtyDropdown]);
 
   // Fechar dropdown de especialista ao clicar fora
   // Checa ambos os refs (ChatHeader + sidebar) para evitar fechar prematuramente
@@ -996,7 +996,7 @@ export default function Dashboard() {
   useEffect(() => {
     setFichaFinalizada(false);
     const conv = conversations.find(c => c.id === selectedId);
-    if (!conv?.leadId || !conv?.legalArea?.toLowerCase().includes('trabalhist')) return;
+    if (!conv?.leadId || !conv?.specialty?.toLowerCase().includes('trabalhist')) return;
     api.get(`/ficha-trabalhista/${conv.leadId}`, { _silent401: true } as any)
       .then(r => setFichaFinalizada(r.data?.finalizado === true))
       .catch(() => {});
@@ -1609,7 +1609,7 @@ export default function Dashboard() {
     const conv = conversations.find(c => c.id === selectedId) ?? adiadoConversations.find(c => c.id === selectedId);
     if (!conv?.leadId) return;
     // Bloquear FINALIZADO sem área de atendimento definida
-    if (newStage === 'FINALIZADO' && !conv?.legalArea) {
+    if (newStage === 'FINALIZADO' && !conv?.specialty) {
       alert('⚠️ Defina a Área de Atendimento antes de marcar como Finalizado.');
       return;
     }
@@ -1749,19 +1749,19 @@ export default function Dashboard() {
     }
   };
 
-  const handleChangeLegalArea = async (area: string | null) => {
+  const handleChangeSpecialty = async (area: string | null) => {
     if (!selectedId) return;
-    const prevArea = selected?.legalArea ?? null;
-    setShowLegalAreaDropdown(false);
+    const prevArea = selected?.specialty ?? null;
+    setShowSpecialtyDropdown(false);
     // Optimistic update — atualizar ambos os arrays (ABERTO + ADIADO)
-    setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, legalArea: area } : c));
-    setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, legalArea: area } : c));
+    setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, specialty: area } : c));
+    setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, specialty: area } : c));
     try {
-      await api.patch(`/conversations/${selectedId}/legal-area`, { legalArea: area });
+      await api.patch(`/conversations/${selectedId}/specialty`, { specialty: area });
     } catch (e: any) {
       // Rollback — ambos os arrays
-      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, legalArea: prevArea } : c));
-      setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, legalArea: prevArea } : c));
+      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, specialty: prevArea } : c));
+      setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, specialty: prevArea } : c));
       alert('Erro ao atualizar área: ' + (e?.response?.data?.message || e?.message || 'Tente novamente'));
     }
   };
@@ -2314,15 +2314,15 @@ export default function Dashboard() {
               fichaFinalizada={fichaFinalizada}
               allSpecialists={allSpecialists}
               currentUserId={currentUserId}
-              showLegalAreaDropdown={showLegalAreaDropdown}
+              showSpecialtyDropdown={showSpecialtyDropdown}
               showLawyerDropdown={showLawyerDropdown}
               showStageDropdown={showStageDropdown}
-              legalAreaDropdownRef={legalAreaDropdownRef}
+              specialtyDropdownRef={specialtyDropdownRef}
               lawyerDropdownRef={lawyerDropdownRef}
               stageDropdownRef={stageDropdownRef}
               onBack={() => { setSelectedId(null); setMobileMoreOpen(false); }}
-              onToggleLegalArea={() => setShowLegalAreaDropdown(v => !v)}
-              onChangeLegalArea={handleChangeLegalArea}
+              onToggleSpecialty={() => setShowSpecialtyDropdown(v => !v)}
+              onChangeSpecialty={handleChangeSpecialty}
               onToggleLawyer={() => setShowLawyerDropdown(v => !v)}
               onAssignLawyer={handleAssignLawyerInbox}
               onToggleAiMode={handleToggleAiMode}
@@ -2615,7 +2615,7 @@ export default function Dashboard() {
                 </button>
 
                 {/* Ficha — só trabalhista */}
-                {selected.legalArea?.toLowerCase().includes('trabalhist') && (
+                {selected.specialty?.toLowerCase().includes('trabalhist') && (
                   <button
                     onClick={() => setFichaInboxVisible(true)}
                     className="flex flex-col items-center gap-0.5 px-3 py-1.5 rounded-lg active:bg-accent transition-colors min-w-[56px]"
@@ -2713,27 +2713,27 @@ export default function Dashboard() {
                         <span className="text-muted-foreground">Área</span>
                         <div className="relative">
                           <button
-                            onClick={() => setShowLegalAreaDropdown(v => !v)}
-                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors hover:opacity-80 active:scale-95 ${selected.legalArea ? 'bg-violet-500/15 text-violet-400 border-violet-500/20' : 'bg-muted/40 text-muted-foreground border-border'}`}
+                            onClick={() => setShowSpecialtyDropdown(v => !v)}
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold border transition-colors hover:opacity-80 active:scale-95 ${selected.specialty ? 'bg-violet-500/15 text-violet-400 border-violet-500/20' : 'bg-muted/40 text-muted-foreground border-border'}`}
                           >
-                            ⚖️ {selected.legalArea || 'Definir área'}
+                            ⚖️ {selected.specialty || 'Definir área'}
                             <ChevronDown size={10} className="opacity-70" />
                           </button>
-                          {showLegalAreaDropdown && (
+                          {showSpecialtyDropdown && (
                             <div className="absolute right-0 top-full mt-1 bg-card border border-border rounded-xl shadow-xl w-44 py-1 text-[12px] z-[100]">
                               <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Área de Atendimento</p>
                               {LEGAL_AREAS.map(area => (
                                 <button
                                   key={area}
-                                  onClick={() => handleChangeLegalArea(area)}
-                                  className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${selected.legalArea === area ? 'text-violet-400 font-semibold' : 'text-foreground'}`}
+                                  onClick={() => handleChangeSpecialty(area)}
+                                  className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${selected.specialty === area ? 'text-violet-400 font-semibold' : 'text-foreground'}`}
                                 >
                                   ⚖️ {area}
                                 </button>
                               ))}
-                              {selected.legalArea && (
+                              {selected.specialty && (
                                 <button
-                                  onClick={() => handleChangeLegalArea(null)}
+                                  onClick={() => handleChangeSpecialty(null)}
                                   className="w-full text-left px-3 py-2 text-muted-foreground hover:bg-accent hover:text-destructive transition-colors text-[11px] border-t border-border mt-1"
                                 >
                                   Remover área
@@ -2749,7 +2749,7 @@ export default function Dashboard() {
                           <span className="font-medium">{selected.assignedAgentName}</span>
                         </div>
                       )}
-                      {selected.legalArea && (
+                      {selected.specialty && (
                         <div className="flex justify-between items-center text-sm">
                           <span className="text-muted-foreground">Especialista</span>
                           <div className="relative" ref={lawyerDropdownRef2}>
@@ -2848,7 +2848,7 @@ export default function Dashboard() {
                   </section>
 
                   {/* Ficha Trabalhista */}
-                  {selected?.legalArea?.toLowerCase().includes('trabalhist') && (
+                  {selected?.specialty?.toLowerCase().includes('trabalhist') && (
                     <section>
                       <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
                         Ficha Trabalhista

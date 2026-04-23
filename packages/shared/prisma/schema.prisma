@@ -196,7 +196,7 @@ model Conversation {
   pending_transfer_from_id   String?
   pending_transfer_reason    String?
   pending_transfer_audio_ids String[]            @default([])
-  legal_area                 String? // Area do direito detectada pela IA
+  specialty                  String? // Especialidade odontológica detectada pela IA (endodontia, ortodontia, periodontia, etc.)
   assigned_lawyer_id         String? // Advogado pre-designado pela IA
   origin_assigned_user_id    String? // Quem transferiu (para devolucao)
   linked_agent_ids           String[]            @default([]) // Todos os agentes que atenderam

@@ -45,7 +45,7 @@ interface Transaction {
   paid_at: string | null;
   payment_method: string | null;
   status: 'PAGO' | 'PENDENTE' | 'CANCELADO';
-  legal_case: { id: string; case_number: string; legal_area: string } | null;
+  legal_case: { id: string; case_number: string; specialty: string } | null;
   lead: { id: string; name: string; phone: string } | null;
   lawyer: { id: string; name: string } | null;
   lawyer_id?: string | null;
@@ -2562,7 +2562,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
                 const lc = isLead ? null : p.honorario?.legal_case;
                 const leadData = isLead ? p.lead_honorario?.lead : lc?.lead;
                 const honType = isLead ? p.lead_honorario?.type : p.honorario?.type;
-                const label = isLead ? 'LEAD' : `${formatCNJ(lc?.case_number)} ${lc?.legal_area ? `(${lc.legal_area})` : ''}`.trim();
+                const label = isLead ? 'LEAD' : `${formatCNJ(lc?.case_number)} ${lc?.specialty ? `(${lc.specialty})` : ''}`.trim();
                 groups.set(groupKey, { key: groupKey, isLead, label, clientName: leadData?.name || '--', honType: honType || '', payments: [] });
               }
               groups.get(groupKey)!.payments.push(p);
@@ -2748,8 +2748,8 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
                           {r.legal_case?.case_number && (
                             <div className="flex items-center gap-1.5 mb-0.5 flex-wrap">
                               <span className="text-[10px] font-mono text-primary">{r.legal_case.case_number}</span>
-                              {r.legal_case.legal_area && (
-                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/40 text-muted-foreground">{r.legal_case.legal_area}</span>
+                              {r.legal_case.specialty && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-accent/40 text-muted-foreground">{r.legal_case.specialty}</span>
                               )}
                               {r.honorario_payment?.honorario?.type && (
                                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/20">
@@ -3000,7 +3000,7 @@ function PendingPaymentPanel({
           <div className="border border-border rounded-xl p-3.5 space-y-2">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Processo</p>
             <p className="text-xs font-mono text-primary">{lc.case_number}</p>
-            {lc.legal_area && <span className="text-[10px] px-2 py-0.5 rounded bg-accent/40 text-muted-foreground">{lc.legal_area}</span>}
+            {lc.specialty && <span className="text-[10px] px-2 py-0.5 rounded bg-accent/40 text-muted-foreground">{lc.specialty}</span>}
             {lc.lawyer?.name && <p className="text-[10px] text-muted-foreground mt-1">Adv. {lc.lawyer.name}</p>}
             <button onClick={() => router.push(`/atendimento/processos?openCase=${lc.id}`)}
               className="flex items-center gap-1 text-[10px] font-bold text-primary hover:underline mt-1">
@@ -3315,8 +3315,8 @@ function ReceitaDetailPanel({
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Processo Vinculado</p>
             <div className="space-y-1.5">
               <p className="text-xs font-mono text-primary">{r.legal_case.case_number}</p>
-              {r.legal_case.legal_area && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-accent/40 text-muted-foreground">{r.legal_case.legal_area}</span>
+              {r.legal_case.specialty && (
+                <span className="text-[10px] px-2 py-0.5 rounded bg-accent/40 text-muted-foreground">{r.legal_case.specialty}</span>
               )}
             </div>
             <button
@@ -3634,7 +3634,7 @@ function ProcessosFinanceiroTab({ lawyerId }: { lawyerId: string }) {
                       </div>
                     </td>
                     <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{c.case_number?.slice(-10) || '--'}</td>
-                    <td className="px-4 py-3"><span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary">{c.legal_area || '--'}</span></td>
+                    <td className="px-4 py-3"><span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary">{c.specialty || '--'}</span></td>
                     <td className="px-4 py-3 text-muted-foreground truncate max-w-[100px]">{c.lawyer?.name?.split(' ')[0] || '--'}</td>
                     <td className="px-4 py-3 text-[10px] font-semibold text-muted-foreground">{c.tracking_stage || c.stage}</td>
                     <td className="px-4 py-3 text-right font-bold text-blue-400">{fmt(c.fin.contracted)}</td>

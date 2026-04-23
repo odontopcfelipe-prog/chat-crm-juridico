@@ -23,7 +23,7 @@ interface CrmLead {
   created_at: string;
   conversations: Array<{
     id: string;
-    legal_area: string | null;
+    specialty: string | null;
     assigned_lawyer_id: string | null;
     next_step: string | null;
     last_message_at: string;
@@ -86,7 +86,7 @@ function computeLeadScore(lead: CrmLead): number {
   const normalized = normalizeStage(lead.stage);
   let score = STAGE_BASE_SCORES[normalized] ?? 20;
   const conv = lead.conversations?.[0];
-  if (conv?.legal_area) score += 8;
+  if (conv?.specialty) score += 8;
   if (conv?.assigned_lawyer_id) score += 5;
   if (conv?.next_step && conv.next_step !== 'duvidas') score += 5;
   const days = daysInStage(lead.stage_entered_at);
@@ -141,7 +141,7 @@ function getScoreFactors(lead: CrmLead): string[] {
   const factors: string[] = [];
   const base = STAGE_BASE_SCORES[normalized] ?? 20;
   factors.push(`+${base} etapa atual`);
-  if (conv?.legal_area) factors.push('+8 área jurídica definida');
+  if (conv?.specialty) factors.push('+8 especialidade definida');
   if (conv?.assigned_lawyer_id) factors.push('+5 advogado atribuído');
   if (conv?.next_step && conv.next_step !== 'duvidas') factors.push('+5 próximo passo definido');
   if (days > 3) factors.push(`-${Math.min(25, (days - 3) * 3)} estagnado há ${days}d`);
@@ -150,11 +150,11 @@ function getScoreFactors(lead: CrmLead): string[] {
 
 function validateStageTransition(lead: CrmLead, newStage: string): string | null {
   const conv = lead.conversations?.[0];
-  if (newStage === 'REUNIAO_AGENDADA' && !conv?.legal_area) {
-    return 'Defina a área jurídica antes de agendar reunião.';
+  if (newStage === 'REUNIAO_AGENDADA' && !conv?.specialty) {
+    return 'Defina a especialidade antes de agendar reunião.';
   }
   if (newStage === 'FINALIZADO') {
-    if (!conv?.legal_area) return 'Defina a área jurídica antes de finalizar.';
+    if (!conv?.specialty) return 'Defina a especialidade antes de finalizar.';
     if (!conv?.assigned_lawyer_id) return 'Atribua um advogado antes de finalizar.';
   }
   return null;
@@ -199,7 +199,7 @@ function LeadCard({
   const menuRef = useRef<HTMLDivElement>(null);
   const conv = lead.conversations?.[0];
   const lastMsg = conv?.messages?.[0];
-  const legalArea = conv?.legal_area;
+  const specialty = conv?.specialty;
   const lawyerName = conv?.assigned_lawyer?.name;
   const nextStep = conv?.next_step ? NEXT_STEP_MAP[conv.next_step] : null;
   const normalizedStage = normalizeStage(lead.stage);
@@ -321,9 +321,9 @@ function LeadCard({
             NOVO
           </span>
         )}
-        {legalArea && (
+        {specialty && (
           <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-full bg-violet-500/12 text-violet-400 text-[9px] font-bold border border-violet-500/20">
-            ⚖️ {legalArea}
+            ⚖️ {specialty}
           </span>
         )}
         {lawyerName && (
@@ -576,10 +576,10 @@ function LeadDetailPanel({
                 <span className="truncate">{lead.email}</span>
               </div>
             )}
-            {conv?.legal_area && (
+            {conv?.specialty && (
               <div className="flex items-center gap-2 text-[12px] text-muted-foreground">
                 <Scale size={12} className="shrink-0" />
-                <span>{conv.legal_area}</span>
+                <span>{conv.specialty}</span>
               </div>
             )}
             {conv?.assigned_lawyer && (
@@ -726,7 +726,7 @@ function LeadDetailPanel({
                           icon = '⚖️';
                           iconBg = 'bg-violet-500/15';
                           label = item.to_stage || item.from_stage || '';
-                          sub = item.case_number ? `processo #${item.case_number}` : item.legal_area || '';
+                          sub = item.case_number ? `processo #${item.case_number}` : item.specialty || '';
                         } else if (item.type === 'petition') {
                           icon = '📄';
                           iconBg = 'bg-emerald-500/15';
@@ -890,7 +890,7 @@ function LeadListView({
                 <td className={`py-2.5 pr-4 font-bold text-[11px] ${agingColor(days)}`}>
                   {days > 0 ? `${days}d` : '—'}
                 </td>
-                <td className="py-2.5 pr-4 text-muted-foreground">{conv?.legal_area || '—'}</td>
+                <td className="py-2.5 pr-4 text-muted-foreground">{conv?.specialty || '—'}</td>
                 <td className="py-2.5 pr-4 text-muted-foreground truncate max-w-[120px]">
                   {conv?.assigned_lawyer?.name?.replace(/^(Dra?\.?)\s+/i, '').split(' ')[0] || '—'}
                 </td>
@@ -1421,7 +1421,7 @@ export default function CrmPage() {
 
   // Coletar valores únicos para filtros
   const allAreas = [...new Set(
-    leads.flatMap(l => l.conversations?.map(c => c.legal_area).filter(Boolean) ?? [])
+    leads.flatMap(l => l.conversations?.map(c => c.specialty).filter(Boolean) ?? [])
   )].sort() as string[];
 
   const allLawyers = [...new Map(
@@ -1444,7 +1444,7 @@ export default function CrmPage() {
       if (!name.includes(q) && !phone.includes(q)) return false;
     }
     if (areaFilter) {
-      const hasArea = lead.conversations?.some(c => c.legal_area === areaFilter);
+      const hasArea = lead.conversations?.some(c => c.specialty === areaFilter);
       if (!hasArea) return false;
     }
     if (lawyerFilter) {

@@ -1,8 +1,8 @@
 import type { ToolHandler, ToolContext } from '../tool-executor';
 
 /**
- * Atualiza dados do lead (nome, stage, área jurídica, etc.).
- * Campos permitidos: name, stage, legal_area, notes, lead_summary, next_step.
+ * Atualiza dados do lead (nome, stage, especialidade, etc.).
+ * Campos permitidos: name, stage, specialty, notes, lead_summary, next_step.
  */
 export class UpdateLeadHandler implements ToolHandler {
   name = 'update_lead';
@@ -11,7 +11,7 @@ export class UpdateLeadHandler implements ToolHandler {
     params: {
       name?: string;
       stage?: string;
-      legal_area?: string;
+      specialty?: string;
       notes?: string;
       lead_summary?: string;
       next_step?: string;
@@ -28,7 +28,7 @@ export class UpdateLeadHandler implements ToolHandler {
     }
     if (params.notes) leadUpdate.notes = params.notes;
 
-    if (params.legal_area) convUpdate.legal_area = params.legal_area;
+    if (params.specialty) convUpdate.specialty = params.specialty;
     if (params.lead_summary) convUpdate.lead_summary = params.lead_summary;
     if (params.next_step) convUpdate.next_step = params.next_step;
 

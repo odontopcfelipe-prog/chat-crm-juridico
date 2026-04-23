@@ -29,7 +29,7 @@ interface LeadDetail {
   conversations: Array<{
     id: string;
     status: string;
-    legal_area?: string;
+    specialty?: string;
     ai_mode: boolean;
     last_message_at: string;
     next_step?: string;
@@ -44,7 +44,7 @@ interface LeadDetail {
 interface LegalCaseItem {
   id: string;
   stage: string;
-  legal_area: string | null;
+  specialty: string | null;
   case_number: string | null;
   created_at: string;
   lawyer: { id: string; name: string } | null;
@@ -956,8 +956,8 @@ export function ClientPanel({
                           )}
                         </div>
                         <div className="flex items-center gap-2 flex-wrap">
-                          {c.legal_area && (
-                            <span className="text-[11px] text-violet-400 font-medium">{c.legal_area}</span>
+                          {c.specialty && (
+                            <span className="text-[11px] text-violet-400 font-medium">{c.specialty}</span>
                           )}
                           {c.lawyer && (
                             <span className="text-[11px] text-blue-400">
@@ -1017,7 +1017,7 @@ export function ClientPanel({
                               const res = await api.post('/legal-cases', {
                                 lead_id: lead.id,
                                 conversation_id: resolvedConvId || undefined,
-                                legal_area: newCaseArea || undefined,
+                                specialty: newCaseArea || undefined,
                               });
                               setCreatingCase(false);
                               setNewCaseArea('');
@@ -1564,8 +1564,8 @@ export function ClientPanel({
                               {lastMsg.direction === 'out' ? '↪ ' : ''}{lastMsg.text}
                             </p>
                           )}
-                          {c.legal_area && (
-                            <span className="text-[10px] text-violet-400 font-medium">⚖️ {c.legal_area}</span>
+                          {c.specialty && (
+                            <span className="text-[10px] text-violet-400 font-medium">⚖️ {c.specialty}</span>
                           )}
                         </div>
                       );
@@ -1577,7 +1577,7 @@ export function ClientPanel({
 
             {/* Ficha Trabalhista */}
             {lead && (() => {
-              const hasTrabalhistaArea = lead.conversations?.some((c: any) => c.legal_area?.toLowerCase().includes('trabalhist'));
+              const hasTrabalhistaArea = lead.conversations?.some((c: any) => c.specialty?.toLowerCase().includes('trabalhist'));
               if (!hasTrabalhistaArea) return null;
               return (
                 <div className="border-t border-border">

@@ -59,7 +59,7 @@ const TOOLS = [
         email: { type: 'string' },
         phone: { type: 'string' },
         stage: { type: 'string', description: 'Etapa do lead' },
-        legal_area: { type: 'string' },
+        specialty: { type: 'string' },
         notes: { type: 'string' },
       },
     },
@@ -112,7 +112,7 @@ const TOOLS = [
       required: ['lead_id'],
       properties: {
         lead_id: { type: 'string', description: 'ID do cliente' },
-        legal_area: { type: 'string', description: 'Área jurídica (TRABALHISTA, CIVEL, CRIMINAL, PREVIDENCIARIO, FAMILIA)' },
+        specialty: { type: 'string', description: 'Especialidade odontológica (livre)' },
         action_type: { type: 'string', description: 'Tipo de ação' },
         claim_value: { type: 'number', description: 'Valor da causa em reais' },
         opposing_party: { type: 'string', description: 'Parte contrária' },

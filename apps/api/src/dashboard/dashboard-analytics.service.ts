@@ -354,7 +354,7 @@ export class DashboardAnalyticsService {
 
     const areas = grouped
       .map((g: any) => ({
-        area: g.legal_area || 'Não classificado',
+        area: g.specialty || 'Não classificado',
         count: g._count,
         percentage: total > 0 ? Math.round((g._count / total) * 1000) / 10 : 0,
       }))

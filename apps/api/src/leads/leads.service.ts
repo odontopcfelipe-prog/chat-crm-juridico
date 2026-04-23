@@ -117,7 +117,6 @@ export class LeadsService {
 
         if (isAdvogadoUser) {
           orConditions.push({ conversations: { some: { assigned_lawyer_id: userId } } });
-          orConditions.push({ legal_cases: { some: { lawyer_id: userId } } });
         }
 
         if (isOperadorUser || isAdvogadoUser) {
@@ -315,15 +314,15 @@ export class LeadsService {
       throw new ForbiddenException('Motivo de perda é obrigatório ao marcar como PERDIDO');
     }
 
-    // Stage gate: FINALIZADO exige area juridica
+    // Stage gate: FINALIZADO exige especialidade definida
     if (stage === 'FINALIZADO') {
       const conv = await this.prisma.conversation.findFirst({
         where: { lead_id: id },
         orderBy: { last_message_at: 'desc' },
-        select: { legal_area: true, assigned_lawyer_id: true },
+        select: { specialty: true, assigned_lawyer_id: true },
       });
-      if (!conv?.legal_area) {
-        throw new ForbiddenException('Lead precisa ter área jurídica definida para ser finalizado');
+      if (!conv?.specialty) {
+        throw new ForbiddenException('Lead precisa ter especialidade definida para ser finalizado');
       }
     }
 
@@ -539,7 +538,7 @@ export class LeadsService {
         from_stage: e.from,
         to_stage: e.to,
         case_number: e.case_number,
-        legal_area: e.legal_area,
+        specialty: e.specialty,
         created_at: new Date(e.date + 'T12:00:00Z'),
       })),
       // Petições aprovadas/protocoladas (de AiMemory)
@@ -611,7 +610,7 @@ export class LeadsService {
         },
         {
           role: 'user',
-          content: `Lead: ${lead.name || 'Sem nome'} | Etapa: ${lead.stage} | Área: ${(conv as any)?.legal_area || 'não definida'}\n\nConversa:\n${messagesText || 'Sem mensagens registradas.'}`,
+          content: `Lead: ${lead.name || 'Sem nome'} | Etapa: ${lead.stage} | Especialidade: ${(conv as any)?.specialty || 'não definida'}\n\nConversa:\n${messagesText || 'Sem mensagens registradas.'}`,
         },
       ],
     });
@@ -645,7 +644,6 @@ export class LeadsService {
         const orConditions: any[] = [];
         if (isAdvogadoUser) {
           orConditions.push({ conversations: { some: { assigned_lawyer_id: userId } } });
-          orConditions.push({ legal_cases: { some: { lawyer_id: userId } } });
         }
         if (isOperadorUser || isAdvogadoUser) {
           orConditions.push({ conversations: { some: { assigned_user_id: userId } } });
@@ -667,7 +665,7 @@ export class LeadsService {
         conversations: {
           orderBy: { last_message_at: 'desc' },
           take: 1,
-          select: { legal_area: true, assigned_lawyer: { select: { name: true } } },
+          select: { specialty: true, assigned_lawyer: { select: { name: true } } },
         },
       },
     });
@@ -682,7 +680,7 @@ export class LeadsService {
     const daysInStage = (d: Date | string) =>
       Math.floor((Date.now() - new Date(d).getTime()) / msPerDay);
 
-    const header = ['Nome', 'Telefone', 'Email', 'Estágio', 'Área Jurídica', 'Advogado', 'Tags', 'Dias no Estágio', 'Criado em'];
+    const header = ['Nome', 'Telefone', 'Email', 'Estágio', 'Especialidade', 'Advogado', 'Tags', 'Dias no Estágio', 'Criado em'];
     const rows = leads.map(l => {
       const conv = (l as any).conversations?.[0];
       return [
@@ -690,7 +688,7 @@ export class LeadsService {
         escape(l.phone),
         escape(l.email),
         escape(l.stage),
-        escape(conv?.legal_area),
+        escape(conv?.specialty),
         escape(conv?.assigned_lawyer?.name),
         escape((l.tags || []).join('; ')),
         escape(String(daysInStage(l.stage_entered_at))),

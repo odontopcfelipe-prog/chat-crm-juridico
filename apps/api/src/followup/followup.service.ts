@@ -324,7 +324,7 @@ export class FollowupService {
       processual: casos.length > 0 ? {
         processos: casos.map(c => ({
           numero: c.case_number || 'Sem número', tipo: c.action_type || 'Geral',
-          area: c.legal_area || 'Geral', status: c.stage || 'Em andamento',
+          area: c.specialty || 'Geral', status: c.stage || 'Em andamento',
         })),
       } : undefined,
       tarefa: {

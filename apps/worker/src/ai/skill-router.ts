@@ -27,13 +27,13 @@ export class SkillRouter {
   async selectSkill(params: {
     skills: any[];
     lastMessages: string[];
-    legalArea: string | null;
+    specialty: string | null;
     nextStep: string | null;
     routerModel: string;
     routerProvider: LLMProvider;
     apiKey: string;
   }): Promise<RouterResult> {
-    const { skills, lastMessages, legalArea, nextStep, routerModel, routerProvider, apiKey } = params;
+    const { skills, lastMessages, specialty, nextStep, routerModel, routerProvider, apiKey } = params;
 
     if (!skills.length) {
       return { skillId: '', reason: 'nenhuma skill disponível', tokensUsed: 0 };
@@ -47,11 +47,11 @@ export class SkillRouter {
       return `${i + 1}. [${s.id}] "${s.name}" — ${desc}${kw ? `. Keywords: [${kw}]` : ''}${toolNames ? `. Tools: [${toolNames}]` : ''}`;
     }).join('\n');
 
-    const systemPrompt = `Você é o roteador de skills de um CRM jurídico. Analise o contexto da conversa e selecione a skill mais adequada para responder.
+    const systemPrompt = `Você é o roteador de skills de um CRM odontológico. Analise o contexto da conversa e selecione a skill mais adequada para responder.
 
 Regras:
 - Escolha a skill que melhor se encaixa no contexto da última mensagem do cliente
-- Se a área jurídica já foi identificada, prefira skills dessa área
+- Se a especialidade já foi identificada, prefira skills dessa especialidade
 - Se o cliente está pedindo agendamento, prefira skills com tool de agendamento
 - Se nenhuma skill especialista se encaixa, escolha a skill de triagem ou geral
 
@@ -61,7 +61,7 @@ ${catalog}
 Retorne APENAS um JSON válido: { "skill_id": "<id>", "reason": "<motivo curto>" }`;
 
     const contextLines = [
-      legalArea ? `Área jurídica atual: ${legalArea}` : null,
+      specialty ? `Especialidade atual: ${specialty}` : null,
       nextStep ? `Próximo passo: ${nextStep}` : null,
       'Últimas mensagens:',
       ...lastMessages.slice(-5).map((m) => `- ${m}`),
@@ -99,19 +99,19 @@ Retorne APENAS um JSON válido: { "skill_id": "<id>", "reason": "<motivo curto>"
 
     // Fallback: area matching (lógica original)
     return {
-      skillId: this.fallbackSelect(skills, legalArea),
+      skillId: this.fallbackSelect(skills, specialty),
       reason: 'fallback: area matching',
       tokensUsed: 0,
     };
   }
 
   /** Fallback: lógica original de seleção por area */
-  private fallbackSelect(skills: any[], legalArea: string | null): string {
-    if (legalArea) {
+  private fallbackSelect(skills: any[], specialty: string | null): string {
+    if (specialty) {
       const specialist = skills.find(
         (s: any) =>
-          s.area.toLowerCase().includes(legalArea.toLowerCase()) ||
-          legalArea.toLowerCase().includes(s.area.toLowerCase()),
+          s.area.toLowerCase().includes(specialty.toLowerCase()) ||
+          specialty.toLowerCase().includes(s.area.toLowerCase()),
       );
       if (specialist) return specialist.id;
     }

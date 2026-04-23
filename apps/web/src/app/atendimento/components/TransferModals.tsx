@@ -120,7 +120,7 @@ export function TransferModals({
                                   onClick={() => onOpenReasonPopup('lawyer', lawyerName)}
                                   className="w-full py-3 bg-violet-500/10 border border-violet-500/30 text-violet-300 rounded-xl font-bold text-sm hover:bg-violet-500/20 transition-colors flex items-center justify-center gap-2"
                                 >
-                                  {"⚖️"} Transferir para {lawyerName}{selected.legalArea ? ` (${selected.legalArea})` : ''}
+                                  {"⚖️"} Transferir para {lawyerName}{selected.specialty ? ` (${selected.specialty})` : ''}
                                 </button>
                               );
                             })()
