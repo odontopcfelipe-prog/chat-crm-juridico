@@ -54,6 +54,114 @@ const PIPELINE_TEMPLATES = {
       { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
     ],
   },
+  'implantes': {
+    name: 'Implantes Dentários',
+    slug: 'implantes',
+    description:
+      'Funil para implantes unitários, prótese sobre implante, all-on-4, all-on-6. Use quando o lead menciona dente perdido, prótese fixa, dentadura, ou pergunta sobre "colocar dente".',
+    color: '#0ea5e9',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true, description: 'Primeiro contato — ainda sem dados completos.' },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#0ea5e9', position: 1, description: 'Identificando se é unitário, múltiplos dentes, ou arcada completa.' },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Consulta de avaliação clínica marcada.' },
+      { name: 'Tomografia Solicitada', slug: 'tomografia-solicitada', emoji: '🩻', color: '#06b6d4', position: 3, description: 'Solicitada tomografia (cone beam) para planejamento.' },
+      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 4, description: 'Plano de tratamento + orçamento entregues.' },
+      { name: 'Tratamento Iniciado', slug: 'tratamento-iniciado', emoji: '✅', color: '#10b981', position: 5, is_won: true, description: 'Aceitou o tratamento e está em execução.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 6, is_lost: true, description: 'Desistiu ou não respondeu.' },
+    ],
+  },
+  'ortodontia': {
+    name: 'Ortodontia',
+    slug: 'ortodontia',
+    description:
+      'Funil para aparelho fixo, móvel, alinhador transparente (Invisalign). Use quando o lead pergunta sobre aparelho, alinhamento de dentes, mordida, sorriso torto.',
+    color: '#a855f7',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#a855f7', position: 1, description: 'Identificando tipo (fixo, móvel, alinhador) e queixa principal.' },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Avaliação ortodôntica marcada.' },
+      { name: 'Documentação', slug: 'documentacao', emoji: '🩻', color: '#06b6d4', position: 3, description: 'Pediu documentação (raio-X panorâmico, fotos, modelos).' },
+      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 4, description: 'Plano de tratamento + valores entregues.' },
+      { name: 'Em Tratamento', slug: 'em-tratamento', emoji: '✅', color: '#10b981', position: 5, is_won: true, description: 'Aparelho colocado, está em manutenção mensal.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 6, is_lost: true },
+    ],
+  },
+  'endodontia': {
+    name: 'Endodontia (Canal)',
+    slug: 'endodontia',
+    description:
+      'Funil para tratamento de canal, retratamento endodôntico. Use quando o lead menciona dor de dente forte/pulsátil, dente escuro, abscesso, ou já tem indicação de canal.',
+    color: '#dc2626',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true, description: 'Lead chegou com queixa de dor — pode precisar de canal.' },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#dc2626', position: 1, description: 'Confirmando sintomas (dor, sensibilidade, indicação prévia).' },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Avaliação clínica + raio-X periapical agendados.' },
+      { name: 'Orçamento Enviado', slug: 'orcamento-enviado', emoji: '📄', color: '#f59e0b', position: 3 },
+      { name: 'Tratamento Iniciado', slug: 'tratamento-iniciado', emoji: '✅', color: '#10b981', position: 4, is_won: true },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
+    ],
+  },
+  'periodontia': {
+    name: 'Periodontia',
+    slug: 'periodontia',
+    description:
+      'Funil para limpeza profunda, raspagem, tratamento de gengivite/periodontite. Use quando o lead menciona sangramento na gengiva, mau hálito, dente mole, gengiva inflamada.',
+    color: '#ec4899',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#ec4899', position: 1 },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2 },
+      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 3, description: 'Plano de raspagem (quantas sessões) + manutenção.' },
+      { name: 'Em Tratamento', slug: 'em-tratamento', emoji: '✅', color: '#10b981', position: 4, is_won: true },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
+    ],
+  },
+  'odontopediatria': {
+    name: 'Odontopediatria',
+    slug: 'odontopediatria',
+    description:
+      'Funil para crianças (0-12 anos). Use quando o lead pergunta por consulta para filho(a), criança, bebê. O paciente é a criança, não o responsável.',
+    color: '#22c55e',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#22c55e', position: 1, description: 'Idade da criança, primeira consulta ou retorno.' },
+      { name: 'Consulta Agendada', slug: 'consulta-agendada', emoji: '📅', color: '#8b5cf6', position: 2 },
+      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 3 },
+      { name: 'Em Acompanhamento', slug: 'em-acompanhamento', emoji: '✅', color: '#10b981', position: 4, is_won: true, description: 'Criança em acompanhamento periódico (6 em 6 meses).' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
+    ],
+  },
+  'protese': {
+    name: 'Prótese Dentária',
+    slug: 'protese',
+    description:
+      'Funil para prótese total (dentadura), prótese parcial removível (PPR), prótese fixa (coroa, ponte). Use quando o lead pergunta por dentadura, ponte, coroa, ou tem várias faltas que NÃO requerem implante.',
+    color: '#f97316',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#f97316', position: 1 },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2 },
+      { name: 'Moldagem', slug: 'moldagem', emoji: '🦷', color: '#06b6d4', position: 3, description: 'Moldagem feita, peça em produção no laboratório.' },
+      { name: 'Prova/Instalação', slug: 'prova-instalacao', emoji: '📋', color: '#f59e0b', position: 4, description: 'Prova ou instalação da prótese.' },
+      { name: 'Concluído', slug: 'concluido', emoji: '✅', color: '#10b981', position: 5, is_won: true },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 6, is_lost: true },
+    ],
+  },
+  'cirurgia-oral': {
+    name: 'Cirurgia Oral',
+    slug: 'cirurgia',
+    description:
+      'Funil para extrações de siso, cirurgia de freio, biópsia, exodontia complexa. Use quando o lead pergunta por extração, "tirar dente", siso incluso, cirurgia na boca.',
+    color: '#7c3aed',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
+      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#7c3aed', position: 1 },
+      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Avaliação + raio-X panorâmico ou tomografia se siso.' },
+      { name: 'Cirurgia Agendada', slug: 'cirurgia-agendada', emoji: '📅', color: '#06b6d4', position: 3 },
+      { name: 'Realizada', slug: 'realizada', emoji: '✅', color: '#10b981', position: 4, is_won: true, description: 'Cirurgia executada.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
+    ],
+  },
 } as const;
 
 export type PipelineTemplateKey = keyof typeof PIPELINE_TEMPLATES;
@@ -331,6 +439,71 @@ export class PipelinesService {
       tenant_id: overrides.tenant_id,
       stages: tpl.stages.map(s => ({ ...s })),
     });
+  }
+
+  /**
+   * Popula todos os funis odontológicos padrão de uma vez. Idempotente:
+   * pula templates cujo slug já exista no tenant. O primeiro template
+   * (odonto-clinico) é marcado como is_default se nenhum default ainda
+   * existir no tenant.
+   *
+   * Templates incluídos: odonto-clinico, estetica-facial, implantes,
+   * ortodontia, endodontia, periodontia, odontopediatria, protese,
+   * cirurgia-oral. comercial-b2b é pulado (não-clínico).
+   */
+  async seedDefaults(tenantId?: string): Promise<{
+    created: Array<{ key: string; name: string; slug: string }>;
+    skipped: Array<{ key: string; name: string; slug: string; reason: string }>;
+  }> {
+    // Ordem importa: odonto-clinico primeiro (vira default), demais por especialidade
+    const seedOrder: PipelineTemplateKey[] = [
+      'odonto-clinico',
+      'implantes',
+      'ortodontia',
+      'estetica-facial',
+      'endodontia',
+      'periodontia',
+      'odontopediatria',
+      'protese',
+      'cirurgia-oral',
+    ];
+
+    // Já tem default? Se não, primeiro template criado vira default.
+    const existingDefault = await this.pipeline.findFirst({
+      where: { tenant_id: tenantId ?? null, is_default: true },
+    });
+    let needsDefault = !existingDefault;
+
+    const created: Array<{ key: string; name: string; slug: string }> = [];
+    const skipped: Array<{ key: string; name: string; slug: string; reason: string }> = [];
+
+    for (const key of seedOrder) {
+      const tpl = PIPELINE_TEMPLATES[key];
+      // Pula se slug já existe (idempotência)
+      const existing = await this.pipeline.findFirst({
+        where: { tenant_id: tenantId ?? null, slug: tpl.slug },
+      });
+      if (existing) {
+        skipped.push({ key, name: tpl.name, slug: tpl.slug, reason: 'já existe' });
+        continue;
+      }
+
+      try {
+        const isDefault = needsDefault;
+        await this.createFromTemplate(key, {
+          tenant_id: tenantId,
+          is_default: isDefault,
+          // position incremental para manter ordem visual no Kanban
+          // (createFromTemplate não passa position; a ordem default é created_at)
+        });
+        if (isDefault) needsDefault = false;
+        created.push({ key, name: tpl.name, slug: tpl.slug });
+      } catch (e: any) {
+        skipped.push({ key, name: tpl.name, slug: tpl.slug, reason: e.message || 'erro' });
+      }
+    }
+
+    return { created, skipped };
   }
 
   // ─── Stages ──────────────────────────────────────────────────────────────

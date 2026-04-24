@@ -70,6 +70,16 @@ export class PipelinesController {
     return this.svc.createFull({ ...data, tenant_id: req.user?.tenant_id });
   }
 
+  /**
+   * Popula todos os 9 funis odontológicos padrão de uma vez (idempotente).
+   * Usado uma vez no setup inicial de cada tenant. Pula funis cujo slug já exista.
+   */
+  @Post('seed-defaults')
+  @Roles('ADMIN')
+  seedDefaults(@Request() req: any) {
+    return this.svc.seedDefaults(req.user?.tenant_id);
+  }
+
   @Post('from-template/:key')
   @Roles('ADMIN')
   createFromTemplate(
