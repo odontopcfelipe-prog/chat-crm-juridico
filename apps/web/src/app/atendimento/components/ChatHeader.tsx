@@ -391,78 +391,116 @@ export function ChatHeader({
           )}
         </div>
 
-        {/* Funil + Etapa (CRM dinâmico) — hidden on mobile.
-            Mostra o funil atual (com sua cor) e a etapa atual (com seu emoji/cor).
-            Click abre dropdown que lista TODOS os funis com TODAS as etapas — operador
-            pode mover o lead pra qualquer combinação. Usa pipelinesList carregado pelo
-            consumer via GET /pipelines + handler onChangeStageById que chama
-            PATCH /leads/:id/stage com stage_id (backend resolve pipeline_id auto). */}
+        {/* Funil + Etapa (CRM dinâmico) — 2 badges separados, cada um com seu próprio dropdown.
+            FUNIL: lista todos os pipelines, ao trocar move o lead pra etapa inicial do novo funil.
+            ETAPA: lista apenas as etapas do funil atual.
+            Backend: PATCH /leads/:id/stage com stage_id resolve pipeline automaticamente. */}
         {isRealConvo && pipelinesList && pipelinesList.length > 0 && (() => {
           const currentPipeline = selected.leadPipeline;
           const currentStage = selected.leadCurrentStage;
-          // Cor de exibição: usa a do stage se houver, fallback pra do pipeline, fallback pro cinza
-          const displayColor = currentStage?.color || currentPipeline?.color || '#6b7280';
+          const pipelineColor = currentPipeline?.color || '#6b7280';
+          const stageColor = currentStage?.color || '#6b7280';
+
+          // Pipeline atual no pipelinesList (pra ter as stages disponíveis)
+          const fullCurrentPipeline = currentPipeline
+            ? pipelinesList.find(p => p.id === currentPipeline.id)
+            : null;
+
+          // Handler: trocar pipeline → vai pra stage inicial (ou primeira) do novo
+          const handlePickPipeline = (pipelineId: string) => {
+            const target = pipelinesList.find(p => p.id === pipelineId);
+            if (!target || !onChangeStageById) return;
+            const initial = target.stages.find(s => s.is_initial) || target.stages[0];
+            if (initial) onChangeStageById(initial.id);
+          };
 
           return (
-            <div className="relative hidden md:flex items-center gap-2" ref={stageDropdownRef}>
-              <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
-                Funil:
-              </span>
-              <button
-                onClick={() => onToggleStage()}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all hover:opacity-80"
-                style={{ background: `${displayColor}18`, color: displayColor, borderColor: `${displayColor}35` }}
-                title="Clique para trocar o funil ou a etapa do lead"
-              >
-                {currentPipeline ? (
-                  <>
-                    📁 {currentPipeline.name}
-                    {currentStage && (
-                      <>
-                        <span className="opacity-50">·</span>
-                        <span>{currentStage.emoji ? `${currentStage.emoji} ` : ''}{currentStage.name}</span>
-                      </>
-                    )}
-                  </>
-                ) : (
-                  <>📁 Sem funil</>
-                )}
-                <ChevronDown size={10} className="opacity-60" />
-              </button>
-              {showStageDropdown && (
-                <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl w-72 py-1 max-h-[60vh] overflow-y-auto" style={{ zIndex: 9999 }}>
-                  {pipelinesList.map((p) => {
-                    const isCurrent = currentPipeline?.id === p.id;
-                    return (
-                      <div key={p.id} className={`mb-1 ${isCurrent ? '' : 'opacity-90'}`}>
-                        <p
-                          className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-widest border-b border-border/50 sticky top-0 bg-card"
-                          style={{ color: p.color || undefined }}
+            <div className="hidden md:flex items-center gap-3">
+              {/* ─── Badge FUNIL ─── */}
+              <div className="relative flex items-center gap-2" ref={specialtyDropdownRef}>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                  Funil:
+                </span>
+                <button
+                  onClick={() => onToggleSpecialty()}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all hover:opacity-80"
+                  style={{ background: `${pipelineColor}18`, color: pipelineColor, borderColor: `${pipelineColor}35` }}
+                  title="Clique para trocar o funil do lead"
+                >
+                  📁 {currentPipeline?.name || 'Sem funil'}
+                  <ChevronDown size={10} className="opacity-60" />
+                </button>
+                {showSpecialtyDropdown && (
+                  <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl w-60 py-1 max-h-[60vh] overflow-y-auto" style={{ zIndex: 9999 }}>
+                    <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                      Trocar Funil
+                    </p>
+                    {pipelinesList.map((p) => {
+                      const isCurrent = currentPipeline?.id === p.id;
+                      return (
+                        <button
+                          key={p.id}
+                          onClick={() => { onToggleSpecialty(); handlePickPipeline(p.id); }}
+                          disabled={isCurrent}
+                          className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 text-[12px] ${isCurrent ? 'font-bold bg-accent/30 cursor-default' : ''}`}
+                          style={{ color: isCurrent ? (p.color || undefined) : undefined }}
+                          title={isCurrent ? 'Funil atual' : `Mover lead para ${p.name} (etapa inicial)`}
                         >
-                          📁 {p.name}{isCurrent ? ' · atual' : ''}
-                        </p>
-                        {p.stages.map((s) => {
-                          const isActive = currentStage?.id === s.id;
-                          return (
-                            <button
-                              key={s.id}
-                              onClick={() => onChangeStageById && onChangeStageById(s.id)}
-                              className={`w-full text-left px-3 py-1.5 hover:bg-accent transition-colors flex items-center gap-2 text-[12px] ${isActive ? 'font-bold bg-accent/30' : ''}`}
-                              style={{ color: isActive ? (s.color || undefined) : undefined }}
-                              title={isActive ? 'Etapa atual' : `Mover para ${p.name} → ${s.name}`}
-                            >
-                              <span className="opacity-60">{s.emoji || '•'}</span>
-                              <span>{s.name}</span>
-                              {s.is_won && <span className="ml-auto text-[9px] text-emerald-500">✓ ganho</span>}
-                              {s.is_lost && <span className="ml-auto text-[9px] text-red-500">✕ perdido</span>}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+                          <span>📁</span>
+                          <span>{p.name}</span>
+                          {isCurrent && <span className="ml-auto text-[9px] opacity-70">atual</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* ─── Badge ETAPA ─── */}
+              <div className="relative flex items-center gap-2" ref={stageDropdownRef}>
+                <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider whitespace-nowrap">
+                  Etapa:
+                </span>
+                <button
+                  onClick={() => onToggleStage()}
+                  disabled={!fullCurrentPipeline}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold border transition-all hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: `${stageColor}18`, color: stageColor, borderColor: `${stageColor}35` }}
+                  title={fullCurrentPipeline ? 'Clique para trocar a etapa do lead' : 'Selecione um funil primeiro'}
+                >
+                  {currentStage ? (
+                    <>{currentStage.emoji ? `${currentStage.emoji} ` : ''}{currentStage.name}</>
+                  ) : (
+                    <>— Sem etapa</>
+                  )}
+                  <ChevronDown size={10} className="opacity-60" />
+                </button>
+                {showStageDropdown && fullCurrentPipeline && (
+                  <div className="absolute top-full right-0 mt-1 bg-card border border-border rounded-xl shadow-xl w-60 py-1 max-h-[60vh] overflow-y-auto" style={{ zIndex: 9999 }}>
+                    <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest border-b border-border/50">
+                      Etapa do Funil ({fullCurrentPipeline.name})
+                    </p>
+                    {fullCurrentPipeline.stages.map((s) => {
+                      const isActive = currentStage?.id === s.id;
+                      return (
+                        <button
+                          key={s.id}
+                          onClick={() => onChangeStageById && onChangeStageById(s.id)}
+                          disabled={isActive}
+                          className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 text-[12px] ${isActive ? 'font-bold bg-accent/30 cursor-default' : ''}`}
+                          style={{ color: isActive ? (s.color || undefined) : undefined }}
+                          title={isActive ? 'Etapa atual' : `Mover para ${s.name}`}
+                        >
+                          <span className="opacity-70">{s.emoji || '•'}</span>
+                          <span>{s.name}</span>
+                          {s.is_won && <span className="ml-auto text-[9px] text-emerald-500">✓ ganho</span>}
+                          {s.is_lost && <span className="ml-auto text-[9px] text-red-500">✕ perdido</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           );
         })()}
