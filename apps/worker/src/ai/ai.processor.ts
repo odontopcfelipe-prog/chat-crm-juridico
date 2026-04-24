@@ -2001,6 +2001,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         this.logger.log('[AI] Lead enviou áudio — resposta será apenas por voz (sem texto)');
       }
 
+      // sendFailed/sendErrorDetail ficam fora do try/catch para o passo 17
+      // saber se houve falha e marcar a Message com status correto. Antes
+      // este bloco silenciava o erro e gravava como 'enviado' mesmo quando
+      // o WhatsApp nunca recebia.
       let sendFailed = false;
       let sendErrorDetail: string | null = null;
       try {
@@ -2032,6 +2036,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Usa o ID real da Evolution para que o echo do webhook seja deduplicado.
       // Race condition: o echo da Evolution pode chegar antes do worker salvar,
       // criando a mensagem sem skill_id. Nesse caso, capturamos P2002 e atualizamos.
+      //
+      // status reflete o RESULTADO REAL do envio:
+      //   - 'enviado': axios.post retornou 2xx (ou era resposta áudio-only)
+      //   - 'falhou':  axios.post lançou exceção (DNS, 4xx, 5xx, timeout, etc)
       let savedMsg: any;
       try {
         savedMsg = await this.prisma.message.create({
@@ -2069,9 +2077,16 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         data: { last_message_at: new Date() },
       });
 
-      this.logger.log(
-        `[AI] Resposta enviada para ${convo.lead.phone} (model=${model}, skill=${skill?.name || 'NULL — badge não aparecerá'}, skill_id=${skill?.id || 'null'}, evoId=${evolutionMsgId})`,
-      );
+      if (sendFailed) {
+        // Falha de envio: log explícito + status já gravado como 'falhou'
+        this.logger.error(
+          `[AI] Resposta NÃO chegou ao WhatsApp ${convo.lead.phone} (${sendErrorDetail || 'erro desconhecido'}, evoId=${evolutionMsgId}). Mensagem gravada com status='falhou' — operador deve reenviar manualmente.`,
+        );
+      } else {
+        this.logger.log(
+          `[AI] Resposta enviada para ${convo.lead.phone} (model=${model}, skill=${skill?.name || 'NULL — badge não aparecerá'}, skill_id=${skill?.id || 'null'}, evoId=${evolutionMsgId})`,
+        );
+      }
       if (!skill?.id) {
         this.logger.warn(`[AI] skill_id=null para conv ${convo.id} — verifique se as skills estão ativas nas configurações de IA`);
       }

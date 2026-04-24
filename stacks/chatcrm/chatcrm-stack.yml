@@ -120,6 +120,13 @@ services:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-crm_user}:${POSTGRES_PASSWORD:-crm_pass}@postgres:5432/${POSTGRES_DB:-lexcrm}?schema=public
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # IMPORTANTE: JWT_SECRET é necessário no worker para o decryptIfNeeded()
+      # do SettingsService. Settings encriptadas no banco (formato enc:...)
+      # como EVOLUTION_GLOBAL_APIKEY usam ENCRYPTION_KEY (ou JWT_SECRET como
+      # fallback) para descriptografar. Sem isso, o worker manda a chave
+      # bruta encriptada para a Evolution API e leva 401.
+      - JWT_SECRET=${JWT_SECRET:-troque_esta_secret}
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - APP_URL=${APP_URL:-https://sistema.institutoodontopassos.com.br}
       - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
