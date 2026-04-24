@@ -492,7 +492,7 @@ model Instance {
 
 // ─── CRM Dinâmico — Fase 1 ────────────────────────────────────────────────
 // Múltiplos funis por tenant (ex: "Odontologia", "Estética Facial", "B2B").
-// Cada funil tem etapas configuráveis via UI (settings/crm). A IA carrega
+// Cada funil tem etapas configuráveis via UI (settings/pipelines). A IA carrega
 // os funis dinamicamente antes de cada resposta e sabe mover o lead entre
 // etapas via tool `move_to_stage`.
 

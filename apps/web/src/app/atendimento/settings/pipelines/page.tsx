@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   Kanban, Plus, Trash2, X, RefreshCw, Pencil, Check, Sparkles,
   GripVertical, Trophy, XCircle, Flag, ChevronDown,
+  AlertCircle, Loader2, Cloud, CloudOff,
 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -56,6 +57,8 @@ const COLOR_PALETTE = [
 ];
 
 const EMOJI_SUGGESTIONS = ['👋', '🔍', '📅', '🩺', '📄', '📋', '💬', '✨', '✅', '❌', '🎯', '🦷', '🧑‍⚕️', '💰', '📱', '🏆'];
+
+const STAGNATION_PRESETS = [1, 2, 3, 5, 7, 14];
 
 // Espelha PipelinesService.normalizeSlug do backend para não divergir.
 function normalizeSlug(raw: string): string {
@@ -138,6 +141,8 @@ export default function PipelinesSettingsPage() {
 
       <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
         <div className="max-w-6xl mx-auto space-y-6">
+
+          <StagnationSettings />
 
           <div className="flex justify-between items-center">
             <h2 className="text-xl font-bold text-foreground">
@@ -232,6 +237,112 @@ export default function PipelinesSettingsPage() {
           onClose={() => setShowEmptyModal(false)}
           onCreated={() => { setShowEmptyModal(false); fetchData(); }}
         />
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+ * StagnationSettings — dias ate alerta de lead parado
+ * (absorve a antiga pagina "CRM Pipeline (legado)")
+ * ────────────────────────────────────────────────────────────── */
+
+function StagnationSettings() {
+  const [days, setDays] = useState<number>(3);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    api.get('/settings/crm-config')
+      .then(r => { setDays(r.data.stagnationDays ?? 3); setError(null); })
+      .catch(() => setError('Não foi possível carregar.'))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const save = async (value: number) => {
+    const clamped = Math.max(1, Math.min(90, Math.round(value)));
+    setDays(clamped);
+    setSaving(true);
+    setError(null);
+    try {
+      await api.patch('/settings/crm-config', { stagnationDays: clamped });
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch {
+      setError('Erro ao salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="bg-card border border-border rounded-2xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <AlertCircle size={14} className="text-muted-foreground" />
+        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+          Alerta de leads parados
+        </h3>
+        <div className="ml-auto flex items-center gap-2 min-h-[18px]">
+          {saving && <Loader2 size={13} className="animate-spin text-muted-foreground" />}
+          {saved && !saving && (
+            <span className="flex items-center gap-1 text-xs text-emerald-400 font-semibold">
+              <Cloud size={12} /> Salvo
+            </span>
+          )}
+          {error && (
+            <span className="flex items-center gap-1 text-xs text-red-400">
+              <CloudOff size={12} /> {error}
+            </span>
+          )}
+        </div>
+      </div>
+
+      {loading ? (
+        <div className="flex items-center gap-2 text-sm text-muted-foreground py-2">
+          <Loader2 size={14} className="animate-spin" /> Carregando…
+        </div>
+      ) : (
+        <>
+          <p className="text-[12px] text-muted-foreground mb-3">
+            Exibir alerta no CRM quando um lead ficar sem mensagem por pelo menos{' '}
+            <span className="text-foreground font-bold">{days} dia{days !== 1 ? 's' : ''}</span>
+            {' '}(exceto nas etapas marcadas como ganho/perdido).
+          </p>
+
+          <div className="flex flex-wrap items-center gap-2">
+            {STAGNATION_PRESETS.map((p) => (
+              <button
+                key={p}
+                onClick={() => save(p)}
+                disabled={saving}
+                className={`px-3 py-1.5 rounded-lg text-[13px] font-semibold border transition-all disabled:opacity-50 ${
+                  days === p
+                    ? 'border-primary/60 bg-primary/10 text-primary'
+                    : 'border-border bg-muted/20 text-muted-foreground hover:bg-muted/50 hover:text-foreground'
+                }`}
+              >
+                {p} dia{p !== 1 ? 's' : ''}
+              </button>
+            ))}
+            <div className="flex items-center gap-2 ml-2">
+              <span className="text-[12px] text-muted-foreground">ou</span>
+              <input
+                type="number"
+                min={1}
+                max={90}
+                value={days}
+                disabled={saving}
+                onChange={(e) => setDays(Number(e.target.value))}
+                onBlur={(e) => save(Number(e.target.value))}
+                onKeyDown={(e) => { if (e.key === 'Enter') save(Number((e.target as HTMLInputElement).value)); }}
+                className="w-20 px-3 py-1.5 rounded-lg border border-border bg-background text-[13px] text-center focus:outline-none focus:border-primary transition-colors disabled:opacity-50"
+              />
+              <span className="text-[12px] text-muted-foreground">dias</span>
+            </div>
+          </div>
+        </>
       )}
     </div>
   );
