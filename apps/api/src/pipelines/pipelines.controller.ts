@@ -13,6 +13,11 @@ export class PipelinesController {
     return this.svc.findAll(req.user?.tenant_id);
   }
 
+  @Get('templates')
+  listTemplates() {
+    return this.svc.listTemplates();
+  }
+
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
     return this.svc.findOne(id, req.user?.tenant_id);
@@ -63,11 +68,6 @@ export class PipelinesController {
     @Request() req: any,
   ) {
     return this.svc.createFull({ ...data, tenant_id: req.user?.tenant_id });
-  }
-
-  @Get('templates')
-  listTemplates() {
-    return this.svc.listTemplates();
   }
 
   @Post('from-template/:key')

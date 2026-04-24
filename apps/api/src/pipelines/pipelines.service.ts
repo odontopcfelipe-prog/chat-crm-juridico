@@ -80,7 +80,7 @@ export class PipelinesService {
 
   async findAll(tenantId?: string) {
     return this.pipeline.findMany({
-      where: { tenant_id: tenantId },
+      where: { tenant_id: tenantId ?? null },
       include: {
         stages: { orderBy: { position: 'asc' } },
         _count: { select: { leads: true, stages: true } },
@@ -98,7 +98,7 @@ export class PipelinesService {
       },
     });
     if (!pipeline) throw new NotFoundException('Funil não encontrado');
-    if (tenantId && pipeline.tenant_id && pipeline.tenant_id !== tenantId) {
+    if (pipeline.tenant_id !== (tenantId ?? null)) {
       throw new NotFoundException('Funil não encontrado');
     }
     return pipeline;

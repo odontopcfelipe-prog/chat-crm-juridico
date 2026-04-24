@@ -57,6 +57,17 @@ const COLOR_PALETTE = [
 
 const EMOJI_SUGGESTIONS = ['👋', '🔍', '📅', '🩺', '📄', '📋', '💬', '✨', '✅', '❌', '🎯', '🦷', '🧑‍⚕️', '💰', '📱', '🏆'];
 
+// Espelha PipelinesService.normalizeSlug do backend para não divergir.
+function normalizeSlug(raw: string): string {
+  return raw
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 50);
+}
+
 export default function PipelinesSettingsPage() {
   const [pipelines, setPipelines] = useState<Pipeline[]>([]);
   const [templates, setTemplates] = useState<Template[]>([]);
@@ -322,7 +333,7 @@ function StagesList({
     try {
       await api.post(`/pipelines/${pipeline.id}/stages`, {
         name: newStage.name,
-        slug: newStage.name.toLowerCase().replace(/\s+/g, '-'),
+        slug: normalizeSlug(newStage.name),
         emoji: newStage.emoji || null,
         color: newStage.color || null,
         position: pipeline.stages.length,
@@ -617,7 +628,8 @@ function CreateEmptyModal({ onClose, onCreated }: { onClose: () => void; onCreat
     setSaving(true);
     setErr('');
     try {
-      const slug = name.toLowerCase().replace(/\s+/g, '-');
+      const slug = normalizeSlug(name);
+      if (!slug) { setErr('Informe um nome válido.'); setSaving(false); return; }
       await api.post('/pipelines', { name, slug, description: description || null, color });
       onCreated();
     } catch (e: any) {
