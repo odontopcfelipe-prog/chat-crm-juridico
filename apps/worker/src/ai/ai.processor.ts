@@ -2001,6 +2001,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         this.logger.log('[AI] Lead enviou áudio — resposta será apenas por voz (sem texto)');
       }
 
+      let sendFailed = false;
+      let sendErrorDetail: string | null = null;
       try {
         let sendResult: any;
         const evoHeaders = { 'Content-Type': 'application/json', apikey: apiKey };
@@ -2020,7 +2022,10 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         }
         if (sendResult) evolutionMsgId = sendResult.data?.key?.id || evolutionMsgId;
       } catch (sendErr: any) {
-        this.logger.error(`[AI] Falha ao enviar via Evolution (${sendErr.response?.status || sendErr.message}): ${JSON.stringify(sendErr.response?.data || {}).slice(0, 200)}`);
+        sendFailed = true;
+        const status = sendErr.response?.status || sendErr.code || sendErr.message;
+        sendErrorDetail = `${status}: ${JSON.stringify(sendErr.response?.data || {}).slice(0, 160)}`;
+        this.logger.error(`[AI] Falha ao enviar via Evolution (${status}): ${sendErrorDetail}`);
       }
 
       // 17. Salvar mensagem no banco com skill_id (texto limpo, sem assinatura)
@@ -2036,7 +2041,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             type: 'text',
             text: finalText,
             external_message_id: evolutionMsgId,
-            status: 'enviado',
+            status: sendFailed ? 'falhou' : 'enviado',
             skill_id: skill?.id || null,
           },
         });
