@@ -201,6 +201,33 @@ export class AiProcessor extends WorkerHost {
     return { reply: raw, updates: {} };
   }
 
+  /**
+   * Baixa o conteúdo de uma Media via API interna (rota pública GET /media/:id).
+   * A API serve do filesystem (prioritário) com fallback automático S3 → Evolution CDN.
+   * Usar HTTP em vez de filesystem direto evita acoplar o worker ao volume montado.
+   */
+  private async fetchMediaBuffer(
+    messageId: string,
+  ): Promise<{ buffer: Buffer; contentType: string }> {
+    // Dentro da network do Swarm, "api" resolve para o service via DNS interno.
+    // INTERNAL_API_URL pode ser sobrescrito no env (ex: dev local).
+    const apiUrl = process.env.INTERNAL_API_URL || 'http://api:3000';
+    const response = await axios.get(`${apiUrl}/media/${messageId}`, {
+      responseType: 'arraybuffer',
+      timeout: 30_000,
+      maxContentLength: 30 * 1024 * 1024, // 30MB
+    });
+    return {
+      buffer: Buffer.from(response.data),
+      contentType: (response.headers['content-type'] as string) || 'application/octet-stream',
+    };
+  }
+
+  /** Verifica se a Media tem algum storage disponível (filesystem OU S3). */
+  private hasMediaStorage(media: any | null): boolean {
+    return !!(media?.file_path || media?.s3_key);
+  }
+
   // ─── Auto-transcreve mensagens de áudio sem texto (Whisper) ───
   private async autoTranscribeAudios(
     messages: any[],
@@ -211,15 +238,15 @@ export class AiProcessor extends WorkerHost {
       if (msg.direction !== 'in' || msg.type !== 'audio' || msg.text) continue;
 
       // Retry apenas para mensagens recentes (< 2 min). Mensagens antigas sem mídia
-      // são do sync-history e nunca terão registro no S3 — pular sem esperar.
+      // são do sync-history e nunca terão storage — pular sem esperar.
       let media = msg.media ?? null;
       const msgAge = Date.now() - new Date(msg.created_at).getTime();
       const isRecent = msgAge < 2 * 60 * 1000; // < 2 minutos
 
-      if (!media?.s3_key && isRecent) {
+      if (!this.hasMediaStorage(media) && isRecent) {
         // Polling com duas fases:
         // - Fase rápida (5×500ms = 2.5s): cobre download síncrono com pequeno atraso de commit
-        // - Fase lenta (12×2000ms = 24s): cobre fallback BullMQ processando áudios longos
+        // - Fase lenta (12×2000ms = 24s): cobre fallback assíncrono em áudios longos
         const phases = [
           { attempts: 5, delay: 500 },
           { attempts: 12, delay: 2000 },
@@ -230,7 +257,7 @@ export class AiProcessor extends WorkerHost {
             const found = await this.prisma.media.findFirst({
               where: { message_id: msg.id },
             });
-            if (found?.s3_key) {
+            if (this.hasMediaStorage(found)) {
               media = found;
               break outer;
             }
@@ -240,15 +267,15 @@ export class AiProcessor extends WorkerHost {
           }
         }
       }
-      if (!media?.s3_key) {
+      if (!this.hasMediaStorage(media)) {
         msg.text = '[o cliente enviou um áudio mas não foi possível ouvir — peça educadamente para repetir por texto ou enviar outro áudio]';
         continue;
       }
 
       try {
-        const { buffer, contentType } = await this.s3.getObjectBuffer(
-          media.s3_key,
-        );
+        // Baixa via HTTP da API interna — serve do filesystem (prioritário)
+        // ou S3 (compat com áudios antigos), de forma transparente.
+        const { buffer, contentType } = await this.fetchMediaBuffer(msg.id);
         const mimeBase = contentType.split(';')[0].trim();
         const ext = mimeBase.split('/')[1] || 'ogg';
 
@@ -257,7 +284,7 @@ export class AiProcessor extends WorkerHost {
           file,
           model: 'gpt-4o-transcribe',
           language: 'pt',
-          prompt: 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com um escritório de advocacia sobre questões jurídicas.',
+          prompt: 'Transcrição de mensagem de voz do WhatsApp em português brasileiro. O cliente está conversando com uma clínica odontológica sobre procedimentos, agendamentos ou dúvidas clínicas.',
         });
 
         const transcription = result.text?.trim() || '';
@@ -269,7 +296,7 @@ export class AiProcessor extends WorkerHost {
           });
           msg.text = transcription; // atualiza in-memory
           this.logger.log(
-            `[AI] Áudio transcrito (msg ${msg.id}): "${transcription.slice(0, 80)}"`,
+            `[AI] Áudio transcrito (msg ${msg.id}, ${(buffer.length / 1024).toFixed(0)}KB): "${transcription.slice(0, 80)}"`,
           );
         }
       } catch (e: any) {
@@ -291,12 +318,11 @@ export class AiProcessor extends WorkerHost {
     for (const msg of messages) {
       if (msg.direction !== 'in' || msg.type !== 'image') continue;
       const media = msg.media ?? null;
-      if (!media?.s3_key) continue;
+      if (!this.hasMediaStorage(media)) continue;
 
       try {
-        const { buffer, contentType } = await this.s3.getObjectBuffer(
-          media.s3_key,
-        );
+        // HTTP GET na API interna (prioriza filesystem, fallback S3)
+        const { buffer, contentType } = await this.fetchMediaBuffer(msg.id);
         const mimeBase = contentType.split(';')[0].trim();
         const base64 = buffer.toString('base64');
         attachments.push({

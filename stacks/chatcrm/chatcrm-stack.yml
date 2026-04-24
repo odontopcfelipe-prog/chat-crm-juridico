@@ -129,6 +129,10 @@ services:
       - ENCRYPTION_KEY=${ENCRYPTION_KEY:-}
       - OPENAI_API_KEY=${OPENAI_API_KEY}
       - APP_URL=${APP_URL:-https://sistema.institutoodontopassos.com.br}
+      # URL interna do service api (DNS do Swarm). Usada pelo worker pra
+      # baixar mídia (áudio/imagem) via GET /media/:id sem precisar montar
+      # o volume MEDIA_STORAGE_PATH compartilhado.
+      - INTERNAL_API_URL=${INTERNAL_API_URL:-http://api:3000}
       - EVOLUTION_API_URL=${EVOLUTION_API_URL:-https://evolution.institutoodontopassos.com.br}
       - EVOLUTION_GLOBAL_APIKEY=${EVOLUTION_GLOBAL_APIKEY}
       - EVOLUTION_INSTANCE_NAME=${EVOLUTION_INSTANCE_NAME}
