@@ -118,6 +118,33 @@ export default function PipelinesSettingsPage() {
     }
   };
 
+  const [migrating, setMigrating] = useState(false);
+  const migrateLegacyLeads = async () => {
+    const defaultPipe = pipelines.find(p => p.is_default) ?? pipelines[0];
+    if (!defaultPipe) {
+      alert('Crie um funil primeiro.');
+      return;
+    }
+    const ok = confirm(
+      `Migrar leads antigos (sem funil) para "${defaultPipe.name}"?\n\n` +
+      `Isso vincula o campo stage legado (INICIAL, QUALIFICANDO, etc.) às etapas do funil. ` +
+      `Operação idempotente — roda com segurança várias vezes.`,
+    );
+    if (!ok) return;
+    setMigrating(true);
+    try {
+      const res = await api.post('/pipelines/backfill-legacy-stages', { pipeline_id: defaultPipe.id });
+      const { migrated, total_candidates, by_stage } = res.data || {};
+      const parts = Object.entries(by_stage || {}).map(([slug, n]) => `${slug}: ${n}`).join(', ');
+      alert(`Migração concluída. ${migrated}/${total_candidates} lead(s) vinculado(s).\n\nPor etapa: ${parts || '—'}`);
+      fetchData();
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Erro ao migrar leads.');
+    } finally {
+      setMigrating(false);
+    }
+  };
+
   const togglePipeline = (id: string) => {
     setExpandedPipelineId(expandedPipelineId === id ? null : id);
   };
@@ -148,7 +175,19 @@ export default function PipelinesSettingsPage() {
             <h2 className="text-xl font-bold text-foreground">
               {pipelines.length} funil(is) configurado(s)
             </h2>
-            <div className="relative">
+            <div className="flex items-center gap-2">
+              {pipelines.length > 0 && (
+                <button
+                  onClick={migrateLegacyLeads}
+                  disabled={migrating}
+                  className="px-3 py-2 rounded-xl text-sm font-semibold border border-border bg-card text-muted-foreground hover:text-foreground hover:bg-accent transition-all disabled:opacity-50 flex items-center gap-2"
+                  title="Vincula leads sem funil ao funil padrão, mapeando pelo stage legado"
+                >
+                  {migrating ? <RefreshCw size={14} className="animate-spin" /> : <RefreshCw size={14} />}
+                  Migrar leads antigos
+                </button>
+              )}
+              <div className="relative">
               <button
                 onClick={() => setShowNewMenu(v => !v)}
                 className="bg-primary text-primary-foreground px-4 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
@@ -189,6 +228,7 @@ export default function PipelinesSettingsPage() {
                   </div>
                 </>
               )}
+              </div>
             </div>
           </div>
 

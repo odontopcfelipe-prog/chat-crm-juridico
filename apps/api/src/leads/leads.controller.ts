@@ -33,10 +33,11 @@ export class LeadsController {
     @Query('limit') limit?: string,
     @Query('search') search?: string,
     @Query('stage') stage?: string,
+    @Query('pipeline_id') pipelineId?: string,
   ) {
     const p = page ? parseInt(page, 10) : undefined;
     const l = limit ? parseInt(limit, 10) : undefined;
-    return this.leadsService.findAll(req.user?.tenant_id, inboxId, p, l, search, stage, req.user?.id);
+    return this.leadsService.findAll(req.user?.tenant_id, inboxId, p, l, search, stage, req.user?.id, pipelineId);
   }
 
   @Get('check-phone')
@@ -74,7 +75,14 @@ export class LeadsController {
 
   @Patch(':id/stage')
   updateStage(@Param('id') id: string, @Body() body: UpdateLeadStageDto, @Request() req: any) {
-    return this.leadsService.updateStatus(id, body.stage, req.user?.tenant_id, body.loss_reason, req.user?.id);
+    return this.leadsService.updateStatus(
+      id,
+      body.stage,
+      req.user?.tenant_id,
+      body.loss_reason,
+      req.user?.id,
+      body.stage_id,
+    );
   }
 
   @Get(':id/timeline')

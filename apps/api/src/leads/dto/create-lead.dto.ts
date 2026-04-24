@@ -54,9 +54,19 @@ export class UpdateLeadDto {
 }
 
 export class UpdateLeadStageDto {
+  // Campo legado (enum de string) — continua aceito pra compatibilidade.
+  // A partir da Fase 5, o cliente prefere enviar `stage_id` (UUID da
+  // PipelineStage do funil novo). O serviço aceita um OU outro: quem
+  // mandar `stage_id` tem prioridade; quem só mandar `stage` continua
+  // funcionando (view legada).
+  @IsOptional()
   @IsString()
   @IsIn(VALID_STAGES, { message: `Stage deve ser um de: ${VALID_STAGES.join(', ')}` })
-  stage: string;
+  stage?: string;
+
+  @IsOptional()
+  @IsString()
+  stage_id?: string;
 
   @IsOptional()
   @IsString()

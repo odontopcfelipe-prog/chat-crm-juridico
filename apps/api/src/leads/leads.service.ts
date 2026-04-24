@@ -60,10 +60,17 @@ export class LeadsService {
     ).catch(err => this.logger.warn(`[notifyNewLead] ${lead.id}: ${err}`));
   }
 
-  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string) {
+  async findAll(tenant_id?: string, inbox_id?: string, page?: number, limit?: number, search?: string, stage?: string, userId?: string, pipeline_id?: string) {
     const baseWhere: any = tenant_id
       ? { OR: [{ tenant_id }, { tenant_id: null }] }
       : {};
+
+    // Filtro por pipeline (CRM dinâmico). Quando passado, a view só mostra
+    // leads do funil selecionado. Quando omitido, mantém comportamento legado
+    // (todos os leads do tenant).
+    if (pipeline_id) {
+      baseWhere.pipeline_id = pipeline_id;
+    }
 
     // Filtro por stage:
     //  - stage=PERDIDO  → busca arquivados
@@ -140,6 +147,9 @@ export class LeadsService {
     const includeOpts = {
       _count: {
         select: { conversations: true },
+      },
+      current_stage: {
+        select: { id: true, slug: true, name: true, color: true, emoji: true, is_initial: true, is_won: true, is_lost: true, position: true, pipeline_id: true },
       },
       conversations: {
         where: inbox_id ? { inbox_id } : undefined,
@@ -302,11 +312,102 @@ export class LeadsService {
     });
   }
 
-  async updateStatus(id: string, stage: string, tenantId?: string, lossReason?: string, actorId?: string): Promise<Lead> {
+  /**
+   * Mapa reverso para dual-write: o slug/flag da PipelineStage nova vira
+   * um valor do enum legado `stage` String. Mantém rotinas que ainda
+   * dependem do enum funcionando (automations, Drive folder, etc).
+   */
+  private legacyStageFromPipelineStage(st: { slug: string; is_initial?: boolean; is_won?: boolean; is_lost?: boolean }): string {
+    if (st.is_won) return 'FINALIZADO';
+    if (st.is_lost) return 'PERDIDO';
+    if (st.is_initial) return 'INICIAL';
+    switch (st.slug) {
+      case 'inicial': return 'INICIAL';
+      case 'qualificando': return 'QUALIFICANDO';
+      case 'consulta-agendada': return 'REUNIAO_AGENDADA';
+      case 'avaliacao-feita': return 'AGUARDANDO_DOCS';
+      case 'orcamento-enviado': return 'AGUARDANDO_PROC';
+      case 'tratamento-iniciado':
+      case 'procedimento-feito':
+      case 'contrato-fechado': return 'FINALIZADO';
+      case 'perdido': return 'PERDIDO';
+      default: return 'QUALIFICANDO';
+    }
+  }
+
+  /**
+   * Quando o cliente envia stage String legado e o lead já tem pipeline_id,
+   * tenta resolver o stage_id correspondente no funil do lead — assim
+   * dual-write mantém os dois campos sincronizados mesmo via drag antigo.
+   */
+  private async resolveStageIdFromLegacy(pipelineId: string, legacy: string): Promise<string | undefined> {
+    const upper = legacy.toUpperCase();
+    const p: any = this.prisma as any;
+    if (upper === 'FINALIZADO' || upper === 'GANHO' || upper === 'WON') {
+      const st = await p.pipelineStage.findFirst({ where: { pipeline_id: pipelineId, is_won: true } });
+      return st?.id;
+    }
+    if (upper === 'PERDIDO') {
+      const st = await p.pipelineStage.findFirst({ where: { pipeline_id: pipelineId, is_lost: true } });
+      return st?.id;
+    }
+    const legacyToSlug: Record<string, string> = {
+      INICIAL: 'inicial',
+      NOVO: 'inicial',
+      QUALIFICANDO: 'qualificando',
+      AGUARDANDO_FORM: 'qualificando',
+      REUNIAO_AGENDADA: 'consulta-agendada',
+      AGUARDANDO_DOCS: 'consulta-agendada',
+      AGUARDANDO_PROC: 'orcamento-enviado',
+    };
+    const slug = legacyToSlug[upper];
+    if (!slug) return undefined;
+    const st = await p.pipelineStage.findFirst({ where: { pipeline_id: pipelineId, slug } });
+    return st?.id;
+  }
+
+  async updateStatus(
+    id: string,
+    stageArg: string | undefined,
+    tenantId?: string,
+    lossReason?: string,
+    actorId?: string,
+    stageIdArg?: string,
+  ): Promise<Lead> {
+    if (!stageArg && !stageIdArg) {
+      throw new ForbiddenException('Informe `stage` ou `stage_id`');
+    }
+
     if (tenantId) {
       const existing = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });
       if (existing?.tenant_id && existing.tenant_id !== tenantId) {
         throw new ForbiddenException('Acesso negado a este recurso');
+      }
+    }
+
+    // Resolve os dois representações: (stage String legado) e (stage_id UUID novo)
+    let stage: string;
+    let stageId: string | undefined = stageIdArg;
+    let resolvedPipelineId: string | undefined;
+
+    if (stageIdArg) {
+      const st = await (this.prisma as any).pipelineStage.findUnique({
+        where: { id: stageIdArg },
+        select: { id: true, slug: true, is_initial: true, is_won: true, is_lost: true, pipeline_id: true },
+      });
+      if (!st) throw new ForbiddenException('stage_id inválido');
+      stage = this.legacyStageFromPipelineStage(st);
+      resolvedPipelineId = st.pipeline_id;
+    } else {
+      stage = stageArg as string;
+      // Dual-write best-effort: se o lead já está vinculado a um pipeline,
+      // tenta achar o stage_id correspondente a essa string legada.
+      const leadPipe = await this.prisma.lead.findUnique({
+        where: { id },
+        select: { pipeline_id: true },
+      });
+      if (leadPipe?.pipeline_id) {
+        stageId = await this.resolveStageIdFromLegacy(leadPipe.pipeline_id, stage);
       }
     }
 
@@ -346,6 +447,8 @@ export class LeadsService {
       data: {
         stage,
         stage_entered_at: new Date(),
+        ...(stageId ? { stage_id: stageId } : {}),
+        ...(resolvedPipelineId ? { pipeline_id: resolvedPipelineId } : {}),
         ...(stage === 'PERDIDO' && lossReason ? { loss_reason: lossReason } : {}),
         // Marcar como cliente ao FINALIZAR
         ...(stage === 'FINALIZADO' ? {

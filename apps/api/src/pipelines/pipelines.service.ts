@@ -510,4 +510,108 @@ export class PipelinesService {
       .replace(/^-+|-+$/g, '')
       .slice(0, 50);
   }
+
+  // ─── Backfill legado → dinâmico ─────────────────────────────────────────
+  //
+  // Mapeia o campo Lead.stage (String legado: INICIAL, QUALIFICANDO, ...)
+  // para Lead.stage_id (FK para PipelineStage do funil alvo). Idempotente:
+  // só toca em leads com pipeline_id NULL. Preserva o campo `stage` String
+  // — a remoção dele é a Fase D, separada.
+
+  private static readonly LEGACY_STAGE_TO_SLUG: Record<string, string | null> = {
+    INICIAL: 'inicial',
+    NOVO: 'inicial',
+    NEW: 'inicial',
+    QUALIFICANDO: 'qualificando',
+    QUALIFICADO: 'qualificando',
+    CONTATADO: 'qualificando',
+    CONTACTED: 'qualificando',
+    AGUARDANDO_FORM: 'qualificando',
+    PROPOSTA: 'qualificando',
+    REUNIAO_AGENDADA: 'consulta-agendada',
+    AGUARDANDO_DOCS: 'consulta-agendada',
+    EM_ATENDIMENTO: 'consulta-agendada',
+    AGUARDANDO_PROC: 'orcamento-enviado',
+    // FINALIZADO/GANHO/PERDIDO resolvem via flag (is_won/is_lost), não slug
+    FINALIZADO: null,
+    GANHO: null,
+    WON: null,
+    PERDIDO: null,
+  };
+
+  async backfillLegacyStages(tenantId?: string, targetPipelineId?: string) {
+    // 1. Seleciona o funil alvo: o especificado, ou o is_default, ou o mais antigo
+    const baseWhere: any = { tenant_id: tenantId ?? null };
+    let pipeline: any = null;
+    if (targetPipelineId) {
+      pipeline = await this.pipeline.findFirst({
+        where: { ...baseWhere, id: targetPipelineId },
+        include: { stages: true },
+      });
+    } else {
+      pipeline = await this.pipeline.findFirst({
+        where: { ...baseWhere, is_default: true },
+        include: { stages: true },
+      });
+      if (!pipeline) {
+        pipeline = await this.pipeline.findFirst({
+          where: baseWhere,
+          include: { stages: true },
+          orderBy: { created_at: 'asc' },
+        });
+      }
+    }
+
+    if (!pipeline) {
+      throw new BadRequestException(
+        'Nenhum funil configurado para este tenant. Crie um funil antes de migrar os leads.',
+      );
+    }
+    if (!pipeline.stages?.length) {
+      throw new BadRequestException('Funil alvo não tem etapas configuradas.');
+    }
+
+    const stagesBySlug = new Map<string, any>(
+      pipeline.stages.map((s: any) => [s.slug, s]),
+    );
+    const initialStage = pipeline.stages.find((s: any) => s.is_initial) ?? pipeline.stages[0];
+    const wonStage = pipeline.stages.find((s: any) => s.is_won);
+    const lostStage = pipeline.stages.find((s: any) => s.is_lost);
+
+    // 2. Busca leads pendentes (pipeline_id NULL)
+    const leads = await (this.prisma as any).lead.findMany({
+      where: { tenant_id: tenantId ?? null, pipeline_id: null },
+      select: { id: true, stage: true },
+    });
+
+    // 3. Para cada lead, resolve stage_id
+    const byStage: Record<string, number> = {};
+    let migrated = 0;
+    for (const lead of leads) {
+      const legacy = (lead.stage ?? 'INICIAL').toUpperCase();
+      let target: any = null;
+      if (legacy === 'FINALIZADO' || legacy === 'GANHO' || legacy === 'WON') {
+        target = wonStage ?? initialStage;
+      } else if (legacy === 'PERDIDO') {
+        target = lostStage ?? initialStage;
+      } else {
+        const slug = PipelinesService.LEGACY_STAGE_TO_SLUG[legacy];
+        target = (slug && stagesBySlug.get(slug)) || initialStage;
+      }
+
+      await (this.prisma as any).lead.update({
+        where: { id: lead.id },
+        data: { pipeline_id: pipeline.id, stage_id: target.id },
+      });
+      byStage[target.slug] = (byStage[target.slug] ?? 0) + 1;
+      migrated++;
+    }
+
+    return {
+      pipeline: { id: pipeline.id, name: pipeline.name, slug: pipeline.slug },
+      total_candidates: leads.length,
+      migrated,
+      by_stage: byStage,
+    };
+  }
 }

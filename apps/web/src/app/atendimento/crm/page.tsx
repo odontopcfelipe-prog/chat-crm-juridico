@@ -21,6 +21,21 @@ interface CrmLead {
   profile_picture_url: string | null;
   tags: string[];
   created_at: string;
+  // CRM dinâmico (Fase 5) — coexistem com o campo stage legado.
+  pipeline_id?: string | null;
+  stage_id?: string | null;
+  current_stage?: {
+    id: string;
+    slug: string;
+    name: string;
+    color: string | null;
+    emoji: string | null;
+    is_initial: boolean;
+    is_won: boolean;
+    is_lost: boolean;
+    position: number;
+    pipeline_id: string;
+  } | null;
   conversations: Array<{
     id: string;
     specialty: string | null;
@@ -37,6 +52,29 @@ interface CrmLead {
     title: string;
     start_at: string;
   }>;
+}
+
+interface PipelineStageLite {
+  id: string;
+  slug: string;
+  name: string;
+  color: string | null;
+  emoji: string | null;
+  description: string | null;
+  position: number;
+  is_initial: boolean;
+  is_won: boolean;
+  is_lost: boolean;
+}
+interface PipelineLite {
+  id: string;
+  name: string;
+  slug: string;
+  description: string | null;
+  color: string | null;
+  is_default: boolean;
+  is_active: boolean;
+  stages: PipelineStageLite[];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -1119,6 +1157,14 @@ export default function CrmPage() {
   // Analytics panel
   const [showAnalytics, setShowAnalytics] = useState(false);
 
+  // CRM dinâmico (Fase 5) — funis/etapas configuráveis por tenant
+  const [pipelines, setPipelines] = useState<PipelineLite[]>([]);
+  const [selectedPipelineId, setSelectedPipelineId] = useState<string | null>(() => {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem('crm_selected_pipeline_id');
+  });
+  const selectedPipeline = pipelines.find(p => p.id === selectedPipelineId) ?? null;
+
   // Alertas de leads estagnados
   const [dismissedStagnation, setDismissedStagnation] = useState(false);
   const [stagnationDays, setStagnationDays] = useState(3);
@@ -1192,7 +1238,8 @@ export default function CrmPage() {
     if (!silent) setLoading(true);
     else setRefreshing(true);
     try {
-      const res = await api.get('/leads');
+      const params = selectedPipelineId ? { params: { pipeline_id: selectedPipelineId } } : undefined;
+      const res = await api.get('/leads', params);
       const fresh: CrmLead[] = res.data || [];
       setLeads(prev => {
         // No refresh silencioso, preserva o estado otimista de leads em trânsito
@@ -1212,7 +1259,27 @@ export default function CrmPage() {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [selectedPipelineId]);
+
+  // Carrega os funis configurados e garante um selectedPipelineId válido.
+  useEffect(() => {
+    api.get('/pipelines')
+      .then(r => {
+        const list: PipelineLite[] = r.data || [];
+        setPipelines(list);
+        setSelectedPipelineId(prev => {
+          if (prev && list.some(p => p.id === prev)) return prev;
+          const def = list.find(p => p.is_default) ?? list[0];
+          return def?.id ?? null;
+        });
+      })
+      .catch(() => { /* mantém view legada se /pipelines falhar */ });
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    if (selectedPipelineId) window.localStorage.setItem('crm_selected_pipeline_id', selectedPipelineId);
+  }, [selectedPipelineId]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -1309,6 +1376,34 @@ export default function CrmPage() {
       setLeads(cur => cur.map(l =>
         l.id === leadId ? { ...l, stage: previousStageMap[leadId] ?? 'INICIAL' } : l
       ));
+      showError('Erro ao mover lead. Tente novamente.');
+    } finally {
+      movingLeads.current.delete(leadId);
+    }
+  };
+
+  // Drop em coluna dinâmica do funil: move pelo stage_id novo.
+  // Para is_won/is_lost, delega ao fluxo legado (modais de confirmação).
+  const moveLeadToStageId = async (leadId: string, pipelineStage: PipelineStageLite) => {
+    if (pipelineStage.is_won) return moveLeadToStage(leadId, 'FINALIZADO');
+    if (pipelineStage.is_lost) return moveLeadToStage(leadId, 'PERDIDO');
+
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+
+    const prevStageId = lead.stage_id ?? null;
+    const prevStage = lead.stage;
+    setPreviousStageMap(m => ({ ...m, [leadId]: prevStage ?? 'INICIAL' }));
+    movingLeads.current.add(leadId);
+    setLeads(cur => cur.map(l => l.id === leadId
+      ? { ...l, stage_id: pipelineStage.id, stage_entered_at: new Date().toISOString() }
+      : l,
+    ));
+    try {
+      const res = await api.patch(`/leads/${leadId}/stage`, { stage_id: pipelineStage.id });
+      if (res.data) setLeads(cur => cur.map(l => l.id === leadId ? { ...l, ...res.data } : l));
+    } catch {
+      setLeads(cur => cur.map(l => l.id === leadId ? { ...l, stage_id: prevStageId } : l));
       showError('Erro ao mover lead. Tente novamente.');
     } finally {
       movingLeads.current.delete(leadId);
@@ -1463,9 +1558,40 @@ export default function CrmPage() {
     return true;
   });
 
-  const getStageLeads = (stageId: string) =>
+  // Mapa reverso de slug do funil novo → stage legado, para casar leads
+  // que ainda não têm stage_id populado (pré-backfill).
+  const slugToLegacyStage = (slug: string): string | null => {
+    switch (slug) {
+      case 'inicial': return 'INICIAL';
+      case 'qualificando': return 'QUALIFICANDO';
+      case 'consulta-agendada': return 'REUNIAO_AGENDADA';
+      case 'avaliacao-feita': return 'AGUARDANDO_DOCS';
+      case 'orcamento-enviado': return 'AGUARDANDO_PROC';
+      case 'tratamento-iniciado':
+      case 'procedimento-feito':
+      case 'contrato-fechado': return 'FINALIZADO';
+      case 'perdido': return 'PERDIDO';
+      default: return null;
+    }
+  };
+
+  // No modo dinâmico (pipeline selecionado), a chave é UUID da PipelineStage.
+  // No modo legado (sem pipeline), continua sendo o id textual do CRM_STAGES.
+  const getStageLeads = (stageKey: string, stageSlug?: string) =>
     filteredLeads
-      .filter(l => normalizeStage(l.stage) === stageId)
+      .filter(l => {
+        if (selectedPipeline) {
+          // Primário: casa pelo stage_id do lead
+          if (l.stage_id === stageKey) return true;
+          // Fallback para leads ainda não migrados (stage_id NULL)
+          if (!l.stage_id && stageSlug) {
+            const legacy = slugToLegacyStage(stageSlug);
+            if (legacy && normalizeStage(l.stage) === legacy) return true;
+          }
+          return false;
+        }
+        return normalizeStage(l.stage) === stageKey;
+      })
       .sort((a, b) => {
         if (sortBy === 'score') return computeLeadScore(b) - computeLeadScore(a);
         // Ordenação por evento: evento mais próximo primeiro, depois mais antigo na etapa
@@ -1488,7 +1614,24 @@ export default function CrmPage() {
         {/* Header */}
         <header className="px-6 py-5 border-b border-border shrink-0 flex items-center gap-4">
           <div className="flex-1">
-            <h1 className="text-xl font-bold text-foreground tracking-tight">CRM Pipeline</h1>
+            <div className="flex items-center gap-3 flex-wrap">
+              <h1 className="text-xl font-bold text-foreground tracking-tight">CRM Pipeline</h1>
+              {pipelines.length > 0 && (
+                <div className="relative">
+                  <select
+                    value={selectedPipelineId ?? ''}
+                    onChange={e => setSelectedPipelineId(e.target.value || null)}
+                    className="appearance-none pl-3 pr-8 py-1.5 text-[13px] font-semibold bg-primary/10 text-primary border border-primary/30 rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 cursor-pointer"
+                    title="Funil ativo"
+                  >
+                    {pipelines.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={13} className="absolute right-2 top-1/2 -translate-y-1/2 text-primary pointer-events-none" />
+                </div>
+              )}
+            </div>
             <p className="text-[12px] text-muted-foreground mt-0.5">
               {filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length} lead{filteredLeads.filter(l => normalizeStage(l.stage) !== 'PERDIDO' && normalizeStage(l.stage) !== 'FINALIZADO').length !== 1 ? 's' : ''} {searchQuery || activeFilterCount > 0 ? 'filtrados' : 'no total'}
               {activeFilterCount > 0 && (
@@ -1693,107 +1836,138 @@ export default function CrmPage() {
             onMouseUp={handleBoardMouseUp}
             onMouseLeave={handleBoardMouseUp}
           >
-            <div className="flex h-full gap-4" style={{ minWidth: `${(CRM_STAGES.length - 2) * 272}px` }}>
-              {CRM_STAGES.filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO').map(stage => {
-                const stageLeads = getStageLeads(stage.id);
-                const isTerminal = false;
-                const isDragTarget = dragOverStage === stage.id;
-                const agingCount = stageLeads.filter(l => daysInStage(l.stage_entered_at) > 5).length;
+            {(() => {
+              // Unifica colunas dinâmicas (pipeline selecionado) e fallback legado.
+              type Col = {
+                key: string; slug: string; label: string; color: string; emoji: string;
+                dynamicStage?: PipelineStageLite;
+                legacyId?: string;
+              };
+              const cols: Col[] = selectedPipeline
+                ? selectedPipeline.stages
+                    .filter(s => !s.is_won && !s.is_lost)
+                    .slice()
+                    .sort((a, b) => a.position - b.position)
+                    .map(s => ({
+                      key: s.id,
+                      slug: s.slug,
+                      label: s.name,
+                      color: s.color ?? '#6b7280',
+                      emoji: s.emoji ?? '•',
+                      dynamicStage: s,
+                    }))
+                : CRM_STAGES
+                    .filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO')
+                    .map(s => ({
+                      key: s.id,
+                      slug: s.id.toLowerCase(),
+                      label: s.label,
+                      color: s.color,
+                      emoji: s.emoji,
+                      legacyId: s.id,
+                    }));
 
-                return (
-                  <div
-                    key={stage.id}
-                    className={`flex flex-col w-[260px] min-w-[260px] rounded-xl border transition-all duration-150 ${
-                      isTerminal ? 'opacity-75' : ''
-                    } ${
-                      isDragTarget
-                        ? 'border-2 bg-accent/30 scale-[1.01]'
-                        : 'border-border bg-card/50'
-                    }`}
-                    style={isDragTarget ? { borderColor: stage.color } : undefined}
-                    onDragOver={e => { e.preventDefault(); setDragOverStage(stage.id); }}
-                    onDragLeave={e => {
-                      if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverStage(null);
-                    }}
-                    onDrop={(e) => {
-                      e.preventDefault();
-                      const id = draggingId;
-                      setDragOverStage(null);
-                      setDraggingId(null);
-                      if (id) moveLeadToStage(id, stage.id);
-                    }}
-                  >
-                    {/* Header da coluna */}
-                    <div
-                      className="flex items-center justify-between px-3.5 py-3 border-b border-border shrink-0 rounded-t-xl"
-                      style={{ borderTopColor: stage.color, borderTopWidth: 3 }}
-                    >
-                      <div className="flex items-center gap-2">
-                        <span className="text-base leading-none">{stage.emoji}</span>
-                        <h3 className="text-[11px] font-bold uppercase tracking-wider" style={{ color: stage.color }}>
-                          {stage.label}
-                        </h3>
-                      </div>
-                      <div className="flex items-center gap-1">
-                        {/* Aging alert counter */}
-                        {agingCount > 0 && (
-                          <span
-                            className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold bg-red-500/20 text-red-400"
-                            title={`${agingCount} lead(s) parado(s) há mais de 5 dias`}
-                          >
-                            {agingCount}
-                          </span>
-                        )}
-                        {/* Total counter */}
-                        <span
-                          className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold"
-                          style={{ backgroundColor: `${stage.color}20`, color: stage.color }}
-                        >
-                          {stageLeads.length}
-                        </span>
-                      </div>
-                    </div>
+              return (
+                <div className="flex h-full gap-4" style={{ minWidth: `${cols.length * 272}px` }}>
+                  {cols.map(col => {
+                    const stageLeads = getStageLeads(col.key, col.slug);
+                    const isDragTarget = dragOverStage === col.key;
+                    const agingCount = stageLeads.filter(l => daysInStage(l.stage_entered_at) > 5).length;
 
-                    {/* Cards */}
-                    <div className="flex-1 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
-                      {stageLeads.map(lead => (
-                        <LeadCard
-                          key={lead.id}
-                          lead={lead}
-                          isDragging={draggingId === lead.id}
-                          onDragStart={() => setDraggingId(lead.id)}
-                          onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
-                          onOpen={() => openInChat(lead)}
-                          onOpenDetail={() => openDetail(lead)}
-                          onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
-                          isSelected={selectedLeads.has(lead.id)}
-                          onToggleSelect={() => toggleSelect(lead.id)}
-                          selectionMode={selectedLeads.size > 0}
-                        />
-                      ))}
-
-                      {stageLeads.length === 0 && (
+                    return (
+                      <div
+                        key={col.key}
+                        className={`flex flex-col w-[260px] min-w-[260px] rounded-xl border transition-all duration-150 ${
+                          isDragTarget
+                            ? 'border-2 bg-accent/30 scale-[1.01]'
+                            : 'border-border bg-card/50'
+                        }`}
+                        style={isDragTarget ? { borderColor: col.color } : undefined}
+                        onDragOver={e => { e.preventDefault(); setDragOverStage(col.key); }}
+                        onDragLeave={e => {
+                          if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOverStage(null);
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const id = draggingId;
+                          setDragOverStage(null);
+                          setDraggingId(null);
+                          if (!id) return;
+                          if (col.dynamicStage) moveLeadToStageId(id, col.dynamicStage);
+                          else if (col.legacyId) moveLeadToStage(id, col.legacyId);
+                        }}
+                      >
+                        {/* Header da coluna */}
                         <div
-                          className={`text-center p-5 border-2 border-dashed rounded-xl text-muted-foreground/50 transition-all ${
-                            isDragTarget ? 'border-current opacity-100' : 'border-border/40 opacity-60'
-                          }`}
-                          style={isDragTarget ? { borderColor: stage.color, color: stage.color } : undefined}
+                          className="flex items-center justify-between px-3.5 py-3 border-b border-border shrink-0 rounded-t-xl"
+                          style={{ borderTopColor: col.color, borderTopWidth: 3 }}
                         >
-                          {isDragTarget ? (
-                            <p className="text-[12px] font-semibold">Soltar aqui</p>
-                          ) : (
-                            <>
-                              <p className="text-[11px] font-medium">Nenhum lead aqui</p>
-                              <p className="text-[10px] mt-1 opacity-70">Arraste cards ou use o menu ⋮</p>
-                            </>
+                          <div className="flex items-center gap-2">
+                            <span className="text-base leading-none">{col.emoji}</span>
+                            <h3 className="text-[11px] font-bold uppercase tracking-wider" style={{ color: col.color }}>
+                              {col.label}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-1">
+                            {agingCount > 0 && (
+                              <span
+                                className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold bg-red-500/20 text-red-400"
+                                title={`${agingCount} lead(s) parado(s) há mais de 5 dias`}
+                              >
+                                {agingCount}
+                              </span>
+                            )}
+                            <span
+                              className="w-[22px] h-[22px] rounded-full flex items-center justify-center text-[10px] font-bold"
+                              style={{ backgroundColor: `${col.color}20`, color: col.color }}
+                            >
+                              {stageLeads.length}
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Cards */}
+                        <div className="flex-1 overflow-y-auto p-2.5 space-y-2 custom-scrollbar">
+                          {stageLeads.map(lead => (
+                            <LeadCard
+                              key={lead.id}
+                              lead={lead}
+                              isDragging={draggingId === lead.id}
+                              onDragStart={() => setDraggingId(lead.id)}
+                              onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
+                              onOpen={() => openInChat(lead)}
+                              onOpenDetail={() => openDetail(lead)}
+                              onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
+                              isSelected={selectedLeads.has(lead.id)}
+                              onToggleSelect={() => toggleSelect(lead.id)}
+                              selectionMode={selectedLeads.size > 0}
+                            />
+                          ))}
+
+                          {stageLeads.length === 0 && (
+                            <div
+                              className={`text-center p-5 border-2 border-dashed rounded-xl text-muted-foreground/50 transition-all ${
+                                isDragTarget ? 'border-current opacity-100' : 'border-border/40 opacity-60'
+                              }`}
+                              style={isDragTarget ? { borderColor: col.color, color: col.color } : undefined}
+                            >
+                              {isDragTarget ? (
+                                <p className="text-[12px] font-semibold">Soltar aqui</p>
+                              ) : (
+                                <>
+                                  <p className="text-[11px] font-medium">Nenhum lead aqui</p>
+                                  <p className="text-[10px] mt-1 opacity-70">Arraste cards ou use o menu ⋮</p>
+                                </>
+                              )}
+                            </div>
                           )}
                         </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })()}
           </div>
         )}
 

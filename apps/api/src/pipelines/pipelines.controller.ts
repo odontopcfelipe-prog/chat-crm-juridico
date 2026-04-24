@@ -80,6 +80,21 @@ export class PipelinesController {
     return this.svc.createFromTemplate(key, { ...overrides, tenant_id: req.user?.tenant_id });
   }
 
+  /**
+   * Migra leads legados (pipeline_id NULL) para o funil alvo, mapeando
+   * o campo stage String (INICIAL, QUALIFICANDO, ...) para o stage_id
+   * correspondente. Idempotente. Se body.pipeline_id omitido, usa o
+   * is_default do tenant (ou o mais antigo).
+   */
+  @Post('backfill-legacy-stages')
+  @Roles('ADMIN')
+  backfillLegacyStages(
+    @Body() body: { pipeline_id?: string },
+    @Request() req: any,
+  ) {
+    return this.svc.backfillLegacyStages(req.user?.tenant_id, body?.pipeline_id);
+  }
+
   @Patch(':id')
   @Roles('ADMIN')
   update(
