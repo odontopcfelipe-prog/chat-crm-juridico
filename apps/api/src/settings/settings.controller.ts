@@ -220,6 +220,17 @@ export class SettingsController {
     return this.settingsService.resetSkillsToDefaults();
   }
 
+  /**
+   * Migra a skill SDR para o domínio odontológico (Instituto Odonto Passos).
+   * Idempotente. Mantém uploads e tools customizadas pelo admin; sobrescreve
+   * apenas o prompt e a reference padrão.
+   */
+  @Post('skills/migrate-sdr-to-odonto')
+  @Roles('ADMIN')
+  async migrateSdrToOdonto() {
+    return this.settingsService.migrateSdrToOdonto();
+  }
+
   @Post('skills')
   @Roles('ADMIN')
   async createSkill(@Body() data: CreateSkillDto) {

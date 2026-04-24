@@ -883,6 +883,31 @@ export default function AiSettingsPage() {
             </button>
           </div>
 
+          {/* Banner de migração — só aparece enquanto a SDR jurídica antiga existir no banco */}
+          {!loading && skills.some(s => s.name === 'SDR Jurídico — Sophia') && (
+            <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
+              <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
+                A skill <span className="font-bold">SDR Jurídico — Sophia</span> ainda está com o prompt antigo do domínio jurídico.
+                Clique para migrar para o domínio odontológico (Instituto Odonto Passos) — preserva uploads e tools que você editou.
+              </span>
+              <button
+                onClick={async () => {
+                  if (!confirm('Migrar a SDR para o domínio odontológico? A skill será renomeada para "SDR — Sophia" e o prompt + reference padrão serão substituídos. Uploads e tools customizadas são preservados.')) return;
+                  try {
+                    const res = await api.post('/settings/skills/migrate-sdr-to-odonto');
+                    alert(`Migração concluída.\nskill_id: ${res.data.skill_id}\nlegacy_removed: ${res.data.legacy_removed}`);
+                    window.location.reload();
+                  } catch (e: any) {
+                    alert(e?.response?.data?.message || 'Erro ao migrar SDR.');
+                  }
+                }}
+                className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors shrink-0"
+              >
+                Migrar para Odonto
+              </button>
+            </div>
+          )}
+
           {loading ? (
             <div className="p-6 flex items-center justify-center">
               <RefreshCw className="animate-spin text-muted-foreground" size={20} />
