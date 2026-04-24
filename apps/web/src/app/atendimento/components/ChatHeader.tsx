@@ -6,10 +6,11 @@ import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
 
-const LEGAL_AREAS = [
-  'Trabalhista', 'Consumidor', 'Família', 'Previdenciário',
-  'Penal', 'Civil', 'Empresarial', 'Imobiliário', 'Outro',
-];
+// LEGAL_AREAS removido — substituído pelo CRM dinâmico (Pipeline + Stage).
+// Ver badge novo no header (selected.leadPipeline + selected.leadCurrentStage).
+// Props legacy (specialtyDropdownRef, onChangeSpecialty, etc) mantidas como
+// no-op por compat com o consumer atendimento/page.tsx — remover quando o
+// consumer for atualizado pra usar PipelinesService.
 
 function getInitial(name?: string) {
   return (name || 'V')[0].toUpperCase();
