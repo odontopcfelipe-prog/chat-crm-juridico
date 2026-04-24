@@ -1283,7 +1283,7 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
         lead_name: convo.lead.name || 'Desconhecido',
         lead_phone: convo.lead.phone || '',
         specialty: specialty || 'a ser identificada',
-        firm_name: 'André Lustosa Advogados',
+        firm_name: 'Instituto Odonto Passos',
         lead_memory: leadMemory,
         lead_summary: memory?.summary || '',
         conversation_id: convo.id,

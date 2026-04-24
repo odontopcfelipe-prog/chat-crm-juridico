@@ -280,10 +280,51 @@ export class LeadsService {
     });
 
     if (!existing) {
+      // Lead realmente novo — atribui ao funil padrão pra que apareça no Kanban dinâmico.
+      // Falha silenciosa: se não houver funil configurado, lead fica sem pipeline_id
+      // (ainda aparece via fallback de slug no frontend).
+      await this.assignDefaultPipeline(lead).catch(err =>
+        this.logger.warn(`Falha ao atribuir funil padrão ao lead ${lead.id}: ${err?.message}`),
+      );
       this.notifyNewLead(lead, inboxId);
     }
 
     return lead;
+  }
+
+  /**
+   * Atribui ao lead o pipeline `is_default` do tenant (ou o mais antigo se
+   * nenhum for default), e o stage `is_initial` desse pipeline. Idempotente:
+   * só aplica se o lead ainda não tem pipeline_id.
+   */
+  private async assignDefaultPipeline(lead: Lead): Promise<void> {
+    if ((lead as any).pipeline_id) return;
+
+    const tenantWhere = (lead as any).tenant_id
+      ? { tenant_id: (lead as any).tenant_id }
+      : { tenant_id: null };
+
+    let pipeline = await (this.prisma as any).pipeline.findFirst({
+      where: { ...tenantWhere, is_default: true },
+      include: { stages: { orderBy: { position: 'asc' } } },
+    });
+    if (!pipeline) {
+      pipeline = await (this.prisma as any).pipeline.findFirst({
+        where: tenantWhere,
+        include: { stages: { orderBy: { position: 'asc' } } },
+        orderBy: { created_at: 'asc' },
+      });
+    }
+    if (!pipeline?.stages?.length) return;
+
+    const initialStage = pipeline.stages.find((s: any) => s.is_initial) ?? pipeline.stages[0];
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        pipeline_id: pipeline.id,
+        stage_id: initialStage.id,
+      },
+    });
   }
 
   async findByPhone(phone: string): Promise<Lead | null> {
