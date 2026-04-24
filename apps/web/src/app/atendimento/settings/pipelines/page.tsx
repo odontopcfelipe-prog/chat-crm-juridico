@@ -5,6 +5,7 @@ import {
   Kanban, Plus, Trash2, X, RefreshCw, Pencil, Check, Sparkles,
   GripVertical, Trophy, XCircle, Flag, ChevronDown,
   AlertCircle, Loader2, Cloud, CloudOff,
+  Star, ArrowUp, ArrowDown,
 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -149,6 +150,43 @@ export default function PipelinesSettingsPage() {
     setExpandedPipelineId(expandedPipelineId === id ? null : id);
   };
 
+  const setDefaultPipeline = async (id: string) => {
+    // Optimistic: marca este como default e desmarca os outros localmente
+    setPipelines(prev => prev.map(p => ({ ...p, is_default: p.id === id })));
+    try {
+      await api.patch(`/pipelines/${id}`, { is_default: true });
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Erro ao definir como padrão.');
+      fetchData();
+    }
+  };
+
+  const movePipeline = async (id: string, direction: 'up' | 'down') => {
+    const sorted = [...pipelines].sort((a, b) => a.position - b.position);
+    const idx = sorted.findIndex(p => p.id === id);
+    if (idx < 0) return;
+    const swapWith = direction === 'up' ? idx - 1 : idx + 1;
+    if (swapWith < 0 || swapWith >= sorted.length) return;
+
+    const a = sorted[idx];
+    const b = sorted[swapWith];
+    // Otimismo: troca posições localmente
+    setPipelines(prev => prev.map(p => {
+      if (p.id === a.id) return { ...p, position: b.position };
+      if (p.id === b.id) return { ...p, position: a.position };
+      return p;
+    }));
+    try {
+      await Promise.all([
+        api.patch(`/pipelines/${a.id}`, { position: b.position }),
+        api.patch(`/pipelines/${b.id}`, { position: a.position }),
+      ]);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Erro ao reordenar funis.');
+      fetchData();
+    }
+  };
+
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-background">
       <header className="p-8 border-b border-border bg-card/30 backdrop-blur-md">
@@ -255,14 +293,19 @@ export default function PipelinesSettingsPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {pipelines.map(p => (
+              {[...pipelines].sort((a, b) => a.position - b.position).map((p, idx, arr) => (
                 <PipelineCard
                   key={p.id}
                   pipeline={p}
                   expanded={expandedPipelineId === p.id}
                   editingStageId={editingStageId}
+                  isFirst={idx === 0}
+                  isLast={idx === arr.length - 1}
                   onToggle={() => togglePipeline(p.id)}
                   onDelete={() => deletePipeline(p.id, p.name)}
+                  onSetDefault={() => setDefaultPipeline(p.id)}
+                  onMoveUp={() => movePipeline(p.id, 'up')}
+                  onMoveDown={() => movePipeline(p.id, 'down')}
                   onRefresh={fetchData}
                   onEditStage={setEditingStageId}
                 />
@@ -393,14 +436,19 @@ function StagnationSettings() {
  * ────────────────────────────────────────────────────────────── */
 
 function PipelineCard({
-  pipeline, expanded, editingStageId,
-  onToggle, onDelete, onRefresh, onEditStage,
+  pipeline, expanded, editingStageId, isFirst, isLast,
+  onToggle, onDelete, onSetDefault, onMoveUp, onMoveDown, onRefresh, onEditStage,
 }: {
   pipeline: Pipeline;
   expanded: boolean;
   editingStageId: string | null;
+  isFirst: boolean;
+  isLast: boolean;
   onToggle: () => void;
   onDelete: () => void;
+  onSetDefault: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
   onRefresh: () => void;
   onEditStage: (id: string | null) => void;
 }) {
@@ -438,6 +486,38 @@ function PipelineCard({
             </div>
           </button>
           <div className="flex items-center gap-1">
+            {/* Reordenar: ↑ / ↓ */}
+            <div className="flex flex-col">
+              <button
+                onClick={onMoveUp}
+                disabled={isFirst}
+                title="Mover para cima"
+                className="p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+              >
+                <ArrowUp size={13} />
+              </button>
+              <button
+                onClick={onMoveDown}
+                disabled={isLast}
+                title="Mover para baixo"
+                className="p-0.5 text-muted-foreground hover:text-foreground hover:bg-accent rounded transition-all disabled:opacity-25 disabled:cursor-not-allowed"
+              >
+                <ArrowDown size={13} />
+              </button>
+            </div>
+            {/* Marcar como padrão */}
+            <button
+              onClick={onSetDefault}
+              disabled={pipeline.is_default}
+              title={pipeline.is_default ? 'Já é o funil padrão' : 'Definir como funil padrão'}
+              className={`p-2 rounded-lg transition-all ${
+                pipeline.is_default
+                  ? 'text-primary cursor-default'
+                  : 'text-muted-foreground hover:text-primary hover:bg-primary/10'
+              }`}
+            >
+              <Star size={16} fill={pipeline.is_default ? 'currentColor' : 'none'} />
+            </button>
             <ChevronDown size={18} className={`text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`} />
             <button
               onClick={onDelete}
