@@ -1127,7 +1127,11 @@ export default function CrmPage() {
   const [dentistFilter, setDentistFilter] = useState('');
   const [tagFilter, setTagFilter] = useState('');
   const [agingFilter, setAgingFilter] = useState(''); // '', 'ok', 'warning', 'critical'
-  const [sortBy, setSortBy] = useState<'activity' | 'score'>('activity');
+  const [sortBy, setSortBy] = useState<'message' | 'activity' | 'score'>(() => {
+    if (typeof window === 'undefined') return 'message';
+    const saved = window.localStorage.getItem('crm_sort_by');
+    return saved === 'score' || saved === 'activity' || saved === 'message' ? saved : 'message';
+  });
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [dragOverStage, setDragOverStage] = useState<string | null>(null);
   const [dragOverPerdido, setDragOverPerdido] = useState(false);
@@ -1280,6 +1284,11 @@ export default function CrmPage() {
     if (typeof window === 'undefined') return;
     if (selectedPipelineId) window.localStorage.setItem('crm_selected_pipeline_id', selectedPipelineId);
   }, [selectedPipelineId]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('crm_sort_by', sortBy);
+  }, [sortBy]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -1594,7 +1603,17 @@ export default function CrmPage() {
       })
       .sort((a, b) => {
         if (sortBy === 'score') return computeLeadScore(b) - computeLeadScore(a);
-        // Ordenação por evento: evento mais próximo primeiro, depois mais antigo na etapa
+        if (sortBy === 'message') {
+          // Padrão: ordem do chat — mensagem mais recente primeiro.
+          // Sem conversas/mensagens vai para o fim.
+          const am = a.conversations?.[0]?.last_message_at;
+          const bm = b.conversations?.[0]?.last_message_at;
+          if (!am && !bm) return 0;
+          if (!am) return 1;
+          if (!bm) return -1;
+          return new Date(bm).getTime() - new Date(am).getTime();
+        }
+        // sortBy === 'activity': evento mais próximo primeiro, depois mais antigo na etapa
         const now = Date.now();
         const aEvent = a.calendar_events?.find(e => new Date(e.start_at).getTime() >= now - 3600000);
         const bEvent = b.calendar_events?.find(e => new Date(e.start_at).getTime() >= now - 3600000);
@@ -1719,18 +1738,24 @@ export default function CrmPage() {
               />
             </div>
 
-            {/* Ordenar por score */}
-            <button
-              onClick={() => setSortBy(v => v === 'activity' ? 'score' : 'activity')}
-              className={`px-2.5 py-1.5 text-[12px] rounded-lg border transition-all ${
-                sortBy === 'score'
-                  ? 'border-primary/50 bg-primary/10 text-primary font-semibold'
-                  : 'border-border text-muted-foreground hover:bg-accent'
-              }`}
-              title="Ordenar por score do lead"
-            >
-              {sortBy === 'score' ? '⭐ Score' : '⭐ Score'}
-            </button>
+            {/* Ordenação dos cards */}
+            <div className="relative">
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as 'message' | 'activity' | 'score')}
+                className={`appearance-none pl-3 pr-7 py-1.5 text-[12px] rounded-lg border transition-all cursor-pointer focus:outline-none focus:ring-1 focus:ring-primary/40 ${
+                  sortBy !== 'message'
+                    ? 'border-primary/50 bg-primary/10 text-primary font-semibold'
+                    : 'border-border bg-accent/50 text-muted-foreground hover:text-foreground'
+                }`}
+                title="Critério de ordenação dos cards"
+              >
+                <option value="message">💬 Mensagem mais recente</option>
+                <option value="activity">📅 Próximo evento</option>
+                <option value="score">⭐ Score do lead</option>
+              </select>
+              <ChevronDown size={12} className="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none opacity-60" />
+            </div>
 
             {/* Analytics */}
             <button
