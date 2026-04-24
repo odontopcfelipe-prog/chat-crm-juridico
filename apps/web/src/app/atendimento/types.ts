@@ -33,6 +33,17 @@ export interface ConversationSummary {
   activeTask?: ActiveTask | null;
   hasNotes?: boolean;
   isClient?: boolean;
+  // CRM dinâmico (Fase 4 — pipelines)
+  leadPipeline?: { id: string; name: string; slug: string; color: string | null } | null;
+  leadCurrentStage?: {
+    id: string;
+    name: string;
+    slug: string;
+    color: string | null;
+    emoji: string | null;
+    is_won: boolean;
+    is_lost: boolean;
+  } | null;
 }
 
 export interface MessageReaction {

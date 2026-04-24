@@ -118,7 +118,17 @@ export class ConversationsService {
         where,
         orderBy: { last_message_at: 'desc' },
         include: {
-          lead: { select: { id: true, name: true, phone: true, email: true, stage: true, stage_entered_at: true, profile_picture_url: true, tags: true, is_client: true, became_client_at: true } },
+          lead: {
+            select: {
+              id: true, name: true, phone: true, email: true,
+              stage: true, stage_entered_at: true,
+              profile_picture_url: true, tags: true,
+              is_client: true, became_client_at: true,
+              // CRM dinâmico (Fase 4 — pipelines)
+              pipeline: { select: { id: true, name: true, slug: true, color: true } },
+              current_stage: { select: { id: true, name: true, slug: true, color: true, emoji: true, is_won: true, is_lost: true } },
+            },
+          },
           messages: { orderBy: { created_at: 'desc' }, take: 1, include: { media: true } },
           assigned_user: { select: { id: true, name: true } },
           tasks: {
@@ -184,6 +194,22 @@ export class ConversationsService {
       leadStage: c.lead?.stage || null,
       leadTags: (c.lead as any)?.tags || [],
       stageEnteredAt: (c.lead as any)?.stage_entered_at?.toISOString() || null,
+      // CRM dinâmico (Fase 4 — pipelines)
+      leadPipeline: (c.lead as any)?.pipeline ? {
+        id: (c.lead as any).pipeline.id,
+        name: (c.lead as any).pipeline.name,
+        slug: (c.lead as any).pipeline.slug,
+        color: (c.lead as any).pipeline.color,
+      } : null,
+      leadCurrentStage: (c.lead as any)?.current_stage ? {
+        id: (c.lead as any).current_stage.id,
+        name: (c.lead as any).current_stage.name,
+        slug: (c.lead as any).current_stage.slug,
+        color: (c.lead as any).current_stage.color,
+        emoji: (c.lead as any).current_stage.emoji,
+        is_won: (c.lead as any).current_stage.is_won,
+        is_lost: (c.lead as any).current_stage.is_lost,
+      } : null,
       isClient: (c.lead as any)?.is_client ?? false,
       becameClientAt: (c.lead as any)?.became_client_at?.toISOString() || null,
       nextStep: (c as any).next_step || null,

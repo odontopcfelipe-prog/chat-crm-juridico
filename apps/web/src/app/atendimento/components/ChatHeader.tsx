@@ -211,41 +211,40 @@ export function ChatHeader({
             </span>
           )}
           {/* Tags removidas — funcionalidade descontinuada */}
-          {/* Área jurídica + especialista pré-atribuído — hidden on mobile */}
+          {/* Funil + Etapa (CRM dinâmico) + especialista — hidden on mobile */}
           <div className="hidden md:flex items-center gap-2 flex-wrap mt-1.5">
-            {/* Badge de área — clicável para editar */}
-            <div className="relative" ref={specialtyDropdownRef}>
-              <button
-                onClick={(e) => { e.stopPropagation(); onToggleSpecialty(); }}
-                className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors hover:opacity-80 ${selected.specialty ? 'bg-violet-500/15 text-violet-400 border-violet-500/20 hover:bg-violet-500/25' : 'bg-muted/50 text-muted-foreground border-border hover:bg-muted'}`}
-                title="Clique para definir ou alterar a área de atendimento"
+            {/* Badge de FUNIL + ETAPA (CRM dinâmico — Fase 4) */}
+            {selected.leadPipeline ? (
+              <span
+                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border"
+                style={{
+                  backgroundColor: (selected.leadPipeline.color || '#6b7280') + '1a',
+                  borderColor: (selected.leadPipeline.color || '#6b7280') + '40',
+                  color: selected.leadPipeline.color || undefined,
+                }}
+                title={`Funil: ${selected.leadPipeline.name}${selected.leadCurrentStage ? ` · Etapa: ${selected.leadCurrentStage.name}` : ''}`}
               >
-                ⚖️ {selected.specialty || 'Definir área'}
-                <ChevronDown size={9} className="ml-0.5 opacity-70" />
-              </button>
-              {showSpecialtyDropdown && (
-                <div className="absolute left-0 top-full mt-1 bg-card border border-border rounded-xl shadow-xl w-44 py-1 text-[12px] z-[200]">
-                  <p className="px-3 py-1.5 text-[10px] font-bold text-muted-foreground uppercase tracking-widest">Área de Atendimento</p>
-                  {LEGAL_AREAS.map(area => (
-                    <button
-                      key={area}
-                      onClick={(e) => { e.stopPropagation(); onChangeSpecialty(area); }}
-                      className={`w-full text-left px-3 py-2 hover:bg-accent transition-colors flex items-center gap-2 ${selected.specialty === area ? 'text-violet-400 font-semibold' : 'text-foreground'}`}
-                    >
-                      ⚖️ {area}
-                    </button>
-                  ))}
-                  {selected.specialty && (
-                    <button
-                      onClick={(e) => { e.stopPropagation(); onChangeSpecialty(null); }}
-                      className="w-full text-left px-3 py-2 text-muted-foreground hover:bg-accent hover:text-destructive transition-colors text-[11px] border-t border-border mt-1"
-                    >
-                      Remover área
-                    </button>
-                  )}
-                </div>
-              )}
-            </div>
+                <span>📁</span>
+                <span>{selected.leadPipeline.name}</span>
+                {selected.leadCurrentStage && (
+                  <>
+                    <span className="opacity-50">·</span>
+                    <span>
+                      {selected.leadCurrentStage.emoji ? `${selected.leadCurrentStage.emoji} ` : ''}
+                      {selected.leadCurrentStage.name}
+                    </span>
+                  </>
+                )}
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border bg-muted/50 text-muted-foreground border-border"
+                title="Lead ainda não foi classificado em um funil. A IA vai classificar automaticamente após coletar dados suficientes."
+              >
+                📁 Sem funil
+              </span>
+            )}
+            {/* Botão "Atribuir especialista" mostrado apenas se há especialidade legada — TODO PR5: remover */}
             {selected.specialty && (
               <div className="relative" ref={lawyerDropdownRef}>
                 <button
