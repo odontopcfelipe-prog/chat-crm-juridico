@@ -150,6 +150,12 @@ export default function Dashboard() {
   // Perguntas em aberto da memória do lead (exibidas no topo do chat)
   const [openQuestions, setOpenQuestions] = useState<string[]>([]);
   const [showStageDropdown, setShowStageDropdown] = useState(false);
+  // CRM dinâmico (Fase 4): lista de funis com stages dentro — usado pelo
+  // dropdown "Etapa do Funil" no header pra permitir trocar funil/etapa.
+  const [pipelinesList, setPipelinesList] = useState<Array<{
+    id: string; name: string; slug: string; color: string | null; is_default: boolean;
+    stages: Array<{ id: string; name: string; slug: string; color: string | null; emoji: string | null; position: number; is_initial: boolean; is_won: boolean; is_lost: boolean }>;
+  }>>([]);
   // Incoming transfer popup (for receiving operator)
   const [incomingTransfer, setIncomingTransfer] = useState<{
     conversationId: string; fromUserName: string; contactName: string; reason: string | null; audioIds?: string[];
@@ -624,6 +630,71 @@ export default function Dashboard() {
       setAllSpecialists((res.data || []).filter((u: any) => u.specialties?.length > 0));
     } catch (e) {
       console.error('Failed to fetch specialists', e);
+    }
+  };
+
+  // CRM dinâmico (Fase 4): carrega lista de funis + stages uma vez no mount.
+  // Usado pelo dropdown "Etapa do Funil" no header pra permitir trocar funil/etapa.
+  const fetchPipelines = useCallback(async () => {
+    try {
+      const res = await api.get('/pipelines');
+      // Filtra ativos e ordena pelos campos position/created_at do backend
+      const active = (res.data || []).filter((p: any) => p.is_active !== false);
+      setPipelinesList(active.map((p: any) => ({
+        id: p.id,
+        name: p.name,
+        slug: p.slug,
+        color: p.color,
+        is_default: p.is_default,
+        stages: (p.stages || []).map((s: any) => ({
+          id: s.id, name: s.name, slug: s.slug, color: s.color, emoji: s.emoji,
+          position: s.position, is_initial: s.is_initial, is_won: s.is_won, is_lost: s.is_lost,
+        })),
+      })));
+    } catch (e) {
+      console.error('Failed to fetch pipelines', e);
+    }
+  }, []);
+
+  useEffect(() => { void fetchPipelines(); }, [fetchPipelines]);
+
+  /**
+   * Troca a etapa do lead no CRM dinâmico via stage_id.
+   * Se o stage pertencer a um pipeline diferente, o backend (updateStatus)
+   * resolve pipeline_id automaticamente. Atualização otimista local.
+   */
+  const handleChangeStageById = async (stageId: string) => {
+    const conv = conversations.find(c => c.id === selectedId) ?? adiadoConversations.find(c => c.id === selectedId);
+    if (!conv?.leadId) return;
+
+    setShowStageDropdown(false);
+
+    // Resolve stage + pipeline localmente pra otimismo
+    let targetPipeline: typeof pipelinesList[number] | null = null;
+    let targetStage: typeof pipelinesList[number]['stages'][number] | null = null;
+    for (const p of pipelinesList) {
+      const s = p.stages.find(x => x.id === stageId);
+      if (s) { targetPipeline = p; targetStage = s; break; }
+    }
+    if (!targetPipeline || !targetStage) return;
+
+    // Atualização otimista
+    const optimisticPipeline = { id: targetPipeline.id, name: targetPipeline.name, slug: targetPipeline.slug, color: targetPipeline.color };
+    const optimisticStage = {
+      id: targetStage.id, name: targetStage.name, slug: targetStage.slug,
+      color: targetStage.color, emoji: targetStage.emoji,
+      is_won: targetStage.is_won, is_lost: targetStage.is_lost,
+    };
+    setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, leadPipeline: optimisticPipeline, leadCurrentStage: optimisticStage } : c));
+    setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, leadPipeline: optimisticPipeline, leadCurrentStage: optimisticStage } : c));
+
+    try {
+      await api.patch(`/leads/${conv.leadId}/stage`, { stage_id: stageId });
+    } catch (e: any) {
+      console.error('Failed to change lead pipeline/stage', e);
+      // Rollback
+      setConversations(prev => prev.map(c => c.id === selectedId ? { ...c, leadPipeline: conv.leadPipeline, leadCurrentStage: conv.leadCurrentStage } : c));
+      setAdiadoConversations(prev => prev.map(c => c.id === selectedId ? { ...c, leadPipeline: conv.leadPipeline, leadCurrentStage: conv.leadCurrentStage } : c));
     }
   };
 
@@ -2333,6 +2404,8 @@ export default function Dashboard() {
               onKeepInInbox={handleKeepInInbox}
               onToggleStage={() => setShowStageDropdown(v => !v)}
               onChangeStage={handleChangeLeadStage}
+              pipelinesList={pipelinesList}
+              onChangeStageById={handleChangeStageById}
               onSendFormLink={handleSendFormLink}
               onShowFicha={() => setFichaInboxVisible(true)}
               onShowDetails={() => setShowDetailsPanel(true)}
