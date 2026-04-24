@@ -132,7 +132,11 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
     networks:
       - chatcrm_network
-      - evolution_evolution_network
+      # traefik_public: mesma rede onde evolution_api roda (declarado no
+      # evolution-stack.yml). Sem isso, o worker tem ENOTFOUND ao tentar
+      # resolver evolution_evolution_api:8080. Não recebe tráfego do Traefik
+      # (sem labels), só usa pra DNS interno.
+      - traefik_public
     deploy:
       restart_policy:
         condition: any
@@ -168,8 +172,6 @@ networks:
   chatcrm_network:
     driver: overlay
   traefik_public:
-    external: true
-  evolution_evolution_network:
     external: true
 
 volumes:
