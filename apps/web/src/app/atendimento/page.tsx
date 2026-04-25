@@ -3292,8 +3292,8 @@ export default function Dashboard() {
           <div className="flex-1 flex flex-col items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src="/landing/LOGO SEM FUNDO 01.png"
-              alt="André Lustosa Advogados"
+              src="/odonto-passos-logo.png"
+              alt="Instituto Odonto Passos"
               style={{ width: '620px', height: 'auto', opacity: 0.85 }}
               className="select-none pointer-events-none"
               draggable={false}
