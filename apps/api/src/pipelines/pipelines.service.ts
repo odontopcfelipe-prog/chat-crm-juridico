@@ -68,8 +68,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 4, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 5, description: 'Lead confirmou data e horário da avaliação. Agenda criada — aguardando comparecimento.' },
       { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 6, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 7, is_won: true, description: 'Paciente aceitou o tratamento e assinou contrato. Cliente efetivado.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 8, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, medo, outra clínica, etc.).' },
+      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 7, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato (envio via ClickSign, conferência de docs, etc.). Operador move pra cá quando inicia o processo de contrato.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban (visível em relatórios).' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, medo, outra clínica, etc.). Etapa terminal — não aparece no Kanban.' },
     ],
   },
   'ortodontia': {

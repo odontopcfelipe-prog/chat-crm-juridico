@@ -1868,12 +1868,12 @@ export default function CrmPage() {
                 dynamicStage?: PipelineStageLite;
                 legacyId?: string;
               };
-              // Mostra TODAS as stages no Kanban (incluindo won/lost) na ordem de
-              // position. Won/lost ficam no final naturalmente, dando visibilidade
-              // de quantos leads converteram (Contrato Assinado) ou perderam.
-              // Drop em won/lost ainda dispara modal de confirmação (linhas 1395-1398).
+              // Esconde stages won/lost do Kanban — ficam acessíveis em
+              // relatórios e no badge da conversa. O Kanban mostra só as etapas
+              // ATIVAS do funil (operador trabalha aqui).
               const cols: Col[] = selectedPipeline
                 ? selectedPipeline.stages
+                    .filter(s => !s.is_won && !s.is_lost)
                     .slice()
                     .sort((a, b) => a.position - b.position)
                     .map(s => ({
@@ -1884,7 +1884,9 @@ export default function CrmPage() {
                       emoji: s.emoji ?? '•',
                       dynamicStage: s,
                     }))
-                : CRM_STAGES.map(s => ({
+                : CRM_STAGES
+                    .filter(s => s.id !== 'PERDIDO' && s.id !== 'FINALIZADO')
+                    .map(s => ({
                       key: s.id,
                       slug: s.id.toLowerCase(),
                       label: s.label,
