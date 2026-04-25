@@ -602,6 +602,31 @@ export class AiProcessor extends WorkerHost {
         this.logger.warn(`[AI] Falha ao preencher ficha da memória: ${e.message}`);
       }
     }
+
+    // ─── CRM dinâmico (Fase 4): pipeline_slug + stage_slug ───
+    // A IA retorna slugs do bloco "FUNIS DISPONÍVEIS" injetado no prompt.
+    // Resolve em pipeline_id/stage_id e atualiza o Lead. Funciona em AMBOS
+    // os paths (com tools via respond_to_client OU JSON inline parser legado).
+    if (updates.stage_slug || updates.pipeline_slug) {
+      try {
+        const pipeUpdate = await resolveStageUpdate(this.prisma as any, leadId, {
+          stage_slug: updates.stage_slug,
+          pipeline_slug: updates.pipeline_slug,
+        });
+        if (pipeUpdate) {
+          await (this.prisma as any).lead.update({ where: { id: leadId }, data: pipeUpdate });
+          this.logger.log(
+            `[AI] CRM dinâmico aplicado ao lead ${leadId}: ${JSON.stringify(pipeUpdate)}`,
+          );
+        } else {
+          this.logger.warn(
+            `[AI] Slug de pipeline/stage inválido — stage_slug=${updates.stage_slug}, pipeline_slug=${updates.pipeline_slug}. Lead não atualizado.`,
+          );
+        }
+      } catch (e: any) {
+        this.logger.error(`[AI] Falha ao aplicar CRM dinâmico: ${e.message}`);
+      }
+    }
   }
 
   // ─── Cria CalendarEvent diretamente + enfileira lembretes ───
@@ -1769,28 +1794,9 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           }
         }
 
-        // Fase 4: resolve stage_slug/pipeline_slug (CRM dinâmico) em IDs.
-        // Aplica direto no Lead — não passa pelo fluxo legado de status.
-        if (updates.stage_slug || updates.pipeline_slug) {
-          try {
-            const pipeUpdate = await resolveStageUpdate(this.prisma as any, convo.lead_id, {
-              stage_slug: updates.stage_slug,
-              pipeline_slug: updates.pipeline_slug,
-            });
-            if (pipeUpdate) {
-              await (this.prisma as any).lead.update({ where: { id: convo.lead_id }, data: pipeUpdate });
-              this.logger.log(
-                `[AI] CRM dinâmico aplicado ao lead ${convo.lead_id}: ${JSON.stringify(pipeUpdate)}`,
-              );
-            } else {
-              this.logger.warn(
-                `[AI] Slug de pipeline/stage inválido — stage_slug=${updates.stage_slug}, pipeline_slug=${updates.pipeline_slug}. Lead não atualizado.`,
-              );
-            }
-          } catch (e: any) {
-            this.logger.error(`[AI] Falha ao aplicar CRM dinâmico: ${e.message}`);
-          }
-        }
+        // CRM dinâmico (pipeline_slug + stage_slug) movido para applyAiUpdates()
+        // (chamado mais abaixo). Garante que o path com tools E o path legado
+        // (JSON inline) usem a mesma lógica.
 
         // Save usage
         await this.saveUsage({
