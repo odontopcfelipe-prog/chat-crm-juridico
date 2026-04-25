@@ -1315,10 +1315,12 @@ export default function CrmPage() {
     const onInboxUpdate = () => {
       if (document.visibilityState === 'visible') fetchLeads(true);
     };
-    const onIncomingMessage = (data: { contactName?: string }) => {
+    const onIncomingMessage = (_data: { contactName?: string }) => {
+      // Toast 'Nova mensagem de X' já é disparado globalmente pelo SocketProvider
+      // (apps/web/src/lib/SocketProvider.tsx:147). Aqui só atualiza os leads do
+      // Kanban — sem toast pra evitar duplicar a notificação.
       if (document.visibilityState === 'visible') {
         fetchLeads(true);
-        if (data?.contactName) showSuccess(`Nova mensagem de ${data.contactName}`);
       }
     };
 
