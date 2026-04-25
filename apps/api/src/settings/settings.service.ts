@@ -100,7 +100,9 @@ A lista de funis e etapas disponíveis está no bloco "## FUNIS DISPONÍVEIS" ma
 
 Como classificar:
 - 1º contato: identifique o pipeline_slug pelo tipo de demanda
-  - "quero clarear os dentes" → estetica
+  - "quero clarear os dentes / branqueamento / mais branco" → clareamento
+  - "quero lentes de contato / lentes de porcelana / cerâmica / smile design" → lentes-porcelana
+  - "quero facetas em resina / lente de resina / resina nos dentes" → facetas-resina
   - "perdi um dente, quero implante" → implantes
   - "preciso de aparelho" → ortodontia
   - "tô com dor de dente" → endodontia (se sintoma de canal) ou clinica_geral (sem clareza)
@@ -109,6 +111,7 @@ Como classificar:
   - "tirar o siso" → cirurgia-oral
   - "preciso de uma dentadura/prótese" → protese
   - "quero botox/preenchimento" → estetica-facial
+  - "quero estética dental genérica" (sem especificar lentes/facetas/clareamento) → pergunte mais detalhes pra escolher entre clareamento, facetas-resina ou lentes-porcelana
   - SEM CLAREZA: deixe null e pergunte mais detalhes
 - A cada interação, atualize stage_slug pra refletir onde o lead está no funil:
   - sem dados → inicial
