@@ -58,7 +58,7 @@ export function showDesktopNotification(options: {
 
   const notif = new Notification(options.title, {
     body: options.body,
-    icon: options.icon || '/landing/LOGO SEM FUNDO 01.png',
+    icon: options.icon || '/odonto-passos-icon.png',
     tag: options.tag, // prevents duplicate notifications for same conversation
     silent: true,     // sound is handled by playNotificationSound
   });

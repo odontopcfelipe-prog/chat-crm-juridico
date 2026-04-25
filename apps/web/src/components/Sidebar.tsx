@@ -529,7 +529,7 @@ export function Sidebar() {
           onMouseLeave={hideTooltip}
         >
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/landing/LOGO SEM FUNDO.png" alt="Logo" className="w-full h-full object-contain p-1" draggable={false} />
+          <img src="/odonto-passos-icon.png" alt="Instituto Odonto Passos" className="w-full h-full object-cover rounded-full" draggable={false} />
         </div>
         <button
           onClick={toggleExpanded}
