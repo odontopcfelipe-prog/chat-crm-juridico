@@ -161,6 +161,26 @@ const PIPELINE_TEMPLATES = {
       { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_adaptacao, vergonha_intensa, trauma_protese_anterior, escolheu_implante, sumiu, etc.' },
     ],
   },
+  'facetas-resina': {
+    name: 'Facetas em Resina',
+    slug: 'facetas-resina',
+    description:
+      'Funil dedicado para FACETAS DE RESINA (resina direta). Lead chega pesquisando opção mais acessível que porcelana — perfil custo-benefício, frequentemente mais jovem, foco em transformação rápida (1 consulta). A IA "Sophia — Especialista em Resina" conduz da descoberta ao agendamento. Tom: parceira honesta que valida a escolha pela resina sem desmerecer.',
+    color: '#fb923c',
+    stages: [
+      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true, description: 'Lead acabou de chegar no funil de facetas em resina (recebido do SDR ou começou direto).' },
+      { name: 'Descoberta', slug: 'descoberta', emoji: '🔍', color: '#fb923c', position: 1, description: 'IA está investigando a queixa (cor, formato, espaço, dente quebrado), histórico, qts dentes, expectativa.' },
+      { name: 'Educando', slug: 'educando', emoji: '📚', color: '#a855f7', position: 2, description: 'IA está explicando faceta de resina em linguagem leiga — processo (1 consulta), vantagens, durabilidade real.' },
+      { name: 'Gestão de Expectativa', slug: 'gestao-expectativa', emoji: '🧭', color: '#0ea5e9', position: 3, description: 'CRÍTICO em resina: IA calibra DURABILIDADE REAL (5-8 anos), MANUTENÇÃO (polimento periódico), CUIDADOS (café/vinho/cigarro mancham). Honestidade evita frustração depois.' },
+      { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (durabilidade #1, manchamento, "vai durar pouco?", desgaste, "vale a pena se vou ter que refazer?").' },
+      { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
+      { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
+      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
+      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, durabilidade_curta, escolheu_porcelana, sumiu, etc.' },
+    ],
+  },
   'estetica-dental': {
     name: 'Estética Dental',
     slug: 'estetica-dental',
