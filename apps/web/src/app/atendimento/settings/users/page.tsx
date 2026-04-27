@@ -5,7 +5,19 @@ import { useRouter } from 'next/navigation';
 import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 
-const SPECIALTY_SUGGESTIONS = ['Trabalhista', 'Civil', 'Criminal', 'Tributário', 'Família', 'Empresarial', 'Previdenciário', 'Imobiliário', 'Consumidor'];
+// Especialidades odontológicas — alinhadas com os funis ativos (PIPELINE_TEMPLATES
+// em apps/api/src/pipelines/pipelines.service.ts). Qualquer especialidade nova de
+// dentista deve idealmente corresponder a um funil dedicado pra IA rotear corretamente.
+const SPECIALTY_SUGGESTIONS = [
+  'Odontologia Clínica',
+  'Implantes',
+  'Ortodontia',
+  'Estética Facial',
+  'Prótese',
+  'Facetas em Resina',
+  'Clareamento',
+  'Lentes de Porcelana',
+];
 
 // Roles canônicos aceitos pelo sistema. DEVEM bater com AppRole em apps/web/src/lib/useRole.ts
 // e com os checks do backend (Guards/Roles). Qualquer valor fora dessa lista quebra permissões.
@@ -583,7 +595,7 @@ export default function UsersSettingsPage() {
               {form.roles.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
-                    ⚖️ Especialidades Jurídicas
+                    🦷 Especialidades Odontológicas
                   </label>
                   {form.specialties.length > 0 && (
                     <div className="flex flex-wrap gap-1.5 mb-2">
