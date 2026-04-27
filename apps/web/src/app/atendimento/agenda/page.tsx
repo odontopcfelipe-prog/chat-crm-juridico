@@ -71,12 +71,20 @@ interface LeadOption {
 
 // ─── Constantes ───────────────────────────────────────
 
+// Tipos de evento da clínica odontológica.
+// CONSULTA = avaliação inicial / consulta (criada pela IA quando lead aceita slot)
+// PROCEDIMENTO = tratamento agendado pelo dentista após avaliação (cirurgia,
+//                instalação de implante/lente, sessão de clareamento, etc)
+// RETORNO = consulta de acompanhamento pós-tratamento (revisão, manutenção)
+// BLOQUEIO = bloqueio de agenda do dentista (folga, congresso, manutenção
+//            do equipamento) — não é consulta nem procedimento
+// TAREFA / OUTRO = administrativas/genéricas
 const EVENT_TYPES = [
   { id: 'CONSULTA', label: 'Consulta', emoji: '🟣', color: '#8b5cf6' },
+  { id: 'PROCEDIMENTO', label: 'Procedimento', emoji: '🦷', color: '#14b8a6' },
+  { id: 'RETORNO', label: 'Retorno', emoji: '🔁', color: '#0ea5e9' },
+  { id: 'BLOQUEIO', label: 'Bloqueio', emoji: '🚫', color: '#f59e0b' },
   { id: 'TAREFA', label: 'Tarefa', emoji: '🟢', color: '#22c55e' },
-  { id: 'AUDIENCIA', label: 'Audiência', emoji: '🔴', color: '#ef4444' },
-  { id: 'PERICIA', label: 'Perícia', emoji: '🔬', color: '#0ea5e9' },
-  { id: 'PRAZO', label: 'Prazo', emoji: '🟠', color: '#f59e0b' },
   { id: 'OUTRO', label: 'Outro', emoji: '⚪', color: '#6b7280' },
 ] as const;
 
@@ -146,8 +154,8 @@ function getEventColor(type: string) {
  *   - amarelo (#FFC107): adiado/aguardando
  *   - vermelho (#DC3545): cancelado / conflito
  *
- * Para eventos NAO-CONSULTA (TAREFA/AUDIENCIA/PRAZO/PERICIA), mantem
- * cor por tipo (preserva semantica juridica antiga).
+ * Para eventos NAO-CONSULTA (PROCEDIMENTO/RETORNO/BLOQUEIO/TAREFA/OUTRO),
+ * mantem cor por tipo (preserva semantica do tipo de evento odontologico).
  */
 function getSemanticCalendarId(ev: { type: string; status: string }): string {
   if (ev.type !== 'CONSULTA') return ev.type; // mantem comportamento antigo
@@ -607,18 +615,18 @@ export default function AgendaPage() {
         lightColors: { main: '#22c55e', container: '#dcfce7', onContainer: '#14532d' },
         darkColors:  { main: '#22c55e', container: '#14532d', onContainer: '#dcfce7' },
       },
-      AUDIENCIA: {
-        colorName: 'audiencia',
-        lightColors: { main: '#ef4444', container: '#fee2e2', onContainer: '#7f1d1d' },
-        darkColors:  { main: '#ef4444', container: '#7f1d1d', onContainer: '#fee2e2' },
+      PROCEDIMENTO: {
+        colorName: 'procedimento',
+        lightColors: { main: '#14b8a6', container: '#ccfbf1', onContainer: '#134e4a' },
+        darkColors:  { main: '#14b8a6', container: '#134e4a', onContainer: '#ccfbf1' },
       },
-      PERICIA: {
-        colorName: 'pericia',
+      RETORNO: {
+        colorName: 'retorno',
         lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
         darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
       },
-      PRAZO: {
-        colorName: 'prazo',
+      BLOQUEIO: {
+        colorName: 'bloqueio',
         lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
         darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
       },
@@ -1795,7 +1803,7 @@ export default function AgendaPage() {
                   type="text"
                   value={formData.title}
                   onChange={e => setFormData(f => ({ ...f, title: e.target.value }))}
-                  placeholder={formData.type === 'CONSULTA' ? 'Consulta com...' : formData.type === 'AUDIENCIA' ? 'Audiencia - Vara...' : 'Titulo do evento'}
+                  placeholder={formData.type === 'CONSULTA' ? 'Avaliação / consulta com...' : formData.type === 'PROCEDIMENTO' ? 'Procedimento — ex: Instalação de implante' : formData.type === 'RETORNO' ? 'Retorno pós-tratamento' : formData.type === 'BLOQUEIO' ? 'Bloqueio — ex: Folga / Congresso' : 'Titulo do evento'}
                   className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground/50 focus:ring-2 focus:ring-primary/30 focus:border-primary/50 outline-none"
                 />
               </div>
@@ -2088,12 +2096,12 @@ export default function AgendaPage() {
                     <Download size={12} /> .ics
                   </button>
                 )}
-                {editingEvent && ['AUDIENCIA', 'PERICIA'].includes(editingEvent.type) && (
+                {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
                   <button
                     onClick={handleNotify}
                     disabled={sendingNotify}
                     className="px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors inline-flex items-center gap-1 disabled:opacity-40 disabled:pointer-events-none"
-                    title="Reenviar notificação WhatsApp ao cliente"
+                    title="Reenviar notificação WhatsApp ao paciente"
                   >
                     <Bell size={12} /> {sendingNotify ? 'Enviando…' : 'Notificar'}
                   </button>
