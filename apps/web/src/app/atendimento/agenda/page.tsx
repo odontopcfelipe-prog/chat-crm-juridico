@@ -11,6 +11,10 @@ import { createViewDay, createViewWeek, createViewMonthGrid } from '@schedule-x/
 import { createEventsServicePlugin } from '@schedule-x/events-service';
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop';
 import '@schedule-x/theme-default/dist/index.css';
+// Bridge CSS: mapeia variáveis do schedule-x pras variáveis dos temas customizados
+// do app (escuro, claro, rose, azul, verde, odonto). Importado APÓS o CSS default
+// pra que o override funcione. Ver agenda-theme.css pra detalhes.
+import './agenda-theme.css';
 import {
   Plus, X, Calendar as CalendarIcon, Filter, ChevronDown,
   ChevronLeft, ChevronRight,
@@ -340,14 +344,27 @@ export default function AgendaPage() {
   const { socket: sharedSocket } = useSocket();
 
   // Tema global (next-themes) — usado pra sincronizar a cor de fundo do calendar
-  // (schedule-x) com o tema escolhido em Configurações → Aparência. resolvedTheme
-  // resolve "system" pra "light" ou "dark" reais. mounted evita flash de tema
-  // errado durante hidratação SSR (next-themes retorna undefined antes de
-  // hidratar no cliente).
+  // (schedule-x) com o tema escolhido em Configurações → Aparência.
+  //
+  // O app usa 6 temas customizados (definidos em providers.tsx + globals.css):
+  //   - 'escuro'  → fundo preto (único realmente dark)
+  //   - 'claro'   → fundo branco
+  //   - 'rose'    → fundo rosa claro
+  //   - 'azul'    → fundo azul claro
+  //   - 'verde'   → fundo verde claro
+  //   - 'odonto'  → fundo branco (paleta laranja Clinicorp)
+  //
+  // Pra schedule-x, só importa se o fundo é dark ou light (afeta contraste de
+  // texto). 'escuro' = dark; todos os outros = light. As cores ACENTO de cada
+  // tema (laranja, rosa, etc) são aplicadas via agenda-theme.css que mapeia
+  // as CSS vars do schedule-x pras vars do app — sem JS adicional.
+  //
+  // mounted evita flash de tema errado durante hidratação SSR (next-themes
+  // retorna undefined antes de hidratar no cliente).
   const { resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDarkTheme = themeMounted ? resolvedTheme === 'dark' : true; // SSR fallback = dark (estado anterior)
+  const isDarkTheme = themeMounted ? resolvedTheme === 'escuro' : true; // SSR fallback = dark
 
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');

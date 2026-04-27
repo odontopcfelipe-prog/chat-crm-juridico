@@ -1,0 +1,105 @@
+/**
+ * Bridge entre o CSS do schedule-x e os temas customizados do app.
+ *
+ * O schedule-x (@schedule-x/theme-default) usa variáveis CSS próprias
+ * (--sx-color-background, --sx-color-primary, etc) com 2 modos: light e
+ * dark. O app, por sua vez, define 6 temas customizados em globals.css
+ * via [data-theme="X"] (escuro, claro, rose, azul, verde, odonto), cada
+ * um com suas próprias variáveis (--bg-primary, --accent-primary, etc).
+ *
+ * Esse CSS sobrescreve as variáveis do schedule-x apontando pras do app.
+ * Como as variáveis do app mudam automaticamente quando data-theme muda,
+ * a agenda passa a acompanhar TODOS os temas — sem JavaScript adicional.
+ *
+ * Importado em apps/web/src/app/atendimento/agenda/page.tsx logo após
+ * o CSS default do schedule-x (a ordem importa pro override funcionar).
+ */
+
+.sx-react-calendar-wrapper,
+.sx-react-calendar-wrapper .sx__calendar,
+.sx-react-calendar-wrapper *,
+.sx-react-calendar-wrapper.is-dark,
+.sx-react-calendar-wrapper:not(.is-dark) {
+  /* ── Backgrounds (fundo do calendar e células) ── */
+  --sx-color-background: var(--bg-primary);
+  --sx-color-surface: var(--bg-secondary);
+  --sx-color-surface-bright: var(--bg-secondary);
+  --sx-color-surface-dim: var(--bg-tertiary);
+  --sx-color-surface-container: var(--bg-tertiary);
+  --sx-color-surface-container-low: var(--bg-secondary);
+  --sx-color-surface-container-high: var(--bg-elevated);
+  --sx-color-surface-tint: var(--bg-elevated);
+
+  /* ── Texto sobre os fundos ── */
+  --sx-color-on-background: var(--text-primary);
+  --sx-color-on-surface: var(--text-primary);
+  --sx-internal-color-text: var(--text-primary);
+
+  /* ── Cor primária (botões, eventos sem cor própria) ── */
+  --sx-color-primary: var(--accent-primary);
+  --sx-color-primary-container: var(--accent-secondary);
+  --sx-color-on-primary: #ffffff;
+  --sx-color-on-primary-container: var(--text-primary);
+
+  /* ── Bordas e dividers ── */
+  --sx-color-outline: var(--border-default);
+  --sx-color-outline-variant: var(--border-subtle);
+  --sx-internal-color-border: var(--border-default);
+
+  /* ── Texto secundário e neutro ── */
+  --sx-color-neutral: var(--text-muted);
+  --sx-color-neutral-variant: var(--text-secondary);
+
+  /* ── Sombra (mantém sutil, não sobrescreve com cor do tema) ── */
+  --sx-color-shadow: rgba(0, 0, 0, 0.15);
+}
+
+/**
+ * Ajustes finos: o schedule-x renderiza a barra de header (mês/semana/dia
+ * navigation, botão "hoje") e o background do grid. Garantir que o
+ * fundo do wrapper e do grid usem a variável correta — schedule-x às vezes
+ * usa background-color direto que não passa pelas vars.
+ */
+.sx-react-calendar-wrapper .sx__calendar,
+.sx-react-calendar-wrapper .sx__calendar-wrapper,
+.sx-react-calendar-wrapper .sx__week-grid,
+.sx-react-calendar-wrapper .sx__month-grid,
+.sx-react-calendar-wrapper .sx__date-grid,
+.sx-react-calendar-wrapper .sx__time-grid {
+  background-color: var(--bg-primary) !important;
+  color: var(--text-primary);
+}
+
+/* Header do calendar (controles de navegação) */
+.sx-react-calendar-wrapper .sx__view-selection-item,
+.sx-react-calendar-wrapper .sx__date-input,
+.sx-react-calendar-wrapper .sx__forward-backward-navigation,
+.sx-react-calendar-wrapper .sx__today-button {
+  background-color: var(--bg-elevated) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border-default) !important;
+}
+
+/* Linhas de hora (grid horizontal) */
+.sx-react-calendar-wrapper .sx__time-grid-hour,
+.sx-react-calendar-wrapper .sx__week-grid__day,
+.sx-react-calendar-wrapper .sx__month-grid-day {
+  border-color: var(--border-subtle) !important;
+}
+
+/* Texto das horas (lateral) */
+.sx-react-calendar-wrapper .sx__time-grid-time {
+  color: var(--text-muted) !important;
+}
+
+/* Dia atual (highlight) */
+.sx-react-calendar-wrapper .sx__date-grid__date--today,
+.sx-react-calendar-wrapper .sx__month-grid__day--today {
+  background-color: color-mix(in srgb, var(--accent-primary) 12%, transparent) !important;
+}
+
+/* Cabeçalho dos dias (SEG, TER, etc) */
+.sx-react-calendar-wrapper .sx__date-grid-day-name,
+.sx-react-calendar-wrapper .sx__week-grid__day-name {
+  color: var(--text-secondary) !important;
+}
