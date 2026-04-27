@@ -1,8 +1,15 @@
 import type { ToolHandler, ToolContext } from '../tool-executor';
+import { ensureOrcamentistaAssigned } from '../orcamentista';
 
 /**
  * Verifica horários disponíveis de um dentista para agendamento.
  * Consulta UserSchedule, Holidays e CalendarEvents existentes.
+ *
+ * ⚠️ REGRA: AVALIAÇÃO inicial sempre vai pra um Orçamentista. Esse handler
+ * usa ensureOrcamentistaAssigned() pra garantir que está consultando a agenda
+ * de um dentista com especialidade "Orçamentista" (e atualiza
+ * Conversation.assigned_dentist_id pra "lock in" — confirm_slot depois usa o
+ * mesmo dentista, evitando race condition).
  *
  * UTC naive: as datas são armazenadas com os componentes locais como se fossem
  * UTC. Portanto usamos getUTCHours()/getUTCDay() em todo lugar.
@@ -17,14 +24,15 @@ export class CheckAvailabilityHandler implements ToolHandler {
     const prisma = context.prisma;
     const durationMinutes = params.duration_minutes || 60;
 
-    const convo = await prisma.conversation.findUnique({
-      where: { id: context.conversationId },
-      select: { assigned_dentist_id: true, assigned_user_id: true },
-    });
-
-    const userId = convo?.assigned_dentist_id || convo?.assigned_user_id;
+    // Garante que a conversa está atribuída a um Orçamentista (faz lock-in
+    // pra próximas chamadas como confirm_slot usarem o mesmo dentista).
+    const userId = await ensureOrcamentistaAssigned(prisma, context.conversationId);
     if (!userId) {
-      return { available: false, message: 'Nenhum dentista atribuído a esta conversa.' };
+      return {
+        available: false,
+        message:
+          'Nenhum Orçamentista cadastrado no sistema. Operador precisa criar um dentista com especialidade "Orçamentista" em Settings → Usuários antes de a IA poder agendar avaliações.',
+      };
     }
 
     const daysToCheck = params.days_ahead ?? 7;

@@ -14,6 +14,7 @@ import { createLLMClient, calculateCost, type LLMProvider } from './llm-client';
 import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
+import { ensureOrcamentistaAssigned } from './orcamentista';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -1949,15 +1950,22 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         convo.instance_name || null,
       );
 
-      // 15b. Processar scheduling_action (agendamento automático de reunião)
+      // 15b. Processar scheduling_action (agendamento automático de avaliação)
+      // ⚠️ REGRA: TODA avaliação inicial vai pra um dentista com especialidade
+      // "Orçamentista" (ver apps/worker/src/ai/orcamentista.ts). Se a conversa
+      // tem outro dentista atribuído (ex: especialista em Implantes), o helper
+      // ensureOrcamentistaAssigned() reatribui pra um Orçamentista antes de criar
+      // o evento. Se não houver NENHUM Orçamentista cadastrado → não cria evento
+      // e loga warning (operador precisa marcar manualmente).
       if (scheduling_action?.action === 'confirm_slot' && scheduling_action.date && scheduling_action.time) {
         try {
-          const dentistId = (await (this.prisma as any).conversation.findUnique({
-            where: { id: convo.id },
-            select: { assigned_dentist_id: true },
-          }))?.assigned_dentist_id;
+          const dentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
 
-          if (dentistId) {
+          if (!dentistId) {
+            this.logger.warn(
+              `[AI] confirm_slot ${scheduling_action.date} ${scheduling_action.time} — NENHUM Orçamentista cadastrado no tenant. CalendarEvent NÃO criado. Lead ${convo.lead.id} ficará em "avaliacao-aceita" sem evento — operador precisa atribuir um Orçamentista (Settings → Usuários) e agendar manualmente.`,
+            );
+          } else {
             const [h, m] = scheduling_action.time.split(':').map(Number);
             const startAt = new Date(scheduling_action.date + 'T00:00:00');
             startAt.setHours(h, m, 0, 0);
@@ -1965,8 +1973,8 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
 
             await this.createCalendarEvent({
               type: 'CONSULTA',
-              title: `Consulta — ${convo.lead.name || 'Lead'}`,
-              description: `Reunião agendada automaticamente pela IA`,
+              title: `Avaliação — ${convo.lead.name || 'Lead'}`,
+              description: `Avaliação agendada automaticamente pela IA — Orçamentista`,
               start_at: startAt,
               end_at: endAt,
               assigned_user_id: dentistId,
@@ -1975,11 +1983,11 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
               created_by_id: dentistId,
             });
             this.logger.log(
-              `[AI] Consulta agendada: ${scheduling_action.date} ${scheduling_action.time} — dentista ${dentistId}`,
+              `[AI] Avaliação agendada: ${scheduling_action.date} ${scheduling_action.time} — Orçamentista ${dentistId}`,
             );
           }
         } catch (e: any) {
-          this.logger.warn(`[AI] Falha ao agendar consulta: ${e.message}`);
+          this.logger.warn(`[AI] Falha ao agendar avaliação: ${e.message}`);
         }
       }
 
