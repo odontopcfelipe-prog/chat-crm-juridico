@@ -6,9 +6,19 @@ import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 
 // Especialidades odontológicas — alinhadas com os funis ativos (PIPELINE_TEMPLATES
-// em apps/api/src/pipelines/pipelines.service.ts). Qualquer especialidade nova de
-// dentista deve idealmente corresponder a um funil dedicado pra IA rotear corretamente.
+// em apps/api/src/pipelines/pipelines.service.ts) + função "Orçamentista".
+//
+// "Orçamentista" é a FUNÇÃO do dentista que faz a primeira AVALIAÇÃO/ORÇAMENTO
+// do paciente — usado pelo sistema pra direcionar agendamentos de avaliação
+// (a IA Sophia, ao confirmar slot via scheduling_action, prioriza dentistas
+// com essa especialidade). Um dentista pode acumular: Orçamentista + sua
+// especialidade clínica (ex: ["Orçamentista", "Implantes"]).
+//
+// Demais especialidades correspondem a funis dedicados pra rotear leads
+// pela IA (ex: lead pedindo lente de porcelana → dentista com especialidade
+// "Lentes de Porcelana" pega o caso na 2ª consulta).
 const SPECIALTY_SUGGESTIONS = [
+  'Orçamentista',
   'Odontologia Clínica',
   'Implantes',
   'Ortodontia',
