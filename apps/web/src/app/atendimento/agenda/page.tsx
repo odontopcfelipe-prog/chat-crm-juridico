@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
 import { useNextCalendarApp, ScheduleXCalendar } from '@schedule-x/react';
 import { AgendaResourceView } from './AgendaResourceView';
 import { AgendaResourceLayout } from './AgendaResourceLayout';
@@ -338,6 +339,16 @@ export default function AgendaPage() {
   const router = useRouter();
   const { socket: sharedSocket } = useSocket();
 
+  // Tema global (next-themes) — usado pra sincronizar a cor de fundo do calendar
+  // (schedule-x) com o tema escolhido em Configurações → Aparência. resolvedTheme
+  // resolve "system" pra "light" ou "dark" reais. mounted evita flash de tema
+  // errado durante hidratação SSR (next-themes retorna undefined antes de
+  // hidratar no cliente).
+  const { resolvedTheme } = useTheme();
+  const [themeMounted, setThemeMounted] = useState(false);
+  useEffect(() => setThemeMounted(true), []);
+  const isDarkTheme = themeMounted ? resolvedTheme === 'dark' : true; // SSR fallback = dark (estado anterior)
+
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
   // Fase 12 PR2: visualizacao multi-coluna por profissional (DayPilot Lite)
@@ -547,7 +558,7 @@ export default function AgendaPage() {
     firstDayOfWeek: 1,
     dayBoundaries: { start: '05:00', end: '23:00' },
     weekOptions: { gridHeight: isMobile ? 800 : 1200, gridStep: 30 },
-    isDark: true,
+    isDark: isDarkTheme,
     callbacks: {
       onRangeUpdate(range) {
         try {
@@ -637,6 +648,20 @@ export default function AgendaPage() {
       },
     },
   });
+
+  // Sincroniza o tema do schedule-x com o tema global (next-themes).
+  // Schedule-x não reage automaticamente quando isDark muda depois do init —
+  // precisa chamar calendar.setTheme() explicitamente. Esse useEffect roda
+  // toda vez que isDarkTheme muda (operador trocou tema em Configurações →
+  // Aparência ou via ThemeToggle no Sidebar).
+  useEffect(() => {
+    if (!calendar || !themeMounted) return;
+    try {
+      (calendar as any).setTheme?.(isDarkTheme ? 'dark' : 'light');
+    } catch (e) {
+      console.warn('[Agenda] setTheme failed:', e);
+    }
+  }, [calendar, isDarkTheme, themeMounted]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
