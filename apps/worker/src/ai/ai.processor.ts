@@ -1096,11 +1096,29 @@ export class AiProcessor extends WorkerHost {
               return `${sender}: ${(m.text || '[mídia]').slice(0, 200)}`;
             });
 
+            // Pipeline atual do lead — usado pro router fazer "stickiness"
+            // (uma vez que lead foi classificado num funil, manter a skill desse
+            // funil ativa, exceto se o lead pedir mudança explícita de procedimento).
+            // Sem isso o router troca de skill toda mensagem baseado em palavras
+            // soltas (ex: "agende" → trocava pra Implantes mesmo que lead estivesse
+            // em Lentes de Porcelana).
+            let currentPipelineSlug: string | null = null;
+            try {
+              const leadPipeline = await (this.prisma as any).lead.findUnique({
+                where: { id: convo.lead_id },
+                select: { pipeline: { select: { slug: true } } },
+              });
+              currentPipelineSlug = leadPipeline?.pipeline?.slug ?? null;
+            } catch {
+              // ignora — router funciona sem isso
+            }
+
             const routerResult = await this.skillRouter.selectSkill({
               skills: activeSkills,
               lastMessages: lastMsgs,
               specialty,
               nextStep,
+              currentPipelineSlug,
               routerModel: routerConfig.model,
               routerProvider: routerConfig.provider as LLMProvider,
               apiKey: routerApiKey,
