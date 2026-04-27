@@ -1176,13 +1176,24 @@ export class AiProcessor extends WorkerHost {
       const siteUrl = process.env.APP_URL || 'https://andrelustosaadvogados.com.br';
 
       // 10c. Buscar horários disponíveis do dentista atribuído (para agendamento)
+      // Formato injetado no prompt como {{available_slots}}:
+      //   "Terça 28/04 (2026-04-28): 09:00, 10:00, 14:00 | Quarta 29/04 (...) | ..."
+      // Inclui nome do dia em PT-BR pra IA matchear quando lead disser "terça",
+      // "quinta", etc. Loop começa em i=1 (próximo dia) — NÃO inclui hoje pra dar
+      // tempo de preparação. Pula sábado e domingo. Limite: 5 dias úteis.
       let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
       const assignedDentistId = (convo as any).assigned_dentist_id;
       if (assignedDentistId) {
         try {
           const now = new Date();
+          const tz = 'America/Maceio';
           const formatDateBR = (d: Date) =>
-            d.toLocaleDateString('pt-BR', { timeZone: 'America/Maceio', day: '2-digit', month: '2-digit' });
+            d.toLocaleDateString('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit' });
+          const formatWeekday = (d: Date) => {
+            const wd = d.toLocaleDateString('pt-BR', { timeZone: tz, weekday: 'long' });
+            // Capitaliza ("segunda-feira" → "Segunda-feira")
+            return wd.charAt(0).toUpperCase() + wd.slice(1);
+          };
           const slotParts: string[] = [];
           // Buscar slots para os próximos 5 dias úteis
           for (let i = 1; i <= 7 && slotParts.length < 5; i++) {
@@ -1192,7 +1203,7 @@ export class AiProcessor extends WorkerHost {
             const slots = await this.getAvailability(assignedDentistId, dateStr, 60);
             if (slots.length > 0) {
               const slotsStr = slots.slice(0, 6).map((s) => s.start).join(', ');
-              slotParts.push(`${formatDateBR(day)} (${dateStr}): ${slotsStr}`);
+              slotParts.push(`${formatWeekday(day)} ${formatDateBR(day)} (${dateStr}): ${slotsStr}`);
             }
           }
           if (slotParts.length > 0) {
