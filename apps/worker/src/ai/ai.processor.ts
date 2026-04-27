@@ -631,6 +631,12 @@ export class AiProcessor extends WorkerHost {
   }
 
   // ─── Cria CalendarEvent diretamente + enfileira lembretes ───
+  // ⚠️ Anti-duplicação (reagendamento): se já existir CONSULTA ATIVA pra essa
+  // conversa, CANCELA o evento antigo antes de criar o novo. Evita o cenário
+  // onde lead pediu remarcar e ficavam 2 eventos na agenda do dentista (o
+  // antigo + o novo). Reminders não enviados do antigo são deletados (cascade
+  // via onDelete não rola porque só CANCELAMOS, não deletamos — então fazemos
+  // delete explícito dos EventReminder com sent_at=null).
   private async createCalendarEvent(params: {
     type: string;
     title: string;
@@ -642,6 +648,40 @@ export class AiProcessor extends WorkerHost {
     conversation_id?: string;
     created_by_id: string;
   }): Promise<any> {
+    // Anti-duplicação: cancelar consultas ativas anteriores da MESMA conversa
+    if (params.conversation_id && params.type === 'CONSULTA') {
+      const existing = await (this.prisma as any).calendarEvent.findMany({
+        where: {
+          conversation_id: params.conversation_id,
+          type: 'CONSULTA',
+          status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+        },
+        select: { id: true, start_at: true, status: true },
+      });
+
+      for (const old of existing) {
+        // Marca como cancelado (preserva histórico no audit)
+        await (this.prisma as any).calendarEvent.update({
+          where: { id: old.id },
+          data: {
+            status: 'CANCELADO',
+            description: `[CANCELADO automaticamente — reagendamento via IA em ${new Date().toISOString()}]`,
+          },
+        });
+
+        // Remove reminders pendentes (não enviados ainda)
+        // Os jobs no BullMQ vão tentar disparar mas vão checar status
+        // do CalendarEvent — como tá CANCELADO, devem skip.
+        await (this.prisma as any).eventReminder.deleteMany({
+          where: { event_id: old.id, sent_at: null },
+        });
+
+        this.logger.log(
+          `[AI] Reagendamento detectado — evento antigo CANCELADO: id=${old.id} start=${old.start_at.toISOString()}`,
+        );
+      }
+    }
+
     const event = await this.prisma.calendarEvent.create({
       data: {
         type: params.type,
