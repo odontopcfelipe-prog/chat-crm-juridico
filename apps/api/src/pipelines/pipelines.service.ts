@@ -96,51 +96,6 @@ const PIPELINE_TEMPLATES = {
       { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, tempo, estética, idade, plano, paciente recusou, etc.). Etapa terminal.' },
     ],
   },
-  'endodontia': {
-    name: 'Endodontia (Canal)',
-    slug: 'endodontia',
-    description:
-      'Funil para tratamento de canal, retratamento endodôntico. Use quando o lead menciona dor de dente forte/pulsátil, dente escuro, abscesso, ou já tem indicação de canal.',
-    color: '#dc2626',
-    stages: [
-      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true, description: 'Lead chegou com queixa de dor — pode precisar de canal.' },
-      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#dc2626', position: 1, description: 'Confirmando sintomas (dor, sensibilidade, indicação prévia).' },
-      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Avaliação clínica + raio-X periapical agendados.' },
-      { name: 'Orçamento Enviado', slug: 'orcamento-enviado', emoji: '📄', color: '#f59e0b', position: 3 },
-      { name: 'Tratamento Iniciado', slug: 'tratamento-iniciado', emoji: '✅', color: '#10b981', position: 4, is_won: true },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
-    ],
-  },
-  'periodontia': {
-    name: 'Periodontia',
-    slug: 'periodontia',
-    description:
-      'Funil para limpeza profunda, raspagem, tratamento de gengivite/periodontite. Use quando o lead menciona sangramento na gengiva, mau hálito, dente mole, gengiva inflamada.',
-    color: '#ec4899',
-    stages: [
-      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
-      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#ec4899', position: 1 },
-      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2 },
-      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 3, description: 'Plano de raspagem (quantas sessões) + manutenção.' },
-      { name: 'Em Tratamento', slug: 'em-tratamento', emoji: '✅', color: '#10b981', position: 4, is_won: true },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
-    ],
-  },
-  'odontopediatria': {
-    name: 'Odontopediatria',
-    slug: 'odontopediatria',
-    description:
-      'Funil para crianças (0-12 anos). Use quando o lead pergunta por consulta para filho(a), criança, bebê. O paciente é a criança, não o responsável.',
-    color: '#22c55e',
-    stages: [
-      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
-      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#22c55e', position: 1, description: 'Idade da criança, primeira consulta ou retorno.' },
-      { name: 'Consulta Agendada', slug: 'consulta-agendada', emoji: '📅', color: '#8b5cf6', position: 2 },
-      { name: 'Plano Apresentado', slug: 'plano-apresentado', emoji: '📋', color: '#f59e0b', position: 3 },
-      { name: 'Em Acompanhamento', slug: 'em-acompanhamento', emoji: '✅', color: '#10b981', position: 4, is_won: true, description: 'Criança em acompanhamento periódico (6 em 6 meses).' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
-    ],
-  },
   'protese': {
     name: 'Prótese Dentária',
     slug: 'protese',
@@ -219,41 +174,6 @@ const PIPELINE_TEMPLATES = {
       { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
       { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
       { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_desgaste_dente, medo_resultado_artificial, trauma_lente_anterior, perfil_resina, contraindicacao_temporaria, sumiu, etc.' },
-    ],
-  },
-  'estetica-dental': {
-    name: 'Estética Dental',
-    slug: 'estetica-dental',
-    description:
-      'Funil consolidado de Estética Dental — cobre LENTES de contato (porcelana), FACETAS de resina, e CLAREAMENTO. A IA "Sophia — Especialista em Lentes e Facetas" conduz da descoberta até o agendamento. Lead frequente: jovem/adulto com referência visual de famosa, expectativa alta, com risco de frustração se não calibrar irreversibilidade. Trata combinações comuns (clareamento prévio antes de lente, ortodontia + lente).',
-    color: '#ec4899',
-    stages: [
-      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true, description: 'Lead acabou de chegar no funil de estética dental (recebido do SDR ou começou direto).' },
-      { name: 'Descoberta', slug: 'descoberta', emoji: '🔍', color: '#ec4899', position: 1, description: 'IA está investigando a queixa real (frequentemente diferente do "queria lente"), histórico, referência visual, expectativa.' },
-      { name: 'Educando', slug: 'educando', emoji: '📚', color: '#a855f7', position: 2, description: 'IA está explicando lente de porcelana, faceta de resina e clareamento em linguagem leiga, sem decidir qual o lead vai fazer.' },
-      { name: 'Gestão de Expectativa', slug: 'gestao-expectativa', emoji: '🧭', color: '#0ea5e9', position: 3, description: 'CRÍTICO em lentes: IA calibra IRREVERSIBILIDADE (com desgaste), processo de planejamento (mock-up), e que cada caso é único. Evita paciente frustrado depois de gastar muito.' },
-      { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (objeção #1: "lente desgasta o dente?", preço, "vai ficar artificial", durabilidade, "amiga fez e ficou ruim").' },
-      { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
-      { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_desgaste, expectativa_irreal, escolheu_so_clareamento, sumiu, etc.' },
-    ],
-  },
-  'cirurgia-oral': {
-    name: 'Cirurgia Oral',
-    slug: 'cirurgia',
-    description:
-      'Funil para extrações de siso, cirurgia de freio, biópsia, exodontia complexa. Use quando o lead pergunta por extração, "tirar dente", siso incluso, cirurgia na boca.',
-    color: '#7c3aed',
-    stages: [
-      { name: 'Inicial', slug: 'inicial', emoji: '👋', color: '#6b7280', position: 0, is_initial: true },
-      { name: 'Qualificando', slug: 'qualificando', emoji: '🔍', color: '#7c3aed', position: 1 },
-      { name: 'Avaliação Agendada', slug: 'avaliacao-agendada', emoji: '📅', color: '#8b5cf6', position: 2, description: 'Avaliação + raio-X panorâmico ou tomografia se siso.' },
-      { name: 'Cirurgia Agendada', slug: 'cirurgia-agendada', emoji: '📅', color: '#06b6d4', position: 3 },
-      { name: 'Realizada', slug: 'realizada', emoji: '✅', color: '#10b981', position: 4, is_won: true, description: 'Cirurgia executada.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 5, is_lost: true },
     ],
   },
 } as const;
@@ -541,9 +461,11 @@ export class PipelinesService {
    * (odonto-clinico) é marcado como is_default se nenhum default ainda
    * existir no tenant.
    *
-   * Templates incluídos: odonto-clinico, estetica-facial, implantes,
-   * ortodontia, endodontia, periodontia, odontopediatria, protese,
-   * cirurgia-oral. comercial-b2b é pulado (não-clínico).
+   * Templates incluídos: odonto-clinico (default), implantes, ortodontia,
+   * estetica-facial, facetas-resina, clareamento, lentes-porcelana, protese.
+   * Cada um tem skill especialista dedicada (exceto odonto-clinico que é
+   * fallback geral pro SDR). Especialidades sem demanda atual (endodontia,
+   * periodontia, odontopediatria, cirurgia, estetica-dental) foram removidas.
    */
   async seedDefaults(tenantId?: string): Promise<{
     created: Array<{ key: string; name: string; slug: string }>;
@@ -558,12 +480,7 @@ export class PipelinesService {
       'facetas-resina',
       'clareamento',
       'lentes-porcelana',
-      'estetica-dental',
-      'endodontia',
-      'periodontia',
-      'odontopediatria',
       'protese',
-      'cirurgia-oral',
     ];
 
     // Já tem default? Se não, primeiro template criado vira default.
