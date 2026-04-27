@@ -2060,6 +2060,49 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         }
       }
 
+      // 15c. Processar scheduling_action.cancel_appointment (cancelamento pelo lead)
+      // Quando lead pede pra cancelar avaliação ("não posso mais", "cancela",
+      // "desisti", "preciso desmarcar"), a IA emite scheduling_action.action =
+      // "cancel_appointment". O worker cancela TODAS as consultas ativas dessa
+      // conversa (geralmente 1 só) + remove reminders pendentes. Lead deve voltar
+      // pra stage "follow-up" (definido pelo prompt via stage_slug).
+      if (scheduling_action?.action === 'cancel_appointment') {
+        try {
+          const cancelled = await (this.prisma as any).calendarEvent.findMany({
+            where: {
+              conversation_id: convo.id,
+              type: 'CONSULTA',
+              status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+            },
+            select: { id: true, start_at: true },
+          });
+
+          if (cancelled.length === 0) {
+            this.logger.log(
+              `[AI] cancel_appointment recebido mas não há consulta ativa pra conversa ${convo.id} — provavelmente o lead já cancelou antes ou nunca chegou a agendar.`,
+            );
+          } else {
+            for (const ev of cancelled) {
+              await (this.prisma as any).calendarEvent.update({
+                where: { id: ev.id },
+                data: {
+                  status: 'CANCELADO',
+                  description: `[CANCELADO pelo lead via WhatsApp em ${new Date().toISOString()}]`,
+                },
+              });
+              await (this.prisma as any).eventReminder.deleteMany({
+                where: { event_id: ev.id, sent_at: null },
+              });
+              this.logger.log(
+                `[AI] Lead cancelou avaliação — evento CANCELADO: id=${ev.id} start=${ev.start_at.toISOString()}`,
+              );
+            }
+          }
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao cancelar avaliação: ${e.message}`);
+        }
+      }
+
       // 16. Ler config da Evolution e enviar via WhatsApp
       const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
       if (!apiUrl) {
