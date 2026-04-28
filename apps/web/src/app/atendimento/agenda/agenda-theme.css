@@ -140,3 +140,105 @@
 .sx-react-calendar-wrapper .sx__event.dentist-color-6 { border-left: 4px solid #3b82f6 !important; } /* azul */
 .sx-react-calendar-wrapper .sx__event.dentist-color-7 { border-left: 4px solid #a855f7 !important; } /* roxo */
 .sx-react-calendar-wrapper .sx__event.dentist-color-8 { border-left: 4px solid #ec4899 !important; } /* rosa */
+
+/**
+ * ═══════════════════════════════════════════════════════════════════
+ * @media print — Layout otimizado pra impressão da view "Lista".
+ *
+ * Operador clica "Imprimir / PDF" no header da AgendaListView, abre o
+ * diálogo do navegador, pode imprimir em papel OU salvar como PDF
+ * (opção "Salvar como PDF" → escolher destino).
+ *
+ * Esconde:
+ *  - Sidebar do app (.app-sidebar, sidebar do atendimento layout)
+ *  - Header de busca (Buscar paciente, Pipelines list, etc)
+ *  - Header da agenda (botão Hoje, Semana, Novo Evento, etc)
+ *  - Botões de ação dentro da view Lista (Imprimir, etc)
+ *
+ * Mostra:
+ *  - Cabeçalho de impressão com logo e data (.agenda-print-header)
+ *  - Lista de eventos compacta em fundo branco com texto preto
+ *
+ * IMPORTANTE: usar !important porque print CSS precisa sobrescrever
+ * estilos inline e tema.
+ * ═══════════════════════════════════════════════════════════════════
+ */
+@media print {
+  /* Esconder elementos não-essenciais */
+  aside,
+  nav,
+  header,
+  .agenda-list-header,
+  button[title*="Imprimir"] {
+    display: none !important;
+  }
+
+  /* Mostrar cabeçalho de impressão */
+  .agenda-print-header {
+    display: block !important;
+    padding: 16px 0 !important;
+    margin-bottom: 16px !important;
+    border-bottom: 2px solid #000 !important;
+  }
+  .agenda-print-header h1 {
+    color: #000 !important;
+    font-size: 22px !important;
+    margin: 0 0 4px 0 !important;
+  }
+  .agenda-print-header p {
+    color: #555 !important;
+    font-size: 12px !important;
+    margin: 0 !important;
+  }
+
+  /* Layout limpo pra papel */
+  body, html {
+    background: white !important;
+    color: black !important;
+  }
+  .agenda-list-view {
+    overflow: visible !important;
+    height: auto !important;
+    padding: 0 16px !important;
+  }
+  .agenda-list-view button {
+    cursor: default !important;
+    background: transparent !important;
+    border: none !important;
+    padding: 8px 0 !important;
+    width: 100% !important;
+    text-align: left !important;
+  }
+  .agenda-list-view * {
+    color: #000 !important;
+    background: white !important;
+  }
+
+  /* Header de cada dia em destaque */
+  .agenda-list-view h3 {
+    font-size: 14px !important;
+    font-weight: bold !important;
+    color: #000 !important;
+    margin-top: 12px !important;
+    border-top: 1px solid #999 !important;
+    padding-top: 8px !important;
+  }
+
+  /* Evento compacto */
+  .agenda-list-view .text-base {
+    font-size: 12px !important;
+  }
+  .agenda-list-view .text-sm {
+    font-size: 11px !important;
+  }
+  .agenda-list-view .text-xs,
+  .agenda-list-view .text-\[10px\],
+  .agenda-list-view .text-\[11px\] {
+    font-size: 10px !important;
+  }
+
+  /* Evitar quebra de página no meio de um evento */
+  .agenda-list-view .divide-y > * {
+    page-break-inside: avoid;
+  }
+}

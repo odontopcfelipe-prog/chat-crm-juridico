@@ -19,7 +19,7 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Clock, MapPin, User } from 'lucide-react';
+import { Clock, MapPin, User, Printer } from 'lucide-react';
 
 interface CalendarEventLike {
   id: string;
@@ -159,8 +159,40 @@ export function AgendaListView({
     );
   }
 
+  /**
+   * Print da view atual. CSS @media print no agenda-theme.css cuida do
+   * layout (esconde sidebar/header/botões, ajusta fonte, etc). Operador
+   * pode salvar como PDF via "Imprimir → Salvar como PDF" do navegador.
+   */
+  const handlePrint = () => {
+    if (typeof window !== 'undefined') window.print();
+  };
+
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
+    <div className="agenda-list-view flex flex-col h-full overflow-y-auto">
+      {/* Header com botão Imprimir (esconde no print via CSS) */}
+      <div className="agenda-list-header sticky top-0 z-20 px-4 py-2 bg-card/95 backdrop-blur-sm border-b border-border flex items-center justify-between">
+        <h2 className="text-sm font-bold text-foreground">
+          Agenda — Próximos 14 dias
+        </h2>
+        <button
+          onClick={handlePrint}
+          className="px-3 py-1.5 text-xs font-semibold text-primary border border-primary/30 rounded-lg hover:bg-primary/10 transition-colors flex items-center gap-1.5"
+          title="Imprimir agenda (ou salvar como PDF via diálogo do navegador)"
+        >
+          <Printer size={13} />
+          Imprimir / PDF
+        </button>
+      </div>
+
+      {/* Cabeçalho de impressão (só aparece quando imprimindo) */}
+      <div className="agenda-print-header hidden">
+        <h1 className="text-2xl font-bold">Instituto Odonto Passos — Agenda</h1>
+        <p className="text-sm text-gray-600">
+          Próximos 14 dias — Gerado em {new Date().toLocaleString('pt-BR')}
+        </p>
+      </div>
+
       {dateKeys.map((dateKey) => {
         const eventsOfDay = groupedByDay[dateKey];
         const isToday = dateKey === todayKey;
