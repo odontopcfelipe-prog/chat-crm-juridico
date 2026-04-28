@@ -132,6 +132,37 @@
  *
  * Eventos sem dentista atribuído ficam sem borda extra (.dentist-color-none).
  */
+/**
+ * FIX: horário cortado em eventos curtos (1h ou menos)
+ *
+ * O schedule-x renderiza title→tempo numa coluna com `overflow:hidden` no
+ * card. Quando o título é longo (ex: "[Dra.] Avaliação — Fellipe passos")
+ * ele quebra em 3+ linhas e empurra o horário pra fora da área visível.
+ *
+ * Solução: clamp do título a 2 linhas com ellipsis, deixando sempre 1
+ * linha de espaço pro horário. Em eventos altos (ex: 2h+) ainda cabe
+ * tudo confortável; em eventos curtos o título trunca mas a hora aparece.
+ *
+ * Aplicado SÓ na view de tempo (week/day) — não afeta month-grid onde a
+ * largura é o gargalo, não a altura.
+ */
+.sx-react-calendar-wrapper .sx__time-grid-event-title {
+  display: -webkit-box !important;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+  line-height: 1.2;
+}
+
+/* Garante que a linha do horário fique visível mesmo em eventos pequenos */
+.sx-react-calendar-wrapper .sx__time-grid-event-time {
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
 .sx-react-calendar-wrapper .sx__event.dentist-color-1 { border-left: 4px solid #ef4444 !important; } /* vermelho */
 .sx-react-calendar-wrapper .sx__event.dentist-color-2 { border-left: 4px solid #f97316 !important; } /* laranja */
 .sx-react-calendar-wrapper .sx__event.dentist-color-3 { border-left: 4px solid #eab308 !important; } /* amarelo */
