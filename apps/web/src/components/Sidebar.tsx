@@ -36,6 +36,11 @@ function stringToColor(str: string): string {
   return colors[Math.abs(hash) % colors.length];
 }
 
+interface NavSubItem {
+  label: string;
+  href: string;
+}
+
 interface NavItem {
   label: string;
   href: string;
@@ -43,6 +48,12 @@ interface NavItem {
   match: (p: string) => boolean;
   badge?: number;
   show: boolean;
+  /**
+   * Sub-itens mostrados em indent abaixo do item pai quando ele está ativo
+   * E o sidebar está expandido. Não substitui a navegação do pai — clica no
+   * pai pra ir pra raiz, clica no sub-item pra ir pra rota específica.
+   */
+  subItems?: NavSubItem[];
 }
 
 interface NavGroup {
@@ -360,6 +371,10 @@ export function Sidebar() {
       icon: <HeartPulse size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/pacientes'),
       show: true,
+      subItems: [
+        { label: 'Localizar paciente', href: '/atendimento/pacientes' },
+        { label: 'Novo paciente', href: '/atendimento/pacientes?new=1' },
+      ],
     },
     contacts: {
       label: 'Contatos',
@@ -572,41 +587,71 @@ export function Sidebar() {
                 const isActive = item.match(pathname);
                 const badge = (item as any).badge as number | undefined;
                 return (
-                  <button
-                    key={item.href}
-                    onClick={() => { if (!isActive) router.push(item.href); }}
-                    onMouseEnter={(e) => showTooltip(e, item.label)}
-                    onMouseLeave={hideTooltip}
-                    className={`w-full rounded-xl flex items-center relative shadow-sm transition-colors ${
-                      expanded ? 'gap-2.5 px-2.5 py-2' : 'aspect-square justify-center'
-                    } ${
-                      isActive
-                        ? 'bg-accent text-accent-foreground'
-                        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                    }`}
-                  >
-                    <span className="shrink-0">{item.icon}</span>
+                  <div key={item.href}>
+                    <button
+                      onClick={() => { if (!isActive) router.push(item.href); }}
+                      onMouseEnter={(e) => showTooltip(e, item.label)}
+                      onMouseLeave={hideTooltip}
+                      className={`w-full rounded-xl flex items-center relative shadow-sm transition-colors ${
+                        expanded ? 'gap-2.5 px-2.5 py-2' : 'aspect-square justify-center'
+                      } ${
+                        isActive
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                      }`}
+                    >
+                      <span className="shrink-0">{item.icon}</span>
 
-                    {expanded && (
-                      <span className="text-[13px] font-medium truncate flex-1 text-left">
-                        {item.label}
-                      </span>
-                    )}
+                      {expanded && (
+                        <span className="text-[13px] font-medium truncate flex-1 text-left">
+                          {item.label}
+                        </span>
+                      )}
 
-                    {badge != null && badge > 0 && (
-                      <span
-                        className={`min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center shadow-md shrink-0 ${
-                          expanded ? 'ml-auto' : 'absolute -top-1.5 -right-1.5'
-                        }`}
-                      >
-                        {badge > 99 ? '99+' : badge}
-                      </span>
-                    )}
+                      {badge != null && badge > 0 && (
+                        <span
+                          className={`min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center shadow-md shrink-0 ${
+                            expanded ? 'ml-auto' : 'absolute -top-1.5 -right-1.5'
+                          }`}
+                        >
+                          {badge > 99 ? '99+' : badge}
+                        </span>
+                      )}
 
-                    {isActive && (
-                      <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-md" />
+                      {isActive && (
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-md" />
+                      )}
+                    </button>
+
+                    {/* Sub-itens — visíveis quando o item pai está ativo E o sidebar expandido */}
+                    {expanded && isActive && item.subItems && item.subItems.length > 0 && (
+                      <div className="ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-border/60 pl-2">
+                        {item.subItems.map((sub) => {
+                          // Comparação tolerante a query string: rota com `?` casa por prefixo do path,
+                          // sem `?` casa exato. Permite "Novo paciente" (?new=1) destacar quando o
+                          // modal está aberto via deep-link.
+                          const subPath = sub.href.split('?')[0];
+                          const subQuery = sub.href.includes('?');
+                          const currentMatchesSub = subQuery
+                            ? typeof window !== 'undefined' && window.location.search.includes(sub.href.split('?')[1])
+                            : pathname === subPath;
+                          return (
+                            <button
+                              key={sub.href}
+                              onClick={() => router.push(sub.href)}
+                              className={`text-left text-[12px] py-1 px-2 rounded-md transition-colors ${
+                                currentMatchesSub
+                                  ? 'text-primary font-medium'
+                                  : 'text-muted-foreground hover:text-foreground hover:bg-accent/30'
+                              }`}
+                            >
+                              {sub.label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>

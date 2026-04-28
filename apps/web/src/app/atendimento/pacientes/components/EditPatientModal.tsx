@@ -94,7 +94,26 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   const [guardianPhone, setGuardianPhone] = useState(patient.guardian_phone || '');
 
   const [referredBy, setReferredBy] = useState(patient.referred_by || '');
+  const [referredById, setReferredById] = useState(patient.referred_by_id || '');
   const [notes, setNotes] = useState(patient.notes || '');
+
+  // Picker de paciente indicador (lazy-loaded)
+  const [patientsList, setPatientsList] = useState<Array<{ id: string; name: string | null; phone: string }>>([]);
+  const [referredSearch, setReferredSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  useEffect(() => {
+    if (!pickerOpen || patientsList.length > 0) return;
+    api.get('/patients?limit=100&status=ACTIVE')
+      .then((r) => setPatientsList((r.data?.data || []).map((p: any) => ({ id: p.id, name: p.name, phone: p.phone }))))
+      .catch(() => {});
+  }, [pickerOpen, patientsList.length]);
+  const selectedReferrer = patientsList.find((p) => p.id === referredById);
+  const filteredReferrers = referredSearch.trim()
+    ? patientsList.filter((p) =>
+        p.name?.toLowerCase().includes(referredSearch.toLowerCase()) ||
+        p.phone?.includes(referredSearch)
+      ).slice(0, 10)
+    : [];
 
   // ─── ViaCEP autocomplete ───────────────────────────────────────
   // Quando o operador digita 8 dígitos no CEP, dispara fetch pra ViaCEP
@@ -154,6 +173,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
         guardian_cpf: isMinor ? (guardianCpf.trim() || null) : null,
         guardian_phone: isMinor ? (guardianPhone.trim() || null) : null,
         referred_by: referredBy.trim() || null,
+        referred_by_id: referredById || null,
         notes: notes.trim() || null,
       };
 
@@ -325,12 +345,58 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
           </Section>
 
           {/* ── Indicação + Observações ───────────────────────── */}
-          <Section icon={<User size={14} />} title="Outros">
-            <Field label="Indicação (quem indicou)">
+          <Section icon={<User size={14} />} title="Indicação e observações">
+            <Field label="Indicado por outro paciente">
+              {selectedReferrer ? (
+                <div className="flex items-center justify-between gap-2 p-2 rounded-lg border border-border bg-background">
+                  <div className="text-sm">
+                    <div className="font-medium">{selectedReferrer.name || 'Sem nome'}</div>
+                    <div className="text-xs text-muted-foreground">{selectedReferrer.phone}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setReferredById(''); setReferredSearch(''); }}
+                    className="text-xs text-muted-foreground hover:text-foreground"
+                  >
+                    Trocar
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <input
+                    value={referredSearch}
+                    onChange={(e) => { setReferredSearch(e.target.value); if (!pickerOpen) setPickerOpen(true); }}
+                    onFocus={() => setPickerOpen(true)}
+                    placeholder="Buscar paciente por nome ou telefone..."
+                    className={inputCls}
+                  />
+                  {referredSearch && (
+                    <div className="mt-1 max-h-32 overflow-y-auto border border-border rounded-lg bg-background">
+                      {filteredReferrers.length === 0 ? (
+                        <div className="p-2 text-xs text-muted-foreground">Nenhum encontrado</div>
+                      ) : (
+                        filteredReferrers.map((p) => (
+                          <button
+                            type="button"
+                            key={p.id}
+                            onClick={() => { setReferredById(p.id); setReferredSearch(''); }}
+                            className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-b border-border last:border-0"
+                          >
+                            <div className="font-medium">{p.name || 'Sem nome'}</div>
+                            <div className="text-xs text-muted-foreground">{p.phone}</div>
+                          </button>
+                        ))
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </Field>
+            <Field label="Indicação (texto livre)">
               <input
                 value={referredBy}
                 onChange={(e) => setReferredBy(e.target.value)}
-                placeholder="Nome de quem indicou, anúncio, Google, etc"
+                placeholder="Ex: Google, Instagram, indicação de fora da base, etc"
                 className={inputCls}
               />
             </Field>

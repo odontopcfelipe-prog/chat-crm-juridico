@@ -83,6 +83,8 @@ export class PatientsService {
       include: {
         primary_dentist: { select: { id: true, name: true, email: true } },
         lead: { select: { id: true, phone: true, stage: true } },
+        // Indicador (paciente que indicou esse) — mostra nome no overview
+        referred_by_patient: { select: { id: true, name: true, phone: true } },
         allergies: { orderBy: { created_at: 'desc' } },
         medications: { orderBy: { created_at: 'desc' } },
         medical_record: true,
@@ -97,7 +99,15 @@ export class PatientsService {
           take: 5,
           select: { id: true, status: true, start_date: true, total_value: true, created_at: true },
         },
-        _count: { select: { appointments: true, clinical_images: true, consents: true, quotes: true } },
+        _count: {
+          select: {
+            appointments: true,
+            clinical_images: true,
+            consents: true,
+            quotes: true,
+            referrals: true, // quantos pacientes esse aqui indicou
+          },
+        },
       },
     });
 

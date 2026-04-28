@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -34,12 +34,23 @@ const STATUS_BADGE: Record<Patient['status'], { label: string; cls: string; icon
 
 export default function PacientesPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [list, setList] = useState<PatientList>({ data: [], total: 0, page: 1, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'>('all');
   const [showModal, setShowModal] = useState(false);
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, archived: 0, with_active_plan: 0 });
+
+  // Deep-link: /atendimento/pacientes?new=1 abre o modal automaticamente
+  // (acionado pelo sub-item "Novo paciente" do Sidebar). Limpa o param
+  // depois pra não reabrir em refresh.
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setShowModal(true);
+      router.replace('/atendimento/pacientes');
+    }
+  }, [searchParams, router]);
 
   const load = useCallback(async () => {
     setLoading(true);

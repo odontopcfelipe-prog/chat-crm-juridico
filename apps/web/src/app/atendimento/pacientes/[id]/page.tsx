@@ -68,10 +68,11 @@ interface Patient {
   primary_dentist?: { id: string; name: string } | null;
   referred_by: string | null;
   referred_by_id: string | null;
+  referred_by_patient?: { id: string; name: string | null; phone: string } | null;
   allergies: Array<{ id: string; allergen: string; severity: string | null; notes: string | null }>;
   medications: Array<{ id: string; medication: string; dosage: string | null; frequency: string | null }>;
   medical_record?: { id: string; chief_complaint: string | null } | null;
-  _count?: { appointments: number; clinical_images: number; consents: number; quotes: number };
+  _count?: { appointments: number; clinical_images: number; consents: number; quotes: number; referrals: number };
 }
 
 interface UserOption { id: string; name: string }
@@ -715,7 +716,18 @@ function ResumoClinicoCard({ patient, onReload }: { patient: Patient; onReload: 
 
         <Field label="Consultas" value={patient._count ? String(patient._count.appointments) : '0'} />
         <Field label="Orçamentos" value={patient._count ? String(patient._count.quotes) : '0'} />
-        {patient.referred_by && <Field label="Indicado por" value={patient.referred_by} />}
+        {patient.referred_by_patient && (
+          <Field
+            label="Indicado por"
+            value={`${patient.referred_by_patient.name || 'Sem nome'} (${patient.referred_by_patient.phone || 'sem telefone'})`}
+          />
+        )}
+        {!patient.referred_by_patient && patient.referred_by && (
+          <Field label="Indicado por" value={patient.referred_by} />
+        )}
+        {patient._count && patient._count.referrals > 0 && (
+          <Field label="Indicações feitas" value={`${patient._count.referrals} paciente(s)`} />
+        )}
       </dl>
     </div>
   );
