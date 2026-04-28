@@ -23,6 +23,7 @@ import { MediaModule } from './media/media.module';
 import { AnalyticsModule } from './analytics/analytics.module';
 import { TransferAudioModule } from './transfer-audio/transfer-audio.module';
 import { CalendarModule } from './calendar/calendar.module';
+import { WaitlistModule } from './waitlist/waitlist.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { ContractsModule } from './contracts/contracts.module';
 import { ClicksignModule } from './clicksign/clicksign.module';
@@ -101,6 +102,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     AnalyticsModule,
     TransferAudioModule,
     CalendarModule,
+    WaitlistModule,
     GoogleDriveModule,
     DashboardModule,
     ContractsModule,

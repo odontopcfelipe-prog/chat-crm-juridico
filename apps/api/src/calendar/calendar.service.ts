@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin } from '../common/utils/permissions.util';
+import { WaitlistService } from '../waitlist/waitlist.service';
 
 const EVENT_TYPES = ['CONSULTA', 'TAREFA', 'AUDIENCIA', 'PERICIA', 'PRAZO', 'OUTRO'] as const;
 const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO', 'ADIADO'] as const;
@@ -16,6 +17,7 @@ export class CalendarService {
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
+    @Inject(forwardRef(() => WaitlistService)) private waitlist: WaitlistService,
   ) {}
 
   // ─── CRUD Events ──────────────────────────────────────
@@ -325,7 +327,7 @@ export class CalendarService {
     // Carrega estado anterior para detectar mudanças relevantes na audiência
     const before = await this.prisma.calendarEvent.findUnique({
       where: { id },
-      select: { type: true, start_at: true, location: true, lead_id: true },
+      select: { type: true, start_at: true, location: true, lead_id: true, status: true, assigned_user_id: true, tenant_id: true },
     });
 
     const event = await this.prisma.calendarEvent.update({
@@ -372,6 +374,35 @@ export class CalendarService {
       }
     }
 
+    // Lista de espera (Fase 19): se status virou CANCELADO/ADIADO numa CONSULTA,
+    // dispara matching pra notificar candidatos. Não bloqueia.
+    const newlyCancelled =
+      data.status &&
+      ['CANCELADO', 'ADIADO'].includes(data.status) &&
+      !['CANCELADO', 'ADIADO'].includes(before?.status ?? '');
+    if (
+      newlyCancelled &&
+      event.type === 'CONSULTA' &&
+      event.assigned_user_id &&
+      event.start_at
+    ) {
+      this.waitlist
+        .notifySlotOpened({
+          dentistId: event.assigned_user_id,
+          slotStart: event.start_at,
+          tenantId: event.tenant_id ?? undefined,
+          dentistName: event.assigned_user?.name,
+        })
+        .then((res) => {
+          if (res.notified > 0) {
+            this.logger.log(
+              `[WAITLIST] ${res.notified} candidato(s) notificado(s) pela vaga aberta no evento ${event.id} (via update)`,
+            );
+          }
+        })
+        .catch((e) => this.logger.warn(`[WAITLIST] hook falhou: ${e?.message}`));
+    }
+
     if (event.assigned_user_id) {
       try {
         this.chatGateway.emitCalendarUpdate(event.assigned_user_id, {
@@ -401,6 +432,31 @@ export class CalendarService {
     if (['CANCELADO', 'CONCLUIDO'].includes(status)) {
       await this.cancelReminderJobs(id);
       this.logger.log(`Lembretes cancelados para evento ${id} (status → ${status})`);
+    }
+
+    // Lista de espera (Fase 19): se cancelou/adiou uma CONSULTA com dentista atribuído,
+    // dispara matching pra notificar candidatos da fila. Não bloqueia o cancelamento.
+    if (
+      ['CANCELADO', 'ADIADO'].includes(status) &&
+      event.type === 'CONSULTA' &&
+      event.assigned_user_id &&
+      event.start_at
+    ) {
+      this.waitlist
+        .notifySlotOpened({
+          dentistId: event.assigned_user_id,
+          slotStart: event.start_at,
+          tenantId: event.tenant_id ?? undefined,
+          dentistName: event.assigned_user?.name,
+        })
+        .then((res) => {
+          if (res.notified > 0) {
+            this.logger.log(
+              `[WAITLIST] ${res.notified} candidato(s) notificado(s) pela vaga aberta no evento ${id}`,
+            );
+          }
+        })
+        .catch((e) => this.logger.warn(`[WAITLIST] hook falhou: ${e?.message}`));
     }
 
     // Notificar advogado

@@ -127,6 +127,8 @@ model User {
   smile_simulations_created     SmileSimulation[]      @relation("SmileSimulationCreator")
   // Radiologia (Fase 17)
   radiography_exams_linked      RadiographyExam[]      @relation("RadiographyLinker")
+  // Lista de espera (Fase 19)
+  waitlist_assigned             WaitlistEntry[]        @relation("WaitlistDentist")
 }
 
 model Lead {
@@ -177,6 +179,7 @@ model Lead {
   financial_transactions    FinancialTransaction[]
   payment_gateway_customers PaymentGatewayCustomer[]
   notas_fiscais             NotaFiscal[]
+  waitlist_entries          WaitlistEntry[]
   broadcast_items           BroadcastItem[]
   lead_honorarios           LeadHonorario[]
   cpf_cnpj                  String? // CPF ou CNPJ — facilita match com Asaas
@@ -2869,4 +2872,52 @@ model RadiographyExam {
   @@index([patient_id, performed_at])
   @@index([status, received_at])
   @@index([external_patient_cpf])
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// FASE 19 — Lista de Espera
+// ═══════════════════════════════════════════════════════════════════════
+// Quando um lead pede pra agendar mas a agenda do dentista preferido tá
+// cheia (ou ele quer um dia/horário específico que não tem vaga), opera-
+// dor (ou IA) cria uma WaitlistEntry. Quando algum CalendarEvent ATIVO
+// for cancelado/adiado, o worker checa se há entradas na waitlist com
+// preferências compatíveis (mesmo dentista + mesma janela de tempo) e
+// notifica via WhatsApp os primeiros da fila (FIFO).
+//
+// Operador pode gerenciar manualmente em /atendimento/waitlist (listar,
+// criar, editar, marcar como notificado, agendar, descartar).
+// ═══════════════════════════════════════════════════════════════════════
+model WaitlistEntry {
+  id              String    @id @default(uuid())
+  tenant_id       String?
+  lead_id         String
+  lead            Lead      @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+
+  // Preferência de dentista — null = qualquer dentista (Orçamentista)
+  dentist_id      String?
+  dentist         User?     @relation("WaitlistDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
+
+  // Preferência de janela de tempo (opcional)
+  // Lead pode dizer "qualquer terça à tarde" → preferred_weekday=2, preferred_period='TARDE'
+  // Ou "manhã do dia 15" → preferred_date='2026-05-15', preferred_period='MANHA'
+  // Ou "qualquer hora a partir de 01/05" → earliest_date='2026-05-01'
+  preferred_date     DateTime? // Data específica (se houver)
+  preferred_weekday  Int?      // 0=dom..6=sab (se quer dia da semana)
+  preferred_period   String?   // 'MANHA' | 'TARDE' | 'NOITE' | 'QUALQUER'
+  earliest_date      DateTime? // Data mínima ('a partir de X')
+
+  // Status do entry
+  // AGUARDANDO → AGENDADO (lead aceitou slot oferecido) | NOTIFICADO (avisado mas não respondeu) | DESISTIU | EXPIROU (passou earliest_date sem vaga)
+  status          String    @default("AGUARDANDO")
+  notes           String?   // Notas internas pro time
+  notified_at     DateTime? // Última vez que foi notificado
+  notify_count    Int       @default(0) // Quantas vezes foi notificado (limita re-spam)
+
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
+  resolved_at     DateTime? // Timestamp de quando virou AGENDADO/DESISTIU/EXPIROU
+
+  @@index([tenant_id, status, created_at]) // Listagem filtrada por status (FIFO)
+  @@index([lead_id, status])                // "tem entrada ativa pra esse lead?"
+  @@index([dentist_id, status, preferred_date]) // Match quando vagar slot do dentista
 }

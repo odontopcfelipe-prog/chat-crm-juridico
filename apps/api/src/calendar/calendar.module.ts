@@ -8,12 +8,14 @@ import { CalendarReminderWorker } from './calendar-reminder.worker';
 import { GatewayModule } from '../gateway/gateway.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { SettingsModule } from '../settings/settings.module';
+import { WaitlistModule } from '../waitlist/waitlist.module';
 
 @Module({
   imports: [
     GatewayModule,
     forwardRef(() => WhatsappModule),
     forwardRef(() => SettingsModule),
+    forwardRef(() => WaitlistModule),
     BullModule.registerQueue({ name: 'calendar-reminders' }),
   ],
   controllers: [CalendarController],
