@@ -10,7 +10,13 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  NotFoundException,
+  Res,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
+import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
@@ -144,5 +150,39 @@ export class PatientsController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.patientsService.removeMedication(medicationId, tenantId);
+  }
+
+  // ─── Avatar / Foto do paciente ────────────────────────────────
+
+  /** Upload da foto: POST /patients/:id/avatar (multipart, campo "file") */
+  @Post(':id/avatar')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  async uploadAvatar(
+    @Param('id') id: string,
+    @UploadedFile() file: any,
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!file) throw new BadRequestException('Nenhum arquivo enviado.');
+    return this.patientsService.updateAvatar(id, tenantId, file.buffer, file.mimetype);
+  }
+
+  /** Servir a foto: GET /patients/:id/avatar */
+  @Get(':id/avatar')
+  async getAvatar(@Param('id') id: string, @Res() res: Response) {
+    const result = await this.patientsService.getAvatarBuffer(id);
+    if (!result) throw new NotFoundException('Foto nao encontrada.');
+    res.set('Content-Type', result.mimeType);
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.end(result.buffer);
+  }
+
+  /** Remove a foto: DELETE /patients/:id/avatar */
+  @Delete(':id/avatar')
+  async removeAvatar(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.removeAvatar(id, tenantId);
   }
 }

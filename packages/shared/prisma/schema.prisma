@@ -1468,13 +1468,15 @@ model Patient {
   lead_id   String? @unique
 
   // Identificacao
-  name       String
-  cpf        String?
-  rg         String?
-  birth_date DateTime?
-  gender     String? // "M" | "F" | "OTHER"
-  phone      String?
-  email      String?
+  name           String
+  cpf            String?
+  rg             String?
+  birth_date     DateTime?
+  gender         String? // "M" | "F" | "OTHER"
+  phone          String?
+  email          String?
+  marital_status String? // "SOLTEIRO" | "CASADO" | "DIVORCIADO" | "VIUVO" | "UNIAO_ESTAVEL"
+  avatar_url     String? // URL S3 da foto de perfil
 
   // Endereco
   address            String?
@@ -1490,9 +1492,17 @@ model Patient {
   emergency_contact_name  String?
   emergency_contact_phone String?
 
+  // Responsavel legal (menores de idade ou idosos com curador)
+  is_minor       Boolean  @default(false)
+  guardian_name  String?
+  guardian_cpf   String?
+  guardian_phone String?
+
   // Relacionamento clinico
   primary_dentist_id String?
-  referred_by        String? // nome de quem indicou
+  chief_complaint    String? // queixa principal editavel a partir do overview
+  referred_by        String? // legado: texto livre de quem indicou
+  referred_by_id     String? // novo: relacao real Patient -> Patient (se indicador for paciente)
 
   // Status do paciente
   status         String    @default("ACTIVE") // "ACTIVE" | "INACTIVE" | "ARCHIVED"
@@ -1507,6 +1517,9 @@ model Patient {
   tenant                Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   lead                  Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
   primary_dentist       User?                 @relation("PrimaryDentist", fields: [primary_dentist_id], references: [id], onDelete: SetNull)
+  // Indicacoes: paciente A indica paciente B
+  referred_by_patient   Patient?              @relation("PatientReferrals", fields: [referred_by_id], references: [id], onDelete: SetNull)
+  referrals             Patient[]             @relation("PatientReferrals")
   allergies             PatientAllergy[]
   medications           PatientMedication[]
   anamneses             Anamnesis[]
@@ -1537,6 +1550,7 @@ model Patient {
   @@index([tenant_id, name])
   @@index([tenant_id, phone])
   @@index([primary_dentist_id])
+  @@index([referred_by_id])
 }
 
 model PatientAllergy {

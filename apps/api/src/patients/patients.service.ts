@@ -1,12 +1,16 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { FileStorageService } from '../media/filesystem.service';
 import { Prisma } from '@crm/shared';
 
 @Injectable()
 export class PatientsService {
   private readonly logger = new Logger(PatientsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private fileStorage: FileStorageService,
+  ) {}
 
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
   async create(tenantId: string, data: Omit<Prisma.PatientUncheckedCreateInput, 'tenant_id'>) {
@@ -210,6 +214,86 @@ export class PatientsService {
     if (!med) throw new NotFoundException('Medicacao nao encontrada');
     if (med.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
     return this.prisma.patientMedication.delete({ where: { id } });
+  }
+
+  // ─── Avatar / Foto do paciente ────────────────────────────────
+
+  private static readonly ALLOWED_AVATAR_MIMES: Record<string, string> = {
+    'image/jpeg': 'jpg',
+    'image/jpg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+  };
+
+  /**
+   * Salva imagem em filesystem e atualiza avatar_url do paciente.
+   * Aceita JPEG/PNG/WebP. Limite 2 MB.
+   */
+  async updateAvatar(patientId: string, tenantId: string, buffer: Buffer, mimeType: string) {
+    await this.assertBelongsToTenant(patientId, tenantId);
+
+    const ext = PatientsService.ALLOWED_AVATAR_MIMES[mimeType?.toLowerCase()];
+    if (!ext) throw new BadRequestException('Tipo de imagem nao suportado. Use JPEG, PNG ou WebP.');
+    if (buffer.length > 2 * 1024 * 1024) {
+      throw new BadRequestException('Imagem muito grande. Maximo 2 MB.');
+    }
+
+    // Limpa versoes anteriores em outras extensoes
+    for (const oldExt of Object.values(PatientsService.ALLOWED_AVATAR_MIMES)) {
+      if (oldExt !== ext) {
+        await this.fileStorage.delete(`patients/${patientId}.${oldExt}`).catch(() => {});
+      }
+    }
+
+    const relativePath = `patients/${patientId}.${ext}`;
+    await this.fileStorage.write(relativePath, buffer);
+
+    await this.prisma.patient.update({
+      where: { id: patientId },
+      data: { avatar_url: relativePath },
+    });
+
+    this.logger.log(`[AVATAR] Foto atualizada para paciente ${patientId}`);
+    return { avatar_url: relativePath };
+  }
+
+  /** Retorna buffer + mimeType da foto pra servir via HTTP. */
+  async getAvatarBuffer(patientId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { avatar_url: true },
+    });
+    if (!patient?.avatar_url) return null;
+
+    const ext = patient.avatar_url.split('.').pop()?.toLowerCase() || 'jpg';
+    const mimeMap: Record<string, string> = {
+      jpg: 'image/jpeg',
+      jpeg: 'image/jpeg',
+      png: 'image/png',
+      webp: 'image/webp',
+    };
+    const mimeType = mimeMap[ext] ?? 'image/jpeg';
+
+    const buffer = await this.fileStorage.read(patient.avatar_url);
+    if (!buffer) return null;
+    return { buffer, mimeType };
+  }
+
+  /** Remove foto do paciente. */
+  async removeAvatar(patientId: string, tenantId: string) {
+    await this.assertBelongsToTenant(patientId, tenantId);
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { avatar_url: true },
+    });
+    if (patient?.avatar_url) {
+      await this.fileStorage.delete(patient.avatar_url).catch(() => {});
+    }
+    await this.prisma.patient.update({
+      where: { id: patientId },
+      data: { avatar_url: null },
+    });
+    return { ok: true };
   }
 
   // ─── Helpers ──────────────────────────────────────────────────

@@ -1,7 +1,8 @@
-import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID, IsBoolean } from 'class-validator';
 
 const VALID_STATUS = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const VALID_GENDER = ['M', 'F', 'OTHER'] as const;
+const VALID_MARITAL = ['SOLTEIRO', 'CASADO', 'DIVORCIADO', 'VIUVO', 'UNIAO_ESTAVEL'] as const;
 
 export class CreatePatientDto {
   @IsString({ message: 'Nome e obrigatorio' })
@@ -49,6 +50,19 @@ export class CreatePatientDto {
   primary_dentist_id?: string;
 
   @IsOptional() @IsString() referred_by?: string;
+  @IsOptional() @IsUUID('4') referred_by_id?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsIn(VALID_MARITAL, { message: `marital_status deve ser um de: ${VALID_MARITAL.join(', ')}` })
+  marital_status?: string;
+
+  @IsOptional() @IsString() avatar_url?: string;
+  @IsOptional() @IsBoolean() is_minor?: boolean;
+  @IsOptional() @IsString() guardian_name?: string;
+  @IsOptional() @IsString() guardian_cpf?: string;
+  @IsOptional() @IsString() guardian_phone?: string;
+  @IsOptional() @IsString() chief_complaint?: string;
 
   @IsOptional()
   @IsUUID('4', { message: 'lead_id deve ser UUID' })
@@ -80,6 +94,15 @@ export class UpdatePatientDto {
 
   @IsOptional() @IsUUID('4') primary_dentist_id?: string;
   @IsOptional() @IsString() referred_by?: string;
+  @IsOptional() @IsUUID('4') referred_by_id?: string;
   @IsOptional() @IsString() @IsIn(VALID_STATUS) status?: string;
   @IsOptional() @IsString() notes?: string;
+
+  @IsOptional() @IsString() @IsIn(VALID_MARITAL) marital_status?: string;
+  @IsOptional() @IsString() avatar_url?: string;
+  @IsOptional() @IsBoolean() is_minor?: boolean;
+  @IsOptional() @IsString() guardian_name?: string;
+  @IsOptional() @IsString() guardian_cpf?: string;
+  @IsOptional() @IsString() guardian_phone?: string;
+  @IsOptional() @IsString() chief_complaint?: string;
 }
