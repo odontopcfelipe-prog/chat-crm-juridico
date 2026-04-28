@@ -262,7 +262,27 @@ const MONTH_NAMES_PT = [
 ];
 const WD_HEADERS = ['D','S','T','Q','Q','S','S'];
 
-function MiniCalendar({ onDateSelect }: { onDateSelect: (dateStr: string) => void }) {
+/**
+ * Mini-calendário do sidebar.
+ *
+ * `eventCounts` é um Map dateStr (YYYY-MM-DD) → quantidade de eventos ativos
+ * (não cancelados/concluídos) naquele dia. Usado pra renderizar um pontinho
+ * colorido de ocupação abaixo do número do dia:
+ *   - Sem eventos → sem pontinho
+ *   - 1-2 eventos → verde (dia tranquilo)
+ *   - 3-4 eventos → amarelo (dia médio)
+ *   - 5+ eventos → vermelho (dia cheio)
+ *
+ * Permite operador identificar de relance "onde tem espaço pra encaixar
+ * paciente novo" sem clicar dia por dia.
+ */
+function MiniCalendar({
+  onDateSelect,
+  eventCounts,
+}: {
+  onDateSelect: (dateStr: string) => void;
+  eventCounts?: Map<string, number>;
+}) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
   const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -313,23 +333,33 @@ function MiniCalendar({ onDateSelect }: { onDateSelect: (dateStr: string) => voi
           <span key={i} className="text-center text-[10px] text-muted-foreground font-medium h-5 flex items-center justify-center">{d}</span>
         ))}
       </div>
-      {/* Grade de dias */}
+      {/* Grade de dias com pontinho de ocupação */}
       <div className="grid grid-cols-7">
         {cells.map((day, i) => {
-          if (!day) return <span key={`e-${i}`} className="h-6" />;
+          if (!day) return <span key={`e-${i}`} className="h-8" />;
           const ds = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           const isToday = ds === todayStr;
           const isSel = ds === selected;
+          const count = eventCounts?.get(ds) ?? 0;
+          // Cor do pontinho de ocupação
+          let dotColor = '';
+          if (count >= 5) dotColor = 'bg-rose-500';        // dia cheio
+          else if (count >= 3) dotColor = 'bg-amber-500';  // dia médio
+          else if (count >= 1) dotColor = 'bg-emerald-500'; // dia tranquilo
           return (
-            <button
-              key={`d-${day}`}
-              onClick={() => handleDayClick(day)}
-              className={`h-6 w-6 mx-auto flex items-center justify-center rounded-full text-[11px] font-medium transition-colors
-                ${isSel ? 'bg-primary text-primary-foreground' : isToday ? 'bg-primary/15 text-primary font-bold' : 'text-foreground hover:bg-accent/60'}
-              `}
-            >
-              {day}
-            </button>
+            <div key={`d-${day}`} className="h-8 flex flex-col items-center justify-start pt-0.5">
+              <button
+                onClick={() => handleDayClick(day)}
+                title={count > 0 ? `${count} evento${count !== 1 ? 's' : ''} agendado${count !== 1 ? 's' : ''}` : 'Sem eventos'}
+                className={`h-6 w-6 flex items-center justify-center rounded-full text-[11px] font-medium transition-colors
+                  ${isSel ? 'bg-primary text-primary-foreground' : isToday ? 'bg-primary/15 text-primary font-bold' : 'text-foreground hover:bg-accent/60'}
+                `}
+              >
+                {day}
+              </button>
+              {/* Pontinho de ocupação (só aparece se tiver evento) */}
+              <span className={`w-1 h-1 rounded-full mt-0.5 ${dotColor || 'invisible'}`} />
+            </div>
           );
         })}
       </div>
@@ -391,6 +421,18 @@ export default function AgendaPage() {
   const [filterTypes, setFilterTypes] = useState<string[]>(EVENT_TYPES.map(t => t.id));
   const [filterUserId, setFilterUserId] = useState<string>('');
   const [showFilters, setShowFilters] = useState(false);
+  // Por padrão eventos cancelados ficam ESCONDIDOS — operador via toggle pra
+  // ver histórico (ex: investigar cancelamento em massa, gerar relatório).
+  // Persistido em localStorage pra preferência sobreviver reload.
+  const [showCancelled, setShowCancelled] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem('agenda_show_cancelled') === 'true';
+  });
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('agenda_show_cancelled', String(showCancelled));
+    }
+  }, [showCancelled]);
 
   // Modal de criacao/edicao
   const [showModal, setShowModal] = useState(false);
@@ -735,7 +777,12 @@ export default function AgendaPage() {
       const T = (globalThis as any).Temporal;
       const tz: string = T ? T.Now.timeZoneId() : 'America/Sao_Paulo';
 
-      const filtered = events.filter(e => filterTypes.includes(e.type));
+      const filtered = events.filter(e => {
+        if (!filterTypes.includes(e.type)) return false;
+        // Esconder cancelados por padrão (operador habilita via toggle "Mostrar cancelados")
+        if (!showCancelled && e.status === 'CANCELADO') return false;
+        return true;
+      });
       const calEvents = filtered
         .filter(e => {
           // Validate dates to prevent schedule-x crashes
@@ -789,7 +836,7 @@ export default function AgendaPage() {
     } catch (err) {
       console.error('[Agenda] Error syncing events to calendar:', err);
     }
-  }, [events, filterTypes, eventsServicePlugin, showAllUsers, filterUserId]);
+  }, [events, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled]);
 
   // Carga inicial: schedule-x v4 não chama onRangeUpdate no mount.
   // Buscamos um range largo (semana atual ± 4 semanas = ~2 meses) para garantir
@@ -1117,6 +1164,21 @@ export default function AgendaPage() {
     .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
     .slice(0, 8);
 
+  // Contagem de eventos ATIVOS por dia (YYYY-MM-DD) — usado pro pontinho de
+  // ocupação no mini-calendário do sidebar. Filtra cancelados, concluídos e
+  // tipos não selecionados nos filtros (mesma regra de exibição do calendar).
+  const eventCountsByDay = (() => {
+    const map = new Map<string, number>();
+    for (const e of events) {
+      if (e.status === 'CANCELADO' || e.status === 'CONCLUIDO') continue;
+      if (!filterTypes.includes(e.type)) continue;
+      const d = new Date(e.start_at);
+      const ds = `${d.getUTCFullYear()}-${String(d.getUTCMonth()+1).padStart(2,'0')}-${String(d.getUTCDate()).padStart(2,'0')}`;
+      map.set(ds, (map.get(ds) ?? 0) + 1);
+    }
+    return map;
+  })();
+
   // ─── Render ─────────────────────────────────────────
 
   // ── Aba "Tarefas": renderiza o painel de tarefas sem o layout do calendário
@@ -1191,6 +1253,7 @@ export default function AgendaPage() {
         {/* Mini Calendário */}
         <div className="px-2 mb-2">
           <MiniCalendar
+            eventCounts={eventCountsByDay}
             onDateSelect={(dateStr) => {
               try { (calendar as any)?.navigate?.(dateStr); } catch {}
             }}
@@ -1225,6 +1288,26 @@ export default function AgendaPage() {
               </label>
             ))}
           </div>
+
+          {/* Toggle: mostrar eventos cancelados (default = escondido) */}
+          <label className="flex items-center gap-2.5 cursor-pointer py-1 mt-2 pt-2 border-t border-border/40 group rounded-lg px-1 hover:bg-accent/40 transition-colors">
+            <input
+              type="checkbox"
+              checked={showCancelled}
+              onChange={() => setShowCancelled(v => !v)}
+              className="sr-only"
+            />
+            <span
+              className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
+                showCancelled ? 'bg-rose-500 border-rose-500' : 'border-muted-foreground/40 opacity-50'
+              }`}
+            >
+              {showCancelled && <CheckCircle2 size={9} className="text-white" />}
+            </span>
+            <span className={`text-xs font-medium transition-opacity ${showCancelled ? 'text-foreground' : 'text-muted-foreground opacity-60'}`}>
+              ✖️ Mostrar cancelados
+            </span>
+          </label>
         </div>
 
         {/* Filtro por dentista (admin) */}

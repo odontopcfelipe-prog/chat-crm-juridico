@@ -15,12 +15,28 @@
  * o CSS default do schedule-x (a ordem importa pro override funcionar).
  */
 
+/**
+ * ⚠️ IMPORTANTE: Esse CSS sobrescreve APENAS as cores ESTRUTURAIS do
+ * schedule-x (fundo do calendário, texto base, bordas) — NUNCA as cores
+ * dos eventos. Cada evento tem sua própria cor (definida em `calendars`
+ * no useNextCalendarApp), e ela DEVE prevalecer sobre as cores do tema.
+ *
+ * Não sobrescrever:
+ *   - --sx-color-primary (usado como cor dos eventos sem categoria)
+ *   - --sx-color-primary-container (idem)
+ *   - --sx-color-secondary, --sx-color-tertiary (idem)
+ *
+ * Sobrescrever só:
+ *   - --sx-color-background, --sx-color-surface (fundo do grid)
+ *   - --sx-color-on-background, --sx-color-on-surface (texto base)
+ *   - --sx-color-outline (bordas)
+ *   - --sx-color-neutral, --sx-color-neutral-variant (texto secundário)
+ */
 .sx-react-calendar-wrapper,
 .sx-react-calendar-wrapper .sx__calendar,
-.sx-react-calendar-wrapper *,
 .sx-react-calendar-wrapper.is-dark,
 .sx-react-calendar-wrapper:not(.is-dark) {
-  /* ── Backgrounds (fundo do calendar e células) ── */
+  /* ── Backgrounds estruturais (NÃO mexe em cor de eventos) ── */
   --sx-color-background: var(--bg-primary);
   --sx-color-surface: var(--bg-secondary);
   --sx-color-surface-bright: var(--bg-secondary);
@@ -30,16 +46,10 @@
   --sx-color-surface-container-high: var(--bg-elevated);
   --sx-color-surface-tint: var(--bg-elevated);
 
-  /* ── Texto sobre os fundos ── */
+  /* ── Texto base ── */
   --sx-color-on-background: var(--text-primary);
   --sx-color-on-surface: var(--text-primary);
   --sx-internal-color-text: var(--text-primary);
-
-  /* ── Cor primária (botões, eventos sem cor própria) ── */
-  --sx-color-primary: var(--accent-primary);
-  --sx-color-primary-container: var(--accent-secondary);
-  --sx-color-on-primary: #ffffff;
-  --sx-color-on-primary-container: var(--text-primary);
 
   /* ── Bordas e dividers ── */
   --sx-color-outline: var(--border-default);
@@ -50,8 +60,13 @@
   --sx-color-neutral: var(--text-muted);
   --sx-color-neutral-variant: var(--text-secondary);
 
-  /* ── Sombra (mantém sutil, não sobrescreve com cor do tema) ── */
+  /* ── Sombra ── */
   --sx-color-shadow: rgba(0, 0, 0, 0.15);
+
+  /* ⚠️ NÃO sobrescrever --sx-color-primary, --sx-color-primary-container,
+     --sx-color-secondary, --sx-color-tertiary — essas são usadas pra
+     COR DOS EVENTOS (CONSULTA roxo, PROCEDIMENTO teal, etc). Sobrescrever
+     aqui causou o bug de "todos eventos com a mesma cor do tema". */
 }
 
 /**
