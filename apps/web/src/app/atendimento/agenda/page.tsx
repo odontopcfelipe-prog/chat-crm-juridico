@@ -7,6 +7,7 @@ import { useTheme } from 'next-themes';
 import { useNextCalendarApp, ScheduleXCalendar } from '@schedule-x/react';
 import { AgendaResourceView } from './AgendaResourceView';
 import { AgendaResourceLayout } from './AgendaResourceLayout';
+import { AgendaListView } from './AgendaListView';
 import { createViewDay, createViewWeek, createViewMonthGrid } from '@schedule-x/calendar';
 import { createEventsServicePlugin } from '@schedule-x/events-service';
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop';
@@ -417,7 +418,7 @@ export default function AgendaPage() {
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
   // Fase 12 PR2: visualizacao multi-coluna por profissional (DayPilot Lite)
-  const [calendarMode, setCalendarMode] = useState<'week' | 'professional'>('week');
+  const [calendarMode, setCalendarMode] = useState<'week' | 'professional' | 'list'>('week');
   const [resourceDate, setResourceDate] = useState<Date>(new Date());
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -1732,10 +1733,35 @@ export default function AgendaPage() {
               >
                 Por profissional
               </button>
+              <button
+                onClick={() => setCalendarMode('list')}
+                className={`px-3 py-1 rounded text-xs font-medium ${
+                  calendarMode === 'list'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Lista de hoje + próximos 7 dias (ideal pra recepção)"
+              >
+                Lista
+              </button>
             </div>
           </div>
 
-          {calendarMode === 'professional' ? (
+          {calendarMode === 'list' ? (
+            <AgendaListView
+              events={events}
+              users={users}
+              filterTypes={filterTypes}
+              filterUserId={filterUserId}
+              showCancelled={showCancelled}
+              showAllUsers={showAllUsers}
+              currentUserId={currentUserId}
+              onEventClick={(eventId) => {
+                const ev = eventsRef.current.find((e) => e.id === eventId);
+                if (ev) openEditModal(ev);
+              }}
+            />
+          ) : calendarMode === 'professional' ? (
             <div className="p-3 h-full">
               <AgendaResourceLayout
                 date={resourceDate}
