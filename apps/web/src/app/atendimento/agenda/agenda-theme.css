@@ -118,3 +118,25 @@
 .sx-react-calendar-wrapper .sx__week-grid__day-name {
   color: var(--text-secondary) !important;
 }
+
+/**
+ * BORDA ESQUERDA POR DENTISTA (8 cores predefinidas)
+ *
+ * Aplicada via `additionalClasses: ['dentist-color-N']` no event mapping
+ * (page.tsx). Cada dentista (UUID) é hasheado pra um índice de 1-8 e ganha
+ * uma cor consistente. Não substitui a cor de fundo (que indica STATUS) —
+ * só adiciona a borda esquerda como "dono" do evento.
+ *
+ * Útil quando há múltiplos dentistas atendendo no mesmo dia: operador
+ * identifica visualmente "esse é da Dra. Suellen" sem ler nome.
+ *
+ * Eventos sem dentista atribuído ficam sem borda extra (.dentist-color-none).
+ */
+.sx-react-calendar-wrapper .sx__event.dentist-color-1 { border-left: 4px solid #ef4444 !important; } /* vermelho */
+.sx-react-calendar-wrapper .sx__event.dentist-color-2 { border-left: 4px solid #f97316 !important; } /* laranja */
+.sx-react-calendar-wrapper .sx__event.dentist-color-3 { border-left: 4px solid #eab308 !important; } /* amarelo */
+.sx-react-calendar-wrapper .sx__event.dentist-color-4 { border-left: 4px solid #22c55e !important; } /* verde */
+.sx-react-calendar-wrapper .sx__event.dentist-color-5 { border-left: 4px solid #06b6d4 !important; } /* ciano */
+.sx-react-calendar-wrapper .sx__event.dentist-color-6 { border-left: 4px solid #3b82f6 !important; } /* azul */
+.sx-react-calendar-wrapper .sx__event.dentist-color-7 { border-left: 4px solid #a855f7 !important; } /* roxo */
+.sx-react-calendar-wrapper .sx__event.dentist-color-8 { border-left: 4px solid #ec4899 !important; } /* rosa */

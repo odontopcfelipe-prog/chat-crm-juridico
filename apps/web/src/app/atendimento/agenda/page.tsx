@@ -173,6 +173,24 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
   }
 }
 
+/**
+ * Hash determinístico de string pra int não-negativo.
+ * Usado pra mapear assigned_user_id (UUID) → índice de cor (0-7) na borda
+ * lateral do evento. Cada dentista sempre fica com a mesma cor (mesmo após
+ * reload), mas dentistas diferentes ficam com cores distintas.
+ *
+ * Algoritmo: djb2 hash simplificado. Não precisa ser criptograficamente
+ * seguro — só consistente.
+ */
+function hashStringToInt(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) + str.charCodeAt(i);
+    hash = hash & hash; // Convert to 32-bit int
+  }
+  return Math.abs(hash);
+}
+
 function toLocalDateTime(isoStr: string): string {
   // App usa UTC "naive" — horários salvos como UTC = horário local de Maceió
   const d = new Date(isoStr);
@@ -822,14 +840,41 @@ export default function AgendaPage() {
           }
 
           const caseTag = e.legal_case?.case_number ? ` [${e.legal_case.case_number}]` : '';
+          // Ícone de status na frente do título — operador identifica
+          // imediatamente se o paciente confirmou, está atrasado, etc.
+          // Convenção: ✅ confirmou | ⏰ aguardando confirmação | 🩺 compareceu
+          //            🚫 não compareceu | ⏸️ adiado | ✖️ cancelado
+          let statusIcon = '';
+          switch (e.status) {
+            case 'CONFIRMADO':  statusIcon = '✅ '; break;
+            case 'AGENDADO':    statusIcon = '⏰ '; break; // aguardando confirmação
+            case 'COMPARECEU':  statusIcon = '🩺 '; break;
+            case 'NO_SHOW':     statusIcon = '🚫 '; break;
+            case 'ADIADO':      statusIcon = '⏸️ '; break;
+            case 'CANCELADO':   statusIcon = '✖️ '; break;
+            default:            statusIcon = ''; break;
+          }
+          // Sufixos secundários (recorrência, comentários) ficam no fim
+          const recurringTag = (e as any).recurrence_rule || (e as any).parent_event_id ? ' 🔁' : '';
+          const commentsTag  = e._count?.comments ? ` 💬${e._count.comments}` : '';
+          // Borda esquerda colorida pelo DENTISTA atribuído (1 de 8 cores via
+          // hash do assigned_user_id). Quando há múltiplos dentistas atendendo
+          // no mesmo dia, operador identifica de relance "esse é o paciente
+          // da Dra. Suellen, esse é do Dr. André" sem ler o título.
+          // Cores aplicadas via classes .dentist-color-N em agenda-theme.css.
+          const dentistClass = e.assigned_user_id
+            ? `dentist-color-${(hashStringToInt(e.assigned_user_id) % 8) + 1}`
+            : 'dentist-color-none';
+
           return {
             id: e.id,
-            title: `${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${userPrefix}${e.title}${caseTag}${e.status === 'ADIADO' ? ' ⏸️' : ''}${e.status === 'CANCELADO' ? ' ✖️' : ''}${(e as any).recurrence_rule || (e as any).parent_event_id ? ' 🔁' : ''}${e._count?.comments ? ` 💬${e._count.comments}` : ''}`,
+            title: `${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${userPrefix}${e.title}${caseTag}${recurringTag}${commentsTag}`,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
             calendarId: getSemanticCalendarId(e),
             _customContent: {},
+            _options: { additionalClasses: [dentistClass] },
           };
         });
       eventsServicePlugin.set(calEvents);
