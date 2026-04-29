@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard, Repeat } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
+import QuoteVersions from './QuoteVersions';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -57,6 +58,13 @@ interface QuoteDetail extends QuoteListItem {
     description: string | null;
     discount_type: 'PERCENT' | 'FIXED';
     discount_amount: string | number;
+  } | null;
+  // Onda 3b — Renegociacao
+  renegotiated_from?: {
+    id: string;
+    status: string;
+    total_value: string | number;
+    created_at: string;
   } | null;
 }
 
@@ -431,6 +439,33 @@ function QuoteDetailView({
     }
   };
 
+  /** Onda 3b — Renegociar cria duplicata DRAFT + marca atual REJECTED */
+  const renegotiate = async () => {
+    const note = prompt(
+      'Renegociação\n\nIsso vai:\n' +
+      '• Marcar este orçamento como REJEITADO (preserva histórico)\n' +
+      '• Criar uma nova versão DRAFT com os mesmos procedimentos\n' +
+      '• Você edita a nova versão (preço, items, cupom) e envia novamente\n\n' +
+      'Motivo da renegociação (opcional):',
+      '',
+    );
+    if (note === null) return;
+    try {
+      const { data } = await api.post(`/quotes/${quote.id}/renegotiate`, { note: note.trim() || undefined });
+      showSuccess('Renegociação iniciada — abrindo nova versão');
+      // Volta pra lista pra recarregar e abrir o novo
+      onBack();
+      // Pequeno delay pra UI atualizar antes de re-abrir o detalhe
+      setTimeout(() => {
+        // Recarrega a lista ja vai pegar a nova
+        // Operador clica no novo DRAFT na lista
+      }, 200);
+      // Idealmente abriria o novo direto — TODO em refinement
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao renegociar');
+    }
+  };
+
   const remove = async () => {
     if (!confirm('Deletar este rascunho de orçamento?')) return;
     try {
@@ -452,6 +487,18 @@ function QuoteDetailView({
           {STATUS_LABEL[quote.status]}
         </span>
       </div>
+
+      {/* Onda 3b — Banner se este orcamento veio de uma renegociacao */}
+      {quote.renegotiated_from && (
+        <div className="mb-3 p-2.5 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700 flex items-center gap-2">
+          <Repeat size={12} />
+          <span>
+            Esta é uma <strong>renegociação</strong> do orçamento de{' '}
+            {Number(quote.renegotiated_from.total_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+            criado em {new Date(quote.renegotiated_from.created_at).toLocaleDateString('pt-BR')} (status: {quote.renegotiated_from.status}).
+          </span>
+        </div>
+      )}
 
       {/* Resumo */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
@@ -551,6 +598,9 @@ function QuoteDetailView({
       {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) */}
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
+      {/* Onda 3b — Histórico de versões (auto-esconde se nao tem) */}
+      <QuoteVersions quoteId={quote.id} />
+
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
         {isDraft && (
@@ -591,6 +641,16 @@ function QuoteDetailView({
               <X size={14} /> Rejeitar
             </button>
           </>
+        )}
+        {/* Onda 3b — Renegociar: disponivel em SENT/REJECTED/EXPIRED */}
+        {(isSent || quote.status === 'REJECTED' || quote.status === 'EXPIRED') && (
+          <button
+            onClick={renegotiate}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-amber-500/40 text-amber-700 text-sm hover:bg-amber-50"
+            title="Cria nova versão DRAFT pra renegociar (mantém histórico)"
+          >
+            <Repeat size={14} /> Renegociar
+          </button>
         )}
         {/* PDF — disponivel em qualquer status (Onda 2 — Fase 24) */}
         <button

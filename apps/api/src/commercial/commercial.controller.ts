@@ -11,6 +11,7 @@ import type { CreateTemplateDto, UpdateTemplateDto } from './quote-templates.ser
 import { QuoteCouponsService } from './quote-coupons.service';
 import type { CreateCouponDto, UpdateCouponDto } from './quote-coupons.service';
 import { QuoteAttachmentsService } from './quote-attachments.service';
+import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -29,6 +30,7 @@ export class CommercialController {
     private readonly templatesService: QuoteTemplatesService,
     private readonly couponsService: QuoteCouponsService,
     private readonly attachmentsService: QuoteAttachmentsService,
+    private readonly versionsService: QuoteVersionsService,
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
@@ -81,21 +83,21 @@ export class CommercialController {
   sendQuote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.send(id, tenantId);
+    return this.quotesService.send(id, tenantId, req.user?.id);
   }
 
   @Post('quotes/:id/accept')
   acceptQuote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.accept(id, tenantId);
+    return this.quotesService.accept(id, tenantId, req.user?.id);
   }
 
   @Post('quotes/:id/reject')
   rejectQuote(@Param('id') id: string, @Body() dto: RejectQuoteDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.reject(id, tenantId, dto?.rejection_reason);
+    return this.quotesService.reject(id, tenantId, dto?.rejection_reason, req.user?.id);
   }
 
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
@@ -142,7 +144,7 @@ export class CommercialController {
   sendQuoteByWhatsapp(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.sendByWhatsapp(id, tenantId);
+    return this.quotesService.sendByWhatsapp(id, tenantId, req.user?.id);
   }
 
   /** Admin: forca auto-expiracao agora (idempotente) */
@@ -329,6 +331,40 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.attachmentsService.remove(attachmentId, tenantId);
+  }
+
+  // ─── Onda 3b (Fase 24) — Versions + Renegotiate ──────────────
+
+  /** Lista versoes (snapshots) do orcamento — timeline pra UI */
+  @Get('quotes/:id/versions')
+  listVersions(@Param('id') quoteId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.versionsService.list(quoteId, tenantId);
+  }
+
+  /** Detalhe de uma versao com snapshot completo (pra modal de comparar) */
+  @Get('quote-versions/:versionId')
+  findVersion(@Param('versionId') versionId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.versionsService.findOne(versionId, tenantId);
+  }
+
+  /**
+   * Renegociar: cria duplicata DRAFT + marca atual REJECTED.
+   * Operador edita o novo, envia v2.
+   */
+  @Post('quotes/:id/renegotiate')
+  renegotiateQuote(
+    @Param('id') quoteId: string,
+    @Body() body: { note?: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
+    if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
+    return this.versionsService.renegotiate(quoteId, tenantId, userId, body?.note);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────

@@ -4,6 +4,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
 import { QuoteCouponsService } from './quote-coupons.service';
 import { QuoteAttachmentsService } from './quote-attachments.service';
+import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -31,6 +32,7 @@ import { FileStorageService } from '../media/filesystem.service';
     QuoteTemplatesService,
     QuoteCouponsService,
     QuoteAttachmentsService,
+    QuoteVersionsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,
@@ -42,6 +44,7 @@ import { FileStorageService } from '../media/filesystem.service';
     QuoteTemplatesService,
     QuoteCouponsService,
     QuoteAttachmentsService,
+    QuoteVersionsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,

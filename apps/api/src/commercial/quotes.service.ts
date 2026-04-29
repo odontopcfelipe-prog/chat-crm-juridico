@@ -3,6 +3,7 @@ import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PortalAuthService } from '../portal/portal-auth.service';
+import { QuoteVersionsService } from './quote-versions.service';
 import { Prisma } from '@crm/shared';
 
 type ItemInput = {
@@ -27,6 +28,7 @@ export class QuotesService {
     private prisma: PrismaService,
     @Optional() @Inject(forwardRef(() => WhatsappService)) private whatsapp?: WhatsappService,
     @Optional() @Inject(forwardRef(() => PortalAuthService)) private portalAuth?: PortalAuthService,
+    @Optional() private versions?: QuoteVersionsService,
   ) {}
 
   async create(
@@ -110,7 +112,13 @@ export class QuotesService {
         treatment_plan: true,
         // Onda 3 — Anexos (Fase 24): retorna metadata pra UI mostrar contador.
         // Binario eh servido via /quote-attachments/:id/file separado.
-        _count: { select: { attachments: true } },
+        _count: { select: { attachments: true, versions: true } },
+        // Onda 3b — Mostra origem da renegociacao (se vier de outro orcamento)
+        renegotiated_from: {
+          select: {
+            id: true, status: true, total_value: true, created_at: true,
+          },
+        },
       },
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
@@ -147,21 +155,38 @@ export class QuotesService {
     });
   }
 
-  async send(id: string, tenantId: string) {
+  async send(id: string, tenantId: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
     if (quote.status !== 'DRAFT') {
       throw new BadRequestException('Apenas orcamentos em DRAFT podem ser enviados');
     }
-    return this.prisma.quote.update({
+
+    const updated = await this.prisma.quote.update({
       where: { id },
       data: { status: 'SENT', sent_at: new Date() },
     });
+
+    // Onda 3b — snapshot automatico do estado enviado (preserva pra renegociacao futura)
+    if (this.versions && userId) {
+      await this.versions.createSnapshot(id, userId, 'SEND').catch((e) =>
+        this.logger.warn(`[VERSION] snapshot SEND falhou: ${e?.message}`),
+      );
+    }
+
+    return updated;
   }
 
-  async accept(id: string, tenantId: string) {
+  async accept(id: string, tenantId: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
     if (quote.status !== 'SENT') {
       throw new BadRequestException('Apenas orcamentos SENT podem ser aceitos');
+    }
+
+    // Onda 3b — snapshot da versao final antes de mudar pra ACCEPTED
+    if (this.versions && userId) {
+      await this.versions.createSnapshot(id, userId, 'ACCEPT').catch((e) =>
+        this.logger.warn(`[VERSION] snapshot ACCEPT falhou: ${e?.message}`),
+      );
     }
 
     // Transacao: marca quote + cria TreatmentPlan + TreatmentPlanItems
@@ -196,15 +221,25 @@ export class QuotesService {
     });
   }
 
-  async reject(id: string, tenantId: string, reason?: string) {
+  async reject(id: string, tenantId: string, reason?: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
     if (quote.status !== 'SENT') {
       throw new BadRequestException('Apenas orcamentos SENT podem ser rejeitados');
     }
-    return this.prisma.quote.update({
+
+    const updated = await this.prisma.quote.update({
       where: { id },
       data: { status: 'REJECTED', rejected_at: new Date(), rejection_reason: reason || null },
     });
+
+    // Onda 3b — snapshot da versao rejeitada
+    if (this.versions && userId) {
+      await this.versions.createSnapshot(id, userId, 'REJECT', reason).catch((e) =>
+        this.logger.warn(`[VERSION] snapshot REJECT falhou: ${e?.message}`),
+      );
+    }
+
+    return updated;
   }
 
   async remove(id: string, tenantId: string) {
@@ -569,7 +604,7 @@ export class QuotesService {
    *
    * Aceita re-envio em SENT (sem mudar status, so registra no log).
    */
-  async sendByWhatsapp(quoteId: string, tenantId: string) {
+  async sendByWhatsapp(quoteId: string, tenantId: string, userId?: string) {
     if (!this.whatsapp) {
       throw new BadRequestException('Servico de WhatsApp nao disponivel');
     }
@@ -637,11 +672,19 @@ export class QuotesService {
     }
 
     // Sucesso: marca como SENT (se ainda era DRAFT)
-    if (quote.status === 'DRAFT') {
+    const wasDraft = quote.status === 'DRAFT';
+    if (wasDraft) {
       await this.prisma.quote.update({
         where: { id: quoteId },
         data: { status: 'SENT', sent_at: new Date() },
       });
+    }
+
+    // Onda 3b — snapshot da versao enviada (se foi a primeira vez)
+    if (wasDraft && this.versions && userId) {
+      await this.versions.createSnapshot(quoteId, userId, 'SEND', 'Enviado via WhatsApp').catch((e) =>
+        this.logger.warn(`[VERSION] snapshot SEND-WhatsApp falhou: ${e?.message}`),
+      );
     }
 
     this.logger.log(

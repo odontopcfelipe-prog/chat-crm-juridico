@@ -102,6 +102,7 @@ model User {
   calendar_events_created       CalendarEvent[]        @relation("EventCreator")
   calendar_events_validated     CalendarEvent[]        @relation("EventValidator")
   quote_attachments_uploaded    QuoteAttachment[]      @relation("QuoteAttachmentUploader")
+  quote_versions_created        QuoteVersion[]         @relation("QuoteVersionCreator")
   schedules                     UserSchedule[]
   calendar_event_comments       CalendarEventComment[]
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
@@ -2026,10 +2027,52 @@ model Quote {
   coupon         QuoteCoupon?   @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
   // Onda 3 (Fase 24) — Anexos (fotos antes/depois, TCLE, exames, etc)
   attachments    QuoteAttachment[]
+  // Onda 3b (Fase 24) — Versionamento + renegociacao
+  versions       QuoteVersion[]
+  /// Quando o orcamento foi criado como renegociacao de outro orcamento,
+  /// guarda referencia ao "pai". Pega "v3 renegociado de v2 renegociado de v1"
+  renegotiated_from_id String?
+  renegotiated_from    Quote?  @relation("QuoteRenegotiation", fields: [renegotiated_from_id], references: [id], onDelete: SetNull)
+  renegotiations       Quote[] @relation("QuoteRenegotiation")
 
   @@index([patient_id, status])
   @@index([status, valid_until])
   @@index([coupon_id])
+  @@index([renegotiated_from_id])
+}
+
+/// Onda 3b (Fase 24) — Snapshot imutavel do estado do orcamento em momentos
+/// chave (envio, aceitacao, rejeicao, renegociacao). Preserva valores de
+/// quando o orcamento foi enviado, mesmo se items forem modificados depois
+/// em DRAFT. Permite ver historico da negociacao.
+///
+/// snapshot inclui: subtotal, discount_*, total_value, payment_terms,
+/// valid_until, coupon (se houver) e items completos com nomes de procedure
+/// no momento (preserva mesmo se procedure for renomeada/removida).
+model QuoteVersion {
+  id             String   @id @default(uuid())
+  quote_id       String
+  /// Numero sequencial 1, 2, 3 dentro do mesmo orcamento. Nova versao
+  /// sempre = max + 1.
+  version_number Int
+  /// Estado do quote no momento do snapshot.
+  status         String
+  /// Snapshot completo em JSON — items, totais, cupom, condicoes
+  snapshot       Json
+  /// Total no momento (denormalizado pra exibir na lista sem desserializar JSON)
+  total_value    Decimal  @db.Decimal(10, 2)
+  /// Trigger que originou a versao (SEND, ACCEPT, REJECT, RENEGOTIATE, MANUAL)
+  trigger        String
+  /// Nota livre do operador sobre essa versao
+  change_note    String?
+  created_at     DateTime @default(now())
+  created_by_id  String
+
+  quote      Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  created_by User  @relation("QuoteVersionCreator", fields: [created_by_id], references: [id], onDelete: Restrict)
+
+  @@unique([quote_id, version_number])
+  @@index([quote_id, created_at])
 }
 
 /// Onda 3 (Fase 24) — Arquivos anexados a um orçamento.
