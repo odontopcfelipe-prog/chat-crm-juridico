@@ -19,7 +19,7 @@ import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
-  Pencil, Plus, Camera, Check, X,
+  Pencil, Plus, Camera, Check, X, Clock,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -33,6 +33,7 @@ import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
 import EditPatientModal from '../components/EditPatientModal';
 import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedicationModals';
+import TimelineTab from '../components/TimelineTab';
 
 interface Patient {
   id: string;
@@ -79,6 +80,7 @@ interface UserOption { id: string; name: string }
 
 const TABS = [
   { id: 'overview', label: 'Visão geral', icon: User },
+  { id: 'timeline', label: 'Histórico', icon: Clock },
   { id: 'anamnesis', label: 'Anamnese', icon: FileText },
   { id: 'medical-record', label: 'Prontuário', icon: Stethoscope },
   { id: 'odontogram', label: 'Odontograma', icon: Activity },
@@ -287,6 +289,7 @@ export default function PacienteFichaPage() {
           onAddMedication={() => setAddMedOpen(true)}
         />
       )}
+      {tab === 'timeline' && <TimelineTab patientId={patient.id} />}
       {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
       {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
       {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}

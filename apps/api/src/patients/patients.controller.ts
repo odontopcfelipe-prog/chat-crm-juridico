@@ -70,6 +70,15 @@ export class PatientsController {
     return this.patientsService.findOne(id, tenantId);
   }
 
+  /** Timeline unificada: agrega consultas + procedimentos + pagamentos + retornos + anamneses */
+  @Get(':id/timeline')
+  getTimeline(@Param('id') id: string, @Request() req: any, @Query('limit') limit?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const lim = limit ? Math.min(500, Math.max(10, parseInt(limit, 10))) : 100;
+    return this.patientsService.getTimeline(id, tenantId, lim);
+  }
+
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

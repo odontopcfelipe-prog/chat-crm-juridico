@@ -306,6 +306,183 @@ export class PatientsService {
     return { ok: true };
   }
 
+  // ─── Timeline unificada ──────────────────────────────────────
+  //
+  // Agrega cronologicamente eventos de 5 fontes em uma só linha do tempo:
+  //  1. Consultas (CalendarEvent.start_at)
+  //  2. Procedimentos executados (TreatmentPlanItem.executed_at)
+  //  3. Pagamentos (Installment, agrupado por status)
+  //  4. Retornos (ReturnAlert.scheduled_for + contacted_at)
+  //  5. Anamneses (Anamnesis.created_at / signed_at)
+  //
+  // Roda 5 queries em paralelo, normaliza pra um shape comum, ordena desc
+  // por data e limita pelo `limit` (default 100). Permite a recepção ver
+  // toda a história do paciente numa olhada — substitui "abrir 5 abas".
+
+  async getTimeline(patientId: string, tenantId: string, limit = 100) {
+    await this.assertBelongsToTenant(patientId, tenantId);
+
+    type TimelineItem = {
+      id: string;
+      type: 'appointment' | 'procedure' | 'payment' | 'return' | 'anamnesis';
+      date: string;
+      title: string;
+      subtitle?: string | null;
+      status?: string | null;
+      professional?: string | null;
+      amount?: number | null;
+      link?: string | null;
+    };
+
+    const [appointments, procItems, installments, returns, anamneses] = await Promise.all([
+      this.prisma.calendarEvent.findMany({
+        where: { patient_id: patientId, start_at: { not: undefined } },
+        select: {
+          id: true, type: true, title: true, description: true,
+          start_at: true, status: true,
+          assigned_user: { select: { name: true } },
+        },
+        orderBy: { start_at: 'desc' },
+        take: limit,
+      }),
+      this.prisma.treatmentPlanItem.findMany({
+        where: {
+          treatment_plan: { patient_id: patientId },
+          executed_at: { not: null },
+        },
+        select: {
+          id: true, executed_at: true, tooth_fdi: true, status: true,
+          procedure: { select: { name: true } },
+          executed_by: { select: { name: true } },
+        },
+        orderBy: { executed_at: 'desc' },
+        take: limit,
+      }),
+      this.prisma.installment.findMany({
+        where: { patient_id: patientId },
+        select: {
+          id: true, sequence: true, total_count: true,
+          amount: true, due_date: true, paid_at: true,
+          status: true, payment_method: true,
+        },
+        orderBy: [{ paid_at: 'desc' }, { due_date: 'desc' }],
+        take: limit,
+      }),
+      this.prisma.returnAlert.findMany({
+        where: { patient_id: patientId },
+        select: {
+          id: true, scheduled_for: true, reason: true, status: true,
+          contacted_at: true,
+          professional: { select: { name: true } },
+        },
+        orderBy: { scheduled_for: 'desc' },
+        take: limit,
+      }),
+      (this.prisma as any).anamnesis.findMany({
+        where: { patient_id: patientId },
+        select: {
+          id: true, created_at: true, signed_at: true,
+          filled_by_user_id: true, status: true,
+        },
+        orderBy: { created_at: 'desc' },
+        take: limit,
+      }),
+    ]);
+
+    const items: TimelineItem[] = [];
+
+    // Consultas
+    for (const a of appointments) {
+      const typeLabel: Record<string, string> = {
+        CONSULTA: 'Consulta',
+        PROCEDIMENTO: 'Procedimento',
+        RETORNO: 'Retorno',
+        BLOQUEIO: 'Bloqueio',
+        TAREFA: 'Tarefa',
+        OUTRO: 'Evento',
+      };
+      const label = typeLabel[a.type] || a.type;
+      items.push({
+        id: `appt-${a.id}`,
+        type: 'appointment',
+        date: a.start_at.toISOString(),
+        title: `${label}: ${a.title}`,
+        subtitle: a.description || null,
+        status: a.status,
+        professional: a.assigned_user?.name || null,
+        link: `/atendimento/agenda?event=${a.id}`,
+      });
+    }
+
+    // Procedimentos executados
+    for (const p of procItems) {
+      if (!p.executed_at) continue;
+      const tooth = p.tooth_fdi ? ` — dente ${p.tooth_fdi}` : '';
+      items.push({
+        id: `proc-${p.id}`,
+        type: 'procedure',
+        date: p.executed_at.toISOString(),
+        title: `${p.procedure?.name || 'Procedimento'}${tooth}`,
+        subtitle: 'Executado',
+        status: p.status,
+        professional: p.executed_by?.name || null,
+      });
+    }
+
+    // Pagamentos: prioriza paid_at quando pago, senão due_date
+    for (const i of installments) {
+      const isPaid = !!i.paid_at;
+      const dt = isPaid ? i.paid_at : i.due_date;
+      if (!dt) continue;
+      const seqLabel = i.total_count > 1 ? ` (${i.sequence}/${i.total_count})` : '';
+      const titlePrefix =
+        i.status === 'PAGA' ? 'Pagamento recebido'
+        : i.status === 'PARCIAL' ? 'Pagamento parcial'
+        : i.status === 'ATRASADA' ? 'Parcela em atraso'
+        : i.status === 'CANCELADA' ? 'Parcela cancelada'
+        : i.status === 'RENEGOCIADA' ? 'Parcela renegociada'
+        : 'Parcela aberta';
+      items.push({
+        id: `inst-${i.id}`,
+        type: 'payment',
+        date: dt.toISOString(),
+        title: `${titlePrefix}${seqLabel}`,
+        subtitle: i.payment_method ? `Via ${i.payment_method}` : null,
+        status: i.status,
+        amount: Number(i.amount),
+      });
+    }
+
+    // Retornos
+    for (const r of returns) {
+      items.push({
+        id: `ret-${r.id}`,
+        type: 'return',
+        date: r.scheduled_for.toISOString(),
+        title: r.contacted_at ? `Retorno contatado` : `Retorno programado`,
+        subtitle: r.reason || null,
+        status: r.status,
+        professional: r.professional?.name || null,
+      });
+    }
+
+    // Anamneses
+    for (const a of anamneses) {
+      items.push({
+        id: `anam-${a.id}`,
+        type: 'anamnesis',
+        date: (a.signed_at || a.created_at).toISOString(),
+        title: a.signed_at ? 'Anamnese assinada' : 'Anamnese preenchida',
+        subtitle: null,
+        status: a.status,
+      });
+    }
+
+    // Ordena desc por data e limita
+    items.sort((x, y) => y.date.localeCompare(x.date));
+    return { items: items.slice(0, limit), total: items.length };
+  }
+
   // ─── Helpers ──────────────────────────────────────────────────
 
   private async assertBelongsToTenant(patientId: string, tenantId: string) {
