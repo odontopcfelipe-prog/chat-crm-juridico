@@ -56,6 +56,7 @@ import { ReportsModule } from './reports/reports.module';
 import { ClinicsModule } from './clinics/clinics.module';
 import { SmileDesignModule } from './smile-design/smile-design.module';
 import { RadiographyModule } from './radiography/radiography.module';
+import { PatientTagsModule } from './patient-tags/patient-tags.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -146,6 +147,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     SmileDesignModule,
     // Fase 17 — Integracao radiologia
     RadiographyModule,
+    // Fase 20 — Tags / segmentacao de pacientes
+    PatientTagsModule,
   ],
   controllers: [AppController, HealthController],
   providers: [

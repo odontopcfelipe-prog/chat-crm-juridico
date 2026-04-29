@@ -34,6 +34,7 @@ import RadiografiasTab from '../components/RadiografiasTab';
 import EditPatientModal from '../components/EditPatientModal';
 import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedicationModals';
 import TimelineTab from '../components/TimelineTab';
+import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPicker';
 
 interface Patient {
   id: string;
@@ -70,6 +71,7 @@ interface Patient {
   referred_by: string | null;
   referred_by_id: string | null;
   referred_by_patient?: { id: string; name: string | null; phone: string } | null;
+  tags?: AssignedTag[];
   allergies: Array<{ id: string; allergen: string; severity: string | null; notes: string | null }>;
   medications: Array<{ id: string; medication: string; dosage: string | null; frequency: string | null }>;
   medical_record?: { id: string; chief_complaint: string | null } | null;
@@ -231,6 +233,13 @@ export default function PacienteFichaPage() {
               {patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {patient.phone}</span>}
               {patient.email && <span className="flex items-center gap-1"><Mail size={14} /> {patient.email}</span>}
               {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {patient.cpf}</span>}
+            </div>
+            {/* Tags do paciente — gerenciamento inline */}
+            <div className="mt-2">
+              <PatientTagsPicker
+                patientId={patient.id}
+                initialTags={patient.tags || []}
+              />
             </div>
           </div>
         </div>

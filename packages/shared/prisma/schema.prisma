@@ -63,6 +63,8 @@ model Tenant {
   // Radiologia (Fase 17)
   radiography_providers     RadiographyProvider[]
   radiography_exams         RadiographyExam[]
+  // Tags / segmentacao (Fase 20)
+  patient_tags              PatientTag[]
 }
 
 model User {
@@ -1545,12 +1547,47 @@ model Patient {
   smile_simulations     SmileSimulation[]
   // Radiologia (Fase 17)
   radiography_exams     RadiographyExam[]
+  // Tags / segmentacao (Fase 20)
+  tags                  PatientTagOnPatient[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
   @@index([tenant_id, phone])
   @@index([primary_dentist_id])
   @@index([referred_by_id])
+}
+
+// ============================================================================
+// FASE 20 — TAGS / SEGMENTACAO DE PACIENTES
+// ============================================================================
+
+model PatientTag {
+  id          String   @id @default(uuid())
+  tenant_id   String
+  name        String   // "VIP", "Alergia critica", "Sem revisao 6m", etc
+  color       String?  // hex "#ef4444" — cor do badge
+  description String?  // tooltip explicativo (opcional)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant   Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patients PatientTagOnPatient[]
+
+  @@unique([tenant_id, name])
+  @@index([tenant_id])
+}
+
+model PatientTagOnPatient {
+  patient_id String
+  tag_id     String
+  created_at DateTime @default(now())
+
+  patient Patient    @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  tag     PatientTag @relation(fields: [tag_id], references: [id], onDelete: Cascade)
+
+  @@id([patient_id, tag_id])
+  @@index([tag_id])
+  @@index([patient_id])
 }
 
 model PatientAllergy {

@@ -1,0 +1,75 @@
+/**
+ * PatientTagsController — endpoints REST pra Fase 20 (tags de paciente).
+ *
+ * Rotas:
+ *  GET    /patient-tags                        — listar tags do tenant
+ *  POST   /patient-tags                        — criar tag (admin)
+ *  PATCH  /patient-tags/:id                    — editar tag (admin)
+ *  DELETE /patient-tags/:id                    — remover tag (admin)
+ *  GET    /patients/:id/tags                   — listar tags do paciente
+ *  PUT    /patients/:id/tags                   — substituir tags do paciente (idempotente)
+ */
+import {
+  Controller, Get, Post, Patch, Put, Delete,
+  Body, Param, Request, UseGuards, BadRequestException,
+} from '@nestjs/common';
+import { PatientTagsService } from './patient-tags.service';
+import type { CreateTagDto, UpdateTagDto } from './patient-tags.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+
+@UseGuards(JwtAuthGuard)
+@Controller()
+export class PatientTagsController {
+  constructor(private service: PatientTagsService) {}
+
+  // ─── /patient-tags (admin de tags) ────────────────────────────
+
+  @Get('patient-tags')
+  list(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.service.list(tenantId);
+  }
+
+  @Post('patient-tags')
+  create(@Request() req: any, @Body() data: CreateTagDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.service.create(tenantId, data);
+  }
+
+  @Patch('patient-tags/:id')
+  update(@Request() req: any, @Param('id') id: string, @Body() data: UpdateTagDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.service.update(id, tenantId, data);
+  }
+
+  @Delete('patient-tags/:id')
+  remove(@Request() req: any, @Param('id') id: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.service.remove(id, tenantId);
+  }
+
+  // ─── /patients/:id/tags (atribuição) ──────────────────────────
+
+  @Get('patients/:id/tags')
+  getForPatient(@Request() req: any, @Param('id') id: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.service.getTagsForPatient(id);
+  }
+
+  @Put('patients/:id/tags')
+  setForPatient(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: { tag_ids: string[] },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!Array.isArray(body?.tag_ids)) throw new BadRequestException('tag_ids deve ser array');
+    return this.service.setTagsForPatient(id, tenantId, body.tag_ids);
+  }
+}

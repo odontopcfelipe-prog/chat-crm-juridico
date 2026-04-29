@@ -42,6 +42,7 @@ export class PatientsController {
     @Query('search') search?: string,
     @Query('status') status?: string,
     @Query('dentistId') dentistId?: string,
+    @Query('tagId') tagId?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -51,6 +52,7 @@ export class PatientsController {
       search,
       status,
       dentistId,
+      tagId,
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });

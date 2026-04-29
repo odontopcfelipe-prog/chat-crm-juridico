@@ -28,13 +28,14 @@ export class PatientsService {
     });
   }
 
-  /** Lista pacientes com busca, filtro de status e paginacao. */
+  /** Lista pacientes com busca, filtro de status, dentista, tag e paginacao. */
   async findAll(
     tenantId: string,
     opts: {
       search?: string;
       status?: string;
       dentistId?: string;
+      tagId?: string;
       page?: number;
       limit?: number;
     } = {},
@@ -47,6 +48,9 @@ export class PatientsService {
       tenant_id: tenantId,
       ...(opts.status ? { status: opts.status } : {}),
       ...(opts.dentistId ? { primary_dentist_id: opts.dentistId } : {}),
+      ...(opts.tagId
+        ? { tags: { some: { tag_id: opts.tagId } } }
+        : {}),
       ...(opts.search
         ? {
             OR: [
@@ -67,6 +71,7 @@ export class PatientsService {
         take: limit,
         include: {
           primary_dentist: { select: { id: true, name: true, email: true } },
+          tags: { include: { tag: true } },
           _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
         },
       }),
@@ -85,6 +90,8 @@ export class PatientsService {
         lead: { select: { id: true, phone: true, stage: true } },
         // Indicador (paciente que indicou esse) — mostra nome no overview
         referred_by_patient: { select: { id: true, name: true, phone: true } },
+        // Tags / segmentacao (Fase 20)
+        tags: { include: { tag: true } },
         allergies: { orderBy: { created_at: 'desc' } },
         medications: { orderBy: { created_at: 'desc' } },
         medical_record: true,

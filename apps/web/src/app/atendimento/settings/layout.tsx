@@ -40,6 +40,7 @@ const settingsSections: MenuSection[] = [
       { label: 'Agenda & Horários', href: '/atendimento/settings/office', icon: Calendar },
       { label: 'Salas & Cadeiras', href: '/atendimento/settings/rooms', icon: DoorOpen },
       { label: 'Marcadores de Agenda', href: '/atendimento/settings/appointment-markers', icon: Tag },
+      { label: 'Tags de Pacientes', href: '/atendimento/settings/patient-tags', icon: Tag },
       { label: 'Unidades / Franquias', href: '/atendimento/settings/clinics', icon: Network },
       { label: 'Contratos & Assinatura', href: '/atendimento/settings/contracts', icon: FileSignature },
     ],

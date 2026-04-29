@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import NewPatientModal from './components/NewPatientModal';
+import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
 
 interface Patient {
   id: string;
@@ -16,6 +17,7 @@ interface Patient {
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   primary_dentist?: { id: string; name: string } | null;
   last_visit_at?: string | null;
+  tags?: Array<{ tag_id: string; tag: PatientTag }>;
   _count?: { anamneses: number; treatment_plans: number; appointments: number };
 }
 
@@ -41,6 +43,15 @@ export default function PacientesPage() {
   const [status, setStatus] = useState<'all' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'>('all');
   const [showModal, setShowModal] = useState(false);
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, archived: 0, with_active_plan: 0 });
+  const [allTags, setAllTags] = useState<PatientTag[]>([]);
+  const [tagFilter, setTagFilter] = useState<string>('');
+
+  // Carrega tags do tenant uma vez (independente do filtro)
+  useEffect(() => {
+    api.get<PatientTag[]>('/patient-tags')
+      .then((r) => setAllTags(r.data || []))
+      .catch(() => {});
+  }, []);
 
   // Deep-link: /atendimento/pacientes?new=1 abre o modal automaticamente
   // (acionado pelo sub-item "Novo paciente" do Sidebar). Limpa o param
@@ -58,6 +69,7 @@ export default function PacientesPage() {
       const params = new URLSearchParams();
       if (search.trim()) params.set('search', search.trim());
       if (status !== 'all') params.set('status', status);
+      if (tagFilter) params.set('tagId', tagFilter);
       params.set('limit', '50');
       const [listRes, statsRes] = await Promise.all([
         api.get<PatientList>(`/patients?${params.toString()}`),
@@ -70,7 +82,7 @@ export default function PacientesPage() {
     } finally {
       setLoading(false);
     }
-  }, [search, status]);
+  }, [search, status, tagFilter]);
 
   useEffect(() => {
     const t = setTimeout(load, 250); // debounce leve pra busca
@@ -137,6 +149,19 @@ export default function PacientesPage() {
           <option value="INACTIVE">Inativos</option>
           <option value="ARCHIVED">Arquivados</option>
         </select>
+        {allTags.length > 0 && (
+          <select
+            value={tagFilter}
+            onChange={(e) => setTagFilter(e.target.value)}
+            className="px-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            title="Filtrar por tag"
+          >
+            <option value="">Todas as tags</option>
+            {allTags.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Lista */}
@@ -167,7 +192,21 @@ export default function PacientesPage() {
                     <User size={20} className="text-primary" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <p className="font-medium text-foreground truncate">{p.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium text-foreground truncate">{p.name}</p>
+                      {p.tags && p.tags.length > 0 && (
+                        <div className="flex items-center gap-1 flex-wrap">
+                          {p.tags.slice(0, 3).map((t) => (
+                            <TagBadge key={t.tag_id} tag={t.tag} />
+                          ))}
+                          {p.tags.length > 3 && (
+                            <span className="text-[10px] text-muted-foreground">
+                              +{p.tags.length - 3}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
                       {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {p.phone}</span>}
                       {p.cpf && <span>CPF: {p.cpf}</span>}
