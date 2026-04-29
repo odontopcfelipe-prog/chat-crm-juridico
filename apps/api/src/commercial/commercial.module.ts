@@ -3,6 +3,7 @@ import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
 import { QuoteCouponsService } from './quote-coupons.service';
+import { QuoteAttachmentsService } from './quote-attachments.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -12,6 +13,7 @@ import { PaymentGatewayModule } from '../payment-gateway/payment-gateway.module'
 import { ReferralsModule } from '../referrals/referrals.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { PortalModule } from '../portal/portal.module';
+import { FileStorageService } from '../media/filesystem.service';
 
 @Module({
   imports: [
@@ -28,15 +30,18 @@ import { PortalModule } from '../portal/portal.module';
     QuotePdfService,
     QuoteTemplatesService,
     QuoteCouponsService,
+    QuoteAttachmentsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,
+    FileStorageService,
   ],
   exports: [
     QuotesService,
     QuotePdfService,
     QuoteTemplatesService,
     QuoteCouponsService,
+    QuoteAttachmentsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,

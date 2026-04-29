@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard } from 'lucide-react';
+import QuoteAttachments from './QuoteAttachments';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -546,6 +547,9 @@ function QuoteDetailView({
       {Number(quote.total_value) > 0 && (isSent || quote.status === 'ACCEPTED') && (
         <PaymentSuggestionsCard total={Number(quote.total_value)} />
       )}
+
+      {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) */}
+      <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">

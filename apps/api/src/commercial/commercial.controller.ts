@@ -1,13 +1,16 @@
 import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, Res, BadRequestException, NotFoundException,
+  UseInterceptors, UploadedFile,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
 import type { CreateTemplateDto, UpdateTemplateDto } from './quote-templates.service';
 import { QuoteCouponsService } from './quote-coupons.service';
 import type { CreateCouponDto, UpdateCouponDto } from './quote-coupons.service';
+import { QuoteAttachmentsService } from './quote-attachments.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -25,6 +28,7 @@ export class CommercialController {
     private readonly pdfService: QuotePdfService,
     private readonly templatesService: QuoteTemplatesService,
     private readonly couponsService: QuoteCouponsService,
+    private readonly attachmentsService: QuoteAttachmentsService,
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
@@ -271,6 +275,60 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.couponsService.removeFromQuote(quoteId, tenantId);
+  }
+
+  // ─── Onda 3 (Fase 24) — Anexos do orcamento ──────────────────
+
+  /** Lista anexos do orcamento (metadata, sem o binário) */
+  @Get('quotes/:id/attachments')
+  listAttachments(@Param('id') quoteId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.attachmentsService.list(quoteId, tenantId);
+  }
+
+  /** Upload de anexo (multipart, campo "file" + opcional category/description) */
+  @Post('quotes/:id/attachments')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  uploadAttachment(
+    @Param('id') quoteId: string,
+    @UploadedFile() file: any,
+    @Body() body: { category?: string; description?: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
+    if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
+    if (!file) throw new BadRequestException('Arquivo nao recebido');
+    return this.attachmentsService.upload(quoteId, tenantId, userId, file, {
+      category: body?.category,
+      description: body?.description,
+    });
+  }
+
+  /** Serve o arquivo binario inline (preview/download) */
+  @Get('quote-attachments/:attachmentId/file')
+  async getAttachmentFile(
+    @Param('attachmentId') attachmentId: string,
+    @Request() req: any,
+    @Res() res: Response,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const { buffer, mime_type, filename } = await this.attachmentsService.getFileBuffer(attachmentId, tenantId);
+    res.set('Content-Type', mime_type);
+    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+    res.set('Content-Length', String(buffer.length));
+    res.set('Cache-Control', 'private, max-age=3600');
+    res.end(buffer);
+  }
+
+  /** Remove anexo (apaga arquivo + registro) */
+  @Delete('quote-attachments/:attachmentId')
+  removeAttachment(@Param('attachmentId') attachmentId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.attachmentsService.remove(attachmentId, tenantId);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────

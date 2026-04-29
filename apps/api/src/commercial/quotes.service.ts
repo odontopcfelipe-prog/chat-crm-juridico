@@ -108,6 +108,9 @@ export class QuotesService {
           include: { procedure: { select: { id: true, name: true, code_tuss: true } } },
         },
         treatment_plan: true,
+        // Onda 3 — Anexos (Fase 24): retorna metadata pra UI mostrar contador.
+        // Binario eh servido via /quote-attachments/:id/file separado.
+        _count: { select: { attachments: true } },
       },
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
@@ -599,6 +602,8 @@ export class QuotesService {
     const validUntil = quote.valid_until
       ? quote.valid_until.toLocaleDateString('pt-BR')
       : null;
+    // Onda 3 — conta anexos pra mencionar na mensagem (gera curiosidade no paciente)
+    const attachmentCount = (quote as any)._count?.attachments || 0;
 
     const msg =
       `Oi ${firstName}! 👋\n\n` +
@@ -609,6 +614,7 @@ export class QuotesService {
         ? `🎁 Desconto: ${formatBRL(quote.discount_value)}\n`
         : '') +
       (validUntil ? `📅 Válido até ${validUntil}\n` : '') +
+      (attachmentCount > 0 ? `📎 ${attachmentCount} anexo(s) (fotos, exames)\n` : '') +
       `\nAcesse pra ver detalhes e aceitar:\n${magic.link}\n\n` +
       `Qualquer dúvida, é só responder por aqui. 😊`;
 

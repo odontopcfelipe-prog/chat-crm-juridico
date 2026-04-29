@@ -101,6 +101,7 @@ model User {
   calendar_events_assigned      CalendarEvent[]        @relation("EventAssigned")
   calendar_events_created       CalendarEvent[]        @relation("EventCreator")
   calendar_events_validated     CalendarEvent[]        @relation("EventValidator")
+  quote_attachments_uploaded    QuoteAttachment[]      @relation("QuoteAttachmentUploader")
   schedules                     UserSchedule[]
   calendar_event_comments       CalendarEventComment[]
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
@@ -2023,10 +2024,45 @@ model Quote {
   installments   Installment[]  @relation("QuoteInstallments")
   // Onda 2 (Fase 24) — Cupom aplicado
   coupon         QuoteCoupon?   @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
+  // Onda 3 (Fase 24) — Anexos (fotos antes/depois, TCLE, exames, etc)
+  attachments    QuoteAttachment[]
 
   @@index([patient_id, status])
   @@index([status, valid_until])
   @@index([coupon_id])
+}
+
+/// Onda 3 (Fase 24) — Arquivos anexados a um orçamento.
+/// Use cases:
+///  - Foto antes/depois (estetica facial, smile design) — vende mais
+///  - Exames (rx panorama, periapical) que justificam o tratamento
+///  - TCLE pré-preenchido pra paciente assinar
+///  - Carta de prevenção / orientações pós-procedimento
+///  - Documentos auxiliares (laudo, autorização de plano, etc)
+///
+/// Storage: FileStorageService grava em quote-attachments/{id}.{ext}
+model QuoteAttachment {
+  id               String   @id @default(uuid())
+  quote_id         String
+  uploaded_by_id   String
+  /// Nome original do arquivo (preservado pra exibir e pra download)
+  filename         String
+  /// MIME type (image/jpeg, application/pdf, etc) — usado pra serve correto
+  mime_type        String
+  /// Tamanho em bytes — pra mostrar na UI e bloquear uploads grandes
+  size_bytes       Int
+  /// Caminho relativo no FileStorage (quote-attachments/{id}.{ext})
+  file_path        String
+  /// Categoria livre pra agrupar (ex: "Antes/Depois", "Exame", "TCLE")
+  category         String?
+  /// Descricao opcional do que e este anexo
+  description      String?
+  created_at       DateTime @default(now())
+
+  quote       Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  uploaded_by User  @relation("QuoteAttachmentUploader", fields: [uploaded_by_id], references: [id], onDelete: Restrict)
+
+  @@index([quote_id, created_at])
 }
 
 // ============================================================================

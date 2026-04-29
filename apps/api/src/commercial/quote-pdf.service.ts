@@ -42,6 +42,10 @@ export class QuotePdfService {
             procedure: { select: { name: true, code_tuss: true } },
           },
         },
+        attachments: {
+          orderBy: { created_at: 'asc' },
+          select: { id: true, filename: true, category: true, mime_type: true },
+        },
       },
     });
 
@@ -208,6 +212,24 @@ export class QuotePdfService {
         doc.font('Helvetica-Bold').fontSize(10).text('OBSERVAÇÕES');
         doc.moveDown(0.3);
         doc.font('Helvetica').fontSize(10).text(quote.notes);
+        doc.moveDown(1);
+      }
+
+      // ── Anexos (Onda 3) — lista nomes + categoria pra paciente saber o que vem junto
+      const attachments = (quote as any).attachments || [];
+      if (attachments.length > 0) {
+        doc.font('Helvetica-Bold').fontSize(10).text('ANEXOS DESTE ORÇAMENTO');
+        doc.moveDown(0.3);
+        doc.font('Helvetica').fontSize(9.5);
+        for (const att of attachments) {
+          const cat = att.category ? ` [${att.category}]` : '';
+          doc.text(`• ${att.filename}${cat}`);
+        }
+        doc.moveDown(0.5);
+        doc.fontSize(8).fillColor('#666').text(
+          'Os arquivos podem ser visualizados no portal do paciente ou solicitados à recepção.',
+        );
+        doc.fillColor('#000');
         doc.moveDown(1);
       }
 
