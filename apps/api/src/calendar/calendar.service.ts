@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException, Logger, Inject, forwardRef } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, forwardRef } from '@nestjs/common';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
@@ -162,6 +162,16 @@ export class CalendarService {
   }) {
     if (!EVENT_TYPES.includes(data.type as any)) {
       throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
+    }
+
+    // Dentista responsavel OBRIGATORIO em eventos clinicos (Fase 23).
+    // Eventos como BLOQUEIO/TAREFA/OUTRO podem nao ter dentista — sao usos
+    // operacionais, nao atendimentos.
+    if (this.isClinicalEvent(data.type) && !data.assigned_user_id) {
+      throw new BadRequestException(
+        `Dentista responsavel e obrigatorio para eventos do tipo ${data.type}. ` +
+        `Selecione o profissional na hora de criar o agendamento.`,
+      );
     }
 
     // STUBBED: LegalCase removido Fase 0.2 — lead_id deve vir direto
@@ -359,8 +369,37 @@ export class CalendarService {
     // Carrega estado anterior para detectar mudanças relevantes na audiência
     const before = await this.prisma.calendarEvent.findUnique({
       where: { id },
-      select: { type: true, start_at: true, location: true, lead_id: true, status: true, assigned_user_id: true, tenant_id: true },
+      select: {
+        type: true, start_at: true, location: true, lead_id: true,
+        status: true, assigned_user_id: true, tenant_id: true,
+        validated_at: true, validated_by_user_id: true, // pra checar lock pos-validacao
+      },
     });
+
+    // Bloqueia troca de dentista APOS validacao clinica (Fase 23).
+    // Operador pode trocar dentista ate o atendimento ser validado pelo
+    // proprio dentista. Depois disso, so admin pode reverter validacao
+    // primeiro (POST /calendar/events/:id/unvalidate) e entao trocar.
+    if (before?.validated_at && data.assigned_user_id !== undefined) {
+      const novoUserId = data.assigned_user_id || null;
+      if (novoUserId !== before.assigned_user_id) {
+        throw new ForbiddenException(
+          'Atendimento ja foi validado pelo dentista. Pra trocar o responsavel, ' +
+          'um administrador precisa reverter a validacao primeiro.',
+        );
+      }
+    }
+
+    // Dentista responsavel obrigatorio em eventos clinicos. Aplica tanto se
+    // o tipo esta sendo alterado quanto se o assigned_user_id ta sendo zerado.
+    const finalType = (data.type || before?.type) as string | undefined;
+    const finalAssignedUserId =
+      data.assigned_user_id !== undefined ? data.assigned_user_id : before?.assigned_user_id;
+    if (finalType && this.isClinicalEvent(finalType) && !finalAssignedUserId) {
+      throw new BadRequestException(
+        `Dentista responsavel e obrigatorio para eventos do tipo ${finalType}.`,
+      );
+    }
 
     const event = await this.prisma.calendarEvent.update({
       where: { id },
@@ -1223,6 +1262,127 @@ export class CalendarService {
 
     this.logger.log(`[NOTIFY] Re-envio manual enfileirado para evento ${eventId} (${event.type}: "${event.title}")`);
     return { queued: true, message: `Notificação de ${event.type === 'PERICIA' ? 'perícia' : 'audiência'} enfileirada com sucesso` };
+  }
+
+  // ─── Validacao clinica (Fase 23) ──────────────────────────────────
+  //
+  // Workflow: dentista atribuido (assigned_user) ATESTA que o atendimento
+  // realmente aconteceu, separando a validacao clinica do simples
+  // status=CONCLUIDO marcado pela recepcao.
+  //
+  // Permissoes:
+  //  - validate(): dentista atribuido OU admin
+  //  - unvalidate(): so admin (recepcao/dentista nao podem desfazer)
+  //
+  // Side effects ao validar:
+  //  - status vira CONCLUIDO se ainda nao for (dispara hook das visit dates)
+  //  - last_visit_at do paciente atualiza automaticamente
+  //  - Notifica o paciente via socket (assigned_user dashboard refresh)
+
+  async validate(
+    eventId: string,
+    actorUserId: string,
+    isAdmin: boolean,
+    notes?: string,
+  ) {
+    const event = await this.prisma.calendarEvent.findUnique({
+      where: { id: eventId },
+      select: {
+        id: true, type: true, status: true, start_at: true, patient_id: true,
+        assigned_user_id: true, validated_at: true,
+      },
+    });
+    if (!event) throw new NotFoundException('Evento nao encontrado');
+    if (event.validated_at) {
+      throw new BadRequestException('Este atendimento ja foi validado');
+    }
+    if (!event.assigned_user_id) {
+      throw new BadRequestException(
+        'Atendimento sem dentista responsavel atribuido — atribua antes de validar',
+      );
+    }
+    // Permissao: so o assigned_user OU admin
+    if (event.assigned_user_id !== actorUserId && !isAdmin) {
+      throw new ForbiddenException(
+        'Apenas o dentista responsavel pelo atendimento pode valida-lo. ' +
+        'Se precisa que outra pessoa valide, peca a um administrador.',
+      );
+    }
+
+    // Atualiza tudo numa transacao (validation + status CONCLUIDO se necessario)
+    const newStatus = event.status === 'CONCLUIDO' ? event.status : 'CONCLUIDO';
+    const validated = await this.prisma.calendarEvent.update({
+      where: { id: eventId },
+      data: {
+        validated_at: new Date(),
+        validated_by_user_id: actorUserId,
+        validation_notes: notes?.trim() || null,
+        status: newStatus,
+      },
+      include: {
+        validated_by: { select: { id: true, name: true } },
+        assigned_user: { select: { id: true, name: true } },
+      },
+    });
+
+    // Atualiza visit dates do paciente (mesmo hook do updateStatus)
+    if (validated.patient_id && this.isClinicalEvent(validated.type) && validated.start_at) {
+      await this.updatePatientVisitDates(validated.patient_id, validated.start_at).catch(() => {});
+    }
+
+    // Notifica via socket pra refresh em tempo real
+    if (validated.assigned_user_id) {
+      try {
+        this.chatGateway.emitCalendarUpdate(validated.assigned_user_id, {
+          eventId,
+          action: 'validated',
+          title: validated.title,
+          type: validated.type,
+        });
+      } catch {}
+    }
+
+    this.logger.log(
+      `[VALIDATE] Evento ${eventId} validado por user ${actorUserId} (admin=${isAdmin})`,
+    );
+    return validated;
+  }
+
+  async unvalidate(eventId: string, isAdmin: boolean) {
+    if (!isAdmin) {
+      throw new ForbiddenException('Apenas administradores podem reverter validacao clinica');
+    }
+    const event = await this.prisma.calendarEvent.findUnique({
+      where: { id: eventId },
+      select: { id: true, validated_at: true, assigned_user_id: true, type: true, title: true },
+    });
+    if (!event) throw new NotFoundException('Evento nao encontrado');
+    if (!event.validated_at) {
+      throw new BadRequestException('Este atendimento ainda nao foi validado');
+    }
+
+    const reverted = await this.prisma.calendarEvent.update({
+      where: { id: eventId },
+      data: {
+        validated_at: null,
+        validated_by_user_id: null,
+        validation_notes: null,
+      },
+    });
+
+    if (reverted.assigned_user_id) {
+      try {
+        this.chatGateway.emitCalendarUpdate(reverted.assigned_user_id, {
+          eventId,
+          action: 'unvalidated',
+          title: reverted.title,
+          type: reverted.type,
+        });
+      } catch {}
+    }
+
+    this.logger.log(`[UNVALIDATE] Evento ${eventId} validacao revertida pelo admin`);
+    return reverted;
   }
 
   // ─── Patient visit dates helpers ──────────────────────────────────

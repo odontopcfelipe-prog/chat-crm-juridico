@@ -559,6 +559,9 @@ export class PatientsService {
 
     type TimelineItem = {
       id: string;
+      // Reference to source row id (sem prefixo) — necessario pra acoes
+      // como "Validar" que precisam do CalendarEvent.id real
+      source_id?: string;
       type: 'appointment' | 'procedure' | 'payment' | 'return' | 'anamnesis';
       date: string;
       title: string;
@@ -567,6 +570,10 @@ export class PatientsService {
       professional?: string | null;
       amount?: number | null;
       link?: string | null;
+      // Validacao clinica (Fase 23) — so faz sentido em type=appointment
+      assigned_user_id?: string | null;
+      validated_at?: string | null;
+      validated_by_name?: string | null;
     };
 
     // Cada query envolvida em try/catch — se uma fonte falhar (ex: tabela
@@ -586,7 +593,12 @@ export class PatientsService {
         select: {
           id: true, type: true, title: true, description: true,
           start_at: true, status: true,
+          assigned_user_id: true,
           assigned_user: { select: { name: true } },
+          // Validacao clinica (Fase 23)
+          validated_at: true,
+          validated_by_user_id: true,
+          validated_by: { select: { name: true } },
         },
         orderBy: { start_at: 'desc' },
         take: limit,
@@ -647,8 +659,10 @@ export class PatientsService {
         OUTRO: 'Evento',
       };
       const label = typeLabel[a.type] || a.type;
+      const aAny = a as any;
       items.push({
         id: `appt-${a.id}`,
+        source_id: a.id,
         type: 'appointment',
         date: a.start_at.toISOString(),
         title: `${label}: ${a.title}`,
@@ -656,6 +670,9 @@ export class PatientsService {
         status: a.status,
         professional: a.assigned_user?.name || null,
         link: `/atendimento/agenda?event=${a.id}`,
+        assigned_user_id: aAny.assigned_user_id ?? null,
+        validated_at: aAny.validated_at ? aAny.validated_at.toISOString() : null,
+        validated_by_name: aAny.validated_by?.name ?? null,
       });
     }
 

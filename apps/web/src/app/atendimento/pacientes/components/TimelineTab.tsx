@@ -14,16 +14,18 @@
  * Backend: GET /patients/:id/timeline?limit=N — retorna {items, total}
  * já ordenado desc por data.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, FormEvent } from 'react';
 import {
   Loader2, Calendar, Activity, DollarSign, Bell, FileText,
-  Clock, CheckCircle2, XCircle, AlertTriangle,
+  Clock, CheckCircle2, XCircle, AlertTriangle, Shield, X, RotateCcw,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { showError } from '@/lib/toast';
+import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 
 interface TimelineItem {
   id: string;
+  source_id?: string;
   type: 'appointment' | 'procedure' | 'payment' | 'return' | 'anamnesis';
   date: string;
   title: string;
@@ -32,6 +34,10 @@ interface TimelineItem {
   professional?: string | null;
   amount?: number | null;
   link?: string | null;
+  // Validacao clinica (so faz sentido em type=appointment)
+  assigned_user_id?: string | null;
+  validated_at?: string | null;
+  validated_by_name?: string | null;
 }
 
 interface TimelineResponse {
@@ -157,6 +163,42 @@ export default function TimelineTab({
     initialActiveTypes ||
       new Set(['appointment', 'procedure', 'payment', 'return', 'anamnesis'])
   );
+
+  // Validacao clinica (Fase 23) — modal + permissões
+  const role = useRole();
+  const [validateModal, setValidateModal] = useState<TimelineItem | null>(null);
+
+  const reload = () => {
+    setLoading(true);
+    api.get<TimelineResponse>(`/patients/${patientId}/timeline?limit=200`)
+      .then((r) => setData(r.data))
+      .catch((err) => showError(err?.response?.data?.message || 'Erro ao carregar histórico'))
+      .finally(() => setLoading(false));
+  };
+
+  /**
+   * Operador atual pode validar este atendimento?
+   * Regras: type=appointment, ainda não validado, e (admin OU é o dentista atribuído).
+   */
+  const canValidate = (item: TimelineItem): boolean => {
+    if (item.type !== 'appointment') return false;
+    if (item.validated_at) return false;
+    if (role.isAdmin) return true;
+    return !!item.assigned_user_id && item.assigned_user_id === role.userId;
+  };
+
+  /** Reverter validacao — só admin */
+  const handleUnvalidate = async (item: TimelineItem) => {
+    if (!item.source_id) return;
+    if (!confirm(`Reverter validação clínica deste atendimento?\n\nIsso permite trocar o dentista atribuído ou re-validar com outro profissional.`)) return;
+    try {
+      await api.post(`/calendar/events/${item.source_id}/unvalidate`);
+      showSuccess('Validação revertida');
+      reload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao reverter');
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -306,24 +348,61 @@ export default function TimelineTab({
                                 {statusBadge.label}
                               </span>
                             )}
+                            {/* Badge de Validacao Clinica (Fase 23) */}
+                            {item.type === 'appointment' && item.validated_at && (
+                              <span
+                                className="text-[10px] px-1.5 py-0.5 rounded border bg-emerald-500/10 text-emerald-600 border-emerald-500/20 inline-flex items-center gap-1"
+                                title={`Validado por Dr(a). ${item.validated_by_name || '—'} em ${new Date(item.validated_at).toLocaleString('pt-BR')}`}
+                              >
+                                <Shield size={10} /> Validado
+                              </span>
+                            )}
                           </div>
                           <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5 flex-wrap">
                             <span>{formatDateTime(item.date)}</span>
                             {item.professional && <span>Dr(a). {item.professional}</span>}
                             {item.subtitle && <span className="italic truncate">{item.subtitle}</span>}
+                            {item.type === 'appointment' && item.validated_at && item.validated_by_name && (
+                              <span className="text-emerald-600">
+                                ✓ Validado por Dr(a). {item.validated_by_name} em {new Date(item.validated_at).toLocaleDateString('pt-BR')}
+                              </span>
+                            )}
                           </div>
                         </div>
-                        {item.amount != null && (
-                          <span className={`text-sm font-semibold whitespace-nowrap ${
-                            item.status === 'PAGA' || item.status === 'PARCIAL'
-                              ? 'text-emerald-600'
-                              : item.status === 'ATRASADA'
-                                ? 'text-red-600'
-                                : 'text-foreground'
-                          }`}>
-                            {formatBRL(item.amount)}
-                          </span>
-                        )}
+                        {/* Acoes a direita: valor (pagamentos) OU botoes de validacao (consultas) */}
+                        <div className="flex items-center gap-2 shrink-0">
+                          {item.amount != null && (
+                            <span className={`text-sm font-semibold whitespace-nowrap ${
+                              item.status === 'PAGA' || item.status === 'PARCIAL'
+                                ? 'text-emerald-600'
+                                : item.status === 'ATRASADA'
+                                  ? 'text-red-600'
+                                  : 'text-foreground'
+                            }`}>
+                              {formatBRL(item.amount)}
+                            </span>
+                          )}
+                          {/* Botao "Validar" — so se assigned_user OU admin, e nao validado ainda */}
+                          {canValidate(item) && !isCancelled && (
+                            <button
+                              onClick={() => setValidateModal(item)}
+                              className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                              title="Atestar que este atendimento aconteceu"
+                            >
+                              <Shield size={11} /> Validar
+                            </button>
+                          )}
+                          {/* Botao "Reverter validacao" — so admin, e somente se ja validado */}
+                          {item.type === 'appointment' && item.validated_at && role.isAdmin && (
+                            <button
+                              onClick={() => handleUnvalidate(item)}
+                              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40"
+                              title="Reverter validação (admin)"
+                            >
+                              <RotateCcw size={11} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   </li>
@@ -332,6 +411,104 @@ export default function TimelineTab({
             </ol>
           </div>
         ))}
+      </div>
+
+      {/* Modal de validacao clinica */}
+      {validateModal && (
+        <ValidateModal
+          item={validateModal}
+          onClose={() => setValidateModal(null)}
+          onValidated={() => { setValidateModal(null); reload(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Modal de validacao clinica (Fase 23) ─────────────────────
+
+function ValidateModal({
+  item, onClose, onValidated,
+}: { item: TimelineItem; onClose: () => void; onValidated: () => void }) {
+  const [notes, setNotes] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!item.source_id) return;
+    setSaving(true);
+    try {
+      await api.post(`/calendar/events/${item.source_id}/validate`, {
+        notes: notes.trim() || undefined,
+      });
+      showSuccess('Atendimento validado');
+      onValidated();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao validar');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl w-full max-w-md shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-4 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Shield size={18} className="text-emerald-600" />
+            <h2 className="text-base font-semibold">Validar atendimento</h2>
+          </div>
+          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+            <X size={18} />
+          </button>
+        </div>
+        <form onSubmit={submit} className="p-4 space-y-4">
+          <div className="bg-background border border-border rounded-lg p-3 text-sm space-y-1">
+            <div className="font-medium text-foreground">{item.title}</div>
+            <div className="text-xs text-muted-foreground">
+              {formatDateTime(item.date)}
+              {item.professional && <span> · Dr(a). {item.professional}</span>}
+            </div>
+          </div>
+          <div className="bg-amber-500/5 border border-amber-500/20 rounded-lg p-3 text-xs text-amber-700">
+            <strong>Você está atestando que este atendimento aconteceu.</strong>{' '}
+            Após validar, o paciente não poderá mais ter o dentista responsável trocado
+            (apenas admin pode reverter). Use isso apenas após realmente realizar o procedimento.
+          </div>
+          <div>
+            <label className="block text-xs font-medium mb-1">Notas clínicas (opcional)</label>
+            <textarea
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              rows={3}
+              placeholder="Observações sobre o atendimento, intercorrências, próximos passos..."
+              className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm resize-none focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-2">
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
+            >
+              Cancelar
+            </button>
+            <button
+              type="submit"
+              disabled={saving}
+              className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Shield size={14} />}
+              Validar atendimento
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );

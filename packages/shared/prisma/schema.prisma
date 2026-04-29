@@ -97,6 +97,7 @@ model User {
   interns                       User[]                 @relation("InternSupervisors")
   calendar_events_assigned      CalendarEvent[]        @relation("EventAssigned")
   calendar_events_created       CalendarEvent[]        @relation("EventCreator")
+  calendar_events_validated     CalendarEvent[]        @relation("EventValidator")
   schedules                     UserSchedule[]
   calendar_event_comments       CalendarEventComment[]
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
@@ -807,6 +808,14 @@ model CalendarEvent {
 
   created_by_ai Boolean @default(false) // true quando o evento foi criado por tool da IA (book_appointment)
 
+  // Validacao clinica (Fase 23) — atestacao do dentista de que o atendimento
+  // realmente aconteceu. Separado de status=CONCLUIDO (que pode ser marcado
+  // pela recepcao). So o assigned_user OU admin valida; reversao so admin.
+  validated_at         DateTime?
+  validated_by_user_id String?
+  validated_by         User?     @relation("EventValidator", fields: [validated_by_user_id], references: [id], onDelete: SetNull)
+  validation_notes     String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -816,6 +825,7 @@ model CalendarEvent {
   @@index([parent_event_id])
   @@index([patient_id, start_at])
   @@index([room_id, start_at])
+  @@index([validated_at])
 }
 
 model EventReminder {

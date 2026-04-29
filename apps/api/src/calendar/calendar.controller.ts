@@ -89,6 +89,32 @@ export class CalendarController {
     return this.calendarService.notifyEvent(id);
   }
 
+  /**
+   * Valida atendimento clinicamente (Fase 23).
+   * Apenas o assigned_user (dentista responsavel) OU admin pode validar.
+   * Marca validated_at + validated_by_user_id, atualiza last_visit_at do
+   * paciente, e fecha status pra CONCLUIDO se necessario.
+   */
+  @Post('events/:id/validate')
+  async validate(
+    @Param('id') id: string,
+    @Body() body: { notes?: string },
+    @Request() req: any,
+  ) {
+    const isAdmin = (req.user.roles || []).includes('ADMIN');
+    return this.calendarService.validate(id, req.user.id, isAdmin, body?.notes);
+  }
+
+  /**
+   * Reverte validacao clinica — apenas admin (Fase 23).
+   * Permite trocar dentista atribuido ou re-validar com outro profissional.
+   */
+  @Post('events/:id/unvalidate')
+  async unvalidate(@Param('id') id: string, @Request() req: any) {
+    const isAdmin = (req.user.roles || []).includes('ADMIN');
+    return this.calendarService.unvalidate(id, isAdmin);
+  }
+
   @Delete('events/:id')
   async remove(
     @Param('id') id: string,
