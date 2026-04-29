@@ -61,6 +61,9 @@ export class CreateEventDto {
   lead_id?: string;
 
   @IsOptional() @IsString()
+  patient_id?: string;
+
+  @IsOptional() @IsString()
   conversation_id?: string;
 
   @IsOptional() @IsString()
@@ -120,6 +123,9 @@ export class UpdateEventDto {
 
   @IsOptional() @IsString()
   lead_id?: string;
+
+  @IsOptional() @IsString()
+  patient_id?: string;
 
   @IsOptional() @IsString()
   conversation_id?: string;

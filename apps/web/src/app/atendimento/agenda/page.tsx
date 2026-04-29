@@ -8,6 +8,7 @@ import { useNextCalendarApp, ScheduleXCalendar } from '@schedule-x/react';
 import { AgendaResourceView } from './AgendaResourceView';
 import { AgendaResourceLayout } from './AgendaResourceLayout';
 import { AgendaListView } from './AgendaListView';
+import ContactPicker from './ContactPicker';
 import { createViewDay, createViewWeek, createViewMonthGrid } from '@schedule-x/calendar';
 import { createEventsServicePlugin } from '@schedule-x/events-service';
 import { createDragAndDropPlugin } from '@schedule-x/drag-and-drop';
@@ -46,6 +47,7 @@ interface CalendarEvent {
   color?: string | null;
   location?: string | null;
   lead_id?: string | null;
+  patient_id?: string | null;
   conversation_id?: string | null;
   legal_case_id?: string | null;
   assigned_user_id?: string | null;
@@ -53,6 +55,7 @@ interface CalendarEvent {
   assigned_user?: { id: string; name: string } | null;
   created_by?: { id: string; name: string } | null;
   lead?: { id: string; name: string | null; phone: string } | null;
+  patient?: { id: string; name: string | null; phone: string | null } | null;
   legal_case?: { id: string; case_number: string | null; specialty: string | null; lead?: { name: string | null } | null } | null;
   _count?: { comments: number };
 }
@@ -468,6 +471,7 @@ export default function AgendaPage() {
     location: '',
     assigned_user_id: '',
     lead_id: '',
+    patient_id: '',
     legal_case_id: '',
     reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }] as { minutes_before: number; channel: string }[],
     recurrence_rule: '',
@@ -542,6 +546,7 @@ export default function AgendaPage() {
       location: '',
       assigned_user_id: presetUserId || currentUserId,
       lead_id: '',
+      patient_id: '',
       legal_case_id: '',
       reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }],
       recurrence_rule: '',
@@ -956,6 +961,7 @@ export default function AgendaPage() {
       location: ev.location || '',
       assigned_user_id: ev.assigned_user_id || '',
       lead_id: ev.lead_id || '',
+      patient_id: ev.patient_id || '',
       legal_case_id: ev.legal_case_id || '',
       reminders: (ev as any).reminders?.map((r: any) => ({ minutes_before: r.minutes_before, channel: r.channel })) || [{ minutes_before: 30, channel: 'WHATSAPP' }],
       recurrence_rule: (ev as any).recurrence_rule || '',
@@ -1019,6 +1025,7 @@ export default function AgendaPage() {
       location: formData.location.trim() || null,
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
+      patient_id: formData.patient_id || null,
       legal_case_id: formData.legal_case_id || null,
       reminders: formData.reminders.length > 0 ? formData.reminders : undefined,
       recurrence_rule: formData.recurrence_rule || undefined,
@@ -1128,6 +1135,7 @@ export default function AgendaPage() {
         location: editingEvent.location || '',
         assigned_user_id: editingEvent.assigned_user_id || '',
         lead_id: editingEvent.lead_id || '',
+        patient_id: editingEvent.patient_id || '',
         legal_case_id: editingEvent.legal_case_id || '',
         reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }],
         recurrence_rule: '',
@@ -2059,17 +2067,14 @@ export default function AgendaPage() {
                 />
               )}
 
-              {/* Lead */}
+              {/* Paciente / Lead — busca por nome, telefone ou CPF */}
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Lead / Cliente</label>
-                <select
-                  value={formData.lead_id}
-                  onChange={e => setFormData(f => ({ ...f, lead_id: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="">Nenhum</option>
-                  {leads.map(l => <option key={l.id} value={l.id}>{l.name || l.phone}</option>)}
-                </select>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Paciente / Lead</label>
+                <ContactPicker
+                  value={{ patient_id: formData.patient_id || null, lead_id: formData.lead_id || null }}
+                  onChange={(s) => setFormData((f) => ({ ...f, patient_id: s.patient_id || '', lead_id: s.lead_id || '' }))}
+                  leads={leads}
+                />
               </div>
 
               {/* Prioridade */}

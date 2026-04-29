@@ -330,6 +330,7 @@ export class CalendarService {
       location?: string;
       type?: string;
       lead_id?: string | null;
+      patient_id?: string | null;
       conversation_id?: string | null;
       assigned_user_id?: string | null;
       appointment_type_id?: string | null;
