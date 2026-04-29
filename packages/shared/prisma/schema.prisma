@@ -65,6 +65,9 @@ model Tenant {
   radiography_exams         RadiographyExam[]
   // Tags / segmentacao (Fase 20)
   patient_tags              PatientTag[]
+  // Indicacao premiada (Fase 21)
+  referrals                 Referral[]
+  referral_rule             ReferralRule?
 }
 
 model User {
@@ -1549,6 +1552,9 @@ model Patient {
   radiography_exams     RadiographyExam[]
   // Tags / segmentacao (Fase 20)
   tags                  PatientTagOnPatient[]
+  // Indicacao premiada (Fase 21)
+  referrals_given       Referral[]            @relation("ReferralsGiven")
+  referral_received     Referral?             @relation("ReferralReceived")
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -1588,6 +1594,67 @@ model PatientTagOnPatient {
   @@id([patient_id, tag_id])
   @@index([tag_id])
   @@index([patient_id])
+}
+
+// ============================================================================
+// FASE 21 — INDICAÇÃO PREMIADA (CASHBACK / REFERRAL PROGRAM)
+// ============================================================================
+//
+// Quando um paciente A indica um paciente B (via referred_by_id), uma
+// Referral é criada com status PENDING. Quando o paciente B fecha um
+// TreatmentPlan (status -> ACCEPTED/ACTIVE), a Referral muda pra EARNED
+// e o paciente A passa a ter direito ao cashback (reward_value). O
+// admin marca como PAID quando aplica o desconto na próxima parcela
+// do paciente A ou paga em dinheiro.
+//
+// Status:
+//  PENDING — paciente B ainda não fechou plano
+//  EARNED  — paciente B fechou plano, A tem cashback a receber
+//  PAID    — clinica ja aplicou o cashback
+//  EXPIRED — passou da validade (definida em ReferralRule.expiration_days)
+//  CANCELLED — paciente B nao seguiu / desistiu / cancelou plano
+
+model Referral {
+  id           String  @id @default(uuid())
+  tenant_id    String
+  referrer_id  String  // Patient que indicou
+  referred_id  String  @unique // Patient indicado (1 indicacao por paciente novo)
+
+  status       String  @default("PENDING") // PENDING | EARNED | PAID | EXPIRED | CANCELLED
+  reward_value Decimal @default(0) @db.Decimal(10, 2) // Valor do cashback
+
+  // Datas do ciclo
+  earned_at    DateTime? // Quando virou EARNED (plano fechado)
+  paid_at      DateTime? // Quando admin marcou como PAID
+  expires_at   DateTime? // Calculado de ReferralRule.expiration_days
+
+  // Vinculo opcional ao plano que disparou o EARNED
+  triggering_plan_id String?
+
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  referrer Patient @relation("ReferralsGiven", fields: [referrer_id], references: [id], onDelete: Cascade)
+  referred Patient @relation("ReferralReceived", fields: [referred_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, status])
+  @@index([referrer_id, status])
+  @@index([referred_id])
+}
+
+model ReferralRule {
+  id                       String  @id @default(uuid())
+  tenant_id                String  @unique // 1 regra por tenant
+  enabled                  Boolean @default(true)
+  default_reward_value     Decimal @default(50) @db.Decimal(10, 2) // R$ por indicação que fecha
+  expiration_days          Int     @default(180) // Validade do cashback após EARNED
+  notes                    String?
+  created_at               DateTime @default(now())
+  updated_at               DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 }
 
 model PatientAllergy {

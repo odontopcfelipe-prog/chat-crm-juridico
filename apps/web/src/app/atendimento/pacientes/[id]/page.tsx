@@ -738,7 +738,17 @@ function ResumoClinicoCard({ patient, onReload }: { patient: Patient; onReload: 
           <Field label="Indicado por" value={patient.referred_by} />
         )}
         {patient._count && patient._count.referrals > 0 && (
-          <Field label="Indicações feitas" value={`${patient._count.referrals} paciente(s)`} />
+          <div className="flex items-start justify-between gap-3">
+            <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5">Indicações feitas</dt>
+            <dd className="text-sm text-foreground text-right break-words">
+              <a
+                href={`/atendimento/referrals?referrerId=${patient.id}`}
+                className="text-primary hover:underline"
+              >
+                {patient._count.referrals} paciente(s)
+              </a>
+            </dd>
+          </div>
         )}
       </dl>
     </div>

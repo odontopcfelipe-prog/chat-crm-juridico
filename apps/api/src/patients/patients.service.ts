@@ -1,6 +1,7 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { Prisma } from '@crm/shared';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class PatientsService {
   constructor(
     private prisma: PrismaService,
     private fileStorage: FileStorageService,
+    @Inject(forwardRef(() => ReferralsService)) private referralsService: ReferralsService,
   ) {}
 
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
@@ -23,9 +25,26 @@ export class PatientsService {
       if (existing) throw new BadRequestException('Ja existe um paciente com este CPF neste tenant');
     }
 
-    return this.prisma.patient.create({
+    const patient = await this.prisma.patient.create({
       data: { ...data, tenant_id: tenantId },
     });
+
+    // Hook Indicação Premiada (Fase 21): se foi indicado por outro paciente,
+    // cria Referral{status:PENDING}. Best-effort — se falhar não bloqueia
+    // o cadastro do paciente.
+    if (data.referred_by_id) {
+      try {
+        await this.referralsService.createPending({
+          tenantId,
+          referrerId: data.referred_by_id as string,
+          referredId: patient.id,
+        });
+      } catch (e: any) {
+        this.logger.warn(`[REFERRAL HOOK] Falhou criar PENDING pra paciente ${patient.id}: ${e?.message}`);
+      }
+    }
+
+    return patient;
   }
 
   /** Lista pacientes com busca, filtro de status, dentista, tag e paginacao. */
@@ -153,7 +172,7 @@ export class PatientsService {
     const existing = await this.prisma.patient.findUnique({ where: { lead_id: leadId } });
     if (existing) return existing;
 
-    return this.prisma.patient.create({
+    const patient = await this.prisma.patient.create({
       data: {
         tenant_id: tenantId,
         lead_id: leadId,
@@ -164,6 +183,21 @@ export class PatientsService {
         ...extraData,
       },
     });
+
+    // Hook Indicação Premiada: se conversão veio com referred_by_id no extraData
+    if (extraData.referred_by_id) {
+      try {
+        await this.referralsService.createPending({
+          tenantId,
+          referrerId: extraData.referred_by_id as string,
+          referredId: patient.id,
+        });
+      } catch (e: any) {
+        this.logger.warn(`[REFERRAL HOOK] Falhou criar PENDING (convert): ${e?.message}`);
+      }
+    }
+
+    return patient;
   }
 
   /** Estatisticas rapidas (para dashboard). */

@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass,
+  Hourglass, Trophy,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -398,6 +398,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/waitlist'),
       show: true,
     },
+    referrals: {
+      label: 'Indicação Premiada',
+      href: '/atendimento/referrals',
+      icon: <Trophy size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/referrals'),
+      show: true,
+    },
     estoque: {
       label: 'Estoque',
       href: '/atendimento/estoque',
@@ -488,7 +495,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.waitlist, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.waitlist, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
     },
     {
       id: 'gestao',

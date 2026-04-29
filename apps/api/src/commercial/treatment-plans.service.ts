@@ -1,5 +1,6 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ReferralsService } from '../referrals/referrals.service';
 import { Prisma } from '@crm/shared';
 
 function monthKey(d: Date): string {
@@ -9,7 +10,10 @@ function monthKey(d: Date): string {
 @Injectable()
 export class TreatmentPlansService {
   private readonly logger = new Logger(TreatmentPlansService.name);
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    @Optional() @Inject(forwardRef(() => ReferralsService)) private referralsService?: ReferralsService,
+  ) {}
 
   async findByPatient(patientId: string, tenantId: string) {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
@@ -60,10 +64,22 @@ export class TreatmentPlansService {
     if (plan.status === 'COMPLETED' || plan.status === 'CANCELLED') {
       throw new BadRequestException(`Plano esta ${plan.status} — nao pode ser ativado`);
     }
-    return this.prisma.treatmentPlan.update({
+    const updated = await this.prisma.treatmentPlan.update({
       where: { id },
       data: { status: 'ACTIVE', start_date: plan.start_date || new Date() },
     });
+
+    // Hook Indicação Premiada (Fase 21): se este paciente foi indicado por
+    // outro, marca a Referral como EARNED (cashback liberado pro indicador).
+    if (this.referralsService) {
+      try {
+        await this.referralsService.markEarned(plan.patient.id, id);
+      } catch (e: any) {
+        this.logger.warn(`[REFERRAL HOOK] Falhou marcar EARNED: ${e?.message}`);
+      }
+    }
+
+    return updated;
   }
 
   /** Marca plano como completo quando todos os items estao DONE ou CANCELLED. */
