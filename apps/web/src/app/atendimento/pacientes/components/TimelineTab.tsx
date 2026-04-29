@@ -139,11 +139,23 @@ function formatMonthYear(key: string) {
   return `${MONTH_LABEL[m]} de ${y}`;
 }
 
-export default function TimelineTab({ patientId }: { patientId: string }) {
+export default function TimelineTab({
+  patientId,
+  initialActiveTypes,
+}: {
+  patientId: string;
+  /**
+   * Conjunto inicial de tipos a exibir. Permite drill-down a partir de
+   * outros lugares (ex: click em "Consultas: N" no Resumo Clínico abre
+   * essa aba já filtrada por 'appointment'). Se não passado, mostra tudo.
+   */
+  initialActiveTypes?: Set<TimelineItem['type']>;
+}) {
   const [data, setData] = useState<TimelineResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTypes, setActiveTypes] = useState<Set<TimelineItem['type']>>(
-    new Set(['appointment', 'procedure', 'payment', 'return', 'anamnesis'])
+    initialActiveTypes ||
+      new Set(['appointment', 'procedure', 'payment', 'return', 'anamnesis'])
   );
 
   useEffect(() => {

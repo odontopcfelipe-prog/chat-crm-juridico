@@ -19,7 +19,7 @@ import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
-  Pencil, Plus, Camera, Check, X, Clock,
+  Pencil, Plus, Camera, Check, X, Clock, ChevronRight,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -131,6 +131,9 @@ export default function PacienteFichaPage() {
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
   const [addMedOpen, setAddMedOpen] = useState(false);
   const [avatarBust, setAvatarBust] = useState(0); // força reload da img após upload
+  // Filtro pré-aplicado quando entra na aba Histórico via click em contador
+  // (ex: "Consultas: 1" abre Histórico já filtrado por appointment)
+  const [historyInitialFilter, setHistoryInitialFilter] = useState<Set<string> | undefined>(undefined);
 
   const load = async () => {
     if (!params?.id) return;
@@ -296,9 +299,19 @@ export default function PacienteFichaPage() {
           onEdit={() => setEditOpen(true)}
           onAddAllergy={() => setAddAllergyOpen(true)}
           onAddMedication={() => setAddMedOpen(true)}
+          onGoToHistory={(types) => {
+            setHistoryInitialFilter(types);
+            setTab('timeline');
+          }}
+          onGoToQuotes={() => setTab('quotes')}
         />
       )}
-      {tab === 'timeline' && <TimelineTab patientId={patient.id} />}
+      {tab === 'timeline' && (
+        <TimelineTab
+          patientId={patient.id}
+          initialActiveTypes={historyInitialFilter as any}
+        />
+      )}
       {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
       {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
       {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}
@@ -417,13 +430,15 @@ function AvatarUploader({
 // ─── Visão geral (totalmente editável) ───────────────────────────────────────
 
 function OverviewTab({
-  patient, onReload, onEdit, onAddAllergy, onAddMedication,
+  patient, onReload, onEdit, onAddAllergy, onAddMedication, onGoToHistory, onGoToQuotes,
 }: {
   patient: Patient;
   onReload: () => void;
   onEdit: () => void;
   onAddAllergy: () => void;
   onAddMedication: () => void;
+  onGoToHistory: (types: Set<string>) => void;
+  onGoToQuotes: () => void;
 }) {
   const enderecoFmt = [
     patient.address && `${patient.address}${patient.address_number ? ', ' + patient.address_number : ''}`,
@@ -501,7 +516,12 @@ function OverviewTab({
       </div>
 
       {/* Resumo clínico */}
-      <ResumoClinicoCard patient={patient} onReload={onReload} />
+      <ResumoClinicoCard
+        patient={patient}
+        onReload={onReload}
+        onGoToHistory={onGoToHistory}
+        onGoToQuotes={onGoToQuotes}
+      />
 
       {/* Alergias */}
       <div className="bg-card border border-border rounded-xl p-4">
@@ -594,7 +614,14 @@ function OverviewTab({
 
 // ─── Card "Resumo clínico" com edição inline ───────────────────────────────
 
-function ResumoClinicoCard({ patient, onReload }: { patient: Patient; onReload: () => void }) {
+function ResumoClinicoCard({
+  patient, onReload, onGoToHistory, onGoToQuotes,
+}: {
+  patient: Patient;
+  onReload: () => void;
+  onGoToHistory: (types: Set<string>) => void;
+  onGoToQuotes: () => void;
+}) {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [editingDentist, setEditingDentist] = useState(false);
   const [editingComplaint, setEditingComplaint] = useState(false);
@@ -726,8 +753,22 @@ function ResumoClinicoCard({ patient, onReload }: { patient: Patient; onReload: 
           </dd>
         </div>
 
-        <Field label="Consultas" value={patient._count ? String(patient._count.appointments) : '0'} />
-        <Field label="Orçamentos" value={patient._count ? String(patient._count.quotes) : '0'} />
+        {/* Consultas — click abre aba Histórico já filtrada por consultas/procedimentos/retornos */}
+        <ClickableCounter
+          label="Consultas"
+          value={patient._count?.appointments ?? 0}
+          enabled={(patient._count?.appointments ?? 0) > 0}
+          tooltip="Ver no Histórico"
+          onClick={() => onGoToHistory(new Set(['appointment', 'procedure', 'return']))}
+        />
+        {/* Orçamentos — click abre aba Orçamentos */}
+        <ClickableCounter
+          label="Orçamentos"
+          value={patient._count?.quotes ?? 0}
+          enabled={(patient._count?.quotes ?? 0) > 0}
+          tooltip="Ver na aba Orçamentos"
+          onClick={onGoToQuotes}
+        />
         {patient.referred_by_patient && (
           <Field
             label="Indicado por"
@@ -761,5 +802,43 @@ function Field({ label, value }: { label: string; value: string | null | undefin
       <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5">{label}</dt>
       <dd className="text-sm text-foreground text-right break-words">{value || <span className="text-muted-foreground">—</span>}</dd>
     </div>
+  );
+}
+
+/**
+ * Linha de contador clicável — usa hover/cursor pra indicar que é
+ * navegável. Quando enabled=false (count=0), vira só um Field comum
+ * sem afetar o layout.
+ */
+function ClickableCounter({
+  label, value, enabled, tooltip, onClick,
+}: {
+  label: string;
+  value: number;
+  enabled: boolean;
+  tooltip: string;
+  onClick: () => void;
+}) {
+  if (!enabled) {
+    return (
+      <div className="flex items-start justify-between gap-3">
+        <dt className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5">{label}</dt>
+        <dd className="text-sm text-muted-foreground text-right">{value}</dd>
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      title={tooltip}
+      className="w-full flex items-start justify-between gap-3 -mx-1 px-1 py-0.5 rounded hover:bg-accent/50 transition-colors group cursor-pointer text-left"
+    >
+      <span className="text-xs font-medium text-muted-foreground shrink-0 pt-0.5">{label}</span>
+      <span className="text-sm font-semibold text-primary text-right group-hover:underline inline-flex items-center gap-1">
+        {value}
+        <ChevronRight size={12} className="opacity-60" />
+      </span>
+    </button>
   );
 }
