@@ -10,7 +10,13 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 
-const EVENT_TYPES = ['CONSULTA', 'TAREFA', 'AUDIENCIA', 'PERICIA', 'PRAZO', 'OUTRO'] as const;
+// Tipos de evento da clinica odontologica.
+// AUDIENCIA/PERICIA/PRAZO sao mantidos por compat com dados antigos do
+// CRM juridico — sao validos no DTO mas nao aparecem no front novo.
+const EVENT_TYPES = [
+  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
+  'AUDIENCIA', 'PERICIA', 'PRAZO',
+] as const;
 const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO', 'ADIADO'] as const;
 
 // ─── Reminder sub-DTO ─────────────────────────────────

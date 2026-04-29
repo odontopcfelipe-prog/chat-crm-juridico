@@ -1026,7 +1026,7 @@ export default function AgendaPage() {
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
       patient_id: formData.patient_id || null,
-      legal_case_id: formData.legal_case_id || null,
+      // legal_case_id removido — herança do CRM juridico, nao existe mais no DTO
       reminders: formData.reminders.length > 0 ? formData.reminders : undefined,
       recurrence_rule: formData.recurrence_rule || undefined,
       recurrence_end: formData.recurrence_end || undefined,

@@ -6,7 +6,13 @@ import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
-const EVENT_TYPES = ['CONSULTA', 'TAREFA', 'AUDIENCIA', 'PERICIA', 'PRAZO', 'OUTRO'] as const;
+// Tipos de evento da clinica odontologica.
+// AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
+// juridico (eventos legados ainda existem no banco e precisam editar/deletar).
+const EVENT_TYPES = [
+  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
+  'AUDIENCIA', 'PERICIA', 'PRAZO',
+] as const;
 const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO', 'ADIADO'] as const;
 
 @Injectable()
