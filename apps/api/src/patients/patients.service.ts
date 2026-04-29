@@ -47,7 +47,7 @@ export class PatientsService {
     return patient;
   }
 
-  /** Lista pacientes com busca, filtro de status, dentista, tag e paginacao. */
+  /** Lista pacientes com busca, filtros e paginacao. */
   async findAll(
     tenantId: string,
     opts: {
@@ -55,6 +55,11 @@ export class PatientsService {
       status?: string;
       dentistId?: string;
       tagId?: string;
+      // Filtros avancados (Fase 22)
+      noVisitMonths?: number;       // pacientes sem revisao ha X meses
+      withActivePlan?: boolean;     // tem TreatmentPlan ACTIVE
+      withoutAnamnesis?: boolean;   // nao tem nenhuma anamnese
+      birthdayMonth?: boolean;      // aniversariantes do mes corrente
       page?: number;
       limit?: number;
     } = {},
@@ -63,6 +68,25 @@ export class PatientsService {
     const limit = Math.min(100, Math.max(1, opts.limit || 20));
     const skip = (page - 1) * limit;
 
+    // Sem revisão há X meses: last_visit_at < (agora - X meses) OU last_visit_at é null
+    let lastVisitFilter: Prisma.PatientWhereInput | undefined;
+    if (opts.noVisitMonths && opts.noVisitMonths > 0) {
+      const cutoff = new Date();
+      cutoff.setMonth(cutoff.getMonth() - opts.noVisitMonths);
+      lastVisitFilter = {
+        OR: [
+          { last_visit_at: { lt: cutoff } },
+          { last_visit_at: null },
+        ],
+      };
+    }
+
+    // Aniversariantes do mês corrente — Prisma não compara month/day diretamente,
+    // mas dá pra filtrar por raw lateral. Aqui fazemos via query SQL no findAll
+    // pra evitar — se precisar, usar o endpoint /patients/birthdays.
+    // Pra simplificar a lista, omitimos essa otimizacao e filtramos in-memory
+    // depois (limitando ao page size).
+
     const where: Prisma.PatientWhereInput = {
       tenant_id: tenantId,
       ...(opts.status ? { status: opts.status } : {}),
@@ -70,6 +94,13 @@ export class PatientsService {
       ...(opts.tagId
         ? { tags: { some: { tag_id: opts.tagId } } }
         : {}),
+      ...(opts.withActivePlan
+        ? { treatment_plans: { some: { status: 'ACTIVE' } } }
+        : {}),
+      ...(opts.withoutAnamnesis
+        ? { anamneses: { none: {} } }
+        : {}),
+      ...(lastVisitFilter || {}),
       ...(opts.search
         ? {
             OR: [
@@ -184,6 +215,24 @@ export class PatientsService {
       },
     });
 
+    // Backfill: vincula CalendarEvents existentes (criados antes da conversão
+    // com lead_id apenas) ao novo patient_id. Garante Timeline + Resumo Clínico
+    // a mostrar consultas agendadas antes do lead virar paciente.
+    try {
+      const linked = await this.prisma.calendarEvent.updateMany({
+        where: { lead_id: leadId, patient_id: null },
+        data: { patient_id: patient.id },
+      });
+      if (linked.count > 0) {
+        this.logger.log(`[CONVERT] ${linked.count} CalendarEvent(s) vinculado(s) ao paciente ${patient.id}`);
+      }
+
+      // Recalcula visit dates baseado nas consultas concluidas que acabamos de vincular
+      await this.recalculateVisitDates(patient.id).catch(() => {});
+    } catch (e: any) {
+      this.logger.warn(`[CONVERT] Backfill falhou: ${e?.message}`);
+    }
+
     // Hook Indicação Premiada: se conversão veio com referred_by_id no extraData
     if (extraData.referred_by_id) {
       try {
@@ -198,6 +247,151 @@ export class PatientsService {
     }
 
     return patient;
+  }
+
+  /**
+   * Recalcula first_visit_at e last_visit_at do paciente baseado em
+   * todas as consultas (CONSULTA/PROCEDIMENTO/RETORNO) já vinculadas
+   * ao patient_id, com status CONFIRMADO ou CONCLUIDO. Usado em
+   * conversão Lead→Patient e backfill em massa.
+   */
+  async recalculateVisitDates(patientId: string): Promise<void> {
+    const events = await this.prisma.calendarEvent.findMany({
+      where: {
+        patient_id: patientId,
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+        status: { in: ['CONFIRMADO', 'CONCLUIDO'] },
+      },
+      select: { start_at: true },
+      orderBy: { start_at: 'asc' },
+    });
+    if (events.length === 0) return;
+    const first = events[0].start_at;
+    const last = events[events.length - 1].start_at;
+    await this.prisma.patient.update({
+      where: { id: patientId },
+      data: { first_visit_at: first, last_visit_at: last },
+    });
+  }
+
+  /**
+   * Backfill admin: 1) vincula CalendarEvents existentes (lead_id mas
+   * patient_id null) ao paciente certo via Lead→Patient. 2) Recalcula
+   * first/last_visit_at de todos os pacientes do tenant baseado nesses
+   * eventos. Idempotente — pode rodar várias vezes sem efeito colateral.
+   *
+   * Usado uma vez na VPS pra normalizar dados antigos. Nas operações
+   * normais, os hooks em CalendarService cuidam disso automaticamente.
+   */
+  async backfillVisitDates(tenantId: string): Promise<{ patientsLinked: number; eventsLinked: number; patientsRecalculated: number }> {
+    // 1) Vincula CalendarEvents que tem lead_id mas nao patient_id
+    const orphanEvents = await this.prisma.calendarEvent.findMany({
+      where: { tenant_id: tenantId, patient_id: null, lead_id: { not: null } },
+      select: { id: true, lead_id: true },
+    });
+
+    let eventsLinked = 0;
+    const patientsTouched = new Set<string>();
+    for (const e of orphanEvents) {
+      if (!e.lead_id) continue;
+      const patient = await this.prisma.patient.findUnique({
+        where: { lead_id: e.lead_id },
+        select: { id: true },
+      });
+      if (!patient) continue;
+      await this.prisma.calendarEvent.update({
+        where: { id: e.id },
+        data: { patient_id: patient.id },
+      });
+      eventsLinked++;
+      patientsTouched.add(patient.id);
+    }
+
+    // 2) Pega TODOS os pacientes que tem eventos (não só os que tocamos),
+    // pra cobrir o caso de quem ja tinha patient_id mas nunca teve as datas
+    // populadas.
+    const allPatients = await this.prisma.patient.findMany({
+      where: { tenant_id: tenantId },
+      select: { id: true },
+    });
+
+    let patientsRecalculated = 0;
+    for (const p of allPatients) {
+      try {
+        await this.recalculateVisitDates(p.id);
+        patientsRecalculated++;
+      } catch {}
+    }
+
+    this.logger.log(
+      `[BACKFILL] tenant=${tenantId} eventsLinked=${eventsLinked} patientsLinked=${patientsTouched.size} patientsRecalculated=${patientsRecalculated}`,
+    );
+
+    return {
+      patientsLinked: patientsTouched.size,
+      eventsLinked,
+      patientsRecalculated,
+    };
+  }
+
+  /**
+   * Lista aniversariantes do período (today | week | month).
+   * Usa Postgres date_part pra extrair mês/dia ignorando o ano de nascimento
+   * — assim funciona pra qualquer paciente independente da idade.
+   *
+   * "today": pacientes que fazem aniversário no dia de hoje (UTC).
+   * "week":  proximos 7 dias incluindo hoje (cobre o passar do final de mes).
+   * "month": qualquer dia do mes corrente.
+   */
+  async getBirthdays(tenantId: string, period: 'today' | 'week' | 'month' = 'today') {
+    // Usamos uma query SQL crua pra trabalhar com extract(month/day) — Prisma
+    // nao tem suporte nativo a comparacao de "mes/dia" de DateTime.
+    let whereSql: string;
+    if (period === 'today') {
+      whereSql = `
+        EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM CURRENT_DATE)
+        AND EXTRACT(DAY FROM birth_date) = EXTRACT(DAY FROM CURRENT_DATE)
+      `;
+    } else if (period === 'week') {
+      // Próximos 7 dias considerando virada de mês: gera o conjunto (mês, dia)
+      // dos próximos 7 dias e usa em (...) IN
+      whereSql = `
+        (EXTRACT(MONTH FROM birth_date), EXTRACT(DAY FROM birth_date))
+        IN (
+          SELECT EXTRACT(MONTH FROM d), EXTRACT(DAY FROM d)
+          FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '6 days', INTERVAL '1 day') AS d
+        )
+      `;
+    } else {
+      whereSql = `EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM CURRENT_DATE)`;
+    }
+
+    const rows = await this.prisma.$queryRawUnsafe<Array<{
+      id: string; name: string; phone: string | null; birth_date: Date;
+      avatar_url: string | null; primary_dentist_id: string | null;
+    }>>(`
+      SELECT id, name, phone, birth_date, avatar_url, primary_dentist_id
+      FROM patients
+      WHERE tenant_id = $1
+        AND status = 'ACTIVE'
+        AND birth_date IS NOT NULL
+        AND ${whereSql}
+      ORDER BY EXTRACT(MONTH FROM birth_date), EXTRACT(DAY FROM birth_date), name
+      LIMIT 200
+    `, tenantId);
+
+    return rows.map((r) => {
+      // Calcula idade que vai fazer
+      const today = new Date();
+      const b = new Date(r.birth_date);
+      let ageTurning = today.getUTCFullYear() - b.getUTCFullYear();
+      // Se ainda nao passou o aniversario esse ano, soma 1 (vai fazer)
+      const monthDayBefore =
+        today.getUTCMonth() < b.getUTCMonth() ||
+        (today.getUTCMonth() === b.getUTCMonth() && today.getUTCDate() < b.getUTCDate());
+      if (monthDayBefore) ageTurning += 1;
+      return { ...r, age_turning: ageTurning };
+    });
   }
 
   /** Estatisticas rapidas (para dashboard). */

@@ -2,11 +2,12 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon } from 'lucide-react';
+import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon, SlidersHorizontal, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
+import BirthdaysCard from './components/BirthdaysCard';
 
 interface Patient {
   id: string;
@@ -61,6 +62,14 @@ function PacientesPageInner() {
   const [allTags, setAllTags] = useState<PatientTag[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('');
 
+  // Filtros avancados (Fase 22)
+  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [noVisitMonths, setNoVisitMonths] = useState<string>(''); // '', '3', '6', '12'
+  const [withActivePlan, setWithActivePlan] = useState(false);
+  const [withoutAnamnesis, setWithoutAnamnesis] = useState(false);
+
+  const hasAdvancedActive = !!noVisitMonths || withActivePlan || withoutAnamnesis;
+
   // Carrega tags do tenant uma vez (independente do filtro)
   useEffect(() => {
     api.get<PatientTag[]>('/patient-tags')
@@ -85,6 +94,9 @@ function PacientesPageInner() {
       if (search.trim()) params.set('search', search.trim());
       if (status !== 'all') params.set('status', status);
       if (tagFilter) params.set('tagId', tagFilter);
+      if (noVisitMonths) params.set('noVisitMonths', noVisitMonths);
+      if (withActivePlan) params.set('withActivePlan', 'true');
+      if (withoutAnamnesis) params.set('withoutAnamnesis', 'true');
       params.set('limit', '50');
       const [listRes, statsRes] = await Promise.all([
         api.get<PatientList>(`/patients?${params.toString()}`),
@@ -97,7 +109,45 @@ function PacientesPageInner() {
     } finally {
       setLoading(false);
     }
-  }, [search, status, tagFilter]);
+  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis]);
+
+  // Export CSV: gera planilha com filtros aplicados (limit alto)
+  const handleExportCsv = async () => {
+    try {
+      const params = new URLSearchParams();
+      if (search.trim()) params.set('search', search.trim());
+      if (status !== 'all') params.set('status', status);
+      if (tagFilter) params.set('tagId', tagFilter);
+      if (noVisitMonths) params.set('noVisitMonths', noVisitMonths);
+      if (withActivePlan) params.set('withActivePlan', 'true');
+      if (withoutAnamnesis) params.set('withoutAnamnesis', 'true');
+      params.set('limit', '500');
+      const { data } = await api.get<PatientList>(`/patients?${params.toString()}`);
+      // Gera CSV in-browser (evita endpoint dedicado pra MVP)
+      const headers = ['Nome', 'CPF', 'Telefone', 'Email', 'Status', 'Dentista', 'Tags'];
+      const rows = data.data.map((p: any) => [
+        p.name || '',
+        p.cpf || '',
+        p.phone || '',
+        p.email || '',
+        p.status || '',
+        p.primary_dentist?.name || '',
+        (p.tags || []).map((t: any) => t.tag?.name).filter(Boolean).join('; '),
+      ]);
+      const csv = [headers, ...rows]
+        .map((r) => r.map((cell: string) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+        .join('\n');
+      const blob = new Blob(['﻿' + csv], { type: 'text/csv;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `pacientes-${new Date().toISOString().slice(0, 10)}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao exportar');
+    }
+  };
 
   useEffect(() => {
     const t = setTimeout(load, 250); // debounce leve pra busca
@@ -125,6 +175,9 @@ function PacientesPageInner() {
           <Plus size={16} /> Novo paciente
         </button>
       </div>
+
+      {/* Aniversariantes (auto-esconde se nao tem ninguem hoje) */}
+      <BirthdaysCard />
 
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
@@ -177,7 +230,86 @@ function PacientesPageInner() {
             ))}
           </select>
         )}
+        <button
+          onClick={() => setShowAdvanced((v) => !v)}
+          className={`px-3 py-2 rounded-lg border text-sm inline-flex items-center gap-1 ${
+            showAdvanced || hasAdvancedActive
+              ? 'bg-primary/10 border-primary/30 text-primary'
+              : 'bg-card border-border hover:bg-accent'
+          }`}
+        >
+          <SlidersHorizontal size={14} />
+          Filtros avançados
+          {hasAdvancedActive && (
+            <span className="ml-1 inline-block w-2 h-2 rounded-full bg-primary" />
+          )}
+        </button>
+        <button
+          onClick={handleExportCsv}
+          className="px-3 py-2 rounded-lg bg-card border border-border text-sm hover:bg-accent inline-flex items-center gap-1"
+          title="Exportar CSV com filtros aplicados"
+        >
+          <Download size={14} /> CSV
+        </button>
       </div>
+
+      {/* Painel de filtros avançados — colapsável */}
+      {showAdvanced && (
+        <div className="bg-card border border-border rounded-xl p-4 mb-4 space-y-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-xs font-medium mb-1">Sem revisão há</label>
+              <select
+                value={noVisitMonths}
+                onChange={(e) => setNoVisitMonths(e.target.value)}
+                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm"
+              >
+                <option value="">Qualquer período</option>
+                <option value="3">3 meses ou mais</option>
+                <option value="6">6 meses ou mais</option>
+                <option value="12">12 meses ou mais</option>
+                <option value="24">24 meses ou mais</option>
+              </select>
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={withActivePlan}
+                  onChange={(e) => setWithActivePlan(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                Apenas com plano ativo
+              </label>
+            </div>
+            <div className="flex items-end">
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={withoutAnamnesis}
+                  onChange={(e) => setWithoutAnamnesis(e.target.checked)}
+                  className="w-4 h-4 rounded border-border"
+                />
+                Sem anamnese preenchida
+              </label>
+            </div>
+          </div>
+          {hasAdvancedActive && (
+            <div className="flex justify-end">
+              <button
+                onClick={() => {
+                  setNoVisitMonths('');
+                  setWithActivePlan(false);
+                  setWithoutAnamnesis(false);
+                }}
+                className="text-xs text-muted-foreground hover:text-foreground"
+              >
+                Limpar filtros avançados
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Lista */}
       <div className="bg-card border border-border rounded-xl overflow-hidden">

@@ -89,6 +89,18 @@ export class BookAppointmentHandler implements ToolHandler {
       };
     }
 
+    // Resolve patient_id se o lead já foi convertido em Patient — habilita
+    // Timeline + Resumo Clínico (consultas count, first/last visit) a refletir
+    // consultas agendadas pela IA, não só pelo operador no front.
+    let resolvedPatientId: string | undefined;
+    if (context.leadId) {
+      const linkedPatient = await prisma.patient.findUnique({
+        where: { lead_id: context.leadId },
+        select: { id: true },
+      });
+      if (linkedPatient) resolvedPatientId = linkedPatient.id;
+    }
+
     // Cria o CalendarEvent + reminders em uma só chamada
     const event = await prisma.calendarEvent.create({
       data: {
@@ -101,6 +113,7 @@ export class BookAppointmentHandler implements ToolHandler {
         priority: 'NORMAL',
         assigned_user_id: assignedUserId,
         lead_id: context.leadId,
+        patient_id: resolvedPatientId,
         conversation_id: context.conversationId,
         created_by_id: assignedUserId,
         created_by_ai: true,

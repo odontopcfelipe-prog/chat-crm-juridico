@@ -143,6 +143,7 @@ export class CalendarService {
     color?: string;
     location?: string;
     lead_id?: string;
+    patient_id?: string;
     conversation_id?: string;
     assigned_user_id?: string;
     created_by_id: string;
@@ -160,6 +161,19 @@ export class CalendarService {
     // STUBBED: LegalCase removido Fase 0.2 — lead_id deve vir direto
     const resolvedLeadId = data.lead_id;
 
+    // Auto-resolve patient_id quando lead_id está setado mas patient_id não:
+    // se o lead já foi convertido em Patient, vincula a consulta ao paciente
+    // automaticamente. Habilita Timeline + Resumo Clínico (consultas count,
+    // first/last visit) a refletir a realidade.
+    let resolvedPatientId = data.patient_id;
+    if (!resolvedPatientId && resolvedLeadId) {
+      const linkedPatient = await this.prisma.patient.findUnique({
+        where: { lead_id: resolvedLeadId },
+        select: { id: true },
+      });
+      if (linkedPatient) resolvedPatientId = linkedPatient.id;
+    }
+
     const event = await this.prisma.calendarEvent.create({
       data: {
         type: data.type,
@@ -173,6 +187,7 @@ export class CalendarService {
         color: data.color,
         location: data.location,
         lead_id: resolvedLeadId,
+        patient_id: resolvedPatientId,
         conversation_id: data.conversation_id,
         assigned_user_id: data.assigned_user_id,
         created_by_id: data.created_by_id,
@@ -196,6 +211,16 @@ export class CalendarService {
         reminders: true,
       },
     });
+
+    // Atualiza datas de visita se já foi criado como CONFIRMADO/CONCLUIDO
+    // (operador pode marcar direto sem passar por updateStatus)
+    if (
+      resolvedPatientId &&
+      ['CONFIRMADO', 'CONCLUIDO'].includes(event.status) &&
+      this.isClinicalEvent(event.type)
+    ) {
+      await this.updatePatientVisitDates(resolvedPatientId, event.start_at).catch(() => {});
+    }
 
     // Notificar advogado atribuido via socket
     if (event.assigned_user_id) {
@@ -432,6 +457,19 @@ export class CalendarService {
     if (['CANCELADO', 'CONCLUIDO'].includes(status)) {
       await this.cancelReminderJobs(id);
       this.logger.log(`Lembretes cancelados para evento ${id} (status → ${status})`);
+    }
+
+    // Atualiza datas de visita do paciente quando consulta vira CONCLUIDO
+    // (Resumo Clínico vai mostrar "Primeira/Última visita" corretamente).
+    if (
+      status === 'CONCLUIDO' &&
+      event.patient_id &&
+      this.isClinicalEvent(event.type) &&
+      event.start_at
+    ) {
+      await this.updatePatientVisitDates(event.patient_id, event.start_at).catch((e) =>
+        this.logger.warn(`[VISIT_DATES] hook falhou: ${e?.message}`),
+      );
     }
 
     // Lista de espera (Fase 19): se cancelou/adiou uma CONSULTA com dentista atribuído,
@@ -1178,5 +1216,48 @@ export class CalendarService {
 
     this.logger.log(`[NOTIFY] Re-envio manual enfileirado para evento ${eventId} (${event.type}: "${event.title}")`);
     return { queued: true, message: `Notificação de ${event.type === 'PERICIA' ? 'perícia' : 'audiência'} enfileirada com sucesso` };
+  }
+
+  // ─── Patient visit dates helpers ──────────────────────────────────
+  //
+  // Mantém Patient.first_visit_at e last_visit_at atualizados conforme
+  // CalendarEvents do tipo CONSULTA/PROCEDIMENTO/RETORNO mudam pra
+  // CONFIRMADO/CONCLUIDO. Antes desses hooks os campos existiam no
+  // schema mas nunca eram preenchidos (relatórios e Resumo Clínico
+  // sempre mostravam "—").
+
+  /** Tipos de evento que contam como "visita do paciente" */
+  private isClinicalEvent(type: string): boolean {
+    return ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(type);
+  }
+
+  /**
+   * Atualiza first_visit_at (se ainda NULL) e last_visit_at (se mais
+   * recente que o atual). Idempotente — pode ser chamado várias vezes
+   * com a mesma data sem efeito colateral.
+   */
+  private async updatePatientVisitDates(patientId: string, visitDate: Date): Promise<void> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { first_visit_at: true, last_visit_at: true },
+    });
+    if (!patient) return;
+
+    const updateData: { first_visit_at?: Date; last_visit_at?: Date } = {};
+
+    // first_visit_at: preenche só se ainda está NULL OU se essa visita é mais antiga
+    if (!patient.first_visit_at || visitDate < patient.first_visit_at) {
+      updateData.first_visit_at = visitDate;
+    }
+
+    // last_visit_at: atualiza se essa visita é mais recente
+    if (!patient.last_visit_at || visitDate > patient.last_visit_at) {
+      updateData.last_visit_at = visitDate;
+    }
+
+    if (Object.keys(updateData).length > 0) {
+      await this.prisma.patient.update({ where: { id: patientId }, data: updateData });
+      this.logger.log(`[VISIT_DATES] Paciente ${patientId} atualizado: ${JSON.stringify(updateData)}`);
+    }
   }
 }

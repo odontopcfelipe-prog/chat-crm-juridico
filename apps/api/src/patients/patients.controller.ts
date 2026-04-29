@@ -43,6 +43,9 @@ export class PatientsController {
     @Query('status') status?: string,
     @Query('dentistId') dentistId?: string,
     @Query('tagId') tagId?: string,
+    @Query('noVisitMonths') noVisitMonths?: string,
+    @Query('withActivePlan') withActivePlan?: string,
+    @Query('withoutAnamnesis') withoutAnamnesis?: string,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
   ) {
@@ -53,6 +56,9 @@ export class PatientsController {
       status,
       dentistId,
       tagId,
+      noVisitMonths: noVisitMonths ? parseInt(noVisitMonths, 10) : undefined,
+      withActivePlan: withActivePlan === 'true' || withActivePlan === '1',
+      withoutAnamnesis: withoutAnamnesis === 'true' || withoutAnamnesis === '1',
       page: page ? parseInt(page, 10) : undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
@@ -63,6 +69,28 @@ export class PatientsController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.patientsService.getStats(tenantId);
+  }
+
+  /**
+   * Admin: backfill de dados antigos. Vincula CalendarEvents que tem
+   * lead_id mas patient_id null, e recalcula first/last_visit_at de
+   * todos os pacientes. Idempotente — pode chamar várias vezes.
+   */
+  @Post('backfill-visit-dates')
+  backfillVisitDates(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.backfillVisitDates(tenantId);
+  }
+
+  /** Aniversariantes do periodo (today | week | month). */
+  @Get('birthdays')
+  getBirthdays(@Request() req: any, @Query('period') period?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const validPeriods = ['today', 'week', 'month'];
+    const p = (validPeriods.includes(period as any) ? period : 'today') as 'today' | 'week' | 'month';
+    return this.patientsService.getBirthdays(tenantId, p);
   }
 
   @Get(':id')
