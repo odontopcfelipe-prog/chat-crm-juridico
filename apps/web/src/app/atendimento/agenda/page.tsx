@@ -28,6 +28,7 @@ import {
 import api, { API_BASE_URL } from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import { AvailabilityPicker } from '@/components/AvailabilityPicker';
 import { TasksPanel } from './TasksPanel';
@@ -56,6 +57,11 @@ interface CalendarEvent {
   created_by?: { id: string; name: string } | null;
   lead?: { id: string; name: string | null; phone: string } | null;
   patient?: { id: string; name: string | null; phone: string | null } | null;
+  // Validacao clinica (Fase 23)
+  validated_at?: string | null;
+  validated_by_user_id?: string | null;
+  validated_by?: { id: string; name: string } | null;
+  validation_notes?: string | null;
   legal_case?: { id: string; case_number: string | null; specialty: string | null; lead?: { name: string | null } | null } | null;
   _count?: { comments: number };
 }
@@ -484,6 +490,7 @@ export default function AgendaPage() {
   // O useEffect abaixo popula os valores reais a partir do JWT no client
   const [currentUserId, setCurrentUserId] = useState<string>('');
   const [currentUserRole, setCurrentUserRole] = useState<string>('');
+  const role = useRole();
   const [showAllUsers, setShowAllUsers] = useState(false);
 
   // Comentarios do evento
@@ -1055,6 +1062,51 @@ export default function AgendaPage() {
       if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
     } catch (e: any) {
       showError(e?.response?.data?.message || e?.message || 'Erro ao alterar status');
+    }
+  };
+
+  /** Valida atendimento clinicamente (Fase 23) — Modal pede notas opcionais */
+  const handleValidate = async () => {
+    if (!editingEvent) return;
+    const notes = window.prompt(
+      'Notas clínicas (opcional)\n\nVocê está atestando que este atendimento aconteceu. Após validar, apenas um administrador pode reverter ou trocar o dentista responsável.\n\nDeixe vazio se não tiver notas:',
+      '',
+    );
+    if (notes === null) return; // usuário cancelou
+    try {
+      const { data } = await api.post(`/calendar/events/${editingEvent.id}/validate`, {
+        notes: notes.trim() || undefined,
+      });
+      showSuccess('Atendimento validado');
+      setEditingEvent({
+        ...editingEvent,
+        status: data.status,
+        validated_at: data.validated_at,
+        validated_by_user_id: data.validated_by_user_id,
+        validated_by: data.validated_by,
+      } as any);
+      if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || e?.message || 'Erro ao validar');
+    }
+  };
+
+  /** Reverter validacao — apenas admin */
+  const handleUnvalidate = async () => {
+    if (!editingEvent) return;
+    if (!confirm('Reverter validação clínica deste atendimento?\n\nIsso permite trocar o dentista atribuído ou re-validar com outro profissional.')) return;
+    try {
+      await api.post(`/calendar/events/${editingEvent.id}/unvalidate`);
+      showSuccess('Validação revertida');
+      setEditingEvent({
+        ...editingEvent,
+        validated_at: null,
+        validated_by_user_id: null,
+        validated_by: null,
+      } as any);
+      if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || e?.message || 'Erro ao reverter');
     }
   };
 
@@ -1928,6 +1980,64 @@ export default function AgendaPage() {
                     {s.label}
                   </button>
                 ))}
+              </div>
+            )}
+
+            {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
+            {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+              <div className="px-5 pt-3">
+                {editingEvent.validated_at ? (
+                  // Atendimento ja validado — mostra badge e (se admin) botao reverter
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-sm">
+                    <svg className="w-4 h-4 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <div className="font-medium text-emerald-700">Atendimento validado</div>
+                      <div className="text-xs text-emerald-600/80">
+                        Por Dr(a). {editingEvent.validated_by?.name || '—'} em {new Date(editingEvent.validated_at).toLocaleString('pt-BR')}
+                      </div>
+                      {editingEvent.validation_notes && (
+                        <div className="text-xs text-muted-foreground mt-1 italic">
+                          "{editingEvent.validation_notes}"
+                        </div>
+                      )}
+                    </div>
+                    {role.isAdmin && (
+                      <button
+                        onClick={handleUnvalidate}
+                        className="text-xs px-2 py-1 rounded border border-border text-muted-foreground hover:text-destructive hover:border-destructive/40 shrink-0"
+                        title="Reverter validação (admin)"
+                      >
+                        Reverter
+                      </button>
+                    )}
+                  </div>
+                ) : editingEvent.assigned_user_id && (
+                  editingEvent.assigned_user_id === role.userId || role.isAdmin
+                ) ? (
+                  // Pode validar — mostra botao
+                  <button
+                    onClick={handleValidate}
+                    className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                    </svg>
+                    Validar atendimento clinicamente
+                  </button>
+                ) : !editingEvent.assigned_user_id ? (
+                  // Sem dentista atribuido — mostra aviso
+                  <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-xs text-amber-700">
+                    <AlertTriangle size={14} />
+                    Atribua um dentista responsavel pra poder validar este atendimento
+                  </div>
+                ) : (
+                  // Tem dentista mas nao sou eu nem admin — info silenciosa
+                  <div className="text-xs text-muted-foreground px-3 py-2 italic">
+                    Apenas Dr(a). {editingEvent.assigned_user?.name || '—'} (responsavel) ou um administrador pode validar este atendimento.
+                  </div>
+                )}
               </div>
             )}
 

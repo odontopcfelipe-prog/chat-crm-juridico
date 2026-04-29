@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass, Trophy,
+  Hourglass, Trophy, ShieldCheck,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -73,6 +73,7 @@ export function Sidebar() {
   const [dbStatus, setDbStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [unreadTotal, setUnreadTotal] = useState<number>(0);
   const [overdueCount, setOverdueCount] = useState<number>(0);
+  const [pendingValidationCount, setPendingValidationCount] = useState<number>(0);
   const [djenUnread, setDjenUnread] = useState<number>(0);
   const [mounted, setMounted] = useState(false);
 
@@ -322,6 +323,25 @@ export function Sidebar() {
     return () => clearInterval(interval);
   }, []);
 
+  // Badge "Atendimentos a validar" (Fase 23 PR2) — só pra dentista/admin
+  // Mostra count de atendimentos clinicos passados nao validados (last 30 days)
+  useEffect(() => {
+    if (!perms.isDentist && !perms.isAdmin) return;
+    const fetchPending = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/calendar/events/pending-validation?onlyMine=true&daysBack=30`, {
+          headers: { Authorization: `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setPendingValidationCount(Array.isArray(data) ? data.length : 0);
+      } catch { /* silencioso */ }
+    };
+    fetchPending();
+    const interval = setInterval(fetchPending, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [perms.isDentist, perms.isAdmin]);
+
   // Badge para petições devolvidas (estagiário)
   const [internBadge, setInternBadge] = useState(0);
   useEffect(() => {
@@ -397,6 +417,15 @@ export function Sidebar() {
       icon: <Hourglass size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/waitlist'),
       show: true,
+    },
+    validacoes: {
+      label: 'Atendimentos a validar',
+      href: '/atendimento/validacoes',
+      icon: <ShieldCheck size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/validacoes'),
+      badge: pendingValidationCount,
+      // So aparece pra dentista ou admin (recepcao nao valida)
+      show: perms.isDentist || perms.isAdmin,
     },
     referrals: {
       label: 'Indicação Premiada',
@@ -495,7 +524,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.waitlist, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.validacoes, allItems.waitlist, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
     },
     {
       id: 'gestao',

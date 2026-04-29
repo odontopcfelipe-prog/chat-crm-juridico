@@ -1264,6 +1264,49 @@ export class CalendarService {
     return { queued: true, message: `Notificação de ${event.type === 'PERICIA' ? 'perícia' : 'audiência'} enfileirada com sucesso` };
   }
 
+  // ─── Atendimentos pendentes de validacao (Fase 23 PR2) ───────────
+  //
+  // Lista eventos clinicos passados (start_at < now) que ainda nao foram
+  // validados. Filtros: meusOnly (so atendimentos do dentista logado) ou
+  // todos (admin ve tudo). Util pro dashboard "limpeza fim de dia".
+  async listPendingValidation(params: {
+    tenantId: string;
+    actorUserId: string;
+    isAdmin: boolean;
+    onlyMine?: boolean;
+    daysBack?: number;
+  }) {
+    const daysBack = Math.min(90, Math.max(1, params.daysBack || 30));
+    const cutoffStart = new Date(Date.now() - daysBack * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    // Se nao for admin, sempre filtra so os dele (regra de seguranca)
+    const filterByUser = !params.isAdmin || params.onlyMine;
+
+    return this.prisma.calendarEvent.findMany({
+      where: {
+        tenant_id: params.tenantId,
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+        validated_at: null,
+        start_at: { gte: cutoffStart, lte: now },
+        // status nao deve ser CANCELADO/ADIADO (esses nao precisam validar)
+        status: { notIn: ['CANCELADO', 'ADIADO'] },
+        ...(filterByUser ? { assigned_user_id: params.actorUserId } : {}),
+        ...(filterByUser ? {} : { assigned_user_id: { not: null } }),
+      },
+      select: {
+        id: true, type: true, title: true, status: true,
+        start_at: true, end_at: true,
+        assigned_user_id: true,
+        assigned_user: { select: { id: true, name: true } },
+        patient: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { start_at: 'desc' },
+      take: 200,
+    });
+  }
+
   // ─── Validacao clinica (Fase 23) ──────────────────────────────────
   //
   // Workflow: dentista atribuido (assigned_user) ATESTA que o atendimento

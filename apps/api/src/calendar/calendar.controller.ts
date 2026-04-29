@@ -90,6 +90,29 @@ export class CalendarController {
   }
 
   /**
+   * Lista atendimentos pendentes de validacao (Fase 23 PR2).
+   * Default: so do dentista logado, ultimos 30 dias, no passado.
+   * Admin pode passar onlyMine=false pra ver todos.
+   */
+  @Get('events/pending-validation')
+  async pendingValidation(
+    @Request() req: any,
+    @Query('onlyMine') onlyMine?: string,
+    @Query('daysBack') daysBack?: string,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('tenant_id ausente');
+    const isAdmin = (req.user.roles || []).includes('ADMIN');
+    return this.calendarService.listPendingValidation({
+      tenantId,
+      actorUserId: req.user.id,
+      isAdmin,
+      onlyMine: onlyMine === 'true' || onlyMine === '1' || !isAdmin,
+      daysBack: daysBack ? parseInt(daysBack, 10) : 30,
+    });
+  }
+
+  /**
    * Valida atendimento clinicamente (Fase 23).
    * Apenas o assigned_user (dentista responsavel) OU admin pode validar.
    * Marca validated_at + validated_by_user_id, atualiza last_visit_at do
