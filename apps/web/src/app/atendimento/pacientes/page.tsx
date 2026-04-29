@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon } from 'lucide-react';
 import api from '@/lib/api';
@@ -34,7 +34,22 @@ const STATUS_BADGE: Record<Patient['status'], { label: string; cls: string; icon
   ARCHIVED: { label: 'Arquivado', cls: 'bg-muted text-muted-foreground border-border', icon: Archive },
 };
 
+// Next 16 / Turbopack exige useSearchParams() dentro de <Suspense>.
+// Wrap o componente que consome o hook num Suspense pra permitir
+// pre-rendering — sem isso o build estatico falha em produção.
 export default function PacientesPage() {
+  return (
+    <Suspense fallback={
+      <div className="p-6 flex items-center justify-center text-muted-foreground">
+        <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
+      </div>
+    }>
+      <PacientesPageInner />
+    </Suspense>
+  );
+}
+
+function PacientesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [list, setList] = useState<PatientList>({ data: [], total: 0, page: 1, totalPages: 0 });
