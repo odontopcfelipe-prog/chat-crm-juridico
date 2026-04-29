@@ -569,9 +569,20 @@ export class PatientsService {
       link?: string | null;
     };
 
+    // Cada query envolvida em try/catch — se uma fonte falhar (ex: tabela
+    // ainda não migrou em produção, schema mudou), as outras ainda mostram
+    // dados. Evita 500 da rota inteira por causa de uma fonte só.
+    const safe = async <T>(p: Promise<T[]>, label: string): Promise<T[]> => {
+      try { return await p; }
+      catch (e: any) {
+        this.logger.warn(`[TIMELINE] Fonte "${label}" falhou: ${e?.message}`);
+        return [] as T[];
+      }
+    };
+
     const [appointments, procItems, installments, returns, anamneses] = await Promise.all([
-      this.prisma.calendarEvent.findMany({
-        where: { patient_id: patientId, start_at: { not: undefined } },
+      safe(this.prisma.calendarEvent.findMany({
+        where: { patient_id: patientId },
         select: {
           id: true, type: true, title: true, description: true,
           start_at: true, status: true,
@@ -579,8 +590,8 @@ export class PatientsService {
         },
         orderBy: { start_at: 'desc' },
         take: limit,
-      }),
-      this.prisma.treatmentPlanItem.findMany({
+      }), 'calendarEvent'),
+      safe(this.prisma.treatmentPlanItem.findMany({
         where: {
           treatment_plan: { patient_id: patientId },
           executed_at: { not: null },
@@ -592,8 +603,8 @@ export class PatientsService {
         },
         orderBy: { executed_at: 'desc' },
         take: limit,
-      }),
-      this.prisma.installment.findMany({
+      }), 'treatmentPlanItem'),
+      safe(this.prisma.installment.findMany({
         where: { patient_id: patientId },
         select: {
           id: true, sequence: true, total_count: true,
@@ -602,8 +613,8 @@ export class PatientsService {
         },
         orderBy: [{ paid_at: 'desc' }, { due_date: 'desc' }],
         take: limit,
-      }),
-      this.prisma.returnAlert.findMany({
+      }), 'installment'),
+      safe(this.prisma.returnAlert.findMany({
         where: { patient_id: patientId },
         select: {
           id: true, scheduled_for: true, reason: true, status: true,
@@ -612,16 +623,15 @@ export class PatientsService {
         },
         orderBy: { scheduled_for: 'desc' },
         take: limit,
-      }),
-      (this.prisma as any).anamnesis.findMany({
+      }), 'returnAlert'),
+      safe((this.prisma as any).anamnesis.findMany({
         where: { patient_id: patientId },
         select: {
-          id: true, created_at: true, signed_at: true,
-          filled_by_user_id: true, status: true,
+          id: true, filled_at: true, filled_by_user_id: true,
         },
-        orderBy: { created_at: 'desc' },
+        orderBy: { filled_at: 'desc' },
         take: limit,
-      }),
+      }) as Promise<any[]>, 'anamnesis'),
     ]);
 
     const items: TimelineItem[] = [];
@@ -706,10 +716,10 @@ export class PatientsService {
       items.push({
         id: `anam-${a.id}`,
         type: 'anamnesis',
-        date: (a.signed_at || a.created_at).toISOString(),
-        title: a.signed_at ? 'Anamnese assinada' : 'Anamnese preenchida',
+        date: a.filled_at.toISOString(),
+        title: 'Anamnese preenchida',
         subtitle: null,
-        status: a.status,
+        status: null,
       });
     }
 
