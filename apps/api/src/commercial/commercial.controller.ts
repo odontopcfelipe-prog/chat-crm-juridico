@@ -1,7 +1,13 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, BadRequestException,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, Res, BadRequestException, NotFoundException,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { QuotesService } from './quotes.service';
+import { QuotePdfService } from './quote-pdf.service';
+import { QuoteTemplatesService } from './quote-templates.service';
+import type { CreateTemplateDto, UpdateTemplateDto } from './quote-templates.service';
+import { QuoteCouponsService } from './quote-coupons.service';
+import type { CreateCouponDto, UpdateCouponDto } from './quote-coupons.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -16,6 +22,9 @@ import {
 export class CommercialController {
   constructor(
     private readonly quotesService: QuotesService,
+    private readonly pdfService: QuotePdfService,
+    private readonly templatesService: QuoteTemplatesService,
+    private readonly couponsService: QuoteCouponsService,
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
@@ -137,6 +146,130 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.expireOldQuotes(tenantId);
+  }
+
+  // ─── Onda 2 (Fase 24) — PDF + Templates + Cupons ───────────────
+
+  /** Gera PDF profissional do orcamento */
+  @Get('quotes/:id/pdf')
+  async quotePdf(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const buffer = await this.pdfService.generatePdf(id, tenantId);
+    res.set('Content-Type', 'application/pdf');
+    res.set('Content-Disposition', `inline; filename="orcamento-${id.slice(0, 8)}.pdf"`);
+    res.set('Content-Length', String(buffer.length));
+    res.end(buffer);
+  }
+
+  // Templates
+  @Get('quote-templates')
+  listTemplates(@Request() req: any, @Query('activeOnly') activeOnly?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.templatesService.list(tenantId, {
+      activeOnly: activeOnly === 'true' || activeOnly === '1',
+    });
+  }
+
+  @Get('quote-templates/:id')
+  findTemplate(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.templatesService.findOne(id, tenantId);
+  }
+
+  @Post('quote-templates')
+  createTemplate(@Request() req: any, @Body() dto: CreateTemplateDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.templatesService.create(tenantId, dto);
+  }
+
+  @Patch('quote-templates/:id')
+  updateTemplate(@Param('id') id: string, @Request() req: any, @Body() dto: UpdateTemplateDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.templatesService.update(id, tenantId, dto);
+  }
+
+  @Delete('quote-templates/:id')
+  removeTemplate(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.templatesService.remove(id, tenantId);
+  }
+
+  /** Aplica template a um orcamento existente — copia items */
+  @Post('quotes/:id/apply-template')
+  applyTemplate(
+    @Param('id') quoteId: string,
+    @Body() body: { template_id: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!body?.template_id) throw new BadRequestException('template_id obrigatorio');
+    return this.templatesService.applyToQuote(quoteId, body.template_id, tenantId);
+  }
+
+  // Cupons
+  @Get('quote-coupons')
+  listCoupons(@Request() req: any, @Query('activeOnly') activeOnly?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.list(tenantId, {
+      activeOnly: activeOnly === 'true' || activeOnly === '1',
+    });
+  }
+
+  @Get('quote-coupons/:id')
+  findCoupon(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.findOne(id, tenantId);
+  }
+
+  @Post('quote-coupons')
+  createCoupon(@Request() req: any, @Body() dto: CreateCouponDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.create(tenantId, dto);
+  }
+
+  @Patch('quote-coupons/:id')
+  updateCoupon(@Param('id') id: string, @Request() req: any, @Body() dto: UpdateCouponDto) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.update(id, tenantId, dto);
+  }
+
+  @Delete('quote-coupons/:id')
+  removeCoupon(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.remove(id, tenantId);
+  }
+
+  /** Aplica cupom a um orcamento — valida + atualiza desconto + incrementa used_count */
+  @Post('quotes/:id/apply-coupon')
+  applyCoupon(
+    @Param('id') quoteId: string,
+    @Body() body: { code: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!body?.code) throw new BadRequestException('code obrigatorio');
+    return this.couponsService.applyToQuote(quoteId, body.code, tenantId);
+  }
+
+  /** Remove cupom do orcamento */
+  @Delete('quotes/:id/coupon')
+  removeCouponFromQuote(@Param('id') quoteId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.couponsService.removeFromQuote(quoteId, tenantId);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────

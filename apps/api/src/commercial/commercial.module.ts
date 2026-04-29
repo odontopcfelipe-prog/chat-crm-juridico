@@ -1,5 +1,8 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { QuotesService } from './quotes.service';
+import { QuotePdfService } from './quote-pdf.service';
+import { QuoteTemplatesService } from './quote-templates.service';
+import { QuoteCouponsService } from './quote-coupons.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
@@ -22,12 +25,18 @@ import { PortalModule } from '../portal/portal.module';
   controllers: [CommercialController],
   providers: [
     QuotesService,
+    QuotePdfService,
+    QuoteTemplatesService,
+    QuoteCouponsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,
   ],
   exports: [
     QuotesService,
+    QuotePdfService,
+    QuoteTemplatesService,
+    QuoteCouponsService,
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,

@@ -54,6 +54,13 @@ const settingsSections: MenuSection[] = [
     ],
   },
   {
+    title: 'Comercial',
+    items: [
+      { label: 'Modelos de Orçamento', href: '/atendimento/settings/quote-templates', icon: FileText },
+      { label: 'Cupons de Desconto', href: '/atendimento/settings/quote-coupons', icon: Tag },
+    ],
+  },
+  {
     title: 'Inteligência Artificial',
     items: [
       {

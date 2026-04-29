@@ -68,6 +68,9 @@ model Tenant {
   // Indicacao premiada (Fase 21)
   referrals                 Referral[]
   referral_rule             ReferralRule?
+  // Onda 2 orcamentos (Fase 24)
+  quote_templates           QuoteTemplate[]
+  quote_coupons             QuoteCoupon[]
 }
 
 model User {
@@ -1764,6 +1767,8 @@ model Procedure {
   adverse_reactions     AdverseReaction[]     @relation("ProcedureAdverseReactions")
   // Fase 8 — comissoes
   commissions           Commission[]          @relation("CommissionProcedure")
+  // Onda 2 orcamentos (Fase 24)
+  quote_template_items  QuoteTemplateItem[]
 
   @@unique([tenant_id, name])
   @@index([tenant_id, active])
@@ -2002,6 +2007,9 @@ model Quote {
   rejected_at      DateTime?
   rejection_reason String?
 
+  // Onda 2 (Fase 24) — Cupom aplicado
+  coupon_id        String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2013,9 +2021,84 @@ model Quote {
   commissions    Commission[]   @relation("CommissionQuote")
   // Fase 11 — parcelas geradas pela aprovacao deste orcamento
   installments   Installment[]  @relation("QuoteInstallments")
+  // Onda 2 (Fase 24) — Cupom aplicado
+  coupon         QuoteCoupon?   @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
 
   @@index([patient_id, status])
   @@index([status, valid_until])
+  @@index([coupon_id])
+}
+
+// ============================================================================
+// FASE 24 — Onda 2 — TEMPLATES DE ORÇAMENTO + CUPONS
+// ============================================================================
+
+/// Template de orcamento por especialidade — admin cria conjuntos pre-prontos
+/// (ex: "Implante unitario", "Clareamento + 4 facetas") e operador clica
+/// "Usar modelo" no novo orcamento pra puxar todos os items de uma vez.
+model QuoteTemplate {
+  id          String @id @default(uuid())
+  tenant_id   String
+  name        String // "Implante unitario completo"
+  description String?
+  specialty   String? // tag livre: "Implante", "Estetica", "Endodontia"
+  is_active   Boolean @default(true)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant Tenant              @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  items  QuoteTemplateItem[]
+
+  @@index([tenant_id, is_active])
+}
+
+model QuoteTemplateItem {
+  id           String @id @default(uuid())
+  template_id  String
+  procedure_id String
+  quantity     Int     @default(1)
+  // unit_price opcional — se setado, sobrescreve base_price do Procedure
+  // ao usar o template; se NULL, usa base_price do Procedure no momento.
+  unit_price   Decimal? @db.Decimal(10, 2)
+  notes        String?
+  order_index  Int      @default(0)
+
+  template  QuoteTemplate @relation(fields: [template_id], references: [id], onDelete: Cascade)
+  procedure Procedure     @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+
+  @@index([template_id])
+}
+
+/// Cupom promocional — admin cria com codigo unico, % ou R$ fixo, validade,
+/// limite de usos. Operador digita o codigo no orcamento e desconto eh
+/// aplicado automaticamente. Audita uso (used_count incrementa).
+model QuoteCoupon {
+  id              String   @id @default(uuid())
+  tenant_id       String
+  code            String   // "FRIEND15", "MARCO10" — case-insensitive
+  description     String?
+  // Tipo de desconto: PERCENT aplica % ao subtotal; FIXED desconta R$ fixo
+  discount_type   String   @default("PERCENT") // PERCENT | FIXED
+  discount_amount Decimal  @db.Decimal(10, 2) // 15 (=15%) OU 250.00 (=R$ 250 off)
+  // Janela de validade
+  valid_from      DateTime?
+  valid_until     DateTime?
+  // Controle de uso
+  max_uses        Int?     // null = ilimitado
+  used_count      Int      @default(0)
+  is_active       Boolean  @default(true)
+  // Restricoes opcionais (futuro: minimum_order_value, applicable_specialties)
+  min_order_value Decimal? @db.Decimal(10, 2) // valor minimo do orcamento pra valer
+  notes           String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  quotes Quote[]
+
+  @@unique([tenant_id, code])
+  @@index([tenant_id, is_active])
+  @@index([valid_until])
 }
 
 model QuoteItem {

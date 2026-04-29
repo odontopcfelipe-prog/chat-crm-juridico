@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -48,6 +48,24 @@ interface QuoteDetail extends QuoteListItem {
   rejected_at: string | null;
   rejection_reason: string | null;
   items: QuoteItem[];
+  // Onda 2 (Fase 24)
+  coupon_id?: string | null;
+  coupon?: {
+    id: string;
+    code: string;
+    description: string | null;
+    discount_type: 'PERCENT' | 'FIXED';
+    discount_amount: string | number;
+  } | null;
+}
+
+interface QuoteTemplate {
+  id: string;
+  name: string;
+  description: string | null;
+  specialty: string | null;
+  is_active: boolean;
+  _count?: { items: number };
 }
 
 const STATUS_BADGE: Record<QuoteListItem['status'], string> = {
@@ -245,8 +263,84 @@ function QuoteDetailView({
   const [toothFdi, setToothFdi] = useState('');
   const [saving, setSaving] = useState(false);
 
+  // Onda 2 — Templates + Cupom
+  const [templates, setTemplates] = useState<QuoteTemplate[]>([]);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  const [couponCode, setCouponCode] = useState('');
+  const [applyingCoupon, setApplyingCoupon] = useState(false);
+
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
+
+  // Carrega templates ativos quando abre picker
+  useEffect(() => {
+    if (!showTemplatePicker || templates.length > 0) return;
+    api.get<QuoteTemplate[]>('/quote-templates?activeOnly=true')
+      .then((r) => setTemplates(r.data || []))
+      .catch(() => {});
+  }, [showTemplatePicker, templates.length]);
+
+  /** Aplica template selecionado ao orcamento atual */
+  const applyTemplate = async (templateId: string) => {
+    try {
+      const { data } = await api.post(`/quotes/${quote.id}/apply-template`, { template_id: templateId });
+      showSuccess(`${data.added} procedimento(s) adicionado(s)`);
+      setShowTemplatePicker(false);
+      await onReload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao aplicar modelo');
+    }
+  };
+
+  const applyCoupon = async () => {
+    if (!couponCode.trim()) return;
+    setApplyingCoupon(true);
+    try {
+      await api.post(`/quotes/${quote.id}/apply-coupon`, { code: couponCode.trim() });
+      showSuccess(`Cupom ${couponCode.trim().toUpperCase()} aplicado`);
+      setCouponCode('');
+      await onReload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Cupom invalido');
+    } finally {
+      setApplyingCoupon(false);
+    }
+  };
+
+  const removeCoupon = async () => {
+    if (!confirm('Remover cupom aplicado? O desconto será zerado.')) return;
+    try {
+      await api.delete(`/quotes/${quote.id}/coupon`);
+      showSuccess('Cupom removido');
+      await onReload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao remover');
+    }
+  };
+
+  /** Baixa PDF do orcamento — abre em nova aba pra preview/print */
+  const downloadPdf = () => {
+    const token = typeof window !== 'undefined' ? localStorage.getItem('token') : null;
+    if (!token) {
+      showError('Sessao expirada — faca login novamente');
+      return;
+    }
+    // Endpoint requer Authorization header — fetch + blob + open
+    fetch(`${(api.defaults.baseURL || '')}/quotes/${quote.id}/pdf`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => {
+        if (!r.ok) throw new Error('Erro ao gerar PDF');
+        return r.blob();
+      })
+      .then((blob) => {
+        const url = URL.createObjectURL(blob);
+        window.open(url, '_blank');
+        // Libera URL apos 1 minuto (deu tempo do navegador renderizar)
+        setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      })
+      .catch((err) => showError(err?.message || 'Erro ao baixar PDF'));
+  };
 
   const addItem = async () => {
     if (!procedureId) {
@@ -400,7 +494,58 @@ function QuoteDetailView({
             <p className="text-sm text-destructive">{quote.rejection_reason}</p>
           </div>
         )}
+
+        {/* Onda 2 — Cupom aplicado */}
+        {quote.coupon && (
+          <div className="mt-3 pt-3 border-t border-border flex items-center gap-2">
+            <Tag size={14} className="text-emerald-600" />
+            <div className="flex-1 text-sm">
+              <span className="font-mono font-semibold">{quote.coupon.code}</span>
+              {quote.coupon.description && (
+                <span className="text-muted-foreground ml-2">— {quote.coupon.description}</span>
+              )}
+            </div>
+            {isDraft && (
+              <button
+                onClick={removeCoupon}
+                className="text-xs text-muted-foreground hover:text-destructive"
+                title="Remover cupom"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Onda 2 — Aplicar cupom (so DRAFT, sem cupom) */}
+        {isDraft && !quote.coupon && Number(quote.subtotal) > 0 && (
+          <div className="mt-3 pt-3 border-t border-border">
+            <div className="flex items-center gap-2">
+              <Tag size={14} className="text-muted-foreground" />
+              <input
+                type="text"
+                value={couponCode}
+                onChange={(e) => setCouponCode(e.target.value.toUpperCase())}
+                placeholder="Cupom de desconto (opcional)"
+                className="flex-1 px-2 py-1 rounded bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 font-mono"
+                onKeyDown={(e) => e.key === 'Enter' && applyCoupon()}
+              />
+              <button
+                onClick={applyCoupon}
+                disabled={applyingCoupon || !couponCode.trim()}
+                className="text-xs px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              >
+                {applyingCoupon ? <Loader2 size={12} className="animate-spin" /> : 'Aplicar'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly) */}
+      {Number(quote.total_value) > 0 && (isSent || quote.status === 'ACCEPTED') && (
+        <PaymentSuggestionsCard total={Number(quote.total_value)} />
+      )}
 
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
@@ -443,7 +588,72 @@ function QuoteDetailView({
             </button>
           </>
         )}
+        {/* PDF — disponivel em qualquer status (Onda 2 — Fase 24) */}
+        <button
+          onClick={downloadPdf}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm hover:bg-accent ml-auto"
+          title="Abrir PDF do orçamento em nova aba"
+        >
+          <Download size={14} /> Baixar PDF
+        </button>
       </div>
+
+      {/* Onda 2 — Templates (so em DRAFT) */}
+      {isDraft && (
+        <div className="mb-4">
+          {!showTemplatePicker ? (
+            <button
+              onClick={() => setShowTemplatePicker(true)}
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-primary/40 text-primary hover:bg-primary/10"
+            >
+              <FileStack size={12} /> Usar modelo pronto (avaliação, implante, clareamento, etc)
+            </button>
+          ) : (
+            <div className="bg-card border border-border rounded-xl p-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold flex items-center gap-1">
+                  <FileStack size={12} /> Selecione um modelo
+                </p>
+                <button
+                  onClick={() => setShowTemplatePicker(false)}
+                  className="text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+              {templates.length === 0 ? (
+                <p className="text-xs text-muted-foreground py-3 text-center">
+                  Nenhum modelo cadastrado.{' '}
+                  <a href="/atendimento/settings/quote-templates" className="text-primary underline">
+                    Criar modelos
+                  </a>
+                </p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+                  {templates.map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => applyTemplate(t.id)}
+                      className="text-left p-2 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/30 transition-colors"
+                    >
+                      <div className="text-sm font-medium">{t.name}</div>
+                      <div className="text-xs text-muted-foreground">
+                        {t._count?.items || 0} procedimento(s)
+                        {t.specialty && ` · ${t.specialty}`}
+                      </div>
+                      {t.description && (
+                        <div className="text-xs text-muted-foreground italic mt-0.5">
+                          {t.description}
+                        </div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Items */}
       <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
@@ -545,6 +755,99 @@ function QuoteDetailView({
           </ul>
         )}
       </div>
+    </div>
+  );
+}
+
+// ─── Onda 2 (Fase 24) — Card de sugestoes de pagamento ───────────
+//
+// Calcula opcoes comuns de pagamento na hora a partir do total. Por enquanto
+// regras hardcoded; futuro: configuravel via tenant settings.
+//  - À vista: 5% de desconto
+//  - 3x sem juros
+//  - 6x sem juros
+//  - 12x +1.5%/mês (juros simples — calcula custo total)
+//
+// Mostrado em SENT/ACCEPTED — momento certo do paciente decidir como pagar.
+function PaymentSuggestionsCard({ total }: { total: number }) {
+  const formatBRL = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  const cashDiscount = 0.05;
+  const cashTotal = total * (1 - cashDiscount);
+
+  // Juros simples mensal pra parcelas longas (modelo conservador)
+  const interestRate12x = 0.015; // 1.5% ao mes
+  const totalWith12xInterest = total * (1 + interestRate12x * 12);
+
+  const options = [
+    {
+      label: 'À vista (PIX/dinheiro)',
+      sub: `5% de desconto · economia de ${formatBRL(total - cashTotal)}`,
+      value: cashTotal,
+      installments: '1x',
+      highlighted: true,
+      badge: '💸 Mais econômico',
+    },
+    {
+      label: 'Cartão de crédito',
+      sub: 'Sem juros',
+      value: total / 3,
+      installments: '3x',
+    },
+    {
+      label: 'Cartão de crédito',
+      sub: 'Sem juros',
+      value: total / 6,
+      installments: '6x',
+    },
+    {
+      label: 'Cartão de crédito',
+      sub: `Com juros (1,5%/mês) · total ${formatBRL(totalWith12xInterest)}`,
+      value: totalWith12xInterest / 12,
+      installments: '12x',
+    },
+  ];
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 mb-4">
+      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+        <CreditCard size={14} className="text-primary" />
+        Sugestões de pagamento
+      </h3>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+        {options.map((opt, idx) => (
+          <div
+            key={idx}
+            className={`p-3 rounded-lg border ${
+              opt.highlighted
+                ? 'bg-emerald-500/5 border-emerald-500/30'
+                : 'border-border'
+            }`}
+          >
+            <div className="flex items-baseline gap-2 flex-wrap">
+              <span className={`text-2xl font-bold ${opt.highlighted ? 'text-emerald-600' : 'text-foreground'}`}>
+                {opt.installments}
+              </span>
+              <span className={`text-lg font-semibold ${opt.highlighted ? 'text-emerald-600' : 'text-foreground'}`}>
+                {formatBRL(opt.value)}
+              </span>
+              {opt.badge && (
+                <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">
+                  {opt.badge}
+                </span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground mt-1">
+              <strong>{opt.label}</strong>
+            </p>
+            <p className="text-xs text-muted-foreground">{opt.sub}</p>
+          </div>
+        ))}
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-2 italic">
+        Valores calculados automaticamente. Confirme as condições com a recepção antes de finalizar.
+      </p>
     </div>
   );
 }
