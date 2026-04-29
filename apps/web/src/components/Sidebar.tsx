@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass, Trophy, ShieldCheck,
+  Hourglass, Trophy, ShieldCheck, FileText,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -74,6 +74,7 @@ export function Sidebar() {
   const [unreadTotal, setUnreadTotal] = useState<number>(0);
   const [overdueCount, setOverdueCount] = useState<number>(0);
   const [pendingValidationCount, setPendingValidationCount] = useState<number>(0);
+  const [quotesExpiringSoon, setQuotesExpiringSoon] = useState<number>(0);
   const [djenUnread, setDjenUnread] = useState<number>(0);
   const [mounted, setMounted] = useState(false);
 
@@ -342,6 +343,24 @@ export function Sidebar() {
     return () => clearInterval(interval);
   }, [perms.isDentist, perms.isAdmin]);
 
+  // Badge "Orcamentos expirando" (Fase 24 Onda 1) — todos os usuarios veem
+  // (recepcao + dentista + admin todos beneficiam de saber)
+  useEffect(() => {
+    const fetchExpiring = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/quotes/dashboard`, {
+          headers: { Authorization: `Bearer ${typeof window !== 'undefined' ? localStorage.getItem('token') : ''}` },
+        });
+        if (!res.ok) return;
+        const data = await res.json();
+        setQuotesExpiringSoon(data?.expiring_soon || 0);
+      } catch { /* silencioso */ }
+    };
+    fetchExpiring();
+    const interval = setInterval(fetchExpiring, 5 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   // Badge para petições devolvidas (estagiário)
   const [internBadge, setInternBadge] = useState(0);
   useEffect(() => {
@@ -416,6 +435,16 @@ export function Sidebar() {
       href: '/atendimento/waitlist',
       icon: <Hourglass size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/waitlist'),
+      show: true,
+    },
+    orcamentos: {
+      label: 'Orçamentos',
+      href: '/atendimento/orcamentos',
+      icon: <FileText size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/orcamentos'),
+      // Badge mostra orcamentos enviados que expiram em ate 7 dias —
+      // ajuda recepcao/dentista a cobrar resposta antes de perder a venda
+      badge: quotesExpiringSoon,
       show: true,
     },
     validacoes: {
@@ -524,7 +553,7 @@ export function Sidebar() {
     {
       id: 'principal',
       label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.validacoes, allItems.waitlist, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
+      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.validacoes, allItems.waitlist, allItems.orcamentos, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
     },
     {
       id: 'gestao',

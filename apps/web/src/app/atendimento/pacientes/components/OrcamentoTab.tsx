@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2 } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -160,32 +160,74 @@ export default function OrcamentoTab({ patientId }: Props) {
         </div>
       ) : (
         <ul className="bg-card border border-border rounded-xl divide-y divide-border">
-          {list.map((q) => (
-            <li
-              key={q.id}
-              onClick={() => openDetail(q.id)}
-              className="px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3"
-            >
-              <DollarSign size={18} className="text-primary shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  R$ {Number(q.total_value).toFixed(2)}
-                  {q._count && <span className="text-xs text-muted-foreground ml-2">({q._count.items} itens)</span>}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Criado em {new Date(q.created_at).toLocaleDateString('pt-BR')}
-                  {q.created_by && ` por ${q.created_by.name}`}
-                </p>
-              </div>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
-                {STATUS_LABEL[q.status]}
-              </span>
-            </li>
-          ))}
+          {list.map((q) => {
+            const expiry = expiryStatus(q.valid_until, q.status);
+            return (
+              <li
+                key={q.id}
+                onClick={() => openDetail(q.id)}
+                className="px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3"
+              >
+                <DollarSign size={18} className="text-primary shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground">
+                    R$ {Number(q.total_value).toFixed(2)}
+                    {q._count && <span className="text-xs text-muted-foreground ml-2">({q._count.items} itens)</span>}
+                  </p>
+                  <p className="text-xs text-muted-foreground flex items-center gap-2 flex-wrap">
+                    <span>Criado em {new Date(q.created_at).toLocaleDateString('pt-BR')}</span>
+                    {q.created_by && <span>por {q.created_by.name}</span>}
+                    {expiry && (
+                      <span className={`inline-flex items-center gap-1 ${expiry.cls}`}>
+                        <Calendar size={11} /> {expiry.text}
+                      </span>
+                    )}
+                  </p>
+                </div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
+                  {STATUS_LABEL[q.status]}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>
   );
+}
+
+// ─── Helpers de validade (Onda 1 — Fase 24) ─────────────────
+
+/**
+ * Calcula status de expiracao pra exibir na lista/detalhe:
+ *  - Verde: > 7 dias restantes
+ *  - Amarelo: 1-7 dias restantes (aviso)
+ *  - Vermelho: ja expirou (status virou EXPIRED ou ainda SENT mas data passou)
+ *  - Null: nao tem validade ou status nao se aplica (ACCEPTED/REJECTED)
+ */
+function expiryStatus(
+  validUntil: string | null,
+  status: string,
+): { text: string; cls: string } | null {
+  if (!validUntil) return null;
+  // Em status terminal a validade nao faz sentido visual
+  if (['ACCEPTED', 'REJECTED'].includes(status)) return null;
+
+  const expiry = new Date(validUntil);
+  const now = new Date();
+  const msPerDay = 1000 * 60 * 60 * 24;
+  const daysLeft = Math.floor((expiry.getTime() - now.getTime()) / msPerDay);
+
+  if (daysLeft < 0) {
+    return { text: `Expirou há ${Math.abs(daysLeft)}d`, cls: 'text-red-600' };
+  }
+  if (daysLeft === 0) {
+    return { text: 'Expira hoje', cls: 'text-red-600' };
+  }
+  if (daysLeft <= 7) {
+    return { text: `Expira em ${daysLeft}d`, cls: 'text-amber-600' };
+  }
+  return { text: `Válido por ${daysLeft}d`, cls: 'text-muted-foreground' };
 }
 
 function QuoteDetailView({
@@ -255,6 +297,22 @@ function QuoteDetailView({
     }
   };
 
+  /** Envia via WhatsApp com link mágico do portal — Fase 24 Onda 1 */
+  const sendByWhatsapp = async () => {
+    const isResend = quote.status === 'SENT';
+    const msg = isResend
+      ? 'Reenviar orçamento ao paciente via WhatsApp?'
+      : 'Enviar orçamento ao paciente via WhatsApp?\n\nIsso vai gerar um link do portal e enviar uma mensagem com o resumo do orçamento. Após envio, não será possível editar os itens.';
+    if (!confirm(msg)) return;
+    try {
+      const { data } = await api.post(`/quotes/${quote.id}/send-whatsapp`);
+      showSuccess(`Orçamento enviado pra ${data.sent_to}`);
+      await onReload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao enviar via WhatsApp');
+    }
+  };
+
   const accept = async () => {
     if (!confirm('Marcar como aceito e criar plano de tratamento?')) return;
     try {
@@ -317,7 +375,23 @@ function QuoteDetailView({
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Validade</p>
-            <p className="text-sm">{quote.valid_until ? new Date(quote.valid_until).toLocaleDateString('pt-BR') : '—'}</p>
+            {quote.valid_until ? (
+              (() => {
+                const expiry = expiryStatus(quote.valid_until, quote.status);
+                return (
+                  <p className="text-sm flex items-center gap-2 flex-wrap">
+                    <span>{new Date(quote.valid_until).toLocaleDateString('pt-BR')}</span>
+                    {expiry && (
+                      <span className={`text-xs font-medium ${expiry.cls}`}>
+                        ({expiry.text})
+                      </span>
+                    )}
+                  </p>
+                );
+              })()
+            ) : (
+              <p className="text-sm">—</p>
+            )}
           </div>
         </div>
         {quote.rejection_reason && (
@@ -332,8 +406,20 @@ function QuoteDetailView({
       <div className="flex flex-wrap gap-2 mb-4">
         {isDraft && (
           <>
-            <button onClick={sendQuote} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90">
-              <Send size={14} /> Enviar
+            {/* Onda 1 (Fase 24): WhatsApp eh o canal principal — cor verde de destaque */}
+            <button
+              onClick={sendByWhatsapp}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm hover:bg-emerald-700 font-medium"
+              title="Envia link mágico do portal via WhatsApp com resumo do orçamento"
+            >
+              <MessageCircle size={14} /> Enviar via WhatsApp
+            </button>
+            <button
+              onClick={sendQuote}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border text-muted-foreground text-sm hover:bg-accent"
+              title="Marca como enviado sem disparar mensagem"
+            >
+              <Send size={14} /> Marcar enviado
             </button>
             <button onClick={remove} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-destructive/30 text-destructive text-sm hover:bg-destructive/10">
               <Trash2 size={14} /> Deletar rascunho
@@ -342,6 +428,13 @@ function QuoteDetailView({
         )}
         {isSent && (
           <>
+            <button
+              onClick={sendByWhatsapp}
+              className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-emerald-500/40 text-emerald-700 text-sm hover:bg-emerald-50"
+              title="Reenviar mensagem com link"
+            >
+              <MessageCircle size={14} /> Reenviar WhatsApp
+            </button>
             <button onClick={accept} className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm hover:bg-emerald-600">
               <Check size={14} /> Marcar aceito
             </button>

@@ -1,5 +1,8 @@
-import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { PortalAuthService } from '../portal/portal-auth.service';
 import { Prisma } from '@crm/shared';
 
 type ItemInput = {
@@ -10,9 +13,21 @@ type ItemInput = {
   notes?: string;
 };
 
+// Validade padrao quando operador nao informa — alinhada com norma de
+// planos comerciais de clinicas dentais (orcamento "fica de pe" 30 dias).
+const DEFAULT_VALID_DAYS = 30;
+// Antecedencia da notificacao de expiracao (lembrete pro paciente)
+const EXPIRY_REMINDER_DAYS = 3;
+
 @Injectable()
 export class QuotesService {
-  constructor(private prisma: PrismaService) {}
+  private readonly logger = new Logger(QuotesService.name);
+
+  constructor(
+    private prisma: PrismaService,
+    @Optional() @Inject(forwardRef(() => WhatsappService)) private whatsapp?: WhatsappService,
+    @Optional() @Inject(forwardRef(() => PortalAuthService)) private portalAuth?: PortalAuthService,
+  ) {}
 
   async create(
     patientId: string,
@@ -32,11 +47,21 @@ export class QuotesService {
     const resolvedItems = await this.resolveItems(items, tenantId);
     const totals = this.computeTotals(resolvedItems, data.discount_percent || 0);
 
+    // Default valid_until = hoje + 30 dias se nao informado.
+    // Nunca cria orcamento sem validade — vira problema na auto-expiracao.
+    const validUntil = data.valid_until
+      ? new Date(data.valid_until)
+      : (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + DEFAULT_VALID_DAYS);
+          return d;
+        })();
+
     return this.prisma.quote.create({
       data: {
         patient_id: patientId,
         created_by_user_id: userId,
-        valid_until: data.valid_until ? new Date(data.valid_until) : null,
+        valid_until: validUntil,
         discount_percent: data.discount_percent || 0,
         discount_value: totals.discount_value,
         subtotal: totals.subtotal,
@@ -75,7 +100,7 @@ export class QuotesService {
     const quote = await this.prisma.quote.findUnique({
       where: { id },
       include: {
-        patient: { select: { id: true, name: true, tenant_id: true } },
+        patient: { select: { id: true, name: true, tenant_id: true, phone: true } },
         created_by: { select: { id: true, name: true } },
         items: {
           orderBy: { order_index: 'asc' },
@@ -312,5 +337,314 @@ export class QuotesService {
     if (!item) throw new NotFoundException('Item nao encontrado');
     if (item.quote.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
     return item;
+  }
+
+  // ─── Onda 1 — Listagem global + Dashboard funil ────────────────
+
+  /**
+   * Lista TODOS os orcamentos do tenant com filtros (status, dentista, range
+   * de datas). Substitui findByPatient quando operador quer visao geral
+   * comercial (pagina /atendimento/orcamentos).
+   */
+  async findAll(
+    tenantId: string,
+    opts: {
+      status?: string;
+      createdById?: string;
+      patientId?: string;
+      from?: string; // ISO date
+      to?: string;
+      search?: string;
+      limit?: number;
+    } = {},
+  ) {
+    const limit = Math.min(500, Math.max(1, opts.limit || 100));
+    const where: Prisma.QuoteWhereInput = {
+      patient: { tenant_id: tenantId },
+      ...(opts.status ? { status: opts.status } : {}),
+      ...(opts.createdById ? { created_by_user_id: opts.createdById } : {}),
+      ...(opts.patientId ? { patient_id: opts.patientId } : {}),
+      ...(opts.from || opts.to
+        ? {
+            created_at: {
+              ...(opts.from ? { gte: new Date(opts.from) } : {}),
+              ...(opts.to ? { lte: new Date(opts.to) } : {}),
+            },
+          }
+        : {}),
+      ...(opts.search
+        ? {
+            patient: {
+              tenant_id: tenantId,
+              OR: [
+                { name: { contains: opts.search, mode: 'insensitive' } },
+                { phone: { contains: opts.search } },
+                { cpf: { contains: opts.search } },
+              ],
+            },
+          }
+        : {}),
+    };
+
+    return this.prisma.quote.findMany({
+      where,
+      orderBy: { created_at: 'desc' },
+      take: limit,
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+        created_by: { select: { id: true, name: true } },
+        _count: { select: { items: true } },
+      },
+    });
+  }
+
+  /**
+   * Dashboard funil de orcamentos: contagens e valores por status,
+   * taxa de conversao, e expirando em ate 7 dias. Usado na pagina
+   * /atendimento/orcamentos pra visao gerencial.
+   */
+  async getDashboardStats(
+    tenantId: string,
+    opts: { from?: string; to?: string } = {},
+  ) {
+    const where: Prisma.QuoteWhereInput = {
+      patient: { tenant_id: tenantId },
+      ...(opts.from || opts.to
+        ? {
+            created_at: {
+              ...(opts.from ? { gte: new Date(opts.from) } : {}),
+              ...(opts.to ? { lte: new Date(opts.to) } : {}),
+            },
+          }
+        : {}),
+    };
+
+    const [grouped, expiringSoon] = await Promise.all([
+      this.prisma.quote.groupBy({
+        by: ['status'],
+        where,
+        _count: true,
+        _sum: { total_value: true },
+      }),
+      this.prisma.quote.count({
+        where: {
+          patient: { tenant_id: tenantId },
+          status: 'SENT',
+          valid_until: {
+            gte: new Date(),
+            lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+          },
+        },
+      }),
+    ]);
+
+    const byStatus: Record<string, { count: number; total: number }> = {
+      DRAFT: { count: 0, total: 0 },
+      SENT: { count: 0, total: 0 },
+      ACCEPTED: { count: 0, total: 0 },
+      REJECTED: { count: 0, total: 0 },
+      EXPIRED: { count: 0, total: 0 },
+    };
+    for (const g of grouped) {
+      byStatus[g.status] = {
+        count: g._count,
+        total: Number(g._sum.total_value) || 0,
+      };
+    }
+
+    // Conversao = ACCEPTED / (ACCEPTED + REJECTED + EXPIRED) — exclui DRAFT/SENT
+    // ainda em aberto. Reflete decisao final do paciente.
+    const decided =
+      byStatus.ACCEPTED.count + byStatus.REJECTED.count + byStatus.EXPIRED.count;
+    const conversionRate = decided > 0 ? byStatus.ACCEPTED.count / decided : null;
+
+    return {
+      byStatus,
+      total_count: Object.values(byStatus).reduce((s, x) => s + x.count, 0),
+      pipeline_value: byStatus.SENT.total + byStatus.DRAFT.total,
+      revenue_accepted: byStatus.ACCEPTED.total,
+      conversion_rate: conversionRate,
+      expiring_soon: expiringSoon,
+    };
+  }
+
+  // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────
+
+  /**
+   * Marca como EXPIRED orcamentos com status=SENT cuja valid_until
+   * ja passou. Idempotente — pode rodar quantas vezes precisar.
+   * Usado pelo cron diario E pode ser chamado manualmente via admin.
+   */
+  async expireOldQuotes(tenantId?: string): Promise<{ expired: number }> {
+    const now = new Date();
+    const where: Prisma.QuoteWhereInput = {
+      status: 'SENT',
+      valid_until: { lt: now },
+      ...(tenantId ? { patient: { tenant_id: tenantId } } : {}),
+    };
+    const result = await this.prisma.quote.updateMany({
+      where,
+      data: { status: 'EXPIRED' },
+    });
+    if (result.count > 0) {
+      this.logger.log(`[QUOTES] ${result.count} orcamento(s) auto-expirados`);
+    }
+    return { expired: result.count };
+  }
+
+  /**
+   * Envia lembrete WhatsApp D-3 antes da expiracao pra orcamentos SENT.
+   * "Seu orcamento expira em 3 dias, quer renegociar?". Best-effort —
+   * roda no cron e nao bloqueia.
+   */
+  async sendExpiryReminders(): Promise<{ sent: number }> {
+    if (!this.whatsapp) {
+      this.logger.warn('[QUOTES] WhatsappService nao disponivel — pulando lembretes');
+      return { sent: 0 };
+    }
+    // Janela: orcamentos SENT que expiram nos proximos 3 dias.
+    // Usa window de 24h pra evitar duplicar lembrete (cron diario).
+    const target = new Date();
+    target.setDate(target.getDate() + EXPIRY_REMINDER_DAYS);
+    const targetStart = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 0, 0, 0);
+    const targetEnd = new Date(target.getFullYear(), target.getMonth(), target.getDate(), 23, 59, 59);
+
+    const candidates = await this.prisma.quote.findMany({
+      where: {
+        status: 'SENT',
+        valid_until: { gte: targetStart, lte: targetEnd },
+      },
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+      },
+      take: 200,
+    });
+
+    let sent = 0;
+    for (const q of candidates) {
+      if (!q.patient?.phone) continue;
+      try {
+        const firstName = (q.patient.name || '').split(' ')[0] || 'Olá';
+        const total = Number(q.total_value).toLocaleString('pt-BR', {
+          style: 'currency', currency: 'BRL',
+        });
+        const validDate = q.valid_until?.toLocaleDateString('pt-BR') || '—';
+        const msg =
+          `Oi ${firstName}! 👋\n\n` +
+          `Passando pra lembrar que seu orçamento (${total}) está prestes a expirar em ${validDate}.\n\n` +
+          `Quer reservar agora ou tem alguma dúvida sobre o tratamento? É só responder por aqui que a gente conversa! 😊`;
+        const result: any = await this.whatsapp.sendText(q.patient.phone, msg);
+        if (result && result.statusCode < 400) sent++;
+      } catch (e: any) {
+        this.logger.warn(`[QUOTES] Lembrete D-3 falhou pra ${q.id}: ${e?.message}`);
+      }
+    }
+    if (sent > 0) {
+      this.logger.log(`[QUOTES] ${sent} lembrete(s) D-3 enviado(s)`);
+    }
+    return { sent };
+  }
+
+  /** Cron: roda 1x ao dia (3h da manhã, fora do horário comercial). */
+  @Cron(CronExpression.EVERY_DAY_AT_3AM)
+  async cronDailyExpiry() {
+    try {
+      await this.expireOldQuotes();
+      await this.sendExpiryReminders();
+    } catch (e: any) {
+      this.logger.error(`[QUOTES] cronDailyExpiry falhou: ${e?.message}`);
+    }
+  }
+
+  // ─── Onda 1 — Envio via WhatsApp ───────────────────────────────
+
+  /**
+   * Envia orcamento por WhatsApp pro paciente: gera magic link via portal,
+   * monta mensagem custom com resumo (total, items, validade), envia via
+   * Evolution. Atualiza status SENT + sent_at se ainda era DRAFT.
+   *
+   * Aceita re-envio em SENT (sem mudar status, so registra no log).
+   */
+  async sendByWhatsapp(quoteId: string, tenantId: string) {
+    if (!this.whatsapp) {
+      throw new BadRequestException('Servico de WhatsApp nao disponivel');
+    }
+    if (!this.portalAuth) {
+      throw new BadRequestException('Servico de portal nao disponivel');
+    }
+    const quote = await this.findOne(quoteId, tenantId);
+    if (!['DRAFT', 'SENT'].includes(quote.status)) {
+      throw new BadRequestException(
+        `Orcamento esta ${quote.status} — nao pode reenviar. Crie um novo orcamento se precisar.`,
+      );
+    }
+    if (!quote.patient.phone) {
+      throw new BadRequestException(
+        'Paciente sem telefone cadastrado — adicione antes de enviar via WhatsApp.',
+      );
+    }
+
+    // Gera magic link sem disparar mensagem automatica do portal
+    // (vamos enviar uma mensagem custom com dados do orcamento)
+    const magic = await this.portalAuth.createMagicLink(
+      tenantId, quote.patient_id, 'OTHER',
+    );
+
+    // Mensagem custom com resumo
+    const firstName = (quote.patient.name || '').split(' ')[0] || 'Olá';
+    const formatBRL = (v: any) =>
+      Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const itemCount = quote.items?.length || 0;
+    const validUntil = quote.valid_until
+      ? quote.valid_until.toLocaleDateString('pt-BR')
+      : null;
+
+    const msg =
+      `Oi ${firstName}! 👋\n\n` +
+      `Seu orçamento do Instituto Odonto Passos está pronto:\n\n` +
+      `📋 ${itemCount} procedimento(s)\n` +
+      `💰 Total: ${formatBRL(quote.total_value)}\n` +
+      (Number(quote.discount_value) > 0
+        ? `🎁 Desconto: ${formatBRL(quote.discount_value)}\n`
+        : '') +
+      (validUntil ? `📅 Válido até ${validUntil}\n` : '') +
+      `\nAcesse pra ver detalhes e aceitar:\n${magic.link}\n\n` +
+      `Qualquer dúvida, é só responder por aqui. 😊`;
+
+    let dispatchOk = false;
+    let dispatchReason = '';
+    try {
+      const result: any = await this.whatsapp.sendText(quote.patient.phone, msg);
+      dispatchOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
+      if (!dispatchOk) {
+        dispatchReason = result?.error || `HTTP ${result?.statusCode || '?'}`;
+      }
+    } catch (e: any) {
+      dispatchReason = e?.message || 'erro desconhecido';
+    }
+
+    if (!dispatchOk) {
+      throw new BadRequestException(
+        `Falha ao enviar WhatsApp: ${dispatchReason}. Link gerado: ${magic.link}`,
+      );
+    }
+
+    // Sucesso: marca como SENT (se ainda era DRAFT)
+    if (quote.status === 'DRAFT') {
+      await this.prisma.quote.update({
+        where: { id: quoteId },
+        data: { status: 'SENT', sent_at: new Date() },
+      });
+    }
+
+    this.logger.log(
+      `[QUOTES] Orcamento ${quoteId} enviado via WhatsApp pra ${quote.patient.phone}`,
+    );
+    return {
+      ok: true,
+      link: magic.link,
+      sent_to: quote.patient.phone,
+      status: 'SENT',
+    };
   }
 }

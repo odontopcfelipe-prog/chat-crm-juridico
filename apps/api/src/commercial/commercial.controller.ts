@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, BadRequestException,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, BadRequestException,
 } from '@nestjs/common';
 import { QuotesService } from './quotes.service';
 import { TreatmentPlansService } from './treatment-plans.service';
@@ -82,6 +82,61 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.reject(id, tenantId, dto?.rejection_reason);
+  }
+
+  // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
+
+  /** Lista TODOS os orcamentos do tenant (pagina /atendimento/orcamentos) */
+  @Get('quotes')
+  listAllQuotes(
+    @Request() req: any,
+    @Query('status') status?: string,
+    @Query('createdById') createdById?: string,
+    @Query('patientId') patientId?: string,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+    @Query('search') search?: string,
+    @Query('limit') limit?: string,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.findAll(tenantId, {
+      status,
+      createdById,
+      patientId,
+      from,
+      to,
+      search,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
+
+  /** Dashboard funil — counts/valores por status + conversao + expirando */
+  @Get('quotes/dashboard')
+  quotesDashboard(
+    @Request() req: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.getDashboardStats(tenantId, { from, to });
+  }
+
+  /** Envia orcamento por WhatsApp com link do portal */
+  @Post('quotes/:id/send-whatsapp')
+  sendQuoteByWhatsapp(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.sendByWhatsapp(id, tenantId);
+  }
+
+  /** Admin: forca auto-expiracao agora (idempotente) */
+  @Post('quotes/expire-old')
+  expireOldQuotes(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.expireOldQuotes(tenantId);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────
