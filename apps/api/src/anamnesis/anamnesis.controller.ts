@@ -69,7 +69,7 @@ export class AnamnesisController {
   create(@Param('patientId') patientId: string, @Body() dto: CreateAnamnesisDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.anamnesisService.create(patientId, tenantId, dto, req.user?.sub);
+    return this.anamnesisService.create(patientId, tenantId, dto, req.user?.id);
   }
 
   @Get('patients/:patientId/anamneses')

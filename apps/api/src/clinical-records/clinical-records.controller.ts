@@ -55,7 +55,7 @@ export class ClinicalRecordsController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.clinicalNotesService.create(patientId, tenantId, userId, dto);
   }
@@ -81,7 +81,7 @@ export class ClinicalRecordsController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.clinicalNotesService.update(id, tenantId, userId, dto);
   }
@@ -89,7 +89,7 @@ export class ClinicalRecordsController {
   @Post('clinical-notes/:id/finalize')
   finalizeNote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.clinicalNotesService.finalize(id, tenantId, userId);
   }
@@ -97,7 +97,7 @@ export class ClinicalRecordsController {
   @Post('clinical-notes/:id/addendum')
   addAddendum(@Param('id') id: string, @Body() dto: AddAddendumDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.clinicalNotesService.addAddendum(id, tenantId, userId, dto.addendum);
   }

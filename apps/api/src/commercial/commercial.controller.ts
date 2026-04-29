@@ -39,7 +39,8 @@ export class CommercialController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    // JwtStrategy.validate() retorna { id: payload.sub, ... } — usar req.user.id
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.quotesService.create(patientId, tenantId, userId, dto);
   }
@@ -379,7 +380,8 @@ export class CommercialController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    // JwtStrategy.validate() retorna { id: payload.sub, ... } — usar req.user.id
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.plansService.executeItem(id, tenantId, userId, dto);
   }

@@ -56,6 +56,8 @@ const settingsSections: MenuSection[] = [
   {
     title: 'Comercial',
     items: [
+      { label: 'Tabela de Preços', href: '/atendimento/settings/procedures', icon: DollarSign },
+      { label: 'Especialidades', href: '/atendimento/settings/specialties', icon: Layout },
       { label: 'Modelos de Orçamento', href: '/atendimento/settings/quote-templates', icon: FileText },
       { label: 'Cupons de Desconto', href: '/atendimento/settings/quote-coupons', icon: Tag },
     ],

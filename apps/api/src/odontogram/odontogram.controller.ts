@@ -28,7 +28,7 @@ export class OdontogramController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.odontogramService.updateMeta(patientId, tenantId, dto.meta || {}, userId);
   }
@@ -40,7 +40,7 @@ export class OdontogramController {
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.odontogramService.addTooth(patientId, tenantId, userId, dto);
   }
@@ -48,7 +48,7 @@ export class OdontogramController {
   @Patch('tooth-records/:id')
   updateTooth(@Param('id') id: string, @Body() dto: UpdateToothRecordDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.odontogramService.updateTooth(id, tenantId, userId, dto);
   }
@@ -56,7 +56,7 @@ export class OdontogramController {
   @Delete('tooth-records/:id')
   removeTooth(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
-    const userId = req.user?.sub;
+    const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.odontogramService.removeTooth(id, tenantId, userId);
   }
