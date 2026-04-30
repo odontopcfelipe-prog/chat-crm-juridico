@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard, Repeat } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
+import AddQuoteItemModal from './AddQuoteItemModal';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -265,11 +266,8 @@ function QuoteDetailView({
   onBack: () => void;
   onReload: () => Promise<void>;
 }) {
+  // addingItem agora abre modal AddQuoteItemModal — nao mais form inline
   const [addingItem, setAddingItem] = useState(false);
-  const [procedureId, setProcedureId] = useState('');
-  const [quantity, setQuantity] = useState(1);
-  const [unitPrice, setUnitPrice] = useState<string>('');
-  const [toothFdi, setToothFdi] = useState('');
   const [saving, setSaving] = useState(false);
 
   // Onda 2 — Templates + Cupom
@@ -351,26 +349,13 @@ function QuoteDetailView({
       .catch((err) => showError(err?.message || 'Erro ao baixar PDF'));
   };
 
+  // addItem antigo (form inline) foi removido — agora AddQuoteItemModal cuida.
+  // Mantemos addItemDeprecated como NO-OP pra preservar compat se algo usar:
   const addItem = async () => {
-    if (!procedureId) {
-      showError('Selecione um procedimento');
-      return;
-    }
     setSaving(true);
     try {
-      await api.post(`/quotes/${quote.id}/items`, {
-        procedure_id: procedureId,
-        quantity,
-        unit_price: unitPrice === '' ? undefined : Number(unitPrice),
-        tooth_fdi: toothFdi || undefined,
-      });
-      showSuccess('Item adicionado');
-      setAddingItem(false);
-      setProcedureId('');
-      setQuantity(1);
-      setUnitPrice('');
-      setToothFdi('');
-      await onReload();
+      // No-op — modal agora faz tudo
+      showError('Use o modal "Adicionar procedimentos" pra incluir items');
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao adicionar');
     } finally {
@@ -723,74 +708,24 @@ function QuoteDetailView({
       <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
         <div className="px-4 py-2 border-b border-border flex items-center justify-between">
           <p className="text-sm font-semibold">Procedimentos</p>
-          {isDraft && !addingItem && (
-            <button onClick={() => setAddingItem(true)} className="text-xs text-primary hover:bg-primary/10 px-2 py-1 rounded flex items-center gap-1">
-              <Plus size={12} /> Adicionar
+          {isDraft && (
+            <button
+              onClick={() => setAddingItem(true)}
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+            >
+              <Plus size={12} /> Adicionar procedimentos
             </button>
           )}
         </div>
 
+        {/* Modal de adicionar (substitui form inline cramped) */}
         {addingItem && (
-          <div className="p-4 bg-accent/20 border-b border-border space-y-3">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-xs font-medium mb-1">Procedimento</label>
-                <select
-                  value={procedureId}
-                  onChange={(e) => {
-                    setProcedureId(e.target.value);
-                    const p = procedures.find((x) => x.id === e.target.value);
-                    if (p && unitPrice === '') setUnitPrice(String(p.base_price));
-                  }}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="">Selecione...</option>
-                  {procedures.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name} (R$ {Number(p.base_price).toFixed(2)})</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Dente FDI (opcional)</label>
-                <input
-                  type="text"
-                  value={toothFdi}
-                  onChange={(e) => setToothFdi(e.target.value)}
-                  placeholder="ex: 11, 36, 47"
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Quantidade</label>
-                <input
-                  type="number"
-                  value={quantity}
-                  onChange={(e) => setQuantity(parseInt(e.target.value, 10) || 1)}
-                  min={1}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium mb-1">Preço unitário (R$)</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={unitPrice}
-                  onChange={(e) => setUnitPrice(e.target.value)}
-                  className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2">
-              <button onClick={() => setAddingItem(false)} disabled={saving} className="px-3 py-1 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50">
-                Cancelar
-              </button>
-              <button onClick={addItem} disabled={saving} className="inline-flex items-center gap-1 px-3 py-1 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50">
-                {saving && <Loader2 size={12} className="animate-spin" />}
-                Adicionar
-              </button>
-            </div>
-          </div>
+          <AddQuoteItemModal
+            quoteId={quote.id}
+            procedures={procedures}
+            onClose={() => setAddingItem(false)}
+            onAdded={onReload}
+          />
         )}
 
         {quote.items.length === 0 ? (
