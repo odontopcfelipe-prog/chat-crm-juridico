@@ -307,7 +307,7 @@ export default function PacienteFichaPage() {
       )}
       {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
       {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
-      {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} />}
+      {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} patientName={patient.name} />}
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}

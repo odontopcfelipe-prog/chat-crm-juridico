@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Activity, X, Trash2, Save } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
 interface Props {
   patientId: string;
+  /** Onda 25.5 — nome do paciente exibido no cabecalho de impressao */
+  patientName?: string;
 }
 
 interface ToothRecord {
@@ -56,7 +58,7 @@ const FACES = ['M', 'D', 'O', 'V', 'L', 'INCISAL'] as const;
 
 const STATE_CLS: Record<string, string> = Object.fromEntries(STATES.map((s) => [s.v, s.cls]));
 
-export default function OdontogramaTab({ patientId }: Props) {
+export default function OdontogramaTab({ patientId, patientName }: Props) {
   const [odonto, setOdonto] = useState<Odontogram | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
@@ -120,10 +122,51 @@ export default function OdontogramaTab({ patientId }: Props) {
     );
   }
 
+  // Onda 25.5 — handler de impressao via window.print + CSS classico
+  // (visibility:hidden tudo, visible so o .odontogram-print)
+  const handlePrint = () => {
+    document.body.classList.add('printing-odontogram');
+    window.print();
+    setTimeout(() => document.body.classList.remove('printing-odontogram'), 200);
+  };
+
   return (
-    <div>
+    <div className="odontogram-print">
+      {/* Onda 25.5 — CSS print scoped (so afeta quando body tem .printing-odontogram) */}
+      <style dangerouslySetInnerHTML={{ __html: `
+        @media print {
+          body.printing-odontogram * { visibility: hidden !important; }
+          body.printing-odontogram .odontogram-print,
+          body.printing-odontogram .odontogram-print * { visibility: visible !important; }
+          body.printing-odontogram .odontogram-print {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            padding: 24px !important;
+            background: white !important;
+            color: black !important;
+          }
+          body.printing-odontogram .print-hide { display: none !important; }
+          body.printing-odontogram .print-only { display: block !important; }
+          body.printing-odontogram .odontogram-print * {
+            -webkit-print-color-adjust: exact !important;
+            print-color-adjust: exact !important;
+          }
+        }
+        .print-only { display: none; }
+      `}} />
+
+      {/* Cabecalho que SO aparece na impressao */}
+      <div className="print-only mb-4 pb-3 border-b-2 border-black">
+        <h2 className="text-xl font-bold">Odontograma — {patientName || 'Paciente'}</h2>
+        <p className="text-sm">
+          Impresso em {new Date().toLocaleString('pt-BR')}
+        </p>
+      </div>
+
       {/* Header + legenda */}
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between mb-3 print-hide">
         <div className="flex items-center gap-2">
           <Activity size={18} className="text-primary" />
           <h3 className="font-semibold text-foreground">Odontograma (notação FDI)</h3>
@@ -138,6 +181,13 @@ export default function OdontogramaTab({ patientId }: Props) {
             <option value="mixed">Dentição mista</option>
             <option value="deciduous">Dentição decídua</option>
           </select>
+          <button
+            onClick={handlePrint}
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-border hover:bg-accent text-muted-foreground hover:text-foreground"
+            title="Imprimir odontograma (gera versão limpa pra papel/PDF)"
+          >
+            <Printer size={12} /> Imprimir
+          </button>
         </div>
       </div>
 
@@ -194,17 +244,19 @@ export default function OdontogramaTab({ patientId }: Props) {
         </div>
       </div>
 
-      {/* Editor de dente */}
+      {/* Editor de dente — print-hide pra nao sair no papel */}
       {selectedTooth && (
-        <ToothEditor
-          patientId={patientId}
-          toothFdi={selectedTooth}
-          records={toothRecords(selectedTooth)}
-          editingRecord={editingRecord}
-          onEdit={onEditRecord}
-          onSaved={onRecordSaved}
-          onClose={closeEditor}
-        />
+        <div className="print-hide">
+          <ToothEditor
+            patientId={patientId}
+            toothFdi={selectedTooth}
+            records={toothRecords(selectedTooth)}
+            editingRecord={editingRecord}
+            onEdit={onEditRecord}
+            onSaved={onRecordSaved}
+            onClose={closeEditor}
+          />
+        </div>
       )}
     </div>
   );
