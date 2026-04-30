@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { calculateAge, formatBirthDateWithAge } from '@/lib/age';
 import AnamneseTab from '../components/AnamneseTab';
 import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
@@ -109,17 +110,6 @@ const SEVERITY_CLS: Record<string, string> = {
   MODERATE: 'bg-orange-500/10 text-orange-600 border-orange-500/20',
   SEVERE:   'bg-red-500/10 text-red-600 border-red-500/20',
 };
-
-function calculateAge(birthDate: string | null): number | null {
-  if (!birthDate) return null;
-  const b = new Date(birthDate);
-  if (isNaN(b.getTime())) return null;
-  const now = new Date();
-  let age = now.getFullYear() - b.getFullYear();
-  const m = now.getMonth() - b.getMonth();
-  if (m < 0 || (m === 0 && now.getDate() < b.getDate())) age--;
-  return age;
-}
 
 export default function PacienteFichaPage() {
   const params = useParams<{ id: string }>();
@@ -492,7 +482,8 @@ function OverviewTab({
           <Field label="Nome" value={patient.name} />
           <Field label="CPF" value={patient.cpf} />
           <Field label="RG" value={patient.rg} />
-          <Field label="Nascimento" value={patient.birth_date?.slice(0, 10)} />
+          {/* Onda 25.4 — DD/MM/YYYY + idade calculada (helper compartilhado) */}
+          <Field label="Nascimento" value={formatBirthDateWithAge(patient.birth_date) || null} />
           <Field
             label="Sexo"
             value={patient.gender === 'F' ? 'Feminino' : patient.gender === 'M' ? 'Masculino' : patient.gender || null}
