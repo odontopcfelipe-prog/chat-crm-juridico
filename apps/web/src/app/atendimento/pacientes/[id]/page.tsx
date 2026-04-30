@@ -202,7 +202,10 @@ export default function PacienteFichaPage() {
     : null;
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    // h-full + overflow-y-auto: pai <main> tem overflow-hidden, entao precisamos
+    // de container scrollavel proprio pra que conteudos longos (orcamento com
+    // anexos, prontuario com muitas evolucoes) nao fiquem cortados na viewport.
+    <div className="h-full overflow-y-auto p-6 max-w-7xl mx-auto">
       {/* Back */}
       <button
         onClick={() => router.push('/atendimento/pacientes')}
