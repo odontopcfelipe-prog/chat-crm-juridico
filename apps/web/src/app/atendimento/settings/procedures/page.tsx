@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import {
   DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search,
-  ChevronDown, ChevronRight, TrendingUp, AlertCircle,
+  ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -50,6 +50,34 @@ interface Specialty {
 
 const formatBRL = (v: number | string) =>
   Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+/**
+ * Paleta de 8 cores para destacar visualmente cada grupo de especialidade.
+ * Hash do ID -> indice 0-7 garante que a mesma especialidade SEMPRE receba
+ * a mesma cor (consistencia entre sessoes). Mesmo padrao usado pra dentistas
+ * na agenda — visual familiar.
+ */
+const SPECIALTY_COLORS = [
+  { bar: '#a855f7', tint: 'rgba(168, 85, 247, 0.08)' }, // roxo (Cirurgia)
+  { bar: '#3b82f6', tint: 'rgba(59, 130, 246, 0.08)' }, // azul (Clinica Geral)
+  { bar: '#22c55e', tint: 'rgba(34, 197, 94, 0.08)' },  // verde (Profilaxia)
+  { bar: '#f97316', tint: 'rgba(249, 115, 22, 0.08)' }, // laranja (Endodontia)
+  { bar: '#ec4899', tint: 'rgba(236, 72, 153, 0.08)' }, // rosa (Estetica)
+  { bar: '#14b8a6', tint: 'rgba(20, 184, 166, 0.08)' }, // teal (Implantes)
+  { bar: '#eab308', tint: 'rgba(234, 179, 8, 0.08)' },  // amarelo (Ortodontia)
+  { bar: '#06b6d4', tint: 'rgba(6, 182, 212, 0.08)' },  // ciano (Periodontia)
+];
+
+function colorForSpecialty(key: string) {
+  // "Sem especialidade" key '__none__' -> cor neutra cinza
+  if (key === '__none__') {
+    return { bar: '#94a3b8', tint: 'rgba(148, 163, 184, 0.06)' };
+  }
+  // Hash simples do id -> indice estavel
+  let hash = 0;
+  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
+  return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
+}
 
 export default function ProceduresSettingsPage() {
   const [list, setList] = useState<Procedure[]>([]);
@@ -238,20 +266,42 @@ export default function ProceduresSettingsPage() {
         <div className="space-y-3">
           {grouped.map((group) => {
             const collapsed = collapsedGroups.has(group.key);
+            const color = colorForSpecialty(group.key);
+            const groupSum = group.items.reduce((acc, p) => acc + Number(p.base_price), 0);
             return (
-              <div key={group.key} className="bg-card border border-border rounded-xl overflow-hidden">
+              <div
+                key={group.key}
+                className="bg-card border border-border rounded-xl overflow-hidden border-l-4"
+                style={{ borderLeftColor: color.bar }}
+              >
                 <button
                   onClick={() => toggleGroup(group.key)}
-                  className="w-full px-4 py-3 flex items-center gap-2 hover:bg-accent/30 border-b border-border"
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:brightness-95 transition-all border-b border-border text-left"
+                  style={{ background: color.tint }}
                 >
-                  {collapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-                  <span className="font-semibold text-sm">{group.name}</span>
-                  <span className="text-xs text-muted-foreground">
-                    {group.items.length} procedimento(s)
-                  </span>
-                  <span className="ml-auto text-xs text-muted-foreground">
-                    Soma: {formatBRL(group.items.reduce((acc, p) => acc + Number(p.base_price), 0))}
-                  </span>
+                  {collapsed
+                    ? <ChevronRight size={18} style={{ color: color.bar }} />
+                    : <ChevronDown size={18} style={{ color: color.bar }} />}
+                  <Layers size={16} style={{ color: color.bar }} className="shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-base font-bold text-foreground">
+                        {group.name}
+                      </span>
+                      <span
+                        className="text-[10px] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider"
+                        style={{ background: color.bar + '20', color: color.bar }}
+                      >
+                        {group.items.length} {group.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                      </span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Soma</p>
+                    <p className="text-base font-bold" style={{ color: color.bar }}>
+                      {formatBRL(groupSum)}
+                    </p>
+                  </div>
                 </button>
                 {!collapsed && (
                   <table className="w-full text-sm">
