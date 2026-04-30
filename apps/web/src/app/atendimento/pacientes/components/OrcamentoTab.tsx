@@ -485,6 +485,147 @@ function QuoteDetailView({
         </div>
       )}
 
+      {/* ─── Procedimentos — HERO (movido pro topo: ação mais usada) ─── */}
+      <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
+          <div className="flex items-center gap-2">
+            <p className="text-sm font-semibold">Procedimentos</p>
+            {quote.items.length > 0 && (
+              <span className="text-xs text-muted-foreground">
+                ({quote.items.length} {quote.items.length === 1 ? 'item' : 'itens'})
+              </span>
+            )}
+          </div>
+          {isDraft && quote.items.length > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setShowTemplatePicker((s) => !s)}
+                className="text-xs inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-primary/40 text-primary hover:bg-primary/5"
+                title="Adicionar procedimentos via modelo pronto"
+              >
+                <FileStack size={12} /> Modelo
+              </button>
+              <button
+                onClick={() => setAddingItem(true)}
+                className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+              >
+                <Plus size={12} /> Adicionar procedimentos
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Modal de adicionar (substitui form inline cramped) */}
+        {addingItem && (
+          <AddQuoteItemModal
+            quoteId={quote.id}
+            procedures={procedures}
+            onClose={() => setAddingItem(false)}
+            onAdded={onReload}
+          />
+        )}
+
+        {quote.items.length === 0 ? (
+          <div className="py-10 px-6 text-center">
+            <DollarSign size={36} className="mx-auto text-muted-foreground/40 mb-3" />
+            {isDraft ? (
+              <>
+                <p className="text-sm text-muted-foreground mb-4">
+                  Comece adicionando procedimentos ao orçamento.
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-2">
+                  <button
+                    onClick={() => setAddingItem(true)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 shadow-sm"
+                  >
+                    <Plus size={16} /> Adicionar procedimentos
+                  </button>
+                  <button
+                    onClick={() => setShowTemplatePicker((s) => !s)}
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-dashed border-primary/40 text-primary text-sm font-medium hover:bg-primary/5"
+                  >
+                    <FileStack size={16} /> Usar modelo pronto
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-3">
+                  Modelos prontos pra avaliação, implante, clareamento e outros tratamentos comuns.
+                </p>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground">Nenhum procedimento neste orçamento.</p>
+            )}
+          </div>
+        ) : (
+          <ul className="divide-y divide-border">
+            {quote.items.map((it) => (
+              <li key={it.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
+                <div className="flex-1 min-w-0">
+                  <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
+                    {it.quantity}x R$ {Number(it.unit_price).toFixed(2)}
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
+                </div>
+                {isDraft && (
+                  <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+                    <Trash2 size={14} />
+                  </button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Templates picker (aparece quando clica em "Usar modelo pronto" / "Modelo") */}
+      {isDraft && showTemplatePicker && (
+        <div className="bg-card border border-border rounded-xl p-3 mb-4">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-xs font-semibold flex items-center gap-1">
+              <FileStack size={12} /> Selecione um modelo pra adicionar
+            </p>
+            <button
+              onClick={() => setShowTemplatePicker(false)}
+              className="text-xs text-muted-foreground hover:text-foreground"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          {templates.length === 0 ? (
+            <p className="text-xs text-muted-foreground py-3 text-center">
+              Nenhum modelo cadastrado.{' '}
+              <a href="/atendimento/settings/quote-templates" className="text-primary underline">
+                Criar modelos
+              </a>
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
+              {templates.map((t) => (
+                <button
+                  key={t.id}
+                  onClick={() => applyTemplate(t.id)}
+                  className="text-left p-2 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/30 transition-colors"
+                >
+                  <div className="text-sm font-medium">{t.name}</div>
+                  <div className="text-xs text-muted-foreground">
+                    {t._count?.items || 0} procedimento(s)
+                    {t.specialty && ` · ${t.specialty}`}
+                  </div>
+                  {t.description && (
+                    <div className="text-xs text-muted-foreground italic mt-0.5">
+                      {t.description}
+                    </div>
+                  )}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Resumo */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
@@ -647,113 +788,6 @@ function QuoteDetailView({
         </button>
       </div>
 
-      {/* Onda 2 — Templates (so em DRAFT) */}
-      {isDraft && (
-        <div className="mb-4">
-          {!showTemplatePicker ? (
-            <button
-              onClick={() => setShowTemplatePicker(true)}
-              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-dashed border-primary/40 text-primary hover:bg-primary/10"
-            >
-              <FileStack size={12} /> Usar modelo pronto (avaliação, implante, clareamento, etc)
-            </button>
-          ) : (
-            <div className="bg-card border border-border rounded-xl p-3">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold flex items-center gap-1">
-                  <FileStack size={12} /> Selecione um modelo
-                </p>
-                <button
-                  onClick={() => setShowTemplatePicker(false)}
-                  className="text-xs text-muted-foreground hover:text-foreground"
-                >
-                  <X size={14} />
-                </button>
-              </div>
-              {templates.length === 0 ? (
-                <p className="text-xs text-muted-foreground py-3 text-center">
-                  Nenhum modelo cadastrado.{' '}
-                  <a href="/atendimento/settings/quote-templates" className="text-primary underline">
-                    Criar modelos
-                  </a>
-                </p>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
-                  {templates.map((t) => (
-                    <button
-                      key={t.id}
-                      onClick={() => applyTemplate(t.id)}
-                      className="text-left p-2 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/30 transition-colors"
-                    >
-                      <div className="text-sm font-medium">{t.name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {t._count?.items || 0} procedimento(s)
-                        {t.specialty && ` · ${t.specialty}`}
-                      </div>
-                      {t.description && (
-                        <div className="text-xs text-muted-foreground italic mt-0.5">
-                          {t.description}
-                        </div>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Items */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
-        <div className="px-4 py-2 border-b border-border flex items-center justify-between">
-          <p className="text-sm font-semibold">Procedimentos</p>
-          {isDraft && (
-            <button
-              onClick={() => setAddingItem(true)}
-              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
-            >
-              <Plus size={12} /> Adicionar procedimentos
-            </button>
-          )}
-        </div>
-
-        {/* Modal de adicionar (substitui form inline cramped) */}
-        {addingItem && (
-          <AddQuoteItemModal
-            quoteId={quote.id}
-            procedures={procedures}
-            onClose={() => setAddingItem(false)}
-            onAdded={onReload}
-          />
-        )}
-
-        {quote.items.length === 0 ? (
-          <div className="py-8 text-center text-muted-foreground text-sm">Nenhum item.</div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {quote.items.map((it) => (
-              <li key={it.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
-                    {it.quantity}x R$ {Number(it.unit_price).toFixed(2)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
-                </div>
-                {isDraft && (
-                  <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
     </div>
   );
 }
