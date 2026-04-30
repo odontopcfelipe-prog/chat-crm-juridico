@@ -7,6 +7,7 @@ import QuoteVersions from './QuoteVersions';
 import AddQuoteItemModal from './AddQuoteItemModal';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { colorForSpecialty } from '@/lib/specialty-colors';
 
 interface Props {
   patientId: string;
@@ -27,7 +28,13 @@ interface QuoteItem {
   unit_price: string | number;
   total_price: string | number;
   notes: string | null;
-  procedure?: { id: string; name: string; code_tuss: string | null };
+  procedure?: {
+    id: string;
+    name: string;
+    code_tuss?: string | null;
+    duration_minutes?: number;
+    specialty?: { id: string; name: string } | null;
+  };
 }
 
 interface QuoteListItem {
@@ -491,43 +498,93 @@ function QuoteDetailView({
           </div>
         ) : (
           <ul className="divide-y divide-border">
-            {quote.items.map((it) => (
-              <li key={it.id} className="px-4 py-2.5 flex items-center gap-3 text-sm">
-                <div className="flex-1 min-w-0">
-                  <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
-                    {it.quantity}x R$ {Number(it.unit_price).toFixed(2)}
-                  </p>
-                </div>
-                <div className="text-right">
-                  <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
-                </div>
-                {isDraft && (
-                  <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
-                    <Trash2 size={14} />
-                  </button>
-                )}
-              </li>
-            ))}
+            {quote.items.map((it) => {
+              // Onda 25.2 — pinta borda esquerda + tag pela especialidade
+              // (mesma paleta da Tabela de Precos pra leitura visual consistente)
+              const spec = it.procedure?.specialty;
+              const color = colorForSpecialty(spec?.id || null);
+              return (
+                <li
+                  key={it.id}
+                  className="px-4 py-2.5 flex items-center gap-3 text-sm border-l-4 transition-colors"
+                  style={{ borderLeftColor: color.bar, backgroundColor: color.tint }}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
+                      {spec?.name && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-medium border"
+                          style={{
+                            color: color.bar,
+                            borderColor: color.bar + '40',
+                            backgroundColor: color.tint,
+                          }}
+                        >
+                          {spec.name}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
+                      {it.quantity}x R$ {Number(it.unit_price).toFixed(2)}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
+                  </div>
+                  {isDraft && (
+                    <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+                      <Trash2 size={14} />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
 
       {/* Resumo */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+        {/* Onda 25.1: layout adapta — 4 cols se tem desconto, 3 cols sem */}
+        <div className={`grid grid-cols-2 gap-4 text-sm ${
+          Number(quote.discount_value) > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'
+        }`}>
           <div>
             <p className="text-xs text-muted-foreground">Subtotal</p>
             <p className="font-semibold">R$ {Number(quote.subtotal).toFixed(2)}</p>
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Desconto</p>
-            <p className="font-semibold">{Number(quote.discount_percent)}% (R$ {Number(quote.discount_value).toFixed(2)})</p>
-          </div>
+          {/* Onda 25.1: so mostra Desconto se houver desconto aplicado */}
+          {Number(quote.discount_value) > 0 && (
+            <div>
+              <p className="text-xs text-muted-foreground">Desconto</p>
+              <p className="font-semibold text-emerald-600">
+                {Number(quote.discount_percent)}% (-R$ {Number(quote.discount_value).toFixed(2)})
+              </p>
+            </div>
+          )}
           <div className="col-span-2 md:col-span-1">
             <p className="text-xs text-muted-foreground">Total</p>
             <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
+            {/* Onda 25.3 — tempo de cadeira (soma duration_minutes * quantity) */}
+            {(() => {
+              const totalMinutes = quote.items.reduce(
+                (acc, it) => acc + (it.procedure?.duration_minutes || 0) * it.quantity,
+                0,
+              );
+              if (totalMinutes <= 0) return null;
+              const h = Math.floor(totalMinutes / 60);
+              const m = totalMinutes % 60;
+              const label = h > 0
+                ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
+                : `~${m}min`;
+              return (
+                <p className="text-[11px] text-muted-foreground mt-0.5" title="Tempo estimado total de cadeira (soma da duração de cada procedimento)">
+                  ⏱ {label} de cadeira
+                </p>
+              );
+            })()}
           </div>
           <div>
             <p className="text-xs text-muted-foreground">Validade</p>

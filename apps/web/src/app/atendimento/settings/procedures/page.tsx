@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { colorForSpecialty } from '@/lib/specialty-colors';
 
 interface Procedure {
   id: string;
@@ -51,33 +52,8 @@ interface Specialty {
 const formatBRL = (v: number | string) =>
   Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-/**
- * Paleta de 8 cores para destacar visualmente cada grupo de especialidade.
- * Hash do ID -> indice 0-7 garante que a mesma especialidade SEMPRE receba
- * a mesma cor (consistencia entre sessoes). Mesmo padrao usado pra dentistas
- * na agenda — visual familiar.
- */
-const SPECIALTY_COLORS = [
-  { bar: '#a855f7', tint: 'rgba(168, 85, 247, 0.08)' }, // roxo (Cirurgia)
-  { bar: '#3b82f6', tint: 'rgba(59, 130, 246, 0.08)' }, // azul (Clinica Geral)
-  { bar: '#22c55e', tint: 'rgba(34, 197, 94, 0.08)' },  // verde (Profilaxia)
-  { bar: '#f97316', tint: 'rgba(249, 115, 22, 0.08)' }, // laranja (Endodontia)
-  { bar: '#ec4899', tint: 'rgba(236, 72, 153, 0.08)' }, // rosa (Estetica)
-  { bar: '#14b8a6', tint: 'rgba(20, 184, 166, 0.08)' }, // teal (Implantes)
-  { bar: '#eab308', tint: 'rgba(234, 179, 8, 0.08)' },  // amarelo (Ortodontia)
-  { bar: '#06b6d4', tint: 'rgba(6, 182, 212, 0.08)' },  // ciano (Periodontia)
-];
-
-function colorForSpecialty(key: string) {
-  // "Sem especialidade" key '__none__' -> cor neutra cinza
-  if (key === '__none__') {
-    return { bar: '#94a3b8', tint: 'rgba(148, 163, 184, 0.06)' };
-  }
-  // Hash simples do id -> indice estavel
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-  return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
-}
+// Paleta de cores por especialidade movida pra @/lib/specialty-colors —
+// agora usada tambem no OrcamentoTab (visual consistente entre telas).
 
 export default function ProceduresSettingsPage() {
   const [list, setList] = useState<Procedure[]>([]);

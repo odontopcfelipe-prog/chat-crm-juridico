@@ -82,7 +82,20 @@ export class QuotesService {
           })),
         },
       },
-      include: { items: { include: { procedure: { select: { id: true, name: true } } } } },
+      include: {
+        items: {
+          include: {
+            procedure: {
+              select: {
+                id: true,
+                name: true,
+                duration_minutes: true,
+                specialty: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
     });
   }
 
@@ -107,7 +120,17 @@ export class QuotesService {
         created_by: { select: { id: true, name: true } },
         items: {
           orderBy: { order_index: 'asc' },
-          include: { procedure: { select: { id: true, name: true, code_tuss: true } } },
+          include: {
+            procedure: {
+              select: {
+                id: true,
+                name: true,
+                code_tuss: true,
+                duration_minutes: true,
+                specialty: { select: { id: true, name: true } },
+              },
+            },
+          },
         },
         treatment_plan: true,
         // Onda 3 — Anexos (Fase 24): retorna metadata pra UI mostrar contador.
