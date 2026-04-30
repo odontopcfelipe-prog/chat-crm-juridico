@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, AlertTriangle, Download, Tag, FileStack, Tags, CreditCard, Repeat } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
 import AddQuoteItemModal from './AddQuoteItemModal';
@@ -67,15 +67,6 @@ interface QuoteDetail extends QuoteListItem {
     total_value: string | number;
     created_at: string;
   } | null;
-}
-
-interface QuoteTemplate {
-  id: string;
-  name: string;
-  description: string | null;
-  specialty: string | null;
-  is_active: boolean;
-  _count?: { items: number };
 }
 
 const STATUS_BADGE: Record<QuoteListItem['status'], string> = {
@@ -268,36 +259,13 @@ function QuoteDetailView({
 }) {
   // addingItem agora abre modal AddQuoteItemModal — nao mais form inline
   const [addingItem, setAddingItem] = useState(false);
-  const [saving, setSaving] = useState(false);
 
-  // Onda 2 — Templates + Cupom
-  const [templates, setTemplates] = useState<QuoteTemplate[]>([]);
-  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  // Cupom (Onda 2)
   const [couponCode, setCouponCode] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
 
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
-
-  // Carrega templates ativos quando abre picker
-  useEffect(() => {
-    if (!showTemplatePicker || templates.length > 0) return;
-    api.get<QuoteTemplate[]>('/quote-templates?activeOnly=true')
-      .then((r) => setTemplates(r.data || []))
-      .catch(() => {});
-  }, [showTemplatePicker, templates.length]);
-
-  /** Aplica template selecionado ao orcamento atual */
-  const applyTemplate = async (templateId: string) => {
-    try {
-      const { data } = await api.post(`/quotes/${quote.id}/apply-template`, { template_id: templateId });
-      showSuccess(`${data.added} procedimento(s) adicionado(s)`);
-      setShowTemplatePicker(false);
-      await onReload();
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao aplicar modelo');
-    }
-  };
 
   const applyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -347,20 +315,6 @@ function QuoteDetailView({
         setTimeout(() => URL.revokeObjectURL(url), 60_000);
       })
       .catch((err) => showError(err?.message || 'Erro ao baixar PDF'));
-  };
-
-  // addItem antigo (form inline) foi removido — agora AddQuoteItemModal cuida.
-  // Mantemos addItemDeprecated como NO-OP pra preservar compat se algo usar:
-  const addItem = async () => {
-    setSaving(true);
-    try {
-      // No-op — modal agora faz tudo
-      showError('Use o modal "Adicionar procedimentos" pra incluir items');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao adicionar');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const removeItem = async (id: string) => {
@@ -497,21 +451,12 @@ function QuoteDetailView({
             )}
           </div>
           {isDraft && quote.items.length > 0 && (
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setShowTemplatePicker((s) => !s)}
-                className="text-xs inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border border-dashed border-primary/40 text-primary hover:bg-primary/5"
-                title="Adicionar procedimentos via modelo pronto"
-              >
-                <FileStack size={12} /> Modelo
-              </button>
-              <button
-                onClick={() => setAddingItem(true)}
-                className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
-              >
-                <Plus size={12} /> Adicionar procedimentos
-              </button>
-            </div>
+            <button
+              onClick={() => setAddingItem(true)}
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
+            >
+              <Plus size={12} /> Adicionar procedimentos
+            </button>
           )}
         </div>
 
@@ -533,23 +478,12 @@ function QuoteDetailView({
                 <p className="text-sm text-muted-foreground mb-4">
                   Comece adicionando procedimentos ao orçamento.
                 </p>
-                <div className="flex flex-wrap items-center justify-center gap-2">
-                  <button
-                    onClick={() => setAddingItem(true)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 shadow-sm"
-                  >
-                    <Plus size={16} /> Adicionar procedimentos
-                  </button>
-                  <button
-                    onClick={() => setShowTemplatePicker((s) => !s)}
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg border border-dashed border-primary/40 text-primary text-sm font-medium hover:bg-primary/5"
-                  >
-                    <FileStack size={16} /> Usar modelo pronto
-                  </button>
-                </div>
-                <p className="text-xs text-muted-foreground mt-3">
-                  Modelos prontos pra avaliação, implante, clareamento e outros tratamentos comuns.
-                </p>
+                <button
+                  onClick={() => setAddingItem(true)}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 shadow-sm"
+                >
+                  <Plus size={16} /> Adicionar procedimentos
+                </button>
               </>
             ) : (
               <p className="text-sm text-muted-foreground">Nenhum procedimento neste orçamento.</p>
@@ -579,52 +513,6 @@ function QuoteDetailView({
           </ul>
         )}
       </div>
-
-      {/* Templates picker (aparece quando clica em "Usar modelo pronto" / "Modelo") */}
-      {isDraft && showTemplatePicker && (
-        <div className="bg-card border border-border rounded-xl p-3 mb-4">
-          <div className="flex items-center justify-between mb-2">
-            <p className="text-xs font-semibold flex items-center gap-1">
-              <FileStack size={12} /> Selecione um modelo pra adicionar
-            </p>
-            <button
-              onClick={() => setShowTemplatePicker(false)}
-              className="text-xs text-muted-foreground hover:text-foreground"
-            >
-              <X size={14} />
-            </button>
-          </div>
-          {templates.length === 0 ? (
-            <p className="text-xs text-muted-foreground py-3 text-center">
-              Nenhum modelo cadastrado.{' '}
-              <a href="/atendimento/settings/quote-templates" className="text-primary underline">
-                Criar modelos
-              </a>
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
-              {templates.map((t) => (
-                <button
-                  key={t.id}
-                  onClick={() => applyTemplate(t.id)}
-                  className="text-left p-2 rounded-lg border border-border hover:border-primary/40 hover:bg-accent/30 transition-colors"
-                >
-                  <div className="text-sm font-medium">{t.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    {t._count?.items || 0} procedimento(s)
-                    {t.specialty && ` · ${t.specialty}`}
-                  </div>
-                  {t.description && (
-                    <div className="text-xs text-muted-foreground italic mt-0.5">
-                      {t.description}
-                    </div>
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* Resumo */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
@@ -721,12 +609,6 @@ function QuoteDetailView({
         <PaymentSuggestionsCard total={Number(quote.total_value)} />
       )}
 
-      {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) */}
-      <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
-
-      {/* Onda 3b — Histórico de versões (auto-esconde se nao tem) */}
-      <QuoteVersions quoteId={quote.id} />
-
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
         {isDraft && (
@@ -788,6 +670,11 @@ function QuoteDetailView({
         </button>
       </div>
 
+      {/* Onda 3b — Histórico de versões (auto-esconde se nao tem) */}
+      <QuoteVersions quoteId={quote.id} />
+
+      {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) — movido pro fim por ser secundário */}
+      <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
     </div>
   );
 }
