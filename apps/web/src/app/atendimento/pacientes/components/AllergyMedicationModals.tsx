@@ -4,11 +4,17 @@
  * Mini-modais para CRUD rápido de alergia e medicação na aba Visão geral.
  * Mantidos juntos pra reduzir overhead — ambos compartilham padrão simples
  * e backend já existente (POST/DELETE em /patients/:id/allergies|medications).
+ *
+ * Onda 2.7 (Fase 25) — migrado pra ModalBase compartilhado.
+ * Antes: Wrapper + Footer locais duplicavam estilo, ESC handler, click-outside.
+ * Agora: ModalBase cuida de tudo (ESC, foco automatico, lock scroll, portal,
+ * acessibilidade aria-modal). Foco fica no conteudo do form.
  */
 import { useState, FormEvent } from 'react';
-import { X, Loader2, Plus, AlertTriangle, Pill } from 'lucide-react';
+import { Loader2, Plus, AlertTriangle, Pill } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import ModalBase from '@/components/ModalBase';
 
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30';
 
@@ -52,8 +58,18 @@ export function AddAllergyModal({
   };
 
   return (
-    <Wrapper onClose={onClose} icon={<AlertTriangle size={18} className="text-amber-500" />} title="Adicionar alergia">
-      <form onSubmit={submit} className="p-4 space-y-3">
+    <ModalBase
+      open
+      onClose={onClose}
+      title={
+        <span className="flex items-center gap-2">
+          <AlertTriangle size={18} className="text-amber-500" />
+          Adicionar alergia
+        </span>
+      }
+      footer={<FormFooter onClose={onClose} loading={loading} formId="allergy-form" />}
+    >
+      <form id="allergy-form" onSubmit={submit} className="space-y-3">
         <div>
           <label className="block text-xs font-medium mb-1">Substância *</label>
           <input
@@ -80,9 +96,8 @@ export function AddAllergyModal({
             className={`${inputCls} resize-none`}
           />
         </div>
-        <Footer onClose={onClose} loading={loading} />
       </form>
-    </Wrapper>
+    </ModalBase>
   );
 }
 
@@ -121,8 +136,18 @@ export function AddMedicationModal({
   };
 
   return (
-    <Wrapper onClose={onClose} icon={<Pill size={18} className="text-primary" />} title="Adicionar medicação">
-      <form onSubmit={submit} className="p-4 space-y-3">
+    <ModalBase
+      open
+      onClose={onClose}
+      title={
+        <span className="flex items-center gap-2">
+          <Pill size={18} className="text-primary" />
+          Adicionar medicação
+        </span>
+      }
+      footer={<FormFooter onClose={onClose} loading={loading} formId="med-form" />}
+    >
+      <form id="med-form" onSubmit={submit} className="space-y-3">
         <div>
           <label className="block text-xs font-medium mb-1">Medicamento *</label>
           <input
@@ -162,44 +187,18 @@ export function AddMedicationModal({
             className={inputCls}
           />
         </div>
-        <Footer onClose={onClose} loading={loading} />
       </form>
-    </Wrapper>
+    </ModalBase>
   );
 }
 
-// ─── Layout compartilhado ───────────────────────────────────────
+// ─── Footer compartilhado dos 2 modais ───────────────────────────
 
-function Wrapper({
-  children, onClose, icon, title,
-}: { children: React.ReactNode; onClose: () => void; icon: React.ReactNode; title: string }) {
+function FormFooter({
+  onClose, loading, formId,
+}: { onClose: () => void; loading: boolean; formId: string }) {
   return (
-    <div
-      className="fixed inset-0 z-[110] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4"
-      onClick={onClose}
-    >
-      <div
-        className="bg-card border border-border rounded-xl w-full max-w-md shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            {icon}
-            <h2 className="text-base font-semibold">{title}</h2>
-          </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
-            <X size={18} />
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
-  );
-}
-
-function Footer({ onClose, loading }: { onClose: () => void; loading: boolean }) {
-  return (
-    <div className="flex justify-end gap-2 pt-2">
+    <>
       <button
         type="button"
         onClick={onClose}
@@ -209,12 +208,13 @@ function Footer({ onClose, loading }: { onClose: () => void; loading: boolean })
       </button>
       <button
         type="submit"
+        form={formId}
         disabled={loading}
         className="inline-flex items-center gap-1 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
       >
         {loading ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
         Adicionar
       </button>
-    </div>
+    </>
   );
 }
