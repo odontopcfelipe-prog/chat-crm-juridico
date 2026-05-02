@@ -2005,9 +2005,12 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       }
 
       // 14b. Salvar log de execução da skill (observabilidade)
+      // Onda 2.4 — tenant_id obrigatorio pra dashboard "qual skill mais
+      // usada por clinica". Fallback dummy pra leads legacy sem tenant.
       try {
         await (this.prisma as any).skillExecutionLog.create({
           data: {
+            tenant_id: (convo as any)?.tenant_id || '00000000-0000-0000-0000-000000000000',
             conversation_id,
             skill_id: skill?.id || null,
             tool_calls_json: toolCallLogs.length > 0 ? toolCallLogs : undefined,

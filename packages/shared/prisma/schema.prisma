@@ -422,6 +422,12 @@ model SkillAsset {
 
 model SkillExecutionLog {
   id               String   @id @default(uuid())
+  // Onda 2.4 (Fase 25) — tenant_id obrigatorio pra auditoria de uso por
+  // clinica. Antes ausente: dashboard "qual skill mais usada na clinica X"
+  // exigia join via Conversation->Lead. Agora consulta direta + isola tenant.
+  // Decisao: PromptSkill/SkillTool/SkillAsset ficam GLOBAIS por design (sao
+  // produto compartilhado entre clinicas). Apenas o LOG eh per-tenant.
+  tenant_id        String
   conversation_id  String
   skill_id         String?
   tool_calls_json  Json? // Array de tool calls executados
@@ -430,6 +436,7 @@ model SkillExecutionLog {
   duration_ms      Int?
   created_at       DateTime @default(now())
 
+  @@index([tenant_id, created_at])
   @@index([conversation_id, created_at])
   @@index([skill_id])
 }
