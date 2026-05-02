@@ -5,6 +5,7 @@ import api from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
 import { decodeUserId } from '@/lib/socketConfig';
 import { showError } from '@/lib/toast';
+import { swallow } from '@/lib/errors';
 
 interface UseChatSocketResult {
   messages: any[];
@@ -76,9 +77,9 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
             setAllSpecialists(
               (r.data as any[]).filter((u) => u.specialties?.length > 0),
             );
-          }).catch(() => {});
+          }).catch(swallow('lazy load specialists pra dropdown de transferencia'));
 
-          api.post(`/conversations/${convo.id}/mark-read`).catch(() => {});
+          api.post(`/conversations/${convo.id}/mark-read`).catch(swallow('mark-read inicial — SocketProvider tenta de novo'));
 
           api.post(`/messages/conversation/${convo.id}/sync-history`)
             .then(async (syncRes) => {
@@ -87,7 +88,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
                 setMessages(msgRes.data || []);
               }
             })
-            .catch(() => {});
+            .catch(swallow('sync history Evolution — fallback eh ler so as msgs locais'));
 
           // Registrar listeners no socket compartilhado
           if (sharedSocket) {
@@ -110,7 +111,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
                 return [...prev, msg];
               });
               if (msg.direction === 'in') {
-                api.post(`/conversations/${convo.id}/mark-read`).catch(() => {});
+                api.post(`/conversations/${convo.id}/mark-read`).catch(swallow('mark-read em msg recebida — re-tenta no proximo ciclo'));
               }
               if (msg.type === 'audio' && msg.media?.s3_key) {
                 import('@/components/AudioPlayer').then(({ preFetchAudio }) => {

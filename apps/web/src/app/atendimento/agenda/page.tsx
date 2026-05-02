@@ -28,6 +28,7 @@ import {
 import api, { API_BASE_URL } from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
 import { showError, showSuccess } from '@/lib/toast';
+import { swallow } from '@/lib/errors';
 import { useRole } from '@/lib/useRole';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import { AvailabilityPicker } from '@/components/AvailabilityPicker';
@@ -770,7 +771,7 @@ export default function AgendaPage() {
           setShowAllUsers(true);
         }
       }
-    } catch {}
+    } catch (e) { swallow('parse JWT do localStorage')(e); }
     // Buscar apenas dentistas e admins para o filtro de usuários. Aceita também
     // o role legado ADVOGADO para compat com banco pré-migração.
     api.get('/users?limit=100').then(r => {
@@ -780,8 +781,8 @@ export default function AgendaPage() {
         u.role === 'DENTIST' || u.role === 'ADVOGADO' || u.role === 'ADMIN'
       );
       setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
-    }).catch(() => {});
-    api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(() => {});
+    }).catch(swallow('lazy load filtro de dentistas (nao essencial pra renderizar agenda)'));
+    api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(swallow('lazy load leads pro autocomplete (agenda funciona sem)'));
 
     // Deep link: abrir evento via alerta de tarefa vencida
     const openEventId = sessionStorage.getItem('open_event_id');
@@ -795,7 +796,7 @@ export default function AgendaPage() {
             setShowModal(true);
           }
         })
-        .catch(() => {});
+        .catch(swallow('deep link de evento — pode ja ter sido deletado'));
     }
   }, [router]);
 
@@ -940,7 +941,7 @@ export default function AgendaPage() {
 
     const handleCalendarReminder = (data: { eventId: string; title: string; type: string; start_at: string; minutesBefore: number }) => {
       setReminderToast(data);
-      try { playNotificationSound(); } catch {}
+      try { playNotificationSound(); } catch (e) { swallow('autoplay som notificacao bloqueado pelo navegador')(e); }
       setTimeout(() => setReminderToast(null), 10000);
     };
 
@@ -1018,7 +1019,7 @@ export default function AgendaPage() {
           setConflictWarning(conflicts.data);
           return; // show warning, user must click "Salvar mesmo assim"
         }
-      } catch {} // ignore conflict check failure, proceed with save
+      } catch (e) { swallow('conflict check falhou — segue com save (server valida tb)')(e); }
     }
 
     const payload: any = {
@@ -1361,7 +1362,7 @@ export default function AgendaPage() {
           <MiniCalendar
             eventCounts={eventCountsByDay}
             onDateSelect={(dateStr) => {
-              try { (calendar as any)?.navigate?.(dateStr); } catch {}
+              try { (calendar as any)?.navigate?.(dateStr); } catch (e) { swallow('schedule-x calendar nao montou ainda')(e); }
             }}
           />
         </div>
@@ -1581,7 +1582,7 @@ export default function AgendaPage() {
             <button
               onClick={() => {
                 const today = new Date().toISOString().slice(0, 10);
-                try { (calendar as any)?.navigate?.(today); } catch {}
+                try { (calendar as any)?.navigate?.(today); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
               className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
@@ -1594,7 +1595,7 @@ export default function AgendaPage() {
                 const diffToMonday = day === 0 ? -6 : 1 - day;
                 const monday = new Date(now);
                 monday.setDate(now.getDate() + diffToMonday);
-                try { (calendar as any)?.navigate?.(monday.toISOString().slice(0, 10)); } catch {}
+                try { (calendar as any)?.navigate?.(monday.toISOString().slice(0, 10)); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
               className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
