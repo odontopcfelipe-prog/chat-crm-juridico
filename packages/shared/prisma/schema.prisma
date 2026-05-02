@@ -2059,10 +2059,22 @@ model Quote {
   renegotiated_from    Quote?  @relation("QuoteRenegotiation", fields: [renegotiated_from_id], references: [id], onDelete: SetNull)
   renegotiations       Quote[] @relation("QuoteRenegotiation")
 
+  // Onda 4.1 (Fase 25) — Aprovacao parcial:
+  // Quando paciente aceita SO ALGUNS items de um orcamento SENT, criamos
+  // um novo Quote ACCEPTED com os items selecionados + apontamos pra ele
+  // via accepted_from_id. Original vira REJECTED com motivo automatico
+  // ("Aprovacao parcial — itens nao selecionados podem virar novo orcamento").
+  // Permite fechar venda parcial (60% > 0%) mantendo histórico do que
+  // foi proposto vs aceito.
+  accepted_from_id     String?
+  accepted_from        Quote?  @relation("QuotePartialAcceptance", fields: [accepted_from_id], references: [id], onDelete: SetNull)
+  partial_acceptances  Quote[] @relation("QuotePartialAcceptance")
+
   @@index([patient_id, status])
   @@index([status, valid_until])
   @@index([coupon_id])
   @@index([renegotiated_from_id])
+  @@index([accepted_from_id])
   // Onda 25.6 — query rapida de "orcamentos deletados nos ultimos 30 dias"
   @@index([deleted_at])
 }

@@ -227,6 +227,12 @@ export class QuotesService {
             id: true, status: true, total_value: true, created_at: true,
           },
         },
+        // Onda 4.1 — quote pai (caso este tenha vindo de aprovacao parcial)
+        accepted_from: {
+          select: {
+            id: true, status: true, total_value: true, created_at: true,
+          },
+        },
       },
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
@@ -326,6 +332,151 @@ export class QuotesService {
       });
 
       return { quote: acceptedQuote, treatment_plan: plan };
+    });
+  }
+
+  /**
+   * Onda 4.1 (Fase 25) — Aprovar SO ALGUNS items do orcamento.
+   *
+   * Cenario: paciente recebeu orcamento de R$ 5000 com 5 procedimentos,
+   * topa fechar 3 (R$ 3000) e quer pensar nos outros 2.
+   *
+   * Antes: tudo-ou-nada (Aceitar = todos, Rejeitar = nenhum). Perde 60%
+   * da venda porque paciente trava.
+   *
+   * Agora: cria 2 quotes:
+   *   - ORIGINAL: vira REJECTED com motivo automatico (fica historico
+   *     do que foi proposto vs nao aceito)
+   *   - NOVO: ACCEPTED apontando pra accepted_from_id=ORIGINAL,
+   *     contendo so os items selecionados, gera TreatmentPlan
+   *
+   * Items NAO selecionados: ficam preservados no quote ORIGINAL (REJECTED).
+   * Operadora pode usar "Renegociar" (Onda 3b) pra criar novo DRAFT
+   * apenas com os rejeitados se quiser tentar fechar depois.
+   */
+  async acceptPartial(
+    id: string,
+    tenantId: string,
+    selectedItemIds: string[],
+    userId?: string,
+  ) {
+    const quote = await this.findOne(id, tenantId);
+    if (quote.status !== 'SENT') {
+      throw new BadRequestException('Apenas orcamentos SENT podem ser aprovados parcialmente');
+    }
+    if (!selectedItemIds || selectedItemIds.length === 0) {
+      throw new BadRequestException('Selecione ao menos 1 item pra aprovar');
+    }
+    if (selectedItemIds.length === quote.items.length) {
+      throw new BadRequestException(
+        'Aprovacao parcial requer pelo menos 1 item NAO selecionado. Use accept() pra aprovar tudo.',
+      );
+    }
+
+    // Filtra apenas items que pertencem a este quote (seguranca)
+    const selectedItems = quote.items.filter((it) => selectedItemIds.includes(it.id));
+    if (selectedItems.length !== selectedItemIds.length) {
+      throw new BadRequestException('Alguns item_ids nao pertencem a este orcamento');
+    }
+
+    // Recalcula totais do parcial (sem desconto cupom — paciente pode
+    // re-aplicar no novo se desejar)
+    const subtotal = selectedItems.reduce((acc, it) => acc + Number(it.total_price), 0);
+    // Aplica desconto proporcional do original (mantem coerencia)
+    const discountPct = Number(quote.discount_percent || 0);
+    const discountValue = subtotal * (discountPct / 100);
+    const totalValue = subtotal - discountValue;
+
+    // Snapshot do original ANTES da mudanca (preserva historico)
+    if (this.versions && userId) {
+      await this.versions
+        .createSnapshot(id, userId, 'REJECT', `Aprovacao parcial: ${selectedItems.length}/${quote.items.length} items aceitos`)
+        .catch((e) => this.logger.warn(`[VERSION] snapshot REJECT falhou: ${e?.message}`));
+    }
+
+    // Transaction: marca original REJECTED + cria novo ACCEPTED + TreatmentPlan
+    return this.prisma.$transaction(async (tx) => {
+      // 1. Marca original como REJECTED (preserva items pra historico)
+      await tx.quote.update({
+        where: { id },
+        data: {
+          status: 'REJECTED',
+          rejected_at: new Date(),
+          rejection_reason: `Aprovacao parcial: ${selectedItems.length} de ${quote.items.length} items movidos pra novo orcamento ACCEPTED`,
+        },
+      });
+
+      // 2. Cria novo Quote ACCEPTED com items selecionados
+      const acceptedQuote = await tx.quote.create({
+        data: {
+          patient_id: quote.patient_id,
+          created_by_user_id: userId || quote.created_by_user_id,
+          status: 'ACCEPTED',
+          accepted_at: new Date(),
+          accepted_from_id: id, // rastreio pro historico
+          subtotal,
+          discount_percent: discountPct,
+          discount_value: discountValue,
+          total_value: totalValue,
+          payment_terms: quote.payment_terms,
+          notes: quote.notes,
+          valid_until: quote.valid_until,
+          items: {
+            create: selectedItems.map((qi, idx) => ({
+              procedure_id: qi.procedure_id,
+              tooth_fdi: qi.tooth_fdi,
+              quantity: qi.quantity,
+              unit_price: qi.unit_price,
+              total_price: qi.total_price,
+              notes: qi.notes,
+              order_index: idx,
+              dentist_id: (qi as any).dentist_id || null, // Onda 3.2
+            })),
+          },
+        },
+      });
+
+      // 3. Cria TreatmentPlan a partir do novo quote ACCEPTED
+      const plan = await tx.treatmentPlan.create({
+        data: {
+          patient_id: quote.patient_id,
+          quote_id: acceptedQuote.id,
+          status: 'PENDING_SIGNATURE',
+          total_value: totalValue,
+          items: {
+            create: selectedItems.map((qi, idx) => ({
+              procedure_id: qi.procedure_id,
+              tooth_fdi: qi.tooth_fdi,
+              quantity: qi.quantity,
+              unit_price: qi.unit_price,
+              total_price: qi.total_price,
+              notes: qi.notes,
+              order_index: idx,
+            })),
+          },
+        },
+        include: { items: true },
+      });
+
+      this.logger.log(logCtx({
+        tenant_id: tenantId,
+        user_id: userId,
+        action: 'accept_partial_quote',
+        original_quote_id: id,
+      })({
+        new_quote_id: acceptedQuote.id,
+        treatment_plan_id: plan.id,
+        items_accepted: selectedItems.length,
+        items_total: quote.items.length,
+        accepted_value: totalValue,
+        rejected_value: Number(quote.total_value) - totalValue,
+      }, 'Orcamento aprovado parcialmente'));
+
+      return {
+        original_quote_id: id,
+        accepted_quote: acceptedQuote,
+        treatment_plan: plan,
+      };
     });
   }
 

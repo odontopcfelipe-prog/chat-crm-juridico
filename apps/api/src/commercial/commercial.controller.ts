@@ -124,6 +124,24 @@ export class CommercialController {
     return this.quotesService.accept(id, tenantId, req.user?.id);
   }
 
+  /**
+   * Onda 4.1 (Fase 25) — Aprovar SO ALGUNS items do orcamento.
+   * Body: { item_ids: string[] }
+   * Cria novo Quote ACCEPTED + TreatmentPlan com items selecionados.
+   * Original vira REJECTED com motivo automatico (preserva historico).
+   */
+  @Post('quotes/:id/accept-partial')
+  acceptPartialQuote(
+    @Param('id') id: string,
+    @Body() body: { item_ids?: string[] },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!Array.isArray(body?.item_ids) || body.item_ids.length === 0) {
+      throw new BadRequestException('item_ids[] eh obrigatorio (selecione ao menos 1)');
+    }
+    return this.quotesService.acceptPartial(id, user.tenant_id, body.item_ids, user.id);
+  }
+
   @Post('quotes/:id/reject')
   rejectQuote(@Param('id') id: string, @Body() dto: RejectQuoteDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

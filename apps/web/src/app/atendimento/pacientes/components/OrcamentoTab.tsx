@@ -83,6 +83,13 @@ interface QuoteDetail extends QuoteListItem {
     total_value: string | number;
     created_at: string;
   } | null;
+  // Onda 4.1 — Aprovacao parcial: aponta pro original que foi rejeitado
+  accepted_from?: {
+    id: string;
+    status: string;
+    total_value: string | number;
+    created_at: string;
+  } | null;
 }
 
 const STATUS_BADGE: Record<QuoteListItem['status'], string> = {
@@ -292,8 +299,53 @@ function QuoteDetailView({
   }>({ tooth_fdi: '', quantity: '1', unit_price: '0', dentist_id: '' });
   const [savingEdit, setSavingEdit] = useState(false);
 
+  // Onda 4.1 — selecao de items pra aprovacao parcial (so visivel em SENT)
+  const [partialSelection, setPartialSelection] = useState<Set<string>>(new Set());
+  const [acceptingPartial, setAcceptingPartial] = useState(false);
+
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
+
+  // Onda 4.1 — handlers da selecao parcial
+  const togglePartialItem = (itemId: string) => {
+    setPartialSelection((prev) => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId);
+      else next.add(itemId);
+      return next;
+    });
+  };
+
+  const partialTotal = quote.items
+    .filter((it) => partialSelection.has(it.id))
+    .reduce((acc, it) => acc + Number(it.total_price), 0);
+
+  const acceptPartial = async () => {
+    if (partialSelection.size === 0) return;
+    if (partialSelection.size === quote.items.length) {
+      showError('Todos items selecionados — use "Marcar aceito" pra aprovar tudo');
+      return;
+    }
+    const total = partialTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+    const msg = `Aprovar ${partialSelection.size} de ${quote.items.length} procedimentos (${total})?\n\n` +
+      `O orçamento atual ficará marcado como REJECTED com motivo automático.\n` +
+      `Um novo orçamento ACCEPTED será criado com os items selecionados, gerando um Plano de Tratamento.\n\n` +
+      `Os items NÃO selecionados ficam preservados no histórico — você pode usar "Renegociar" depois pra criar novo DRAFT só com eles.`;
+    if (!confirm(msg)) return;
+    setAcceptingPartial(true);
+    try {
+      await api.post(`/quotes/${quote.id}/accept-partial`, {
+        item_ids: Array.from(partialSelection),
+      });
+      showSuccess('Aprovação parcial registrada — plano de tratamento criado');
+      setPartialSelection(new Set());
+      onBack(); // volta pra lista (vai ver os 2 quotes: REJECTED + ACCEPTED)
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro na aprovacao parcial');
+    } finally {
+      setAcceptingPartial(false);
+    }
+  };
 
   // Onda 3.2 — carrega dentistas quando entra no detalhe (1x por sessao do detail)
   useEffect(() => {
@@ -528,6 +580,30 @@ function QuoteDetailView({
         </div>
       )}
 
+      {/* Onda 4.1 — Banner se este orcamento foi gerado por aprovacao parcial */}
+      {quote.accepted_from && (
+        <div className="mb-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-xs text-emerald-700 flex items-center gap-2">
+          <Check size={12} />
+          <span>
+            <strong>Aprovação parcial</strong> do orçamento de{' '}
+            {Number(quote.accepted_from.total_value).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}{' '}
+            criado em {new Date(quote.accepted_from.created_at).toLocaleDateString('pt-BR')} (status: {quote.accepted_from.status}).
+            {' '}Este orçamento contém apenas os procedimentos selecionados pelo paciente.
+          </span>
+        </div>
+      )}
+
+      {/* Onda 4.1 — Hint pra operadora quando orcamento esta SENT (pra aprovacao parcial) */}
+      {isSent && quote.items.length > 1 && (
+        <div className="mb-3 p-2 rounded-lg bg-emerald-500/5 border border-dashed border-emerald-500/30 text-xs text-emerald-700 flex items-center gap-2">
+          <Check size={12} />
+          <span>
+            <strong>Dica:</strong> marque os checkboxes ao lado dos procedimentos pra aprovar SO ALGUNS items
+            (paciente fechou parte do orçamento). Use "Marcar aceito" se for tudo.
+          </span>
+        </div>
+      )}
+
       {/* ─── Procedimentos — HERO (movido pro topo: ação mais usada) ─── */}
       <div className="bg-card border border-border rounded-xl overflow-hidden mb-4">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
@@ -676,12 +752,25 @@ function QuoteDetailView({
               }
 
               // Modo READ normal
+              const isPartialSelected = partialSelection.has(it.id);
               return (
                 <li
                   key={it.id}
-                  className="px-4 py-2.5 flex items-center gap-3 text-sm border-l-4 transition-colors"
+                  className={`px-4 py-2.5 flex items-center gap-3 text-sm border-l-4 transition-colors ${
+                    isPartialSelected ? 'ring-1 ring-emerald-500 ring-inset' : ''
+                  }`}
                   style={{ borderLeftColor: color.bar, backgroundColor: color.tint }}
                 >
+                  {/* Onda 4.1 — checkbox de selecao parcial (so em SENT) */}
+                  {isSent && (
+                    <input
+                      type="checkbox"
+                      checked={isPartialSelected}
+                      onChange={() => togglePartialItem(it.id)}
+                      className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
+                      title="Selecionar pra aprovação parcial"
+                    />
+                  )}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
@@ -924,6 +1013,40 @@ function QuoteDetailView({
 
       {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) — movido pro fim por ser secundário */}
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
+
+      {/* Onda 4.1 — FAB sticky pra aprovacao parcial (visivel quando ha selecao) */}
+      {isSent && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-4 duration-200">
+          <div className="bg-card border border-emerald-500/40 shadow-2xl rounded-full pl-4 pr-2 py-2 flex items-center gap-3 flex-wrap max-w-[95vw]">
+            <span className="text-sm font-semibold flex items-center gap-2 text-emerald-700">
+              <Check size={14} />
+              {partialSelection.size} de {quote.items.length} {quote.items.length === 1 ? 'procedimento' : 'procedimentos'}
+            </span>
+            <span className="text-sm font-bold text-emerald-700">
+              {partialTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+            </span>
+            <button
+              onClick={() => setPartialSelection(new Set())}
+              className="text-xs px-2 py-1 rounded-full text-muted-foreground hover:bg-muted"
+              title="Limpar seleção"
+            >
+              <X size={14} />
+            </button>
+            <button
+              onClick={acceptPartial}
+              disabled={acceptingPartial}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {acceptingPartial ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Check size={14} />
+              )}
+              Aprovar selecionados
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
