@@ -15,6 +15,9 @@ type ItemInput = {
   notes?: string;
   // Onda 3.2 (Fase 25) — dentista responsavel
   dentist_id?: string;
+  // Onda 4.2 (Fase 25) — pagamento por procedimento
+  payment_method?: string;
+  installments_count?: number;
 };
 
 // Validade padrao quando operador nao informa — alinhada com norma de
@@ -584,6 +587,9 @@ export class QuotesService {
         order_index: quote.items.length,
         // Onda 3.2 — dentista responsavel (opcional)
         dentist_id: input.dentist_id || null,
+        // Onda 4.2 — pagamento por procedimento (opcional)
+        payment_method: input.payment_method || null,
+        installments_count: input.installments_count || null,
       },
     });
     await this.recalcTotals(quoteId);
@@ -598,6 +604,9 @@ export class QuotesService {
       notes?: string; order_index?: number;
       // Onda 3.2 — string vazia ou null limpa (sem dentista atribuido)
       dentist_id?: string | null;
+      // Onda 4.2 — pagamento por procedimento (string vazia/null limpa)
+      payment_method?: string | null;
+      installments_count?: number | null;
     },
   ) {
     const item = await this.getItemEnsuringTenant(itemId, tenantId);
@@ -610,6 +619,11 @@ export class QuotesService {
     // Onda 3.2 — string vazia vira null (operacao "limpar dentista")
     if (data.dentist_id === '') {
       patch.dentist_id = null;
+    }
+    // Onda 4.2 — string vazia/null limpa pagamento por proc (volta pro default do quote)
+    if (data.payment_method === '') {
+      patch.payment_method = null;
+      patch.installments_count = null; // limpa parcelas tb (incoerente sem method)
     }
 
     if (data.quantity !== undefined || data.unit_price !== undefined) {

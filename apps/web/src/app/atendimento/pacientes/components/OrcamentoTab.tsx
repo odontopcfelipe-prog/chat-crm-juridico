@@ -38,7 +38,20 @@ interface QuoteItem {
   // Onda 3.2 (Fase 25) — dentista responsavel pelo procedimento
   dentist_id?: string | null;
   dentist?: { id: string; name: string } | null;
+  // Onda 4.2 (Fase 25) — pagamento por procedimento (NULL = default do quote)
+  payment_method?: string | null;
+  installments_count?: number | null;
 }
+
+// Onda 4.2 — labels amigaveis pro select de payment_method
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  PIX: '💸 PIX',
+  CASH: '💵 Dinheiro',
+  CARD: '💳 Cartão à vista',
+  INSTALLMENTS: '📅 Parcelado',
+  BOLETO: '🧾 Boleto',
+  TRANSFER: '🏦 Transferência',
+};
 
 // Onda 3.2 — dropdown de dentistas (carregado lazy quando entra no detalhe)
 interface DentistOption {
@@ -296,7 +309,10 @@ function QuoteDetailView({
     quantity: string;
     unit_price: string;
     dentist_id: string;
-  }>({ tooth_fdi: '', quantity: '1', unit_price: '0', dentist_id: '' });
+    // Onda 4.2 — pagamento por procedimento
+    payment_method: string;
+    installments_count: string;
+  }>({ tooth_fdi: '', quantity: '1', unit_price: '0', dentist_id: '', payment_method: '', installments_count: '' });
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Onda 4.1 — selecao de items pra aprovacao parcial (so visivel em SENT)
@@ -432,6 +448,9 @@ function QuoteDetailView({
       quantity: String(item.quantity),
       unit_price: String(item.unit_price),
       dentist_id: item.dentist_id || '',
+      // Onda 4.2 — payment_method/installments_count opcional
+      payment_method: item.payment_method || '',
+      installments_count: item.installments_count ? String(item.installments_count) : '',
     });
   };
 
@@ -458,6 +477,11 @@ function QuoteDetailView({
         unit_price: price,
         // String vazia significa "limpar dentista" — backend converte pra null
         dentist_id: editDraft.dentist_id || '',
+        // Onda 4.2 — pagamento por procedimento (string vazia limpa)
+        payment_method: editDraft.payment_method || '',
+        installments_count: editDraft.payment_method === 'INSTALLMENTS'
+          ? (editDraft.installments_count ? parseInt(editDraft.installments_count, 10) : null)
+          : null,
       });
       showSuccess('Item atualizado');
       setEditingItemId(null);
@@ -730,6 +754,40 @@ function QuoteDetailView({
                         </select>
                       </label>
                     </div>
+
+                    {/* Onda 4.2 — pagamento por procedimento (linha extra no form de edicao) */}
+                    <div className="grid grid-cols-2 gap-2 text-xs mt-2">
+                      <label className="flex flex-col">
+                        <span className="text-muted-foreground mb-0.5 flex items-center gap-1">
+                          <CreditCard size={10} /> Pagamento (opcional)
+                        </span>
+                        <select
+                          value={editDraft.payment_method}
+                          onChange={(e) => setEditDraft({ ...editDraft, payment_method: e.target.value })}
+                          className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          title="Sobrescreve o pagamento default do orçamento APENAS pra este item"
+                        >
+                          <option value="">— usar default do orçamento —</option>
+                          {Object.entries(PAYMENT_METHOD_LABEL).map(([k, label]) => (
+                            <option key={k} value={k}>{label}</option>
+                          ))}
+                        </select>
+                      </label>
+                      {editDraft.payment_method === 'INSTALLMENTS' && (
+                        <label className="flex flex-col">
+                          <span className="text-muted-foreground mb-0.5">Parcelas (1-24)</span>
+                          <input
+                            type="number"
+                            min={1}
+                            max={24}
+                            value={editDraft.installments_count}
+                            onChange={(e) => setEditDraft({ ...editDraft, installments_count: e.target.value })}
+                            placeholder="ex: 12"
+                            className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                          />
+                        </label>
+                      )}
+                    </div>
                     <div className="flex items-center justify-end gap-2 mt-2">
                       <button
                         onClick={cancelEditItem}
@@ -790,6 +848,15 @@ function QuoteDetailView({
                       {it.dentist?.name && (
                         <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground inline-flex items-center gap-1">
                           <UserIcon size={9} /> {it.dentist.name}
+                        </span>
+                      )}
+                      {/* Onda 4.2 — pílula com pagamento por procedimento (so se diferente do default) */}
+                      {it.payment_method && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">
+                          {PAYMENT_METHOD_LABEL[it.payment_method] || it.payment_method}
+                          {it.payment_method === 'INSTALLMENTS' && it.installments_count
+                            ? ` ${it.installments_count}x`
+                            : ''}
                         </span>
                       )}
                     </div>

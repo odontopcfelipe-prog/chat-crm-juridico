@@ -5,6 +5,9 @@ import { Type } from 'class-transformer';
 
 const QUOTE_STATUS = ['DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const;
 
+// Onda 4.2 (Fase 25) — metodos de pagamento permitidos por item
+const PAYMENT_METHODS = ['PIX', 'CASH', 'CARD', 'INSTALLMENTS', 'BOLETO', 'TRANSFER'] as const;
+
 export class CreateQuoteItemDto {
   @IsUUID('4') procedure_id: string;
   @IsOptional() @IsString() tooth_fdi?: string;
@@ -13,6 +16,9 @@ export class CreateQuoteItemDto {
   @IsOptional() @IsString() notes?: string;
   // Onda 3.2 (Fase 25) — dentista responsavel pelo procedimento
   @IsOptional() @IsUUID('4') dentist_id?: string;
+  // Onda 4.2 (Fase 25) — pagamento por procedimento (NULL = default do quote)
+  @IsOptional() @IsString() @IsIn(PAYMENT_METHODS) payment_method?: string;
+  @IsOptional() @IsInt() @Min(1) @Max(24) installments_count?: number;
 }
 
 export class CreateQuoteDto {
@@ -49,6 +55,9 @@ export class UpdateQuoteItemDto {
   // (ex: paciente trocou de profissional). Aceita string vazia pra
   // limpar (sem dentista atribuido).
   @IsOptional() @IsString() dentist_id?: string | null;
+  // Onda 4.2 (Fase 25) — pagamento por procedimento. String vazia limpa.
+  @IsOptional() @IsString() payment_method?: string | null;
+  @IsOptional() @IsInt() @Min(1) @Max(24) installments_count?: number | null;
 }
 
 // ─── TreatmentPlan ─────────────────────────────────────────────

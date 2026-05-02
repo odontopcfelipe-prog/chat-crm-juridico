@@ -2239,6 +2239,15 @@ model QuoteItem {
   // SetNull pra preservar registro do orcamento.
   dentist_id  String?
 
+  // Onda 4.2 (Fase 25) — Pagamento POR PROCEDIMENTO.
+  // Permite paciente fechar Botox no PIX (a vista 5% off) E Implante em
+  // 12x cartao no MESMO orcamento. Antes era so 1 metodo no quote inteiro.
+  // Esteticamente importante (Botox eh rapido + valor menor; Implante eh
+  // longo + valor alto — clientes querem pagar de jeitos diferentes).
+  // NULL = usa o pagamento default do quote (compat com orcamentos antigos).
+  payment_method      String? // "PIX" | "CASH" | "CARD" | "INSTALLMENTS" | "BOLETO" | "TRANSFER"
+  installments_count  Int? // se payment_method = INSTALLMENTS, quantas vezes (1-24)
+
   quote     Quote     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
   dentist   User?     @relation("QuoteItemDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
