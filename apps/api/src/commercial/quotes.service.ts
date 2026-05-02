@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
+import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
 
 type ItemInput = {
@@ -43,6 +44,15 @@ export class QuotesService {
       items?: ItemInput[];
     },
   ) {
+    // Onda 2.8 — log estruturado: contexto base aplicado em log de sucesso/erro
+    const ctx = logCtx({
+      tenant_id: tenantId,
+      user_id: userId,
+      action: 'create_quote',
+      patient_id: patientId,
+    });
+    const start = Date.now();
+
     await this.assertPatientBelongsToTenant(patientId, tenantId);
 
     const items = data.items || [];
@@ -59,44 +69,61 @@ export class QuotesService {
           return d;
         })();
 
-    return this.prisma.quote.create({
-      data: {
-        patient_id: patientId,
-        created_by_user_id: userId,
-        valid_until: validUntil,
-        discount_percent: data.discount_percent || 0,
-        discount_value: totals.discount_value,
-        subtotal: totals.subtotal,
-        total_value: totals.total,
-        payment_terms: data.payment_terms || null,
-        notes: data.notes || null,
-        items: {
-          create: resolvedItems.map((i, idx) => ({
-            procedure_id: i.procedure_id,
-            tooth_fdi: i.tooth_fdi || null,
-            quantity: i.quantity,
-            unit_price: i.unit_price,
-            total_price: i.total_price,
-            notes: i.notes || null,
-            order_index: idx,
-          })),
+    try {
+      const quote = await this.prisma.quote.create({
+        data: {
+          patient_id: patientId,
+          created_by_user_id: userId,
+          valid_until: validUntil,
+          discount_percent: data.discount_percent || 0,
+          discount_value: totals.discount_value,
+          subtotal: totals.subtotal,
+          total_value: totals.total,
+          payment_terms: data.payment_terms || null,
+          notes: data.notes || null,
+          items: {
+            create: resolvedItems.map((i, idx) => ({
+              procedure_id: i.procedure_id,
+              tooth_fdi: i.tooth_fdi || null,
+              quantity: i.quantity,
+              unit_price: i.unit_price,
+              total_price: i.total_price,
+              notes: i.notes || null,
+              order_index: idx,
+            })),
+          },
         },
-      },
-      include: {
-        items: {
-          include: {
-            procedure: {
-              select: {
-                id: true,
-                name: true,
-                duration_minutes: true,
-                specialty: { select: { id: true, name: true } },
+        include: {
+          items: {
+            include: {
+              procedure: {
+                select: {
+                  id: true,
+                  name: true,
+                  duration_minutes: true,
+                  specialty: { select: { id: true, name: true } },
+                },
               },
             },
           },
         },
-      },
-    });
+      });
+
+      this.logger.log(ctx({
+        quote_id: quote.id,
+        items_count: resolvedItems.length,
+        total_value: Number(quote.total_value),
+        duration_ms: Date.now() - start,
+      }, 'Orcamento criado'));
+
+      return quote;
+    } catch (e: any) {
+      this.logger.error(ctx({
+        duration_ms: Date.now() - start,
+        error: fmtError(e),
+      }, 'Falha ao criar orcamento'));
+      throw e;
+    }
   }
 
   async findByPatient(patientId: string, tenantId: string) {
