@@ -16,10 +16,26 @@ import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Authenticated } from '../auth/decorators/authenticated.decorator';
+import type { AuthUser } from '../auth/decorators/authenticated.decorator';
 import {
   CreateQuoteDto, UpdateQuoteDto, CreateQuoteItemDto, UpdateQuoteItemDto, RejectQuoteDto,
   UpdateTreatmentPlanDto, UpdateTreatmentPlanItemDto, ExecuteTreatmentPlanItemDto,
 } from './dto/commercial.dto';
+
+/**
+ * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
+ *
+ * Endpoints de Quote ja migrados (servem de modelo):
+ *   createQuote, listQuotes, findQuote, updateQuote, removeQuote,
+ *   listDeletedQuotes, restoreQuote
+ *
+ * TODO migrar restante do controller (templates, coupons, attachments,
+ * versions, treatment-plans). Padrao:
+ *   - Trocar @Request() req: any por @Authenticated() user: AuthUser
+ *   - Remover boilerplate "if (!tenantId) throw" (decorator ja garante)
+ *   - Usar user.tenant_id e user.id direto
+ */
 
 @UseGuards(JwtAuthGuard)
 @Controller()
@@ -38,62 +54,47 @@ export class CommercialController {
 
   // ─── Quotes ───────────────────────────────────────────────────
 
+  // ─── Quote endpoints — Onda 2.1: migrados pra @Authenticated() ────────
+
   @Post('patients/:patientId/quotes')
   createQuote(
     @Param('patientId') patientId: string,
     @Body() dto: CreateQuoteDto,
-    @Request() req: any,
+    @Authenticated() user: AuthUser,
   ) {
-    const tenantId = req.user?.tenant_id;
-    // JwtStrategy.validate() retorna { id: payload.sub, ... } — usar req.user.id
-    const userId = req.user?.id;
-    if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
-    return this.quotesService.create(patientId, tenantId, userId, dto);
+    return this.quotesService.create(patientId, user.tenant_id, user.id, dto);
   }
 
   @Get('patients/:patientId/quotes')
-  listQuotes(@Param('patientId') patientId: string, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.findByPatient(patientId, tenantId);
+  listQuotes(@Param('patientId') patientId: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.findByPatient(patientId, user.tenant_id);
   }
 
   @Get('quotes/:id')
-  findQuote(@Param('id') id: string, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.findOne(id, tenantId);
+  findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.findOne(id, user.tenant_id);
   }
 
   @Patch('quotes/:id')
-  updateQuote(@Param('id') id: string, @Body() dto: UpdateQuoteDto, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.update(id, tenantId, dto as any);
+  updateQuote(@Param('id') id: string, @Body() dto: UpdateQuoteDto, @Authenticated() user: AuthUser) {
+    return this.quotesService.update(id, user.tenant_id, dto as any);
   }
 
   @Delete('quotes/:id')
-  removeQuote(@Param('id') id: string, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    const userId = req.user?.id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.remove(id, tenantId, userId);
+  removeQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.remove(id, user.tenant_id, user.id);
   }
 
   /** Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias (admin) */
   @Get('quotes/deleted')
-  listDeletedQuotes(@Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.listDeleted(tenantId);
+  listDeletedQuotes(@Authenticated() user: AuthUser) {
+    return this.quotesService.listDeleted(user.tenant_id);
   }
 
   /** Onda 25.6 — Restaura orcamento soft-deletado (volta pra listagem normal) */
   @Post('quotes/:id/restore')
-  restoreQuote(@Param('id') id: string, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.restore(id, tenantId);
+  restoreQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.restore(id, user.tenant_id);
   }
 
   @Post('quotes/:id/send')
