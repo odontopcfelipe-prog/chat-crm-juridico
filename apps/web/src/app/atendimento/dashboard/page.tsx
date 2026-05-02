@@ -31,6 +31,7 @@ import { ComparisonsBoard } from './components/ComparisonsBoard';
 import { UpcomingEvents } from './components/UpcomingEvents';
 import { QuickActions } from './components/QuickActions';
 import { TodaysTasks } from './components/TodaysTasks';
+import { MaintenanceRecallWidget } from './components/MaintenanceRecallWidget';
 import { TeamOnline } from './components/TeamOnline';
 import { OperatorPerformanceStrip } from './components/OperatorPerformanceStrip';
 
@@ -298,6 +299,11 @@ export default function DashboardPage() {
         {/* Tarefas do dia (Fase 9) — agrega retornos + confirmacoes + comissoes + metas */}
         <MotionWidget delay={0.05}>
           <TodaysTasks />
+        </MotionWidget>
+
+        {/* Onda 5.5 (Fase 25) — revisitas atrasadas (auto-some se vazio) */}
+        <MotionWidget delay={0.07}>
+          <MaintenanceRecallWidget />
         </MotionWidget>
 
         {/* Ações rápidas no rodapé (sempre) */}

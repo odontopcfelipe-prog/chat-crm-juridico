@@ -29,6 +29,7 @@ import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
 import OrcamentoTab from '../components/OrcamentoTab';
 import TratamentoTab from '../components/TratamentoTab';
+import ManutencoesTab from '../components/ManutencoesTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
@@ -92,6 +93,8 @@ const TABS = [
   { id: 'radiografias', label: 'Radiografias', icon: Activity },
   { id: 'quotes', label: 'Orçamentos', icon: DollarSign },
   { id: 'treatment-plans', label: 'Tratamentos', icon: ClipboardList },
+  // Onda 5.3 (Fase 25) — Manutencoes/recall pos-procedimento
+  { id: 'maintenance', label: 'Manutenções', icon: Clock },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -313,6 +316,7 @@ export default function PacienteFichaPage() {
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
       {tab === 'quotes' && <OrcamentoTab patientId={patient.id} />}
       {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
+      {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
 
       {/* Modais */}
       {editOpen && (

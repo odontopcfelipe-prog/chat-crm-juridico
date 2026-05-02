@@ -17,6 +17,7 @@ import { NotificationWhatsappModule } from './notification-whatsapp/notification
 import { AfterHoursModule } from './after-hours/after-hours.module';
 import { MemoryModule } from './memory/memory.module';
 import { AutomationModule } from './automation/automation.module';
+import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
 
 @Module({
   imports: [
@@ -46,6 +47,8 @@ import { AutomationModule } from './automation/automation.module';
     MemoryModule,
     // Fase 10 — automacoes cron
     AutomationModule,
+    // Fase 25 Onda 5.4 — recall de manutencao (WhatsApp 7d antes)
+    WorkerMaintenanceModule,
   ],
 })
 export class AppModule {}
