@@ -18,6 +18,7 @@ import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Authenticated } from '../auth/decorators/authenticated.decorator';
 import type { AuthUser } from '../auth/decorators/authenticated.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import {
   CreateQuoteDto, UpdateQuoteDto, CreateQuoteItemDto, UpdateQuoteItemDto, RejectQuoteDto,
   UpdateTreatmentPlanDto, UpdateTreatmentPlanItemDto, ExecuteTreatmentPlanItemDto,
@@ -122,6 +123,17 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.accept(id, tenantId, req.user?.id);
+  }
+
+  /**
+   * Onda 4.3 (Fase 25) — Track view do portal (publico, sem auth).
+   * Chamado pelo frontend do portal quando paciente abre orcamento.
+   * Incrementa portal_view_count + atualiza portal_last_viewed_at.
+   */
+  @Public()
+  @Post('quotes/:id/track-view')
+  trackQuoteView(@Param('id') id: string) {
+    return this.quotesService.trackPortalView(id);
   }
 
   /**

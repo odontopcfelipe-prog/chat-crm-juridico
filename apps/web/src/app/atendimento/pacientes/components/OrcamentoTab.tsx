@@ -103,6 +103,11 @@ interface QuoteDetail extends QuoteListItem {
     total_value: string | number;
     created_at: string;
   } | null;
+  // Onda 4.3 — Metricas de engajamento WhatsApp + portal
+  whatsapp_message_id?: string | null;
+  whatsapp_read_at?: string | null;
+  portal_view_count?: number;
+  portal_last_viewed_at?: string | null;
 }
 
 const STATUS_BADGE: Record<QuoteListItem['status'], string> = {
@@ -1005,6 +1010,11 @@ function QuoteDetailView({
         )}
       </div>
 
+      {/* Onda 4.3 — Card de metricas de envelope/engajamento (so apos envio) */}
+      {(quote.sent_at || (quote.portal_view_count || 0) > 0) && (
+        <EngagementMetricsCard quote={quote} />
+      )}
+
       {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly).
           Onda 3.3 (Fase 25) — agora aparece em QUALQUER status com total > 0.
           Antes era so SENT/ACCEPTED, mas o momento mais critico de vender
@@ -1128,6 +1138,100 @@ function QuoteDetailView({
 //  - 12x +1.5%/mês (juros simples — calcula custo total)
 //
 // Mostrado em SENT/ACCEPTED — momento certo do paciente decidir como pagar.
+
+// ─── Onda 4.3 (Fase 25) — Card de metricas de envelope/engajamento ──────────
+//
+// Mostra pra operadora os sinais de interesse do paciente apos o envio:
+//   - Quando enviou (sent_at)
+//   - Se leu o WhatsApp (whatsapp_read_at — TODO popular via webhook 4.3b)
+//   - Quantas vezes abriu o portal (portal_view_count)
+//   - Ultimo acesso (portal_last_viewed_at)
+//
+// Usa formato relativo amigavel ("ha 3h", "hoje 14:32", "ontem") pra
+// recepcao bater olho e decidir momento de fazer follow-up.
+function EngagementMetricsCard({ quote }: { quote: QuoteDetail }) {
+  const fmtRelative = (iso: string | null | undefined): string => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const diffMs = Date.now() - d.getTime();
+    const diffMin = Math.floor(diffMs / 60_000);
+    if (diffMin < 1) return 'agora';
+    if (diffMin < 60) return `há ${diffMin}min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `há ${diffH}h`;
+    const diffD = Math.floor(diffH / 24);
+    if (diffD === 1) return 'ontem';
+    if (diffD < 7) return `há ${diffD}d`;
+    return d.toLocaleDateString('pt-BR');
+  };
+
+  const fmtAbsolute = (iso: string | null | undefined): string => {
+    if (!iso) return '—';
+    return new Date(iso).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+    });
+  };
+
+  const viewCount = quote.portal_view_count || 0;
+  const noEngagementYet = quote.sent_at && !quote.whatsapp_read_at && viewCount === 0;
+  const daysSinceSent = quote.sent_at
+    ? Math.floor((Date.now() - new Date(quote.sent_at).getTime()) / (1000 * 60 * 60 * 24))
+    : 0;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 mb-4">
+      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+        <MessageCircle size={14} className="text-primary" />
+        Engajamento
+        {noEngagementYet && daysSinceSent >= 2 && (
+          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-bold bg-amber-500/10 text-amber-700 border border-amber-500/20">
+            ⏰ {daysSinceSent}d sem resposta
+          </span>
+        )}
+      </h3>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+        <div>
+          <p className="text-muted-foreground flex items-center gap-1">
+            <Send size={10} /> Enviado
+          </p>
+          <p className="font-semibold mt-0.5" title={fmtAbsolute(quote.sent_at)}>
+            {quote.sent_at ? fmtRelative(quote.sent_at) : 'não enviado'}
+          </p>
+        </div>
+        <div>
+          <p className="text-muted-foreground flex items-center gap-1">
+            <Check size={10} /> Lido no WhatsApp
+          </p>
+          <p className={`font-semibold mt-0.5 ${quote.whatsapp_read_at ? 'text-emerald-600' : 'text-muted-foreground'}`} title={fmtAbsolute(quote.whatsapp_read_at)}>
+            {quote.whatsapp_read_at ? fmtRelative(quote.whatsapp_read_at) : '—'}
+          </p>
+        </div>
+        <div>
+          <p className="text-muted-foreground flex items-center gap-1">
+            <DollarSign size={10} /> Aberturas portal
+          </p>
+          <p className={`font-semibold mt-0.5 ${viewCount > 0 ? 'text-emerald-600' : 'text-muted-foreground'}`}>
+            {viewCount === 0 ? 'nenhuma' : viewCount === 1 ? '1 vez' : `${viewCount} vezes`}
+          </p>
+        </div>
+        <div>
+          <p className="text-muted-foreground flex items-center gap-1">
+            <Calendar size={10} /> Último acesso
+          </p>
+          <p className="font-semibold mt-0.5" title={fmtAbsolute(quote.portal_last_viewed_at)}>
+            {quote.portal_last_viewed_at ? fmtRelative(quote.portal_last_viewed_at) : '—'}
+          </p>
+        </div>
+      </div>
+      {viewCount >= 3 && (
+        <p className="text-[11px] text-emerald-600 mt-2 italic">
+          🔥 Cliente abriu {viewCount} vezes — alto interesse, considere fazer follow-up agora.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function PaymentSuggestionsCard({ total }: { total: number }) {
   const formatBRL = (v: number) =>
     v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });

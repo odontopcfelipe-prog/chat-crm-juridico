@@ -2027,6 +2027,22 @@ model Quote {
   rejected_at      DateTime?
   rejection_reason String?
 
+  // Onda 4.3 (Fase 25) — Metricas de envelope/engajamento WhatsApp.
+  // Permite operadora ver "paciente leu? entrou no portal? quantas vezes?"
+  // pra decidir se faz follow-up ou nao.
+  // - whatsapp_message_id: id retornado pela Evolution API ao enviar — usado
+  //   pra cruzar com webhook messages.update (read=true) e popular read_at
+  // - whatsapp_read_at: momento que o paciente leu a mensagem no app
+  //   (populado por webhook handler — TODO Onda 4.3b)
+  // - portal_view_count: quantas vezes o magic link foi aberto (proxy de
+  //   interesse — paciente que abre 5x ta considerando seriamente)
+  // - portal_last_viewed_at: ultimo acesso (UI mostra "ha 3h" pra ajudar
+  //   recepcao decidir momento de follow-up)
+  whatsapp_message_id   String?
+  whatsapp_read_at      DateTime?
+  portal_view_count     Int       @default(0)
+  portal_last_viewed_at DateTime?
+
   // Onda 2 (Fase 24) — Cupom aplicado
   coupon_id        String?
 

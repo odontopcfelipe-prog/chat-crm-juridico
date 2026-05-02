@@ -339,6 +339,39 @@ export class QuotesService {
   }
 
   /**
+   * Onda 4.3 (Fase 25) — Trackear view do portal pelo paciente.
+   *
+   * Chamado pelo frontend do portal quando paciente abre orcamento via
+   * magic link. Endpoint publico (sem auth) — mas valida que o quote
+   * existe via id. Atualiza:
+   *   - portal_view_count (incrementa atomic)
+   *   - portal_last_viewed_at (sobrescreve com agora)
+   *
+   * Idempotente — N chamadas simultaneas resultam em N+ view_count
+   * (atomic increment via Prisma).
+   *
+   * NAO valida tenant nem requer auth — id do quote eh opaco (UUID),
+   * sem risco de enumeration. Pior caso: alguem com link fica spam-ando
+   * counter (impacto minimo, log estruturado registra origem).
+   */
+  async trackPortalView(quoteId: string) {
+    try {
+      await this.prisma.quote.update({
+        where: { id: quoteId },
+        data: {
+          portal_view_count: { increment: 1 },
+          portal_last_viewed_at: new Date(),
+        },
+      });
+      return { ok: true };
+    } catch (e: any) {
+      // 404 sem revelar detalhe (security)
+      this.logger.warn(`[QUOTE-VIEW] Tentativa de track em quote inexistente: ${quoteId}`);
+      return { ok: false };
+    }
+  }
+
+  /**
    * Onda 4.1 (Fase 25) — Aprovar SO ALGUNS items do orcamento.
    *
    * Cenario: paciente recebeu orcamento de R$ 5000 com 5 procedimentos,
@@ -996,12 +1029,16 @@ export class QuotesService {
 
     let dispatchOk = false;
     let dispatchReason = '';
+    let whatsappMessageId: string | null = null;
     try {
       const result: any = await this.whatsapp.sendText(quote.patient.phone, msg);
       dispatchOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
       if (!dispatchOk) {
         dispatchReason = result?.error || `HTTP ${result?.statusCode || '?'}`;
       }
+      // Onda 4.3 — captura messageId pra crusar com webhook messages.update
+      // (formato Evolution: { key: { id, fromMe, remoteJid }, ... })
+      whatsappMessageId = result?.key?.id || result?.messageId || null;
     } catch (e: any) {
       dispatchReason = e?.message || 'erro desconhecido';
     }
@@ -1012,14 +1049,16 @@ export class QuotesService {
       );
     }
 
-    // Sucesso: marca como SENT (se ainda era DRAFT)
+    // Sucesso: marca como SENT (se ainda era DRAFT) + salva message_id
     const wasDraft = quote.status === 'DRAFT';
-    if (wasDraft) {
-      await this.prisma.quote.update({
-        where: { id: quoteId },
-        data: { status: 'SENT', sent_at: new Date() },
-      });
-    }
+    await this.prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        ...(wasDraft ? { status: 'SENT', sent_at: new Date() } : {}),
+        // Onda 4.3 — atualiza message_id mesmo se for re-envio (sobrescreve antigo)
+        ...(whatsappMessageId ? { whatsapp_message_id: whatsappMessageId } : {}),
+      },
+    });
 
     // Onda 3b — snapshot da versao enviada (se foi a primeira vez)
     if (wasDraft && this.versions && userId) {
