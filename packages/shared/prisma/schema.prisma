@@ -456,6 +456,10 @@ model GlobalSetting {
 
 model AiUsage {
   id                String   @id @default(uuid())
+  // Onda 2.2 (Fase 25) — tenant_id obrigatorio pra isolar custos por clinica.
+  // Antes estava AUSENTE: clinica A podia ler custos de IA da clinica B
+  // via query direta. Vazamento entre tenants.
+  tenant_id         String
   conversation_id   String?
   skill_id          String?
   model             String
@@ -463,9 +467,14 @@ model AiUsage {
   prompt_tokens     Int      @default(0)
   completion_tokens Int      @default(0)
   total_tokens      Int      @default(0)
-  cost_usd          Float    @default(0)
+  // Onda 2.2 (Fase 25) — Decimal(10, 6) substitui Float pra precisao
+  // monetaria. Float acumula imprecisao em centavos ao agregar (SUM, AVG).
+  // 6 casas decimais cobrem custos pequenos (1 token Sonnet ~ $0.000003).
+  cost_usd          Decimal  @default(0) @db.Decimal(10, 6)
   created_at        DateTime @default(now())
 
+  // Onda 2.2 — index principal pra dashboard "custo IA por mes do tenant"
+  @@index([tenant_id, created_at])
   @@index([created_at])
   @@index([model])
   @@index([conversation_id])

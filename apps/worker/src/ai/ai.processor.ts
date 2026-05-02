@@ -76,7 +76,11 @@ export class AiProcessor extends WorkerHost {
   };
 
   // ─── Salva uso de tokens no banco para o dashboard de custos ───
+  // Onda 2.2 (Fase 25) — tenant_id agora OBRIGATORIO pra isolar custos por
+  // clinica e evitar vazamento entre tenants. Leads legacy sem tenant
+  // recebem o UUID dummy (00000000-0000-0000-0000-000000000000).
   private async saveUsage(params: {
+    tenant_id: string | null;
     conversation_id?: string | null;
     skill_id?: string | null;
     model: string;
@@ -94,6 +98,8 @@ export class AiProcessor extends WorkerHost {
     try {
       await (this.prisma as any).aiUsage.create({
         data: {
+          // tenant_id obrigatorio — fallback dummy pra leads legacy
+          tenant_id:       params.tenant_id || '00000000-0000-0000-0000-000000000000',
           conversation_id: params.conversation_id ?? null,
           skill_id:        params.skill_id ?? null,
           model:           params.model,
@@ -1868,8 +1874,9 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         // (chamado mais abaixo). Garante que o path com tools E o path legado
         // (JSON inline) usem a mesma lógica.
 
-        // Save usage
+        // Save usage (Onda 2.2 — passa tenant_id obrigatorio)
         await this.saveUsage({
+          tenant_id: (convo as any)?.tenant_id ?? null,
           conversation_id,
           skill_id: skill?.id ?? null,
           model,
@@ -1923,8 +1930,9 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
         });
 
         const completion = { choices: [{ message: { content: legacyResult.content } }] } as any;
-        // Salvar usage com dados reais
+        // Salvar usage com dados reais (Onda 2.2 — tenant_id obrigatorio)
         await this.saveUsage({
+          tenant_id: (convo as any)?.tenant_id ?? null,
           conversation_id,
           skill_id: skill?.id ?? null,
           model,
