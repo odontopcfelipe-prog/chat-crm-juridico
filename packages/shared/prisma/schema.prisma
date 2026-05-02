@@ -122,6 +122,7 @@ model User {
   quotes_created                Quote[]                @relation("QuoteCreator")
   quotes_deleted                Quote[]                @relation("QuoteDeleter")
   treatment_plan_items_executed TreatmentPlanItem[]    @relation("TreatmentPlanItemExecutor")
+  quote_items_assigned          QuoteItem[]            @relation("QuoteItemDentist")
   // Estetica facial + estoque (Fase 6)
   stock_movements_performed     StockMovement[]        @relation("StockMover")
   esthetic_applications_done    EstheticApplication[]  @relation("EstheticApplicator")
@@ -2217,10 +2218,21 @@ model QuoteItem {
   notes       String?
   order_index Int     @default(0)
 
+  // Onda 3.2 (Fase 25) — dentista responsavel pelo procedimento.
+  // Permite:
+  //  - Calculo de comissao por dentista (quanto cada um gerou)
+  //  - Agenda inteligente (so agendar Botox com dentista certificado)
+  //  - Auditoria clinica (quem fez o que)
+  // Opcional: orcamentos antigos ficam null. Se dentista for deletado,
+  // SetNull pra preservar registro do orcamento.
+  dentist_id  String?
+
   quote     Quote     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
+  dentist   User?     @relation("QuoteItemDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
 
   @@index([quote_id])
+  @@index([dentist_id])
 }
 
 model TreatmentPlan {

@@ -11,6 +11,8 @@ export class CreateQuoteItemDto {
   @IsOptional() @IsInt() @Min(1) quantity?: number;
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) unit_price?: number;
   @IsOptional() @IsString() notes?: string;
+  // Onda 3.2 (Fase 25) — dentista responsavel pelo procedimento
+  @IsOptional() @IsUUID('4') dentist_id?: string;
 }
 
 export class CreateQuoteDto {
@@ -43,6 +45,10 @@ export class UpdateQuoteItemDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) unit_price?: number;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsInt() order_index?: number;
+  // Onda 3.2 (Fase 25) — permite reatribuir procedimento a outro dentista
+  // (ex: paciente trocou de profissional). Aceita string vazia pra
+  // limpar (sem dentista atribuido).
+  @IsOptional() @IsString() dentist_id?: string | null;
 }
 
 // ─── TreatmentPlan ─────────────────────────────────────────────

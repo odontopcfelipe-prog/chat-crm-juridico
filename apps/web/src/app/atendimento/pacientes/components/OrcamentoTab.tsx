@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat, Pencil, User as UserIcon } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
 import AddQuoteItemModal from './AddQuoteItemModal';
@@ -35,6 +35,15 @@ interface QuoteItem {
     duration_minutes?: number;
     specialty?: { id: string; name: string } | null;
   };
+  // Onda 3.2 (Fase 25) — dentista responsavel pelo procedimento
+  dentist_id?: string | null;
+  dentist?: { id: string; name: string } | null;
+}
+
+// Onda 3.2 — dropdown de dentistas (carregado lazy quando entra no detalhe)
+interface DentistOption {
+  id: string;
+  name: string;
 }
 
 interface QuoteListItem {
@@ -271,8 +280,36 @@ function QuoteDetailView({
   const [couponCode, setCouponCode] = useState('');
   const [applyingCoupon, setApplyingCoupon] = useState(false);
 
+  // Onda 3.2 — lista de dentistas pra dropdown nos items (carregado lazy)
+  const [dentists, setDentists] = useState<DentistOption[]>([]);
+  // Onda 3.4 — id do item em edicao inline (null = ninguem editando)
+  const [editingItemId, setEditingItemId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    tooth_fdi: string;
+    quantity: string;
+    unit_price: string;
+    dentist_id: string;
+  }>({ tooth_fdi: '', quantity: '1', unit_price: '0', dentist_id: '' });
+  const [savingEdit, setSavingEdit] = useState(false);
+
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
+
+  // Onda 3.2 — carrega dentistas quando entra no detalhe (1x por sessao do detail)
+  useEffect(() => {
+    api.get<any>('/users?limit=100')
+      .then((r) => {
+        const data: any[] = r.data?.data || r.data?.users || r.data || [];
+        const list = data
+          .filter((u: any) =>
+            u.roles?.includes('DENTIST') || u.roles?.includes('ADMIN') ||
+            u.role === 'DENTIST' || u.role === 'ADMIN'
+          )
+          .map((u: any) => ({ id: u.id, name: u.name }));
+        setDentists(list);
+      })
+      .catch(() => { /* silente — dropdown vai aparecer vazio */ });
+  }, []);
 
   const applyCoupon = async () => {
     if (!couponCode.trim()) return;
@@ -332,6 +369,51 @@ function QuoteDetailView({
       await onReload();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao remover');
+    }
+  };
+
+  // Onda 3.4 — handlers de edicao inline dos items
+  const startEditItem = (item: QuoteItem) => {
+    setEditingItemId(item.id);
+    setEditDraft({
+      tooth_fdi: item.tooth_fdi || '',
+      quantity: String(item.quantity),
+      unit_price: String(item.unit_price),
+      dentist_id: item.dentist_id || '',
+    });
+  };
+
+  const cancelEditItem = () => {
+    setEditingItemId(null);
+  };
+
+  const saveEditItem = async (itemId: string) => {
+    setSavingEdit(true);
+    try {
+      const qty = parseInt(editDraft.quantity, 10);
+      const price = parseFloat(editDraft.unit_price);
+      if (isNaN(qty) || qty < 1) {
+        showError('Quantidade deve ser >= 1');
+        return;
+      }
+      if (isNaN(price) || price < 0) {
+        showError('Preço unitário inválido');
+        return;
+      }
+      await api.patch(`/quote-items/${itemId}`, {
+        tooth_fdi: editDraft.tooth_fdi || undefined,
+        quantity: qty,
+        unit_price: price,
+        // String vazia significa "limpar dentista" — backend converte pra null
+        dentist_id: editDraft.dentist_id || '',
+      });
+      showSuccess('Item atualizado');
+      setEditingItemId(null);
+      await onReload();
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao salvar');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -503,6 +585,97 @@ function QuoteDetailView({
               // (mesma paleta da Tabela de Precos pra leitura visual consistente)
               const spec = it.procedure?.specialty;
               const color = colorForSpecialty(spec?.id || null);
+              const isEditing = editingItemId === it.id;
+
+              // Onda 3.4 — modo EDICAO inline (substitui linha read por form compacto)
+              if (isEditing) {
+                return (
+                  <li
+                    key={it.id}
+                    className="px-4 py-2.5 text-sm border-l-4 bg-primary/5"
+                    style={{ borderLeftColor: color.bar }}
+                  >
+                    <div className="flex items-center gap-2 flex-wrap mb-2">
+                      <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
+                      {spec?.name && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded-full font-medium border"
+                          style={{ color: color.bar, borderColor: color.bar + '40', backgroundColor: color.tint }}
+                        >
+                          {spec.name}
+                        </span>
+                      )}
+                      <span className="text-xs text-muted-foreground ml-auto">Editando…</span>
+                    </div>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <label className="flex flex-col">
+                        <span className="text-muted-foreground mb-0.5">Dente FDI</span>
+                        <input
+                          value={editDraft.tooth_fdi}
+                          onChange={(e) => setEditDraft({ ...editDraft, tooth_fdi: e.target.value })}
+                          placeholder="ex: 21"
+                          className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </label>
+                      <label className="flex flex-col">
+                        <span className="text-muted-foreground mb-0.5">Quantidade</span>
+                        <input
+                          type="number"
+                          min={1}
+                          value={editDraft.quantity}
+                          onChange={(e) => setEditDraft({ ...editDraft, quantity: e.target.value })}
+                          className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </label>
+                      <label className="flex flex-col">
+                        <span className="text-muted-foreground mb-0.5">Preço unit. (R$)</span>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={editDraft.unit_price}
+                          onChange={(e) => setEditDraft({ ...editDraft, unit_price: e.target.value })}
+                          className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        />
+                      </label>
+                      <label className="flex flex-col">
+                        <span className="text-muted-foreground mb-0.5 flex items-center gap-1">
+                          <UserIcon size={10} /> Cir. Dentista
+                        </span>
+                        <select
+                          value={editDraft.dentist_id}
+                          onChange={(e) => setEditDraft({ ...editDraft, dentist_id: e.target.value })}
+                          className="px-2 py-1 rounded bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                        >
+                          <option value="">— sem dentista —</option>
+                          {dentists.map((d) => (
+                            <option key={d.id} value={d.id}>{d.name}</option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 mt-2">
+                      <button
+                        onClick={cancelEditItem}
+                        disabled={savingEdit}
+                        className="text-xs px-3 py-1 rounded border border-border hover:bg-accent text-muted-foreground"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        onClick={() => saveEditItem(it.id)}
+                        disabled={savingEdit}
+                        className="text-xs inline-flex items-center gap-1 px-3 py-1 rounded bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 font-medium"
+                      >
+                        {savingEdit ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                        Salvar
+                      </button>
+                    </div>
+                  </li>
+                );
+              }
+
+              // Modo READ normal
               return (
                 <li
                   key={it.id}
@@ -524,6 +697,12 @@ function QuoteDetailView({
                           {spec.name}
                         </span>
                       )}
+                      {/* Onda 3.2 — pílula com nome do dentista responsavel */}
+                      {it.dentist?.name && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-muted text-muted-foreground inline-flex items-center gap-1">
+                          <UserIcon size={9} /> {it.dentist.name}
+                        </span>
+                      )}
                     </div>
                     <p className="text-xs text-muted-foreground">
                       {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
@@ -534,9 +713,18 @@ function QuoteDetailView({
                     <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
                   </div>
                   {isDraft && (
-                    <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
-                      <Trash2 size={14} />
-                    </button>
+                    <>
+                      <button
+                        onClick={() => startEditItem(it)}
+                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 p-1 rounded"
+                        title="Editar item (qtd, preço, dente, dentista)"
+                      >
+                        <Pencil size={14} />
+                      </button>
+                      <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
+                        <Trash2 size={14} />
+                      </button>
+                    </>
                   )}
                 </li>
               );
@@ -661,8 +849,12 @@ function QuoteDetailView({
         )}
       </div>
 
-      {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly) */}
-      {Number(quote.total_value) > 0 && (isSent || quote.status === 'ACCEPTED') && (
+      {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly).
+          Onda 3.3 (Fase 25) — agora aparece em QUALQUER status com total > 0.
+          Antes era so SENT/ACCEPTED, mas o momento mais critico de vender
+          condicao de pagamento eh DURANTE a montagem do orcamento, com paciente
+          junto. Recepcao precisa ver "5% PIX vs 12x cartao" pra negociar. */}
+      {Number(quote.total_value) > 0 && (
         <PaymentSuggestionsCard total={Number(quote.total_value)} />
       )}
 

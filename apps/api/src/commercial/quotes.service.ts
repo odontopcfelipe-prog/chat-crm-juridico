@@ -13,6 +13,8 @@ type ItemInput = {
   quantity?: number;
   unit_price?: number;
   notes?: string;
+  // Onda 3.2 (Fase 25) — dentista responsavel
+  dentist_id?: string;
 };
 
 // Validade padrao quando operador nao informa — alinhada com norma de
@@ -211,6 +213,8 @@ export class QuotesService {
                 specialty: { select: { id: true, name: true } },
               },
             },
+            // Onda 3.2 — dentista responsavel (nome p/ exibir no item)
+            dentist: { select: { id: true, name: true } },
           },
         },
         treatment_plan: true,
@@ -427,6 +431,8 @@ export class QuotesService {
         total_price: resolved.total_price,
         notes: resolved.notes || null,
         order_index: quote.items.length,
+        // Onda 3.2 — dentista responsavel (opcional)
+        dentist_id: input.dentist_id || null,
       },
     });
     await this.recalcTotals(quoteId);
@@ -436,7 +442,12 @@ export class QuotesService {
   async updateItem(
     itemId: string,
     tenantId: string,
-    data: { tooth_fdi?: string; quantity?: number; unit_price?: number; notes?: string; order_index?: number },
+    data: {
+      tooth_fdi?: string; quantity?: number; unit_price?: number;
+      notes?: string; order_index?: number;
+      // Onda 3.2 — string vazia ou null limpa (sem dentista atribuido)
+      dentist_id?: string | null;
+    },
   ) {
     const item = await this.getItemEnsuringTenant(itemId, tenantId);
     if (item.quote.status !== 'DRAFT') {
@@ -444,6 +455,12 @@ export class QuotesService {
     }
 
     const patch: Prisma.QuoteItemUncheckedUpdateInput = { ...data };
+
+    // Onda 3.2 — string vazia vira null (operacao "limpar dentista")
+    if (data.dentist_id === '') {
+      patch.dentist_id = null;
+    }
+
     if (data.quantity !== undefined || data.unit_price !== undefined) {
       const qty = data.quantity ?? item.quantity;
       const price = data.unit_price ?? Number(item.unit_price);
