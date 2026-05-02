@@ -263,10 +263,10 @@ export default function PacienteFichaPage() {
         </div>
       </div>
 
-      {/* Tabs — densidade responsiva: compacta em mobile, confortavel em desktop.
-          Antes: text-sm + px-4 + icon 16 ocupava ~120px/tab × 11 = scroll obrigatorio.
-          Agora: text-[11px] + px-2 + icon 13 em mobile (~75px/tab); text-sm + px-4
-          em desktop (lg). Reducao ~38% mobile, mesmo desktop. */}
+      {/* Tabs — densidade compacta GLOBAL (Fase 25 5b v2).
+          Antes: text-sm (14px) + px-4 + icon 16 = ~120px/tab × 11 = 1320px (scroll).
+          Agora: text-xs (12px) + px-3 + icon 14 = ~85px/tab × 11 = 935px (cabe melhor
+          em desktop tb). Em mobile vai pra text-[11px] + px-2 (~75px/tab). */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
         <div className="flex gap-0.5 lg:gap-1">
           {TABS.map((t) => {
@@ -276,13 +276,13 @@ export default function PacienteFichaPage() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-1 lg:gap-2 px-2 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-1 lg:gap-1.5 px-2 py-1.5 lg:px-3 lg:py-2 text-[11px] lg:text-xs font-medium border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
+                <Icon className="w-3.5 h-3.5 shrink-0" />
                 {t.label}
               </button>
             );
