@@ -46,6 +46,13 @@ interface Props {
   onClose: () => void;
   /** Recarrega items do orçamento depois que adicionar */
   onAdded: () => void | Promise<void>;
+  /**
+   * Onda 3.1 — dentes pre-selecionados via odontograma. Quando preenchido,
+   * mostra header indicando "Aplicar a X dentes" + toggle multiplicar/unificar.
+   * Ao adicionar procedimento da lista, cria N items (multiplicar) ou 1
+   * item agregado (unificar).
+   */
+  prefillTeeth?: string[];
 }
 
 // Mesma paleta da pagina de tabela de precos pra consistencia visual
@@ -64,12 +71,19 @@ function colorForSpecialty(key: string): string {
 const formatBRL = (v: number | string) =>
   Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded }: Props) {
+export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth }: Props) {
   const [search, setSearch] = useState('');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
+  // Onda 3.1 — quando vem do odontograma com N dentes, escolhe modo:
+  //   multiplicar: cria N items (cada dente cobrado 1x)
+  //   unificar:    cria 1 item (cobra 1x, lista dentes nas notas)
+  // Default: multiplicar (caso mais comum em odonto — tratar varios dentes)
+  const [teethMode, setTeethMode] = useState<'multiply' | 'unify'>('multiply');
   const inputRef = useRef<HTMLInputElement>(null);
+
+  const hasPrefilledTeeth = prefillTeeth && prefillTeeth.length > 0;
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -108,6 +122,39 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   };
 
   const addToBasket = (p: Procedure) => {
+    // Onda 3.1 — se vem do odontograma com dentes pre-selecionados, aplica
+    // o modo escolhido (multiplicar/unificar) e adiciona items correspondentes.
+    if (hasPrefilledTeeth && prefillTeeth) {
+      if (teethMode === 'multiply') {
+        // 1 item por dente — facilita renegociar/remover individualmente
+        const newItems: BasketItem[] = prefillTeeth.map((tooth) => ({
+          procedure_id: p.id,
+          procedure_name: p.name,
+          base_price: Number(p.base_price),
+          unit_price: String(p.base_price),
+          quantity: 1,
+          tooth_fdi: tooth,
+        }));
+        setBasket([...basket, ...newItems]);
+      } else {
+        // Modo unificar: 1 item agregado, dentes listados no campo tooth_fdi
+        // (separados por vírgula). Permite "Limpeza geral" que cobre tudo.
+        setBasket([
+          ...basket,
+          {
+            procedure_id: p.id,
+            procedure_name: p.name,
+            base_price: Number(p.base_price),
+            unit_price: String(p.base_price),
+            quantity: 1,
+            tooth_fdi: prefillTeeth.join(', '),
+          },
+        ]);
+      }
+      return;
+    }
+
+    // Comportamento default (sem dentes pre-selecionados):
     // Se ja esta na cesta, incrementa qty
     const existing = basket.find((b) => b.procedure_id === p.id);
     if (existing) {
@@ -193,6 +240,53 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             <X size={18} />
           </button>
         </div>
+
+        {/* Onda 3.1 — banner quando vem do odontograma com dentes pre-selecionados */}
+        {hasPrefilledTeeth && prefillTeeth && (
+          <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 text-sm">
+              <span className="font-semibold text-primary">
+                {prefillTeeth.length} {prefillTeeth.length === 1 ? 'dente' : 'dentes'} selecionado{prefillTeeth.length === 1 ? '' : 's'}:
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {prefillTeeth.map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-xs bg-primary text-primary-foreground"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="ml-auto flex items-center gap-1 bg-background border border-border rounded-lg p-0.5">
+              <button
+                type="button"
+                onClick={() => setTeethMode('multiply')}
+                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                  teethMode === 'multiply'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title={`Cria 1 item por dente (cobra ${prefillTeeth.length}x)`}
+              >
+                Multiplicar valor
+              </button>
+              <button
+                type="button"
+                onClick={() => setTeethMode('unify')}
+                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
+                  teethMode === 'unify'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+                title="Cria 1 item unico cobrindo todos os dentes (cobra 1x)"
+              >
+                Unificar
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Body — 2 colunas: lista (esq) + cesta (dir) */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_360px] gap-0 overflow-hidden">

@@ -65,6 +65,19 @@ export class CommercialController {
     return this.quotesService.create(patientId, user.tenant_id, user.id, dto);
   }
 
+  /**
+   * Onda 3.1 (Fase 25) — Pega DRAFT existente do paciente ou cria novo.
+   * Usado pelo OdontogramaTab quando dentista adiciona procedimento via
+   * click em dente. Evita race condition + descoberta manual.
+   */
+  @Post('patients/:patientId/quotes/draft-or-create')
+  getOrCreateDraft(
+    @Param('patientId') patientId: string,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.getOrCreateDraft(patientId, user.tenant_id, user.id);
+  }
+
   @Get('patients/:patientId/quotes')
   listQuotes(@Param('patientId') patientId: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findByPatient(patientId, user.tenant_id);

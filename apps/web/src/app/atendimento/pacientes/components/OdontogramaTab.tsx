@@ -1,14 +1,26 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, Activity, X, Trash2, Save, Printer } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer, DollarSign } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import AddQuoteItemModal from './AddQuoteItemModal';
 
 interface Props {
   patientId: string;
   /** Onda 25.5 — nome do paciente exibido no cabecalho de impressao */
   patientName?: string;
+}
+
+// Onda 3.1 — type local do procedimento (espelha o que vem da /procedures)
+interface Procedure {
+  id: string;
+  name: string;
+  base_price: string | number;
+  code_tuss: string | null;
+  duration_minutes?: number;
+  specialty?: { id: string; name: string } | null;
+  specialty_id?: string | null;
 }
 
 interface ToothRecord {
@@ -65,6 +77,15 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
   const [editingRecord, setEditingRecord] = useState<ToothRecord | null>(null);
   const [showDeciduous, setShowDeciduous] = useState(false);
 
+  // Onda 3.1 — multi-selecao de dentes pra adicionar ao orcamento.
+  // Ctrl/Cmd+click ou Shift+click adiciona/remove dente da selecao,
+  // sem abrir o ToothEditor (comportamento de click normal).
+  const [selectedTeethForQuote, setSelectedTeethForQuote] = useState<Set<string>>(new Set());
+  const [showAddItemsModal, setShowAddItemsModal] = useState(false);
+  const [draftQuoteId, setDraftQuoteId] = useState<string | null>(null);
+  const [procedures, setProcedures] = useState<Procedure[]>([]);
+  const [openingModal, setOpeningModal] = useState(false);
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -83,9 +104,49 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
   const toothRecords = (fdi: string) =>
     odonto?.teeth.filter((t) => t.tooth_fdi === fdi) || [];
 
-  const onToothClick = (fdi: string) => {
+  const onToothClick = (fdi: string, e?: React.MouseEvent) => {
+    // Onda 3.1 — Ctrl/Cmd/Shift+click: toggle selecao pra orcamento
+    // (NAO abre o ToothEditor). Click normal mantem comportamento atual.
+    if (e && (e.ctrlKey || e.metaKey || e.shiftKey)) {
+      setSelectedTeethForQuote((prev) => {
+        const next = new Set(prev);
+        if (next.has(fdi)) next.delete(fdi);
+        else next.add(fdi);
+        return next;
+      });
+      return;
+    }
     setSelectedTooth(fdi);
     setEditingRecord(null);
+  };
+
+  // Onda 3.1 — handlers da multi-selecao
+  const clearTeethSelection = () => setSelectedTeethForQuote(new Set());
+
+  const openAddToQuoteModal = async () => {
+    if (selectedTeethForQuote.size === 0) return;
+    setOpeningModal(true);
+    try {
+      // 1. Carrega procedures + draft em paralelo (otimiza tempo de abrir)
+      const [procRes, draftRes] = await Promise.all([
+        api.get<Procedure[]>('/procedures'),
+        api.post<{ id: string }>(`/patients/${patientId}/quotes/draft-or-create`),
+      ]);
+      setProcedures(procRes.data || []);
+      setDraftQuoteId(draftRes.data.id);
+      setShowAddItemsModal(true);
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao abrir orçamento');
+    } finally {
+      setOpeningModal(false);
+    }
+  };
+
+  const onItemsAdded = async () => {
+    showSuccess(`Procedimentos adicionados ao orçamento — vá no tab Orçamentos pra ver`);
+    setShowAddItemsModal(false);
+    clearTeethSelection();
+    setDraftQuoteId(null);
   };
 
   const onEditRecord = (rec: ToothRecord) => {
@@ -191,21 +252,31 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         </div>
       </div>
 
+      {/* Onda 3.1 — hint sobre multi-selecao via Ctrl+click */}
+      <div className="text-[11px] text-muted-foreground mb-2 print-hide flex items-center gap-1.5 flex-wrap">
+        <DollarSign size={11} className="text-primary" />
+        <span>
+          <kbd className="px-1 py-0.5 rounded bg-muted text-[10px] font-mono">Ctrl</kbd>
+          +click (ou <kbd className="px-1 py-0.5 rounded bg-muted text-[10px] font-mono">Shift</kbd>+click)
+          em um ou mais dentes pra adicionar procedimentos ao orçamento.
+        </span>
+      </div>
+
       {/* Arcadas */}
       <div className="bg-card border border-border rounded-xl p-6 mb-4">
         {/* Superior */}
         <div className="mb-6">
           <p className="text-xs text-muted-foreground text-center mb-2">Superior</p>
           <div className="flex justify-center gap-8">
-            <TeethRow fdiList={FDI_PERMANENT.superior_direito} toothRecords={toothRecords} onClick={onToothClick} />
+            <TeethRow fdiList={FDI_PERMANENT.superior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} />
             <div className="w-px bg-border" />
-            <TeethRow fdiList={FDI_PERMANENT.superior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} />
+            <TeethRow fdiList={FDI_PERMANENT.superior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} />
           </div>
           {showDeciduous && (
             <div className="mt-2 flex justify-center gap-8">
-              <TeethRow fdiList={FDI_DECIDUOUS.superior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous />
+              <TeethRow fdiList={FDI_DECIDUOUS.superior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} />
               <div className="w-px bg-border" />
-              <TeethRow fdiList={FDI_DECIDUOUS.superior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous />
+              <TeethRow fdiList={FDI_DECIDUOUS.superior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} />
             </div>
           )}
         </div>
@@ -217,15 +288,15 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         <div>
           {showDeciduous && (
             <div className="mb-2 flex justify-center gap-8">
-              <TeethRow fdiList={FDI_DECIDUOUS.inferior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous />
+              <TeethRow fdiList={FDI_DECIDUOUS.inferior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} />
               <div className="w-px bg-border" />
-              <TeethRow fdiList={FDI_DECIDUOUS.inferior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous />
+              <TeethRow fdiList={FDI_DECIDUOUS.inferior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} />
             </div>
           )}
           <div className="flex justify-center gap-8">
-            <TeethRow fdiList={FDI_PERMANENT.inferior_direito} toothRecords={toothRecords} onClick={onToothClick} />
+            <TeethRow fdiList={FDI_PERMANENT.inferior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} />
             <div className="w-px bg-border" />
-            <TeethRow fdiList={FDI_PERMANENT.inferior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} />
+            <TeethRow fdiList={FDI_PERMANENT.inferior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} />
           </div>
           <p className="text-xs text-muted-foreground text-center mt-2">Inferior</p>
         </div>
@@ -258,6 +329,66 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
           />
         </div>
       )}
+
+      {/* Onda 3.1 — FAB sticky no fundo quando tem dentes selecionados */}
+      {selectedTeethForQuote.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 print-hide animate-in slide-in-from-bottom-4 duration-200">
+          <div className="bg-card border border-primary/40 shadow-2xl rounded-full pl-4 pr-2 py-2 flex items-center gap-3">
+            <span className="text-sm font-semibold flex items-center gap-2">
+              <DollarSign size={14} className="text-primary" />
+              {selectedTeethForQuote.size} {selectedTeethForQuote.size === 1 ? 'dente selecionado' : 'dentes selecionados'}
+            </span>
+            <div className="flex flex-wrap gap-1 max-w-[200px]">
+              {Array.from(selectedTeethForQuote).slice(0, 8).map((t) => (
+                <span
+                  key={t}
+                  className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-[10px] bg-primary/10 text-primary"
+                >
+                  {t}
+                </span>
+              ))}
+              {selectedTeethForQuote.size > 8 && (
+                <span className="text-[10px] text-muted-foreground">
+                  +{selectedTeethForQuote.size - 8}
+                </span>
+              )}
+            </div>
+            <button
+              onClick={clearTeethSelection}
+              className="text-xs px-2 py-1 rounded-full text-muted-foreground hover:bg-muted"
+              title="Limpar seleção"
+            >
+              <X size={14} />
+            </button>
+            <button
+              onClick={openAddToQuoteModal}
+              disabled={openingModal}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50"
+            >
+              {openingModal ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <DollarSign size={14} />
+              )}
+              Adicionar ao orçamento
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Onda 3.1 — Modal compartilhado com prefillTeeth */}
+      {showAddItemsModal && draftQuoteId && (
+        <AddQuoteItemModal
+          quoteId={draftQuoteId}
+          procedures={procedures}
+          prefillTeeth={Array.from(selectedTeethForQuote)}
+          onClose={() => {
+            setShowAddItemsModal(false);
+            setDraftQuoteId(null);
+          }}
+          onAdded={onItemsAdded}
+        />
+      )}
     </div>
   );
 }
@@ -265,12 +396,14 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
 // ─── Linha de dentes ──────────────────────────────────────────
 
 function TeethRow({
-  fdiList, toothRecords, onClick, isDeciduous,
+  fdiList, toothRecords, onClick, isDeciduous, selectedSet,
 }: {
   fdiList: string[];
   toothRecords: (fdi: string) => ToothRecord[];
-  onClick: (fdi: string) => void;
+  onClick: (fdi: string, e: React.MouseEvent) => void;
   isDeciduous?: boolean;
+  /** Onda 3.1 — dentes selecionados pra orcamento (renderiza ring azul) */
+  selectedSet?: Set<string>;
 }) {
   return (
     <div className="flex gap-1">
@@ -278,12 +411,21 @@ function TeethRow({
         const records = toothRecords(fdi);
         const primaryState = records[0]?.state;
         const cls = primaryState ? STATE_CLS[primaryState] : 'bg-background border-border text-muted-foreground';
+        const isSelected = selectedSet?.has(fdi);
         return (
           <button
             key={fdi}
-            onClick={() => onClick(fdi)}
-            className={`${isDeciduous ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs'} rounded-md border-2 font-semibold flex items-center justify-center hover:scale-110 transition-transform ${cls}`}
-            title={records.length > 0 ? `${fdi} — ${records.length} anotação(ões)` : fdi}
+            onClick={(e) => onClick(fdi, e)}
+            className={`${isDeciduous ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs'} rounded-md border-2 font-semibold flex items-center justify-center hover:scale-110 transition-transform ${cls} ${
+              isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-105' : ''
+            }`}
+            title={
+              isSelected
+                ? `${fdi} — selecionado pra orçamento (Ctrl+click pra remover)`
+                : records.length > 0
+                ? `${fdi} — ${records.length} anotação(ões) · Ctrl+click pra adicionar ao orçamento`
+                : `${fdi} — Ctrl+click pra adicionar ao orçamento`
+            }
           >
             {fdi}
           </button>

@@ -126,6 +126,59 @@ export class QuotesService {
     }
   }
 
+  /**
+   * Onda 3.1 (Fase 25) — Pega DRAFT mais recente do paciente OU cria novo.
+   *
+   * Use case: dentista clica em dente do odontograma + procedimento;
+   * frontend precisa adicionar item num quote DRAFT mas nao quer:
+   *   1. Listar quotes pra ver se existe DRAFT
+   *   2. Decidir: usar esse OU criar novo
+   *   3. Race condition se 2 cliques simultaneos
+   *
+   * Aqui resolve em 1 query atomic. Se ha DRAFT, devolve. Se nao, cria
+   * vazio com defaults padrao. Idempotente.
+   */
+  async getOrCreateDraft(patientId: string, tenantId: string, userId: string) {
+    await this.assertPatientBelongsToTenant(patientId, tenantId);
+
+    // Tenta achar DRAFT existente (mais recente, nao deletado)
+    const existing = await this.prisma.quote.findFirst({
+      where: {
+        patient_id: patientId,
+        status: 'DRAFT',
+        deleted_at: null,
+      },
+      orderBy: { created_at: 'desc' },
+      include: {
+        items: {
+          include: {
+            procedure: {
+              select: {
+                id: true,
+                name: true,
+                duration_minutes: true,
+                specialty: { select: { id: true, name: true } },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    if (existing) {
+      this.logger.log(logCtx({
+        tenant_id: tenantId,
+        user_id: userId,
+        action: 'get_or_create_draft',
+        patient_id: patientId,
+      })({ quote_id: existing.id, reused: true }, 'DRAFT existente reutilizado'));
+      return existing;
+    }
+
+    // Sem DRAFT — cria vazio (delegar pro create() que ja loga + valida)
+    return this.create(patientId, tenantId, userId, { items: [] });
+  }
+
   async findByPatient(patientId: string, tenantId: string) {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
     return this.prisma.quote.findMany({
