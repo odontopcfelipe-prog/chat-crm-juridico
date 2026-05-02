@@ -75,8 +75,25 @@ export class CommercialController {
   @Delete('quotes/:id')
   removeQuote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.remove(id, tenantId);
+    return this.quotesService.remove(id, tenantId, userId);
+  }
+
+  /** Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias (admin) */
+  @Get('quotes/deleted')
+  listDeletedQuotes(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.listDeleted(tenantId);
+  }
+
+  /** Onda 25.6 — Restaura orcamento soft-deletado (volta pra listagem normal) */
+  @Post('quotes/:id/restore')
+  restoreQuote(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.restore(id, tenantId);
   }
 
   @Post('quotes/:id/send')

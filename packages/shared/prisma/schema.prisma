@@ -120,6 +120,7 @@ model User {
   primary_patients              Patient[]              @relation("PrimaryDentist")
   clinical_notes_authored       ClinicalNote[]         @relation("ClinicalNoteAuthor")
   quotes_created                Quote[]                @relation("QuoteCreator")
+  quotes_deleted                Quote[]                @relation("QuoteDeleter")
   treatment_plan_items_executed TreatmentPlanItem[]    @relation("TreatmentPlanItemExecutor")
   // Estetica facial + estoque (Fase 6)
   stock_movements_performed     StockMovement[]        @relation("StockMover")
@@ -2015,6 +2016,12 @@ model Quote {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
+  // Onda 25.6 (Fase 25) — Soft delete: orcamentos deletados ficam recuperaveis
+  // por 30 dias antes de hard delete via job. Reduz risco de perda acidental.
+  deleted_at         DateTime?
+  deleted_by_user_id String?
+  deleted_by         User?     @relation("QuoteDeleter", fields: [deleted_by_user_id], references: [id], onDelete: SetNull)
+
   patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   created_by     User           @relation("QuoteCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
   items          QuoteItem[]
@@ -2039,6 +2046,8 @@ model Quote {
   @@index([status, valid_until])
   @@index([coupon_id])
   @@index([renegotiated_from_id])
+  // Onda 25.6 — query rapida de "orcamentos deletados nos ultimos 30 dias"
+  @@index([deleted_at])
 }
 
 /// Onda 3b (Fase 24) — Snapshot imutavel do estado do orcamento em momentos

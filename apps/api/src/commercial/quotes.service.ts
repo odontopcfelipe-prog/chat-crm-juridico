@@ -102,7 +102,8 @@ export class QuotesService {
   async findByPatient(patientId: string, tenantId: string) {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
     return this.prisma.quote.findMany({
-      where: { patient_id: patientId },
+      // Onda 25.6 — exclui soft-deletados da listagem normal
+      where: { patient_id: patientId, deleted_at: null },
       orderBy: { created_at: 'desc' },
       include: {
         _count: { select: { items: true } },
@@ -265,12 +266,67 @@ export class QuotesService {
     return updated;
   }
 
-  async remove(id: string, tenantId: string) {
+  /**
+   * Onda 25.6 (Fase 25) — Soft delete: marca deleted_at + deleted_by_user_id
+   * em vez de delete fisico. Permite recuperar via restore() por 30 dias.
+   * Job futuro fara hard delete dos antigos pra evitar inflar o banco.
+   */
+  async remove(id: string, tenantId: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
     if (quote.status !== 'DRAFT') {
       throw new BadRequestException('Apenas rascunhos podem ser removidos');
     }
-    return this.prisma.quote.delete({ where: { id } });
+    return this.prisma.quote.update({
+      where: { id },
+      data: {
+        deleted_at: new Date(),
+        deleted_by_user_id: userId || null,
+      },
+    });
+  }
+
+  /**
+   * Onda 25.6 — Restaura orcamento soft-deletado (admin only).
+   * Limpa deleted_at + deleted_by_user_id.
+   */
+  async restore(id: string, tenantId: string) {
+    // Acessa o quote ignorando o filtro de soft-delete
+    const quote = await this.prisma.quote.findUnique({
+      where: { id },
+      include: { patient: { select: { tenant_id: true } } },
+    });
+    if (!quote) throw new NotFoundException('Orçamento não encontrado');
+    if (quote.patient.tenant_id !== tenantId) {
+      throw new NotFoundException('Orçamento não encontrado');
+    }
+    if (!quote.deleted_at) {
+      throw new BadRequestException('Orçamento não está deletado');
+    }
+    return this.prisma.quote.update({
+      where: { id },
+      data: { deleted_at: null, deleted_by_user_id: null },
+    });
+  }
+
+  /**
+   * Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias do tenant.
+   * Pra tela admin de recuperacao.
+   */
+  async listDeleted(tenantId: string) {
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+    return this.prisma.quote.findMany({
+      where: {
+        deleted_at: { gte: thirtyDaysAgo, not: null },
+        patient: { tenant_id: tenantId },
+      },
+      orderBy: { deleted_at: 'desc' },
+      include: {
+        patient: { select: { id: true, name: true } },
+        deleted_by: { select: { id: true, name: true } },
+        _count: { select: { items: true } },
+      },
+    });
   }
 
   // ─── QuoteItem ────────────────────────────────────────────────
