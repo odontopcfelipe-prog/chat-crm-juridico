@@ -263,9 +263,12 @@ export default function PacienteFichaPage() {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — densidade responsiva: compacta em mobile, confortavel em desktop.
+          Antes: text-sm + px-4 + icon 16 ocupava ~120px/tab × 11 = scroll obrigatorio.
+          Agora: text-[11px] + px-2 + icon 13 em mobile (~75px/tab); text-sm + px-4
+          em desktop (lg). Reducao ~38% mobile, mesmo desktop. */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-1">
+        <div className="flex gap-0.5 lg:gap-1">
           {TABS.map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -273,13 +276,13 @@ export default function PacienteFichaPage() {
               <button
                 key={t.id}
                 onClick={() => setTab(t.id)}
-                className={`flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
+                className={`flex items-center gap-1 lg:gap-2 px-2 py-1.5 lg:px-4 lg:py-2 text-[11px] lg:text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
                   active
                     ? 'border-primary text-primary'
                     : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                <Icon size={16} />
+                <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
                 {t.label}
               </button>
             );

@@ -1600,8 +1600,8 @@ export default function FollowupPage() {
           )}
         </div>
 
-        {/* MELHORIA 5: Tabs com badge de aprovações */}
-        <div className="max-w-7xl mx-auto px-4 md:px-6 flex gap-1 overflow-x-auto">
+        {/* MELHORIA 5: Tabs com badge de aprovações — densidade responsiva (Fase 25 Onda 5b) */}
+        <div className="max-w-7xl mx-auto px-4 md:px-6 flex gap-0.5 lg:gap-1 overflow-x-auto">
           {TABS.map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -1609,16 +1609,16 @@ export default function FollowupPage() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-all duration-200 whitespace-nowrap ${
+                className={`flex items-center gap-1 lg:gap-2 px-2.5 py-2 lg:px-4 lg:py-3 text-[11px] lg:text-sm font-medium border-b-2 transition-all duration-200 whitespace-nowrap ${
                   active
                     ? 'text-primary border-primary'
                     : 'text-muted-foreground border-transparent hover:text-foreground'
                 }`}
               >
-                <Icon size={15} />
+                <Icon className="w-3.5 h-3.5 lg:w-4 lg:h-4 shrink-0" />
                 {tab.label}
                 {tab.id === 'aprovacoes' && pendingCount > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500 text-foreground text-xs font-bold leading-none animate-pulse">
+                  <span className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500 text-foreground text-[10px] lg:text-xs font-bold leading-none animate-pulse">
                     {pendingCount}
                   </span>
                 )}

@@ -951,21 +951,21 @@ export default function FinanceiroPage() {
           </div>
         </div>
 
-        {/* ─── Tab Navigation ─── */}
-        <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1">
+        {/* ─── Tab Navigation — densidade responsiva (Fase 25 Onda 5b) ─── */}
+        <div className="flex items-center gap-0.5 lg:gap-1 bg-card border border-border rounded-xl p-1 overflow-x-auto">
           {TABS.map((t) => {
             const Icon = tabIcons[t];
             return (
               <button
                 key={t}
                 onClick={() => setTab(t)}
-                className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold transition-colors ${
+                className={`flex items-center gap-1 lg:gap-1.5 px-2.5 py-1.5 lg:px-4 lg:py-2 rounded-lg text-[11px] lg:text-xs font-semibold transition-colors whitespace-nowrap ${
                   tab === t
                     ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:bg-accent/30'
                 }`}
               >
-                <Icon size={14} />
+                <Icon className="w-3 h-3 lg:w-3.5 lg:h-3.5 shrink-0" />
                 {t === 'Inadimplencia' ? 'Inadimplencia' : t === 'Cobrancas' ? 'Cobrancas' : t}
               </button>
             );
