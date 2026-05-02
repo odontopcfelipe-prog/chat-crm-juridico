@@ -47,6 +47,7 @@ import { OdontogramModule } from './odontogram/odontogram.module';
 import { CommercialModule } from './commercial/commercial.module';
 import { InventoryModule } from './inventory/inventory.module';
 import { EstheticModule } from './esthetic/esthetic.module';
+import { MaintenanceModule } from './maintenance/maintenance.module';
 import { AdverseReactionsModule } from './adverse-reactions/adverse-reactions.module';
 import { AgendaExtendedModule } from './agenda-extended/agenda-extended.module';
 import { CommissionsModule } from './commissions/commissions.module';
@@ -132,6 +133,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     InventoryModule,
     EstheticModule,
     AdverseReactionsModule,
+    // Fase 25 Onda 5 — Manutencoes/Recall
+    MaintenanceModule,
     // Fase 7 — Agenda evoluida
     AgendaExtendedModule,
     // Fase 8 — Comissoes + Metas

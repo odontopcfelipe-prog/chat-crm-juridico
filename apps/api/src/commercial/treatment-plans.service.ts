@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 import { Prisma } from '@crm/shared';
 
 function monthKey(d: Date): string {
@@ -13,6 +14,9 @@ export class TreatmentPlansService {
   constructor(
     private prisma: PrismaService,
     @Optional() @Inject(forwardRef(() => ReferralsService)) private referralsService?: ReferralsService,
+    // Onda 5 (Fase 25) — opcional pra evitar quebrar testes existentes;
+    // quando ausente, no-op silente
+    @Optional() private maintenance?: MaintenanceService,
   ) {}
 
   async findByPatient(patientId: string, tenantId: string) {
@@ -149,6 +153,32 @@ export class TreatmentPlansService {
       await this.generateCommissionForItem(tenantId, userId, updated);
     } catch (e: any) {
       this.logger.warn(`[CommissionAutoGen] Falhou para item ${item.id}: ${e.message}`);
+    }
+
+    // Onda 5.2 (Fase 25) — auto-cria task de manutencao se procedure tem
+    // default_revisit_months. No-op se MaintenanceService nao injetado ou
+    // procedure sem revisita configurada.
+    if (this.maintenance) {
+      try {
+        const proc = await this.prisma.procedure.findUnique({
+          where: { id: updated.procedure_id },
+          select: { default_revisit_months: true, name: true },
+        });
+        if (proc?.default_revisit_months && proc.default_revisit_months > 0) {
+          await this.maintenance.createFromTreatmentPlanItem({
+            tenantId,
+            patientId: updated.treatment_plan.patient_id,
+            treatmentPlanItemId: updated.id,
+            procedureId: updated.procedure_id,
+            procedureName: proc.name,
+            defaultRevisitMonths: proc.default_revisit_months,
+            executedAt: updated.executed_at || new Date(),
+            createdByUserId: userId,
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`[MAINTENANCE] Falha ao criar task auto pro item ${item.id}: ${e?.message}`);
+      }
     }
 
     return updated;

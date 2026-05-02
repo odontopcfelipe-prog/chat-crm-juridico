@@ -14,6 +14,7 @@ import { PaymentGatewayModule } from '../payment-gateway/payment-gateway.module'
 import { ReferralsModule } from '../referrals/referrals.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { PortalModule } from '../portal/portal.module';
+import { MaintenanceModule } from '../maintenance/maintenance.module';
 import { FileStorageService } from '../media/filesystem.service';
 
 @Module({
@@ -24,6 +25,8 @@ import { FileStorageService } from '../media/filesystem.service';
     // Onda 1 do modulo de orcamentos (Fase 24)
     forwardRef(() => WhatsappModule),
     PortalModule,
+    // Onda 5 (Fase 25) — auto-cria task quando TreatmentPlanItem vira DONE
+    MaintenanceModule,
   ],
   controllers: [CommercialController],
   providers: [

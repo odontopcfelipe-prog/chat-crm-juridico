@@ -11,6 +11,7 @@ import {
   CreateEstheticApplicationDto,
   UpdateEstheticApplicationDto,
 } from './dto/esthetic-application.dto';
+import { MaintenanceService } from '../maintenance/maintenance.service';
 
 const DELETE_WINDOW_HOURS = 24;
 
@@ -18,7 +19,11 @@ const DELETE_WINDOW_HOURS = 24;
 export class EstheticApplicationsService {
   private readonly logger = new Logger(EstheticApplicationsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    // Onda 5 (Fase 25) — auto-cria task de manutencao apos aplicacao
+    private maintenance: MaintenanceService,
+  ) {}
 
   /**
    * Registra aplicacao estetica.
@@ -140,6 +145,25 @@ export class EstheticApplicationsService {
         });
       }
 
+      return application;
+    }).then(async (application) => {
+      // Onda 5.2 (Fase 25) — apos commit, cria maintenance task se ha
+      // expected_revisit_at calculado. Falha nao-critica (log + segue).
+      if (expectedRevisitAt) {
+        try {
+          await this.maintenance.createFromEstheticApplication({
+            tenantId,
+            patientId,
+            estheticApplicationId: application.id,
+            procedureId: dto.procedure_id || null,
+            procedureName: productSnapshot?.name,
+            expectedRevisitAt,
+            createdByUserId: appliedBy,
+          });
+        } catch (e: any) {
+          this.logger.warn(`[MAINTENANCE] Falha ao criar task auto: ${e?.message}`);
+        }
+      }
       return application;
     });
   }

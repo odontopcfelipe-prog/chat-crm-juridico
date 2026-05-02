@@ -44,6 +44,8 @@ model Tenant {
   stock_movements           StockMovement[]
   esthetic_applications     EstheticApplication[]
   adverse_reactions         AdverseReaction[]
+  // Onda 5 (Fase 25) — manutencoes/recall
+  maintenance_tasks         MaintenanceTask[]
   // Agenda evoluida (Fase 7)
   rooms                     Room[]
   appointment_markers       AppointmentMarker[]
@@ -127,6 +129,9 @@ model User {
   stock_movements_performed     StockMovement[]        @relation("StockMover")
   esthetic_applications_done    EstheticApplication[]  @relation("EstheticApplicator")
   adverse_reactions_reported    AdverseReaction[]      @relation("AdverseReactionReporter")
+  // Onda 5 (Fase 25) — manutencoes/recall
+  maintenance_tasks_completed   MaintenanceTask[]      @relation("MaintenanceTaskCompletedBy")
+  maintenance_tasks_created     MaintenanceTask[]      @relation("MaintenanceTaskCreatedBy")
   // Agenda evoluida (Fase 7)
   return_alerts_owned           ReturnAlert[]          @relation("ReturnAlertProfessional")
   return_alerts_contacted       ReturnAlert[]          @relation("ReturnAlertContact")
@@ -822,6 +827,8 @@ model CalendarEvent {
   // Estetica facial + estoque (Fase 6)
   esthetic_applications EstheticApplication[]         @relation("AppointmentEstheticApplications")
   stock_movements       StockMovement[]               @relation("AppointmentStockMovements")
+  // Onda 5 (Fase 25) — manutencoes (CalendarEvent criado pra agendar a revisita)
+  maintenance_tasks     MaintenanceTask[]             @relation("MaintenanceTaskEvent")
   // Agenda evoluida (Fase 7)
   room                  Room?                         @relation("AppointmentRoom", fields: [room_id], references: [id], onDelete: SetNull)
   markers               AppointmentMarkerAssignment[] @relation("AppointmentMarkers")
@@ -1571,6 +1578,8 @@ model Patient {
   // Estetica facial (Fase 6)
   esthetic_applications EstheticApplication[]
   adverse_reactions     AdverseReaction[]
+  // Onda 5 (Fase 25) — manutencoes/recall
+  maintenance_tasks     MaintenanceTask[]
   // Agenda evoluida (Fase 7)
   return_alerts         ReturnAlert[]
   // Comissoes (Fase 8)
@@ -1784,6 +1793,8 @@ model Procedure {
   // Fase 6
   consumables           ProcedureConsumable[]
   esthetic_applications EstheticApplication[]
+  // Onda 5 (Fase 25) — manutencoes geradas a partir desse procedimento
+  maintenance_tasks     MaintenanceTask[]
   adverse_reactions     AdverseReaction[]     @relation("ProcedureAdverseReactions")
   // Fase 8 — comissoes
   commissions           Commission[]          @relation("CommissionProcedure")
@@ -2332,6 +2343,9 @@ model TreatmentPlanItem {
   esthetic_applications EstheticApplication[]
   // Fase 8 — comissao gerada por execucao deste item
   commissions           Commission[]          @relation("CommissionTreatmentItem")
+  // Onda 5 (Fase 25) — manutencao gerada quando item vira DONE (se procedure
+  // tem default_revisit_months definido)
+  maintenance_tasks     MaintenanceTask[]     @relation("TPItemMaintenance")
 
   @@index([treatment_plan_id, status])
   @@index([scheduled_appointment_id])
@@ -2563,12 +2577,85 @@ model EstheticApplication {
   product             Product?           @relation(fields: [product_id], references: [id], onDelete: SetNull)
   applied_by          User               @relation("EstheticApplicator", fields: [applied_by_user_id], references: [id], onDelete: Restrict)
   adverse_reactions   AdverseReaction[]
+  // Onda 5 (Fase 25) — manutencao auto-gerada a partir desta aplicacao
+  maintenance_tasks   MaintenanceTask[]
 
   @@index([tenant_id, patient_id])
   @@index([patient_id, applied_at])
   @@index([batch_number]) // Rastreabilidade reversa: dado um lote, quem usou?
   @@index([product_id])
   @@index([expected_revisit_at])
+}
+
+// ============================================================================
+// MANUTENCAO / RECALL (Fase 25 Onda 5)
+// ============================================================================
+
+/// Task de manutencao/revisita pos-procedimento.
+///
+/// Origens (3 caminhos pra criar):
+///   1. AUTO via EstheticApplication: ao registrar aplicacao com
+///      expected_revisit_at, gera task pra essa data
+///   2. AUTO via TreatmentPlanItem DONE: se procedure.default_revisit_months
+///      definido, cria task pra applied_at + N meses
+///   3. MANUAL: operadora cria via UI sem vincular a procedimento especifico
+///
+/// Worker BullMQ (cron diario) processa tasks com due_date em 7 dias e
+/// reminder_sent_at NULL: envia WhatsApp pro paciente "Sua revisao de Botox
+/// esta chegando! Posso agendar?".
+///
+/// Status workflow:
+///   PENDING (criada, aguardando) -> SCHEDULED (operadora agendou consulta)
+///                                -> DONE (revisita realizada — completed_at)
+///                                -> MISSED (data passou sem agendamento)
+///                                -> CANCELLED (paciente cancelou explicitamente)
+model MaintenanceTask {
+  id         String @id @default(uuid())
+  tenant_id  String
+  patient_id String
+
+  // Origens (todas opcionais — ao menos uma deve estar preenchida ou eh manual)
+  procedure_id            String? // procedimento que originou (catalogo)
+  treatment_plan_item_id  String? // se veio de plano de tratamento
+  esthetic_application_id String? // se veio de aplicacao estetica
+  scheduled_event_id      String? // CalendarEvent criado quando operadora agenda
+
+  // Datas
+  due_date     DateTime // quando fazer a revisita
+  completed_at DateTime?
+
+  // Status workflow
+  status String @default("PENDING") // PENDING | SCHEDULED | DONE | MISSED | CANCELLED
+
+  // Detalhes pra UI/WhatsApp
+  title String // ex: "Revisão de Botox glabela"
+  notes String?
+
+  // Tracking de notificacao WhatsApp (worker preenche)
+  reminder_sent_at      DateTime? // quando enviou o lembrete 7d antes
+  reminder_message_id   String? // id Evolution pra cruzar com webhook
+
+  completed_by_user_id String?
+  created_by_user_id   String?
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  tenant                  Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient                 Patient              @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure               Procedure?           @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
+  treatment_plan_item     TreatmentPlanItem?   @relation("TPItemMaintenance", fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
+  esthetic_application    EstheticApplication? @relation(fields: [esthetic_application_id], references: [id], onDelete: SetNull)
+  scheduled_event         CalendarEvent?       @relation("MaintenanceTaskEvent", fields: [scheduled_event_id], references: [id], onDelete: SetNull)
+  completed_by            User?                @relation("MaintenanceTaskCompletedBy", fields: [completed_by_user_id], references: [id], onDelete: SetNull)
+  created_by              User?                @relation("MaintenanceTaskCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+
+  // Indexes pra queries comuns:
+  @@index([tenant_id, due_date]) // dashboard "atrasadas/proximas no tenant"
+  @@index([patient_id, status]) // tab manutencoes do paciente
+  @@index([status, due_date]) // worker cron: WHERE status=PENDING AND due_date < +7d
+  @@index([reminder_sent_at]) // worker: evita reenviar lembrete
+  @@index([esthetic_application_id])
+  @@index([treatment_plan_item_id])
 }
 
 // ============================================================================
