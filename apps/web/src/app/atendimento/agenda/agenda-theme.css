@@ -321,3 +321,22 @@
   transform: scale(0.75);
   transform-origin: left center;
 }
+
+/* Onda 5d v8 (Fase 25) — Eventos com 3 linhas (dentista / procedimento / horario).
+   Title agora vem com \n entre dentista e procedimento; precisa preservar
+   quebras de linha. Reduz font pra caber em slot de 30min sem cortar texto. */
+.sx-react-calendar-wrapper .sx__time-grid-event-text,
+.sx-react-calendar-wrapper .sx__event-title,
+.sx-react-calendar-wrapper [class*="event-title"],
+.sx-react-calendar-wrapper [class*="time-grid-event"] .sx__event-title {
+  white-space: pre-line !important;
+  font-size: 11px !important;
+  line-height: 1.3 !important;
+}
+
+/* Tempo do evento (terceira linha) menor */
+.sx-react-calendar-wrapper .sx__time-grid-event-time,
+.sx-react-calendar-wrapper [class*="event-time"] {
+  font-size: 10px !important;
+  opacity: 0.85;
+}

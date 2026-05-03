@@ -843,9 +843,12 @@ export default function AgendaPage() {
           return !isNaN(startMs);
         })
         .map(e => {
-          // No modo "Todos", prefixar com o nome do dentista responsável
-          const userPrefix = (showAllUsers && !filterUserId && e.assigned_user)
-            ? `[${e.assigned_user.name.split(' ')[0]}] `
+          // No modo "Todos", incluir o nome do dentista numa LINHA propria
+          // (Onda 5d v8 — pediu pra dentista ficar em cima do procedimento).
+          // Sem espaco no fim (\n cuida da quebra). Sem prefixo se filtrando
+          // por 1 dentista especifico — ja sabe quem eh.
+          const userLine = (showAllUsers && !filterUserId && e.assigned_user)
+            ? `[${e.assigned_user.name.split(' ')[0]}]\n`
             : '';
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
@@ -903,7 +906,9 @@ export default function AgendaPage() {
 
           return {
             id: e.id,
-            title: `${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${userPrefix}${e.title}${caseTag}${recurringTag}${commentsTag}`,
+            // Ordem (Onda 5d v8): linha 1 = dentista [Dra. X], linha 2 = procedimento.
+            // Horario aparece automaticamente pelo schedule-x na 3a linha.
+            title: `${userLine}${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${e.title}${caseTag}${recurringTag}${commentsTag}`,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
