@@ -786,6 +786,112 @@ export class CalendarService {
     return { deleted: true };
   }
 
+  // ─── Backfill de Reminders (Onda 5e v19, Fase 25) ────────────────────
+  // Cria EventReminders default (1d, 1h, 30min) pra eventos futuros que
+  // NAO tem reminders + enfileira no BullMQ pra disparar WhatsApp.
+  //
+  // USO: chamado via POST /calendar/reminders/backfill (admin only) pra
+  // recuperar agendamentos antigos que foram criados antes do sistema de
+  // reminders existir (ou quando Redis foi resetado e perdeu jobs).
+  //
+  // Idempotente: se evento ja tem reminder com mesma antecedencia, pula.
+  async backfillReminders(opts: { tenant_id?: string; dry_run?: boolean } = {}) {
+    const defaults = [1440, 60, 30]; // minutes_before pra cada lembrete default
+
+    // 1. Eventos futuros de CONSULTA/PROCEDIMENTO/RETORNO sem todos os reminders
+    const where: any = {
+      start_at: { gte: new Date() },
+      type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+      status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+      lead_id: { not: null },
+    };
+    if (opts.tenant_id) {
+      where.OR = [{ tenant_id: opts.tenant_id }, { tenant_id: null }];
+    }
+
+    const events = await this.prisma.calendarEvent.findMany({
+      where,
+      include: { reminders: { select: { minutes_before: true } } },
+      orderBy: { start_at: 'asc' },
+    });
+
+    let createdCount = 0;
+    let enqueuedCount = 0;
+    const created: { event_id: string; reminder_id: string; minutes_before: number }[] = [];
+
+    for (const ev of events) {
+      const existing = new Set(ev.reminders.map((r) => r.minutes_before));
+      const toCreate = defaults.filter((m) => !existing.has(m));
+      if (toCreate.length === 0) continue;
+
+      if (opts.dry_run) {
+        createdCount += toCreate.length;
+        continue;
+      }
+
+      // Cria reminders no banco
+      for (const minutes of toCreate) {
+        try {
+          const reminder = await this.prisma.eventReminder.create({
+            data: {
+              event_id: ev.id,
+              minutes_before: minutes,
+              channel: 'WHATSAPP',
+            },
+          });
+          created.push({ event_id: ev.id, reminder_id: reminder.id, minutes_before: minutes });
+          createdCount++;
+        } catch (e: any) {
+          this.logger.warn(`[BACKFILL] Falha ao criar reminder ${minutes}min pro evento ${ev.id}: ${e.message}`);
+        }
+      }
+    }
+
+    // 2. Enfileira tudo no BullMQ (mesma logica do enqueueReminders)
+    if (!opts.dry_run) {
+      for (const c of created) {
+        const ev = events.find((e) => e.id === c.event_id);
+        if (!ev) continue;
+        const triggerAt = ev.start_at.getTime() - c.minutes_before * 60 * 1000;
+        const delay = Math.max(triggerAt - Date.now(), 1000);
+        const jobId = `reminder-${c.reminder_id}`;
+        try {
+          // Remove job antigo se existir (idempotencia)
+          try {
+            const old = await this.reminderQueue.getJob(jobId);
+            if (old) await old.remove();
+          } catch {}
+          await this.reminderQueue.add(
+            'send-reminder',
+            { reminderId: c.reminder_id, eventId: c.event_id, channel: 'WHATSAPP' },
+            {
+              delay,
+              jobId,
+              attempts: 3,
+              backoff: { type: 'exponential', delay: 5000 },
+              removeOnComplete: true,
+              removeOnFail: 50,
+            },
+          );
+          enqueuedCount++;
+        } catch (e: any) {
+          this.logger.warn(`[BACKFILL] Falha ao enfileirar reminder ${c.reminder_id}: ${e.message}`);
+        }
+      }
+    }
+
+    this.logger.log(
+      `[BACKFILL] eventos=${events.length}, reminders_criados=${createdCount}, enfileirados=${enqueuedCount}, dry_run=${opts.dry_run ?? false}`,
+    );
+
+    return {
+      events_scanned: events.length,
+      reminders_created: createdCount,
+      jobs_enqueued: enqueuedCount,
+      dry_run: opts.dry_run ?? false,
+    };
+  }
+
   // ─── Metricas de Agendamento (Onda 5e v18, Fase C.2) ────────────────
   // Conta CONSULTAs por status no periodo especificado e calcula taxas
   // (% confirmacao, % no-show, etc). Usado pelo dashboard pra dar feedback

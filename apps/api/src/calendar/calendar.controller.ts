@@ -274,6 +274,23 @@ export class CalendarController {
     });
   }
 
+  // ─── Backfill de Reminders (Onda 5e v19) ────────────────
+  // ADMIN-ONLY. Cria EventReminders default (1d, 1h, 30min) pra eventos
+  // futuros sem reminders + enfileira no BullMQ. Idempotente.
+  // Use ?dry_run=true pra ver quantos seriam criados sem efetivar.
+
+  @Post('reminders/backfill')
+  @Roles('ADMIN')
+  backfillReminders(
+    @Query('dry_run') dryRun: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.calendarService.backfillReminders({
+      tenant_id: req.user?.tenant_id,
+      dry_run: dryRun === 'true' || dryRun === '1',
+    });
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   @Get('holidays')
