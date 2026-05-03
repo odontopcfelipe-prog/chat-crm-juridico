@@ -595,6 +595,27 @@ export default function AgendaPage() {
   // schedule-x
   const eventsServicePlugin = useState(() => createEventsServicePlugin())[0];
   const rangeRef = useRef<{ start: string; end: string } | null>(null);
+
+  // Onda 5d v6 (Fase 25) — Helper pra navegar o calendar.
+  // schedule-x v4 trocou `calendar.navigate(date)` por
+  // `calendar.calendarControls.setDate(date)`. Mantemos fallback pro nome
+  // antigo caso a lib seja atualizada de novo no futuro.
+  const navigateCalendarTo = useCallback((dateStr: string, calendarApp: any) => {
+    if (!calendarApp) return false;
+    // API v4 atual
+    if (calendarApp.calendarControls?.setDate) {
+      calendarApp.calendarControls.setDate(dateStr);
+      return true;
+    }
+    // Fallback v3/anterior
+    if (typeof calendarApp.navigate === 'function') {
+      calendarApp.navigate(dateStr);
+      return true;
+    }
+    // eslint-disable-next-line no-console
+    console.warn('[Agenda] Calendar API nao tem setDate nem navigate. Versao incompativel?');
+    return false;
+  }, []);
   // Refs para evitar stale closure nos callbacks do schedule-x
   // (useNextCalendarApp captura apenas a versão inicial das funções/estados)
   const fetchEventsRef = useRef<typeof fetchEvents | null>(null);
@@ -1360,7 +1381,7 @@ export default function AgendaPage() {
           <MiniCalendar
             eventCounts={eventCountsByDay}
             onDateSelect={(dateStr) => {
-              try { (calendar as any)?.navigate?.(dateStr); } catch (e) { swallow('schedule-x calendar nao montou ainda')(e); }
+              try { navigateCalendarTo(dateStr, calendar); } catch (e) { swallow('schedule-x calendar nao montou ainda')(e); }
             }}
           />
         </div>
@@ -1547,7 +1568,7 @@ export default function AgendaPage() {
             <button
               onClick={() => {
                 const today = new Date().toISOString().slice(0, 10);
-                try { (calendar as any)?.navigate?.(today); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
+                try { navigateCalendarTo(today, calendar); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
               className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
@@ -1560,7 +1581,7 @@ export default function AgendaPage() {
                 const diffToMonday = day === 0 ? -6 : 1 - day;
                 const monday = new Date(now);
                 monday.setDate(now.getDate() + diffToMonday);
-                try { (calendar as any)?.navigate?.(monday.toISOString().slice(0, 10)); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
+                try { navigateCalendarTo(monday.toISOString().slice(0, 10), calendar); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
               className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
