@@ -66,6 +66,9 @@ interface NavGroup {
   /** Onda 5c (Fase 25) — se grupo comeca expandido por default. localStorage
       persiste preferencia do usuario apos primeiro click no header. */
   defaultExpanded?: boolean;
+  /** Onda 5e v5 (Fase 25) — icone do grupo no header (Lucide React).
+      Renderizado a esquerda do label uppercase pra dar contexto visual. */
+  icon?: React.ReactNode;
 }
 
 export function Sidebar() {
@@ -608,6 +611,7 @@ export function Sidebar() {
       id: 'atendimento',
       label: 'Atendimento',
       defaultExpanded: true,
+      icon: <HeartPulse size={14} strokeWidth={2.5} />,
       items: [
         allItems.dashboard,    // Dashboard (canViewDashboard only)
         allItems.inbox,        // WhatsApp
@@ -620,6 +624,7 @@ export function Sidebar() {
       id: 'pacientes',
       label: 'Pacientes',
       defaultExpanded: true,
+      icon: <Users size={14} strokeWidth={2.5} />,
       items: [
         allItems.novoPaciente, // + Novo paciente (top-level agora)
         allItems.pacientes,    // Lista de pacientes
@@ -630,6 +635,7 @@ export function Sidebar() {
       id: 'comercial',
       label: 'Comercial',
       defaultExpanded: true,
+      icon: <Briefcase size={14} strokeWidth={2.5} />,
       items: [
         allItems.orcamentos,   // Orcamentos
         allItems.returnAlerts, // Retornos (movido pra COMERCIAL)
@@ -640,6 +646,7 @@ export function Sidebar() {
       id: 'financeiro',
       label: 'Financeiro',
       defaultExpanded: true,
+      icon: <Wallet size={14} strokeWidth={2.5} />,
       items: [
         allItems.financeiro,   // Visao financeira
         allItems.comissoes,    // Comissoes
@@ -650,6 +657,7 @@ export function Sidebar() {
       id: 'gestao',
       label: 'Gestão',
       defaultExpanded: false, // colapsado por default
+      icon: <BarChart3 size={14} strokeWidth={2.5} />,
       items: [
         allItems.analytics,    // Analytics
         allItems.estoque,      // Estoque
@@ -661,6 +669,7 @@ export function Sidebar() {
       id: 'sistema',
       label: 'Sistema',
       defaultExpanded: false, // colapsado por default
+      icon: <Settings size={14} strokeWidth={2.5} />,
       items: [
         allItems.settings,     // Configuracoes
         allItems.manual,       // Manual
@@ -711,8 +720,11 @@ export function Sidebar() {
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
       <div className={`flex items-center w-full px-3 mb-3 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
+        {/* Onda 5e v5 (Fase 25): logo COMPLETAMENTE redondo (estilo Instagram)
+            pra alinhar com o formato circular da foto. Ring branco discreto
+            destaca contra o bg-primary colorido da sidebar. */}
         <div
-          className="w-10 h-10 rounded-xl bg-[#111] flex items-center justify-center shadow-[0_0_15px_rgba(161,119,61,0.3)] shrink-0 cursor-pointer overflow-hidden"
+          className="w-10 h-10 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
           onClick={() => router.push('/atendimento/dashboard')}
           onMouseEnter={(e) => showTooltip(e, 'Página Inicial')}
           onMouseLeave={hideTooltip}
@@ -753,13 +765,20 @@ export function Sidebar() {
               {expanded ? (
                 <button
                   onClick={() => toggleGroup(group.id, defaultExp)}
-                  className={`w-full flex items-center gap-1.5 px-2 py-1.5 mb-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all
+                  className={`w-full flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all
                     ${isExpanded
                       ? 'bg-primary-foreground/15 text-primary-foreground'
                       : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'}`}
                   aria-expanded={isExpanded}
                   aria-controls={`group-${group.id}-items`}
                 >
+                  {/* Onda 5e v5: icone do grupo a esquerda do label (HeartPulse,
+                      Users, Briefcase, Wallet, BarChart3, Settings).
+                      Da contexto visual rapido pra identificar grupo de relance. */}
+                  {group.icon && (
+                    <span className="shrink-0 text-primary-foreground/90">{group.icon}</span>
+                  )}
+                  <span className="flex-1 text-left">{group.label}</span>
                   <ChevronDown
                     size={12}
                     className={`shrink-0 transition-transform duration-150 text-primary-foreground ${
@@ -767,7 +786,6 @@ export function Sidebar() {
                     }`}
                     strokeWidth={2.5}
                   />
-                  <span className="flex-1 text-left">{group.label}</span>
                 </button>
               ) : gi > 0 ? (
                 <div className="h-px bg-primary-foreground/20 mx-1 mb-2" />
@@ -785,18 +803,20 @@ export function Sidebar() {
                       onMouseEnter={(e) => showTooltip(e, item.label)}
                       onMouseLeave={hideTooltip}
                       className={`w-full rounded-lg flex items-center relative transition-colors ${
-                        expanded ? 'gap-2 px-2 py-1.5' : 'aspect-square justify-center'
+                        expanded ? 'gap-2 px-3 py-1.5 pl-7' : 'aspect-square justify-center'
                       } ${
                         isActive
                           ? 'bg-primary-foreground/20 text-primary-foreground font-semibold'
                           : 'text-primary-foreground/85 hover:bg-primary-foreground/10 hover:text-primary-foreground'
                       }`}
                     >
-                      {/* Onda 5c v2: icones menores em modo expandido (sub-menu compacto)
-                          Em colapsado mantem 20px pra continuar clicavel/visivel */}
-                      <span className={`shrink-0 ${expanded ? '[&>svg]:!w-4 [&>svg]:!h-4' : ''}`}>
-                        {item.icon}
-                      </span>
+                      {/* Onda 5e v5 (Fase 25): em modo EXPANDIDO esconde icone
+                          (sub-menu so com texto, indentado pra mostrar hierarquia).
+                          Em modo COLAPSADO mantem icone — eh o unico elemento
+                          visivel, precisa pra clicar. */}
+                      {!expanded && (
+                        <span className="shrink-0">{item.icon}</span>
+                      )}
 
                       {expanded && (
                         <span className="text-[11px] font-medium truncate flex-1 text-left">
