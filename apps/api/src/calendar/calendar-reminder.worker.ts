@@ -70,8 +70,12 @@ function minutesLabel(minutes: number): string {
 }
 
 // ─── Templates fallback (quando IA indisponível) ──────────────────────────────
+// Onda 5e v17 (Fase 25) — templates SEPARADOS por tipo de evento + canal:
+//   - templateClienteJuridico: AUDIENCIA/PERICIA (legado)
+//   - templateClienteConsulta24h/1h/15min: CONSULTA odontologica (novos)
+// Tom NATURAL (nao robotico) — convite a confirmar SEM "responda 1/2".
 
-function templateCliente(event: any, minutesBefore: number): string {
+function templateClienteJuridico(event: any, minutesBefore: number): string {
   const prazo = minutesLabel(minutesBefore);
   const dateStr = formatDateTime(event.start_at);
   const nome = (event.lead?.name || 'Cliente').split(' ')[0];
@@ -84,6 +88,52 @@ function templateCliente(event: any, minutesBefore: number): string {
     `\nPor favor, chegue com *30 minutos de antecedência*.\n` +
     `Em caso de dúvidas, entre em contato com o escritório.\n\n` +
     `_Aviso automático do escritório_`
+  );
+}
+
+/**
+ * Lembrete de CONSULTA odonto enviado ao paciente.
+ * Tom natural, convidativo. Diferentes por antecedencia:
+ *  - 1d antes: convida a confirmar de forma humanizada (nao usa "responda 1/2")
+ *  - 1h antes: aviso pratico de chegar com folga
+ *  - 15min: estamos te esperando
+ *  - default: lembrete generico
+ */
+function templateClienteConsulta(event: any, minutesBefore: number): string {
+  const dateStr = formatDateTime(event.start_at);
+  const nome = (event.lead?.name || 'paciente').split(' ')[0];
+  const dentistaFull = event.assigned_user?.name || '';
+  // Encurta "Dra. Suellen Passos" -> "Dra. Suellen"
+  const parts = dentistaFull.split(' ');
+  const dentista = parts.length >= 3 ? `${parts[0]} ${parts[1]}` : dentistaFull;
+  const localLine = event.location ? `📍 ${event.location}\n` : '';
+  const dentLine = dentista ? ` com ${dentista}` : '';
+
+  // 24h antes (1440 min): convite NATURAL pra confirmar
+  if (minutesBefore >= 1440) {
+    return (
+      `Oi ${nome}! Tudo bem? 😊\n\n` +
+      `Passando aqui só pra lembrar da sua avaliação${dentLine} amanhã, ${dateStr}.\n` +
+      localLine +
+      `\nEstá tudo certo do seu lado? Pode me confirmar pra eu já deixar tudo organizado pra você?`
+    );
+  }
+
+  // 1h antes (60 min): pratico
+  if (minutesBefore >= 60) {
+    return (
+      `Oi ${nome}! 👋\n\n` +
+      `Sua avaliação${dentLine} é em cerca de 1 hora (${dateStr}).\n` +
+      localLine +
+      `\nTente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!`
+    );
+  }
+
+  // 15 min ou menos: estamos te esperando
+  return (
+    `${nome}, estamos te esperando! 💙\n\n` +
+    `Sua avaliação${dentLine} começa logo (${dateStr}).\n` +
+    localLine
   );
 }
 
@@ -333,6 +383,7 @@ export class CalendarReminderWorker extends WorkerHost {
 
   private async sendWhatsAppReminders(event: any, minutesBefore: number) {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
+    const isConsulta = event.type === 'CONSULTA';
 
     // Carrega contexto adicional do cliente (memória)
     // STUBBED: LegalCase/DjenPublication/FichaTrabalhista removidos Fase 0.2
@@ -345,30 +396,42 @@ export class CalendarReminderWorker extends WorkerHost {
 
     const context = buildContext(event, memory, null, ficha, djenPubs);
 
-    // ── 1. Mensagem para o Advogado (sempre) ─────────────────────────
+    // ── 1. Mensagem para o Dentista/Advogado (sempre) ─────────────────────────
     if (event.assigned_user?.phone) {
       const advPhone = event.assigned_user.phone.replace(/\D/g, '');
-      // Advogado recebe template rico — sem precisar de IA (já conhece o caso)
+      // Dentista/Advogado recebe template rico — sem precisar de IA
       const advMsg = templateAdvogado(event, minutesBefore);
       try {
         await this.whatsapp.sendText(advPhone, advMsg);
-        this.logger.log(`[REMINDER] WhatsApp enviado para advogado ${advPhone}`);
+        this.logger.log(`[REMINDER] WhatsApp enviado para dentista/advogado ${advPhone}`);
       } catch (e: any) {
-        this.logger.warn(`[REMINDER] Erro ao enviar para advogado ${advPhone}: ${e.message}`);
+        this.logger.warn(`[REMINDER] Erro ao enviar para dentista/advogado ${advPhone}: ${e.message}`);
       }
     }
 
-    // ── 2. Mensagem para o Cliente via IA (apenas audiências) ─────────
-    if (isAudiencia && event.lead?.phone) {
+    // ── 2. Mensagem para o Cliente/Paciente ──────────────────────────────────
+    // Onda 5e v17: ANTES era `if (isAudiencia && ...)` — bug critico que excluia
+    // CONSULTA odonto (paciente nunca recebia lembrete!). Agora envia pra
+    // qualquer evento com lead.phone, usando template apropriado por tipo.
+    const shouldNotifyClient = (isAudiencia || isConsulta) && event.lead?.phone;
+    if (shouldNotifyClient) {
       const clientPhone = event.lead.phone.replace(/\D/g, '');
       let clientMsg: string;
 
-      try {
-        clientMsg = await this.generateClientMessage(event, minutesBefore, context);
-        this.logger.log(`[REMINDER] Mensagem IA gerada para cliente ${clientPhone}`);
-      } catch (e: any) {
-        this.logger.warn(`[REMINDER] IA indisponível, usando template: ${e.message}`);
-        clientMsg = templateCliente(event, minutesBefore);
+      if (isConsulta) {
+        // CONSULTA: usa template natural odonto (sem IA pra ser consistente
+        // e nao gerar mensagem fora do tom). Lembrete 24h convida confirmar.
+        clientMsg = templateClienteConsulta(event, minutesBefore);
+        this.logger.log(`[REMINDER] Template CONSULTA gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
+      } else {
+        // AUDIENCIA/PERICIA: tenta IA, fallback pra template juridico
+        try {
+          clientMsg = await this.generateClientMessage(event, minutesBefore, context);
+          this.logger.log(`[REMINDER] Mensagem IA gerada para cliente ${clientPhone}`);
+        } catch (e: any) {
+          this.logger.warn(`[REMINDER] IA indisponível, usando template: ${e.message}`);
+          clientMsg = templateClienteJuridico(event, minutesBefore);
+        }
       }
 
       // Busca a conversa ativa para salvar a mensagem
@@ -414,6 +477,10 @@ export class CalendarReminderWorker extends WorkerHost {
               status: 'enviado',
             },
           });
+          // Onda 5e v17: flag awaiting_confirmation pro lembrete 24h
+          // (>=1440 min antes). IA detecta resposta do paciente e processa
+          // como confirmacao ou pedido de remarcacao via AGENDAMENTO_OVERRIDES.
+          const awaitingConfirmation = isConsulta && minutesBefore >= 1440;
           await this.prisma.conversation.update({
             where: { id: lastConvo.id },
             data: {
@@ -421,6 +488,7 @@ export class CalendarReminderWorker extends WorkerHost {
               ai_mode: true, // reativa IA para responder dúvidas do cliente
               reminder_context: {
                 type: event.type,
+                event_id: event.id,
                 event_title: event.title,
                 event_date: formatDateTime(event.start_at),
                 event_date_iso: event.start_at.toISOString(),
@@ -428,10 +496,15 @@ export class CalendarReminderWorker extends WorkerHost {
                 message_sent: clientMsg.slice(0, 800),
                 minutes_before: minutesBefore,
                 sent_at: new Date().toISOString(),
+                // v17: marca lembrete 24h pra IA tratar resposta como confirmacao
+                awaiting_confirmation: awaitingConfirmation,
               },
             },
           });
-          this.logger.log(`[REMINDER] Mensagem salva e IA reativada na conversa ${lastConvo.id}`);
+          this.logger.log(
+            `[REMINDER] Mensagem salva e IA reativada na conversa ${lastConvo.id}` +
+              (awaitingConfirmation ? ' (aguardando confirmacao)' : ''),
+          );
         } catch (e: any) {
           this.logger.warn(`[REMINDER] Falha ao salvar mensagem na conversa: ${e.message}`);
         }

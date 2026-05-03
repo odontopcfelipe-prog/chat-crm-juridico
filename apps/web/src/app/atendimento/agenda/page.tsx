@@ -2520,47 +2520,52 @@ export default function AgendaPage() {
                 </div>
               )}
 
-            {/* Modal footer — sticky no rodapé do modal */}
-            <div className="sticky bottom-0 flex items-center justify-between px-5 py-4 border-t border-border bg-card rounded-b-2xl">
-              <div className="flex items-center gap-1">
+            {/* Modal footer — sticky no rodapé do modal.
+                Onda 5e v18 (Fase 25) — flex-wrap pra evitar botao "Salvar"
+                ser CORTADO quando os botoes secundarios (Remover, Duplicar,
+                .ics, Notificar) ocuparem toda a linha. shrink-0 garante que
+                Cancelar+Salvar nunca encolhem. Ordem reversa em mobile pra
+                "Salvar" aparecer primeiro (mais importante). */}
+            <div className="sticky bottom-0 flex flex-wrap items-center justify-between gap-2 px-5 py-3 border-t border-border bg-card rounded-b-2xl">
+              <div className="flex items-center gap-1 flex-wrap order-2 sm:order-1">
                 {editingEvent && canEdit && (
                   <>
                     <button
                       onClick={() => handleDelete()}
-                      className="px-3 py-2 text-xs font-semibold text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
                     >
                       Remover
                     </button>
                     <button
                       onClick={handleDuplicate}
-                      className="px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
+                      className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
                       title="Duplicar evento"
                     >
-                      <Copy size={12} /> Duplicar
+                      <Copy size={12} /> <span className="hidden md:inline">Duplicar</span>
                     </button>
                   </>
                 )}
                 {editingEvent && (
                   <button
                     onClick={() => handleExportICS(editingEvent.id)}
-                    className="px-3 py-2 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
+                    className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
                     title="Exportar .ics"
                   >
-                    <Download size={12} /> .ics
+                    <Download size={12} /> <span className="hidden md:inline">.ics</span>
                   </button>
                 )}
                 {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
                   <button
                     onClick={handleNotify}
                     disabled={sendingNotify}
-                    className="px-3 py-2 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors inline-flex items-center gap-1 disabled:opacity-40 disabled:pointer-events-none"
+                    className="px-2.5 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-950/30 rounded-lg transition-colors inline-flex items-center gap-1 disabled:opacity-40 disabled:pointer-events-none"
                     title="Reenviar notificação WhatsApp ao paciente"
                   >
-                    <Bell size={12} /> {sendingNotify ? 'Enviando…' : 'Notificar'}
+                    <Bell size={12} /> <span className="hidden md:inline">{sendingNotify ? 'Enviando…' : 'Notificar'}</span>
                   </button>
                 )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2 shrink-0 order-1 sm:order-2 ml-auto">
                 <button
                   onClick={() => setShowModal(false)}
                   className="px-4 py-2 text-sm font-medium text-muted-foreground hover:bg-accent rounded-lg transition-colors"
@@ -2571,9 +2576,9 @@ export default function AgendaPage() {
                   <button
                     onClick={() => handleSave()}
                     disabled={!formData.title.trim() || !formData.date}
-                    className="px-5 py-2 text-sm font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-md disabled:opacity-40 disabled:pointer-events-none"
+                    className="px-5 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-md disabled:opacity-40 disabled:pointer-events-none"
                   >
-                    {editingEvent ? 'Salvar' : 'Criar'}
+                    {editingEvent ? 'Salvar alterações' : 'Criar evento'}
                   </button>
                 )}
               </div>
