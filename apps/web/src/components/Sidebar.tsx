@@ -7,14 +7,17 @@ import {
   LogOut, Users, Briefcase, Settings, Palette, Check,
   MessageSquare, BarChart2, Calendar,
   LayoutDashboard, Wallet, HelpCircle,
-  ChevronRight, Sparkles, HeartPulse,
+  ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass, Trophy, ShieldCheck, FileText,
+  Hourglass, Trophy, ShieldCheck, FileText, UserPlus,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
 import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
-import { NotificationToggle } from '@/components/NotificationToggle';
+// Onda 5c (Fase 25) — NotificationToggle removido da sidebar (duplicava o
+// NotificationCenter). Toggle DND continua disponivel dentro do popover do
+// Center quando user clica no sininho.
+// import { NotificationToggle } from '@/components/NotificationToggle';
 import { useRole } from '@/lib/useRole';
 import { THEMES } from '@/components/ThemeSwitcher';
 
@@ -60,6 +63,9 @@ interface NavGroup {
   id: string;
   label: string;
   items: NavItem[];
+  /** Onda 5c (Fase 25) — se grupo comeca expandido por default. localStorage
+      persiste preferencia do usuario apos primeiro click no header. */
+  defaultExpanded?: boolean;
 }
 
 export function Sidebar() {
@@ -69,6 +75,9 @@ export function Sidebar() {
   const perms = useRole();
 
   const [expanded, setExpanded] = useState(false);
+  // Onda 5c (Fase 25) — estado de cada grupo (expandido/colapsado).
+  // Persistido em localStorage. null = ainda nao carregou (ssr-safe).
+  const [groupState, setGroupState] = useState<Record<string, boolean> | null>(null);
   const [showThemeMenu, setShowThemeMenu] = useState(false);
   const [dbStatus, setDbStatus] = useState<'online' | 'offline' | 'checking'>('checking');
   const [unreadTotal, setUnreadTotal] = useState<number>(0);
@@ -102,6 +111,17 @@ export function Sidebar() {
   useEffect(() => {
     const saved = localStorage.getItem('sidebar_expanded');
     if (saved === '1') setExpanded(true);
+    // Onda 5c — carrega estado dos grupos
+    try {
+      const savedGroups = localStorage.getItem('sidebar_groups_state');
+      if (savedGroups) {
+        setGroupState(JSON.parse(savedGroups));
+      } else {
+        setGroupState({}); // vazio = usa defaultExpanded de cada grupo
+      }
+    } catch {
+      setGroupState({});
+    }
     setMounted(true);
   }, []);
 
@@ -110,6 +130,25 @@ export function Sidebar() {
     setExpanded(next);
     localStorage.setItem('sidebar_expanded', next ? '1' : '0');
     setNavTooltip(null);
+  };
+
+  // Onda 5c — toggle de grupo individual
+  const toggleGroup = (groupId: string, defaultExp: boolean) => {
+    setGroupState((prev) => {
+      const current = prev || {};
+      const isExpanded = current[groupId] !== undefined ? current[groupId] : defaultExp;
+      const next = { ...current, [groupId]: !isExpanded };
+      try {
+        localStorage.setItem('sidebar_groups_state', JSON.stringify(next));
+      } catch { /* localStorage cheio — silente */ }
+      return next;
+    });
+  };
+
+  // Helper: estado atual do grupo (com fallback no defaultExpanded)
+  const isGroupExpanded = (groupId: string, defaultExp: boolean): boolean => {
+    if (!groupState) return defaultExp;
+    return groupState[groupId] !== undefined ? groupState[groupId] : defaultExp;
   };
 
   // Click outside → close menus
@@ -405,15 +444,21 @@ export function Sidebar() {
       show: true,
     },
     pacientes: {
-      label: 'Pacientes',
+      // Onda 5c (Fase 25) — renomeado pra "Lista de pacientes" (mais claro)
+      // e sub-items removidos (cada um virou item separado no grupo PACIENTES)
+      label: 'Lista de pacientes',
       href: '/atendimento/pacientes',
       icon: <HeartPulse size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/pacientes'),
+      match: (p) => p.startsWith('/atendimento/pacientes') && !p.includes('?new'),
       show: true,
-      subItems: [
-        { label: 'Localizar paciente', href: '/atendimento/pacientes' },
-        { label: 'Novo paciente', href: '/atendimento/pacientes?new=1' },
-      ],
+    },
+    novoPaciente: {
+      // Onda 5c — antes era subItem de Pacientes; agora item top-level
+      label: 'Novo paciente',
+      href: '/atendimento/pacientes?new=1',
+      icon: <UserPlus size={20} strokeWidth={2} />,
+      match: () => false, // nunca fica "ativo" — eh acao, nao destino persistente
+      show: true,
     },
     contacts: {
       label: 'Contatos',
@@ -549,21 +594,77 @@ export function Sidebar() {
     },
   };
 
+  // Onda 5c (Fase 25) — Reorganizacao em 6 grupos contextualizados.
+  // ATENDIMENTO/PACIENTES/COMERCIAL/FINANCEIRO comecam expandidos (uso diario).
+  // GESTAO/SISTEMA comecam colapsados (uso eventual).
+  // Estado salvo em localStorage apos primeiro click no header.
+  //
+  // Items omitidos do menu (preservados em allItems pra reativar facil):
+  //   waitlist (Lista de espera), referrals (Indicacao Premiada),
+  //   parcelas (Parcelas — vai estar dentro de Financeiro)
+  // Pra reativar: adicionar de volta no array do grupo desejado.
   const groups: NavGroup[] = [
     {
-      id: 'principal',
-      label: 'Principal',
-      items: [allItems.dashboard, allItems.inbox, allItems.crm, allItems.pacientes, allItems.contacts, allItems.agenda, allItems.validacoes, allItems.waitlist, allItems.orcamentos, allItems.returnAlerts, allItems.estoque, allItems.parcelas, allItems.comissoes, allItems.metas, allItems.referrals, allItems.relatorios, allItems.minhaRede].filter(i => i.show),
+      id: 'atendimento',
+      label: 'Atendimento',
+      defaultExpanded: true,
+      items: [
+        allItems.dashboard,    // Dashboard (canViewDashboard only)
+        allItems.inbox,        // WhatsApp
+        allItems.agenda,       // Agenda
+        allItems.crm,          // CRM (movido pra ATENDIMENTO)
+        allItems.validacoes,   // Atendimentos a validar (dentist/admin)
+      ].filter(i => i.show),
+    },
+    {
+      id: 'pacientes',
+      label: 'Pacientes',
+      defaultExpanded: true,
+      items: [
+        allItems.novoPaciente, // + Novo paciente (top-level agora)
+        allItems.pacientes,    // Lista de pacientes
+        allItems.contacts,     // Contatos
+      ].filter(i => i.show),
+    },
+    {
+      id: 'comercial',
+      label: 'Comercial',
+      defaultExpanded: true,
+      items: [
+        allItems.orcamentos,   // Orcamentos
+        allItems.returnAlerts, // Retornos (movido pra COMERCIAL)
+        allItems.followup,     // Follow-up IA (admin)
+      ].filter(i => i.show),
+    },
+    {
+      id: 'financeiro',
+      label: 'Financeiro',
+      defaultExpanded: true,
+      items: [
+        allItems.financeiro,   // Visao financeira
+        allItems.comissoes,    // Comissoes
+        allItems.metas,        // Metas
+      ].filter(i => i.show),
     },
     {
       id: 'gestao',
       label: 'Gestão',
-      items: [allItems.followup, allItems.financeiro, allItems.analytics].filter(i => i.show),
+      defaultExpanded: false, // colapsado por default
+      items: [
+        allItems.analytics,    // Analytics
+        allItems.estoque,      // Estoque
+        allItems.relatorios,   // Relatorios
+        allItems.minhaRede,    // Minha rede
+      ].filter(i => i.show),
     },
     {
       id: 'sistema',
       label: 'Sistema',
-      items: [allItems.manual, allItems.settings].filter(i => i.show),
+      defaultExpanded: false, // colapsado por default
+      items: [
+        allItems.settings,     // Configuracoes
+        allItems.manual,       // Manual
+      ].filter(i => i.show),
     },
   ].filter(g => g.items.length > 0);
 
@@ -634,20 +735,40 @@ export function Sidebar() {
         </button>
       </div>
 
-      {/* ─── Navigation Groups ─────────────────────────────────────── */}
+      {/* ─── Navigation Groups (Onda 5c — colapsaveis individualmente) ─── */}
       <nav className="flex-1 flex flex-col gap-0 w-full px-3 overflow-y-auto no-scrollbar">
-        {groups.map((group, gi) => (
-          <div key={group.id} className={gi > 0 ? 'mt-3' : ''}>
-            {/* Label de grupo (expandido) ou separador (recolhido) */}
-            {expanded ? (
-              <p className="text-[10px] font-bold text-muted-foreground/50 uppercase tracking-widest px-1 mb-1.5">
-                {group.label}
-              </p>
-            ) : gi > 0 ? (
-              <div className="h-px bg-border/40 mx-1 mb-2" />
-            ) : null}
+        {groups.map((group, gi) => {
+          const defaultExp = group.defaultExpanded ?? true;
+          const isExpanded = isGroupExpanded(group.id, defaultExp);
+          // Em modo recolhido (sidebar 72px) ignora group collapse — mostra todos
+          const showItems = !expanded || isExpanded;
 
-            <div className="flex flex-col gap-0.5">
+          return (
+            <div key={group.id} className={gi > 0 ? 'mt-2' : ''}>
+              {/* Header de grupo:
+                    - Sidebar EXPANDIDA: botao clicavel com seta (toggle)
+                    - Sidebar COLAPSADA: divisor discreto entre grupos */}
+              {expanded ? (
+                <button
+                  onClick={() => toggleGroup(group.id, defaultExp)}
+                  className="w-full flex items-center gap-1 px-1 mb-1 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest hover:text-muted-foreground transition-colors"
+                  aria-expanded={isExpanded}
+                  aria-controls={`group-${group.id}-items`}
+                >
+                  <ChevronDown
+                    size={11}
+                    className={`shrink-0 transition-transform duration-150 ${
+                      isExpanded ? '' : '-rotate-90'
+                    }`}
+                  />
+                  <span className="flex-1 text-left">{group.label}</span>
+                </button>
+              ) : gi > 0 ? (
+                <div className="h-px bg-border/40 mx-1 mb-2" />
+              ) : null}
+
+              {showItems && (
+              <div id={`group-${group.id}-items`} className="flex flex-col gap-0.5">
               {group.items.map((item) => {
                 const isActive = item.match(pathname);
                 const badge = (item as any).badge as number | undefined;
@@ -688,13 +809,12 @@ export function Sidebar() {
                       )}
                     </button>
 
-                    {/* Sub-itens — visíveis quando o item pai está ativo E o sidebar expandido */}
+                    {/* Sub-itens (Onda 5c — preservados pra compat se algum item ainda usar)
+                        Atualmente nenhum item da nova estrutura usa subItems —
+                        Pacientes virou items separados (Lista + Novo). */}
                     {expanded && isActive && item.subItems && item.subItems.length > 0 && (
                       <div className="ml-7 mt-0.5 mb-1 flex flex-col gap-0.5 border-l border-border/60 pl-2">
                         {item.subItems.map((sub) => {
-                          // Comparação tolerante a query string: rota com `?` casa por prefixo do path,
-                          // sem `?` casa exato. Permite "Novo paciente" (?new=1) destacar quando o
-                          // modal está aberto via deep-link.
                           const subPath = sub.href.split('?')[0];
                           const subQuery = sub.href.includes('?');
                           const currentMatchesSub = subQuery
@@ -719,9 +839,11 @@ export function Sidebar() {
                   </div>
                 );
               })}
+              </div>
+              )}
             </div>
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* ─── Bottom: Avatar + DB + Notificações + Tema + Sair ─────── */}
@@ -790,7 +912,7 @@ export function Sidebar() {
           </button>
 
           {expanded && (
-            <div className="flex flex-col min-w-0">
+            <div className="flex flex-col min-w-0 flex-1">
               <span className="text-[13px] font-semibold text-foreground truncate leading-tight">
                 {userName || 'Usuário'}
               </span>
@@ -799,37 +921,38 @@ export function Sidebar() {
               </span>
             </div>
           )}
-        </div>
-
-        {/* DB status */}
-        <div
-          className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-1.5 cursor-default text-muted-foreground ${expanded ? '' : 'justify-center'}`}
-          onMouseEnter={(e) =>
-            showTooltip(e,
-              <span className="text-[11px] font-bold uppercase tracking-widest">
-                Banco: {dbLabel}
-              </span>
-            )
-          }
-          onMouseLeave={hideTooltip}
-        >
-          <div
-            className={`w-2.5 h-2.5 rounded-full shrink-0 transition-all duration-500 ${
-              dbStatus === 'online'
-                ? 'bg-emerald-500 shadow-[0_0_5px_rgba(16,185,129,0.5)]'
-                : dbStatus === 'offline'
-                ? 'bg-red-500 shadow-[0_0_5px_rgba(239,68,68,0.5)] animate-pulse'
-                : 'bg-sky-500 animate-pulse'
-            }`}
-          />
+          {/* Onda 5c (Fase 25) — DB status compacto inline ao lado do avatar
+              (antes era linha propria com texto "Banco: Online" — ocupava espaço).
+              Agora bolinha de 6px com tooltip discreto. */}
           {expanded && (
-            <span className="text-[12px] font-medium">
-              Banco: {dbLabel}
-            </span>
+            <div
+              className="shrink-0"
+              onMouseEnter={(e) =>
+                showTooltip(e,
+                  <span className="text-[11px] font-bold uppercase tracking-widest">
+                    Banco: {dbLabel}
+                  </span>
+                )
+              }
+              onMouseLeave={hideTooltip}
+            >
+              <div
+                className={`w-1.5 h-1.5 rounded-full transition-all duration-500 ${
+                  dbStatus === 'online'
+                    ? 'bg-emerald-500 shadow-[0_0_4px_rgba(16,185,129,0.6)]'
+                    : dbStatus === 'offline'
+                    ? 'bg-red-500 animate-pulse'
+                    : 'bg-sky-500 animate-pulse'
+                }`}
+                aria-label={`Banco ${dbLabel}`}
+              />
+            </div>
           )}
         </div>
 
-        {/* Notification Center */}
+        {/* Notification Center — Onda 5c: removido NotificationToggle separado
+            (era duplicado com o Center). Toggle DND vira config DENTRO do popover
+            do Center quando o user precisar. */}
         <div
           className={`w-full flex items-center ${expanded ? 'gap-2.5 px-2 py-1' : 'justify-center py-1'}`}
           onMouseEnter={(e) => showTooltip(e, 'Notificações')}
@@ -840,13 +963,6 @@ export function Sidebar() {
             <span className="text-[13px] font-medium text-muted-foreground">Notificações</span>
           )}
         </div>
-
-        {/* Notification on/off toggle (DND permanente) */}
-        <NotificationToggle
-          variant={expanded ? 'sidebar-expanded' : 'sidebar-collapsed'}
-          onMouseEnter={(e) => !expanded && showTooltip(e, 'Notificações')}
-          onMouseLeave={hideTooltip}
-        />
 
         {/* Theme picker */}
         <button
