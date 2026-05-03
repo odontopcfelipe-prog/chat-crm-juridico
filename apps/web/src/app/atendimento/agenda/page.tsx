@@ -1292,20 +1292,20 @@ export default function AgendaPage() {
   if (activeTab === 'tasks') {
     return (
       <div className="flex flex-col h-full bg-background overflow-hidden">
-        {/* Barra de abas */}
-        <div className="shrink-0 flex items-center gap-1 px-4 pt-3 pb-0 border-b border-border bg-card/30">
+        {/* Barra de abas — compactada Onda 5d (Fase 25) */}
+        <div className="shrink-0 flex items-center gap-1 px-3 pt-2 pb-0 border-b border-border bg-card/30">
           <button
             onClick={() => switchTab('calendar')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
           >
-            <CalendarViewIcon size={14} />
+            <CalendarViewIcon size={12} />
             Calendário
           </button>
           <button
             onClick={() => switchTab('tasks')}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-primary text-primary"
+            className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors border-b-2 border-primary text-primary"
           >
-            <CheckSquare size={14} />
+            <CheckSquare size={12} />
             Tarefas
           </button>
         </div>
@@ -1320,20 +1320,20 @@ export default function AgendaPage() {
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
 
-      {/* Barra de abas */}
-      <div className="shrink-0 flex items-center gap-1 px-4 pt-3 pb-0 border-b border-border bg-card/30">
+      {/* Barra de abas — compactada Onda 5d (Fase 25) */}
+      <div className="shrink-0 flex items-center gap-1 px-3 pt-2 pb-0 border-b border-border bg-card/30">
         <button
           onClick={() => switchTab('calendar')}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-sm font-medium transition-colors border-b-2 border-primary text-primary"
+          className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors border-b-2 border-primary text-primary"
         >
-          <CalendarViewIcon size={14} />
+          <CalendarViewIcon size={12} />
           Calendário
         </button>
         <button
           onClick={() => switchTab('tasks')}
-          className="flex items-center gap-1.5 px-3 py-2 rounded-t-lg text-sm font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
+          className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
         >
-          <CheckSquare size={14} />
+          <CheckSquare size={12} />
           Tarefas
         </button>
       </div>
@@ -1538,17 +1538,17 @@ export default function AgendaPage() {
             <Filter size={15} />
           </button>
 
-          {/* Search */}
+          {/* Search — Onda 5d (Fase 25): compactado pra ganhar espaco */}
           <div className="relative flex-1 max-w-sm">
-            <div className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-card/80 text-sm focus-within:ring-2 focus-within:ring-primary/25 focus-within:border-primary/40 transition-all">
-              <Search size={14} className="text-muted-foreground shrink-0" />
+            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card/80 text-xs focus-within:ring-2 focus-within:ring-primary/25 focus-within:border-primary/40 transition-all">
+              <Search size={12} className="text-muted-foreground shrink-0" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={e => handleSearch(e.target.value)}
                 onFocus={() => setShowSearch(true)}
                 placeholder="Buscar eventos..."
-                className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 outline-none text-sm"
+                className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 outline-none text-xs"
               />
               {searchQuery && (
                 <button onClick={() => { setSearchQuery(''); setSearchResults([]); }} className="text-muted-foreground hover:text-foreground">
@@ -1577,14 +1577,14 @@ export default function AgendaPage() {
             )}
           </div>
 
-          {/* Quick nav chips */}
+          {/* Quick nav chips — compactados Onda 5d */}
           <div className="hidden sm:flex items-center gap-1">
             <button
               onClick={() => {
                 const today = new Date().toISOString().slice(0, 10);
                 try { (calendar as any)?.navigate?.(today); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
-              className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               Hoje
             </button>
@@ -1597,7 +1597,7 @@ export default function AgendaPage() {
                 monday.setDate(now.getDate() + diffToMonday);
                 try { (calendar as any)?.navigate?.(monday.toISOString().slice(0, 10)); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
               }}
-              className="px-2.5 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+              className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
             >
               Semana
             </button>
@@ -1618,33 +1618,33 @@ export default function AgendaPage() {
           {/* Export */}
           <button
             onClick={handleExportRange}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border text-sm font-medium text-muted-foreground hover:bg-accent transition-colors"
+            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
             title="Exportar .ics"
           >
-            <Download size={14} />
+            <Download size={12} />
           </button>
 
           {/* Toggle Kanban / Calendário */}
           <button
             onClick={() => setKanbanView(v => !v)}
-            className={`hidden sm:inline-flex items-center gap-1.5 px-3 py-2 rounded-xl border text-sm font-medium transition-colors ${
+            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
               kanbanView
                 ? 'bg-accent border-accent-foreground/20 text-foreground'
                 : 'border-border text-muted-foreground hover:bg-accent'
             }`}
             title={kanbanView ? 'Ver Calendário' : 'Ver Kanban de Tarefas'}
           >
-            {kanbanView ? <CalendarViewIcon size={14} /> : <LayoutGrid size={14} />}
+            {kanbanView ? <CalendarViewIcon size={12} /> : <LayoutGrid size={12} />}
             <span>{kanbanView ? 'Calendário' : 'Kanban'}</span>
           </button>
 
           {/* + Novo Evento (atalho: N) */}
           <button
             onClick={() => openCreateModal()}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 transition-colors shadow-sm"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-sm"
             title="Criar evento (atalho: N)"
           >
-            <Plus size={15} />
+            <Plus size={13} />
             <span className="hidden sm:inline">Novo Evento</span>
           </button>
         </div>
