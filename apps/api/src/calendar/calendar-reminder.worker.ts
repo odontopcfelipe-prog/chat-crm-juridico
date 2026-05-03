@@ -360,22 +360,50 @@ export class CalendarReminderWorker extends WorkerHost {
 
     // Envia pelo canal apropriado. Dedup defensivo: so marca sent_at se o
     // envio foi bem-sucedido (evita perder o job quando ha falha transitoria).
+    // v24: lastErrorMsg captura motivo legivel pra salvar no banco (UI exibe).
     let sent = false;
+    let lastErrorMsg: string | null = null;
     if (channel === 'WHATSAPP') {
-      await this.sendWhatsAppReminders(event, reminder.minutes_before);
-      sent = true; // sendWhatsAppReminders nao retorna flag, mas loga falhas internamente
+      // Validacao previa: paciente precisa ter telefone
+      if (!event.lead?.phone) {
+        lastErrorMsg = 'Paciente sem telefone cadastrado';
+        sent = false;
+      } else {
+        try {
+          await this.sendWhatsAppReminders(event, reminder.minutes_before);
+          sent = true;
+        } catch (e: any) {
+          lastErrorMsg = e?.message || 'Falha desconhecida ao enviar WhatsApp';
+          sent = false;
+        }
+      }
     } else if (channel === 'EMAIL') {
-      sent = await this.sendEmailReminder(event);
+      try {
+        sent = await this.sendEmailReminder(event);
+        if (!sent) lastErrorMsg = 'Email não enviado (verifique config SMTP ou destinatario)';
+      } catch (e: any) {
+        lastErrorMsg = e?.message || 'Falha desconhecida ao enviar email';
+        sent = false;
+      }
     }
 
     if (sent) {
+      // v24: limpa last_error em caso de sucesso (pode ter falhado antes)
       await this.prisma.eventReminder.update({
         where: { id: reminderId },
-        data: { sent_at: new Date() },
+        data: { sent_at: new Date(), last_error: null },
       });
       this.logger.log(`[REMINDER] ${channel} enviado para evento "${event.title}" (${eventId})`);
     } else {
-      this.logger.warn(`[REMINDER] ${channel} falhou para evento "${event.title}" — nao marcado como sent_at`);
+      // v24: salva motivo da falha pra UI mostrar no badge FALHOU
+      await this.prisma.eventReminder.update({
+        where: { id: reminderId },
+        data: {
+          last_error: lastErrorMsg ||
+            `Falha ao enviar via ${channel}. Verifique se a instancia Evolution esta online e o numero tem WhatsApp ativo.`,
+        },
+      });
+      this.logger.warn(`[REMINDER] ${channel} falhou para evento "${event.title}" — nao marcado como sent_at. Erro: ${lastErrorMsg}`);
     }
   }
 

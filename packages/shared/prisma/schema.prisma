@@ -868,6 +868,11 @@ model EventReminder {
   minutes_before Int // 15, 30, 60, 1440 (1 dia)
   channel        String        @default("PUSH") // PUSH, WHATSAPP, EMAIL
   sent_at        DateTime?
+  // Onda 5e v24 (Fase 25, Onda B) — motivo de falha do envio.
+  // Capturado pelo worker quando Evolution API retorna erro
+  // (telefone invalido, sem WhatsApp, instance offline, etc).
+  // Mostrado na UI da aba Lembretes pro operador investigar.
+  last_error     String?
 
   @@index([event_id])
 }

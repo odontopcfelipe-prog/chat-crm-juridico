@@ -896,6 +896,7 @@ export class CalendarService {
       minutes_before: r.minutes_before,
       channel: r.channel,
       sent_at: r.sent_at,
+      last_error: r.last_error, // v24: motivo de falha
       // Status derivado pra UI
       derived_status: r.sent_at
         ? 'enviado'
@@ -904,6 +905,83 @@ export class CalendarService {
           : 'pendente',
       event: r.event,
     }));
+  }
+
+  // ─── Preview do conteudo de um lembrete (Onda 5e v24, Onda B) ────────
+  // Retorna texto enviado pro WhatsApp + respostas do paciente nas N horas
+  // seguintes. Usado pelo modal "Ver mensagem" da aba Lembretes.
+  async getReminderPreview(reminderId: string) {
+    const reminder = await this.prisma.eventReminder.findUnique({
+      where: { id: reminderId },
+      include: {
+        event: {
+          select: {
+            id: true, title: true, start_at: true, lead_id: true,
+            lead: { select: { id: true, name: true, phone: true } },
+            assigned_user: { select: { name: true } },
+          },
+        },
+      },
+    });
+    if (!reminder) throw new BadRequestException('Lembrete não encontrado');
+
+    // Busca a Message OUT salva no momento do envio do lembrete
+    // (calendar-reminder.worker.ts salva com status='enviado' na conversa do lead)
+    let sentMessage: any = null;
+    let leadResponses: any[] = [];
+    let conversationId: string | null = null;
+
+    if (reminder.event?.lead_id && reminder.sent_at) {
+      // Acha a conversa do lead
+      const convo = await this.prisma.conversation.findFirst({
+        where: { lead_id: reminder.event.lead_id },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true },
+      });
+      if (convo) {
+        conversationId = convo.id;
+        // Mensagem OUT enviada nos 60s ao redor do sent_at
+        const sentAtMs = reminder.sent_at.getTime();
+        const windowStart = new Date(sentAtMs - 60_000);
+        const windowEnd = new Date(sentAtMs + 60_000);
+        sentMessage = await this.prisma.message.findFirst({
+          where: {
+            conversation_id: convo.id,
+            direction: 'out',
+            created_at: { gte: windowStart, lte: windowEnd },
+          },
+          orderBy: { created_at: 'desc' },
+          select: { id: true, text: true, created_at: true, status: true },
+        });
+
+        // Respostas do lead nas 48h apos o lembrete
+        const responseWindowEnd = new Date(sentAtMs + 48 * 60 * 60 * 1000);
+        leadResponses = await this.prisma.message.findMany({
+          where: {
+            conversation_id: convo.id,
+            direction: 'in',
+            created_at: { gt: reminder.sent_at, lte: responseWindowEnd },
+          },
+          orderBy: { created_at: 'asc' },
+          take: 5,
+          select: { id: true, text: true, type: true, created_at: true },
+        });
+      }
+    }
+
+    return {
+      reminder: {
+        id: reminder.id,
+        minutes_before: reminder.minutes_before,
+        channel: reminder.channel,
+        sent_at: reminder.sent_at,
+        last_error: reminder.last_error,
+      },
+      event: reminder.event,
+      conversation_id: conversationId,
+      sent_message: sentMessage,
+      lead_responses: leadResponses,
+    };
   }
 
   /**

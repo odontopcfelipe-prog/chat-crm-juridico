@@ -21,15 +21,18 @@ import { useRouter } from 'next/navigation';
 import {
   Bell, Send, CheckCircle2, XCircle, Clock, Loader2, RefreshCw,
   Phone, Calendar as CalendarIcon, Trash2, Play, Search, ExternalLink, Filter, X,
+  Eye, AlertTriangle, Layers, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { ReminderPreviewModal } from './ReminderPreviewModal';
 
 interface ReminderRow {
   id: string;
   minutes_before: number;
   channel: string;
   sent_at: string | null;
+  last_error: string | null;
   derived_status: 'enviado' | 'pendente' | 'falhou';
   event: {
     id: string;
@@ -107,6 +110,10 @@ export function RemindersTab() {
   const [dateTo, setDateTo] = useState('');
   const [dentists, setDentists] = useState<DentistOption[]>([]);
   const [showFilters, setShowFilters] = useState(false);
+  // v24 (Onda B): modal de preview da mensagem + toggle de agrupamento
+  const [previewReminderId, setPreviewReminderId] = useState<string | null>(null);
+  const [groupByEvent, setGroupByEvent] = useState(false);
+  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -233,6 +240,40 @@ export function RemindersTab() {
     });
   }, [reminders, search, dentistFilter]);
 
+  // v24 (Onda B): agrupamento por evento.
+  // Quando groupByEvent=true, agrupa reminders pelo event.id e renderiza
+  // 1 linha por evento com sub-linhas dos lembretes (expansive).
+  const groupedReminders = useMemo(() => {
+    if (!groupByEvent) return null;
+    const groups = new Map<string, { event: ReminderRow['event']; reminders: ReminderRow[] }>();
+    for (const r of filteredReminders) {
+      const key = r.event?.id || `_no_event_${r.id}`;
+      if (!groups.has(key)) {
+        groups.set(key, { event: r.event, reminders: [] });
+      }
+      groups.get(key)!.reminders.push(r);
+    }
+    // Ordena cada grupo por minutes_before DESC (1d → 1h → 30min)
+    for (const g of groups.values()) {
+      g.reminders.sort((a, b) => b.minutes_before - a.minutes_before);
+    }
+    // Ordena grupos por start_at do evento ASC (mais proximo primeiro)
+    return Array.from(groups.entries()).sort(([, a], [, b]) => {
+      const aDate = a.event?.start_at ? new Date(a.event.start_at).getTime() : 0;
+      const bDate = b.event?.start_at ? new Date(b.event.start_at).getTime() : 0;
+      return aDate - bDate;
+    });
+  }, [filteredReminders, groupByEvent]);
+
+  const toggleEventExpand = (eventId: string) => {
+    setExpandedEvents((prev) => {
+      const next = new Set(prev);
+      if (next.has(eventId)) next.delete(eventId);
+      else next.add(eventId);
+      return next;
+    });
+  };
+
   const cards: Array<{
     title: string;
     value: number;
@@ -347,6 +388,18 @@ export function RemindersTab() {
               })}
             </div>
             <div className="flex items-center gap-1">
+              {/* v24: toggle agrupar por evento */}
+              <button
+                onClick={() => setGroupByEvent((v) => !v)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  groupByEvent ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
+                }`}
+                title={groupByEvent
+                  ? 'Voltar pra lista linear (1 linha por lembrete)'
+                  : 'Agrupar por evento (1 linha por evento + lembretes embaixo)'}
+              >
+                <Layers size={12} /> {groupByEvent ? 'Lista' : 'Agrupar'}
+              </button>
               <button
                 onClick={() => setShowFilters((v) => !v)}
                 className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
@@ -458,6 +511,92 @@ export function RemindersTab() {
               </button>
             )}
           </div>
+        ) : groupByEvent && groupedReminders ? (
+          // v24: modo agrupado por evento
+          <div className="divide-y divide-border/40">
+            {groupedReminders.map(([key, group]) => {
+              const isExpanded = expandedEvents.has(key);
+              const counts = {
+                enviado: group.reminders.filter((r) => r.derived_status === 'enviado').length,
+                pendente: group.reminders.filter((r) => r.derived_status === 'pendente').length,
+                falhou: group.reminders.filter((r) => r.derived_status === 'falhou').length,
+              };
+              return (
+                <div key={key}>
+                  <button
+                    onClick={() => toggleEventExpand(key)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-accent/30 transition-colors text-left"
+                  >
+                    {isExpanded ? <ChevronDown size={14} className="shrink-0 text-muted-foreground" /> : <ChevronRight size={14} className="shrink-0 text-muted-foreground" />}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-semibold text-sm text-foreground truncate">{group.event?.title || 'Evento sem título'}</span>
+                        {group.event?.lead?.name && (
+                          <span className="text-[11px] text-muted-foreground">• {group.event.lead.name}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground flex-wrap">
+                        {group.event?.start_at && <span>📅 {formatDateTime(group.event.start_at)}</span>}
+                        {group.event?.assigned_user?.name && <span>🦷 {group.event.assigned_user.name}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      {counts.enviado > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                          <CheckCircle2 size={9} /> {counts.enviado}
+                        </span>
+                      )}
+                      {counts.pendente > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-amber-500/15 text-amber-700 dark:text-amber-400">
+                          <Clock size={9} /> {counts.pendente}
+                        </span>
+                      )}
+                      {counts.falhou > 0 && (
+                        <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[9px] font-bold bg-red-500/15 text-red-700 dark:text-red-400">
+                          <XCircle size={9} /> {counts.falhou}
+                        </span>
+                      )}
+                      <span className="text-[10px] text-muted-foreground">{group.reminders.length} lembrete{group.reminders.length !== 1 ? 's' : ''}</span>
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <div className="bg-muted/10 px-4 py-2 space-y-1.5 border-t border-border/30">
+                      {group.reminders.map((r) => {
+                        const ch = channelLabel(r.channel);
+                        return (
+                          <div key={r.id} className="flex items-center gap-2 py-1.5 px-2 rounded hover:bg-accent/40 group">
+                            {r.derived_status === 'enviado' && <CheckCircle2 size={12} className="text-emerald-600 shrink-0" />}
+                            {r.derived_status === 'pendente' && <Clock size={12} className="text-amber-600 shrink-0" />}
+                            {r.derived_status === 'falhou' && <XCircle size={12} className="text-red-600 shrink-0" />}
+                            <span className="text-xs font-semibold text-foreground min-w-[60px]">
+                              {formatMinutes(r.minutes_before)} antes
+                            </span>
+                            <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-semibold ${ch.color}`}>{ch.label}</span>
+                            {r.sent_at && (
+                              <span className="text-[10px] text-muted-foreground">{formatDateTime(r.sent_at)}</span>
+                            )}
+                            {r.last_error && (
+                              <span className="text-[10px] text-red-600 dark:text-red-400 italic truncate flex items-center gap-1">
+                                <AlertTriangle size={9} /> {r.last_error}
+                              </span>
+                            )}
+                            <div className="flex-1" />
+                            <button
+                              onClick={() => setPreviewReminderId(r.id)}
+                              className="p-1 rounded text-muted-foreground hover:bg-accent hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="Ver mensagem enviada + respostas"
+                            >
+                              <Eye size={11} />
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
@@ -491,6 +630,16 @@ export function RemindersTab() {
                           {r.derived_status === 'falhou' && <XCircle size={10} />}
                           {r.derived_status}
                         </span>
+                        {/* v24: motivo de erro inline em FALHOU */}
+                        {r.derived_status === 'falhou' && r.last_error && (
+                          <div
+                            className="mt-1 text-[10px] text-red-600 dark:text-red-400 max-w-[180px] flex items-start gap-1 cursor-help"
+                            title={r.last_error}
+                          >
+                            <AlertTriangle size={9} className="shrink-0 mt-0.5" />
+                            <span className="truncate">{r.last_error}</span>
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-2.5">
                         {hasLead ? (
@@ -530,6 +679,14 @@ export function RemindersTab() {
                       </td>
                       <td className="px-4 py-2.5 text-right">
                         <div className="flex items-center justify-end gap-1">
+                          {/* v24: ver mensagem enviada */}
+                          <button
+                            onClick={() => setPreviewReminderId(r.id)}
+                            className="p-1.5 rounded text-muted-foreground hover:bg-accent hover:text-primary transition-colors"
+                            title="Ver mensagem enviada + respostas do paciente"
+                          >
+                            <Eye size={12} />
+                          </button>
                           {/* v23: ver evento na agenda */}
                           {r.event?.id && (
                             <button
@@ -587,6 +744,7 @@ export function RemindersTab() {
           <span>
             {filteredReminders.length} lembrete{filteredReminders.length !== 1 ? 's' : ''}
             {filteredReminders.length !== reminders.length && ` (de ${reminders.length} carregados)`}
+            {groupByEvent && groupedReminders && ` • ${groupedReminders.length} evento${groupedReminders.length !== 1 ? 's' : ''}`}
           </span>
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
@@ -594,6 +752,14 @@ export function RemindersTab() {
           </span>
         </div>
       </div>
+
+      {/* v24: Modal de preview da mensagem */}
+      {previewReminderId && (
+        <ReminderPreviewModal
+          reminderId={previewReminderId}
+          onClose={() => setPreviewReminderId(null)}
+        />
+      )}
     </div>
   );
 }

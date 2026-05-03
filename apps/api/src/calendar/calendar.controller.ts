@@ -331,6 +331,12 @@ export class CalendarController {
     return this.calendarService.cancelReminder(id);
   }
 
+  // v24 (Onda B): preview do conteudo do lembrete + respostas do paciente
+  @Get('reminders/:id/preview')
+  getReminderPreview(@Param('id') id: string) {
+    return this.calendarService.getReminderPreview(id);
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   @Get('holidays')
