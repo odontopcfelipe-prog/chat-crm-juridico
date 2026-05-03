@@ -8,7 +8,7 @@
 --   - Cria 3 reminders default por evento futuro de CONSULTA/PROCEDIMENTO/RETORNO:
 --     * 1440 min antes (1 dia)
 --     * 60 min antes (1 hora)
---     * 30 min antes (faltam pouquinho)
+--     * 15 min antes (faltam pouquinho) — v26: alinhado com UI/IA
 --   - Canal: WHATSAPP
 --   - sent_at: NULL (= pendente)
 --   - So cria pra eventos com lead vinculado (sem lead, nao tem pra quem mandar)
@@ -30,7 +30,7 @@ SELECT
   NULL,
   NOW()
 FROM "CalendarEvent" ce
-CROSS JOIN (VALUES (1440), (60), (30)) AS defaults(minutes_before)
+CROSS JOIN (VALUES (1440), (60), (15)) AS defaults(minutes_before)
 WHERE ce.start_at >= NOW()
   AND ce.type IN ('CONSULTA', 'PROCEDIMENTO', 'RETORNO')
   AND ce.status NOT IN ('CANCELADO', 'CONCLUIDO')

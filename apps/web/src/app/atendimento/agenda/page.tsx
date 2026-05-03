@@ -174,6 +174,31 @@ function getEventColor(type: string) {
  * Para eventos NAO-CONSULTA (PROCEDIMENTO/RETORNO/BLOQUEIO/TAREFA/OUTRO),
  * mantem cor por tipo (preserva semantica do tipo de evento odontologico).
  */
+/**
+ * Onda 5e v26 (Fase 25) — defaults de lembrete padronizados em TODOS os
+ * pontos onde criamos evento (modal manual, IA, recorrencia). Antes era
+ * inconsistente: modal usava [30min] e IA usava [1d/1h/30min].
+ *
+ * Padrao oficial pedido pelo user: 1 dia + 1 hora + 15 min antes.
+ *
+ * Helper getDefaultReminders(eventStartIso?) FILTRA dinamicamente os
+ * lembretes que ainda fazem sentido (cuja antecedencia eh menor que
+ * o tempo restante ate o evento). Ex:
+ *   - Evento daqui a 30min → so retorna [15min]
+ *   - Evento daqui a 2h    → retorna [1h, 15min]
+ *   - Evento daqui a 5d    → retorna [1d, 1h, 15min]
+ */
+const DEFAULT_REMINDERS_MIN = [1440, 60, 15] as const;
+
+function getDefaultReminders(eventStartIso?: string): { minutes_before: number; channel: string }[] {
+  const all = DEFAULT_REMINDERS_MIN.map((m) => ({ minutes_before: m, channel: 'WHATSAPP' }));
+  if (!eventStartIso) return all;
+  const startMs = new Date(eventStartIso).getTime();
+  if (isNaN(startMs)) return all;
+  const minutesUntilEvent = Math.floor((startMs - Date.now()) / 60_000);
+  return all.filter((r) => r.minutes_before < minutesUntilEvent);
+}
+
 function getSemanticCalendarId(ev: { type: string; status: string }): string {
   if (ev.type !== 'CONSULTA') return ev.type; // mantem comportamento antigo
   switch (ev.status) {
@@ -521,7 +546,8 @@ export default function AgendaPage() {
     lead_id: '',
     patient_id: '',
     legal_case_id: '',
-    reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }] as { minutes_before: number; channel: string }[],
+    // v26: defaults = 1d + 1h + 15min via WhatsApp (operador pode add/remover livre)
+    reminders: getDefaultReminders() as { minutes_before: number; channel: string }[],
     recurrence_rule: '',
     recurrence_end: '',
     recurrence_days: [] as number[],
@@ -600,6 +626,9 @@ export default function AgendaPage() {
     const endH = String(Math.min(Math.floor(endMinTotal / 60), 23)).padStart(2, '0');
     const endM = String(endMinTotal % 60).padStart(2, '0');
 
+    // v26: filtra defaults pelo tempo restante ate o evento
+    // (ex: evento daqui a 30min nao recebe lembrete de "1d antes")
+    const startIsoForReminders = `${date}T${time}:00`;
     setFormData({
       type: 'CONSULTA',
       title: '',
@@ -614,7 +643,7 @@ export default function AgendaPage() {
       lead_id: '',
       patient_id: '',
       legal_case_id: '',
-      reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }],
+      reminders: getDefaultReminders(startIsoForReminders),
       recurrence_rule: '',
       recurrence_end: '',
       recurrence_days: [],
@@ -1241,7 +1270,9 @@ export default function AgendaPage() {
       lead_id: ev.lead_id || '',
       patient_id: ev.patient_id || '',
       legal_case_id: ev.legal_case_id || '',
-      reminders: (ev as any).reminders?.map((r: any) => ({ minutes_before: r.minutes_before, channel: r.channel })) || [{ minutes_before: 30, channel: 'WHATSAPP' }],
+      // v26: editar evento — preserva reminders salvos, fallback pros defaults
+      // (filtrados pelo tempo restante ate o evento)
+      reminders: (ev as any).reminders?.map((r: any) => ({ minutes_before: r.minutes_before, channel: r.channel })) || getDefaultReminders(ev.start_at),
       recurrence_rule: (ev as any).recurrence_rule || '',
       recurrence_end: (ev as any).recurrence_end ? formatDateInput((ev as any).recurrence_end) : '',
       recurrence_days: (ev as any).recurrence_days || [],
@@ -1519,7 +1550,8 @@ export default function AgendaPage() {
         lead_id: editingEvent.lead_id || '',
         patient_id: editingEvent.patient_id || '',
         legal_case_id: editingEvent.legal_case_id || '',
-        reminders: [{ minutes_before: 30, channel: 'WHATSAPP' }],
+        // v26: duplicar -> defaults filtrados pra hoje (data nova)
+        reminders: getDefaultReminders(`${formatDateInput(now.toISOString())}T${formatTimeInput(editingEvent.start_at)}:00`),
         recurrence_rule: '',
         recurrence_end: '',
         recurrence_days: [],

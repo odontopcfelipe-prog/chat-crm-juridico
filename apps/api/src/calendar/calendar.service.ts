@@ -1275,7 +1275,8 @@ export class CalendarService {
   //
   // Idempotente: se evento ja tem reminder com mesma antecedencia, pula.
   async backfillReminders(opts: { tenant_id?: string; dry_run?: boolean } = {}) {
-    const defaults = [1440, 60, 30]; // minutes_before pra cada lembrete default
+    // v26: alinhado com defaults da UI/IA [1d, 1h, 15min antes]
+    const defaults = [1440, 60, 15]; // minutes_before pra cada lembrete default
 
     // 1. Eventos futuros de CONSULTA/PROCEDIMENTO/RETORNO sem todos os reminders
     const where: any = {

@@ -224,12 +224,12 @@ export class BookAppointmentHandler implements ToolHandler {
         created_by_id: assignedUserId,
         created_by_ai: true,
         tenant_id: convo.tenant_id || undefined,
+        // Onda 5e v26: alinhado com defaults da UI [1d, 1h, 15min antes].
+        // Filtra pelo tempo restante (nao cria reminder cuja antecedencia ja passou).
         reminders: {
-          create: [
-            { minutes_before: 30, channel: 'WHATSAPP' },
-            { minutes_before: 60, channel: 'WHATSAPP' },
-            { minutes_before: 1440, channel: 'WHATSAPP' },
-          ],
+          create: [1440, 60, 15]
+            .filter((m) => (startAt.getTime() - Date.now()) / 60_000 > m)
+            .map((m) => ({ minutes_before: m, channel: 'WHATSAPP' as const })),
         },
       },
       include: {
