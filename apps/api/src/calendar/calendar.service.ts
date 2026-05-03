@@ -350,6 +350,14 @@ export class CalendarService {
       conversation_id?: string | null;
       assigned_user_id?: string | null;
       appointment_type_id?: string | null;
+      // Onda 5e v20: campos extra que o frontend envia mas que NAO sao
+      // colunas escalares do CalendarEvent. Tratados separadamente
+      // (reminders precisa deleteMany+create, recurrence_* sao escalares).
+      // channel optional pra casar com ReminderDto (default WHATSAPP).
+      reminders?: { minutes_before: number; channel?: string }[];
+      recurrence_rule?: string;
+      recurrence_end?: string;
+      recurrence_days?: number[];
     },
   ) {
     if (data.type && !EVENT_TYPES.includes(data.type as any)) {
@@ -359,10 +367,17 @@ export class CalendarService {
       throw new BadRequestException(`Status invalido: ${data.status}`);
     }
 
-    const updateData: any = { ...data };
+    // v20 fix: separa campos relacionais (reminders) dos escalares ANTES
+    // de passar pro Prisma. Sem isso, prisma.update({ data: { reminders: [...] } })
+    // dava 500 "Erro interno do servidor" porque reminders eh relacao, nao
+    // campo escalar — Prisma exige sintaxe { deleteMany, create } pra arrays.
+    const { reminders: incomingReminders, recurrence_end, ...rest } = data;
+    const updateData: any = { ...rest };
     if (data.start_at) updateData.start_at = new Date(data.start_at);
     if (data.end_at) updateData.end_at = new Date(data.end_at);
     if (data.end_at === null) updateData.end_at = null;
+    if (recurrence_end) updateData.recurrence_end = new Date(recurrence_end);
+    if (recurrence_end === null) updateData.recurrence_end = null;
 
     // STUBBED: LegalCase removido Fase 0.2 — não há auto-preenchimento de lead a partir de processo
 
@@ -411,10 +426,34 @@ export class CalendarService {
       },
     });
 
-    // Se start_at mudou, re-enfileirar todos os lembretes com o novo delay
-    if (data.start_at && event.reminders?.length) {
-      await this.enqueueReminders(event.id, event.start_at, event.reminders);
-      this.logger.log(`Lembretes re-enfileirados para evento ${event.id} (start_at alterado)`);
+    // v20: trata reminders separadamente — se frontend enviou novo array,
+    // substitui completamente (deleteMany + createMany). Mantem comportamento
+    // antigo se nao enviar (reminders existentes ficam intactos).
+    let finalReminders = event.reminders;
+    if (incomingReminders !== undefined) {
+      // Cancela jobs antigos no BullMQ ANTES de deletar do banco
+      await this.cancelReminderJobs(event.id);
+      // Substitui no banco
+      await this.prisma.eventReminder.deleteMany({ where: { event_id: event.id } });
+      if (incomingReminders.length > 0) {
+        await this.prisma.eventReminder.createMany({
+          data: incomingReminders.map((r) => ({
+            event_id: event.id,
+            minutes_before: r.minutes_before,
+            channel: r.channel ?? 'WHATSAPP',
+          })),
+        });
+      }
+      // Recarrega pra ter os IDs novos pra enqueue
+      finalReminders = await this.prisma.eventReminder.findMany({ where: { event_id: event.id } });
+      this.logger.log(`[update] reminders substituidos pro evento ${event.id} (${incomingReminders.length} novos)`);
+    }
+
+    // Se start_at mudou OU reminders foram alterados, re-enfileirar
+    const shouldReEnqueue = (data.start_at || incomingReminders !== undefined) && finalReminders?.length;
+    if (shouldReEnqueue) {
+      await this.enqueueReminders(event.id, event.start_at, finalReminders);
+      this.logger.log(`Lembretes re-enfileirados para evento ${event.id}`);
     }
 
     // Se é AUDIÊNCIA ou PERÍCIA e data ou local mudaram → notificar cliente sobre a remarcação
