@@ -778,25 +778,29 @@ export function Sidebar() {
                       onClick={() => { if (!isActive) router.push(item.href); }}
                       onMouseEnter={(e) => showTooltip(e, item.label)}
                       onMouseLeave={hideTooltip}
-                      className={`w-full rounded-xl flex items-center relative shadow-sm transition-colors ${
-                        expanded ? 'gap-2.5 px-2.5 py-2' : 'aspect-square justify-center'
+                      className={`w-full rounded-lg flex items-center relative transition-colors ${
+                        expanded ? 'gap-2 px-2 py-1.5' : 'aspect-square justify-center'
                       } ${
                         isActive
                           ? 'bg-accent text-accent-foreground'
                           : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
                       }`}
                     >
-                      <span className="shrink-0">{item.icon}</span>
+                      {/* Onda 5c v2: icones menores em modo expandido (sub-menu compacto)
+                          Em colapsado mantem 20px pra continuar clicavel/visivel */}
+                      <span className={`shrink-0 ${expanded ? '[&>svg]:!w-4 [&>svg]:!h-4' : ''}`}>
+                        {item.icon}
+                      </span>
 
                       {expanded && (
-                        <span className="text-[13px] font-medium truncate flex-1 text-left">
+                        <span className="text-[11px] font-medium truncate flex-1 text-left">
                           {item.label}
                         </span>
                       )}
 
                       {badge != null && badge > 0 && (
                         <span
-                          className={`min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold leading-[18px] text-center shadow-md shrink-0 ${
+                          className={`min-w-[16px] h-[16px] px-1 rounded-full bg-red-500 text-white text-[9px] font-bold leading-[16px] text-center shadow-md shrink-0 ${
                             expanded ? 'ml-auto' : 'absolute -top-1.5 -right-1.5'
                           }`}
                         >
@@ -805,7 +809,7 @@ export function Sidebar() {
                       )}
 
                       {isActive && (
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-6 bg-primary rounded-r-md" />
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-md" />
                       )}
                     </button>
 
