@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch } from 'lucide-react';
+import { X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import {
   requestNotificationPermission,
@@ -230,16 +230,25 @@ export function InboxSidebar({
 
   return (
     <section className={`flex flex-col overflow-hidden bg-card border-r border-border shrink-0 z-40 transition-all duration-300 ${isMobile ? (selectedId ? 'hidden' : 'w-full') : (inboxOpen ? 'w-[380px]' : 'w-0')}`}>
-      <div className="shrink-0 p-5 border-b border-border space-y-4">
+      {/* Onda 5e v14 (Fase 25) — Header compactado:
+          - Titulo "Inbox" -> "WhatsApp" (alinhado com label do menu)
+          - Padding reduzido (p-5 -> p-3) e space-y-4 -> space-y-2
+          - Barra de busca REMOVIDA (operador escolheu nao usar; libera ~60px
+            verticais pra mostrar mais conversas na lista). State searchQuery
+            e onSetSearchQuery mantidos pra nao quebrar logica de filtro
+            interna (linha ~490 ainda referencia em fallback de "nenhum
+            resultado") — UI pode ser reativada depois sem refactor.
+            v14 limpa visualmente sem perder logica. */}
+      <div className="shrink-0 p-3 border-b border-border space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-bold">Inbox</h2>
+          <h2 className="text-lg font-bold">WhatsApp</h2>
           <button
             onClick={() => onSetInboxOpen(false)}
-            className="hidden md:block p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+            className="hidden md:block p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
             title="Fechar painel"
-            aria-label="Fechar painel de inbox"
+            aria-label="Fechar painel"
           >
-            <PanelLeftClose size={18} />
+            <PanelLeftClose size={16} />
           </button>
         </div>
 
@@ -247,7 +256,7 @@ export function InboxSidebar({
         <div className="flex rounded-xl border border-border overflow-hidden">
           <button
             onClick={() => onSetClientMode(false)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold transition-colors ${
               !clientMode
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
@@ -261,7 +270,7 @@ export function InboxSidebar({
           </button>
           <button
             onClick={() => onSetClientMode(true)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-2 text-[12px] font-semibold transition-colors ${
+            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold transition-colors ${
               clientMode
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
@@ -273,28 +282,6 @@ export function InboxSidebar({
               <span className="ml-1 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadClientsCount > 99 ? '99+' : unreadClientsCount}</span>
             )}
           </button>
-        </div>
-
-        {/* Barra de pesquisa */}
-        <div className="relative">
-          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground/60 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={e => onSetSearchQuery(e.target.value)}
-            placeholder="Buscar contato ou mensagem…"
-            className="w-full pl-8 pr-7 py-1.5 text-[12px] bg-accent/50 border border-border rounded-lg placeholder:text-muted-foreground/50 focus:outline-none focus:ring-1 focus:ring-primary/40 focus:border-primary/40 transition-all"
-          />
-          {searchQuery && (
-            <button
-              onClick={() => onSetSearchQuery('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors"
-              title="Limpar busca"
-              aria-label="Limpar busca"
-            >
-              <X size={12} />
-            </button>
-          )}
         </div>
 
         {/* Desktop notification permission banner */}
