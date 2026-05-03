@@ -21,7 +21,7 @@ import { useRouter } from 'next/navigation';
 import {
   Bell, Send, CheckCircle2, XCircle, Clock, Loader2, RefreshCw,
   Phone, Calendar as CalendarIcon, Trash2, Play, Search, ExternalLink, Filter, X,
-  Eye, AlertTriangle, Layers, ChevronRight, ChevronDown,
+  Eye, AlertTriangle, Layers, ChevronRight, ChevronDown, Download, BarChart3,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -33,6 +33,10 @@ interface ReminderRow {
   channel: string;
   sent_at: string | null;
   last_error: string | null;
+  // v25 (Onda C): delivery tracking via webhook Evolution
+  delivered_at: string | null;
+  read_at: string | null;
+  delivery_status: 'enviado' | 'entregue' | 'lido' | null;
   derived_status: 'enviado' | 'pendente' | 'falhou';
   event: {
     id: string;
@@ -56,6 +60,32 @@ interface Summary {
 interface DentistOption {
   id: string;
   name: string;
+}
+
+// v25 (Onda C): saude dos lembretes
+interface HealthData {
+  period: { days: number; since: string };
+  totals: {
+    total: number;
+    enviados: number;
+    entregues: number;
+    lidos: number;
+    falhas: number;
+  };
+  rates: {
+    entrega_pct: number;
+    leitura_pct: number;
+    leitura_geral_pct: number;
+  };
+  by_minutes_before: Array<{
+    minutes_before: number;
+    total: number;
+    entregues: number;
+    lidos: number;
+    entrega_pct: number;
+    leitura_pct: number;
+  }>;
+  by_day: Array<{ day: string; count: number }>;
 }
 
 const STATUS_FILTERS = [
@@ -95,6 +125,37 @@ const channelLabel = (c: string): { label: string; color: string } => {
 // Auto-refresh interval em ms (30s — equilibra atualizacao vs carga no backend)
 const AUTO_REFRESH_MS = 30_000;
 
+/**
+ * v25 (Onda C): renderiza checks de delivery estilo WhatsApp.
+ *   ⏰ → enviado (sem ack)
+ *   ✓  → entregue (1 check cinza)
+ *   ✓✓ → lido (2 checks azul)
+ */
+function DeliveryChecks({ status }: { status: 'enviado' | 'entregue' | 'lido' | null }) {
+  if (!status) return null;
+  if (status === 'lido') {
+    return (
+      <span className="inline-flex items-center gap-0 text-sky-500" title="Lido pelo paciente">
+        <CheckCircle2 size={11} />
+        <CheckCircle2 size={11} className="-ml-1.5" />
+      </span>
+    );
+  }
+  if (status === 'entregue') {
+    return (
+      <span className="inline-flex items-center gap-0 text-muted-foreground" title="Entregue ao paciente">
+        <CheckCircle2 size={11} />
+        <CheckCircle2 size={11} className="-ml-1.5" />
+      </span>
+    );
+  }
+  return (
+    <span className="text-muted-foreground/60" title="Enviado (aguardando entrega)">
+      <CheckCircle2 size={11} />
+    </span>
+  );
+}
+
 export function RemindersTab() {
   const router = useRouter();
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -114,6 +175,10 @@ export function RemindersTab() {
   const [previewReminderId, setPreviewReminderId] = useState<string | null>(null);
   const [groupByEvent, setGroupByEvent] = useState(false);
   const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  // v25 (Onda C): seção de saúde colapsável + estado de export
+  const [showHealth, setShowHealth] = useState(false);
+  const [healthData, setHealthData] = useState<HealthData | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -206,6 +271,49 @@ export function RemindersTab() {
       showError(e?.response?.data?.message || 'Falha ao cancelar');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  // v25: carrega metricas de saude (so quando seccao eh aberta, evita request inutil)
+  const fetchHealth = useCallback(async () => {
+    try {
+      const res = await api.get('/calendar/reminders/health', { params: { days: 30 } });
+      setHealthData(res.data);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao carregar métricas de saúde');
+    }
+  }, []);
+
+  useEffect(() => {
+    if (showHealth && !healthData) fetchHealth();
+  }, [showHealth, healthData, fetchHealth]);
+
+  // v25: download CSV via fetch direto (api lib ajusta Authorization automaticamente)
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const params: any = {};
+      if (filter !== 'todos') params.status = filter;
+      if (dateFrom) params.from = new Date(dateFrom + 'T00:00:00').toISOString();
+      if (dateTo) params.to = new Date(dateTo + 'T23:59:59').toISOString();
+      const res = await api.get('/calendar/reminders/export.csv', {
+        params,
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'text/csv;charset=utf-8' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `lembretes-${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+      showSuccess('CSV exportado');
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao exportar CSV');
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -363,6 +471,122 @@ export function RemindersTab() {
         })}
       </div>
 
+      {/* v25 (Onda C #11): seção colapsavel de saude dos lembretes */}
+      {showHealth && (
+        <div className="bg-card rounded-2xl border border-border p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <BarChart3 size={16} className="text-primary" />
+              Saúde dos lembretes
+            </h3>
+            {healthData && (
+              <span className="text-[10px] text-muted-foreground">
+                Últimos {healthData.period.days} dias
+              </span>
+            )}
+          </div>
+
+          {!healthData ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 size={16} className="animate-spin text-muted-foreground" />
+            </div>
+          ) : healthData.totals.enviados === 0 ? (
+            <p className="text-sm text-muted-foreground italic text-center py-4">
+              Nenhum lembrete enviado nos últimos {healthData.period.days} dias.
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {/* Taxas principais */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="text-center p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                  <div className="text-2xl font-bold text-emerald-700 dark:text-emerald-400">
+                    {healthData.rates.entrega_pct}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    Taxa de entrega
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/70">
+                    {healthData.totals.entregues}/{healthData.totals.enviados} enviados
+                  </div>
+                </div>
+                <div className="text-center p-3 rounded-xl bg-sky-500/5 border border-sky-500/20">
+                  <div className="text-2xl font-bold text-sky-700 dark:text-sky-400">
+                    {healthData.rates.leitura_geral_pct}%
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    Taxa de leitura
+                  </div>
+                  <div className="text-[10px] text-muted-foreground/70">
+                    {healthData.totals.lidos}/{healthData.totals.enviados} enviados
+                  </div>
+                </div>
+                <div className="text-center p-3 rounded-xl bg-red-500/5 border border-red-500/20">
+                  <div className="text-2xl font-bold text-red-700 dark:text-red-400">
+                    {healthData.totals.falhas}
+                  </div>
+                  <div className="text-[10px] text-muted-foreground mt-1">
+                    Falhas no envio
+                  </div>
+                </div>
+              </div>
+
+              {/* Por antecedência */}
+              {healthData.by_minutes_before.length > 0 && (
+                <div>
+                  <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                    Efetividade por antecedência
+                  </h4>
+                  <div className="space-y-1.5">
+                    {healthData.by_minutes_before.map((row) => (
+                      <div key={row.minutes_before} className="flex items-center gap-2 text-xs">
+                        <span className="font-semibold text-foreground min-w-[50px]">
+                          {formatMinutes(row.minutes_before)}
+                        </span>
+                        <div className="flex-1 h-5 bg-muted/30 rounded overflow-hidden relative">
+                          {/* Barra de leitura (sky) sobreposta a entrega (emerald) */}
+                          <div
+                            className="absolute inset-y-0 left-0 bg-emerald-500/40"
+                            style={{ width: `${row.entrega_pct}%` }}
+                          />
+                          <div
+                            className="absolute inset-y-0 left-0 bg-sky-500/60"
+                            style={{ width: `${row.leitura_pct}%` }}
+                          />
+                          <div className="absolute inset-0 flex items-center justify-center text-[10px] font-bold text-foreground">
+                            {row.lidos}/{row.entregues}/{row.total}
+                          </div>
+                        </div>
+                        <span className="text-muted-foreground min-w-[60px] text-right">
+                          {row.leitura_pct}% lido
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-3 mt-2 text-[9px] text-muted-foreground">
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-sky-500/60 rounded" /> Lidos</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-emerald-500/40 rounded" /> Entregues</span>
+                    <span className="flex items-center gap-1"><span className="w-2 h-2 bg-muted/40 rounded" /> Total enviados</span>
+                  </div>
+                </div>
+              )}
+
+              {/* Insight automatico */}
+              {healthData.by_minutes_before.length > 1 && (() => {
+                const sorted = [...healthData.by_minutes_before].sort((a, b) => b.leitura_pct - a.leitura_pct);
+                const best = sorted[0];
+                if (best.total < 5) return null; // sem dados suficientes
+                return (
+                  <div className="text-[11px] text-foreground/80 p-2.5 rounded-lg bg-primary/5 border border-primary/20">
+                    💡 <strong>Lembrete mais efetivo:</strong> {formatMinutes(best.minutes_before)} antes
+                    ({best.leitura_pct}% leem). Considere reforçar essa antecedência ou ajustar as outras.
+                  </div>
+                );
+              })()}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Toolbar: filtros + status + refresh */}
       <div className="bg-card rounded-2xl border border-border overflow-hidden">
         <div className="px-4 py-3 border-b border-border space-y-3">
@@ -388,6 +612,26 @@ export function RemindersTab() {
               })}
             </div>
             <div className="flex items-center gap-1">
+              {/* v25 (Onda C #11): toggle saude */}
+              <button
+                onClick={() => setShowHealth((v) => !v)}
+                className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                  showHealth ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent'
+                }`}
+                title="Métricas de saúde dos lembretes"
+              >
+                <BarChart3 size={12} /> Saúde
+              </button>
+              {/* v25 (Onda C #12): export CSV */}
+              <button
+                onClick={handleExport}
+                disabled={exporting}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:bg-accent transition-colors disabled:opacity-50"
+                title="Exportar lista filtrada como CSV (abre no Excel)"
+              >
+                {exporting ? <Loader2 size={12} className="animate-spin" /> : <Download size={12} />}
+                Exportar
+              </button>
               {/* v24: toggle agrupar por evento */}
               <button
                 onClick={() => setGroupByEvent((v) => !v)}
@@ -630,6 +874,12 @@ export function RemindersTab() {
                           {r.derived_status === 'falhou' && <XCircle size={10} />}
                           {r.derived_status}
                         </span>
+                        {/* v25: checks de delivery (✓ entregue, ✓✓ lido) */}
+                        {r.derived_status === 'enviado' && r.delivery_status && (
+                          <div className="mt-1 ml-1">
+                            <DeliveryChecks status={r.delivery_status} />
+                          </div>
+                        )}
                         {/* v24: motivo de erro inline em FALHOU */}
                         {r.derived_status === 'falhou' && r.last_error && (
                           <div

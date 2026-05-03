@@ -25,6 +25,9 @@ interface PreviewData {
     channel: string;
     sent_at: string | null;
     last_error: string | null;
+    // v25 (Onda C): delivery tracking
+    delivered_at: string | null;
+    read_at: string | null;
   };
   event: {
     id: string;
@@ -129,17 +132,59 @@ export function ReminderPreviewModal({ reminderId, onClose }: Props) {
               </div>
             </div>
 
-            {/* Status do envio */}
+            {/* Status do envio com TIMELINE de delivery (v25 Onda C) */}
             {data.reminder.sent_at ? (
               <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3">
-                <div className="flex items-center gap-2 mb-1">
+                <div className="flex items-center gap-2 mb-2">
                   <CheckCircle2 size={14} className="text-emerald-600" />
                   <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400">
-                    Enviado
+                    Status do envio
                   </span>
                 </div>
-                <p className="text-[11px] text-muted-foreground">
-                  Em {formatDateTime(data.reminder.sent_at)} • {data.reminder.minutes_before}min antes do evento • via {data.reminder.channel}
+                {/* Timeline visual */}
+                <div className="flex items-center gap-3 mt-2 text-[11px]">
+                  <div className="flex flex-col items-center gap-1">
+                    <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center">
+                      <CheckCircle2 size={12} />
+                    </div>
+                    <span className="text-foreground font-semibold">Enviado</span>
+                    <span className="text-[9px] text-muted-foreground">{formatDateTime(data.reminder.sent_at)}</span>
+                  </div>
+                  <div className={`flex-1 h-0.5 ${data.reminder.delivered_at ? 'bg-emerald-500' : 'bg-muted'}`} />
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      data.reminder.delivered_at
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      <CheckCircle2 size={12} />
+                    </div>
+                    <span className={data.reminder.delivered_at ? 'text-foreground font-semibold' : 'text-muted-foreground'}>
+                      Entregue
+                    </span>
+                    {data.reminder.delivered_at && (
+                      <span className="text-[9px] text-muted-foreground">{formatDateTime(data.reminder.delivered_at)}</span>
+                    )}
+                  </div>
+                  <div className={`flex-1 h-0.5 ${data.reminder.read_at ? 'bg-sky-500' : 'bg-muted'}`} />
+                  <div className="flex flex-col items-center gap-1">
+                    <div className={`w-6 h-6 rounded-full flex items-center justify-center ${
+                      data.reminder.read_at
+                        ? 'bg-sky-500 text-white'
+                        : 'bg-muted text-muted-foreground'
+                    }`}>
+                      <CheckCircle2 size={12} />
+                    </div>
+                    <span className={data.reminder.read_at ? 'text-foreground font-semibold' : 'text-muted-foreground'}>
+                      Lido
+                    </span>
+                    {data.reminder.read_at && (
+                      <span className="text-[9px] text-muted-foreground">{formatDateTime(data.reminder.read_at)}</span>
+                    )}
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-3">
+                  {data.reminder.minutes_before}min antes • via {data.reminder.channel}
                 </p>
               </div>
             ) : data.reminder.last_error ? (

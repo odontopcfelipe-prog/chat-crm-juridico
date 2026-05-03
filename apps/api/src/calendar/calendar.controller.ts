@@ -337,6 +337,39 @@ export class CalendarController {
     return this.calendarService.getReminderPreview(id);
   }
 
+  // v25 (Onda C #11): metricas de saude dos lembretes (taxa entrega, leitura, etc)
+  @Get('reminders/health')
+  getRemindersHealth(
+    @Query('days') days: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.calendarService.getRemindersHealth({
+      tenant_id: req.user?.tenant_id,
+      days: days ? parseInt(days) : undefined,
+    });
+  }
+
+  // v25 (Onda C #12): export CSV dos lembretes filtrados
+  @Get('reminders/export.csv')
+  async exportRemindersCSV(
+    @Query('status') status: 'pendente' | 'enviado' | 'falhou' | 'todos' | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Request() req: any,
+    @Res() res: Response,
+  ) {
+    const csv = await this.calendarService.exportRemindersCSV({
+      status,
+      from,
+      to,
+      tenant_id: req.user?.tenant_id,
+    });
+    const filename = `lembretes-${new Date().toISOString().slice(0, 10)}.csv`;
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send('﻿' + csv); // BOM pra Excel abrir UTF-8 corretamente
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   @Get('holidays')

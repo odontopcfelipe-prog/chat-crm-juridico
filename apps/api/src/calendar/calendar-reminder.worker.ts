@@ -361,8 +361,10 @@ export class CalendarReminderWorker extends WorkerHost {
     // Envia pelo canal apropriado. Dedup defensivo: so marca sent_at se o
     // envio foi bem-sucedido (evita perder o job quando ha falha transitoria).
     // v24: lastErrorMsg captura motivo legivel pra salvar no banco (UI exibe).
+    // v25: capturedExternalMsgId pra delivery tracking via webhook.
     let sent = false;
     let lastErrorMsg: string | null = null;
+    let capturedExternalMsgId: string | null = null;
     if (channel === 'WHATSAPP') {
       // Validacao previa: paciente precisa ter telefone
       if (!event.lead?.phone) {
@@ -370,7 +372,8 @@ export class CalendarReminderWorker extends WorkerHost {
         sent = false;
       } else {
         try {
-          await this.sendWhatsAppReminders(event, reminder.minutes_before);
+          const result = await this.sendWhatsAppReminders(event, reminder.minutes_before);
+          capturedExternalMsgId = result.externalMsgId;
           sent = true;
         } catch (e: any) {
           lastErrorMsg = e?.message || 'Falha desconhecida ao enviar WhatsApp';
@@ -388,12 +391,16 @@ export class CalendarReminderWorker extends WorkerHost {
     }
 
     if (sent) {
-      // v24: limpa last_error em caso de sucesso (pode ter falhado antes)
+      // v24+v25: limpa last_error + salva external_message_id pra webhook propagar status
       await this.prisma.eventReminder.update({
         where: { id: reminderId },
-        data: { sent_at: new Date(), last_error: null },
+        data: {
+          sent_at: new Date(),
+          last_error: null,
+          external_message_id: capturedExternalMsgId,
+        },
       });
-      this.logger.log(`[REMINDER] ${channel} enviado para evento "${event.title}" (${eventId})`);
+      this.logger.log(`[REMINDER] ${channel} enviado para evento "${event.title}" (${eventId})${capturedExternalMsgId ? ` msgId=${capturedExternalMsgId}` : ''}`);
     } else {
       // v24: salva motivo da falha pra UI mostrar no badge FALHOU
       await this.prisma.eventReminder.update({
@@ -404,12 +411,69 @@ export class CalendarReminderWorker extends WorkerHost {
         },
       });
       this.logger.warn(`[REMINDER] ${channel} falhou para evento "${event.title}" — nao marcado como sent_at. Erro: ${lastErrorMsg}`);
+
+      // v25 (#13): cria Notification pra admin/dentista quando reminder falha
+      try {
+        await this.notifyReminderFailure(event, reminder.minutes_before, lastErrorMsg);
+      } catch (e: any) {
+        this.logger.warn(`[REMINDER] Falha ao notificar admin sobre erro: ${e.message}`);
+      }
+    }
+  }
+
+  // ─── v25 (#13): Notifica equipe quando reminder falha ───────────────────────
+  // Cria Notification pro dentista responsavel + admin do tenant. NotificationCenter
+  // do app (sininho) mostra automaticamente.
+  private async notifyReminderFailure(event: any, minutesBefore: number, errorMsg: string | null) {
+    const userIds = new Set<string>();
+    if (event.assigned_user_id) userIds.add(event.assigned_user_id);
+    // Pega admins do mesmo tenant
+    if (event.tenant_id) {
+      const admins = await this.prisma.user.findMany({
+        where: {
+          tenant_id: event.tenant_id,
+          roles: { has: 'ADMIN' },
+        },
+        select: { id: true },
+        take: 5,
+      });
+      admins.forEach((a) => userIds.add(a.id));
+    }
+    const labelMin = minutesBefore < 60 ? `${minutesBefore}min` : minutesBefore === 60 ? '1h' : minutesBefore === 1440 ? '1d' : `${Math.round(minutesBefore / 60)}h`;
+    const title = `Lembrete falhou (${labelMin} antes)`;
+    const body = `${event.lead?.name || 'Paciente'} — ${event.title}. Motivo: ${errorMsg || 'erro desconhecido'}`;
+    for (const uid of userIds) {
+      try {
+        await this.prisma.notification.create({
+          data: {
+            user_id: uid,
+            tenant_id: event.tenant_id || null,
+            notification_type: 'reminder_failed',
+            title,
+            body,
+            data: { event_id: event.id, lead_id: event.lead_id, error: errorMsg },
+          },
+        });
+      } catch {
+        // silent — nao bloqueia o flow do worker se notif falhar
+      }
+    }
+    if (userIds.size > 0) {
+      this.logger.log(`[REMINDER] Notificacao 'reminder_failed' criada pra ${userIds.size} user(s)`);
     }
   }
 
   // ─── Orquestra os envios ──────────────────────────────────────────────────
 
-  private async sendWhatsAppReminders(event: any, minutesBefore: number) {
+  /**
+   * Envia mensagem WhatsApp pro paciente + dentista.
+   * v25: retorna { externalMsgId } da mensagem enviada AO PACIENTE pra
+   * salvar no EventReminder e habilitar delivery tracking via webhook.
+   */
+  private async sendWhatsAppReminders(
+    event: any,
+    minutesBefore: number,
+  ): Promise<{ externalMsgId: string | null }> {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
     const isConsulta = event.type === 'CONSULTA';
 
@@ -436,6 +500,9 @@ export class CalendarReminderWorker extends WorkerHost {
         this.logger.warn(`[REMINDER] Erro ao enviar para dentista/advogado ${advPhone}: ${e.message}`);
       }
     }
+
+    // v25: retorna externalMsgId pra worker salvar no EventReminder
+    let returnedMsgId: string | null = null;
 
     // ── 2. Mensagem para o Cliente/Paciente ──────────────────────────────────
     // Onda 5e v17: ANTES era `if (isAudiencia && ...)` — bug critico que excluia
@@ -495,6 +562,7 @@ export class CalendarReminderWorker extends WorkerHost {
       if (lastConvo && reminderSendResult !== undefined) {
         try {
           const evolutionMsgId = reminderSendResult?.data?.key?.id || `sys_reminder_${Date.now()}`;
+          returnedMsgId = evolutionMsgId; // v25: retorna pro worker salvar no reminder
           await this.prisma.message.create({
             data: {
               conversation_id: lastConvo.id,
@@ -538,6 +606,9 @@ export class CalendarReminderWorker extends WorkerHost {
         }
       }
     }
+
+    // v25: retorna externalMsgId pra worker salvar no EventReminder
+    return { externalMsgId: returnedMsgId };
   }
 
   // ─── Notificação imediata de audiência agendada ───────────────────────────

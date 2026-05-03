@@ -850,6 +850,34 @@ export class EvolutionService implements OnApplicationBootstrap {
 
         this.chatGateway.emitMessageUpdate(msg.conversation_id, updated);
         this.logger.log(`[WEBHOOK] msg ${externalMessageId} status → ${newStatus}`);
+
+        // Onda 5e v25 (Fase 25, Onda C) — propaga status pra EventReminder.
+        // Se essa Message corresponde a um lembrete (external_message_id bate
+        // com EventReminder.external_message_id), atualiza delivered_at/read_at.
+        // UI da aba Lembretes mostra os checks ✓ / ✓✓ baseado nesses campos.
+        try {
+          const reminder = await (this.prisma as any).eventReminder.findFirst({
+            where: { external_message_id: externalMessageId },
+            select: { id: true, delivered_at: true, read_at: true },
+          });
+          if (reminder) {
+            const data: any = {};
+            if (newStatus === 'entregue' && !reminder.delivered_at) data.delivered_at = new Date();
+            if (newStatus === 'lido') {
+              if (!reminder.delivered_at) data.delivered_at = new Date(); // lido implica entregue
+              if (!reminder.read_at) data.read_at = new Date();
+            }
+            if (Object.keys(data).length > 0) {
+              await (this.prisma as any).eventReminder.update({
+                where: { id: reminder.id },
+                data,
+              });
+              this.logger.log(`[WEBHOOK] EventReminder ${reminder.id} status → ${newStatus}`);
+            }
+          }
+        } catch (e: any) {
+          // silent — nao bloqueia o flow se reminder nao existir ou erro
+        }
       } catch (e) {
         this.logger.warn(`[WEBHOOK] Falha ao atualizar status de ${externalMessageId}: ${e.message}`);
       }

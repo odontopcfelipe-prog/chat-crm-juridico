@@ -897,12 +897,23 @@ export class CalendarService {
       channel: r.channel,
       sent_at: r.sent_at,
       last_error: r.last_error, // v24: motivo de falha
+      // v25 (Onda C): delivery tracking via webhook
+      delivered_at: r.delivered_at,
+      read_at: r.read_at,
       // Status derivado pra UI
       derived_status: r.sent_at
         ? 'enviado'
         : r.event && r.event.start_at < now
           ? 'falhou'
           : 'pendente',
+      // v25: status detalhado de delivery (pra mostrar checks ✓ / ✓✓)
+      delivery_status: r.read_at
+        ? 'lido'
+        : r.delivered_at
+          ? 'entregue'
+          : r.sent_at
+            ? 'enviado'
+            : null,
       event: r.event,
     }));
   }
@@ -976,12 +987,160 @@ export class CalendarService {
         channel: reminder.channel,
         sent_at: reminder.sent_at,
         last_error: reminder.last_error,
+        // v25: delivery tracking
+        delivered_at: (reminder as any).delivered_at,
+        read_at: (reminder as any).read_at,
       },
       event: reminder.event,
       conversation_id: conversationId,
       sent_message: sentMessage,
       lead_responses: leadResponses,
     };
+  }
+
+  // ─── Metricas de saude dos lembretes (v25 #11) ──────────────────────
+  // Agregados sobre EventReminder pra dashboard de saude:
+  //   - Taxa de delivery (% entregue / enviados)
+  //   - Taxa de leitura (% lido / entregues)
+  //   - Antecedencias mais efetivas (qual antecedencia tem maior taxa de leitura)
+  //   - Volume por dia (ultimos 30d)
+  async getRemindersHealth(opts: { tenant_id?: string; days?: number }) {
+    const days = opts.days ?? 30;
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const tenantFilter = opts.tenant_id
+      ? { event: { OR: [{ tenant_id: opts.tenant_id }, { tenant_id: null }] } }
+      : {};
+
+    // Agregados sobre lembretes ENVIADOS no periodo
+    const reminders = await (this.prisma as any).eventReminder.findMany({
+      where: {
+        sent_at: { gte: since },
+        ...tenantFilter,
+      },
+      select: {
+        minutes_before: true,
+        channel: true,
+        sent_at: true,
+        delivered_at: true,
+        read_at: true,
+        last_error: true,
+      },
+    });
+
+    const total = reminders.length;
+    const enviados = reminders.filter((r: any) => r.sent_at).length;
+    const entregues = reminders.filter((r: any) => r.delivered_at).length;
+    const lidos = reminders.filter((r: any) => r.read_at).length;
+    const falhasNoPeriodo = await (this.prisma as any).eventReminder.count({
+      where: {
+        sent_at: null,
+        last_error: { not: null },
+        event: {
+          start_at: { gte: since },
+          ...(opts.tenant_id ? { OR: [{ tenant_id: opts.tenant_id }, { tenant_id: null }] } : {}),
+        },
+      },
+    });
+
+    // Taxa por antecedencia (1d, 1h, 30min)
+    const byMinutes: Record<number, { total: number; entregues: number; lidos: number }> = {};
+    for (const r of reminders) {
+      const m = r.minutes_before;
+      if (!byMinutes[m]) byMinutes[m] = { total: 0, entregues: 0, lidos: 0 };
+      byMinutes[m].total++;
+      if (r.delivered_at) byMinutes[m].entregues++;
+      if (r.read_at) byMinutes[m].lidos++;
+    }
+
+    // Volume por dia (ultimos N dias)
+    const byDay: Record<string, number> = {};
+    for (const r of reminders) {
+      if (!r.sent_at) continue;
+      const day = r.sent_at.toISOString().slice(0, 10);
+      byDay[day] = (byDay[day] || 0) + 1;
+    }
+
+    const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+
+    return {
+      period: { days, since: since.toISOString() },
+      totals: {
+        total,
+        enviados,
+        entregues,
+        lidos,
+        falhas: falhasNoPeriodo,
+      },
+      rates: {
+        entrega_pct: pct(entregues, enviados),
+        leitura_pct: pct(lidos, entregues),
+        leitura_geral_pct: pct(lidos, enviados),
+      },
+      by_minutes_before: Object.entries(byMinutes)
+        .map(([m, v]) => ({
+          minutes_before: parseInt(m),
+          total: v.total,
+          entregues: v.entregues,
+          lidos: v.lidos,
+          entrega_pct: pct(v.entregues, v.total),
+          leitura_pct: pct(v.lidos, v.total),
+        }))
+        .sort((a, b) => b.minutes_before - a.minutes_before),
+      by_day: Object.entries(byDay)
+        .map(([day, count]) => ({ day, count }))
+        .sort((a, b) => a.day.localeCompare(b.day)),
+    };
+  }
+
+  // ─── Export CSV de lembretes (v25 #12) ──────────────────────────────
+  // Reusa listReminders, formata como CSV pra download (relatorio).
+  async exportRemindersCSV(opts: {
+    status?: 'pendente' | 'enviado' | 'falhou' | 'todos';
+    from?: string;
+    to?: string;
+    tenant_id?: string;
+  }) {
+    const reminders = await this.listReminders({ ...opts, limit: 5000 });
+
+    const escape = (val: any): string => {
+      if (val === null || val === undefined) return '';
+      const s = String(val).replace(/"/g, '""');
+      return `"${s}"`;
+    };
+    const fmtDate = (d: Date | string | null) => {
+      if (!d) return '';
+      const dt = typeof d === 'string' ? new Date(d) : d;
+      return dt.toISOString().slice(0, 19).replace('T', ' ');
+    };
+
+    const headers = [
+      'Status', 'Status Detalhado', 'Paciente', 'Telefone', 'Dentista',
+      'Evento', 'Tipo Evento', 'Data/Hora Evento',
+      'Antecedencia (min)', 'Canal',
+      'Enviado em', 'Entregue em', 'Lido em',
+      'Motivo Falha',
+    ];
+    const lines = [headers.map(escape).join(',')];
+    for (const r of reminders) {
+      lines.push([
+        r.derived_status,
+        (r as any).delivery_status || '',
+        r.event?.lead?.name || '',
+        r.event?.lead?.phone || '',
+        r.event?.assigned_user?.name || '',
+        r.event?.title || '',
+        r.event?.type || '',
+        fmtDate(r.event?.start_at as any),
+        r.minutes_before,
+        r.channel,
+        fmtDate(r.sent_at as any),
+        fmtDate((r as any).delivered_at),
+        fmtDate((r as any).read_at),
+        r.last_error || '',
+      ].map(escape).join(','));
+    }
+    return lines.join('\n');
   }
 
   /**

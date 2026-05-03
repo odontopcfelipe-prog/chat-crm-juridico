@@ -873,8 +873,16 @@ model EventReminder {
   // (telefone invalido, sem WhatsApp, instance offline, etc).
   // Mostrado na UI da aba Lembretes pro operador investigar.
   last_error     String?
+  // Onda 5e v25 (Fase 25, Onda C) — Delivery tracking via webhook
+  // messages.update do Evolution. external_message_id liga o reminder
+  // a Message correspondente; webhook atualiza delivered_at quando
+  // status=DELIVERY_ACK e read_at quando status=READ.
+  external_message_id String?
+  delivered_at        DateTime?
+  read_at             DateTime?
 
   @@index([event_id])
+  @@index([external_message_id])
 }
 
 model UserSchedule {

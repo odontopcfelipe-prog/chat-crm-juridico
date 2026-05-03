@@ -22,6 +22,7 @@ const TYPE_ICONS: Record<string, any> = {
   transfer_request:  ArrowRightLeft,
   task_overdue:      Clock,
   calendar_reminder: Calendar,
+  reminder_failed:   Calendar, // v25 (Onda C #13): falha de lembrete
   legal_case_update: Scale,
   petition_status:   FileText,
   contract_signed:   FileText,
@@ -33,6 +34,7 @@ const TYPE_LABELS: Record<string, string> = {
   transfer_request:  'Transferência',
   task_overdue:      'Tarefa',
   calendar_reminder: 'Agenda',
+  reminder_failed:   'Lembrete falhou',
   legal_case_update: 'Processo',
   petition_status:   'Petição',
   contract_signed:   'Contrato',
