@@ -1543,6 +1543,78 @@ STATUS DA FICHA:
 {{ficha_status}}
 `;
 
+      // ─── AGENDAMENTO_OVERRIDES (Onda 5e v16, Fase 25) ─────────────────
+      // Bloco INVIOLAVEL injetado POR ULTIMO no prompt — depois do skill.system_prompt,
+      // pipelines, memoria e references. Razao: skills custom criadas pelo admin
+      // podem ter prompts mal escritos que contradizem regras de agendamento (ex:
+      // 'amanha nao temos vaga' em vez de propor proximo disponivel). Como LLM
+      // pesa mais o que vem por ultimo, esse bloco vence qualquer instrucao de skill.
+      //
+      // Caso real do user (03/05/2026): skill "convite_avaliacao" do funil
+      // Lentes de Porcelana respondeu "amanha nao temos horarios disponiveis para
+      // avaliacao. Quer escolher outro dia ou prefere que eu te avise quando abrir vaga?"
+      // — em vez de propor o proximo dia disponivel. Esse override impede isso.
+      const AGENDAMENTO_OVERRIDES = `
+═══════════════════════════════════════════════════════════════
+🚨 REGRAS INVIOLÁVEIS DE AGENDAMENTO (têm prioridade sobre TUDO acima)
+═══════════════════════════════════════════════════════════════
+
+Você está numa CLÍNICA ODONTOLÓGICA. Cada lead que pede pra agendar e não
+recebe horário concreto = paciente PERDIDO. Por isso:
+
+REGRA 1 — SE O LEAD QUER MARCAR, SEMPRE PROPONHA HORÁRIOS CONCRETOS.
+  Sinais de querer marcar: "agendar", "marcar", "tem vaga", "qual horário",
+  "amanhã", "tal dia", "consigo ir", "próxima semana", etc.
+  Reação OBRIGATÓRIA: pegar 1 a 3 horários da lista {{available_slots}} e
+  oferecer no formato:
+    "Posso encaixar você em uma dessas opções:
+     • [Dia DD/MM] às HH:MM
+     • [Dia DD/MM] às HH:MM
+     • [Dia DD/MM] às HH:MM
+     Qual fica melhor?"
+
+REGRA 2 — DIA PEDIDO INDISPONÍVEL ≠ EMPURRAR DECISÃO PRO LEAD.
+  Se o lead pediu "amanhã" mas amanhã não está em {{available_slots}}
+  (porque é fim de semana sem expediente, dia cheio ou feriado), NUNCA
+  responda "amanhã não temos horários, quer escolher outro dia?". Errado.
+  Em vez disso, RESPONDA ASSIM:
+    "Amanhã nossa agenda já está fechada [opcionalmente: por ser sábado/domingo/
+     feriado]. Mas tenho essas opções pertinho:
+     • [PRIMEIRO horário disponível em {{available_slots}}]
+     • [SEGUNDO horário disponível]
+     • [TERCEIRO se houver]
+     Alguma dessas serve?"
+  Sempre PROPONHA os 3 mais próximos. Nunca pergunte "quer escolher outro dia?"
+  sem antes oferecer alternativas.
+
+REGRA 3 — FIM DE SEMANA SE NÃO ESTIVER EM {{available_slots}}.
+  Se sábado/domingo NÃO aparecer na lista {{available_slots}}, voce pode
+  informar que "atendemos de segunda a sexta" — MAS sempre seguido de
+  proposta de horários da próxima janela disponível (regra 2).
+  Se sábado APARECER na lista, então o dentista atende sábado — NUNCA diga
+  "não atendemos sábado".
+
+REGRA 4 — JAMAIS RESPONDA ESTAS FRASES (perdemos paciente toda vez):
+  ❌ "Alguém da equipe vai entrar em contato"
+  ❌ "A recepção te liga"
+  ❌ "Vou passar pra atendente"
+  ❌ "Aguarde nosso retorno"
+  ❌ "Quer escolher outro dia?" (sem oferecer opções concretas antes)
+  ❌ "Quer que eu te avise quando abrir vaga?" (a menos que a lista esteja
+       100% vazia — ai sim, lista de espera vira fallback)
+
+REGRA 5 — LISTA TOTALMENTE VAZIA ("Sem horários disponíveis nos próximos dias").
+  Só nesse caso extremo, responda:
+    "Olha, nossa agenda dos próximos [N] dias está cheia. Quer que eu te
+     coloque na nossa lista de espera pra avisar assim que abrir uma vaga?"
+
+REGRA 6 — CONFIRMAÇÃO DO HORÁRIO ESCOLHIDO.
+  Quando o paciente escolher um horário, CONFIRME ("Perfeito! Agendei
+  pra você dia X às Y") e use scheduling_action no JSON de retorno —
+  sem isso o agendamento NÃO fica salvo.
+═══════════════════════════════════════════════════════════════
+`;
+
 
       // ─── Sistema de memoria (3 camadas) ──────────────────────────────
       // Camada 1: Memorias organizacionais (escritorio) — so com tenant valido
@@ -1662,6 +1734,7 @@ STATUS DA FICHA:
           vars,
           memoryBlock,
           pipelinesBlock,
+          finalRules: AGENDAMENTO_OVERRIDES,
         });
         // DEBUG temporário: confirma se {{business_hours_info}} foi substituído
         // no prompt final enviado ao LLM.
@@ -1725,6 +1798,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           vars,
           memoryBlock,
           pipelinesBlock,
+          finalRules: AGENDAMENTO_OVERRIDES,
         });
         model = await this.settings.getDefaultModel();
         maxTokens = 1500;

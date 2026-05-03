@@ -111,8 +111,16 @@ export class PromptBuilder {
     extraInjections?: string; // ex: FORM_DATA_INJECTION legado
     memoryBlock?: string; // 3 camadas de memoria (org + perfil + episodios)
     pipelinesBlock?: string; // Fase 4: bloco de funis CRM dinâmicos (ver pipeline-context.ts)
+    /**
+     * Onda 5e v16 (Fase 25) — Regras IMUTAVEIS injetadas POR ULTIMO no prompt,
+     * depois ate dos pipelinesBlock/memoryBlock. Razao: LLMs costumam pesar mais
+     * o que vem no final. Skills custom no banco podiam contradizer regras de
+     * agendamento do CORE_RULES (que vem cedo no prompt). Esse bloco passa
+     * APOS tudo, garantindo override mesmo de skill mal escrita.
+     */
+    finalRules?: string;
   }): string {
-    const { mediaCapabilities, behaviorRules, skillPrompt, references, maxContextTokens, vars, extraInjections, memoryBlock, pipelinesBlock } = params;
+    const { mediaCapabilities, behaviorRules, skillPrompt, references, maxContextTokens, vars, extraInjections, memoryBlock, pipelinesBlock, finalRules } = params;
 
     let prompt = mediaCapabilities + '\n\n';
     prompt += this.injectVariables(behaviorRules, vars) + '\n\n';
@@ -164,6 +172,13 @@ export class PromptBuilder {
 
     if (extraInjections) {
       prompt += '\n\n' + this.injectVariables(extraInjections, vars);
+    }
+
+    // v16: finalRules injetadas POR ULTIMO — override de skills mal escritas.
+    // Vem depois de tudo (skill, pipelines, memoria, references) pra ter peso
+    // maximo no comportamento da IA.
+    if (finalRules && finalRules.trim()) {
+      prompt += '\n\n' + this.injectVariables(finalRules, vars);
     }
 
     this.logger.log(`[PromptBuilder] Prompt total: ${prompt.length} chars (~${Math.round(prompt.length/4)} tokens)`);
