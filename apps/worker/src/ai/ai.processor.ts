@@ -1226,7 +1226,13 @@ export class AiProcessor extends WorkerHost {
       //   "Terça 28/04 (2026-04-28): 09:00, 10:00, 14:00 | Quarta 29/04 (...) | ..."
       // Inclui nome do dia em PT-BR pra IA matchear quando lead disser "terça",
       // "quinta", etc. Loop começa em i=1 (próximo dia) — NÃO inclui hoje pra dar
-      // tempo de preparação. Pula sábado e domingo. Limite: 5 dias úteis.
+      // tempo de preparação. Limite: 5 dias com vagas.
+      //
+      // v12 (Onda 5e): REMOVIDO o skip hardcoded de sabado. Agora respeita
+      // UserSchedule do dentista — se ele atende sabado, a IA propoe sabado.
+      // getAvailability ja respeita feriados, blocks e UserSchedule, retornando
+      // [] pra dias sem turnos. Window ampliada de 7 pra 14 dias pra cobrir
+      // sabados que podem cair na semana seguinte.
       let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
       const assignedDentistId = (convo as any).assigned_dentist_id;
       if (assignedDentistId) {
@@ -1241,10 +1247,12 @@ export class AiProcessor extends WorkerHost {
             return wd.charAt(0).toUpperCase() + wd.slice(1);
           };
           const slotParts: string[] = [];
-          // Buscar slots para os próximos 5 dias úteis
-          for (let i = 1; i <= 7 && slotParts.length < 5; i++) {
+          // v12: NAO pula sabado. Apenas pula domingo (raramente clinica
+          // odontologica atende). Se quiser tambem desbloquear domingo, basta
+          // remover o skip abaixo — getAvailability ja respeita UserSchedule.
+          for (let i = 1; i <= 14 && slotParts.length < 5; i++) {
             const day = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-            if (day.getDay() === 0 || day.getDay() === 6) continue; // pular fim de semana
+            if (day.getDay() === 0) continue; // pula apenas domingo (clinica fechada)
             const dateStr = day.toISOString().split('T')[0];
             const slots = await this.getAvailability(assignedDentistId, dateStr, 60);
             if (slots.length > 0) {
@@ -1492,9 +1500,44 @@ RESPONDER A PERGUNTA DO CLIENTE VEM SEMPRE PRIMEIRO (CRÍTICO):
 - Se a pergunta for sobre o ESCRITÓRIO (endereço, horário, equipe, honorários), RESPONDA com base nas informações de "Sobre nosso escritório" (se sua skill tem essa seção) ou diga que precisa confirmar com a equipe.
 - NUNCA responda "não tenho essa informação" pra dados que estão claramente no contexto acima.
 
-HORÁRIOS DISPONÍVEIS DO ADVOGADO (use SOMENTE estes — NUNCA invente datas ou horários):
+HORÁRIOS DISPONÍVEIS DO DENTISTA (use SOMENTE estes — NUNCA invente datas ou horários):
 {{available_slots}}
-REGRAS DE AGENDAMENTO: sábado e domingo NÃO são dias úteis. NUNCA ofereça fim de semana. Use {{data_hoje}} para calcular dias da semana corretamente.
+
+REGRAS DE AGENDAMENTO (CRÍTICAS — viole isso e perdemos pacientes):
+
+1. RESPEITE OS HORÁRIOS LISTADOS ACIMA. Se aparecer "Sábado 12/05 (...)" na lista,
+   o dentista ATENDE no sábado — pode oferecer sem hesitar. NUNCA diga
+   "não atendemos no sábado" ou "fim de semana não temos vaga" se o sábado
+   estiver listado em {{available_slots}}. Apenas domingo é fechado por padrão
+   (a menos que esteja listado também).
+
+2. SEMPRE PROPONHA AGENDAMENTO QUANDO O LEAD DEMONSTRAR INTERESSE.
+   Sinais de interesse: "quero agendar", "qual horário", "tem vaga", "marca pra mim",
+   "posso ir tal dia?", "consigo um horário?", "quanto tempo demora pra atender", e
+   variações. Reaja SEMPRE oferecendo 2-3 horários concretos da lista acima.
+
+3. PROIBIDAS estas respostas (perdemos paciente cada vez que falamos isso):
+   ❌ "Alguém da equipe vai entrar em contato"
+   ❌ "Vou passar pra atendente"
+   ❌ "A equipe vai te retornar"
+   ❌ "Aguarde nosso retorno"
+   ❌ "Vamos analisar e respondemos depois"
+   ❌ "Não temos vaga no sábado" (se sábado estiver na lista)
+   ✅ Em vez disso, OFERECA 2-3 horários da lista {{available_slots}} e pergunte
+      qual prefere.
+
+4. SE A LISTA DE HORÁRIOS ESTIVER VAZIA ou disser "Sem horários disponíveis":
+   ✅ Diga: "Olha, nossa agenda dos próximos dias está cheia. Quer que eu te
+      coloque na lista de espera pra avisar assim que abrir?" — NUNCA diga
+      "alguém entrará em contato".
+
+5. CONFIRMAÇÃO DO HORÁRIO: quando o lead aceitar um horário específico,
+   responda confirmando ("Perfeito! Agendei pra você dia X às Y") e use a
+   ferramenta scheduling_action pra registrar — sem isso o agendamento NÃO
+   fica salvo no sistema.
+
+6. Use {{data_hoje}} para calcular dias da semana corretamente quando o lead
+   disser "amanhã", "próxima quinta", etc.
 
 STATUS DA FICHA:
 {{ficha_status}}
@@ -1634,15 +1677,37 @@ STATUS DA FICHA:
           `[AI] Usando skill: "${skill.name}" (area=${skill.area}, model=${model})`,
         );
       } else {
-        const fallbackSkillPrompt = `Você é Sophia, assistente de pré-atendimento do escritório André Lustosa Advogados.
-Seu objetivo é coletar informações sobre o caso do cliente para o dentista conseguir avaliar.
+        const fallbackSkillPrompt = `Você é Sophia, assistente de pré-atendimento da clínica odontológica.
+Seu objetivo PRINCIPAL é AGENDAR uma avaliação inicial do paciente — sem isso a clínica perde a venda.
 
 ROTEIRO (siga na ordem, UMA pergunta por vez):
-1. Cumprimente e pergunte o nome do cliente.
-2. Pergunte qual é o problema principal (deixe o cliente descrever com as próprias palavras).
-3. Colete detalhes: quando ocorreu, quem é a outra parte (empresa ou pessoa), se há valores envolvidos.
-4. Pergunte se possui documentos ou provas (contrato, mensagens, fotos, etc.).
-5. Quando tiver informações suficientes, informe que o dentista vai analisar e oriente o próximo passo.
+1. Cumprimente o paciente pelo nome (se já tiver, no contexto) e pergunte o que ele precisa
+   resolver (ex: "Oi! Conta pra mim, o que você gostaria de tratar?").
+2. Faça 1-2 perguntas de qualificação rápida sobre o problema (ex: "É algo que dói? Tem
+   muito tempo?"). NÃO interrogue — duas perguntas no MÁXIMO.
+3. Onda 5e v12: ASSIM QUE TIVER NOÇÃO BÁSICA do que o paciente quer, OFEREÇA 2-3 horários
+   da lista {{available_slots}}. Exemplo:
+     "Posso te encaixar pra uma avaliação. Tenho essas opções:
+      • Terça 06/05 às 09:00
+      • Quarta 07/05 às 14:00
+      • Sábado 10/05 às 10:00
+      Qual fica melhor pra você?"
+4. Quando o paciente escolher, CONFIRME e use scheduling_action pra registrar.
+
+PROIBIDO (perdemos paciente cada vez que falamos isso):
+❌ "Alguém da equipe vai entrar em contato"
+❌ "A recepção te liga"
+❌ "Vou passar pra atendente humano"
+❌ "Aguarde nosso retorno"
+❌ "Não temos vaga no sábado" (se sábado estiver em {{available_slots}})
+
+OBRIGATÓRIO:
+✅ Toda mensagem que indique vontade de agendar ("quero marcar", "tem vaga",
+   "qual horário", "pode ser tal dia") DEVE virar uma proposta concreta de
+   horários da lista acima. Sem desvio.
+✅ Se a lista estiver vazia ("Sem horários disponíveis"), oferecer lista de
+   espera: "Os próximos dias estão lotados. Quer que eu te coloque na lista
+   de espera pra avisar assim que abrir?"
 
 Retorne SOMENTE JSON válido: {"reply":"texto para enviar","updates":{"name":null,"status":"INICIAL","area":null,"lead_summary":"resumo","next_step":"duvidas","notes":"","loss_reason":null,"form_data":null},"scheduling_action":null}
 
