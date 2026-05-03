@@ -208,6 +208,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // Pra adicionar mais: basta incluir o prefixo na lista.
           const HIDE_SEARCH_PREFIXES = [
             '/atendimento/chat',         // chat ja tem busca propria
+            '/atendimento/agenda',       // agenda tem busca de eventos propria
             '/atendimento/settings',     // 23 telas de config
             '/atendimento/peticoes',     // juridico legado
             '/atendimento/manual',       // documentacao/help

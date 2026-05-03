@@ -1538,44 +1538,11 @@ export default function AgendaPage() {
             <Filter size={15} />
           </button>
 
-          {/* Search — Onda 5d (Fase 25): compactado pra ganhar espaco */}
-          <div className="relative flex-1 max-w-sm">
-            <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card/80 text-xs focus-within:ring-2 focus-within:ring-primary/25 focus-within:border-primary/40 transition-all">
-              <Search size={12} className="text-muted-foreground shrink-0" />
-              <input
-                type="text"
-                value={searchQuery}
-                onChange={e => handleSearch(e.target.value)}
-                onFocus={() => setShowSearch(true)}
-                placeholder="Buscar eventos..."
-                className="w-full bg-transparent text-foreground placeholder:text-muted-foreground/60 outline-none text-xs"
-              />
-              {searchQuery && (
-                <button onClick={() => { setSearchQuery(''); setSearchResults([]); }} className="text-muted-foreground hover:text-foreground">
-                  <X size={12} />
-                </button>
-              )}
-            </div>
-            {showSearch && searchResults.length > 0 && (
-              <div className="absolute top-full left-0 right-0 mt-1 bg-card border border-border rounded-xl shadow-2xl z-50 max-h-64 overflow-y-auto">
-                {searchResults.map(ev => (
-                  <button
-                    key={ev.id}
-                    onClick={() => { openEditModal(ev); setShowSearch(false); setSearchQuery(''); setSearchResults([]); }}
-                    className="w-full text-left px-3 py-2 hover:bg-accent/50 transition-colors border-b border-border/30 last:border-0"
-                  >
-                    <p className="text-xs font-semibold text-foreground truncate">
-                      {EVENT_TYPES.find(t => t.id === ev.type)?.emoji} {ev.title}
-                    </p>
-                    <p className="text-[10px] text-muted-foreground">
-                      {new Date(ev.start_at).toLocaleDateString('pt-BR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' })}
-                      {ev.assigned_user ? ` · ${ev.assigned_user.name}` : ''}
-                    </p>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Search REMOVIDO (Onda 5d v2 — pediu pra esconder).
+              Codigo preservado em estado se quiser reativar depois — basta
+              reverter este comentario pra div com input + dropdown.
+              Filtro por nome continua funcionando via list view (Lista) que
+              tem campo proprio. */}
 
           {/* Quick nav chips — compactados Onda 5d */}
           <div className="hidden sm:flex items-center gap-1">

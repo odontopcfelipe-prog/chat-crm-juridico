@@ -273,3 +273,55 @@
     page-break-inside: avoid;
   }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+ * Onda 5d v2 (Fase 25) — Esconder elementos do header schedule-x
+ * Solicitado pelo usuario: deixar agenda mais clean.
+ *
+ * REMOVE:
+ *   - Texto "abril – maio 2026" (range heading)
+ *   - Select "Visualização Semana"
+ *   - Select "Data 02/05/2026"
+ *
+ * MANTÉM (operadora ainda navega):
+ *   - Setas <  > (forward/backward navigation)
+ *   - Botão "Hoje" (today)
+ *   - Mini calendário na sidebar (clica no dia pra navegar)
+ *
+ * Pra REVERTER: comentar todo este bloco.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Range heading — texto "abril – maio 2026" no centro do header */
+.sx-react-calendar-wrapper .sx__range-heading,
+.sx-react-calendar-wrapper .sx__week-grid__date-heading,
+.sx-react-calendar-wrapper [class*="range-heading"],
+.sx-react-calendar-wrapper [class*="date-picker"]:not([class*="day"]) {
+  display: none !important;
+}
+
+/* View selection — select "Visualização Semana" */
+.sx-react-calendar-wrapper .sx__view-selection,
+.sx-react-calendar-wrapper .sx__view-selection-items,
+.sx-react-calendar-wrapper [class*="view-selection"] {
+  display: none !important;
+}
+
+/* Date input — select "Data 02/05/2026" (DatePicker do schedule-x) */
+.sx-react-calendar-wrapper .sx__date-input,
+.sx-react-calendar-wrapper .sx__date-picker,
+.sx-react-calendar-wrapper [class*="date-input"]:not([class*="navigation"]) {
+  display: none !important;
+}
+
+/* Compacta o header restante (setas + Hoje continuam) */
+.sx-react-calendar-wrapper .sx__calendar-header {
+  padding: 4px 8px !important;
+  min-height: auto !important;
+  gap: 4px !important;
+}
+
+.sx-react-calendar-wrapper .sx__today-button,
+.sx-react-calendar-wrapper .sx__forward-backward-navigation > * {
+  font-size: 11px !important;
+  padding: 4px 8px !important;
+}
