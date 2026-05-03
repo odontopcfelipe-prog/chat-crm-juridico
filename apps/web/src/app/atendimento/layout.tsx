@@ -223,7 +223,12 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // Detecta /atendimento/pacientes/<algo>: <algo> precisa ser nao-vazio
           // (path com so /pacientes ou /pacientes/ continua mostrando busca)
           const insideSpecificPatient = /^\/atendimento\/pacientes\/[^/]+/.test(pathname);
-          const hideSearch = hideByPrefix || insideSpecificPatient;
+          // Onda 5e v15 (Fase 25) — esconde tambem na tela WhatsApp (/atendimento
+          // exato, sem subpath). Operador ja tem busca propria de conversa
+          // dentro do InboxSidebar (ver InboxSidebar.tsx — Buscar contato ou
+          // mensagem). Top bar redundante so ocupa espaco vertical valioso.
+          const isWhatsAppRoot = pathname === '/atendimento' || pathname === '/atendimento/';
+          const hideSearch = hideByPrefix || insideSpecificPatient || isWhatsAppRoot;
           if (hideSearch) return null;
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card/50 backdrop-blur-sm shrink-0">
