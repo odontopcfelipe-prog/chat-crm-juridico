@@ -707,7 +707,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`${expanded ? 'w-[190px]' : 'w-[64px]'} flex flex-col items-center py-3 bg-background border-r border-border relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
+      className={`${expanded ? 'w-[190px]' : 'w-[64px]'} flex flex-col items-center py-3 bg-primary text-primary-foreground border-r border-primary/20 relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
       <div className={`flex items-center w-full px-3 mb-3 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
@@ -724,7 +724,7 @@ export function Sidebar() {
           onClick={toggleExpanded}
           onMouseEnter={(e) => showTooltip(e, expanded ? 'Recolher menu' : 'Expandir menu')}
           onMouseLeave={hideTooltip}
-          className="w-8 h-8 rounded-xl flex items-center justify-center text-muted-foreground hover:bg-accent/50 hover:text-foreground transition-colors shrink-0"
+          className="w-8 h-8 rounded-xl flex items-center justify-center text-primary-foreground/80 hover:bg-primary-foreground/15 hover:text-primary-foreground transition-colors shrink-0"
           aria-label={expanded ? 'Recolher menu' : 'Expandir menu'}
         >
           <ChevronRight
@@ -755,22 +755,22 @@ export function Sidebar() {
                   onClick={() => toggleGroup(group.id, defaultExp)}
                   className={`w-full flex items-center gap-1.5 px-2 py-1.5 mb-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all
                     ${isExpanded
-                      ? 'bg-accent/40 text-foreground'
-                      : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'}`}
+                      ? 'bg-primary-foreground/15 text-primary-foreground'
+                      : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'}`}
                   aria-expanded={isExpanded}
                   aria-controls={`group-${group.id}-items`}
                 >
                   <ChevronDown
                     size={12}
-                    className={`shrink-0 transition-transform duration-150 ${
-                      isExpanded ? 'text-primary' : '-rotate-90 text-muted-foreground'
+                    className={`shrink-0 transition-transform duration-150 text-primary-foreground ${
+                      isExpanded ? '' : '-rotate-90 opacity-70'
                     }`}
                     strokeWidth={2.5}
                   />
                   <span className="flex-1 text-left">{group.label}</span>
                 </button>
               ) : gi > 0 ? (
-                <div className="h-px bg-border/40 mx-1 mb-2" />
+                <div className="h-px bg-primary-foreground/20 mx-1 mb-2" />
               ) : null}
 
               {showItems && (
@@ -788,8 +788,8 @@ export function Sidebar() {
                         expanded ? 'gap-2 px-2 py-1.5' : 'aspect-square justify-center'
                       } ${
                         isActive
-                          ? 'bg-accent text-accent-foreground'
-                          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
+                          ? 'bg-primary-foreground/20 text-primary-foreground font-semibold'
+                          : 'text-primary-foreground/85 hover:bg-primary-foreground/10 hover:text-primary-foreground'
                       }`}
                     >
                       {/* Onda 5c v2: icones menores em modo expandido (sub-menu compacto)
@@ -815,7 +815,7 @@ export function Sidebar() {
                       )}
 
                       {isActive && (
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary rounded-r-md" />
+                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary-foreground rounded-r-md" />
                       )}
                     </button>
 
@@ -857,10 +857,11 @@ export function Sidebar() {
       </nav>
 
       {/* ─── Bottom: Avatar + DB + Notificações + Tema + Sair ─────── */}
-      <div className="mt-auto flex flex-col gap-1 w-full px-3 pt-3 border-t border-border/40">
+      {/* Onda 5e v2 (Fase 25): card branco sobre bg primary pra contraste */}
+      <div className="mt-auto flex flex-col gap-1 w-full px-2 pt-3 border-t border-primary-foreground/20">
 
-        {/* ─── Avatar do usuário ─── */}
-        <div className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 ${expanded ? '' : 'justify-center'}`}>
+        {/* ─── Avatar do usuário (card branco) ─── */}
+        <div className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
           {/* Input de arquivo oculto */}
           <input
             ref={avatarFileRef}
@@ -960,48 +961,42 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Notification Center — Onda 5c: removido NotificationToggle separado
-            (era duplicado com o Center). Toggle DND vira config DENTRO do popover
-            do Center quando o user precisar. */}
+        {/* Notificacoes — card branco (Onda 5e v2) */}
         <div
-          className={`w-full flex items-center ${expanded ? 'gap-2.5 px-2 py-1' : 'justify-center py-1'}`}
+          className={`w-full flex items-center bg-card text-foreground rounded-xl ${expanded ? 'gap-2.5 px-2 py-1.5' : 'justify-center py-1.5'}`}
           onMouseEnter={(e) => showTooltip(e, 'Notificações')}
           onMouseLeave={hideTooltip}
         >
           <NotificationCenter />
           {expanded && (
-            <span className="text-[13px] font-medium text-muted-foreground">Notificações</span>
+            <span className="text-[13px] font-medium">Notificações</span>
           )}
         </div>
 
-        {/* Theme picker */}
+        {/* Theme picker — card branco */}
         <button
           ref={themeButtonRef}
           onClick={toggleThemeMenu}
           onMouseEnter={(e) => { if (!showThemeMenu) showTooltip(e, 'Aparência'); }}
           onMouseLeave={hideTooltip}
-          className={`w-full rounded-xl flex items-center gap-2.5 shadow-sm transition-colors ${
+          className={`w-full rounded-xl flex items-center gap-2.5 transition-colors bg-card text-foreground hover:bg-accent ${
             expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
-          } ${
-            showThemeMenu
-              ? 'bg-accent text-foreground'
-              : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-          }`}
+          } ${showThemeMenu ? 'ring-2 ring-primary-foreground/30' : ''}`}
         >
-          <Palette size={18} strokeWidth={2} className="shrink-0" />
+          <Palette size={16} strokeWidth={2} className="shrink-0 text-primary" />
           {expanded && <span className="text-[13px] font-medium">Aparência</span>}
         </button>
 
-        {/* Logout */}
+        {/* Logout — card branco */}
         <button
           onClick={() => { localStorage.removeItem('token'); router.push('/atendimento/login'); }}
           onMouseEnter={(e) => showTooltip(e, 'Sair')}
           onMouseLeave={hideTooltip}
-          className={`w-full rounded-xl flex items-center gap-2.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive shadow-sm transition-colors ${
+          className={`w-full rounded-xl flex items-center gap-2.5 transition-colors bg-card text-foreground hover:bg-destructive/10 hover:text-destructive ${
             expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
           }`}
         >
-          <LogOut size={18} strokeWidth={2} className="shrink-0" />
+          <LogOut size={16} strokeWidth={2} className="shrink-0" />
           {expanded && <span className="text-[13px] font-medium">Sair</span>}
         </button>
       </div>
