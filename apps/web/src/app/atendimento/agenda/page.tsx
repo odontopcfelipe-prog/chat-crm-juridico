@@ -843,12 +843,12 @@ export default function AgendaPage() {
           return !isNaN(startMs);
         })
         .map(e => {
-          // No modo "Todos", incluir o nome do dentista numa LINHA propria
-          // (Onda 5d v8 — pediu pra dentista ficar em cima do procedimento).
-          // Sem espaco no fim (\n cuida da quebra). Sem prefixo se filtrando
-          // por 1 dentista especifico — ja sabe quem eh.
+          // No modo "Todos", incluir o nome COMPLETO do dentista numa LINHA propria
+          // (Onda 5d v9 — bug fix: split(' ')[0] estava pegando so "Dra." em
+          // vez de "Dra. Suellen Passos"). Sem colchetes — visual mais limpo.
+          // CSS trunca se passar do largura do card.
           const userLine = (showAllUsers && !filterUserId && e.assigned_user)
-            ? `[${e.assigned_user.name.split(' ')[0]}]\n`
+            ? `${e.assigned_user.name}\n`
             : '';
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
