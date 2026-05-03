@@ -550,6 +550,18 @@ export default function AgendaPage() {
   const [kanbanView, setKanbanView] = useState(false);
   // Onda 5e v9 (Fase 25) — modal de bloqueio de agenda do dentista
   const [showBlockModal, setShowBlockModal] = useState(false);
+  // v11: cache local dos bloqueios pra renderizar como evento vermelho na
+  // agenda (visualmente identifica que aquele horario nao aceita marcacao).
+  const [scheduleBlocks, setScheduleBlocks] = useState<Array<{
+    id: string;
+    user_id: string;
+    start_at: string;
+    end_at: string;
+    all_day: boolean;
+    reason: string;
+    notes?: string | null;
+    user?: { id: string; name: string };
+  }>>([]);
 
   // ─── openCreateModal — definido ANTES dos useEffects e callbacks que o usam ──
   // useCallback com [currentUserId] para evitar stale closure no atalho de teclado
@@ -743,6 +755,21 @@ export default function AgendaPage() {
     } finally {
       setLoading(false);
     }
+
+    // v11: paralelo, busca tambem os bloqueios (ferias/doenca) que se sobrepoem
+    // ao range visivel pra renderizar como faixa vermelha na agenda. Falha
+    // silenciosa — se /calendar/blocks ainda nao existir (deploy parcial),
+    // agenda continua funcionando sem bloqueios visuais.
+    try {
+      const blockParams: any = {};
+      if (start) blockParams.from = start;
+      if (end) blockParams.to = end;
+      if (filterUserId) blockParams.userId = filterUserId;
+      const blockRes = await api.get('/calendar/blocks', { params: blockParams });
+      setScheduleBlocks(blockRes.data || []);
+    } catch {
+      setScheduleBlocks([]);
+    }
   }, [filterUserId, showAllUsers]);
 
   // Manter refs atualizados com os valores mais recentes
@@ -827,6 +854,12 @@ export default function AgendaPage() {
         }
       },
       onEventClick(calEvent) {
+        // v11: bloqueio (id prefixado "block-") nao eh evento normal — abre
+        // modal de gestao de bloqueios pra remover/editar de la
+        if (typeof calEvent.id === 'string' && calEvent.id.startsWith('block-')) {
+          setShowBlockModal(true);
+          return;
+        }
         // Usar eventsRef para ter a lista atualizada (evita stale closure)
         const ev = eventsRef.current.find(e => e.id === calEvent.id);
         if (ev) openEditModal(ev);
@@ -889,10 +922,12 @@ export default function AgendaPage() {
         lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
         darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
       },
+      // v11: BLOQUEIO em vermelho semantico — alinha com botao "Bloquear"
+      // do header e com a UX de "isso impede agendamentos"
       BLOQUEIO: {
         colorName: 'bloqueio',
-        lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
-        darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
+        lightColors: { main: '#dc2626', container: '#fee2e2', onContainer: '#7f1d1d' },
+        darkColors:  { main: '#ef4444', container: '#7f1d1d', onContainer: '#fee2e2' },
       },
       OUTRO: {
         colorName: 'outro',
@@ -1080,11 +1115,46 @@ export default function AgendaPage() {
             _options: { additionalClasses: [dentistClass] },
           };
         });
-      eventsServicePlugin.set(calEvents);
+
+      // v11: adiciona bloqueios como events vermelhos com id "block-XXX"
+      // (prefix usado em onEventClick pra distinguir e abrir modal correto).
+      // Filtra pra manter consistencia com filterUserId quando setado.
+      const blockCalEvents = scheduleBlocks
+        .filter(b => !filterUserId || b.user_id === filterUserId)
+        .map(b => {
+          const startLocal = toLocalDateTime(b.start_at);
+          const endLocal = toLocalDateTime(b.end_at);
+          let startSx: any = startLocal;
+          let endSx: any = endLocal;
+          if (T) {
+            const parseLocalToZDT = (local: string) => {
+              const [datePart, timePart = '00:00'] = local.split(' ');
+              const [year, month, day] = datePart.split('-').map(Number);
+              const [hour, minute] = timePart.split(':').map(Number);
+              return T.ZonedDateTime.from({
+                year, month, day, hour, minute, second: 0,
+                timeZone: 'UTC',
+              });
+            };
+            try { startSx = parseLocalToZDT(startLocal); } catch { /* manter string */ }
+            try { endSx   = parseLocalToZDT(endLocal);   } catch { /* manter string */ }
+          }
+          const userTag = b.user?.name ? `${b.user.name}\n` : '';
+          return {
+            id: `block-${b.id}`,
+            title: `${userTag}🚫 BLOQUEADO: ${b.reason}${b.notes ? '\n' + b.notes : ''}`,
+            start: startSx,
+            end: endSx,
+            calendarId: 'BLOQUEIO',
+            _options: { additionalClasses: ['block-event'] },
+          };
+        });
+
+      eventsServicePlugin.set([...calEvents, ...blockCalEvents]);
     } catch (err) {
       console.error('[Agenda] Error syncing events to calendar:', err);
     }
-  }, [events, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled]);
+  }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled]);
 
   // Carga inicial: schedule-x v4 não chama onRangeUpdate no mount.
   // Buscamos um range largo (semana atual ± 4 semanas = ~2 meses) para garantir
@@ -1730,11 +1800,12 @@ export default function AgendaPage() {
             <span>{kanbanView ? 'Calendário' : 'Kanban'}</span>
           </button>
 
-          {/* Onda 5e v9 (Fase 25) — botao Bloquear: abre modal pra registrar
-              ferias/doenca/curso. IA respeita esses bloqueios automaticamente. */}
+          {/* Onda 5e v9 (Fase 25) — botao Bloquear em VERMELHO pra destacar
+              ação destrutiva (impede agendamento). v11: estilo solido com
+              hover mais escuro pra alinhar visualmente com a gravidade da acao. */}
           <button
             onClick={() => setShowBlockModal(true)}
-            className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-muted-foreground text-xs font-medium hover:bg-accent transition-colors shadow-sm"
+            className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-md"
             title="Bloquear agenda (férias, doença, etc)"
           >
             <Ban size={12} />

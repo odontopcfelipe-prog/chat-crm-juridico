@@ -385,3 +385,27 @@
 .sx-react-calendar-wrapper .sx__month-grid-day.sx__holiday {
   background-color: rgba(220, 38, 38, 0.04) !important;
 }
+
+/* Onda 5e v11 (Fase 25) — Eventos de bloqueio (ferias/doenca/curso) tem
+   visual distintivo: hachura diagonal + texto branco + borda vermelha forte.
+   Diferencia visualmente de eventos normais (consultas) pra operador
+   identificar de relance "isso aqui nao eh consulta, eh dia bloqueado". */
+.sx-react-calendar-wrapper .block-event {
+  background-image: repeating-linear-gradient(
+    45deg,
+    rgba(220, 38, 38, 0.85),
+    rgba(220, 38, 38, 0.85) 8px,
+    rgba(185, 28, 28, 0.95) 8px,
+    rgba(185, 28, 28, 0.95) 16px
+  ) !important;
+  border-left: 4px solid #7f1d1d !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+  cursor: pointer !important;
+}
+.sx-react-calendar-wrapper .block-event * {
+  color: #fff !important;
+}
+.sx-react-calendar-wrapper .block-event:hover {
+  filter: brightness(1.1);
+}

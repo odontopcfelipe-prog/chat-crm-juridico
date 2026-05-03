@@ -181,7 +181,11 @@ export default function UsersSettingsPage() {
     setError('');
     // v10: reseta horarios pra padrao (Seg-Sex, 2 turnos)
     setSchedule(defaultWeekSchedule());
-    setScheduleExpanded(false);
+    // v11: ABRE expandido por default no cadastro pra deixar claro que e
+    // OBRIGATORIO pro DENTIST configurar horarios — sem isso a IA nao
+    // consegue propor agendamento autonomo. Como a secao so aparece quando
+    // role inclui DENTIST/ADMIN, deixar expandido nao polui pra outros.
+    setScheduleExpanded(true);
     setShowModal(true);
   };
 
@@ -207,7 +211,9 @@ export default function UsersSettingsPage() {
     });
     setSpecialtyInput('');
     setError('');
-    setScheduleExpanded(false);
+    // v11: ao editar, abre expandido se for DENTIST/ADMIN — facilita ver/ajustar
+    // horarios sem precisar clicar no toggle
+    setScheduleExpanded(uniqueRoles.includes('DENTIST') || uniqueRoles.includes('ADMIN'));
     // v10: carrega horarios atuais do dentista (se houver)
     setSchedule(defaultWeekSchedule());
     if (uniqueRoles.includes('DENTIST') || uniqueRoles.includes('ADMIN')) {
@@ -698,31 +704,35 @@ export default function UsersSettingsPage() {
               )}
 
               {/* Onda 5e v10 (Fase 25) — Horarios de atendimento integrados.
-                  So aparece pra DENTIST/ADMIN. Colapsavel pra nao bloatar
-                  o modal pra usuarios que nao precisam (operador, comercial). */}
+                  So aparece pra DENTIST/ADMIN. v11: aberto por default
+                  (setScheduleExpanded=true em openCreate/openEdit) +
+                  badge "Obrigatorio" pra deixar claro que IA precisa disso. */}
               {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN')) && (
                 <div className="space-y-1.5">
                   <button
                     type="button"
                     onClick={() => setScheduleExpanded((v) => !v)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-muted/20 hover:bg-muted/40 transition-colors"
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
                   >
-                    <span className="flex items-center gap-2 text-[12px] font-bold text-muted-foreground uppercase tracking-wider">
+                    <span className="flex items-center gap-2 text-[12px] font-bold text-foreground uppercase tracking-wider">
                       <Clock size={14} className="text-primary" />
                       Horários de Atendimento
+                      <span className="px-1.5 py-0.5 text-[9px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 rounded">
+                        OBRIGATÓRIO
+                      </span>
                     </span>
                     {scheduleExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                   </button>
                   {scheduleExpanded && (
-                    <div className="p-3 rounded-xl border border-border bg-background/50">
+                    <div className="p-3 rounded-xl border border-primary/20 bg-background/50">
                       <ScheduleEditor
                         value={schedule}
                         onChange={setSchedule}
                         showHelp={true}
                         compact={true}
                       />
-                      <p className="text-[10px] text-muted-foreground mt-3 italic">
-                        💡 A IA usa esses horários pra propor agendamentos automaticamente quando um lead pede uma avaliação.
+                      <p className="text-[11px] text-muted-foreground mt-3 italic">
+                        💡 <strong>Importante:</strong> A IA usa esses horários pra propor agendamentos automaticamente quando um lead pede uma avaliação. Sem turnos cadastrados, esse dentista não recebe agendamentos pela IA.
                       </p>
                     </div>
                   )}
