@@ -19,6 +19,7 @@ model Tenant {
   calendar_events           CalendarEvent[]
   appointment_types         AppointmentType[]
   holidays                  Holiday[]
+  schedule_blocks           ScheduleBlock[]
   ai_chats                  AiChat[]
   pipelines                 Pipeline[]
   followup_sequences        FollowupSequence[]
@@ -106,6 +107,8 @@ model User {
   quote_attachments_uploaded    QuoteAttachment[]      @relation("QuoteAttachmentUploader")
   quote_versions_created        QuoteVersion[]         @relation("QuoteVersionCreator")
   schedules                     UserSchedule[]
+  schedule_blocks_owned         ScheduleBlock[]        @relation("ScheduleBlockUser")
+  schedule_blocks_created       ScheduleBlock[]        @relation("ScheduleBlockCreator")
   calendar_event_comments       CalendarEventComment[]
   transfer_audios               TransferAudio[]        @relation("AudioUploader")
   ai_chats                      AiChat[]               @relation("AiChatOwner")
@@ -905,6 +908,36 @@ model Holiday {
   tenant Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 
   @@index([tenant_id, date])
+}
+
+// ===============================================
+// Schedule Block (Fase 25 — Onda 5e v9)
+// Bloqueia agenda do dentista por periodo (ferias, doenca, curso, etc).
+// IA respeita esses bloqueios em check_availability + book_appointment.
+// Diferente de UserSchedule (recorrente semanal), aqui sao janelas
+// pontuais com data inicio/fim. Pode ser dia inteiro (all_day = true)
+// ou intervalo de horas especifico.
+// ===============================================
+
+model ScheduleBlock {
+  id         String   @id @default(uuid())
+  tenant_id  String?
+  user_id    String // dentista bloqueado
+  start_at   DateTime // inicio do bloqueio (timezone UTC naive como CalendarEvent)
+  end_at     DateTime // fim do bloqueio (inclusive)
+  all_day    Boolean  @default(false) // true = ignora horas, bloqueia dia inteiro
+  reason     String // "Ferias", "Doenca", "Curso", "Compromisso pessoal", etc
+  notes      String? // detalhes opcionais (ex: "Atestado medico")
+  created_by String? // user_id de quem criou (admin/recepcao)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant  Tenant? @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  user    User    @relation("ScheduleBlockUser", fields: [user_id], references: [id], onDelete: Cascade)
+  creator User?   @relation("ScheduleBlockCreator", fields: [created_by], references: [id], onDelete: SetNull)
+
+  @@index([user_id, start_at, end_at])
+  @@index([tenant_id, start_at])
 }
 
 // ===============================================

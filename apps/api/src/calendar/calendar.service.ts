@@ -803,6 +803,74 @@ export class CalendarService {
     return { deleted: true };
   }
 
+  // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ───────────
+  // Bloqueio pontual de agenda do dentista (ferias, doenca, curso).
+  // Diferente de UserSchedule (recorrente semanal), aqui sao janelas
+  // com data inicio/fim. IA respeita em check_availability + book_appointment.
+
+  async findScheduleBlocks(filters?: { user_id?: string; from?: string; to?: string; tenant_id?: string }) {
+    const where: any = {};
+    if (filters?.user_id) where.user_id = filters.user_id;
+    if (filters?.tenant_id) where.tenant_id = filters.tenant_id;
+    // Janela: bloqueios que SE SOBREPOEM ao intervalo from..to
+    if (filters?.from || filters?.to) {
+      const from = filters.from ? new Date(filters.from) : new Date('1970-01-01');
+      const to = filters.to ? new Date(filters.to) : new Date('2099-12-31');
+      where.AND = [{ start_at: { lte: to } }, { end_at: { gte: from } }];
+    }
+    return this.prisma.scheduleBlock.findMany({
+      where,
+      orderBy: { start_at: 'asc' },
+      include: {
+        user: { select: { id: true, name: true } },
+        creator: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  async createScheduleBlock(data: {
+    user_id: string;
+    start_at: string;
+    end_at: string;
+    all_day?: boolean;
+    reason: string;
+    notes?: string;
+    created_by?: string;
+    tenant_id?: string;
+  }) {
+    return this.prisma.scheduleBlock.create({
+      data: {
+        user_id: data.user_id,
+        start_at: new Date(data.start_at),
+        end_at: new Date(data.end_at),
+        all_day: data.all_day ?? false,
+        reason: data.reason,
+        notes: data.notes,
+        created_by: data.created_by,
+        tenant_id: data.tenant_id,
+      },
+      include: { user: { select: { id: true, name: true } } },
+    });
+  }
+
+  async updateScheduleBlock(
+    id: string,
+    data: { start_at?: string; end_at?: string; all_day?: boolean; reason?: string; notes?: string },
+  ) {
+    const updateData: any = {};
+    if (data.start_at) updateData.start_at = new Date(data.start_at);
+    if (data.end_at) updateData.end_at = new Date(data.end_at);
+    if (data.all_day !== undefined) updateData.all_day = data.all_day;
+    if (data.reason !== undefined) updateData.reason = data.reason;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+    return this.prisma.scheduleBlock.update({ where: { id }, data: updateData });
+  }
+
+  async deleteScheduleBlock(id: string) {
+    await this.prisma.scheduleBlock.delete({ where: { id } });
+    return { deleted: true };
+  }
+
   private async isHoliday(date: Date, tenantId?: string): Promise<boolean> {
     const dayStart = new Date(date);
     dayStart.setHours(0, 0, 0, 0);

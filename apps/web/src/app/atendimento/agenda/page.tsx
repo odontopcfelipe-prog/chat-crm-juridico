@@ -23,7 +23,7 @@ import {
   Clock, MapPin, User, FileText, Gavel, AlertTriangle, CheckCircle2, Bell,
   Search, Download, Copy, Repeat, MessageSquare, Users, Send,
   LayoutGrid, CalendarDays as CalendarViewIcon, CheckSquare, List,
-  BookOpen, ExternalLink,
+  BookOpen, ExternalLink, Ban,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
@@ -33,6 +33,7 @@ import { useRole } from '@/lib/useRole';
 import { playNotificationSound } from '@/lib/notificationSounds';
 import { AvailabilityPicker } from '@/components/AvailabilityPicker';
 import { TasksPanel } from './TasksPanel';
+import { ScheduleBlockModal } from './ScheduleBlockModal';
 
 // ─── Tipos ────────────────────────────────────────────
 
@@ -547,6 +548,8 @@ export default function AgendaPage() {
   const [mounted, setMounted] = useState(false);
   const [hoverTooltip, setHoverTooltip] = useState<{ event: CalendarEvent; x: number; y: number } | null>(null);
   const [kanbanView, setKanbanView] = useState(false);
+  // Onda 5e v9 (Fase 25) — modal de bloqueio de agenda do dentista
+  const [showBlockModal, setShowBlockModal] = useState(false);
 
   // ─── openCreateModal — definido ANTES dos useEffects e callbacks que o usam ──
   // useCallback com [currentUserId] para evitar stale closure no atalho de teclado
@@ -1727,6 +1730,17 @@ export default function AgendaPage() {
             <span>{kanbanView ? 'Calendário' : 'Kanban'}</span>
           </button>
 
+          {/* Onda 5e v9 (Fase 25) — botao Bloquear: abre modal pra registrar
+              ferias/doenca/curso. IA respeita esses bloqueios automaticamente. */}
+          <button
+            onClick={() => setShowBlockModal(true)}
+            className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-muted-foreground text-xs font-medium hover:bg-accent transition-colors shadow-sm"
+            title="Bloquear agenda (férias, doença, etc)"
+          >
+            <Ban size={12} />
+            <span>Bloquear</span>
+          </button>
+
           <button
             onClick={() => openCreateModal()}
             className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-md"
@@ -2500,6 +2514,21 @@ export default function AgendaPage() {
       )}
 
       </div>{/* fim flex-1 conteúdo calendário */}
+
+      {/* Onda 5e v9 (Fase 25) — Modal de bloqueio de agenda. Renderizado fora
+          do flex-1 pra ficar acima de tudo (z-100). Refetch dos eventos ao
+          fechar pra agenda refletir mudancas (eventos cancelados em bloqueios). */}
+      <ScheduleBlockModal
+        open={showBlockModal}
+        onClose={() => {
+          setShowBlockModal(false);
+          // Refetch da agenda — bloqueios novos podem afetar visual no futuro
+          if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
+        }}
+        users={users}
+        currentUserId={currentUserId}
+        isAdmin={role.isAdmin}
+      />
     </div>
   );
 }

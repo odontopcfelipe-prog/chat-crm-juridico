@@ -1,6 +1,7 @@
 import { Logger } from '@nestjs/common';
 import axios from 'axios';
 import type { ToolHandler, ToolContext } from '../tool-executor';
+import { isHolidayMatch } from './check-availability';
 
 /**
  * Agenda uma reunião/consulta para o lead.
@@ -87,6 +88,87 @@ export class BookAppointmentHandler implements ToolHandler {
         success: false,
         error: `Horário indisponível — já existe "${conflict.title}" nesse horário.`,
       };
+    }
+
+    // Onda 5e v9 (Fase 25) — validacoes de defesa em profundidade.
+    // check_availability JA filtra esses casos, mas se a IA "alucinar" e
+    // chamar book_appointment direto com hora invalida, recusamos aqui.
+    // (book direto sem check tambem acontece quando user manda data fixa
+    // tipo "agenda dia 25/12 as 9h").
+
+    // 1. Feriado (incluindo recorrentes anuais via isHolidayMatch)
+    if (await isHolidayMatch(prisma, startAt)) {
+      return {
+        success: false,
+        error: `Data ${params.date} é feriado nacional. Ofereça outro dia ao paciente.`,
+      };
+    }
+
+    // 2. Bloqueio de agenda (ferias, doenca, curso) cobrindo o horario
+    const blockHit = await prisma.scheduleBlock.findFirst({
+      where: {
+        user_id: assignedUserId,
+        OR: [
+          // all_day cobrindo o dia
+          {
+            all_day: true,
+            start_at: { lte: endAt },
+            end_at: { gte: startAt },
+          },
+          // intervalo de horas se sobrepondo
+          {
+            all_day: false,
+            start_at: { lt: endAt },
+            end_at: { gt: startAt },
+          },
+        ],
+      },
+      select: { reason: true, start_at: true, end_at: true, all_day: true },
+    });
+    if (blockHit) {
+      return {
+        success: false,
+        error: `Dentista esta bloqueado nesse periodo (${blockHit.reason}). Ofereça outro horário.`,
+      };
+    }
+
+    // 3. UserSchedule: hora cai dentro do expediente do dentista pra esse dia?
+    const dow = startAt.getUTCDay();
+    const schedule = await prisma.userSchedule.findUnique({
+      where: { user_id_day_of_week: { user_id: assignedUserId, day_of_week: dow } },
+    });
+    if (!schedule) {
+      const dayName = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'][dow];
+      return {
+        success: false,
+        error: `Dentista nao atende em ${dayName}. Ofereça outro dia.`,
+      };
+    }
+    const [wsH, wsM] = (schedule.start_time || '08:00').split(':').map(Number);
+    const [weH, weM] = (schedule.end_time || '18:00').split(':').map(Number);
+    const apptStartMin = startAt.getUTCHours() * 60 + startAt.getUTCMinutes();
+    const apptEndMin = endAt.getUTCHours() * 60 + endAt.getUTCMinutes();
+    const workStart = wsH * 60 + wsM;
+    const workEnd = weH * 60 + weM;
+    if (apptStartMin < workStart || apptEndMin > workEnd) {
+      return {
+        success: false,
+        error: `Horario ${params.time} fora do expediente do dentista (atende ${schedule.start_time}-${schedule.end_time}).`,
+      };
+    }
+    // 4. Hora bate com almoco?
+    if (schedule.lunch_start && schedule.lunch_end) {
+      const [lsH, lsM] = schedule.lunch_start.split(':').map(Number);
+      const [leH, leM] = schedule.lunch_end.split(':').map(Number);
+      const lunchStart = lsH * 60 + lsM;
+      const lunchEnd = leH * 60 + leM;
+      // sobreposicao: appt termina depois do inicio do almoco E comeca antes do fim
+      if (apptEndMin > lunchStart && apptStartMin < lunchEnd) {
+        return {
+          success: false,
+          error: `Horario ${params.time} cai no almoco do dentista (${schedule.lunch_start}-${schedule.lunch_end}).`,
+        };
+      }
     }
 
     // Resolve patient_id se o lead já foi convertido em Patient — habilita

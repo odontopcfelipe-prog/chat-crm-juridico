@@ -10,6 +10,8 @@ import {
   UpdateAppointmentTypeDto,
   CreateHolidayDto,
   UpdateHolidayDto,
+  CreateScheduleBlockDto,
+  UpdateScheduleBlockDto,
 } from './dto/calendar.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -264,6 +266,77 @@ export class CalendarController {
   @Roles('ADMIN')
   deleteHoliday(@Param('id') id: string) {
     return this.calendarService.deleteHoliday(id);
+  }
+
+  // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ──────────
+  // Bloqueio pontual de agenda do dentista (ferias, doenca, curso).
+  // Permissao: ADMIN ou o proprio dentista podem criar/editar.
+
+  @Get('blocks')
+  findScheduleBlocks(
+    @Query('userId') userId: string | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.calendarService.findScheduleBlocks({
+      user_id: userId,
+      from,
+      to,
+      tenant_id: req.user?.tenant_id,
+    });
+  }
+
+  @Post('blocks')
+  createScheduleBlock(@Body() data: CreateScheduleBlockDto, @Request() req: any) {
+    // Permissao: ADMIN cria pra qualquer um; nao-admin so cria pra si proprio
+    const isAdmin = req.user?.roles?.includes('ADMIN');
+    if (!isAdmin && data.user_id !== req.user?.id) {
+      throw new ForbiddenException('Apenas ADMIN pode bloquear agenda de outro dentista');
+    }
+    return this.calendarService.createScheduleBlock({
+      ...data,
+      tenant_id: req.user?.tenant_id,
+      created_by: req.user?.id,
+    });
+  }
+
+  @Patch('blocks/:id')
+  updateScheduleBlock(
+    @Param('id') id: string,
+    @Body() data: UpdateScheduleBlockDto,
+    @Request() req: any,
+  ) {
+    // Permissao: so ADMIN ou o dono do bloqueio pode editar.
+    // Checa via lookup pra evitar leak (nao revelar existencia se forbidden)
+    return (async () => {
+      const block = await this.calendarService.findScheduleBlocks({
+        tenant_id: req.user?.tenant_id,
+      });
+      const target = block.find((b: any) => b.id === id);
+      const isAdmin = req.user?.roles?.includes('ADMIN');
+      if (!target) throw new ForbiddenException('Bloqueio nao encontrado');
+      if (!isAdmin && target.user_id !== req.user?.id) {
+        throw new ForbiddenException('Sem permissao pra editar esse bloqueio');
+      }
+      return this.calendarService.updateScheduleBlock(id, data);
+    })();
+  }
+
+  @Delete('blocks/:id')
+  deleteScheduleBlock(@Param('id') id: string, @Request() req: any) {
+    return (async () => {
+      const blocks = await this.calendarService.findScheduleBlocks({
+        tenant_id: req.user?.tenant_id,
+      });
+      const target = blocks.find((b: any) => b.id === id);
+      const isAdmin = req.user?.roles?.includes('ADMIN');
+      if (!target) throw new ForbiddenException('Bloqueio nao encontrado');
+      if (!isAdmin && target.user_id !== req.user?.id) {
+        throw new ForbiddenException('Sem permissao pra remover esse bloqueio');
+      }
+      return this.calendarService.deleteScheduleBlock(id);
+    })();
   }
 
   // ─── Search ───────────────────────────────────────────

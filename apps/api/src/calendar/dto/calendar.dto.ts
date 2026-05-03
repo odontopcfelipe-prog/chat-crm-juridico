@@ -199,3 +199,44 @@ export class UpdateHolidayDto {
   @IsOptional() @IsBoolean()
   recurring_yearly?: boolean;
 }
+
+// ─── Schedule Blocks (Fase 25 — Onda 5e v9) ──────────
+// Bloqueio pontual de agenda do dentista (ferias, doenca, curso, etc).
+// Usado pra impedir IA de agendar no periodo + esconder slots no front.
+
+export class CreateScheduleBlockDto {
+  @IsString()
+  user_id: string;
+
+  @IsString()
+  start_at: string; // ISO 8601 ou YYYY-MM-DDTHH:mm
+
+  @IsString()
+  end_at: string;
+
+  @IsOptional() @IsBoolean()
+  all_day?: boolean;
+
+  @IsString()
+  reason: string; // "Ferias", "Doenca", "Curso", "Compromisso pessoal"
+
+  @IsOptional() @IsString()
+  notes?: string;
+}
+
+export class UpdateScheduleBlockDto {
+  @IsOptional() @IsString()
+  start_at?: string;
+
+  @IsOptional() @IsString()
+  end_at?: string;
+
+  @IsOptional() @IsBoolean()
+  all_day?: boolean;
+
+  @IsOptional() @IsString()
+  reason?: string;
+
+  @IsOptional() @IsString()
+  notes?: string;
+}
