@@ -341,53 +341,51 @@ function MiniCalendar({
   };
 
   return (
-    <div className="select-none px-1 py-1">
-      {/* Cabeçalho mês */}
-      <div className="flex items-center justify-between mb-1">
-        <span className="text-xs font-semibold text-foreground">
+    <div className="select-none px-1 py-0.5">
+      {/* Cabeçalho mês — Onda 5d v5 compactado */}
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[11px] font-semibold text-foreground">
           {MONTH_NAMES_PT[viewMonth]} {viewYear}
         </span>
         <div className="flex gap-0.5">
-          <button onClick={prevMonth} className="p-1 rounded hover:bg-accent/60 text-muted-foreground transition-colors">
-            <ChevronLeft size={13} />
+          <button onClick={prevMonth} className="p-0.5 rounded hover:bg-accent/60 text-muted-foreground transition-colors">
+            <ChevronLeft size={11} />
           </button>
-          <button onClick={nextMonth} className="p-1 rounded hover:bg-accent/60 text-muted-foreground transition-colors">
-            <ChevronRight size={13} />
+          <button onClick={nextMonth} className="p-0.5 rounded hover:bg-accent/60 text-muted-foreground transition-colors">
+            <ChevronRight size={11} />
           </button>
         </div>
       </div>
       {/* Cabeçalho dias da semana */}
       <div className="grid grid-cols-7">
         {WD_HEADERS.map((d, i) => (
-          <span key={i} className="text-center text-[10px] text-muted-foreground font-medium h-5 flex items-center justify-center">{d}</span>
+          <span key={i} className="text-center text-[9px] text-muted-foreground font-medium h-4 flex items-center justify-center">{d}</span>
         ))}
       </div>
-      {/* Grade de dias com pontinho de ocupação */}
+      {/* Grade de dias com pontinho de ocupação — celulas reduzidas */}
       <div className="grid grid-cols-7">
         {cells.map((day, i) => {
-          if (!day) return <span key={`e-${i}`} className="h-8" />;
+          if (!day) return <span key={`e-${i}`} className="h-6" />;
           const ds = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           const isToday = ds === todayStr;
           const isSel = ds === selected;
           const count = eventCounts?.get(ds) ?? 0;
-          // Cor do pontinho de ocupação
           let dotColor = '';
-          if (count >= 5) dotColor = 'bg-rose-500';        // dia cheio
-          else if (count >= 3) dotColor = 'bg-amber-500';  // dia médio
-          else if (count >= 1) dotColor = 'bg-emerald-500'; // dia tranquilo
+          if (count >= 5) dotColor = 'bg-rose-500';
+          else if (count >= 3) dotColor = 'bg-amber-500';
+          else if (count >= 1) dotColor = 'bg-emerald-500';
           return (
-            <div key={`d-${day}`} className="h-8 flex flex-col items-center justify-start pt-0.5">
+            <div key={`d-${day}`} className="h-6 flex flex-col items-center justify-start">
               <button
                 onClick={() => handleDayClick(day)}
                 title={count > 0 ? `${count} evento${count !== 1 ? 's' : ''} agendado${count !== 1 ? 's' : ''}` : 'Sem eventos'}
-                className={`h-6 w-6 flex items-center justify-center rounded-full text-[11px] font-medium transition-colors
+                className={`h-5 w-5 flex items-center justify-center rounded-full text-[10px] font-medium transition-colors
                   ${isSel ? 'bg-primary text-primary-foreground' : isToday ? 'bg-primary/15 text-primary font-bold' : 'text-foreground hover:bg-accent/60'}
                 `}
               >
                 {day}
               </button>
-              {/* Pontinho de ocupação (só aparece se tiver evento) */}
-              <span className={`w-1 h-1 rounded-full mt-0.5 ${dotColor || 'invisible'}`} />
+              <span className={`w-1 h-0.5 rounded-full ${dotColor || 'invisible'}`} />
             </div>
           );
         })}
@@ -1341,24 +1339,24 @@ export default function AgendaPage() {
       {/* Conteúdo do Calendário */}
       <div className="flex flex-1 overflow-hidden">
 
-      {/* ═══ Sidebar estilo Google Calendar ═══ */}
-      <aside className="hidden md:flex flex-col w-60 shrink-0 border-r border-border bg-card/30 overflow-y-auto custom-scrollbar">
+      {/* ═══ Sidebar estilo Google Calendar — Onda 5d v5 (Fase 25): compactada ═══ */}
+      <aside className="hidden md:flex flex-col w-52 shrink-0 border-r border-border bg-card/30 overflow-y-auto custom-scrollbar">
 
-        {/* ── Topo: barra com título + botão Criar ── */}
-        <div className="px-3 pt-4 pb-3 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-              <CalendarIcon size={16} className="text-primary" />
+        {/* ── Topo: titulo + contador (compactado) ── */}
+        <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-1.5">
+            <div className="w-5 h-5 rounded-md bg-primary/10 flex items-center justify-center">
+              <CalendarIcon size={11} className="text-primary" />
             </div>
-            <span className="font-semibold text-sm text-foreground">Agenda</span>
+            <span className="font-semibold text-xs text-foreground">Agenda</span>
           </div>
-          <span className="text-[11px] text-muted-foreground">
+          <span className="text-[10px] text-muted-foreground">
             {events.length} evento{events.length !== 1 ? 's' : ''}
           </span>
         </div>
 
         {/* Mini Calendário */}
-        <div className="px-2 mb-2">
+        <div className="px-2 mb-1">
           <MiniCalendar
             eventCounts={eventCountsByDay}
             onDateSelect={(dateStr) => {
@@ -1367,14 +1365,14 @@ export default function AgendaPage() {
           />
         </div>
 
-        <div className="mx-3 border-t border-border/50 my-1" />
+        <div className="mx-2 border-t border-border/50 my-0.5" />
 
-        {/* Filtros por tipo */}
-        <div className="px-3 py-2">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Meus calendários</p>
-          <div className="space-y-0.5">
+        {/* Filtros por tipo — Onda 5d v5: items mais densos */}
+        <div className="px-2 py-1">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Meus calendários</p>
+          <div className="space-y-0">
             {EVENT_TYPES.map(t => (
-              <label key={t.id} className="flex items-center gap-2.5 cursor-pointer py-1 group rounded-lg px-1 hover:bg-accent/40 transition-colors">
+              <label key={t.id} className="flex items-center gap-1.5 cursor-pointer py-0.5 group rounded px-1 hover:bg-accent/40 transition-colors">
                 <input
                   type="checkbox"
                   checked={filterTypes.includes(t.id)}
@@ -1382,22 +1380,22 @@ export default function AgendaPage() {
                   className="sr-only"
                 />
                 <span
-                  className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
+                  className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
                     filterTypes.includes(t.id) ? '' : 'opacity-30'
                   }`}
                   style={{ borderColor: t.color, background: filterTypes.includes(t.id) ? t.color : 'transparent' }}
                 >
-                  {filterTypes.includes(t.id) && <CheckCircle2 size={9} className="text-white" />}
+                  {filterTypes.includes(t.id) && <CheckCircle2 size={7} className="text-white" />}
                 </span>
-                <span className={`text-xs font-medium transition-opacity ${filterTypes.includes(t.id) ? 'text-foreground' : 'text-muted-foreground opacity-50'}`}>
+                <span className={`text-[11px] font-medium transition-opacity ${filterTypes.includes(t.id) ? 'text-foreground' : 'text-muted-foreground opacity-50'}`}>
                   {t.emoji} {t.label}
                 </span>
               </label>
             ))}
           </div>
 
-          {/* Toggle: mostrar eventos cancelados (default = escondido) */}
-          <label className="flex items-center gap-2.5 cursor-pointer py-1 mt-2 pt-2 border-t border-border/40 group rounded-lg px-1 hover:bg-accent/40 transition-colors">
+          {/* Toggle: mostrar eventos cancelados — compactado */}
+          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 mt-1 pt-1 border-t border-border/40 group rounded px-1 hover:bg-accent/40 transition-colors">
             <input
               type="checkbox"
               checked={showCancelled}
@@ -1405,25 +1403,25 @@ export default function AgendaPage() {
               className="sr-only"
             />
             <span
-              className={`w-3.5 h-3.5 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
+              className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
                 showCancelled ? 'bg-rose-500 border-rose-500' : 'border-muted-foreground/40 opacity-50'
               }`}
             >
-              {showCancelled && <CheckCircle2 size={9} className="text-white" />}
+              {showCancelled && <CheckCircle2 size={7} className="text-white" />}
             </span>
-            <span className={`text-xs font-medium transition-opacity ${showCancelled ? 'text-foreground' : 'text-muted-foreground opacity-60'}`}>
-              ✖️ Mostrar cancelados
+            <span className={`text-[11px] font-medium transition-opacity ${showCancelled ? 'text-foreground' : 'text-muted-foreground opacity-60'}`}>
+              ✖️ Cancelados
             </span>
           </label>
         </div>
 
-        {/* Filtro por dentista (admin) */}
-        <div className="px-3 py-2">
-          <div className="flex items-center justify-between mb-1.5">
-            <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
+        {/* Filtro por dentista (admin) — compactado */}
+        <div className="px-2 py-1">
+          <div className="flex items-center justify-between mb-1">
+            <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
             <button
               onClick={() => setShowAllUsers(v => !v)}
-              className={`text-[10px] font-semibold px-2 py-0.5 rounded-full border transition-colors ${
+              className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border transition-colors ${
                 showAllUsers
                   ? 'bg-primary/10 text-primary border-primary/30'
                   : 'text-muted-foreground border-border hover:bg-accent'
@@ -1437,7 +1435,7 @@ export default function AgendaPage() {
             <select
               value={filterUserId}
               onChange={e => setFilterUserId(e.target.value)}
-              className="w-full px-2.5 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+              className="w-full px-2 py-1 rounded-md border border-border bg-background text-[11px] text-foreground outline-none focus:ring-2 focus:ring-primary/30"
             >
               <option value="">Todos os dentistas</option>
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
@@ -1445,11 +1443,11 @@ export default function AgendaPage() {
           )}
         </div>
 
-        <div className="mx-3 border-t border-border/50 my-1" />
+        <div className="mx-2 border-t border-border/50 my-0.5" />
 
-        {/* Próximos eventos */}
-        <div className="px-3 py-2 flex-1">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">Próximos</p>
+        {/* Próximos eventos — Onda 5d v5 compactado */}
+        <div className="px-2 py-1 flex-1">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Próximos</p>
           {upcomingEvents.length === 0 ? (
             <div className="flex flex-col items-center gap-2 py-6 text-center">
               <div className="w-10 h-10 rounded-full bg-accent/50 flex items-center justify-center">
