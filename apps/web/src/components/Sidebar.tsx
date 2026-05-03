@@ -707,7 +707,7 @@ export function Sidebar() {
 
   return (
     <aside
-      className={`${expanded ? 'w-[220px]' : 'w-[72px]'} flex flex-col items-center py-3 bg-card border-r border-border relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
+      className={`${expanded ? 'w-[190px]' : 'w-[64px]'} flex flex-col items-center py-3 bg-background border-r border-border relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
       <div className={`flex items-center w-full px-3 mb-3 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
@@ -745,21 +745,27 @@ export function Sidebar() {
 
           return (
             <div key={group.id} className={gi > 0 ? 'mt-2' : ''}>
-              {/* Header de grupo:
-                    - Sidebar EXPANDIDA: botao clicavel com seta (toggle)
+              {/* Header de grupo (Onda 5e — Fase 25): EVIDENCIADO
+                    - Sidebar EXPANDIDA: botao clicavel com bg sutil + texto
+                      mais contrastado + chevron sempre visivel + barra
+                      vertical colorida na esquerda quando expandido
                     - Sidebar COLAPSADA: divisor discreto entre grupos */}
               {expanded ? (
                 <button
                   onClick={() => toggleGroup(group.id, defaultExp)}
-                  className="w-full flex items-center gap-1 px-1 mb-1 text-[10px] font-bold text-muted-foreground/60 uppercase tracking-widest hover:text-muted-foreground transition-colors"
+                  className={`w-full flex items-center gap-1.5 px-2 py-1.5 mb-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all
+                    ${isExpanded
+                      ? 'bg-accent/40 text-foreground'
+                      : 'text-muted-foreground hover:bg-accent/30 hover:text-foreground'}`}
                   aria-expanded={isExpanded}
                   aria-controls={`group-${group.id}-items`}
                 >
                   <ChevronDown
-                    size={11}
+                    size={12}
                     className={`shrink-0 transition-transform duration-150 ${
-                      isExpanded ? '' : '-rotate-90'
+                      isExpanded ? 'text-primary' : '-rotate-90 text-muted-foreground'
                     }`}
+                    strokeWidth={2.5}
                   />
                   <span className="flex-1 text-left">{group.label}</span>
                 </button>
