@@ -105,11 +105,12 @@ export class CheckAvailabilityHandler implements ToolHandler {
     });
     if (fullDayBlocks > 0) return [];
 
-    // Agenda do dentista para o dia da semana
-    const schedule = await prisma.userSchedule.findUnique({
-      where: { user_id_day_of_week: { user_id: userId, day_of_week: dayStart.getUTCDay() } },
+    // v10: busca TODOS os turnos do dia (manha + tarde + plantao se houver)
+    const shifts = await prisma.userSchedule.findMany({
+      where: { user_id: userId, day_of_week: dayStart.getUTCDay() },
+      orderBy: [{ sort_order: 'asc' }, { start_time: 'asc' }],
     });
-    if (!schedule) return [];
+    if (shifts.length === 0) return [];
 
     // Eventos existentes do dentista no dia
     const events = await prisma.calendarEvent.findMany({
@@ -133,53 +134,60 @@ export class CheckAvailabilityHandler implements ToolHandler {
       select: { start_at: true, end_at: true },
     });
 
-    const [startH, startM] = (schedule.start_time || '08:00').split(':').map(Number);
-    const [endH, endM] = (schedule.end_time || '18:00').split(':').map(Number);
-    const workStart = startH * 60 + startM;
-    const workEnd = endH * 60 + endM;
-
-    const busyMinutes = new Set<number>();
+    // Pre-calcula busy DA AGENDA (eventos + bloqueios parciais) — o mesmo
+    // conjunto vale pra todos os turnos. Cada turno depois vai filtrar
+    // soh a janela dele.
+    const globalBusyMinutes = new Set<number>();
     for (const ev of events) {
       const evStart = ev.start_at.getUTCHours() * 60 + ev.start_at.getUTCMinutes();
       const evEnd = ev.end_at
         ? ev.end_at.getUTCHours() * 60 + ev.end_at.getUTCMinutes()
         : evStart + 60;
-      for (let m = evStart; m < evEnd; m++) busyMinutes.add(m);
+      for (let m = evStart; m < evEnd; m++) globalBusyMinutes.add(m);
     }
-
-    // v9: somar bloqueios parciais (recortes do dia) ao busy
     for (const blk of partialBlocks) {
-      // converte pra minutos LOCAIS do dia, clamping nos limites do dia
       const blkStartDay = blk.start_at < dayStart ? dayStart : blk.start_at;
       const blkEndDay = blk.end_at > dayEnd ? dayEnd : blk.end_at;
       const blkStart = blkStartDay.getUTCHours() * 60 + blkStartDay.getUTCMinutes();
       const blkEnd = blkEndDay.getUTCHours() * 60 + blkEndDay.getUTCMinutes();
-      for (let m = blkStart; m < blkEnd; m++) busyMinutes.add(m);
+      for (let m = blkStart; m < blkEnd; m++) globalBusyMinutes.add(m);
     }
 
-    // Bloqueia horário de almoço se definido
-    if (schedule.lunch_start && schedule.lunch_end) {
-      const [lsH, lsM] = schedule.lunch_start.split(':').map(Number);
-      const [leH, leM] = schedule.lunch_end.split(':').map(Number);
-      const lunchStart = lsH * 60 + lsM;
-      const lunchEnd = leH * 60 + leM;
-      for (let m = lunchStart; m < lunchEnd; m++) busyMinutes.add(m);
-    }
-
+    // v10: pra cada turno, gera os slots livres dentro da janela do turno
     const available: string[] = [];
-    for (let m = workStart; m + durationMinutes <= workEnd; m += 30) {
-      let free = true;
-      for (let d = 0; d < durationMinutes; d++) {
-        if (busyMinutes.has(m + d)) { free = false; break; }
+    for (const shift of shifts) {
+      const [startH, startM] = (shift.start_time || '08:00').split(':').map(Number);
+      const [endH, endM] = (shift.end_time || '18:00').split(':').map(Number);
+      const workStart = startH * 60 + startM;
+      const workEnd = endH * 60 + endM;
+      if (workEnd <= workStart) continue;
+
+      // Clone do busy global + lunch interno do turno (backward compat)
+      const busy = new Set(globalBusyMinutes);
+      if (shift.lunch_start && shift.lunch_end) {
+        const [lsH, lsM] = shift.lunch_start.split(':').map(Number);
+        const [leH, leM] = shift.lunch_end.split(':').map(Number);
+        const lunchStart = lsH * 60 + lsM;
+        const lunchEnd = leH * 60 + leM;
+        for (let m = lunchStart; m < lunchEnd; m++) busy.add(m);
       }
-      if (free) {
-        const h = Math.floor(m / 60).toString().padStart(2, '0');
-        const min = (m % 60).toString().padStart(2, '0');
-        available.push(`${h}:${min}`);
+
+      for (let m = workStart; m + durationMinutes <= workEnd; m += 30) {
+        let free = true;
+        for (let d = 0; d < durationMinutes; d++) {
+          if (busy.has(m + d)) { free = false; break; }
+        }
+        if (free) {
+          const h = Math.floor(m / 60).toString().padStart(2, '0');
+          const min = (m % 60).toString().padStart(2, '0');
+          available.push(`${h}:${min}`);
+        }
       }
     }
 
-    return available;
+    // Remove duplicados (improvavel mas seguro: dois turnos com overlap raro)
+    // e ordena cronologicamente pra IA mostrar manha antes de tarde
+    return Array.from(new Set(available)).sort();
   }
 }
 

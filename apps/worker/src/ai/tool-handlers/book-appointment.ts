@@ -132,43 +132,67 @@ export class BookAppointmentHandler implements ToolHandler {
       };
     }
 
-    // 3. UserSchedule: hora cai dentro do expediente do dentista pra esse dia?
+    // 3. v10: UserSchedule pode ter MULTIPLOS turnos no mesmo dia
+    // (ex: Manha 08-12 + Tarde 14-18). O appointment precisa caber INTEIRO
+    // dentro de UM dos turnos (nao pode atravessar gap entre manha e tarde).
     const dow = startAt.getUTCDay();
-    const schedule = await prisma.userSchedule.findUnique({
-      where: { user_id_day_of_week: { user_id: assignedUserId, day_of_week: dow } },
+    const shifts = await prisma.userSchedule.findMany({
+      where: { user_id: assignedUserId, day_of_week: dow },
+      orderBy: [{ sort_order: 'asc' }, { start_time: 'asc' }],
     });
-    if (!schedule) {
+    if (shifts.length === 0) {
       const dayName = ['domingo','segunda','terca','quarta','quinta','sexta','sabado'][dow];
       return {
         success: false,
         error: `Dentista nao atende em ${dayName}. Ofereça outro dia.`,
       };
     }
-    const [wsH, wsM] = (schedule.start_time || '08:00').split(':').map(Number);
-    const [weH, weM] = (schedule.end_time || '18:00').split(':').map(Number);
     const apptStartMin = startAt.getUTCHours() * 60 + startAt.getUTCMinutes();
     const apptEndMin = endAt.getUTCHours() * 60 + endAt.getUTCMinutes();
-    const workStart = wsH * 60 + wsM;
-    const workEnd = weH * 60 + weM;
-    if (apptStartMin < workStart || apptEndMin > workEnd) {
-      return {
-        success: false,
-        error: `Horario ${params.time} fora do expediente do dentista (atende ${schedule.start_time}-${schedule.end_time}).`,
-      };
+
+    // Procura turno que cobre o appointment INTEIRO + verifica conflito
+    // com lunch interno do turno (backward compat com lunch_start/end)
+    let validShift: typeof shifts[number] | null = null;
+    let lunchHit: { start: string; end: string } | null = null;
+    for (const shift of shifts) {
+      const [wsH, wsM] = (shift.start_time || '08:00').split(':').map(Number);
+      const [weH, weM] = (shift.end_time || '18:00').split(':').map(Number);
+      const workStart = wsH * 60 + wsM;
+      const workEnd = weH * 60 + weM;
+      if (apptStartMin >= workStart && apptEndMin <= workEnd) {
+        // Cabe nesse turno — agora checa lunch interno (compat)
+        if (shift.lunch_start && shift.lunch_end) {
+          const [lsH, lsM] = shift.lunch_start.split(':').map(Number);
+          const [leH, leM] = shift.lunch_end.split(':').map(Number);
+          const lunchStart = lsH * 60 + lsM;
+          const lunchEnd = leH * 60 + leM;
+          if (apptEndMin > lunchStart && apptStartMin < lunchEnd) {
+            lunchHit = { start: shift.lunch_start, end: shift.lunch_end };
+            continue; // procura outro turno que nao tenha conflito de lunch
+          }
+        }
+        validShift = shift;
+        break;
+      }
     }
-    // 4. Hora bate com almoco?
-    if (schedule.lunch_start && schedule.lunch_end) {
-      const [lsH, lsM] = schedule.lunch_start.split(':').map(Number);
-      const [leH, leM] = schedule.lunch_end.split(':').map(Number);
-      const lunchStart = lsH * 60 + lsM;
-      const lunchEnd = leH * 60 + leM;
-      // sobreposicao: appt termina depois do inicio do almoco E comeca antes do fim
-      if (apptEndMin > lunchStart && apptStartMin < lunchEnd) {
+
+    if (!validShift) {
+      // Mensagem amigavel listando turnos disponiveis
+      const turnList = shifts
+        .map((s: { label?: string | null; start_time: string; end_time: string }) =>
+          `${s.label ? s.label + ' ' : ''}${s.start_time}-${s.end_time}`,
+        )
+        .join(', ');
+      if (lunchHit) {
         return {
           success: false,
-          error: `Horario ${params.time} cai no almoco do dentista (${schedule.lunch_start}-${schedule.lunch_end}).`,
+          error: `Horario ${params.time} cai no almoco do dentista (${lunchHit.start}-${lunchHit.end}). Turnos disponiveis: ${turnList}.`,
         };
       }
+      return {
+        success: false,
+        error: `Horario ${params.time} fora dos turnos do dentista. Atende: ${turnList}.`,
+      };
     }
 
     // Resolve patient_id se o lead já foi convertido em Patient — habilita

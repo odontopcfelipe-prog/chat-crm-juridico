@@ -1,20 +1,20 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, Briefcase, Trash2, Plus, Save, X, Star, Mail, Users } from 'lucide-react';
+import { Calendar, Clock, Briefcase, Trash2, Plus, Save, X, Star, Mail, Users, Copy } from 'lucide-react';
 import api from '@/lib/api';
+import {
+  ScheduleEditor,
+  type DaySchedule,
+  defaultWeekSchedule,
+  apiScheduleToDays,
+  daysToApiSlots,
+} from '@/components/ScheduleEditor';
 
+// Usado APENAS na seçao "Horario do Escritorio (Global)" — o ScheduleEditor
+// (turnos por dentista) ja tem seu proprio array interno. Mantemos aqui pra
+// nao quebrar a UI do toggle de dias uteis do escritorio.
 const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
-
-interface ScheduleSlot {
-  day_of_week: number;
-  start_time: string;
-  end_time: string;
-  enabled: boolean;
-  lunch_enabled: boolean;
-  lunch_start: string;
-  lunch_end: string;
-}
 
 interface AppType {
   id: string;
@@ -43,17 +43,9 @@ export default function OfficeSettingsPage() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [schedule, setSchedule] = useState<ScheduleSlot[]>(
-    Array.from({ length: 7 }, (_, i) => ({
-      day_of_week: i,
-      start_time: i >= 1 && i <= 5 ? '08:00' : '',
-      end_time: i >= 1 && i <= 5 ? '18:00' : '',
-      enabled: i >= 1 && i <= 5,
-      lunch_enabled: false,
-      lunch_start: '12:00',
-      lunch_end: '13:00',
-    })),
-  );
+  // v10: defaults — Seg-Sex com Manha 08-12 + Tarde 14-18 (turnos separados,
+  // sem campo de almoco). Sab e Dom desativados (dentista pode ativar).
+  const [schedule, setSchedule] = useState<DaySchedule[]>(defaultWeekSchedule());
   const [scheduleSaved, setScheduleSaved] = useState(false);
   const [scheduleSaving, setScheduleSaving] = useState(false);
 
@@ -132,25 +124,9 @@ export default function OfficeSettingsPage() {
   const loadSchedule = async (uid: string) => {
     try {
       const res = await api.get(`/calendar/schedule/${uid}`);
-      const data = res.data as any[];
-      if (data.length > 0) {
-        setSchedule(
-          Array.from({ length: 7 }, (_, i) => {
-            const existing = data.find((d: any) => d.day_of_week === i);
-            return existing
-              ? {
-                  day_of_week: i,
-                  start_time: existing.start_time,
-                  end_time: existing.end_time,
-                  enabled: true,
-                  lunch_enabled: !!(existing.lunch_start && existing.lunch_end),
-                  lunch_start: existing.lunch_start || '12:00',
-                  lunch_end: existing.lunch_end || '13:00',
-                }
-              : { day_of_week: i, start_time: '', end_time: '', enabled: false, lunch_enabled: false, lunch_start: '12:00', lunch_end: '13:00' };
-          }),
-        );
-      }
+      const data = (res.data as any[]) || [];
+      // v10: helper compartilhado faz parse + backward compat (lunch -> 2 turnos)
+      if (data.length > 0) setSchedule(apiScheduleToDays(data));
     } catch {}
   };
 
@@ -222,15 +198,8 @@ export default function OfficeSettingsPage() {
     if (!targetId) return;
     setScheduleSaving(true);
     try {
-      const slots = schedule
-        .filter((s) => s.enabled && s.start_time && s.end_time)
-        .map((s) => ({
-          day_of_week: s.day_of_week,
-          start_time: s.start_time,
-          end_time: s.end_time,
-          lunch_start: s.lunch_enabled && s.lunch_start ? s.lunch_start : null,
-          lunch_end: s.lunch_enabled && s.lunch_end ? s.lunch_end : null,
-        }));
+      // v10: helper compartilhado achata DaySchedule[] em slots[] da API
+      const slots = daysToApiSlots(schedule);
       await api.put(`/calendar/schedule/${targetId}`, { slots });
       setScheduleSaved(true);
       setTimeout(() => setScheduleSaved(false), 2000);
@@ -456,101 +425,9 @@ export default function OfficeSettingsPage() {
             </div>
           )}
 
-          <div className="space-y-2">
-            {schedule.map((slot, idx) => (
-              <div key={slot.day_of_week} className="flex flex-col gap-1">
-                {/* Linha principal: dia + horário de trabalho */}
-                <div className="flex items-center gap-3">
-                  <label className="flex items-center gap-2 min-w-[130px]">
-                    <input
-                      type="checkbox"
-                      checked={slot.enabled}
-                      onChange={(e) => {
-                        const updated = [...schedule];
-                        updated[idx] = { ...slot, enabled: e.target.checked };
-                        setSchedule(updated);
-                      }}
-                      className="w-4 h-4 rounded border-border text-primary focus:ring-primary"
-                    />
-                    <span className={`text-sm font-medium ${slot.enabled ? 'text-foreground' : 'text-muted-foreground'}`}>
-                      {DAY_NAMES[slot.day_of_week]}
-                    </span>
-                  </label>
-                  {slot.enabled ? (
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {/* Horário de trabalho */}
-                      <input
-                        type="time"
-                        value={slot.start_time}
-                        onChange={(e) => {
-                          const updated = [...schedule];
-                          updated[idx] = { ...slot, start_time: e.target.value };
-                          setSchedule(updated);
-                        }}
-                        className="px-2 py-1.5 text-sm bg-muted/30 border border-border rounded-lg text-foreground"
-                      />
-                      <span className="text-muted-foreground text-xs">até</span>
-                      <input
-                        type="time"
-                        value={slot.end_time}
-                        onChange={(e) => {
-                          const updated = [...schedule];
-                          updated[idx] = { ...slot, end_time: e.target.value };
-                          setSchedule(updated);
-                        }}
-                        className="px-2 py-1.5 text-sm bg-muted/30 border border-border rounded-lg text-foreground"
-                      />
-                      {/* Separador + toggle almoço */}
-                      <span className="text-border/60 text-sm select-none">|</span>
-                      <label className="flex items-center gap-1.5 cursor-pointer group">
-                        <input
-                          type="checkbox"
-                          checked={slot.lunch_enabled}
-                          onChange={(e) => {
-                            const updated = [...schedule];
-                            updated[idx] = { ...slot, lunch_enabled: e.target.checked };
-                            setSchedule(updated);
-                          }}
-                          className="w-3.5 h-3.5 rounded border-border text-primary focus:ring-primary"
-                        />
-                        <span className="text-xs text-muted-foreground group-hover:text-foreground transition-colors">
-                          ☕ Almoço
-                        </span>
-                      </label>
-                      {/* Horários de almoço (só se habilitado) */}
-                      {slot.lunch_enabled && (
-                        <>
-                          <input
-                            type="time"
-                            value={slot.lunch_start}
-                            onChange={(e) => {
-                              const updated = [...schedule];
-                              updated[idx] = { ...slot, lunch_start: e.target.value };
-                              setSchedule(updated);
-                            }}
-                            className="px-2 py-1.5 text-sm bg-sky-500/10 border border-sky-500/30 rounded-lg text-foreground"
-                          />
-                          <span className="text-muted-foreground text-xs">até</span>
-                          <input
-                            type="time"
-                            value={slot.lunch_end}
-                            onChange={(e) => {
-                              const updated = [...schedule];
-                              updated[idx] = { ...slot, lunch_end: e.target.value };
-                              setSchedule(updated);
-                            }}
-                            className="px-2 py-1.5 text-sm bg-sky-500/10 border border-sky-500/30 rounded-lg text-foreground"
-                          />
-                        </>
-                      )}
-                    </div>
-                  ) : (
-                    <span className="text-xs text-muted-foreground italic">Não trabalha</span>
-                  )}
-                </div>
-              </div>
-            ))}
-          </div>
+          {/* v10: usa componente compartilhado ScheduleEditor (mesma UI da
+              tela de criar dentista em settings/users) */}
+          <ScheduleEditor value={schedule} onChange={setSchedule} />
         </div>
 
         {/* ═══════ Seção 2: Tipos de Atendimento ═══════ */}

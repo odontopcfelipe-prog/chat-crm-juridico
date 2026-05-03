@@ -612,38 +612,54 @@ export class CalendarService {
   // ─── Availability ─────────────────────────────────────
 
   async getSchedule(userId: string) {
+    // Onda 5e v10: ordena por day_of_week + sort_order + start_time pra
+    // garantir ordem consistente quando ha multiplos turnos no mesmo dia.
     return this.prisma.userSchedule.findMany({
       where: { user_id: userId },
-      orderBy: { day_of_week: 'asc' },
+      orderBy: [{ day_of_week: 'asc' }, { sort_order: 'asc' }, { start_time: 'asc' }],
     });
   }
 
   async setSchedule(
     userId: string,
-    slots: { day_of_week: number; start_time: string; end_time: string; lunch_start?: string | null; lunch_end?: string | null }[],
+    slots: {
+      day_of_week: number;
+      start_time: string;
+      end_time: string;
+      lunch_start?: string | null;
+      lunch_end?: string | null;
+      label?: string | null;
+      sort_order?: number;
+    }[],
   ) {
-    const results = await Promise.all(
-      slots.map((s) =>
-        this.prisma.userSchedule.upsert({
-          where: { user_id_day_of_week: { user_id: userId, day_of_week: s.day_of_week } },
-          create: {
-            user_id: userId,
-            day_of_week: s.day_of_week,
-            start_time: s.start_time,
-            end_time: s.end_time,
-            lunch_start: s.lunch_start ?? null,
-            lunch_end: s.lunch_end ?? null,
-          },
-          update: {
-            start_time: s.start_time,
-            end_time: s.end_time,
-            lunch_start: s.lunch_start ?? null,
-            lunch_end: s.lunch_end ?? null,
-          },
-        }),
-      ),
-    );
-    return results;
+    // Onda 5e v10: como agora pode haver MULTIPLOS registros pelo mesmo
+    // (user_id, day_of_week), nao da pra usar upsert (chave nao eh mais
+    // unica). Usamos transacao: deleta TUDO do usuario + cria os novos slots.
+    // Idempotente — se rodar duas vezes com mesmo input, da o mesmo resultado.
+    return this.prisma.$transaction(async (tx) => {
+      await tx.userSchedule.deleteMany({ where: { user_id: userId } });
+      if (slots.length === 0) return [];
+      // Filtra slots invalidos (start >= end ou campos vazios) por seguranca
+      const valid = slots.filter(
+        (s) => s.start_time && s.end_time && s.start_time < s.end_time,
+      );
+      await tx.userSchedule.createMany({
+        data: valid.map((s, idx) => ({
+          user_id: userId,
+          day_of_week: s.day_of_week,
+          start_time: s.start_time,
+          end_time: s.end_time,
+          lunch_start: s.lunch_start ?? null,
+          lunch_end: s.lunch_end ?? null,
+          label: s.label ?? null,
+          sort_order: s.sort_order ?? idx,
+        })),
+      });
+      return tx.userSchedule.findMany({
+        where: { user_id: userId },
+        orderBy: [{ day_of_week: 'asc' }, { sort_order: 'asc' }, { start_time: 'asc' }],
+      });
+    });
   }
 
   async getAvailability(userId: string, dateStr: string, durationMinutes: number, tenantId?: string) {
@@ -658,11 +674,12 @@ export class CalendarService {
     const isHoliday = await this.isHoliday(date, tenantId);
     if (isHoliday) return [];
 
-    // 1. Horario de trabalho do dia
-    const schedule = await this.prisma.userSchedule.findUnique({
-      where: { user_id_day_of_week: { user_id: userId, day_of_week: dayOfWeek } },
+    // 1. Onda 5e v10: busca TODOS os turnos do dia (pode ter manha + tarde + plantao)
+    const shifts = await this.prisma.userSchedule.findMany({
+      where: { user_id: userId, day_of_week: dayOfWeek },
+      orderBy: [{ sort_order: 'asc' }, { start_time: 'asc' }],
     });
-    if (!schedule) return [];
+    if (shifts.length === 0) return [];
 
     // 2. Eventos existentes nesse dia (inclui eventos que começaram antes mas terminam durante o dia)
     const dayStart = new Date(date);
@@ -685,56 +702,61 @@ export class CalendarService {
       orderBy: { start_at: 'asc' },
     });
 
-    // 3. Calcular slots livres
-    const [startH, startM] = schedule.start_time.split(':').map(Number);
-    const [endH, endM] = schedule.end_time.split(':').map(Number);
-    const workStart = startH * 60 + startM;
-    const workEnd = endH * 60 + endM;
-
     // UTC naive: extrair hora/minuto direto em UTC (datas armazenadas como horário local)
     const toLocalMinutes = (d: Date): number => {
       return d.getUTCHours() * 60 + d.getUTCMinutes();
     };
 
-    const busy = events.map((e) => {
-      const s = Math.max(toLocalMinutes(e.start_at), workStart);
-      const eEnd = e.end_at
-        ? Math.min(toLocalMinutes(e.end_at), workEnd)
-        : Math.min(s + durationMinutes, workEnd);
-      return { start: s, end: eEnd };
-    });
+    const fmt = (m: number): string =>
+      `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
 
-    // Adicionar pausa de almoço como período ocupado
-    if (schedule.lunch_start && schedule.lunch_end) {
-      const [lsH, lsM] = schedule.lunch_start.split(':').map(Number);
-      const [leH, leM] = schedule.lunch_end.split(':').map(Number);
-      busy.push({ start: lsH * 60 + lsM, end: leH * 60 + leM });
-      busy.sort((a, b) => a.start - b.start);
-    }
+    // 3. Onda 5e v10: pra CADA turno, calcula slots livres separadamente.
+    // Diferente da v anterior (1 turno por dia), agora um dia pode ter manha
+    // 08-12 + tarde 14-18 + plantao 19-22. Cada turno gera sua janela de
+    // slots independente, depois concatenamos tudo no resultado final.
+    const allSlots: { start: string; end: string }[] = [];
+    for (const shift of shifts) {
+      const [startH, startM] = shift.start_time.split(':').map(Number);
+      const [endH, endM] = shift.end_time.split(':').map(Number);
+      const workStart = startH * 60 + startM;
+      const workEnd = endH * 60 + endM;
+      if (workEnd <= workStart) continue; // turno invalido
 
-    const slots: { start: string; end: string }[] = [];
-    let cursor = workStart;
-    for (const b of busy) {
-      while (cursor + durationMinutes <= b.start) {
-        const slotEnd = cursor + durationMinutes;
-        slots.push({
-          start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
-          end: `${String(Math.floor(slotEnd / 60)).padStart(2, '0')}:${String(slotEnd % 60).padStart(2, '0')}`,
-        });
-        cursor = slotEnd;
+      // Eventos que se sobrepoem ao turno + lunch interno (compat) viram busy
+      const busy: { start: number; end: number }[] = [];
+      for (const e of events) {
+        const s = Math.max(toLocalMinutes(e.start_at), workStart);
+        const eEnd = e.end_at
+          ? Math.min(toLocalMinutes(e.end_at), workEnd)
+          : Math.min(s + durationMinutes, workEnd);
+        if (eEnd > s) busy.push({ start: s, end: eEnd });
       }
-      if (b.end > cursor) cursor = b.end;
-    }
-    while (cursor + durationMinutes <= workEnd) {
-      const slotEnd = cursor + durationMinutes;
-      slots.push({
-        start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
-        end: `${String(Math.floor(slotEnd / 60)).padStart(2, '0')}:${String(slotEnd % 60).padStart(2, '0')}`,
-      });
-      cursor = slotEnd;
+      // Lunch DENTRO do turno (formato antigo, backward compat)
+      if (shift.lunch_start && shift.lunch_end) {
+        const [lsH, lsM] = shift.lunch_start.split(':').map(Number);
+        const [leH, leM] = shift.lunch_end.split(':').map(Number);
+        const ls = Math.max(lsH * 60 + lsM, workStart);
+        const le = Math.min(leH * 60 + leM, workEnd);
+        if (le > ls) busy.push({ start: ls, end: le });
+      }
+      busy.sort((a, b) => a.start - b.start);
+
+      // Encaixa slots de duracao=durationMinutes em cada gap livre do turno
+      let cursor = workStart;
+      for (const b of busy) {
+        while (cursor + durationMinutes <= b.start) {
+          allSlots.push({ start: fmt(cursor), end: fmt(cursor + durationMinutes) });
+          cursor += durationMinutes;
+        }
+        if (b.end > cursor) cursor = b.end;
+      }
+      while (cursor + durationMinutes <= workEnd) {
+        allSlots.push({ start: fmt(cursor), end: fmt(cursor + durationMinutes) });
+        cursor += durationMinutes;
+      }
     }
 
-    return slots;
+    return allSlots;
   }
 
   // ─── Appointment Types ────────────────────────────────

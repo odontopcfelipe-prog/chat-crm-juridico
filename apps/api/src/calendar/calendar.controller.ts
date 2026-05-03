@@ -207,8 +207,25 @@ export class CalendarController {
   @Put('schedule/:userId')
   setSchedule(
     @Param('userId') userId: string,
-    @Body('slots') slots: { day_of_week: number; start_time: string; end_time: string }[],
+    @Body('slots') slots: {
+      day_of_week: number;
+      start_time: string;
+      end_time: string;
+      lunch_start?: string | null;
+      lunch_end?: string | null;
+      label?: string | null;
+      sort_order?: number;
+    }[],
+    @Request() req: any,
   ) {
+    // Onda 5e v10 (Fase 25) — ANTES nao validava nada: qualquer user
+    // autenticado podia editar agenda de qualquer outro. Agora exigimos
+    // ADMIN OU dono da agenda. Sem isso, recepcao podia mexer no
+    // expediente do dentista sem permissao.
+    const isAdmin = req.user?.roles?.includes('ADMIN');
+    if (!isAdmin && req.user?.id !== userId) {
+      throw new ForbiddenException('Apenas ADMIN ou o proprio dentista pode editar essa agenda');
+    }
     return this.calendarService.setSchedule(userId, slots);
   }
 

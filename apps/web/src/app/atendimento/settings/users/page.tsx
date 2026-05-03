@@ -2,8 +2,16 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import api from '@/lib/api';
+// Onda 5e v10 (Fase 25) — editor de horarios reusavel
+import {
+  ScheduleEditor,
+  type DaySchedule,
+  defaultWeekSchedule,
+  apiScheduleToDays,
+  daysToApiSlots,
+} from '@/components/ScheduleEditor';
 
 // Especialidades odontológicas — alinhadas com os funis ativos (PIPELINE_TEMPLATES
 // em apps/api/src/pipelines/pipelines.service.ts) + função "Orçamentista".
@@ -114,6 +122,12 @@ export default function UsersSettingsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [specialtyInput, setSpecialtyInput] = useState('');
+  // Onda 5e v10 (Fase 25) — horarios de atendimento integrados ao modal
+  // de criar/editar dentista. Aparece colapsavel quando role inclui DENTIST.
+  // Salvo via PUT /calendar/schedule/:userId DEPOIS de criar o user (pra
+  // ter o id) ou junto com o PATCH se for edicao.
+  const [schedule, setSchedule] = useState<DaySchedule[]>(defaultWeekSchedule());
+  const [scheduleExpanded, setScheduleExpanded] = useState(false);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -165,10 +179,13 @@ export default function UsersSettingsPage() {
     setForm(emptyForm);
     setSpecialtyInput('');
     setError('');
+    // v10: reseta horarios pra padrao (Seg-Sex, 2 turnos)
+    setSchedule(defaultWeekSchedule());
+    setScheduleExpanded(false);
     setShowModal(true);
   };
 
-  const openEdit = (user: any) => {
+  const openEdit = async (user: any) => {
     setEditingId(user.id);
     // Backend pode devolver `roles` (array canônico) ou `role` (legado). Normaliza e deduplica.
     const rawRoles: string[] = Array.isArray(user.roles) && user.roles.length > 0
@@ -190,6 +207,19 @@ export default function UsersSettingsPage() {
     });
     setSpecialtyInput('');
     setError('');
+    setScheduleExpanded(false);
+    // v10: carrega horarios atuais do dentista (se houver)
+    setSchedule(defaultWeekSchedule());
+    if (uniqueRoles.includes('DENTIST') || uniqueRoles.includes('ADMIN')) {
+      try {
+        const res = await api.get(`/calendar/schedule/${user.id}`);
+        if (res.data && res.data.length > 0) {
+          setSchedule(apiScheduleToDays(res.data));
+        }
+      } catch {
+        // sem horarios cadastrados — mantem default
+      }
+    }
     setShowModal(true);
   };
 
@@ -225,6 +255,7 @@ export default function UsersSettingsPage() {
     }
 
     try {
+      let savedUserId: string | undefined = editingId || undefined;
       if (editingId) {
         const payload: any = {
           name: form.name,
@@ -257,11 +288,28 @@ export default function UsersSettingsPage() {
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
         });
+        savedUserId = res.data?.id;
         // Salvar vínculo de supervisores para novo usuário
-        if (form.supervisorIds.length > 0 && res.data?.id) {
-          await api.patch(`/users/${res.data.id}/supervisors`, { lawyerIds: form.supervisorIds });
+        if (form.supervisorIds.length > 0 && savedUserId) {
+          await api.patch(`/users/${savedUserId}/supervisors`, { lawyerIds: form.supervisorIds });
         }
       }
+
+      // v10: salva horarios SE o user eh dentista/admin (criados ou editados).
+      // Backend valida permissao (ADMIN ou dono). Se falhar, registra mas
+      // nao bloqueia — user fica criado, e admin pode reabrir e tentar de novo.
+      const needsSchedule = form.roles.includes('DENTIST') || form.roles.includes('ADMIN');
+      if (needsSchedule && savedUserId) {
+        try {
+          await api.put(`/calendar/schedule/${savedUserId}`, {
+            slots: daysToApiSlots(schedule),
+          });
+        } catch (scheduleErr) {
+          // eslint-disable-next-line no-console
+          console.warn('Falha ao salvar horarios — user persistido sem schedule', scheduleErr);
+        }
+      }
+
       setShowModal(false);
       fetchUsers();
     } catch (e: any) {
@@ -646,6 +694,38 @@ export default function UsersSettingsPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Onda 5e v10 (Fase 25) — Horarios de atendimento integrados.
+                  So aparece pra DENTIST/ADMIN. Colapsavel pra nao bloatar
+                  o modal pra usuarios que nao precisam (operador, comercial). */}
+              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN')) && (
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-border bg-muted/20 hover:bg-muted/40 transition-colors"
+                  >
+                    <span className="flex items-center gap-2 text-[12px] font-bold text-muted-foreground uppercase tracking-wider">
+                      <Clock size={14} className="text-primary" />
+                      Horários de Atendimento
+                    </span>
+                    {scheduleExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {scheduleExpanded && (
+                    <div className="p-3 rounded-xl border border-border bg-background/50">
+                      <ScheduleEditor
+                        value={schedule}
+                        onChange={setSchedule}
+                        showHelp={true}
+                        compact={true}
+                      />
+                      <p className="text-[10px] text-muted-foreground mt-3 italic">
+                        💡 A IA usa esses horários pra propor agendamentos automaticamente quando um lead pede uma avaliação.
+                      </p>
+                    </div>
+                  )}
                 </div>
               )}
 

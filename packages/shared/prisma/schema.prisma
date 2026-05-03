@@ -879,10 +879,24 @@ model UserSchedule {
   day_of_week Int // 0=dom, 1=seg, ..., 6=sab
   start_time  String // "09:00"
   end_time    String // "18:00"
+  // Onda 5e v10 (Fase 25) — lunch_start/lunch_end mantidos por backward compat
+  // (configs antigas continuam funcionando). Recomendacao nova: criar 2 turnos
+  // (manha + tarde) ao inves de usar lunch_*. UI nova nao expoe almoco — gera
+  // multiplas linhas pro mesmo day_of_week.
   lunch_start String? // "12:00" — null = sem pausa
   lunch_end   String? // "13:00"
+  // Onda 5e v10 — label opcional pra distinguir turnos no UI ("Manhã", "Tarde",
+  // "Plantão", "Sábado parcial"). Null = sem rotulo (fallback no front mostra
+  // start_time-end_time).
+  label       String?
+  // Ordenacao explicita pra UI mostrar manha antes da tarde (ou ordem custom).
+  // Default 0 — multiplos turnos do mesmo dia ordenam por sort_order ASC,
+  // depois start_time ASC pra desempate.
+  sort_order  Int     @default(0)
 
-  @@unique([user_id, day_of_week])
+  // Removido @@unique([user_id, day_of_week]) pra permitir multiplos turnos
+  // no mesmo dia (ex: Manha 08-12 + Tarde 14-18 + Plantao 19-22).
+  @@index([user_id, day_of_week])
 }
 
 model AppointmentType {
