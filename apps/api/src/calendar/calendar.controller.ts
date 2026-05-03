@@ -291,6 +291,46 @@ export class CalendarController {
     });
   }
 
+  // ─── Listagem/gerencia de Reminders pra Dashboard (v21) ─────────────
+  // Aba "Lembretes" dentro de Follow-up IA usa esses endpoints pra mostrar
+  // disparos feitos e a fazer + permitir reenviar/cancelar.
+
+  @Get('reminders')
+  listReminders(
+    @Query('status') status: 'pendente' | 'enviado' | 'falhou' | 'todos' | undefined,
+    @Query('channel') channel: string | undefined,
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.calendarService.listReminders({
+      status,
+      channel,
+      from,
+      to,
+      tenant_id: req.user?.tenant_id,
+      limit: limit ? parseInt(limit) : undefined,
+    });
+  }
+
+  @Get('reminders/summary')
+  getRemindersSummary(@Request() req: any) {
+    return this.calendarService.getRemindersSummary({
+      tenant_id: req.user?.tenant_id,
+    });
+  }
+
+  @Post('reminders/:id/resend')
+  resendReminder(@Param('id') id: string) {
+    return this.calendarService.resendReminder(id);
+  }
+
+  @Post('reminders/:id/cancel')
+  cancelReminder(@Param('id') id: string) {
+    return this.calendarService.cancelReminder(id);
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   @Get('holidays')

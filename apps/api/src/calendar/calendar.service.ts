@@ -825,6 +825,209 @@ export class CalendarService {
     return { deleted: true };
   }
 
+  // ─── Listagem de Reminders pra Dashboard (Onda 5e v21, Fase 25) ─────
+  // Lista EventReminder filtravel pra UI de acompanhamento de disparos
+  // (aba Lembretes dentro de Follow-up IA). Retorna detalhes do evento +
+  // paciente + dentista pra renderizar a tabela sem N+1 queries.
+
+  async listReminders(opts: {
+    status?: 'pendente' | 'enviado' | 'falhou' | 'todos';
+    channel?: string;
+    from?: string;
+    to?: string;
+    tenant_id?: string;
+    limit?: number;
+  }) {
+    const limit = Math.min(opts.limit ?? 100, 500);
+    const where: any = {};
+
+    // Filtro de status (pendente = sent_at NULL e evento futuro,
+    // enviado = sent_at preenchido, falhou = pendente + evento ja passou)
+    const now = new Date();
+    if (opts.status === 'pendente') {
+      where.sent_at = null;
+      where.event = { start_at: { gte: now } };
+    } else if (opts.status === 'enviado') {
+      where.sent_at = { not: null };
+    } else if (opts.status === 'falhou') {
+      where.sent_at = null;
+      where.event = { start_at: { lt: now } };
+    }
+
+    if (opts.channel) where.channel = opts.channel;
+    if (opts.from || opts.to) {
+      const eventCondition = where.event || {};
+      eventCondition.start_at = {};
+      if (opts.from) eventCondition.start_at.gte = new Date(opts.from);
+      if (opts.to) eventCondition.start_at.lte = new Date(opts.to);
+      where.event = eventCondition;
+    }
+
+    // Filtro de tenant via evento (EventReminder nao tem tenant_id direto)
+    if (opts.tenant_id) {
+      const eventCondition = where.event || {};
+      eventCondition.OR = [
+        { tenant_id: opts.tenant_id },
+        { tenant_id: null },
+      ];
+      where.event = eventCondition;
+    }
+
+    // EventReminder nao tem created_at no schema — ordena por sent_at + id
+    // pra desempate consistente
+    const reminders = await this.prisma.eventReminder.findMany({
+      where,
+      take: limit,
+      orderBy: [{ sent_at: 'desc' }, { id: 'desc' }],
+      include: {
+        event: {
+          select: {
+            id: true, title: true, type: true, status: true, start_at: true,
+            location: true,
+            assigned_user: { select: { id: true, name: true } },
+            lead: { select: { id: true, name: true, phone: true } },
+          },
+        },
+      },
+    });
+
+    return reminders.map((r: any) => ({
+      id: r.id,
+      minutes_before: r.minutes_before,
+      channel: r.channel,
+      sent_at: r.sent_at,
+      // Status derivado pra UI
+      derived_status: r.sent_at
+        ? 'enviado'
+        : r.event && r.event.start_at < now
+          ? 'falhou'
+          : 'pendente',
+      event: r.event,
+    }));
+  }
+
+  /**
+   * Resumo agregado de lembretes nas ultimas 24h + proximas 24h.
+   * Renderizado nos cards do topo da aba Lembretes.
+   */
+  async getRemindersSummary(opts: { tenant_id?: string }) {
+    const now = new Date();
+    const dayAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+    const dayAhead = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+    const tenantFilter = opts.tenant_id
+      ? { OR: [{ tenant_id: opts.tenant_id }, { tenant_id: null }] }
+      : {};
+
+    const [enviados24h, pendentes24h, falhas24h, totalEventosFuturos] = await Promise.all([
+      this.prisma.eventReminder.count({
+        where: { sent_at: { gte: dayAgo, lte: now } },
+      }),
+      this.prisma.eventReminder.count({
+        where: {
+          sent_at: null,
+          event: { ...tenantFilter, start_at: { gte: now, lte: dayAhead } },
+        },
+      }),
+      this.prisma.eventReminder.count({
+        where: {
+          sent_at: null,
+          event: { ...tenantFilter, start_at: { lt: now, gte: dayAgo } },
+        },
+      }),
+      this.prisma.calendarEvent.count({
+        where: {
+          ...tenantFilter,
+          start_at: { gte: now },
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+          status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+        },
+      }),
+    ]);
+
+    return {
+      enviados_24h: enviados24h,
+      pendentes_proximas_24h: pendentes24h,
+      falhas_24h: falhas24h,
+      eventos_futuros: totalEventosFuturos,
+    };
+  }
+
+  /**
+   * Reenvia um lembrete: zera sent_at e re-enfileira no BullMQ pra disparar
+   * imediatamente (delay de 1s). Util quando lembrete falhou e operador
+   * quer tentar de novo manualmente.
+   */
+  async resendReminder(reminderId: string) {
+    const reminder = await this.prisma.eventReminder.findUnique({
+      where: { id: reminderId },
+      include: { event: { select: { id: true, status: true, start_at: true } } },
+    });
+    if (!reminder) throw new BadRequestException('Lembrete não encontrado');
+    if (!reminder.event) throw new BadRequestException('Evento não encontrado');
+    if (['CANCELADO', 'CONCLUIDO'].includes(reminder.event.status)) {
+      throw new BadRequestException('Não dá pra reenviar lembrete de evento cancelado/concluído');
+    }
+
+    // Zera sent_at pra worker re-processar
+    await this.prisma.eventReminder.update({
+      where: { id: reminderId },
+      data: { sent_at: null },
+    });
+
+    // Re-enfileira no BullMQ com delay imediato (1s)
+    const jobId = `reminder-${reminder.id}`;
+    try {
+      const old = await this.reminderQueue.getJob(jobId);
+      if (old) await old.remove();
+    } catch {}
+    await this.reminderQueue.add(
+      'send-reminder',
+      { reminderId: reminder.id, eventId: reminder.event.id, channel: reminder.channel },
+      {
+        delay: 1000,
+        jobId,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 50,
+      },
+    );
+
+    this.logger.log(`[RESEND] Lembrete ${reminderId} reenfileirado pra disparo imediato`);
+    return { success: true, reminder_id: reminderId };
+  }
+
+  /**
+   * Cancela lembrete pendente: remove do BullMQ + marca como sent_at agora
+   * (impede reprocessamento). Nao deleta o registro pra ficar no historico.
+   */
+  async cancelReminder(reminderId: string) {
+    const reminder = await this.prisma.eventReminder.findUnique({
+      where: { id: reminderId },
+    });
+    if (!reminder) throw new BadRequestException('Lembrete não encontrado');
+    if (reminder.sent_at) {
+      throw new BadRequestException('Lembrete já foi processado (não pode cancelar)');
+    }
+
+    // Remove do BullMQ
+    const jobId = `reminder-${reminder.id}`;
+    try {
+      const old = await this.reminderQueue.getJob(jobId);
+      if (old) await old.remove();
+    } catch {}
+
+    // Marca sent_at pra impedir worker pegar (idempotencia)
+    await this.prisma.eventReminder.update({
+      where: { id: reminderId },
+      data: { sent_at: new Date() }, // truque: sent_at sinaliza "nao processar mais"
+    });
+
+    this.logger.log(`[CANCEL] Lembrete ${reminderId} cancelado (removido da fila)`);
+    return { success: true, reminder_id: reminderId };
+  }
+
   // ─── Backfill de Reminders (Onda 5e v19, Fase 25) ────────────────────
   // Cria EventReminders default (1d, 1h, 30min) pra eventos futuros que
   // NAO tem reminders + enfileira no BullMQ pra disparar WhatsApp.
