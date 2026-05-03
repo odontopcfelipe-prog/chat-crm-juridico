@@ -729,6 +729,50 @@ export class AiProcessor extends WorkerHost {
     return event;
   }
 
+  /**
+   * v28: Quando safeguard cancela evento + IA nao propos horarios novos,
+   * buscamos 2-3 slots disponiveis nos proximos 7 dias e appendamos uma
+   * proposta amigavel na resposta da IA. Garante estrategia de venda
+   * (nunca aceita "no" passivo sem oferecer alternativa).
+   *
+   * Retorna string formatada pra concat, ou null se nao tem dados suficientes.
+   */
+  private async buildRescheduleSuggestion(convo: any): Promise<string | null> {
+    try {
+      const dentistId = convo.assigned_dentist_id || convo.assigned_user_id;
+      if (!dentistId) return null;
+      const now = new Date();
+      const tz = 'America/Maceio';
+      const formatDateBR = (d: Date) =>
+        d.toLocaleDateString('pt-BR', { timeZone: tz, weekday: 'short', day: '2-digit', month: '2-digit' });
+      const slots: { date: string; time: string; label: string }[] = [];
+      // Busca 7 dias a frente
+      for (let i = 1; i <= 14 && slots.length < 3; i++) {
+        const day = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
+        if (day.getDay() === 0) continue; // pula domingo
+        const dateStr = day.toISOString().split('T')[0];
+        const dayslots = await this.getAvailability(dentistId, dateStr, 60);
+        if (dayslots.length > 0) {
+          slots.push({
+            date: dateStr,
+            time: dayslots[0].start,
+            label: `${formatDateBR(day)} às ${dayslots[0].start}`,
+          });
+        }
+      }
+      if (slots.length === 0) return null;
+      const firstName = (convo.lead?.name || '').split(' ')[0] || '';
+      const greeting = firstName ? `${firstName}, ` : '';
+      const intro = `${greeting}sem problema! Tenho esses horários pertinho:`;
+      const lines = slots.map((s) => `• ${s.label}`).join('\n');
+      const cta = '\nAlgum desses serve melhor pra você?';
+      return `${intro}\n${lines}${cta}`;
+    } catch (e: any) {
+      this.logger.warn(`[AI] buildRescheduleSuggestion falhou: ${e.message}`);
+      return null;
+    }
+  }
+
   // ─── Consulta disponibilidade de horários de um dentista ───
   private async getAvailability(
     userId: string,
@@ -2150,7 +2194,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       }
 
       this.logger.log(
-        `[AI] Resposta — reply: ${aiText.slice(0, 80)}... | updates: ${JSON.stringify(updates).slice(0, 200)}`,
+        `[AI] Resposta — reply: ${aiText.slice(0, 80)}... | updates: ${JSON.stringify(updates).slice(0, 200)} | scheduling_action: ${JSON.stringify(scheduling_action) || 'null'}`,
       );
       if (!updates.status && !updates.next_step && !updates.name) {
         this.logger.warn(`[AI] updates vazio após processamento — stage não será atualizado. convo=${conversation_id}`);
@@ -2176,17 +2220,59 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // 14. Verificar sinal de escalada (handoff para humano)
       let finalText = aiText;
 
-      // Onda 5e v22 (Fase 25) — SAFEGUARD: detecta IA dizendo "cancelei" /
-      // "cancelado" / "removi" SEM emitir scheduling_action. Isso era um bug
-      // grave: paciente recebia "cancelei sua consulta" mas evento continuava
-      // na agenda. Quando detectamos, FORCAMOS o cancelamento + log warn.
-      if (finalText && /\b(cancelei|cancelado|cancelada|removi|desmarquei)\b/i.test(finalText)
-          && !scheduling_action?.action) {
+      // Onda 5e v28 (Fase 25) — SAFEGUARDS REFORÇADOS pra cancelamento.
+      // Bug recorrente: IA respondia "cancelei sua consulta" mas evento
+      // permanecia na agenda E IA nao propunha remarcacao. v22 detectava
+      // só "cancelei/cancelado/removi/desmarquei". v28 expande pra 3 camadas:
+      //
+      // CAMADA 1: dicionario AMPLIADO de palavras de "encerrar agendamento"
+      //   ('cancelei', 'fica pra próxima', 'remarcar mais tarde', 'anotei aqui',
+      //   'ficou pra próximo', 'sem problemas, fica pra', 'tudo bem, te aviso',
+      //   'desmarquei', 'tirei da agenda', etc)
+      //
+      // CAMADA 2: contexto awaiting_confirmation + sinal NEGATIVO do paciente
+      //   Se reminder_context.awaiting_confirmation=true E ultima msg do
+      //   paciente contem "nao posso/vou/consigo" → forca acao mesmo sem IA
+      //   ter usado palavras chave
+      //
+      // CAMADA 3: log estruturado pra rastreabilidade
+      //   Sempre logamos qual camada disparou, com excerpt da resposta
+      // (reminderCtx ja foi declarado linha ~1388 — reutilizamos aqui)
+      const isAwaitingConfirmation = reminderCtx?.awaiting_confirmation === true;
+      // Pega ultima msg do paciente (direction='in') — vem de chronological
+      const lastInbound = chronological?.filter((m: any) => m.direction === 'in')?.slice(-1)?.[0];
+      const lastInboundText = (lastInbound?.text || '').toLowerCase();
+      const patientSaidNo = isAwaitingConfirmation && /\b(n[ãa]o\s+(?:vou|posso|consigo|d[áa])|imprevisto|preciso\s+remarcar|n[ãa]o\s+ir(?:ei|i)|n[ãa]o\s+conseguirei|n[ãa]o\s+poderei)\b/i.test(lastInboundText);
+
+      // Detecta palavras-chave AMPLIADAS de "encerrar/abandonar agendamento"
+      const aiSaysCancel = finalText && /\b(cancelei|cancelado|cancelada|removi|desmarquei|tirei\s+da\s+agenda|fica\s+pra?\s+(?:pr[oó]xima|outro\s+dia)|deixa\s+pra?\s+depois|fica\s+pra\s+depois|anotei\s+(?:aqui|que)|ficou\s+pra\s+(?:pr[oó]xima|depois)|removi\s+da\s+agenda)\b/i.test(finalText);
+
+      // Detecta proposta de horarios novos (formato comum: "DD/MM as HH:MM" ou bullet "• ")
+      const aiProposedSlots = finalText && (
+        /\b\d{1,2}\/\d{1,2}\b.*\b\d{1,2}[:h]\d{2}\b/i.test(finalText) ||
+        finalText.includes('•') ||
+        /tenho\s+(?:essas|essa|esse|esses)\s+(?:opç[ãoe]es|hor[áa]rios)/i.test(finalText) ||
+        /(?:que\s+tal|posso\s+te?\s+encaixar|consigo\s+te?\s+encaixar)/i.test(finalText)
+      );
+
+      const noActionFromAi = !scheduling_action?.action;
+
+      this.logger.log(
+        `[AI-SAFEGUARD] convo=${convo.id} awaiting=${isAwaitingConfirmation} patientNo=${patientSaidNo} aiCancel=${aiSaysCancel} aiProposed=${aiProposedSlots} action=${scheduling_action?.action || 'null'}`
+      );
+
+      // GATILHO 1: IA usou palavra de cancelamento sem emitir action
+      // GATILHO 2: lead negou + IA nao emitiu action nem propos horarios novos
+      const shouldForceCancel = noActionFromAi && (aiSaysCancel || patientSaidNo);
+
+      if (shouldForceCancel) {
+        const reason = aiSaysCancel
+          ? `IA usou palavra de encerrar agendamento sem emitir action`
+          : `Paciente negou (awaiting_confirmation) e IA nao propos horarios novos nem cancelou explicitamente`;
         this.logger.warn(
-          `[AI] HALLUCINATION DETECTED: IA disse cancelar mas NAO emitiu scheduling_action. ` +
-          `Forcando cancel_appointment como safeguard. conv=${convo.id} reply="${finalText.slice(0, 100)}"`,
+          `[AI] HALLUCINATION DETECTED (${reason}). conv=${convo.id} reply="${finalText.slice(0, 200)}" lastIn="${lastInboundText.slice(0, 100)}"`,
         );
-        // Cancela eventos futuros do lead (mesma logica do handler)
+        // Cancela eventos futuros do lead (mesma logica do handler cancel_appointment)
         try {
           const cancelled = await (this.prisma as any).calendarEvent.findMany({
             where: {
@@ -2195,22 +2281,37 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
               start_at: { gte: new Date() },
             },
-            select: { id: true, title: true },
+            select: { id: true, title: true, start_at: true },
           });
           for (const ev of cancelled) {
             await (this.prisma as any).calendarEvent.update({
               where: { id: ev.id },
               data: {
                 status: 'CANCELADO',
-                description: `[CANCELADO via SAFEGUARD — IA disse 'cancelei' sem action ${new Date().toISOString()}]`,
+                description: `[CANCELADO via SAFEGUARD v28 — ${reason} ${new Date().toISOString()}]`,
               },
             });
             await (this.prisma as any).eventReminder.deleteMany({
               where: { event_id: ev.id, sent_at: null },
             });
+            this.logger.log(`[AI] Safeguard cancelou evento ${ev.id} (${ev.title}) start=${ev.start_at?.toISOString()}`);
           }
-          if (cancelled.length > 0) {
-            this.logger.log(`[AI] Safeguard cancelou ${cancelled.length} evento(s) que IA mencionou cancelar`);
+          // Limpa awaiting_confirmation pra nao re-disparar
+          if (isAwaitingConfirmation) {
+            await (this.prisma as any).conversation.update({
+              where: { id: convo.id },
+              data: { reminder_context: { ...reminderCtx, awaiting_confirmation: false, cancelled_via_safeguard_at: new Date().toISOString() } },
+            });
+          }
+          // Onda v28: APPENDA proposta de remarcacao na resposta da IA se ela
+          // nao ofereceu nenhuma. Estrategia de venda: paciente que so ouve
+          // "ok cancelei" tem ~70% chance de nao voltar.
+          if (!aiProposedSlots && cancelled.length > 0) {
+            const slotsAppend = await this.buildRescheduleSuggestion(convo);
+            if (slotsAppend) {
+              finalText = finalText.trimEnd() + '\n\n' + slotsAppend;
+              this.logger.log(`[AI] Safeguard APPENDOU proposta de remarcacao na resposta`);
+            }
           }
         } catch (e: any) {
           this.logger.warn(`[AI] Safeguard de cancelamento falhou: ${e.message}`);
