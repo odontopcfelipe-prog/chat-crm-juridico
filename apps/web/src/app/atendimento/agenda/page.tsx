@@ -23,7 +23,7 @@ import {
   Clock, MapPin, User, FileText, Gavel, AlertTriangle, CheckCircle2, Bell,
   Search, Download, Copy, Repeat, MessageSquare, Users, Send,
   LayoutGrid, CalendarDays as CalendarViewIcon, CheckSquare, List,
-  BookOpen, ExternalLink, Ban,
+  BookOpen, ExternalLink, Ban, Loader2,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
@@ -542,6 +542,9 @@ export default function AgendaPage() {
   // Real-time & UX
   const [reminderToast, setReminderToast] = useState<{ eventId: string; title: string; type: string; start_at: string; minutesBefore: number } | null>(null);
   const [conflictWarning, setConflictWarning] = useState<{ id: string; title: string; start_at: string; end_at: string }[]>([]);
+  // Onda 5e v20: indicador visual de Salvando — operador ve feedback
+  // imediato ao clicar em "Salvar alteracoes"
+  const [savingEvent, setSavingEvent] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<CalendarEvent[]>([]);
@@ -1272,18 +1275,41 @@ export default function AgendaPage() {
   };
 
   const handleSave = async (forceIgnoreConflict = false) => {
+    // Onda 5e v20: logs detalhados + estado saving pra debug do bug
+    // "Salvar nao funciona". Console.log no inicio confirma que o handler
+    // foi chamado (se nao aparece nem isso, eh problema de render do botao).
+    console.log('[handleSave] iniciado', {
+      forceIgnoreConflict,
+      editingEvent: editingEvent?.id,
+      formData: {
+        title: formData.title,
+        date: formData.date,
+        startTime: formData.startTime,
+        endTime: formData.endTime,
+        type: formData.type,
+        assigned_user_id: formData.assigned_user_id,
+        lead_id: formData.lead_id,
+        patient_id: formData.patient_id,
+      },
+    });
+
     // Onda 5e v19: feedback explicito quando validacao falha — antes era
     // silent return (operador clicava Salvar e nada acontecia).
     if (!formData.title.trim()) {
+      console.warn('[handleSave] title vazio — abortando');
       showError('Informe o título do evento');
       return;
     }
     if (!formData.date) {
+      console.warn('[handleSave] date vazia — abortando');
       showError('Informe a data do evento');
       return;
     }
+
+    setSavingEvent(true);
     const startIso = toISOFromLocal(`${formData.date} ${formData.startTime}`);
     const endIso = formData.endTime ? toISOFromLocal(`${formData.date} ${formData.endTime}`) : undefined;
+    console.log('[handleSave] datas convertidas', { startIso, endIso });
 
     // Conflict check
     if (!forceIgnoreConflict && formData.assigned_user_id && endIso) {
@@ -1325,12 +1351,20 @@ export default function AgendaPage() {
       recurrence_days: formData.recurrence_days.length > 0 ? formData.recurrence_days : undefined,
     };
 
+    console.log('[handleSave] enviando payload pro backend', {
+      url: editingEvent ? `PATCH /calendar/events/${editingEvent.id}` : 'POST /calendar/events',
+      payload,
+    });
+
     try {
+      let response: any;
       if (editingEvent) {
-        await api.patch(`/calendar/events/${editingEvent.id}`, payload);
+        response = await api.patch(`/calendar/events/${editingEvent.id}`, payload);
+        console.log('[handleSave] PATCH success', response.data);
         showSuccess('Alterações salvas');
       } else {
-        await api.post('/calendar/events', payload);
+        response = await api.post('/calendar/events', payload);
+        console.log('[handleSave] POST success', response.data);
         showSuccess('Evento criado');
       }
       setShowModal(false);
@@ -1338,8 +1372,15 @@ export default function AgendaPage() {
       if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
     } catch (e: any) {
       // v19: log no console pra debug + erro do backend pro user
-      console.error('[Agenda] handleSave error:', e?.response?.data || e);
+      console.error('[handleSave] error', {
+        status: e?.response?.status,
+        data: e?.response?.data,
+        message: e?.message,
+        full: e,
+      });
       showError(e?.response?.data?.message || e?.message || 'Erro ao salvar. Tente novamente');
+    } finally {
+      setSavingEvent(false);
     }
   };
 
@@ -2606,10 +2647,15 @@ export default function AgendaPage() {
                 {canEdit && (
                   <button
                     onClick={() => handleSave()}
-                    disabled={!formData.title.trim() || !formData.date}
-                    className="px-5 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-md disabled:opacity-40 disabled:pointer-events-none"
+                    disabled={!formData.title.trim() || !formData.date || savingEvent}
+                    className="px-5 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors shadow-md disabled:opacity-40 disabled:pointer-events-none inline-flex items-center gap-2"
                   >
-                    {editingEvent ? 'Salvar alterações' : 'Criar evento'}
+                    {savingEvent && <Loader2 size={14} className="animate-spin" />}
+                    {savingEvent
+                      ? 'Salvando...'
+                      : editingEvent
+                        ? 'Salvar alterações'
+                        : 'Criar evento'}
                   </button>
                 )}
               </div>
