@@ -632,6 +632,48 @@ export default function UsersSettingsPage() {
                 </div>
               )}
 
+              {/* Onda 5e v12 (Fase 25) — HORÁRIOS DE ATENDIMENTO POSICIONADOS
+                  LOGO APOS CRO pra alta visibilidade. So aparece pra DENTIST/
+                  ADMIN. Aberto por default. Badge OBRIGATORIO + texto explicando
+                  que IA depende disso pra agendar. Permite dentistas que so
+                  trabalham 2 dias na semana, ou turnos parciais (so manha, etc). */}
+              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN')) && (
+                <div className="space-y-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setScheduleExpanded((v) => !v)}
+                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border-2 border-primary/40 bg-primary/10 hover:bg-primary/15 transition-colors"
+                  >
+                    <span className="flex items-center gap-2 text-[12px] font-bold text-foreground uppercase tracking-wider">
+                      <Clock size={14} className="text-primary" />
+                      Dias e Horários de Atendimento
+                      <span className="px-1.5 py-0.5 text-[9px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 rounded">
+                        OBRIGATÓRIO
+                      </span>
+                    </span>
+                    {scheduleExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                  </button>
+                  {scheduleExpanded && (
+                    <div className="p-3 rounded-xl border border-primary/20 bg-background/50">
+                      <p className="text-[11px] text-foreground/80 mb-2 leading-relaxed">
+                        Marque <strong>somente os dias</strong> em que o dentista atende. Pra cada dia,
+                        defina um ou mais turnos (ex: só manhã, ou manhã + tarde, ou plantão à noite).
+                        Dentistas que atendem apenas 2 dias por semana? Desmarque os outros 5.
+                      </p>
+                      <ScheduleEditor
+                        value={schedule}
+                        onChange={setSchedule}
+                        showHelp={false}
+                        compact={true}
+                      />
+                      <p className="text-[11px] text-muted-foreground mt-3 italic">
+                        💡 <strong>Importante:</strong> A IA usa esses horários pra propor agendamentos automaticamente quando um lead pede uma avaliação. Sem turnos cadastrados, esse dentista não recebe agendamentos pela IA.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <div className="space-y-1.5">
                 <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Setores (Acesso ao Chat)</label>
                 <div className="grid grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
@@ -700,42 +742,6 @@ export default function UsersSettingsPage() {
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
-
-              {/* Onda 5e v10 (Fase 25) — Horarios de atendimento integrados.
-                  So aparece pra DENTIST/ADMIN. v11: aberto por default
-                  (setScheduleExpanded=true em openCreate/openEdit) +
-                  badge "Obrigatorio" pra deixar claro que IA precisa disso. */}
-              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN')) && (
-                <div className="space-y-1.5">
-                  <button
-                    type="button"
-                    onClick={() => setScheduleExpanded((v) => !v)}
-                    className="w-full flex items-center justify-between px-3 py-2 rounded-xl border border-primary/30 bg-primary/5 hover:bg-primary/10 transition-colors"
-                  >
-                    <span className="flex items-center gap-2 text-[12px] font-bold text-foreground uppercase tracking-wider">
-                      <Clock size={14} className="text-primary" />
-                      Horários de Atendimento
-                      <span className="px-1.5 py-0.5 text-[9px] font-bold bg-red-500/15 text-red-600 dark:text-red-400 rounded">
-                        OBRIGATÓRIO
-                      </span>
-                    </span>
-                    {scheduleExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
-                  </button>
-                  {scheduleExpanded && (
-                    <div className="p-3 rounded-xl border border-primary/20 bg-background/50">
-                      <ScheduleEditor
-                        value={schedule}
-                        onChange={setSchedule}
-                        showHelp={true}
-                        compact={true}
-                      />
-                      <p className="text-[11px] text-muted-foreground mt-3 italic">
-                        💡 <strong>Importante:</strong> A IA usa esses horários pra propor agendamentos automaticamente quando um lead pede uma avaliação. Sem turnos cadastrados, esse dentista não recebe agendamentos pela IA.
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
 
