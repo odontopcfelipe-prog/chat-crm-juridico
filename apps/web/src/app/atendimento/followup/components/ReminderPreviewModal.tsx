@@ -34,6 +34,8 @@ interface PreviewData {
     title: string;
     start_at: string;
     lead: { id: string; name: string; phone: string } | null;
+    // v31: patient como fallback (eventos criados via ficha do paciente)
+    patient: { id: string; name: string; phone: string } | null;
     assigned_user: { name: string } | null;
   } | null;
   conversation_id: string | null;
@@ -127,8 +129,13 @@ export function ReminderPreviewModal({ reminderId, onClose }: Props) {
               <div className="flex items-center gap-3 mt-1.5 text-[11px] text-muted-foreground flex-wrap">
                 {data.event?.start_at && <span>📅 {formatDateTime(data.event.start_at)}</span>}
                 {data.event?.assigned_user?.name && <span>🦷 {data.event.assigned_user.name}</span>}
-                {data.event?.lead?.name && <span>👤 {data.event.lead.name}</span>}
-                {data.event?.lead?.phone && <span>📞 {data.event.lead.phone}</span>}
+                {/* v31: paciente vem de lead OU patient (depende de como evento foi criado) */}
+                {(data.event?.lead?.name || data.event?.patient?.name) && (
+                  <span>👤 {data.event?.lead?.name || data.event?.patient?.name}</span>
+                )}
+                {(data.event?.lead?.phone || data.event?.patient?.phone) && (
+                  <span>📞 {data.event?.lead?.phone || data.event?.patient?.phone}</span>
+                )}
               </div>
             </div>
 

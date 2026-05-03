@@ -345,12 +345,22 @@ export class CalendarReminderWorker extends WorkerHost {
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
         lead: { select: { id: true, name: true, phone: true } },
+        // v31: patient como fallback quando evento foi criado direto via ficha
+        // (sem lead vinculado). Worker mescla lead || patient ao processar.
+        patient: { select: { id: true, name: true, phone: true } },
       },
     });
 
     if (!event) {
       this.logger.warn(`Evento ${eventId} não encontrado`);
       return;
+    }
+
+    // v31: se nao tem lead mas tem patient, usa patient como source pra envio
+    // Mantem event.lead pra compat com restantes do codigo (templates, logs)
+    if (!event.lead && (event as any).patient) {
+      const p = (event as any).patient;
+      (event as any).lead = { id: p.id, name: p.name, phone: p.phone };
     }
 
     if (['CANCELADO', 'CONCLUIDO'].includes(event.status)) {
@@ -649,6 +659,9 @@ export class CalendarReminderWorker extends WorkerHost {
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
         lead: { select: { id: true, name: true, phone: true } },
+        // v31: patient como fallback quando evento foi criado direto via ficha
+        // (sem lead vinculado). Worker mescla lead || patient ao processar.
+        patient: { select: { id: true, name: true, phone: true } },
       },
     });
 

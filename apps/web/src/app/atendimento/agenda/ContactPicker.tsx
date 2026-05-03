@@ -67,30 +67,61 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
   const [patients, setPatients] = useState<PatientOption[]>(patientsProp || []);
   const [leads, setLeads] = useState<LeadOption[]>(leadsProp || []);
   const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Carrega pacientes + leads na primeira abertura (lazy)
+  // v31: carrega pacientes + leads na primeira abertura (lazy).
+  // Bug resolvido: filtro status=ACTIVE excluia pacientes recem-cadastrados
+  // (que ficam com status null no Brasil). Removido filtro — backend
+  // retorna todos do tenant. ARQUIVADOS sao excluidos client-side abaixo.
   useEffect(() => {
     if (!open) return;
     if (patients.length > 0 && leads.length > 0) return;
     setLoading(true);
+    setLoadError(null);
     Promise.all([
-      api.get('/patients?limit=200&status=ACTIVE').catch(() => ({ data: { data: [] } })),
-      api.get('/leads').catch(() => ({ data: [] })),
+      // Sem filtro status — pega todos pacientes ATIVOS do tenant
+      api.get('/patients?limit=500').catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error('[ContactPicker] Falha ao carregar pacientes:', e?.response?.status, e?.response?.data);
+        return { __error: e?.response?.data?.message || e?.message || 'erro ao carregar pacientes', data: { data: [] } } as any;
+      }),
+      api.get('/leads?limit=500').catch((e) => {
+        // eslint-disable-next-line no-console
+        console.error('[ContactPicker] Falha ao carregar leads:', e?.response?.status, e?.response?.data);
+        return { __error: e?.response?.data?.message || e?.message || 'erro ao carregar leads', data: [] } as any;
+      }),
     ])
       .then(([pRes, lRes]) => {
-        const pData = (pRes.data?.data || pRes.data || []) as any[];
-        setPatients(pData.map((p) => ({
-          id: p.id,
-          name: p.name,
-          phone: p.phone,
-          cpf: p.cpf,
-          lead_id: p.lead_id,
-          status: p.status,
-        })));
-        const lData = (lRes.data || []) as any[];
-        setLeads(lData.map((l) => ({ id: l.id, name: l.name, phone: l.phone })));
+        // Captura erro pra mostrar no UI (sem engolir mais)
+        if ((pRes as any).__error || (lRes as any).__error) {
+          setLoadError((pRes as any).__error || (lRes as any).__error);
+        }
+        // Aceita formatos: { data: [...] }, { data: { data: [...] } }, [...]
+        const pData = Array.isArray(pRes.data)
+          ? pRes.data
+          : (pRes.data?.data || pRes.data?.patients || []);
+        // Filtra ARCHIVED client-side (mantem null/ACTIVE/INACTIVE/etc)
+        const filteredPatients = pData
+          .filter((p: any) => p.status !== 'ARCHIVED')
+          .map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            phone: p.phone,
+            cpf: p.cpf,
+            lead_id: p.lead_id,
+            status: p.status,
+          }));
+        setPatients(filteredPatients);
+
+        const lData = Array.isArray(lRes.data)
+          ? lRes.data
+          : (lRes.data?.data || lRes.data?.leads || []);
+        setLeads(lData.map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })));
+
+        // eslint-disable-next-line no-console
+        console.log(`[ContactPicker] carregado: ${filteredPatients.length} pacientes, ${lData.length} leads`);
       })
       .finally(() => {
         setLoading(false);
@@ -236,16 +267,25 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
             </div>
           </div>
 
+          {loadError && (
+            <div className="px-3 py-2 bg-red-500/10 border-b border-red-500/30 text-[11px] text-red-600 dark:text-red-400">
+              ⚠️ {loadError} — verifique conexão ou recarregue a página
+            </div>
+          )}
+
           <div className="max-h-72 overflow-y-auto">
             {loading ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
-                <Loader2 size={14} className="inline animate-spin mr-1" /> Carregando...
+                <Loader2 size={14} className="inline animate-spin mr-1" /> Carregando pacientes e leads...
               </div>
             ) : options.length === 0 ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
                 {search.trim()
                   ? `Nenhum paciente ou lead corresponde a "${search}".`
-                  : 'Nenhum contato disponível.'}
+                  : (loadError
+                    ? 'Não foi possível carregar a lista (veja erro acima).'
+                    : `Nenhum contato disponível. ${patients.length === 0 && leads.length === 0 ? 'Cadastre pacientes em Pacientes → Novo paciente.' : ''}`)
+                }
               </div>
             ) : (
               <ul className="py-1">

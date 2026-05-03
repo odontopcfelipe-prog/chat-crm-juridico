@@ -49,6 +49,8 @@ interface ReminderRow {
     location: string | null;
     assigned_user: { id: string; name: string } | null;
     lead: { id: string; name: string; phone: string } | null;
+    // v31: patient como fallback quando evento foi criado direto da ficha
+    patient: { id: string; name: string; phone: string } | null;
   } | null;
 }
 
@@ -338,12 +340,14 @@ export function RemindersTab() {
     return reminders.filter((r) => {
       // Filtro por dentista
       if (dentistFilter && r.event?.assigned_user?.id !== dentistFilter) return false;
-      // Filtro por search (nome do paciente, telefone, titulo do evento)
+      // Filtro por search (nome/telefone do paciente — lead OU patient — + titulo + dentista)
       if (search.trim()) {
         const q = search.toLowerCase();
         const haystack = [
           r.event?.lead?.name,
           r.event?.lead?.phone,
+          r.event?.patient?.name,
+          r.event?.patient?.phone,
           r.event?.title,
           r.event?.assigned_user?.name,
         ].filter(Boolean).join(' ').toLowerCase();
@@ -790,8 +794,8 @@ export function RemindersTab() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         <span className="font-semibold text-sm text-foreground truncate">{group.event?.title || 'Evento sem título'}</span>
-                        {group.event?.lead?.name && (
-                          <span className="text-[11px] text-muted-foreground">• {group.event.lead.name}</span>
+                        {(group.event?.lead?.name || group.event?.patient?.name) && (
+                          <span className="text-[11px] text-muted-foreground">• {group.event?.lead?.name || group.event?.patient?.name}</span>
                         )}
                       </div>
                       <div className="flex items-center gap-2 mt-1 text-[10px] text-muted-foreground flex-wrap">
@@ -879,7 +883,10 @@ export function RemindersTab() {
                         ? 'bg-red-500/15 text-red-700 dark:text-red-400'
                         : 'bg-amber-500/15 text-amber-700 dark:text-amber-400';
                   const ch = channelLabel(r.channel);
-                  const hasLead = !!r.event?.lead?.name;
+                  // v31: paciente pode vir via lead OU patient direto (criado pela ficha)
+                  const contactName = r.event?.lead?.name || r.event?.patient?.name || null;
+                  const contactPhone = r.event?.lead?.phone || r.event?.patient?.phone || null;
+                  const hasLead = !!contactName;
                   return (
                     <tr key={r.id} className="border-t border-border/40 hover:bg-accent/30 transition-colors">
                       <td className="px-4 py-2.5">
@@ -909,10 +916,10 @@ export function RemindersTab() {
                       <td className="px-3 py-2.5">
                         {hasLead ? (
                           <>
-                            <div className="font-semibold text-foreground">{r.event?.lead?.name}</div>
-                            {r.event?.lead?.phone && (
+                            <div className="font-semibold text-foreground">{contactName}</div>
+                            {contactPhone && (
                               <div className="text-[10px] text-muted-foreground flex items-center gap-1 mt-0.5">
-                                <Phone size={9} /> {r.event.lead.phone}
+                                <Phone size={9} /> {contactPhone}
                               </div>
                             )}
                           </>

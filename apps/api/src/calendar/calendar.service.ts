@@ -175,7 +175,7 @@ export class CalendarService {
     }
 
     // STUBBED: LegalCase removido Fase 0.2 — lead_id deve vir direto
-    const resolvedLeadId = data.lead_id;
+    let resolvedLeadId = data.lead_id;
 
     // Auto-resolve patient_id quando lead_id está setado mas patient_id não:
     // se o lead já foi convertido em Patient, vincula a consulta ao paciente
@@ -188,6 +188,22 @@ export class CalendarService {
         select: { id: true },
       });
       if (linkedPatient) resolvedPatientId = linkedPatient.id;
+    }
+
+    // v31: caminho INVERSO — quando operador escolhe paciente direto pela UI
+    // (ContactPicker), patient_id vem mas lead_id pode vir null. Buscamos o
+    // lead vinculado ao paciente pra preencher event.lead_id, garantindo que:
+    //   - Lembretes via WhatsApp funcionam (worker usa event.lead.phone)
+    //   - Aba Lembretes mostra nome do paciente (event.lead.name)
+    //   - IA tem contexto completo da conversa
+    if (resolvedPatientId && !resolvedLeadId) {
+      const patient = await this.prisma.patient.findUnique({
+        where: { id: resolvedPatientId },
+        select: { lead_id: true },
+      });
+      if (patient?.lead_id) {
+        resolvedLeadId = patient.lead_id;
+      }
     }
 
     const event = await this.prisma.calendarEvent.create({
@@ -886,6 +902,9 @@ export class CalendarService {
             location: true,
             assigned_user: { select: { id: true, name: true } },
             lead: { select: { id: true, name: true, phone: true } },
+            // v31: tambem traz patient pra fallback quando evento foi criado
+            // direto via ficha do paciente (sem lead vinculado)
+            patient: { select: { id: true, name: true, phone: true } },
           },
         },
       },
@@ -929,6 +948,8 @@ export class CalendarService {
           select: {
             id: true, title: true, start_at: true, lead_id: true,
             lead: { select: { id: true, name: true, phone: true } },
+            // v31: patient como fallback (eventos criados via ficha do paciente)
+            patient: { select: { id: true, name: true, phone: true } },
             assigned_user: { select: { name: true } },
           },
         },
