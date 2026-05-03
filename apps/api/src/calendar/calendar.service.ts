@@ -786,6 +786,67 @@ export class CalendarService {
     return { deleted: true };
   }
 
+  // ─── Metricas de Agendamento (Onda 5e v18, Fase C.2) ────────────────
+  // Conta CONSULTAs por status no periodo especificado e calcula taxas
+  // (% confirmacao, % no-show, etc). Usado pelo dashboard pra dar feedback
+  // ao admin sobre saude operacional da agenda.
+
+  async getAgendaMetrics(opts: { from?: string; to?: string; tenant_id?: string }) {
+    const from = opts.from ? new Date(opts.from) : new Date(new Date().setDate(new Date().getDate() - 30));
+    const to = opts.to ? new Date(opts.to) : new Date();
+
+    const where: any = {
+      type: 'CONSULTA',
+      start_at: { gte: from, lte: to },
+    };
+    if (opts.tenant_id) {
+      where.OR = [{ tenant_id: opts.tenant_id }, { tenant_id: null }];
+    }
+
+    // Agrupa por status (uma query so)
+    const grouped = await this.prisma.calendarEvent.groupBy({
+      by: ['status'],
+      where,
+      _count: { _all: true },
+    });
+
+    const counts: Record<string, number> = {
+      AGENDADO: 0,
+      CONFIRMADO: 0,
+      COMPARECEU: 0,
+      CONCLUIDO: 0,
+      CANCELADO: 0,
+      NO_SHOW: 0,
+      ADIADO: 0,
+    };
+    for (const g of grouped) {
+      counts[g.status] = g._count._all;
+    }
+
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    const totalNaoCancelado = total - counts.CANCELADO;
+    const concluidoOuCompareceu = counts.CONCLUIDO + counts.COMPARECEU;
+
+    // Pra "% confirmacao" considera CONFIRMADO + COMPARECEU + CONCLUIDO
+    // (todos os que de alguma forma confirmaram presenca)
+    const confirmedTotal = counts.CONFIRMADO + counts.COMPARECEU + counts.CONCLUIDO;
+
+    const pct = (n: number, d: number) => (d === 0 ? 0 : Math.round((n / d) * 100));
+
+    return {
+      period: { from: from.toISOString(), to: to.toISOString() },
+      total,
+      counts,
+      rates: {
+        confirmacao_pct: pct(confirmedTotal, totalNaoCancelado),
+        no_show_pct: pct(counts.NO_SHOW, totalNaoCancelado),
+        cancelamento_pct: pct(counts.CANCELADO, total),
+        comparecimento_pct: pct(concluidoOuCompareceu, totalNaoCancelado),
+        aguardando_confirmacao: counts.AGENDADO,
+      },
+    };
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   async findHolidays(tenantId?: string) {

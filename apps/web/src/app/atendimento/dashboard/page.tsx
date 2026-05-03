@@ -29,6 +29,7 @@ import { LeadPipeline } from './components/LeadPipeline';
 import { TeamPerformanceBoard } from './components/TeamPerformanceBoard';
 import { ComparisonsBoard } from './components/ComparisonsBoard';
 import { UpcomingEvents } from './components/UpcomingEvents';
+import { AgendaMetricsCards } from './components/AgendaMetricsCards';
 import { QuickActions } from './components/QuickActions';
 import { TodaysTasks } from './components/TodaysTasks';
 import { MaintenanceRecallWidget } from './components/MaintenanceRecallWidget';
@@ -219,6 +220,10 @@ export default function DashboardPage() {
               </div>
 
               {isAdmin && <AiUsageChart data={aiUsage.data} loading={aiUsage.loading} />}
+
+              {/* Onda 5e v18 (Fase C.2) — metricas de saude da agenda
+                  (% confirmacao, % no-show, aguardando confirmacao). */}
+              <AgendaMetricsCards daysBack={30} />
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <UpcomingEvents events={data.upcomingEvents} />

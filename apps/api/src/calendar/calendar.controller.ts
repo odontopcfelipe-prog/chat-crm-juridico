@@ -257,6 +257,23 @@ export class CalendarController {
     return this.calendarService.deleteAppointmentType(id);
   }
 
+  // ─── Metricas (Onda 5e v18, Fase C.2) ────────────────
+  // Agregados de status pra dashboard mostrar saude da agenda
+  // (% confirmacao, % no-show, etc) no periodo selecionado.
+
+  @Get('metrics')
+  getAgendaMetrics(
+    @Query('from') from: string | undefined,
+    @Query('to') to: string | undefined,
+    @Request() req: any,
+  ) {
+    return this.calendarService.getAgendaMetrics({
+      from,
+      to,
+      tenant_id: req.user?.tenant_id,
+    });
+  }
+
   // ─── Holidays ─────────────────────────────────────────
 
   @Get('holidays')

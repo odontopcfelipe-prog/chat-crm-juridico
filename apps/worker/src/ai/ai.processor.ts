@@ -1612,6 +1612,36 @@ REGRA 6 — CONFIRMAÇÃO DO HORÁRIO ESCOLHIDO.
   Quando o paciente escolher um horário, CONFIRME ("Perfeito! Agendei
   pra você dia X às Y") e use scheduling_action no JSON de retorno —
   sem isso o agendamento NÃO fica salvo.
+
+REGRA 7 — RESPOSTA AO LEMBRETE DE 1 DIA ANTES (Onda 5e v18, Fase B).
+  Quando o reminder_context indica awaiting_confirmation=true, significa
+  que enviamos lembrete 24h antes pedindo pro paciente confirmar.
+  Detecte a resposta NATURALMENTE (não use "responda 1 ou 2"):
+
+  CONFIRMAÇÃO (paciente vai comparecer):
+    Sinais: "ok", "sim", "confirmado", "estarei lá", "pode contar comigo",
+    "vou sim", "tô confirmado", "beleza", "perfeito", "👍", "✅", "tudo certo",
+    "sem problema", "tranquilo", "valeu", "obrigado(a)" (nesse contexto), etc.
+    → AÇÃO: responda de forma calorosa ("Perfeito! Te aguardamos amanhã 😊")
+       e emita scheduling_action: {"action": "confirm_appointment"}.
+
+  PEDIDO DE REMARCAÇÃO (paciente quer trocar de dia/hora):
+    Sinais: "não vou poder", "preciso remarcar", "tem outro dia?",
+    "consigo trocar?", "outra data", "não consigo nesse horario",
+    "preciso desmarcar pra outro", "pode ser depois?", "manda outras opções", etc.
+    → AÇÃO: responda empático ("Tranquilo! Vou ver outras opções pra você")
+       e emita scheduling_action: {"action": "reschedule_appointment"}.
+       Em seguida ofereça 2-3 horários da {{available_slots}}.
+
+  CANCELAMENTO definitivo (paciente desiste de tudo):
+    Sinais: "cancela", "desisti", "não posso mais", "não tenho mais interesse",
+    "muda de ideia", "esquece"
+    → AÇÃO: responda compreensivo ("Sem problema, fico à disposição se mudar
+       de ideia") e emita scheduling_action: {"action": "cancel_appointment"}.
+
+  AMBIGUIDADE: se a resposta não for clara (ex: "vou ver", "depois te falo"),
+  pergunte de forma humanizada ("Quer que eu mantenha o horário ou prefere
+  outro dia?") sem chumbar resposta de número.
 ═══════════════════════════════════════════════════════════════
 `;
 
@@ -2250,6 +2280,95 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
           }
         } catch (e: any) {
           this.logger.warn(`[AI] Falha ao cancelar avaliação: ${e.message}`);
+        }
+      }
+
+      // 15d. Onda 5e v18 (Fase 25, Fase B.2) — confirmacao do paciente
+      // Quando paciente responde positivo ao lembrete 24h (reminder_context.
+      // awaiting_confirmation=true), IA emite confirm_appointment. Aqui
+      // marcamos status=CONFIRMADO no CalendarEvent + limpamos o flag.
+      if (scheduling_action?.action === 'confirm_appointment') {
+        try {
+          // Pega event_id do reminder_context (foi salvo quando enviamos lembrete 24h)
+          const reminderCtx = (convo as any).reminder_context as any;
+          const eventId = reminderCtx?.event_id;
+          if (!eventId) {
+            // Fallback: pega evento ATIVO mais proximo da conversa
+            const nextEvent = await (this.prisma as any).calendarEvent.findFirst({
+              where: {
+                conversation_id: convo.id,
+                type: 'CONSULTA',
+                status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+                start_at: { gte: new Date() },
+              },
+              orderBy: { start_at: 'asc' },
+              select: { id: true },
+            });
+            if (nextEvent) {
+              await (this.prisma as any).calendarEvent.update({
+                where: { id: nextEvent.id },
+                data: { status: 'CONFIRMADO' },
+              });
+              this.logger.log(`[AI] Paciente confirmou — evento ${nextEvent.id} marcado como CONFIRMADO (via fallback)`);
+            }
+          } else {
+            await (this.prisma as any).calendarEvent.update({
+              where: { id: eventId },
+              data: { status: 'CONFIRMADO' },
+            });
+            this.logger.log(`[AI] Paciente confirmou — evento ${eventId} marcado como CONFIRMADO`);
+          }
+          // Limpa awaiting_confirmation pra IA nao re-processar a mesma resposta
+          if (reminderCtx?.awaiting_confirmation) {
+            await (this.prisma as any).conversation.update({
+              where: { id: convo.id },
+              data: { reminder_context: { ...reminderCtx, awaiting_confirmation: false, confirmed_at: new Date().toISOString() } },
+            });
+          }
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao confirmar evento: ${e.message}`);
+        }
+      }
+
+      // 15e. Onda 5e v18 (Fase B.3) — pedido de remarcacao do paciente
+      // IA emite reschedule_appointment quando paciente quer trocar dia/hora.
+      // Cancelamos o evento atual + IA continuara com check_availability na
+      // proxima resposta (regra B.3 do AGENDAMENTO_OVERRIDES manda oferecer
+      // 2-3 horarios novos).
+      if (scheduling_action?.action === 'reschedule_appointment') {
+        try {
+          const cancelled = await (this.prisma as any).calendarEvent.findMany({
+            where: {
+              conversation_id: convo.id,
+              type: 'CONSULTA',
+              status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+              start_at: { gte: new Date() },
+            },
+            select: { id: true, start_at: true },
+          });
+          for (const ev of cancelled) {
+            await (this.prisma as any).calendarEvent.update({
+              where: { id: ev.id },
+              data: {
+                status: 'CANCELADO',
+                description: `[REMARCADO pelo paciente via WhatsApp em ${new Date().toISOString()}]`,
+              },
+            });
+            await (this.prisma as any).eventReminder.deleteMany({
+              where: { event_id: ev.id, sent_at: null },
+            });
+            this.logger.log(`[AI] Paciente pediu remarcacao — evento ${ev.id} cancelado, IA propora novos horarios`);
+          }
+          // Limpa awaiting_confirmation
+          const reminderCtx = (convo as any).reminder_context as any;
+          if (reminderCtx?.awaiting_confirmation) {
+            await (this.prisma as any).conversation.update({
+              where: { id: convo.id },
+              data: { reminder_context: { ...reminderCtx, awaiting_confirmation: false, rescheduled_at: new Date().toISOString() } },
+            });
+          }
+        } catch (e: any) {
+          this.logger.warn(`[AI] Falha ao processar remarcacao: ${e.message}`);
         }
       }
 

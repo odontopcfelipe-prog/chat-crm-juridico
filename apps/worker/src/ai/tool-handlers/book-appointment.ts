@@ -273,6 +273,17 @@ export class BookAppointmentHandler implements ToolHandler {
       this.logger.warn(`[book_appointment] Falha ao notificar dentista: ${e.message}`);
     }
 
+    // Onda 5e v18 (Fase 25, A.3) — confirmacao FORMAL imediata ao paciente
+    // (data, hora, dentista, endereco, aviso de lembrete). A IA tambem
+    // respondera naturalmente no proximo turno, mas essa mensagem garante
+    // que o paciente tem uma confirmacao "oficial" estruturada no historico
+    // do WhatsApp pra consultar depois.
+    try {
+      await this.notifyPatient(event, prisma);
+    } catch (e: any) {
+      this.logger.warn(`[book_appointment] Falha ao notificar paciente: ${e.message}`);
+    }
+
     return {
       success: true,
       eventId: event.id,
@@ -280,8 +291,69 @@ export class BookAppointmentHandler implements ToolHandler {
       time: params.time,
       duration_minutes: durationMinutes,
       dentist_notified: !!event.assigned_user?.phone,
-      message: `Reunião agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min. O dentista foi notificado.`,
+      message: `Avaliacao agendada para ${params.date} às ${params.time} com duração de ${durationMinutes}min. Dentista e paciente notificados via WhatsApp.`,
     };
+  }
+
+  // ─── Onda 5e v18: Confirmacao FORMAL imediata ao paciente ─────────────
+  private async notifyPatient(event: any, prisma: any): Promise<void> {
+    if (!event.lead?.phone) {
+      this.logger.warn(`[book_appointment] Lead ${event.lead_id} sem telefone — confirmacao ao paciente pulada`);
+      return;
+    }
+
+    const apiUrlRow = await prisma.globalSetting.findUnique({ where: { key: 'EVOLUTION_API_URL' } });
+    const apiKeyRow = await prisma.globalSetting.findUnique({ where: { key: 'EVOLUTION_GLOBAL_APIKEY' } });
+    let apiUrl = apiUrlRow?.value || process.env.EVOLUTION_API_URL || '';
+    const apiKey = apiKeyRow?.value || process.env.EVOLUTION_GLOBAL_APIKEY || '';
+    if (!apiUrl) {
+      this.logger.warn('[book_appointment] EVOLUTION_API_URL ausente — confirmacao ao paciente pulada');
+      return;
+    }
+    if (!/^https?:\/\//i.test(apiUrl)) apiUrl = `https://${apiUrl}`;
+    apiUrl = apiUrl.replace(/\/+$/, '');
+
+    const instance = process.env.EVOLUTION_INSTANCE_NAME || '';
+
+    // Tenta pegar endereco da clinica (GlobalSetting CLINIC_ADDRESS)
+    const addrRow = await prisma.globalSetting
+      .findUnique({ where: { key: 'CLINIC_ADDRESS' } })
+      .catch(() => null);
+    const clinicAddress = addrRow?.value || '';
+
+    const dateStr = this.formatDate(event.start_at);
+    const timeStr = this.formatTime(event.start_at);
+    const firstName = (event.lead?.name || 'paciente').split(' ')[0];
+    // "Dra. Suellen Passos" -> "Dra. Suellen"
+    const dentistFull = event.assigned_user?.name || '';
+    const parts = dentistFull.split(' ');
+    const dentista = parts.length >= 3 ? `${parts[0]} ${parts[1]}` : dentistFull;
+
+    const lines = [
+      `Pronto, ${firstName}! ✅`,
+      ``,
+      `Sua avaliação ${dentista ? 'com ' + dentista + ' ' : ''}está confirmada:`,
+      ``,
+      `📅 ${dateStr}`,
+      `⏰ ${timeStr}`,
+    ];
+    if (event.location) {
+      lines.push(`📍 ${event.location}`);
+    } else if (clinicAddress) {
+      lines.push(`📍 ${clinicAddress}`);
+    }
+    lines.push(``);
+    lines.push(`Te aviso 1 dia antes pra confirmar. Qualquer coisa, é só me chamar aqui. 😊`);
+
+    await axios.post(
+      `${apiUrl}/message/sendText/${instance}`,
+      { number: event.lead.phone, text: lines.join('\n') },
+      { headers: { apikey: apiKey }, timeout: 15000 },
+    );
+
+    this.logger.log(
+      `[book_appointment] Confirmacao formal enviada ao paciente ${event.lead.name} (${event.lead.phone})`,
+    );
   }
 
   // ─── Notificação imediata ao dentista responsável ────────────────────

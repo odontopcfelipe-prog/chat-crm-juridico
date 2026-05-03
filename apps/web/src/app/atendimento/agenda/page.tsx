@@ -181,6 +181,8 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
     case 'CONCLUIDO': return 'SLOT_DONE';
     case 'CANCELADO': return 'SLOT_CANCELLED';
     case 'ADIADO':    return 'SLOT_DEFERRED';
+    case 'NO_SHOW':   return 'SLOT_NOSHOW';   // Onda 5e v18: paciente faltou
+    case 'COMPARECEU': return 'SLOT_DONE';     // tratamento similar a concluido
     default:          return 'SLOT_BOOKED'; // AGENDADO / outros
   }
 }
@@ -905,6 +907,12 @@ export default function AgendaPage() {
         colorName: 'adiado',
         lightColors: { main: '#FFC107', container: '#FFF3CD', onContainer: '#664D03' },
         darkColors:  { main: '#FFD54F', container: '#664D03', onContainer: '#FFF3CD' },
+      },
+      // Onda 5e v18: paciente faltou — preto/cinza escuro pra destacar negativo
+      SLOT_NOSHOW: {
+        colorName: 'noshow',
+        lightColors: { main: '#1f2937', container: '#e5e7eb', onContainer: '#1f2937' },
+        darkColors:  { main: '#9ca3af', container: '#1f2937', onContainer: '#e5e7eb' },
       },
       // Tipos juridicos (mantidos por compatibilidade)
       TAREFA: {
