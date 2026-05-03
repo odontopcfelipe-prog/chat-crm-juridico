@@ -1272,7 +1272,16 @@ export default function AgendaPage() {
   };
 
   const handleSave = async (forceIgnoreConflict = false) => {
-    if (!formData.title.trim() || !formData.date) return;
+    // Onda 5e v19: feedback explicito quando validacao falha — antes era
+    // silent return (operador clicava Salvar e nada acontecia).
+    if (!formData.title.trim()) {
+      showError('Informe o título do evento');
+      return;
+    }
+    if (!formData.date) {
+      showError('Informe a data do evento');
+      return;
+    }
     const startIso = toISOFromLocal(`${formData.date} ${formData.startTime}`);
     const endIso = formData.endTime ? toISOFromLocal(`${formData.date} ${formData.endTime}`) : undefined;
 
@@ -1284,7 +1293,15 @@ export default function AgendaPage() {
         const conflicts = await api.get('/calendar/conflicts', { params });
         if (conflicts.data?.length > 0) {
           setConflictWarning(conflicts.data);
-          return; // show warning, user must click "Salvar mesmo assim"
+          // v19: feedback EXPLICITO via toast + scroll ao topo (antes o aviso
+          // ficava escondido se modal estivesse com scroll embaixo, dando
+          // impressao de "Salvar nao funciona")
+          showError('Conflito de horário detectado — veja o aviso no topo do modal');
+          // Scroll suave pro topo do conteudo do modal pra mostrar o aviso
+          try {
+            document.querySelector('[data-modal-content]')?.scrollTo({ top: 0, behavior: 'smooth' });
+          } catch { /* sem suporte — ignora */ }
+          return;
         }
       } catch (e) { swallow('conflict check falhou — segue com save (server valida tb)')(e); }
     }
@@ -1311,13 +1328,17 @@ export default function AgendaPage() {
     try {
       if (editingEvent) {
         await api.patch(`/calendar/events/${editingEvent.id}`, payload);
+        showSuccess('Alterações salvas');
       } else {
         await api.post('/calendar/events', payload);
+        showSuccess('Evento criado');
       }
       setShowModal(false);
       setConflictWarning([]);
       if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
     } catch (e: any) {
+      // v19: log no console pra debug + erro do backend pro user
+      console.error('[Agenda] handleSave error:', e?.response?.data || e);
       showError(e?.response?.data?.message || e?.message || 'Erro ao salvar. Tente novamente');
     }
   };
@@ -2082,7 +2103,9 @@ export default function AgendaPage() {
       {/* ═══ Modal de Criacao/Edicao ═══ */}
       {showModal && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
+          {/* data-modal-content: usado pelo handleSave pra fazer scroll ao topo
+              quando aviso de conflito aparece (v19) */}
+          <div data-modal-content className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl max-h-[90vh] overflow-y-auto custom-scrollbar">
             {/* Modal header */}
             {(() => {
               const canEdit = !editingEvent || currentUserRole === 'ADMIN'
