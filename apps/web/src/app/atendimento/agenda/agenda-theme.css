@@ -344,3 +344,19 @@
   font-size: 10px !important;
   opacity: 0.85;
 }
+
+/* Onda 5e v6 (Fase 25) — Domingos em vermelho no calendario principal.
+   Schedule-x marca celulas/headers de domingo com classe .sx__sunday.
+   Aplicamos cor vermelha no texto pra padrao brasileiro de calendario
+   (domingo = nao util / dia de descanso). */
+.sx-react-calendar-wrapper .sx__sunday,
+.sx-react-calendar-wrapper [class*="sunday"] {
+  color: #dc2626 !important;
+}
+
+/* Header da coluna de domingo (DOM. 3) — texto vermelho mais forte */
+.sx-react-calendar-wrapper .sx__week-grid__day--sunday .sx__week-grid__date,
+.sx-react-calendar-wrapper .sx__sunday .sx__week-grid__date,
+.sx-react-calendar-wrapper [class*="day"][class*="sunday"] {
+  color: #dc2626 !important;
+}

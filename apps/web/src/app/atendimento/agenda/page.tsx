@@ -356,19 +356,30 @@ function MiniCalendar({
           </button>
         </div>
       </div>
-      {/* Cabeçalho dias da semana */}
+      {/* Cabeçalho dias da semana — Onda 5e v6: domingo (i=0) em vermelho */}
       <div className="grid grid-cols-7">
         {WD_HEADERS.map((d, i) => (
-          <span key={i} className="text-center text-[9px] text-muted-foreground font-medium h-4 flex items-center justify-center">{d}</span>
+          <span
+            key={i}
+            className={`text-center text-[9px] font-medium h-4 flex items-center justify-center ${
+              i === 0 ? 'text-red-500' : 'text-muted-foreground'
+            }`}
+          >
+            {d}
+          </span>
         ))}
       </div>
-      {/* Grade de dias com pontinho de ocupação — celulas reduzidas */}
+      {/* Grade de dias com pontinho de ocupação — celulas reduzidas.
+          Onda 5e v6: numeros de DOMINGO em vermelho. */}
       <div className="grid grid-cols-7">
         {cells.map((day, i) => {
           if (!day) return <span key={`e-${i}`} className="h-6" />;
           const ds = `${viewYear}-${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
           const isToday = ds === todayStr;
           const isSel = ds === selected;
+          // Onda 5e v6: detecta domingo via Date.getDay() (0 = domingo)
+          const dateObj = new Date(viewYear, viewMonth, day);
+          const isSunday = dateObj.getDay() === 0;
           const count = eventCounts?.get(ds) ?? 0;
           let dotColor = '';
           if (count >= 5) dotColor = 'bg-rose-500';
@@ -380,7 +391,13 @@ function MiniCalendar({
                 onClick={() => handleDayClick(day)}
                 title={count > 0 ? `${count} evento${count !== 1 ? 's' : ''} agendado${count !== 1 ? 's' : ''}` : 'Sem eventos'}
                 className={`h-5 w-5 flex items-center justify-center rounded-full text-[10px] font-medium transition-colors
-                  ${isSel ? 'bg-primary text-primary-foreground' : isToday ? 'bg-primary/15 text-primary font-bold' : 'text-foreground hover:bg-accent/60'}
+                  ${isSel
+                    ? 'bg-primary text-primary-foreground'
+                    : isToday
+                    ? 'bg-primary/15 text-primary font-bold'
+                    : isSunday
+                    ? 'text-red-500 hover:bg-accent/60'
+                    : 'text-foreground hover:bg-accent/60'}
                 `}
               >
                 {day}
@@ -1583,50 +1600,42 @@ export default function AgendaPage() {
       </aside>
 
       {/* ═══ Área principal ═══ */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className="flex-1 flex flex-col overflow-hidden relative">
 
-        {/* ── Top bar compacta ── */}
-        <div className="shrink-0 px-3 md:px-4 py-2.5 border-b border-border bg-card/40 flex items-center gap-2">
+        {/* Onda 5e v6 (Fase 25): top bar global REMOVIDA — Kanban + Novo
+            Evento foram pra position absolute sobre o header do schedule-x
+            (alinhados com "Abril – Maio 2026"), economizando ~40px verticais.
+            Botoes mobile (filtros, todos/meus) viram floating se necessario. */}
 
-          {/* Mobile: filtros toggle + titulo */}
+        {/* Mobile-only top bar (filtros + todos/meus) */}
+        <div className="shrink-0 px-3 py-1.5 border-b border-border bg-card/40 flex items-center gap-2 md:hidden">
           <button
             onClick={() => setShowFilters(v => !v)}
-            className="md:hidden p-2 rounded-lg border border-border text-muted-foreground hover:bg-accent transition-colors"
+            className="p-1.5 rounded-md border border-border text-muted-foreground hover:bg-accent transition-colors"
           >
-            <Filter size={15} />
+            <Filter size={13} />
           </button>
-
-          {/* Search REMOVIDO (Onda 5d v2 — pediu pra esconder).
-              Codigo preservado em estado se quiser reativar depois — basta
-              reverter este comentario pra div com input + dropdown.
-              Filtro por nome continua funcionando via list view (Lista) que
-              tem campo proprio. */}
-
-          {/* Onda 5d v10: Hoje + Semana custom REMOVIDOS — duplicavam o botao
-              Hoje + setas < > ja existentes do schedule-x abaixo do header. */}
-
           <div className="flex-1" />
-
-          {/* Mobile: toggle todos/meus */}
           <button
             onClick={() => setShowAllUsers(v => !v)}
-            className={`md:hidden inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold transition-colors ${
               showAllUsers ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground'
             }`}
           >
-            {showAllUsers ? <Users size={12} /> : <User size={12} />}
+            {showAllUsers ? <Users size={11} /> : <User size={11} />}
           </button>
+        </div>
 
-          {/* Onda 5d v10: botao Download .ics REMOVIDO — pouco usado.
-              Funcao handleExportRange preservada caso queira reativar. */}
-
-          {/* Toggle Kanban / Calendário */}
+        {/* Kanban + Novo Evento — POSITION ABSOLUTE alinhados com header do
+            schedule-x (canto superior direito da area do calendario). z-20 pra
+            ficar acima do header do schedule-x. */}
+        <div className="hidden sm:flex absolute top-2 right-3 z-20 items-center gap-2 pointer-events-none">
           <button
             onClick={() => setKanbanView(v => !v)}
-            className={`hidden sm:inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors ${
+            className={`pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors shadow-sm ${
               kanbanView
                 ? 'bg-accent border-accent-foreground/20 text-foreground'
-                : 'border-border text-muted-foreground hover:bg-accent'
+                : 'border-border bg-card text-muted-foreground hover:bg-accent'
             }`}
             title={kanbanView ? 'Ver Calendário' : 'Ver Kanban de Tarefas'}
           >
@@ -1634,14 +1643,13 @@ export default function AgendaPage() {
             <span>{kanbanView ? 'Calendário' : 'Kanban'}</span>
           </button>
 
-          {/* + Novo Evento (atalho: N) */}
           <button
             onClick={() => openCreateModal()}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-sm"
+            className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-md"
             title="Criar evento (atalho: N)"
           >
             <Plus size={13} />
-            <span className="hidden sm:inline">Novo Evento</span>
+            <span>Novo Evento</span>
           </button>
         </div>
 
