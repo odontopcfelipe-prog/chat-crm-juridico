@@ -432,7 +432,9 @@ export function Sidebar() {
       show: perms.canViewDashboard,
     },
     inbox: {
-      label: 'Inbox (WhatsApp)',
+      // Onda 5e v8 (Fase 25) — encurtado de "Inbox (WhatsApp)" pra "WhatsApp"
+      // (label do canal direto, sem prefixo redundante)
+      label: 'WhatsApp',
       href: '/atendimento',
       icon: <MessageSquare size={20} strokeWidth={2} />,
       match: (p) => p === '/atendimento' || p.startsWith('/atendimento/chat'),
@@ -440,7 +442,8 @@ export function Sidebar() {
       show: true,
     },
     crm: {
-      label: 'Leads & CRM',
+      // Onda 5e v8 — encurtado de "Leads & CRM" pra "CRM"
+      label: 'CRM',
       href: '/atendimento/crm',
       icon: <Briefcase size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/crm'),
@@ -471,7 +474,9 @@ export function Sidebar() {
       show: true,
     },
     agenda: {
-      label: 'Agenda & Tarefas',
+      // Onda 5e v8 — encurtado de "Agenda & Tarefas" pra "Agenda" (tarefas
+      // sao acessadas via tab interna ?tab=tasks, nao precisa virar label)
+      label: 'Agenda',
       href: '/atendimento/agenda',
       icon: <Calendar size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/agenda') || p.startsWith('/atendimento/tasks'),
@@ -720,17 +725,22 @@ export function Sidebar() {
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
       <div className={`flex items-center w-full px-3 mb-3 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
-        {/* Onda 5e v5 (Fase 25): logo COMPLETAMENTE redondo (estilo Instagram)
-            pra alinhar com o formato circular da foto. Ring branco discreto
-            destaca contra o bg-primary colorido da sidebar. */}
+        {/* Onda 5e v8 (Fase 25): logo redondo aumentado pra w-12 (48px) — assim
+            a foto cabe inteira (texto ODONTO PASSOS legivel) sem cropar pelo
+            object-cover. Bg do mesmo tom escuro caso a PNG tenha transparencia.
+            Ring claro destaca o circulo contra o bg-primary do tema. */}
         <div
-          className="w-10 h-10 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
+          className="w-12 h-12 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
           onClick={() => router.push('/atendimento/dashboard')}
           onMouseEnter={(e) => showTooltip(e, 'Página Inicial')}
           onMouseLeave={hideTooltip}
         >
+          {/* object-contain (em vez de object-cover) garante que o circulo
+              mostre o LOGO INTEIRO sem cortar a parte de baixo (PASSOS).
+              Como a PNG ja eh quadrada, contain dentro de um circulo nao
+              deixa whitespace visivel — fica colado nas bordas. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/odonto-passos-icon.png" alt="Instituto Odonto Passos" className="w-full h-full object-cover rounded-full" draggable={false} />
+          <img src="/odonto-passos-icon.png" alt="Instituto Odonto Passos" className="w-full h-full object-contain rounded-full" draggable={false} />
         </div>
         <button
           onClick={toggleExpanded}
