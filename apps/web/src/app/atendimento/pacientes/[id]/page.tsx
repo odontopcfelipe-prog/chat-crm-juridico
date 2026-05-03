@@ -19,7 +19,7 @@ import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
-  Pencil, Plus, Camera, Check, X, Clock, ChevronRight,
+  Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -243,6 +243,26 @@ export default function PacienteFichaPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Onda 5e v30 (Fase 25) — Agendar consulta direto da ficha do paciente.
+              Deep-link pra /agenda?new=1&patient_id=X&patient_name=X&phone=X
+              que abre o modal de evento ja com paciente pre-selecionado. */}
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={() => {
+                const params = new URLSearchParams({
+                  new: '1',
+                  patient_id: patient.id,
+                  patient_name: patient.name || '',
+                  phone: patient.phone || '',
+                });
+                router.push(`/atendimento/agenda?${params.toString()}`);
+              }}
+              className="text-xs text-white bg-primary hover:bg-primary/90 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
+              title="Agendar consulta para este paciente"
+            >
+              <Calendar size={14} /> Agendar
+            </button>
+          )}
           {patient.status !== 'ARCHIVED' && (
             <button
               onClick={handleSendPortalLink}

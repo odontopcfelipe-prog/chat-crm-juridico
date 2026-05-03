@@ -497,6 +497,31 @@ export default function AgendaPage() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('tab') === 'tasks') setActiveTab('tasks');
+
+    // Onda 5e v30: deep-link "Agendar" da ficha do paciente abre modal
+    // de novo evento ja com paciente pre-preenchido.
+    // URL: /atendimento/agenda?new=1&patient_id=X&patient_name=X&phone=X
+    if (params.get('new') === '1' && params.get('patient_id')) {
+      const patientId = params.get('patient_id') as string;
+      const patientName = params.get('patient_name') || '';
+      const patientPhone = params.get('phone') || '';
+      // Espera o formData inicializar antes de abrir o modal (mount completo)
+      setTimeout(() => {
+        openCreateModal();
+        // Pre-preenche paciente + titulo sugestivo
+        setFormData((f) => ({
+          ...f,
+          patient_id: patientId,
+          title: patientName ? `Avaliação — ${patientName}` : 'Avaliação',
+        }));
+        // Limpa URL pra nao re-abrir em reload
+        window.history.replaceState({}, '', '/atendimento/agenda');
+      }, 100);
+      // Log pra debug
+      // eslint-disable-next-line no-console
+      console.log('[Agenda] deep-link Agendar do paciente', { patientId, patientName, patientPhone });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const switchTab = (tab: 'calendar' | 'tasks') => {
