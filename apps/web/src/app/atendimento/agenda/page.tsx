@@ -1314,28 +1314,13 @@ export default function AgendaPage() {
 
   // ─── Render ─────────────────────────────────────────
 
-  // ── Aba "Tarefas": renderiza o painel de tarefas sem o layout do calendário
+  // ── Aba "Tarefas": renderiza o painel de tarefas sem layout de calendário.
+  // Onda 5d v10: removida barra de tabs Calendario/Tarefas — acesso pela
+  // sidebar principal. Switch programatico via switchTab() ainda funciona
+  // pra deep-links (?tab=tasks).
   if (activeTab === 'tasks') {
     return (
       <div className="flex flex-col h-full bg-background overflow-hidden">
-        {/* Barra de abas — compactada Onda 5d (Fase 25) */}
-        <div className="shrink-0 flex items-center gap-1 px-3 pt-2 pb-0 border-b border-border bg-card/30">
-          <button
-            onClick={() => switchTab('calendar')}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
-          >
-            <CalendarViewIcon size={12} />
-            Calendário
-          </button>
-          <button
-            onClick={() => switchTab('tasks')}
-            className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors border-b-2 border-primary text-primary"
-          >
-            <CheckSquare size={12} />
-            Tarefas
-          </button>
-        </div>
-        {/* Conteúdo da aba */}
         <div className="flex-1 overflow-hidden">
           <TasksPanel />
         </div>
@@ -1346,23 +1331,7 @@ export default function AgendaPage() {
   return (
     <div className="flex flex-col h-full bg-background overflow-hidden">
 
-      {/* Barra de abas — compactada Onda 5d (Fase 25) */}
-      <div className="shrink-0 flex items-center gap-1 px-3 pt-2 pb-0 border-b border-border bg-card/30">
-        <button
-          onClick={() => switchTab('calendar')}
-          className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors border-b-2 border-primary text-primary"
-        >
-          <CalendarViewIcon size={12} />
-          Calendário
-        </button>
-        <button
-          onClick={() => switchTab('tasks')}
-          className="flex items-center gap-1 px-2 py-1.5 rounded-t-md text-[11px] font-medium transition-colors text-muted-foreground hover:text-foreground hover:bg-accent/60"
-        >
-          <CheckSquare size={12} />
-          Tarefas
-        </button>
-      </div>
+      {/* Onda 5d v10: tabs Calendario/Tarefas removidas — acesso pela sidebar */}
 
       {/* Conteúdo do Calendário */}
       <div className="flex flex-1 overflow-hidden">
@@ -1570,31 +1539,8 @@ export default function AgendaPage() {
               Filtro por nome continua funcionando via list view (Lista) que
               tem campo proprio. */}
 
-          {/* Quick nav chips — compactados Onda 5d */}
-          <div className="hidden sm:flex items-center gap-1">
-            <button
-              onClick={() => {
-                const today = new Date().toISOString().slice(0, 10);
-                try { navigateCalendarTo(today, calendar); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
-              }}
-              className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              Hoje
-            </button>
-            <button
-              onClick={() => {
-                const now = new Date();
-                const day = now.getDay();
-                const diffToMonday = day === 0 ? -6 : 1 - day;
-                const monday = new Date(now);
-                monday.setDate(now.getDate() + diffToMonday);
-                try { navigateCalendarTo(monday.toISOString().slice(0, 10), calendar); } catch (e) { swallow('schedule-x calendar nao montou')(e); }
-              }}
-              className="px-2 py-1 rounded-md border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
-            >
-              Semana
-            </button>
-          </div>
+          {/* Onda 5d v10: Hoje + Semana custom REMOVIDOS — duplicavam o botao
+              Hoje + setas < > ja existentes do schedule-x abaixo do header. */}
 
           <div className="flex-1" />
 
@@ -1608,14 +1554,8 @@ export default function AgendaPage() {
             {showAllUsers ? <Users size={12} /> : <User size={12} />}
           </button>
 
-          {/* Export */}
-          <button
-            onClick={handleExportRange}
-            className="inline-flex items-center gap-1.5 px-2 py-1.5 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:bg-accent transition-colors"
-            title="Exportar .ics"
-          >
-            <Download size={12} />
-          </button>
+          {/* Onda 5d v10: botao Download .ics REMOVIDO — pouco usado.
+              Funcao handleExportRange preservada caso queira reativar. */}
 
           {/* Toggle Kanban / Calendário */}
           <button
@@ -1764,42 +1704,10 @@ export default function AgendaPage() {
         ) : (
         /* ══ CALENDÁRIO SCHEDULE-X ou DayPilot Resources (Fase 12 PR2) ══ */
         <div className="flex-1 overflow-auto">
-          {/* Toggle Semana | Por profissional */}
-          <div className="px-4 py-2 border-b border-border flex items-center gap-3">
-            <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-              <button
-                onClick={() => setCalendarMode('week')}
-                className={`px-3 py-1 rounded text-xs font-medium ${
-                  calendarMode === 'week'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Semana
-              </button>
-              <button
-                onClick={() => setCalendarMode('professional')}
-                className={`px-3 py-1 rounded text-xs font-medium ${
-                  calendarMode === 'professional'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                Por profissional
-              </button>
-              <button
-                onClick={() => setCalendarMode('list')}
-                className={`px-3 py-1 rounded text-xs font-medium ${
-                  calendarMode === 'list'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Lista de hoje + próximos 7 dias (ideal pra recepção)"
-              >
-                Lista
-              </button>
-            </div>
-          </div>
+          {/* Onda 5d v10: tabs Semana/Por profissional/Lista REMOVIDAS — fica
+              fixo no modo definido em calendarMode (default 'week'). Pra
+              reativar: descomentar bloco abaixo. setCalendarMode() ainda
+              funciona programaticamente (deep-links / atalhos). */}
 
           {calendarMode === 'list' ? (
             <AgendaListView
