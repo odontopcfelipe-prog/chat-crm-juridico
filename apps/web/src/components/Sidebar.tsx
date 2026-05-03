@@ -887,11 +887,13 @@ export function Sidebar() {
       </nav>
 
       {/* ─── Bottom: Avatar + DB + Notificações + Tema + Sair ─────── */}
-      {/* Onda 5e v2 (Fase 25): card branco sobre bg primary pra contraste */}
-      <div className="mt-auto flex flex-col gap-1 w-full px-2 pt-3 border-t border-primary-foreground/20">
+      {/* Onda 5e v13 (Fase 25): cards compactados — padding menor, texto menor,
+          avatar menor. Ocupa ~40% menos espaco vertical que a v2 sem perder
+          legibilidade ou usabilidade do toque. */}
+      <div className="mt-auto flex flex-col gap-0.5 w-full px-2 pt-2 border-t border-primary-foreground/20">
 
         {/* ─── Avatar do usuário (card branco) ─── */}
-        <div className={`w-full flex items-center gap-2.5 rounded-xl px-2 py-2 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
+        <div className={`w-full flex items-center gap-2 rounded-lg px-1.5 py-1 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
           {/* Input de arquivo oculto */}
           <input
             ref={avatarFileRef}
@@ -914,11 +916,11 @@ export function Sidebar() {
             }}
             onMouseLeave={hideTooltip}
             className={`relative shrink-0 rounded-full overflow-hidden focus:outline-none group ${perms.isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
-            style={{ width: 32, height: 32 }}
+            style={{ width: 26, height: 26 }}
           >
             {uploadingAvatar ? (
               <div className="w-full h-full flex items-center justify-center bg-muted rounded-full">
-                <Loader2 size={16} className="animate-spin text-muted-foreground" />
+                <Loader2 size={12} className="animate-spin text-muted-foreground" />
               </div>
             ) : hasAvatar ? (
               <>
@@ -931,21 +933,21 @@ export function Sidebar() {
                 />
                 {perms.isAdmin && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-                    <Camera size={12} className="text-white" />
+                    <Camera size={10} className="text-white" />
                   </div>
                 )}
               </>
             ) : (
               <>
                 <div
-                  className="w-full h-full rounded-full flex items-center justify-center text-[12px] font-bold text-white select-none"
+                  className="w-full h-full rounded-full flex items-center justify-center text-[10px] font-bold text-white select-none"
                   style={{ background: stringToColor(userName || userEmail || 'U') }}
                 >
                   {(userName || userEmail || 'U').charAt(0).toUpperCase()}
                 </div>
                 {perms.isAdmin && (
                   <div className="absolute inset-0 bg-black/40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-full">
-                    <Camera size={12} className="text-white" />
+                    <Camera size={10} className="text-white" />
                   </div>
                 )}
               </>
@@ -954,10 +956,10 @@ export function Sidebar() {
 
           {expanded && (
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-[13px] font-semibold text-foreground truncate leading-tight">
+              <span className="text-[11px] font-semibold text-foreground truncate leading-tight">
                 {userName || 'Usuário'}
               </span>
-              <span className="text-[11px] text-muted-foreground truncate leading-tight">
+              <span className="text-[9px] text-muted-foreground truncate leading-tight">
                 {userEmail}
               </span>
             </div>
@@ -991,15 +993,15 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Notificacoes — card branco (Onda 5e v2) */}
+        {/* Notificacoes — card branco (Onda 5e v13: compactado) */}
         <div
-          className={`w-full flex items-center bg-card text-foreground rounded-xl ${expanded ? 'gap-2.5 px-2 py-1.5' : 'justify-center py-1.5'}`}
+          className={`w-full flex items-center bg-card text-foreground rounded-lg ${expanded ? 'gap-2 px-1.5 py-1' : 'justify-center py-1'}`}
           onMouseEnter={(e) => showTooltip(e, 'Notificações')}
           onMouseLeave={hideTooltip}
         >
           <NotificationCenter />
           {expanded && (
-            <span className="text-[13px] font-medium">Notificações</span>
+            <span className="text-[11px] font-medium">Notificações</span>
           )}
         </div>
 
@@ -1009,12 +1011,12 @@ export function Sidebar() {
           onClick={toggleThemeMenu}
           onMouseEnter={(e) => { if (!showThemeMenu) showTooltip(e, 'Aparência'); }}
           onMouseLeave={hideTooltip}
-          className={`w-full rounded-xl flex items-center gap-2.5 transition-colors bg-card text-foreground hover:bg-accent ${
-            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
+          className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-accent ${
+            expanded ? 'px-2 py-1.5' : 'aspect-square justify-center'
           } ${showThemeMenu ? 'ring-2 ring-primary-foreground/30' : ''}`}
         >
-          <Palette size={16} strokeWidth={2} className="shrink-0 text-primary" />
-          {expanded && <span className="text-[13px] font-medium">Aparência</span>}
+          <Palette size={14} strokeWidth={2} className="shrink-0 text-primary" />
+          {expanded && <span className="text-[11px] font-medium">Aparência</span>}
         </button>
 
         {/* Logout — card branco */}
@@ -1022,12 +1024,12 @@ export function Sidebar() {
           onClick={() => { localStorage.removeItem('token'); router.push('/atendimento/login'); }}
           onMouseEnter={(e) => showTooltip(e, 'Sair')}
           onMouseLeave={hideTooltip}
-          className={`w-full rounded-xl flex items-center gap-2.5 transition-colors bg-card text-foreground hover:bg-destructive/10 hover:text-destructive ${
-            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
+          className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-destructive/10 hover:text-destructive ${
+            expanded ? 'px-2 py-1.5' : 'aspect-square justify-center'
           }`}
         >
-          <LogOut size={16} strokeWidth={2} className="shrink-0" />
-          {expanded && <span className="text-[13px] font-medium">Sair</span>}
+          <LogOut size={14} strokeWidth={2} className="shrink-0" />
+          {expanded && <span className="text-[11px] font-medium">Sair</span>}
         </button>
       </div>
 

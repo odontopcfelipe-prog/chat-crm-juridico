@@ -1,5 +1,6 @@
 'use client';
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { Bell, X, MessageSquare, ArrowRightLeft, Clock, Calendar, Scale, FileText, Check, CheckCheck, Loader2, UserPlus } from 'lucide-react';
 import api from '@/lib/api';
 import { useRouter } from 'next/navigation';
@@ -64,16 +65,59 @@ export function NotificationCenter() {
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState<string>('all');
   const panelRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
   const router = useRouter();
+  // Onda 5e v13 — popover renderizado via createPortal porque o sidebar
+  // tem overflow-y-auto que CORTAVA o popover (bug: aba escondida e
+  // inacessivel ao clicar no sino). Portal escapa do DOM tree do sidebar
+  // e renderiza no document.body. Posicao calculada via getBoundingClientRect
+  // do botao — abre PRA DIREITA do sidebar (right: rect.right + 8) e UP
+  // se nao couber pra baixo (botao fica no footer da sidebar).
+  const [popoverPos, setPopoverPos] = useState<{ left: number; top: number } | null>(null);
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
 
-  // Close on outside click
+  // Close on outside click — agora considera tanto o botao quanto o popover
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (buttonRef.current?.contains(target)) return;
+      if (panelRef.current?.contains(target)) return;
+      setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Calcula posicao do popover ao abrir (e em resize/scroll pra acompanhar)
+  useEffect(() => {
+    if (!open) return;
+    const updatePos = () => {
+      if (!buttonRef.current) return;
+      const rect = buttonRef.current.getBoundingClientRect();
+      const popoverWidth = 384; // w-96
+      const popoverHeight = 480; // estimativa pra calcular se cabe
+      // Default: abre a DIREITA do botao (pra fora do sidebar) alinhado ao topo
+      let left = rect.right + 8;
+      let top = rect.top;
+      // Se nao couber pra baixo, alinha pelo bottom do botao subindo
+      if (top + popoverHeight > window.innerHeight - 16) {
+        top = Math.max(16, window.innerHeight - popoverHeight - 16);
+      }
+      // Se nao couber pra direita (raro), abre a esquerda
+      if (left + popoverWidth > window.innerWidth - 16) {
+        left = Math.max(16, rect.left - popoverWidth - 8);
+      }
+      setPopoverPos({ left, top });
+    };
+    updatePos();
+    window.addEventListener('resize', updatePos);
+    window.addEventListener('scroll', updatePos, true);
+    return () => {
+      window.removeEventListener('resize', updatePos);
+      window.removeEventListener('scroll', updatePos, true);
+    };
   }, [open]);
 
   // Fetch unread count periodicamente
@@ -167,23 +211,29 @@ export function NotificationCenter() {
     : items;
 
   return (
-    <div className="relative" ref={panelRef}>
+    <>
       <button
+        ref={buttonRef}
         onClick={() => { setOpen(o => !o); if (!open) load(); }}
-        className="relative p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+        className="relative p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
         title="Centro de notificações"
         aria-label="Notificações"
       >
-        <Bell size={16} />
+        <Bell size={14} />
         {unreadCount > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-red-500 rounded-full text-[9px] font-bold text-white flex items-center justify-center animate-in zoom-in duration-200">
+          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-red-500 rounded-full text-[8px] font-bold text-white flex items-center justify-center animate-in zoom-in duration-200">
             {unreadCount > 9 ? '9+' : unreadCount}
           </span>
         )}
       </button>
 
-      {open && (
-        <div className="absolute right-0 top-full mt-2 w-96 bg-card border border-border rounded-xl shadow-xl z-50 overflow-hidden">
+      {/* v13: Portal pra escapar do overflow-y-auto do sidebar */}
+      {open && mounted && popoverPos && createPortal(
+        <div
+          ref={panelRef}
+          style={{ position: 'fixed', left: popoverPos.left, top: popoverPos.top, width: 384 }}
+          className="bg-card border border-border rounded-xl shadow-2xl z-[200] overflow-hidden"
+        >
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-border">
             <h3 className="text-sm font-bold text-foreground">Notificações</h3>
@@ -288,8 +338,9 @@ export function NotificationCenter() {
               })
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
-    </div>
+    </>
   );
 }
