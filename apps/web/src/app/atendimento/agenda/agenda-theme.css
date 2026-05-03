@@ -293,9 +293,7 @@
 
 /* Range heading — texto "abril – maio 2026" no centro do header */
 .sx-react-calendar-wrapper .sx__range-heading,
-.sx-react-calendar-wrapper .sx__week-grid__date-heading,
-.sx-react-calendar-wrapper [class*="range-heading"],
-.sx-react-calendar-wrapper [class*="date-picker"]:not([class*="day"]) {
+.sx-react-calendar-wrapper [class*="range-heading"] {
   display: none !important;
 }
 
@@ -306,22 +304,18 @@
   display: none !important;
 }
 
-/* Date input — select "Data 02/05/2026" (DatePicker do schedule-x) */
-.sx-react-calendar-wrapper .sx__date-input,
-.sx-react-calendar-wrapper .sx__date-picker,
-.sx-react-calendar-wrapper [class*="date-input"]:not([class*="navigation"]) {
+/* Date input — select "Data 02/05/2026" (DatePicker do schedule-x).
+   Cuidado: NAO afetar .sx__date-picker__day (celulas do mini-calendario
+   do dropdown se ele aparecer em algum modo). Por isso seletor restrito
+   apenas ao input principal. */
+.sx-react-calendar-wrapper .sx__date-input {
   display: none !important;
 }
 
-/* Compacta o header restante (setas + Hoje continuam) */
+/* Compacta o header restante (gap entre botoes Hoje + setas).
+   Onda 5d v3 — REMOVIDOS overrides de font-size/padding nos botoes
+   (estava deformando setas, virando o tooltip "Periodo anterior" visivel
+   no lugar do icone). Schedule-x cuida do estilo dos botoes sozinho. */
 .sx-react-calendar-wrapper .sx__calendar-header {
-  padding: 4px 8px !important;
-  min-height: auto !important;
   gap: 4px !important;
-}
-
-.sx-react-calendar-wrapper .sx__today-button,
-.sx-react-calendar-wrapper .sx__forward-backward-navigation > * {
-  font-size: 11px !important;
-  padding: 4px 8px !important;
 }
