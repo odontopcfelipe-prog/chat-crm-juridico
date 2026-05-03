@@ -347,17 +347,16 @@
 
 /* Onda 5e v6 (Fase 25) — Domingos em vermelho no calendario principal.
    Schedule-x marca celulas/headers de domingo com classe .sx__sunday.
-   Aplicamos cor vermelha no texto pra padrao brasileiro de calendario
-   (domingo = nao util / dia de descanso). */
+   v8: precisamos atingir TANTO o nome do dia (.sx__week-grid__day-name = "DOM.")
+   QUANTO o numero (.sx__week-grid__date-number = "3") — ambos sao filhos do
+   .sx__week-grid__date.sx__sunday e tem cor propria por padrao do schedule-x.
+   Tambem estendemos pro mes-grid (sx__month-grid-cell + .sx__sunday). */
 .sx-react-calendar-wrapper .sx__sunday,
-.sx-react-calendar-wrapper [class*="sunday"] {
-  color: #dc2626 !important;
-}
-
-/* Header da coluna de domingo (DOM. 3) — texto vermelho mais forte */
-.sx-react-calendar-wrapper .sx__week-grid__day--sunday .sx__week-grid__date,
-.sx-react-calendar-wrapper .sx__sunday .sx__week-grid__date,
-.sx-react-calendar-wrapper [class*="day"][class*="sunday"] {
+.sx-react-calendar-wrapper .sx__sunday > *,
+.sx-react-calendar-wrapper .sx__week-grid__date.sx__sunday .sx__week-grid__day-name,
+.sx-react-calendar-wrapper .sx__week-grid__date.sx__sunday .sx__week-grid__date-number,
+.sx-react-calendar-wrapper .sx__month-grid-day.sx__sunday,
+.sx-react-calendar-wrapper .sx__month-grid-day.sx__sunday * {
   color: #dc2626 !important;
 }
 
@@ -365,13 +364,14 @@
    A classe .sx__holiday eh injetada via useEffect no page.tsx que faz
    DOM walk em [data-date], [data-time-grid-date], [data-date-grid-date]
    e marca celulas/headers cuja data bate com algum feriado do tenant.
-   Aplicamos vermelho semelhante ao domingo + faixa lateral pra reforcar. */
+   v8: mesma estrategia do .sx__sunday — atingir nome do dia + numero
+   atraves do seletor de filhos diretos + descendentes especificos. */
 .sx-react-calendar-wrapper .sx__holiday,
-.sx-react-calendar-wrapper .sx__holiday .sx__week-grid__date,
-.sx-react-calendar-wrapper .sx__holiday .sx__week-grid__date-number,
-.sx-react-calendar-wrapper .sx__holiday .sx__date-grid-day,
-.sx-react-calendar-wrapper .sx__holiday .sx__month-grid-day__header-day-name,
-.sx-react-calendar-wrapper .sx__holiday .sx__month-grid-day__header-date {
+.sx-react-calendar-wrapper .sx__holiday > *,
+.sx-react-calendar-wrapper .sx__week-grid__date.sx__holiday .sx__week-grid__day-name,
+.sx-react-calendar-wrapper .sx__week-grid__date.sx__holiday .sx__week-grid__date-number,
+.sx-react-calendar-wrapper .sx__month-grid-day.sx__holiday,
+.sx-react-calendar-wrapper .sx__month-grid-day.sx__holiday * {
   color: #dc2626 !important;
 }
 

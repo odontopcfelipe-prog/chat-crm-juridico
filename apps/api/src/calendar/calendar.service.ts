@@ -767,8 +767,14 @@ export class CalendarService {
   // ─── Holidays ─────────────────────────────────────────
 
   async findHolidays(tenantId?: string) {
+    // Fase 25 (Onda 5e v8) — inclui feriados globais (tenant_id = NULL,
+    // tipicamente feriados nacionais semeados via SQL) E os do tenant
+    // especifico (ex: aniversario da clinica). Sem o OR, feriados globais
+    // ficavam invisiveis pro frontend.
     return this.prisma.holiday.findMany({
-      where: tenantId ? { tenant_id: tenantId } : {},
+      where: tenantId
+        ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] }
+        : {},
       orderBy: { date: 'asc' },
     });
   }
