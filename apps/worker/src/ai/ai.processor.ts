@@ -1625,23 +1625,48 @@ REGRA 7 — RESPOSTA AO LEMBRETE DE 1 DIA ANTES (Onda 5e v18, Fase B).
     → AÇÃO: responda de forma calorosa ("Perfeito! Te aguardamos amanhã 😊")
        e emita scheduling_action: {"action": "confirm_appointment"}.
 
-  PEDIDO DE REMARCAÇÃO (paciente quer trocar de dia/hora):
-    Sinais: "não vou poder", "preciso remarcar", "tem outro dia?",
-    "consigo trocar?", "outra data", "não consigo nesse horario",
-    "preciso desmarcar pra outro", "pode ser depois?", "manda outras opções", etc.
-    → AÇÃO: responda empático ("Tranquilo! Vou ver outras opções pra você")
-       e emita scheduling_action: {"action": "reschedule_appointment"}.
-       Em seguida ofereça 2-3 horários da {{available_slots}}.
+  PEDIDO DE REMARCAÇÃO (paciente quer trocar de dia/hora) — DEFAULT:
+    Sinais (TODOS estes devem virar REMARCAÇÃO, NÃO cancelamento):
+      "não vou poder", "não vou conseguir", "não consigo ir", "não dá",
+      "preciso remarcar", "tem outro dia?", "consigo trocar?", "outra data",
+      "não consigo nesse horario", "preciso desmarcar pra outro",
+      "pode ser depois?", "manda outras opções", "imprevisto", "vai ter
+      reunião", "esqueci que tenho compromisso", "estou viajando", etc.
+    → AÇÃO ESTRATÉGICA DE VENDA (CRITICA — perdemos paciente se errar):
+      1. NÃO aceite passivamente. Cada paciente que cancela e nao remarca
+         imediatamente = ~70% chance de NUNCA voltar.
+      2. Resposta empática + PROPOSTA ATIVA de remarcacao:
+         "Tranquilo, [nome]! Sem problema. Tenho esses outros horarios:
+          • [Dia DD/MM] às HH:MM
+          • [Dia DD/MM] às HH:MM
+          • [Dia DD/MM] às HH:MM
+          Algum desses serve melhor?"
+      3. Emita scheduling_action: {"action": "reschedule_appointment"}.
+      4. Use SEMPRE 2-3 horarios da lista {{available_slots}}.
 
-  CANCELAMENTO definitivo (paciente desiste de tudo):
-    Sinais: "cancela", "desisti", "não posso mais", "não tenho mais interesse",
-    "muda de ideia", "esquece"
-    → AÇÃO: responda compreensivo ("Sem problema, fico à disposição se mudar
-       de ideia") e emita scheduling_action: {"action": "cancel_appointment"}.
+  CANCELAMENTO DEFINITIVO (apenas casos EXPLÍCITOS — NUNCA por default):
+    Sinais EXPLÍCITOS exigidos (precisa de pelo menos UM destes):
+      "desisti totalmente", "não tenho mais interesse", "não quero mais",
+      "remova de vez", "cancela tudo", "esquece", "perdi o interesse",
+      "vou em outro lugar", "achei outro dentista"
+    NAO use cancelamento se o paciente apenas disse "não vou" ou
+    "não posso" — isso é REMARCAÇÃO, ofereca outras datas.
+    → AÇÃO: responda compreensivo + tenta UMA recuperação:
+       "Tudo bem, [nome]. Posso te ajudar a encontrar um horario melhor
+        em outra semana, ou prefere que eu te avise se abrir alguma
+        promoção/horario diferente no futuro?"
+       Se confirmar desistencia, emita {"action": "cancel_appointment"}.
+       Se topar voltar, ofereça lista de espera ou novos slots.
 
   AMBIGUIDADE: se a resposta não for clara (ex: "vou ver", "depois te falo"),
   pergunte de forma humanizada ("Quer que eu mantenha o horário ou prefere
   outro dia?") sem chumbar resposta de número.
+
+REGRA 8 — JAMAIS DIZER "CANCELEI" SEM EMITIR scheduling_action.
+  Se a resposta da IA contiver "cancelei", "cancelado", "removi", "desmarquei"
+  ou similar, OBRIGATORIAMENTE deve vir junto com scheduling_action no JSON.
+  Sem isso, o evento permanece na agenda (bug grave) e o paciente fica
+  com expectativa errada.
 ═══════════════════════════════════════════════════════════════
 `;
 
@@ -2150,6 +2175,48 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
 
       // 14. Verificar sinal de escalada (handoff para humano)
       let finalText = aiText;
+
+      // Onda 5e v22 (Fase 25) — SAFEGUARD: detecta IA dizendo "cancelei" /
+      // "cancelado" / "removi" SEM emitir scheduling_action. Isso era um bug
+      // grave: paciente recebia "cancelei sua consulta" mas evento continuava
+      // na agenda. Quando detectamos, FORCAMOS o cancelamento + log warn.
+      if (finalText && /\b(cancelei|cancelado|cancelada|removi|desmarquei)\b/i.test(finalText)
+          && !scheduling_action?.action) {
+        this.logger.warn(
+          `[AI] HALLUCINATION DETECTED: IA disse cancelar mas NAO emitiu scheduling_action. ` +
+          `Forcando cancel_appointment como safeguard. conv=${convo.id} reply="${finalText.slice(0, 100)}"`,
+        );
+        // Cancela eventos futuros do lead (mesma logica do handler)
+        try {
+          const cancelled = await (this.prisma as any).calendarEvent.findMany({
+            where: {
+              OR: [{ conversation_id: convo.id }, { lead_id: convo.lead.id }],
+              type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+              status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+              start_at: { gte: new Date() },
+            },
+            select: { id: true, title: true },
+          });
+          for (const ev of cancelled) {
+            await (this.prisma as any).calendarEvent.update({
+              where: { id: ev.id },
+              data: {
+                status: 'CANCELADO',
+                description: `[CANCELADO via SAFEGUARD — IA disse 'cancelei' sem action ${new Date().toISOString()}]`,
+              },
+            });
+            await (this.prisma as any).eventReminder.deleteMany({
+              where: { event_id: ev.id, sent_at: null },
+            });
+          }
+          if (cancelled.length > 0) {
+            this.logger.log(`[AI] Safeguard cancelou ${cancelled.length} evento(s) que IA mencionou cancelar`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`[AI] Safeguard de cancelamento falhou: ${e.message}`);
+        }
+      }
+
       const handoffSignal = skill?.handoff_signal || null;
       if (handoffSignal && finalText.includes(handoffSignal)) {
         finalText = finalText
@@ -2241,25 +2308,29 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       }
 
       // 15c. Processar scheduling_action.cancel_appointment (cancelamento pelo lead)
-      // Quando lead pede pra cancelar avaliação ("não posso mais", "cancela",
-      // "desisti", "preciso desmarcar"), a IA emite scheduling_action.action =
-      // "cancel_appointment". O worker cancela TODAS as consultas ativas dessa
-      // conversa (geralmente 1 só) + remove reminders pendentes. Lead deve voltar
-      // pra stage "follow-up" (definido pelo prompt via stage_slug).
+      // Onda 5e v22 (Fase 25): bug fix critico — antes filtrava SO por
+      // conversation_id, deixando passar eventos criados MANUALMENTE pela tela
+      // (que tem conversation_id NULL ou diferente). Resultado: IA dizia
+      // "cancelei" mas evento continuava na agenda. Fix: filtra OR por
+      // conversation_id OU lead_id (eventos FUTUROS do mesmo paciente).
       if (scheduling_action?.action === 'cancel_appointment') {
         try {
           const cancelled = await (this.prisma as any).calendarEvent.findMany({
             where: {
-              conversation_id: convo.id,
-              type: 'CONSULTA',
+              OR: [
+                { conversation_id: convo.id },
+                { lead_id: convo.lead.id },
+              ],
+              type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+              start_at: { gte: new Date() }, // so eventos futuros (passados nao cancela)
             },
-            select: { id: true, start_at: true },
+            select: { id: true, start_at: true, title: true },
           });
 
           if (cancelled.length === 0) {
-            this.logger.log(
-              `[AI] cancel_appointment recebido mas não há consulta ativa pra conversa ${convo.id} — provavelmente o lead já cancelou antes ou nunca chegou a agendar.`,
+            this.logger.warn(
+              `[AI] cancel_appointment recebido mas NENHUMA consulta futura encontrada pra lead ${convo.lead.id} (conv=${convo.id}). IA pode ter alucinado o cancelamento — ver prompt.`,
             );
           } else {
             for (const ev of cancelled) {
@@ -2274,7 +2345,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
                 where: { event_id: ev.id, sent_at: null },
               });
               this.logger.log(
-                `[AI] Lead cancelou avaliação — evento CANCELADO: id=${ev.id} start=${ev.start_at.toISOString()}`,
+                `[AI] Lead cancelou — evento CANCELADO: id=${ev.id} title="${ev.title}" start=${ev.start_at.toISOString()}`,
               );
             }
           }
@@ -2287,17 +2358,21 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Quando paciente responde positivo ao lembrete 24h (reminder_context.
       // awaiting_confirmation=true), IA emite confirm_appointment. Aqui
       // marcamos status=CONFIRMADO no CalendarEvent + limpamos o flag.
+      // v22: fallback agora busca por OR(conversation_id, lead_id) tb.
       if (scheduling_action?.action === 'confirm_appointment') {
         try {
           // Pega event_id do reminder_context (foi salvo quando enviamos lembrete 24h)
           const reminderCtx = (convo as any).reminder_context as any;
           const eventId = reminderCtx?.event_id;
           if (!eventId) {
-            // Fallback: pega evento ATIVO mais proximo da conversa
+            // Fallback: pega evento ATIVO mais proximo (busca por convo OU lead)
             const nextEvent = await (this.prisma as any).calendarEvent.findFirst({
               where: {
-                conversation_id: convo.id,
-                type: 'CONSULTA',
+                OR: [
+                  { conversation_id: convo.id },
+                  { lead_id: convo.lead.id },
+                ],
+                type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
                 status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
                 start_at: { gte: new Date() },
               },
@@ -2335,12 +2410,16 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Cancelamos o evento atual + IA continuara com check_availability na
       // proxima resposta (regra B.3 do AGENDAMENTO_OVERRIDES manda oferecer
       // 2-3 horarios novos).
+      // v22: filtro ampliado pra buscar por OR(conversation_id, lead_id).
       if (scheduling_action?.action === 'reschedule_appointment') {
         try {
           const cancelled = await (this.prisma as any).calendarEvent.findMany({
             where: {
-              conversation_id: convo.id,
-              type: 'CONSULTA',
+              OR: [
+                { conversation_id: convo.id },
+                { lead_id: convo.lead.id },
+              ],
+              type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
               status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
               start_at: { gte: new Date() },
             },
