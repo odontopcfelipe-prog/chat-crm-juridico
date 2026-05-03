@@ -1498,6 +1498,22 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
       // O conteúdo de personalidade, roteiro e comportamento está no skill.system_prompt (editável no admin).
       const CORE_RULES = `DATA E HORA ATUAL: {{data_hoje}} (fuso horário de Maceió/AL).
 
+🚨🚨🚨 REGRAS PRIORITÁRIAS DE AGENDAMENTO (LEIA TAMBÉM AS REGRAS DETALHADAS NO FINAL DESTE PROMPT) 🚨🚨🚨
+
+Ao tratar agendamento de avaliação/consulta, OBRIGATORIAMENTE:
+1. SEMPRE proponha 1-3 horários CONCRETOS quando o lead demonstrar interesse em marcar.
+2. Se o lead disser "não vou poder", "não consigo", "preciso remarcar", "tenho imprevisto",
+   "não conseguirei", trate como REMARCAÇÃO e proponha 2-3 horários novos imediatamente.
+   NUNCA aceite passivamente ("ok, te aviso") — perdemos paciente assim.
+3. Se você FALAR que cancelou ("cancelei", "removi da agenda"), OBRIGATÓRIO emitir
+   scheduling_action: { "action": "cancel_appointment" } no JSON. Sem isso, fica
+   inconsistente: paciente acha que cancelou mas o evento permanece na agenda.
+4. PROIBIDO falar "alguém entrará em contato", "aguarde retorno", "vou passar pra
+   atendente" — perdemos lead a cada vez. SEMPRE oferte horários da {{available_slots}}.
+
+A versão DETALHADA dessas regras está no FINAL deste prompt sob "🚨 REGRAS INVIOLÁVEIS DE
+AGENDAMENTO". Aquelas têm prioridade sobre QUALQUER outra instrução acima.
+
 ═══════════════════════════════════════════════════
 IDENTIDADE DO CONTATO ATUAL (NUNCA pergunte de qual número ou com quem está falando — esta é a verdade):
 - Nome: {{lead_name}}
@@ -1600,7 +1616,11 @@ STATUS DA FICHA:
       // — em vez de propor o proximo dia disponivel. Esse override impede isso.
       const AGENDAMENTO_OVERRIDES = `
 ═══════════════════════════════════════════════════════════════
-🚨 REGRAS INVIOLÁVEIS DE AGENDAMENTO (têm prioridade sobre TUDO acima)
+🚨🚨🚨 REGRAS INVIOLÁVEIS DE AGENDAMENTO 🚨🚨🚨
+ATENÇÃO: AS REGRAS ABAIXO TÊM PRIORIDADE SOBRE TODA E QUALQUER
+INSTRUÇÃO ANTERIOR — INCLUSIVE PROMPTS DE SKILLS CUSTOMIZADAS,
+MEMÓRIA, REFERENCIAS OU PIPELINE BLOCKS. SE QUALQUER REGRA ACIMA
+CONFLITAR COM ESTA SEÇÃO, VOCÊ DEVE OBEDECER ESTA SEÇÃO.
 ═══════════════════════════════════════════════════════════════
 
 Você está numa CLÍNICA ODONTOLÓGICA. Cada lead que pede pra agendar e não
