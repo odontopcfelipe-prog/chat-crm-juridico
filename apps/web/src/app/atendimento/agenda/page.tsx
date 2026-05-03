@@ -596,24 +596,72 @@ export default function AgendaPage() {
   const eventsServicePlugin = useState(() => createEventsServicePlugin())[0];
   const rangeRef = useRef<{ start: string; end: string } | null>(null);
 
-  // Onda 5d v6 (Fase 25) — Helper pra navegar o calendar.
-  // schedule-x v4 trocou `calendar.navigate(date)` por
-  // `calendar.calendarControls.setDate(date)`. Mantemos fallback pro nome
-  // antigo caso a lib seja atualizada de novo no futuro.
+  // Onda 5d v11 (Fase 25) — Helper pra navegar o calendar.
+  // Schedule-x v4 NAO expoe API publica de navegacao (calendarControls
+  // e calendar-controls plugin nao estao instalados). A unica forma eh
+  // acessar $app.calendarState.setRange(plainDate) direto — privado mas
+  // funciona enquanto a estrutura interna nao mudar.
+  //
+  // Versoes anteriores (v6, v9) tentavam .navigate() e .calendarControls.setDate()
+  // que NAO existem na v4 atual — por isso o click no mini-calendario nao
+  // fazia nada (try/catch silenciava o erro).
   const navigateCalendarTo = useCallback((dateStr: string, calendarApp: any) => {
-    if (!calendarApp) return false;
-    // API v4 atual
-    if (calendarApp.calendarControls?.setDate) {
-      calendarApp.calendarControls.setDate(dateStr);
-      return true;
+    if (!calendarApp) {
+      console.warn('[Agenda] navigateCalendarTo: calendar nao montou');
+      return false;
     }
-    // Fallback v3/anterior
-    if (typeof calendarApp.navigate === 'function') {
-      calendarApp.navigate(dateStr);
-      return true;
+
+    // 1) Parse "YYYY-MM-DD" pra Temporal.PlainDate
+    const T = (globalThis as any).Temporal;
+    if (!T) {
+      console.warn('[Agenda] Temporal nao disponivel no globalThis');
+      return false;
     }
-    // eslint-disable-next-line no-console
-    console.warn('[Agenda] Calendar API nao tem setDate nem navigate. Versao incompativel?');
+    const [year, month, day] = dateStr.split('-').map(Number);
+    if (!year || !month || !day) {
+      console.warn('[Agenda] dateStr invalido:', dateStr);
+      return false;
+    }
+
+    let plainDate: any;
+    try {
+      plainDate = T.PlainDate.from({ year, month, day });
+    } catch (e) {
+      console.warn('[Agenda] Erro criando Temporal.PlainDate:', e);
+      return false;
+    }
+
+    // 2) Acessa $app interno (campo privado mas estavel na v4)
+    const $app = calendarApp.$app;
+    if (!$app) {
+      console.warn('[Agenda] calendar.$app nao acessivel — schedule-x mudou estrutura?');
+      return false;
+    }
+
+    // 3) Usa calendarState.setRange() — API interna do schedule-x v4
+    const setRange = $app.calendarState?.setRange;
+    if (typeof setRange === 'function') {
+      try {
+        setRange(plainDate);
+        return true;
+      } catch (e) {
+        console.warn('[Agenda] setRange falhou:', e);
+      }
+    }
+
+    // 4) Fallback: setView (muda view E data juntos)
+    const setView = $app.calendarState?.setView;
+    const currentView = $app.calendarState?.view?.value || 'week';
+    if (typeof setView === 'function') {
+      try {
+        setView(currentView, plainDate);
+        return true;
+      } catch (e) {
+        console.warn('[Agenda] setView falhou:', e);
+      }
+    }
+
+    console.warn('[Agenda] Nem setRange nem setView funcionaram. API:', Object.keys($app.calendarState || {}));
     return false;
   }, []);
   // Refs para evitar stale closure nos callbacks do schedule-x
@@ -1357,7 +1405,10 @@ export default function AgendaPage() {
           <MiniCalendar
             eventCounts={eventCountsByDay}
             onDateSelect={(dateStr) => {
-              try { navigateCalendarTo(dateStr, calendar); } catch (e) { swallow('schedule-x calendar nao montou ainda')(e); }
+              // Onda 5d v11: removido try/catch+swallow — helper ja faz log
+              // proprio se algo der errado (ajuda diagnosticar futuras
+              // mudancas de API do schedule-x sem ficar silente)
+              navigateCalendarTo(dateStr, calendar);
             }}
           />
         </div>
