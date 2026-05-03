@@ -337,6 +337,21 @@ export class CalendarController {
     return this.calendarService.getReminderPreview(id);
   }
 
+  // v27 (Onda config): admin gerencia defaults de antecedencia + templates de mensagem.
+  // Persistido em GlobalSetting JSON. Aplicado tanto na UI da agenda
+  // (defaults pre-preenchidos) quanto no worker (templates de envio).
+
+  @Get('reminders/config')
+  getReminderConfig(@Request() req: any) {
+    return this.calendarService.getReminderConfig(req.user?.tenant_id);
+  }
+
+  @Put('reminders/config')
+  @Roles('ADMIN')
+  setReminderConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setReminderConfig(req.user?.tenant_id, body);
+  }
+
   // v25 (Onda C #11): metricas de saude dos lembretes (taxa entrega, leitura, etc)
   @Get('reminders/health')
   getRemindersHealth(

@@ -1265,6 +1265,77 @@ export class CalendarService {
     return { success: true, reminder_id: reminderId };
   }
 
+  // ─── Configuracao de Lembretes (Onda 5e v27, Fase 25) ────────────────
+  // Persistido como JSON em GlobalSetting com key REMINDER_CONFIG_<tenant_id>.
+  // Sem tenant_id: chave global REMINDER_CONFIG (fallback).
+  // Defaults vem de packages/shared (DEFAULT_REMINDER_CONFIG) se nao customizado.
+
+  async getReminderConfig(tenant_id?: string) {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { DEFAULT_REMINDER_CONFIG } = await import('@crm/shared');
+    const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return DEFAULT_REMINDER_CONFIG;
+      const parsed = JSON.parse(setting.value);
+      // Merge com defaults pra garantir que campos novos venham preenchidos
+      return {
+        default_antecedencias: Array.isArray(parsed.default_antecedencias)
+          ? parsed.default_antecedencias
+          : DEFAULT_REMINDER_CONFIG.default_antecedencias,
+        templates: {
+          ...DEFAULT_REMINDER_CONFIG.templates,
+          ...(parsed.templates || {}),
+        },
+      };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando defaults: ${(e as any)?.message}`);
+      return DEFAULT_REMINDER_CONFIG;
+    }
+  }
+
+  async setReminderConfig(
+    tenant_id: string | undefined,
+    config: { default_antecedencias?: any[]; templates?: any },
+  ) {
+    const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
+    // Valida shape minimo
+    if (config.default_antecedencias) {
+      if (!Array.isArray(config.default_antecedencias)) {
+        throw new BadRequestException('default_antecedencias deve ser array');
+      }
+      for (const a of config.default_antecedencias) {
+        if (typeof a.minutes_before !== 'number' || a.minutes_before < 1) {
+          throw new BadRequestException('cada antecedencia precisa ter minutes_before >= 1');
+        }
+        if (!a.channel || typeof a.channel !== 'string') {
+          throw new BadRequestException('cada antecedencia precisa ter channel string');
+        }
+      }
+    }
+    if (config.templates) {
+      for (const k of ['consulta_24h', 'consulta_1h', 'consulta_15min']) {
+        if (config.templates[k] !== undefined && typeof config.templates[k] !== 'string') {
+          throw new BadRequestException(`template ${k} deve ser string`);
+        }
+        if (config.templates[k] && config.templates[k].length > 1500) {
+          throw new BadRequestException(`template ${k} ultrapassa 1500 caracteres`);
+        }
+      }
+    }
+    const value = JSON.stringify({
+      default_antecedencias: config.default_antecedencias,
+      templates: config.templates,
+    });
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+    this.logger.log(`[REMINDER_CONFIG] salvo pra ${key}`);
+    return this.getReminderConfig(tenant_id);
+  }
+
   // ─── Backfill de Reminders (Onda 5e v19, Fase 25) ────────────────────
   // Cria EventReminders default (1d, 1h, 30min) pra eventos futuros que
   // NAO tem reminders + enfileira no BullMQ pra disparar WhatsApp.

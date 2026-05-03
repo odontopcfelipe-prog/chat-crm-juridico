@@ -7,6 +7,12 @@ import { SettingsService } from '../settings/settings.service';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
 import * as nodemailer from 'nodemailer';
+import {
+  DEFAULT_REMINDER_CONFIG,
+  applyTemplate,
+  pickTemplateKey,
+  type ReminderConfig,
+} from '@crm/shared';
 
 // ─── Labels/emojis para lembretes EMAIL (portado do worker em 2026-04-20) ──
 const TYPE_LABEL: Record<string, string> = {
@@ -93,48 +99,43 @@ function templateClienteJuridico(event: any, minutesBefore: number): string {
 
 /**
  * Lembrete de CONSULTA odonto enviado ao paciente.
- * Tom natural, convidativo. Diferentes por antecedencia:
- *  - 1d antes: convida a confirmar de forma humanizada (nao usa "responda 1/2")
- *  - 1h antes: aviso pratico de chegar com folga
- *  - 15min: estamos te esperando
- *  - default: lembrete generico
+ * v27: usa templates configuraveis do tenant (REMINDER_CONFIG_<tenant_id>)
+ * via applyTemplate. Fallback pros defaults DEFAULT_REMINDER_CONFIG se admin
+ * nao customizou.
+ *
+ * Templates suportam variaveis: {nome}, {dentista}, {data}, {hora}, {local},
+ * {clinica}, {antecedencia}, {nome_completo}, {dentista_completo}.
  */
-function templateClienteConsulta(event: any, minutesBefore: number): string {
-  const dateStr = formatDateTime(event.start_at);
-  const nome = (event.lead?.name || 'paciente').split(' ')[0];
+function templateClienteConsulta(
+  event: any,
+  minutesBefore: number,
+  config: ReminderConfig,
+): string {
+  const nomeFull = event.lead?.name || 'paciente';
+  const nome = nomeFull.split(' ')[0];
   const dentistaFull = event.assigned_user?.name || '';
   // Encurta "Dra. Suellen Passos" -> "Dra. Suellen"
   const parts = dentistaFull.split(' ');
   const dentista = parts.length >= 3 ? `${parts[0]} ${parts[1]}` : dentistaFull;
-  const localLine = event.location ? `📍 ${event.location}\n` : '';
-  const dentLine = dentista ? ` com ${dentista}` : '';
 
-  // 24h antes (1440 min): convite NATURAL pra confirmar
-  if (minutesBefore >= 1440) {
-    return (
-      `Oi ${nome}! Tudo bem? 😊\n\n` +
-      `Passando aqui só pra lembrar da sua avaliação${dentLine} amanhã, ${dateStr}.\n` +
-      localLine +
-      `\nEstá tudo certo do seu lado? Pode me confirmar pra eu já deixar tudo organizado pra você?`
-    );
-  }
+  const dateStr = formatDateTime(event.start_at);
+  const horaStr = `${String(event.start_at.getUTCHours()).padStart(2, '0')}:${String(event.start_at.getUTCMinutes()).padStart(2, '0')}`;
+  const antecedenciaLabel = minutesLabel(minutesBefore);
 
-  // 1h antes (60 min): pratico
-  if (minutesBefore >= 60) {
-    return (
-      `Oi ${nome}! 👋\n\n` +
-      `Sua avaliação${dentLine} é em cerca de 1 hora (${dateStr}).\n` +
-      localLine +
-      `\nTente chegar uns 10 minutinhos antes pra fazer a fichinha de entrada, beleza? Te esperamos!`
-    );
-  }
+  // Escolhe qual template aplicar pela faixa de antecedencia
+  const templateKey = pickTemplateKey(minutesBefore);
+  const template = config.templates[templateKey];
 
-  // 15 min ou menos: estamos te esperando
-  return (
-    `${nome}, estamos te esperando! 💙\n\n` +
-    `Sua avaliação${dentLine} começa logo (${dateStr}).\n` +
-    localLine
-  );
+  return applyTemplate(template, {
+    nome,
+    nome_completo: nomeFull,
+    dentista,
+    dentista_completo: dentistaFull,
+    data: dateStr,
+    hora: horaStr,
+    local: event.location || '',
+    antecedencia: antecedenciaLabel,
+  });
 }
 
 function templateAdvogado(event: any, minutesBefore: number): string {
@@ -516,7 +517,9 @@ export class CalendarReminderWorker extends WorkerHost {
       if (isConsulta) {
         // CONSULTA: usa template natural odonto (sem IA pra ser consistente
         // e nao gerar mensagem fora do tom). Lembrete 24h convida confirmar.
-        clientMsg = templateClienteConsulta(event, minutesBefore);
+        // v27: carrega config do tenant pra usar templates customizaveis.
+        const config = await this.loadReminderConfig(event.tenant_id);
+        clientMsg = templateClienteConsulta(event, minutesBefore, config);
         this.logger.log(`[REMINDER] Template CONSULTA gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
       } else {
         // AUDIENCIA/PERICIA: tenta IA, fallback pra template juridico
@@ -609,6 +612,32 @@ export class CalendarReminderWorker extends WorkerHost {
 
     // v25: retorna externalMsgId pra worker salvar no EventReminder
     return { externalMsgId: returnedMsgId };
+  }
+
+  /**
+   * v27: Carrega ReminderConfig do tenant (ou global). Fallback pros
+   * defaults DEFAULT_REMINDER_CONFIG se nao customizado. Cache nao usado
+   * (cada chamada custa 1 query, aceitavel pra volume de lembretes).
+   */
+  private async loadReminderConfig(tenantId: string | null | undefined): Promise<ReminderConfig> {
+    const key = tenantId ? `REMINDER_CONFIG_${tenantId}` : 'REMINDER_CONFIG';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return DEFAULT_REMINDER_CONFIG;
+      const parsed = JSON.parse(setting.value);
+      return {
+        default_antecedencias: Array.isArray(parsed.default_antecedencias)
+          ? parsed.default_antecedencias
+          : DEFAULT_REMINDER_CONFIG.default_antecedencias,
+        templates: {
+          ...DEFAULT_REMINDER_CONFIG.templates,
+          ...(parsed.templates || {}),
+        },
+      };
+    } catch (e: any) {
+      this.logger.warn(`Falha ao carregar config ${key}, usando defaults: ${e?.message}`);
+      return DEFAULT_REMINDER_CONFIG;
+    }
   }
 
   // ─── Notificação imediata de audiência agendada ───────────────────────────

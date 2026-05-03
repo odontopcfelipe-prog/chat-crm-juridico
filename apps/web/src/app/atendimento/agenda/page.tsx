@@ -175,28 +175,33 @@ function getEventColor(type: string) {
  * mantem cor por tipo (preserva semantica do tipo de evento odontologico).
  */
 /**
- * Onda 5e v26 (Fase 25) — defaults de lembrete padronizados em TODOS os
- * pontos onde criamos evento (modal manual, IA, recorrencia). Antes era
- * inconsistente: modal usava [30min] e IA usava [1d/1h/30min].
+ * Onda 5e v27 (Fase 25) — defaults de lembrete agora vem da CONFIG do tenant
+ * (REMINDER_CONFIG_<tenant_id> em GlobalSetting), editavel via UI da aba
+ * Lembretes em Follow-up IA. Cache mantido em useRef pra acessar em callbacks
+ * sem refetch a cada chamada.
  *
- * Padrao oficial pedido pelo user: 1 dia + 1 hora + 15 min antes.
+ * Fallback: se config nao carregou ainda OU API falhou, usa hardcoded
+ * [1440, 60, 15] (mesmo do DEFAULT_REMINDER_CONFIG do shared).
  *
- * Helper getDefaultReminders(eventStartIso?) FILTRA dinamicamente os
- * lembretes que ainda fazem sentido (cuja antecedencia eh menor que
- * o tempo restante ate o evento). Ex:
- *   - Evento daqui a 30min → so retorna [15min]
- *   - Evento daqui a 2h    → retorna [1h, 15min]
- *   - Evento daqui a 5d    → retorna [1d, 1h, 15min]
+ * Helper getDefaultReminders(antecedencias, eventStartIso?) FILTRA
+ * dinamicamente os lembretes que ainda fazem sentido (cuja antecedencia
+ * eh menor que o tempo restante ate o evento).
  */
-const DEFAULT_REMINDERS_MIN = [1440, 60, 15] as const;
+const FALLBACK_DEFAULT_ANTECEDENCIAS = [
+  { minutes_before: 1440, channel: 'WHATSAPP' },
+  { minutes_before: 60, channel: 'WHATSAPP' },
+  { minutes_before: 15, channel: 'WHATSAPP' },
+];
 
-function getDefaultReminders(eventStartIso?: string): { minutes_before: number; channel: string }[] {
-  const all = DEFAULT_REMINDERS_MIN.map((m) => ({ minutes_before: m, channel: 'WHATSAPP' }));
-  if (!eventStartIso) return all;
+function getDefaultReminders(
+  antecedencias: { minutes_before: number; channel: string }[] = FALLBACK_DEFAULT_ANTECEDENCIAS,
+  eventStartIso?: string,
+): { minutes_before: number; channel: string }[] {
+  if (!eventStartIso) return [...antecedencias];
   const startMs = new Date(eventStartIso).getTime();
-  if (isNaN(startMs)) return all;
+  if (isNaN(startMs)) return [...antecedencias];
   const minutesUntilEvent = Math.floor((startMs - Date.now()) / 60_000);
-  return all.filter((r) => r.minutes_before < minutesUntilEvent);
+  return antecedencias.filter((r) => r.minutes_before < minutesUntilEvent);
 }
 
 function getSemanticCalendarId(ev: { type: string; status: string }): string {
@@ -546,7 +551,8 @@ export default function AgendaPage() {
     lead_id: '',
     patient_id: '',
     legal_case_id: '',
-    // v26: defaults = 1d + 1h + 15min via WhatsApp (operador pode add/remover livre)
+    // v27: defaults vem da config (fallback: hardcoded 1d/1h/15min)
+    // Operador pode add/remover livremente no proprio modal de evento.
     reminders: getDefaultReminders() as { minutes_before: number; channel: string }[],
     recurrence_rule: '',
     recurrence_end: '',
@@ -643,7 +649,7 @@ export default function AgendaPage() {
       lead_id: '',
       patient_id: '',
       legal_case_id: '',
-      reminders: getDefaultReminders(startIsoForReminders),
+      reminders: getDefaultReminders(reminderAntecedenciasRef.current, startIsoForReminders),
       recurrence_rule: '',
       recurrence_end: '',
       recurrence_days: [],
@@ -769,6 +775,11 @@ export default function AgendaPage() {
   // (useNextCalendarApp captura apenas a versão inicial das funções/estados)
   const fetchEventsRef = useRef<typeof fetchEvents | null>(null);
   const eventsRef = useRef<CalendarEvent[]>([]); // para onEventClick sempre ter a lista atualizada
+  // v27: config customizavel de lembretes (carregada 1x no mount).
+  // Usada em getDefaultReminders pra preencher modal de evento. Se admin
+  // mudar antecedencia padrao via UI, novos eventos pegam automaticamente
+  // (proximo mount carrega valor atualizado).
+  const reminderAntecedenciasRef = useRef<{ minutes_before: number; channel: string }[]>(FALLBACK_DEFAULT_ANTECEDENCIAS);
 
   // ─── Data Fetching ──────────────────────────────────
 
@@ -1043,6 +1054,15 @@ export default function AgendaPage() {
       setHolidays(map);
     }).catch(swallow('lazy load holidays — agenda funciona sem'));
 
+    // v27: carrega config customizavel de lembretes (antecedencias padrao
+    // que vao pre-preencher o modal de evento). Cache em useRef.
+    api.get('/calendar/reminders/config').then(r => {
+      const ant = Array.isArray(r.data?.default_antecedencias) ? r.data.default_antecedencias : null;
+      if (ant && ant.length > 0) {
+        reminderAntecedenciasRef.current = ant;
+      }
+    }).catch(swallow('lazy load reminder config — usa fallback hardcoded'));
+
     // Deep link: abrir evento via alerta de tarefa vencida
     const openEventId = sessionStorage.getItem('open_event_id');
     if (openEventId) {
@@ -1272,7 +1292,7 @@ export default function AgendaPage() {
       legal_case_id: ev.legal_case_id || '',
       // v26: editar evento — preserva reminders salvos, fallback pros defaults
       // (filtrados pelo tempo restante ate o evento)
-      reminders: (ev as any).reminders?.map((r: any) => ({ minutes_before: r.minutes_before, channel: r.channel })) || getDefaultReminders(ev.start_at),
+      reminders: (ev as any).reminders?.map((r: any) => ({ minutes_before: r.minutes_before, channel: r.channel })) || getDefaultReminders(reminderAntecedenciasRef.current, ev.start_at),
       recurrence_rule: (ev as any).recurrence_rule || '',
       recurrence_end: (ev as any).recurrence_end ? formatDateInput((ev as any).recurrence_end) : '',
       recurrence_days: (ev as any).recurrence_days || [],
@@ -1551,7 +1571,7 @@ export default function AgendaPage() {
         patient_id: editingEvent.patient_id || '',
         legal_case_id: editingEvent.legal_case_id || '',
         // v26: duplicar -> defaults filtrados pra hoje (data nova)
-        reminders: getDefaultReminders(`${formatDateInput(now.toISOString())}T${formatTimeInput(editingEvent.start_at)}:00`),
+        reminders: getDefaultReminders(reminderAntecedenciasRef.current, `${formatDateInput(now.toISOString())}T${formatTimeInput(editingEvent.start_at)}:00`),
         recurrence_rule: '',
         recurrence_end: '',
         recurrence_days: [],
