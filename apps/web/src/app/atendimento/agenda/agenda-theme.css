@@ -360,3 +360,28 @@
 .sx-react-calendar-wrapper [class*="day"][class*="sunday"] {
   color: #dc2626 !important;
 }
+
+/* Onda 5e v7 (Fase 25) — Feriados em vermelho no calendario principal.
+   A classe .sx__holiday eh injetada via useEffect no page.tsx que faz
+   DOM walk em [data-date], [data-time-grid-date], [data-date-grid-date]
+   e marca celulas/headers cuja data bate com algum feriado do tenant.
+   Aplicamos vermelho semelhante ao domingo + faixa lateral pra reforcar. */
+.sx-react-calendar-wrapper .sx__holiday,
+.sx-react-calendar-wrapper .sx__holiday .sx__week-grid__date,
+.sx-react-calendar-wrapper .sx__holiday .sx__week-grid__date-number,
+.sx-react-calendar-wrapper .sx__holiday .sx__date-grid-day,
+.sx-react-calendar-wrapper .sx__holiday .sx__month-grid-day__header-day-name,
+.sx-react-calendar-wrapper .sx__holiday .sx__month-grid-day__header-date {
+  color: #dc2626 !important;
+}
+
+/* Coluna do horario (sx__time-grid-day) ganha um leve background vermelho
+   pra reforcar visualmente que aquele dia e feriado. Subtle pra nao poluir. */
+.sx-react-calendar-wrapper .sx__time-grid-day.sx__holiday {
+  background-color: rgba(220, 38, 38, 0.04) !important;
+}
+
+/* Celula do mes-grid em feriado tambem ganha leve tinta de fundo */
+.sx-react-calendar-wrapper .sx__month-grid-day.sx__holiday {
+  background-color: rgba(220, 38, 38, 0.04) !important;
+}

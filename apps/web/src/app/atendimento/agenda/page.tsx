@@ -308,9 +308,15 @@ const WD_HEADERS = ['D','S','T','Q','Q','S','S'];
 function MiniCalendar({
   onDateSelect,
   eventCounts,
+  holidays,
 }: {
   onDateSelect: (dateStr: string) => void;
   eventCounts?: Map<string, number>;
+  // Onda 5e v7 — Map<chave, nome do feriado>:
+  //   - "YYYY-MM-DD" pra data exata
+  //   - "MM-DD" pra recorrencia anual (Natal, Ano Novo)
+  // Match no render checa os 2 formatos.
+  holidays?: Map<string, string>;
 }) {
   const today = new Date();
   const [viewYear, setViewYear] = useState(today.getFullYear());
@@ -370,7 +376,8 @@ function MiniCalendar({
         ))}
       </div>
       {/* Grade de dias com pontinho de ocupação — celulas reduzidas.
-          Onda 5e v6: numeros de DOMINGO em vermelho. */}
+          Onda 5e v6: numeros de DOMINGO em vermelho.
+          Onda 5e v7: feriados tambem em vermelho + tooltip com nome. */}
       <div className="grid grid-cols-7">
         {cells.map((day, i) => {
           if (!day) return <span key={`e-${i}`} className="h-6" />;
@@ -380,22 +387,31 @@ function MiniCalendar({
           // Onda 5e v6: detecta domingo via Date.getDay() (0 = domingo)
           const dateObj = new Date(viewYear, viewMonth, day);
           const isSunday = dateObj.getDay() === 0;
+          // Onda 5e v7: checa feriado nos 2 formatos (data exata + recorrente anual)
+          const mmdd = `${String(viewMonth+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+          const holidayName = holidays?.get(ds) || holidays?.get(mmdd);
+          const isHoliday = !!holidayName;
           const count = eventCounts?.get(ds) ?? 0;
           let dotColor = '';
           if (count >= 5) dotColor = 'bg-rose-500';
           else if (count >= 3) dotColor = 'bg-amber-500';
           else if (count >= 1) dotColor = 'bg-emerald-500';
+          // Tooltip combinando feriado + contagem de eventos
+          const tooltipParts: string[] = [];
+          if (holidayName) tooltipParts.push(`🎉 ${holidayName}`);
+          if (count > 0) tooltipParts.push(`${count} evento${count !== 1 ? 's' : ''} agendado${count !== 1 ? 's' : ''}`);
+          else if (!holidayName) tooltipParts.push('Sem eventos');
           return (
             <div key={`d-${day}`} className="h-6 flex flex-col items-center justify-start">
               <button
                 onClick={() => handleDayClick(day)}
-                title={count > 0 ? `${count} evento${count !== 1 ? 's' : ''} agendado${count !== 1 ? 's' : ''}` : 'Sem eventos'}
+                title={tooltipParts.join(' • ')}
                 className={`h-5 w-5 flex items-center justify-center rounded-full text-[10px] font-medium transition-colors
                   ${isSel
                     ? 'bg-primary text-primary-foreground'
                     : isToday
                     ? 'bg-primary/15 text-primary font-bold'
-                    : isSunday
+                    : isHoliday || isSunday
                     ? 'text-red-500 hover:bg-accent/60'
                     : 'text-foreground hover:bg-accent/60'}
                 `}
@@ -460,6 +476,13 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [leads, setLeads] = useState<LeadOption[]>([]);
+
+  // Onda 5e v7 (Fase 25) — Feriados do tenant pra colorir vermelho.
+  // Map<chave, nome>:
+  //   - chave fixa "YYYY-MM-DD" pra feriados de data exata (ex: "2026-04-21")
+  //   - chave "MM-DD" pra feriados recorrentes anuais (ex: "12-25" Natal)
+  // Logica de match no MiniCalendar verifica os 2 formatos.
+  const [holidays, setHolidays] = useState<Map<string, string>>(new Map());
 
   // Filtros
   const [filterTypes, setFilterTypes] = useState<string[]>(EVENT_TYPES.map(t => t.id));
@@ -723,6 +746,44 @@ export default function AgendaPage() {
   useEffect(() => { fetchEventsRef.current = fetchEvents; }, [fetchEvents]);
   useEffect(() => { eventsRef.current = events; }, [events]);
 
+  // Onda 5e v7 (Fase 25) — Marca colunas/headers de feriado no schedule-x.
+  // Schedule-x v4 nao tem API publica pra customizar dia, entao fazemos DOM walk:
+  //   - .sx__week-grid__date[data-date]      -> header com nome+numero do dia
+  //   - .sx__time-grid-day[data-time-grid-date] -> coluna de horarios da semana
+  //   - .sx__date-grid-day[data-date-grid-date] -> celula da faixa all-day
+  //   - .sx__month-grid-day[data-date]       -> celula do mes
+  // Adiciona class .sx__holiday + title (tooltip nativo) com nome do feriado.
+  // Re-roda quando holidays/events mudam (events triggera re-render do schedule-x).
+  // setTimeout 0 espera o React/schedule-x flushar o DOM antes de marcar.
+  useEffect(() => {
+    if (!holidays.size) return;
+    const apply = () => {
+      const selectors = [
+        { sel: '[data-date]', attr: 'data-date' },
+        { sel: '[data-time-grid-date]', attr: 'data-time-grid-date' },
+        { sel: '[data-date-grid-date]', attr: 'data-date-grid-date' },
+      ];
+      for (const { sel, attr } of selectors) {
+        document.querySelectorAll<HTMLElement>(sel).forEach(el => {
+          const ds = el.getAttribute(attr);
+          if (!ds || ds.length < 10) return;
+          const iso = ds.slice(0, 10);
+          const mmdd = iso.slice(5);
+          const name = holidays.get(iso) || holidays.get(mmdd);
+          if (name) {
+            el.classList.add('sx__holiday');
+            // Tooltip nativo — schedule-x ja usa title em alguns lugares,
+            // sobrescreve sem prejudicar UX
+            if (!el.title.includes(name)) el.title = `🎉 Feriado: ${name}`;
+          }
+        });
+      }
+    };
+    const t = setTimeout(apply, 50);
+    return () => clearTimeout(t);
+    // events na deps pra re-aplicar quando schedule-x re-renderiza apos mudanca de view
+  }, [holidays, events]);
+
   // Drag-and-drop persistence
   const handleDragUpdate = useCallback(async (updatedEvent: any) => {
     try {
@@ -881,6 +942,28 @@ export default function AgendaPage() {
       setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(swallow('lazy load filtro de dentistas (nao essencial pra renderizar agenda)'));
     api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(swallow('lazy load leads pro autocomplete (agenda funciona sem)'));
+
+    // Onda 5e v7 (Fase 25) — Carrega feriados pra colorir vermelho no mini-calendar
+    // e no proprio schedule-x. Recurring_yearly vira chave "MM-DD" (ex: "12-25" Natal),
+    // data exata vira "YYYY-MM-DD" (ex: "2026-04-21" Tiradentes daquele ano).
+    // Endpoint: GET /holidays — retorna array do tenant atual.
+    api.get('/holidays').then(r => {
+      const map = new Map<string, string>();
+      (r.data || []).forEach((h: any) => {
+        const dt = new Date(h.date);
+        if (h.recurring_yearly) {
+          const mm = String(dt.getUTCMonth() + 1).padStart(2, '0');
+          const dd = String(dt.getUTCDate()).padStart(2, '0');
+          map.set(`${mm}-${dd}`, h.name);
+        } else {
+          // h.date vem em ISO; pega só YYYY-MM-DD pra evitar drift de timezone
+          const iso = typeof h.date === 'string' ? h.date.slice(0, 10)
+            : `${dt.getUTCFullYear()}-${String(dt.getUTCMonth()+1).padStart(2,'0')}-${String(dt.getUTCDate()).padStart(2,'0')}`;
+          map.set(iso, h.name);
+        }
+      });
+      setHolidays(map);
+    }).catch(swallow('lazy load holidays — agenda funciona sem'));
 
     // Deep link: abrir evento via alerta de tarefa vencida
     const openEventId = sessionStorage.getItem('open_event_id');
@@ -1433,6 +1516,7 @@ export default function AgendaPage() {
         <div className="px-2 mb-1">
           <MiniCalendar
             eventCounts={eventCountsByDay}
+            holidays={holidays}
             onDateSelect={(dateStr) => {
               // Onda 5d v11: removido try/catch+swallow — helper ja faz log
               // proprio se algo der errado (ajuda diagnosticar futuras
