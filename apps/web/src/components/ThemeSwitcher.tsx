@@ -4,13 +4,34 @@ import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 import { Palette } from 'lucide-react';
 
+/**
+ * Temas disponiveis. id = chave persistida em localStorage (NAO renomear,
+ * quebraria preferencias salvas dos users). name = label exibido no menu.
+ *
+ * Onda 5e v4: nomes realinhados com cor real do accent_primary +
+ * 2 temas novos (Esmeralda + Vermelho).
+ *
+ * Existentes (renomeados pra ficar coerentes):
+ *   escuro -> "Noturno" (preto + dourado)
+ *   claro  -> "Claro" (branco + sepia)
+ *   odonto -> "Laranja" (Clinicorp #F58220)
+ *   azul   -> "Azul" (azul Royal #2952a3)
+ *   verde  -> "Floresta" (verde escuro tradicional #1a7a4a)
+ *   rose   -> "Rosé" (rosa pastel #c4254a)
+ *
+ * Novos:
+ *   mint     -> "Esmeralda" (verde claro vibrante #10b981)
+ *   vermelho -> "Vermelho" (red bold #dc2626)
+ */
 export const THEMES = [
-  { id: 'escuro', name: 'Escuro', color: '#000000', accent: '#a1773d', dark: true },
-  { id: 'claro', name: 'Claro', color: '#ffffff', accent: '#8b6630', dark: false },
-  { id: 'odonto', name: 'Odonto', color: '#ffffff', accent: '#f58220', dark: false },
-  { id: 'rose', name: 'Rosé', color: '#fdf2f3', accent: '#c4254a', dark: false },
-  { id: 'azul', name: 'Azul', color: '#f0f4fa', accent: '#2952a3', dark: false },
-  { id: 'verde', name: 'Verde', color: '#f0faf5', accent: '#1a7a4a', dark: false },
+  { id: 'escuro',   name: 'Noturno',   color: '#000000', accent: '#a1773d', dark: true  },
+  { id: 'claro',    name: 'Claro',     color: '#ffffff', accent: '#8b6630', dark: false },
+  { id: 'odonto',   name: 'Laranja',   color: '#ffffff', accent: '#f58220', dark: false },
+  { id: 'rose',     name: 'Rosé',      color: '#fdf2f3', accent: '#c4254a', dark: false },
+  { id: 'vermelho', name: 'Vermelho',  color: '#fef2f2', accent: '#dc2626', dark: false },
+  { id: 'azul',     name: 'Azul',      color: '#f0f4fa', accent: '#2952a3', dark: false },
+  { id: 'verde',    name: 'Floresta',  color: '#f0faf5', accent: '#1a7a4a', dark: false },
+  { id: 'mint',     name: 'Esmeralda', color: '#f0fdf4', accent: '#10b981', dark: false },
 ];
 
 export function ThemeSwitcher() {

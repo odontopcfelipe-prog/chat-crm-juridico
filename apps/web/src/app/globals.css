@@ -160,6 +160,51 @@
     --border-default: rgba(0, 0, 0, 0.14);
   }
 
+  /* ══ MINT — Verde esmeralda fresh, mais vibrante que verde tradicional
+     Acento mais claro/fresco, ideal pra clínicas com identidade jovem
+     ou foco em estética/wellness. Diferencia-se do "verde" classico que
+     eh mais sombrio. */
+  [data-theme="mint"] {
+    --bg-primary: #f0fdf4;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #dcfce7;
+    --bg-elevated: #ffffff;
+    --bg-hover: #bbf7d0;
+
+    --accent-primary: #10b981;
+    --accent-secondary: #34d399;
+
+    --text-primary: #052e1a;
+    --text-secondary: #14532d;
+    --text-muted: #4d7c5f;
+
+    --border-subtle: rgba(16, 185, 129, 0.10);
+    --border-default: rgba(16, 185, 129, 0.20);
+  }
+
+  /* ══ VERMELHO — Vermelho vibrante / coral, energetico
+     Diferente do "Rose" (que eh rosa pastel) e do "Odonto" (laranja).
+     Acento bold pra clinicas que querem destaque visual forte.
+     Cuidado: cor vermelha pode passar urgencia/alerta — usar com
+     intencao se for o tom da marca. */
+  [data-theme="vermelho"] {
+    --bg-primary: #fef2f2;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #fee2e2;
+    --bg-elevated: #ffffff;
+    --bg-hover: #fecaca;
+
+    --accent-primary: #dc2626;
+    --accent-secondary: #ef4444;
+
+    --text-primary: #2a0a0a;
+    --text-secondary: #4a1414;
+    --text-muted: #8b4444;
+
+    --border-subtle: rgba(220, 38, 38, 0.10);
+    --border-default: rgba(220, 38, 38, 0.20);
+  }
+
   *, ::before, ::after {
     border-color: var(--color-border);
   }
