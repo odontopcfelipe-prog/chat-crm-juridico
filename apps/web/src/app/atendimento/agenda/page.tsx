@@ -638,30 +638,42 @@ export default function AgendaPage() {
       return false;
     }
 
-    // 3) Usa calendarState.setRange() — API interna do schedule-x v4
-    const setRange = $app.calendarState?.setRange;
-    if (typeof setRange === 'function') {
-      try {
-        setRange(plainDate);
-        return true;
-      } catch (e) {
-        console.warn('[Agenda] setRange falhou:', e);
+    // 3) Onda 5d v12: combo correto descoberto inspecionando core.cjs.js:
+    //    a) atualiza selectedDate signal direto via .value =
+    //       (linha 943 do core: $app.datePickerState.selectedDate.value = date)
+    //    b) reaplica view com a nova data
+    //       (linha 1345 do core: setView(viewName, selectedDate.value))
+    //
+    //    Versao anterior (v11) usava SO setRange — atualizava o range
+    //    mas nao a selectedDate, entao calendar navegava pra dia errado.
+    try {
+      // (a) Seta selectedDate no datePickerState
+      const selectedDateSignal = $app.datePickerState?.selectedDate;
+      if (selectedDateSignal && 'value' in selectedDateSignal) {
+        selectedDateSignal.value = plainDate;
       }
-    }
 
-    // 4) Fallback: setView (muda view E data juntos)
-    const setView = $app.calendarState?.setView;
-    const currentView = $app.calendarState?.view?.value || 'week';
-    if (typeof setView === 'function') {
-      try {
+      // (b) Reaplica view com a nova data
+      const setView = $app.calendarState?.setView;
+      const currentView = $app.calendarState?.view?.value || 'week';
+      if (typeof setView === 'function') {
         setView(currentView, plainDate);
         return true;
-      } catch (e) {
-        console.warn('[Agenda] setView falhou:', e);
       }
+
+      // Fallback: setRange se setView nao existir
+      const setRange = $app.calendarState?.setRange;
+      if (typeof setRange === 'function') {
+        setRange(plainDate);
+        return true;
+      }
+    } catch (e) {
+      console.warn('[Agenda] Erro ao navegar:', e);
     }
 
-    console.warn('[Agenda] Nem setRange nem setView funcionaram. API:', Object.keys($app.calendarState || {}));
+    console.warn('[Agenda] API de navegacao nao encontrada. Keys disponiveis:',
+      Object.keys($app.calendarState || {}),
+      Object.keys($app.datePickerState || {}));
     return false;
   }, []);
   // Refs para evitar stale closure nos callbacks do schedule-x

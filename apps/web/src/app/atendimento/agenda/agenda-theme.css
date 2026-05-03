@@ -291,10 +291,14 @@
  * Pra REVERTER: comentar todo este bloco.
  * ════════════════════════════════════════════════════════════════════ */
 
-/* Range heading — texto "abril – maio 2026" no centro do header */
+/* Range heading — texto "abril – maio 2026" no centro do header.
+   Onda 5d v12 (Fase 25): REATIVADO conforme pediu — operadora quer ver
+   qual mes esta visualizando. Compactado pra nao ocupar tanto espaco. */
 .sx-react-calendar-wrapper .sx__range-heading,
 .sx-react-calendar-wrapper [class*="range-heading"] {
-  display: none !important;
+  font-size: 12px !important;
+  font-weight: 600 !important;
+  text-transform: capitalize;
 }
 
 /* View selection — select "Visualização Semana" */
