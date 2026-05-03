@@ -666,7 +666,9 @@ export default function AgendaPage() {
     defaultView: isMobile ? 'day' : 'week',
     locale: 'pt-BR',
     firstDayOfWeek: 1,
-    dayBoundaries: { start: '05:00', end: '23:00' },
+    // Onda 5d v7 (Fase 25) — pediu pra agenda comecar as 08:00 (em vez de 05:00).
+    // Mantem end 23:00 pra cobrir eventos noturnos eventuais.
+    dayBoundaries: { start: '08:00', end: '23:00' },
     weekOptions: { gridHeight: isMobile ? 800 : 1200, gridStep: 30 },
     isDark: isDarkTheme,
     callbacks: {
