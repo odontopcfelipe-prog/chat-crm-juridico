@@ -198,16 +198,31 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Header global com busca de paciente — esconde em:
-              - /atendimento/chat (chat ja tem busca propria)
-              - /atendimento/pacientes/[id] (ja esta dentro do paciente — busca redundante)
-            Mantem em /atendimento/pacientes (lista) e demais telas. */}
+        {/* Header global com busca de paciente — esconde em telas
+            administrativas/configuracao onde nao faz sentido buscar paciente,
+            e dentro de paciente especifico (ja achou — redundante).
+            Mantem em telas operacionais (dashboard, agenda, financeiro,
+            pacientes lista, etc) onde busca eh atalho util. */}
         {(() => {
-          const inChat = pathname.startsWith('/atendimento/chat');
+          // Lista de prefixos onde a busca eh redundante.
+          // Pra adicionar mais: basta incluir o prefixo na lista.
+          const HIDE_SEARCH_PREFIXES = [
+            '/atendimento/chat',         // chat ja tem busca propria
+            '/atendimento/settings',     // 23 telas de config
+            '/atendimento/peticoes',     // juridico legado
+            '/atendimento/manual',       // documentacao/help
+            '/atendimento/marketing',    // analise de campanhas
+            '/atendimento/relatorios',   // relatorios gerenciais
+            '/atendimento/metas',        // metas de equipe
+            '/atendimento/comissoes',    // calculo de comissao
+            '/atendimento/minha-rede',   // network/parcerias
+            '/atendimento/estoque',      // gestao ANVISA (produtos, nao pacientes)
+          ];
+          const hideByPrefix = HIDE_SEARCH_PREFIXES.some((p) => pathname.startsWith(p));
           // Detecta /atendimento/pacientes/<algo>: <algo> precisa ser nao-vazio
           // (path com so /pacientes ou /pacientes/ continua mostrando busca)
-          const inSpecificPatient = /^\/atendimento\/pacientes\/[^/]+/.test(pathname);
-          const hideSearch = inChat || inSpecificPatient;
+          const insideSpecificPatient = /^\/atendimento\/pacientes\/[^/]+/.test(pathname);
+          const hideSearch = hideByPrefix || insideSpecificPatient;
           if (hideSearch) return null;
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card/50 backdrop-blur-sm shrink-0">
