@@ -137,6 +137,18 @@ export class PatientsController {
     });
   }
 
+  /**
+   * v35: Garante Lead + Conversation pra paciente existente que foi cadastrado
+   * direto na ficha (sem ter chegado via WhatsApp). Util pra "reparar" pacientes
+   * antigos que estao invisiveis na inbox WhatsApp.
+   */
+  @Post(':id/ensure-conversation')
+  async ensureConversation(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.ensureLeadAndConversationPublic(id, tenantId);
+  }
+
   // ─── Allergies ────────────────────────────────────────────────
 
   @Post(':id/allergies')

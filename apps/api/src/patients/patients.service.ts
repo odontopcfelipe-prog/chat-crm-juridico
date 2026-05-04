@@ -29,6 +29,22 @@ export class PatientsService {
       data: { ...data, tenant_id: tenantId },
     });
 
+    // Onda 5e v35 (Fase 25) — quando paciente eh cadastrado direto pela ficha
+    // (sem ter chegado via WhatsApp), CRIA Lead + Conversation automaticamente
+    // se ainda nao existirem. Sem isso:
+    //   - Paciente nao aparece na lista do WhatsApp
+    //   - Lembretes disparados nao ficam salvos no chat (worker procura por lead_id)
+    //   - Operador nao tem visao consolidada da comunicacao com o paciente
+    //
+    // Best-effort: se falhar nao bloqueia criacao do paciente.
+    if (data.phone && !patient.lead_id) {
+      try {
+        await this.ensureLeadAndConversation(patient.id, data.phone as string, data.name as string | null, tenantId);
+      } catch (e: any) {
+        this.logger.warn(`[PATIENT CREATE] Falha ao auto-criar Lead/Conversation pra ${patient.id}: ${e?.message}`);
+      }
+    }
+
     // Hook Indicação Premiada (Fase 21): se foi indicado por outro paciente,
     // cria Referral{status:PENDING}. Best-effort — se falhar não bloqueia
     // o cadastro do paciente.
@@ -45,6 +61,113 @@ export class PatientsService {
     }
 
     return patient;
+  }
+
+  /**
+   * v35: Versao publica chamavel via endpoint POST /patients/:id/ensure-conversation
+   * pra reparar pacientes existentes (cadastrados sem lead/conversa, ex: Jilfran).
+   */
+  async ensureLeadAndConversationPublic(patientId: string, tenantId: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, name: true, phone: true, lead_id: true, tenant_id: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    if (patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (!patient.phone) throw new BadRequestException('Paciente nao tem telefone — impossivel criar conversa');
+
+    await this.ensureLeadAndConversation(patient.id, patient.phone, patient.name, tenantId);
+
+    // Retorna estado atualizado
+    return this.prisma.patient.findUnique({
+      where: { id: patientId },
+      include: { lead: { select: { id: true, name: true, phone: true } } },
+    });
+  }
+
+  /**
+   * v35: Garante que paciente tem Lead + Conversation associados.
+   *   1. Procura Lead existente pelo telefone (mesmo tenant)
+   *   2. Se nao tem, cria Lead novo com nome/phone do paciente
+   *   3. Vincula patient.lead_id ao lead encontrado/criado
+   *   4. Procura Conversation do lead. Se nao tem, cria com instance default
+   *
+   * Resultado: paciente vira "visivel" na inbox WhatsApp + worker de lembretes
+   * consegue salvar mensagem na conversa correta.
+   */
+  private async ensureLeadAndConversation(
+    patientId: string,
+    phone: string,
+    name: string | null,
+    tenantId: string,
+  ): Promise<void> {
+    // Normaliza phone (so digitos)
+    const normalizedPhone = phone.replace(/\D/g, '');
+    if (!normalizedPhone) return;
+
+    // 1. Procura Lead pelo phone (mesmo tenant)
+    let lead = await this.prisma.lead.findFirst({
+      where: { phone: normalizedPhone, tenant_id: tenantId },
+      select: { id: true, name: true },
+    });
+
+    // 2. Cria Lead se nao tem
+    if (!lead) {
+      lead = await this.prisma.lead.create({
+        data: {
+          name: name || 'Paciente sem nome',
+          phone: normalizedPhone,
+          tenant_id: tenantId,
+          stage: 'NOVO',
+          origin: 'cadastro_manual',
+        },
+        select: { id: true, name: true },
+      });
+      this.logger.log(`[PATIENT CREATE] Lead criado pra paciente ${patientId}: lead=${lead.id}`);
+    }
+
+    // 3. Vincula patient.lead_id
+    await this.prisma.patient.update({
+      where: { id: patientId },
+      data: { lead_id: lead.id },
+    });
+
+    // 4. Garante Conversation pra esse lead
+    const existingConv = await this.prisma.conversation.findFirst({
+      where: { lead_id: lead.id },
+      select: { id: true },
+    });
+    if (!existingConv) {
+      // Pega primeira instancia whatsapp do tenant (best-effort)
+      const instance = await this.prisma.instance.findFirst({
+        where: { tenant_id: tenantId, type: 'whatsapp' },
+        select: { name: true, id: true },
+      });
+      // Pega primeira inbox do tenant (best-effort)
+      const inbox = await this.prisma.inbox.findFirst({
+        where: { tenant_id: tenantId },
+        select: { id: true },
+      });
+      try {
+        await this.prisma.conversation.create({
+          data: {
+            lead_id: lead.id,
+            channel: 'whatsapp',
+            status: 'ABERTO',
+            external_id: `${normalizedPhone}@s.whatsapp.net`,
+            instance_name: instance?.name || null,
+            inbox_id: inbox?.id || null,
+            tenant_id: tenantId,
+            ai_mode: false, // paciente cadastrado manualmente nao quer IA por padrao
+            last_message_at: new Date(),
+          },
+        });
+        this.logger.log(`[PATIENT CREATE] Conversation criada pra lead ${lead.id} (paciente ${patientId})`);
+      } catch (e: any) {
+        // Conversation pode falhar se schema exigir mais campos — log e segue
+        this.logger.warn(`[PATIENT CREATE] Falha ao criar conversation: ${e?.message}`);
+      }
+    }
   }
 
   /** Lista pacientes com busca, filtros e paginacao. */
