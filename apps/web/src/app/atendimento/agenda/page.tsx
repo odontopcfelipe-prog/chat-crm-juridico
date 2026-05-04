@@ -534,6 +534,10 @@ export default function AgendaPage() {
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserOption[]>([]);
   const [leads, setLeads] = useState<LeadOption[]>([]);
+  // v34: pre-carrega pacientes pra ContactPicker mostrar lista completa sem
+  // depender de fetch lazy ao abrir popover. Resolve bug onde paciente
+  // recem-cadastrado nao aparecia ao agendar via deep-link da ficha.
+  const [patients, setPatients] = useState<{ id: string; name: string | null; phone: string | null; cpf?: string | null; lead_id?: string | null; status?: string }[]>([]);
 
   // Onda 5e v7 (Fase 25) — Feriados do tenant pra colorir vermelho.
   // Map<chave, nome>:
@@ -1056,6 +1060,19 @@ export default function AgendaPage() {
       setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(swallow('lazy load filtro de dentistas (nao essencial pra renderizar agenda)'));
     api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(swallow('lazy load leads pro autocomplete (agenda funciona sem)'));
+
+    // v34: pre-carrega pacientes pra ContactPicker ja ter a lista completa
+    // ao montar (resolve bug onde paciente novo nao aparecia ao abrir modal
+    // via deep-link da ficha do paciente)
+    api.get('/patients?limit=500').then(r => {
+      const list = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.patients || []);
+      setPatients(list
+        .filter((p: any) => p.status !== 'ARCHIVED')
+        .map((p: any) => ({
+          id: p.id, name: p.name, phone: p.phone, cpf: p.cpf,
+          lead_id: p.lead_id, status: p.status,
+        })));
+    }).catch(swallow('lazy load patients pro autocomplete (agenda funciona sem)'));
 
     // Onda 5e v7 (Fase 25) — Carrega feriados pra colorir vermelho no mini-calendar
     // e no proprio schedule-x. Recurring_yearly vira chave "MM-DD" (ex: "12-25" Natal),
@@ -2475,6 +2492,7 @@ export default function AgendaPage() {
                   value={{ patient_id: formData.patient_id || null, lead_id: formData.lead_id || null }}
                   onChange={(s) => setFormData((f) => ({ ...f, patient_id: s.patient_id || '', lead_id: s.lead_id || '' }))}
                   leads={leads}
+                  patients={patients}
                 />
               </div>
 
