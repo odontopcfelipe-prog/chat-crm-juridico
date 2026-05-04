@@ -89,13 +89,16 @@ export class PatientsService {
     // Pra simplificar a lista, omitimos essa otimizacao e filtramos in-memory
     // depois (limitando ao page size).
 
-    // v32: usa AND pra combinar filtros sem conflito de OR no root.
-    // Antes: 2 ORs no mesmo objeto se sobrescreviam (bug do search com tenant)
+    // v33: ROLLBACK do OR com tenant_id null — Prisma 6.x nao aceita
+    // { equals: null } pro campo tenant_id (typing diz nullable mas
+    // gera SQL invalido em runtime → 500). Volto pro filtro simples.
+    // Casos de pacientes legacy sem tenant_id sao raros — admin pode
+    // corrigir via SQL UPDATE manual se aparecer.
+    //
+    // MAS mantenho a estrutura AND[] pra resolver o conflito de 2 ORs no
+    // root (search vs tenant) que era o REAL bug v31.
     const andFilters: Prisma.PatientWhereInput[] = [
-      // Tenant: aceita do tenant atual OU sem tenant_id (legacy/migration).
-      // Pacientes criados sem tenant_id sumiam da lista pra sempre — agora
-      // ficam visiveis ate alguem corrigir.
-      { OR: [{ tenant_id: tenantId }, { tenant_id: { equals: null } } as any] },
+      { tenant_id: tenantId },
     ];
     if (opts.status) andFilters.push({ status: opts.status });
     if (opts.dentistId) andFilters.push({ primary_dentist_id: opts.dentistId });
