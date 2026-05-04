@@ -142,17 +142,56 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     return () => document.removeEventListener('mousedown', handler);
   }, [open]);
 
+  // v32: Bug fix — ContactPicker eh LAZY (carrega lista so ao abrir popover).
+  // Quando modal de edicao abre com patient_id ja setado, lista esta vazia
+  // e currentLabel nao consegue resolver o nome → mostrava "Nenhum" mesmo
+  // o evento tendo paciente. Agora busca individualmente via API se nao
+  // achou na lista carregada.
+  useEffect(() => {
+    // Se tem patient_id mas nao esta na lista, busca individual
+    if (value.patient_id && !patients.find((p) => p.id === value.patient_id)) {
+      api.get(`/patients/${value.patient_id}`).then((res) => {
+        const p = res.data;
+        if (p?.id) {
+          setPatients((prev) => {
+            // Evita duplicar
+            if (prev.some((x) => x.id === p.id)) return prev;
+            return [...prev, {
+              id: p.id, name: p.name, phone: p.phone, cpf: p.cpf,
+              lead_id: p.lead_id, status: p.status,
+            }];
+          });
+        }
+      }).catch(() => {/* paciente pode ter sido deletado */});
+    }
+    // Mesma logica pra lead
+    if (value.lead_id && !leads.find((l) => l.id === value.lead_id)) {
+      api.get(`/leads/${value.lead_id}`).then((res) => {
+        const l = res.data;
+        if (l?.id) {
+          setLeads((prev) => {
+            if (prev.some((x) => x.id === l.id)) return prev;
+            return [...prev, { id: l.id, name: l.name, phone: l.phone }];
+          });
+        }
+      }).catch(() => {/* lead pode ter sido deletado */});
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.patient_id, value.lead_id]);
+
   // Encontra a seleção atual pra exibir nome/telefone
   const currentLabel = useMemo(() => {
     if (value.patient_id) {
       const p = patients.find((x) => x.id === value.patient_id);
       if (p) return { kind: 'patient' as const, name: p.name || 'Sem nome', phone: p.phone };
+      // v32: fallback enquanto fetch individual nao chegou
+      return { kind: 'patient' as const, name: 'Carregando paciente...', phone: null };
     }
     if (value.lead_id) {
       const l = leads.find((x) => x.id === value.lead_id);
       if (l) return { kind: 'lead' as const, name: l.name || 'Sem nome', phone: l.phone };
       // Fallback: pode ser um lead que ainda não carregamos (modal sendo editado)
-      return { kind: 'lead' as const, name: 'Lead vinculado', phone: null };
+      return { kind: 'lead' as const, name: 'Carregando lead...', phone: null };
     }
     return null;
   }, [value, patients, leads]);

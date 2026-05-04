@@ -128,6 +128,8 @@ export class CalendarService {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true } },
+        // v32: patient pra UI mostrar nome quando paciente foi vinculado direto
+        patient: { select: { id: true, name: true, phone: true } },
         appointment_type: true,
         reminders: true,
         _count: { select: { comments: true } },
