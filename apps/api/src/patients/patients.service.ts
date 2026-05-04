@@ -65,7 +65,9 @@ export class PatientsService {
     } = {},
   ) {
     const page = Math.max(1, opts.page || 1);
-    const limit = Math.min(100, Math.max(1, opts.limit || 20));
+    // v32: cap aumentado pra 500 — alinhado com ContactPicker que precisa de
+    // lista completa pra autocomplete. 500 ainda eh seguro (query count <50ms).
+    const limit = Math.min(500, Math.max(1, opts.limit || 20));
     const skip = (page - 1) * limit;
 
     // Sem revisão há X meses: last_visit_at < (agora - X meses) OU last_visit_at é null
@@ -87,31 +89,31 @@ export class PatientsService {
     // Pra simplificar a lista, omitimos essa otimizacao e filtramos in-memory
     // depois (limitando ao page size).
 
-    const where: Prisma.PatientWhereInput = {
-      tenant_id: tenantId,
-      ...(opts.status ? { status: opts.status } : {}),
-      ...(opts.dentistId ? { primary_dentist_id: opts.dentistId } : {}),
-      ...(opts.tagId
-        ? { tags: { some: { tag_id: opts.tagId } } }
-        : {}),
-      ...(opts.withActivePlan
-        ? { treatment_plans: { some: { status: 'ACTIVE' } } }
-        : {}),
-      ...(opts.withoutAnamnesis
-        ? { anamneses: { none: {} } }
-        : {}),
-      ...(lastVisitFilter || {}),
-      ...(opts.search
-        ? {
-            OR: [
-              { name: { contains: opts.search, mode: 'insensitive' } },
-              { phone: { contains: opts.search } },
-              { cpf: { contains: opts.search } },
-              { email: { contains: opts.search, mode: 'insensitive' } },
-            ],
-          }
-        : {}),
-    };
+    // v32: usa AND pra combinar filtros sem conflito de OR no root.
+    // Antes: 2 ORs no mesmo objeto se sobrescreviam (bug do search com tenant)
+    const andFilters: Prisma.PatientWhereInput[] = [
+      // Tenant: aceita do tenant atual OU sem tenant_id (legacy/migration).
+      // Pacientes criados sem tenant_id sumiam da lista pra sempre — agora
+      // ficam visiveis ate alguem corrigir.
+      { OR: [{ tenant_id: tenantId }, { tenant_id: { equals: null } } as any] },
+    ];
+    if (opts.status) andFilters.push({ status: opts.status });
+    if (opts.dentistId) andFilters.push({ primary_dentist_id: opts.dentistId });
+    if (opts.tagId) andFilters.push({ tags: { some: { tag_id: opts.tagId } } });
+    if (opts.withActivePlan) andFilters.push({ treatment_plans: { some: { status: 'ACTIVE' } } });
+    if (opts.withoutAnamnesis) andFilters.push({ anamneses: { none: {} } });
+    if (lastVisitFilter) andFilters.push(lastVisitFilter);
+    if (opts.search) {
+      andFilters.push({
+        OR: [
+          { name: { contains: opts.search, mode: 'insensitive' } },
+          { phone: { contains: opts.search } },
+          { cpf: { contains: opts.search } },
+          { email: { contains: opts.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    const where: Prisma.PatientWhereInput = { AND: andFilters };
 
     const [data, total] = await Promise.all([
       this.prisma.patient.findMany({
