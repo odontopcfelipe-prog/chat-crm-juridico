@@ -72,8 +72,8 @@ NOVO → INICIAL → QUALIFICANDO → REUNIÃO_AGENDADA → AGUARDANDO_DOCS → 
 Ao finalizar, o lead vira CLIENTE:
 • Sai da aba "Leads" no atendimento
 • Aparece na aba "Clientes"
-• Um LegalCase (processo) é criado automaticamente
-• A IA é desligada (atendimento passa a ser humano)
+• A IA é religada automaticamente e a skill "Sophia — Pós-Venda" assume o atendimento (remarcação, sintomas, queixas, manutenção, etc.)
+• O operador pode desligar a IA pelo toggle no chat se preferir atendimento manual
 
 Leads que não avançam vão para PERDIDO (com motivo obrigatório).`,
       },
@@ -160,9 +160,8 @@ O que acontece automaticamente:
 • lead.stage = FINALIZADO
 • Sai da aba "Leads" no atendimento
 • Aparece na aba "Clientes"
-• Um LegalCase é criado com stage=VIABILIDADE
-• A IA é desligada na conversa
-• O dentista mais disponível na área é atribuído
+• A IA é religada (ai_mode=true, ai_mode_source=POS_VENDA) e a skill "Sophia — Pós-Venda" assume o atendimento daqui em diante
+• O operador que fechou a venda fica registrado como cs_user_id (responsável pelo cliente)
 
 O lead continua podendo mandar mensagem pelo WhatsApp — agora aparece na aba Clientes.`,
       },

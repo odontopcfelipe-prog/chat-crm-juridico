@@ -516,6 +516,31 @@ export class LeadsService {
       this.logger.warn(`[MEMORY] Falha ao registrar etapa CRM na memória do lead ${id}: ${err}`),
     );
 
+    // Lead virou CLIENTE → religa IA automaticamente em todas as conversations
+    // pra que a skill "Sophia — Pós-Venda" (area='Acompanhamento') assuma.
+    // Não trata de aba (já é automático via lead.is_client=true em conversations);
+    // só garante que a IA esteja ON pra atender o cliente.
+    //
+    // Não filtramos por ai_mode_source='MANUAL': o ciclo de venda terminou,
+    // a Pós-Venda é o novo estado natural. Operador que quiser manter manual
+    // pode desligar de novo via toggle do chat.
+    if (stage === 'FINALIZADO') {
+      this.prisma.conversation.updateMany({
+        where: { lead_id: id },
+        data: {
+          ai_mode: true,
+          ai_mode_source: 'POS_VENDA',
+          ai_mode_disabled_at: null,
+        },
+      }).then((res) => {
+        if (res.count > 0) {
+          this.logger.log(`[POS_VENDA] Religou IA em ${res.count} conversation(s) do lead ${id} ao virar cliente`);
+        }
+      }).catch((err) =>
+        this.logger.warn(`[POS_VENDA] Falha ao religar IA do lead ${id}: ${err.message}`),
+      );
+    }
+
     // Broadcast: notificar outros clientes sobre mudanca de stage do lead
     this.chatGateway.emitConversationsUpdate(tenantId ?? null);
 

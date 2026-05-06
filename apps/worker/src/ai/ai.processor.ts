@@ -1136,7 +1136,10 @@ export class AiProcessor extends WorkerHost {
       // 8. Carregar skills ativas (com tools e assets inclusos)
       const activeSkills = await this.settings.getActiveSkills();
 
-      // 8.5 Detectar se é CLIENTE com processo ativo → forçar skill Acompanhamento
+      // 8.5 Detectar se é CLIENTE → forçar skill area='Acompanhamento' (Pós-Venda
+      // odontológica). Em odonto, basta `lead.is_client=true`; o carregamento de
+      // legalCase fica como BEST-EFFORT (legado jurídico — preenche
+      // activeCasesInfoBlock quando existir, mas não é mais pré-requisito).
       let isActiveClient = false;
       let activeCases: any[] = [];
       try {
@@ -1145,12 +1148,18 @@ export class AiProcessor extends WorkerHost {
           select: { is_client: true, stage: true },
         });
         if (lead?.is_client) {
-          activeCases = await (this.prisma as any).legalCase.findMany({
-            where: { lead_id: convo.lead_id, archived: false },
-            select: { id: true, case_number: true, specialty: true, tracking_stage: true, in_tracking: true, stage: true, opposing_party: true },
-            orderBy: { stage_changed_at: 'desc' },
-          });
-          if (activeCases.length > 0) isActiveClient = true;
+          isActiveClient = true;
+          try {
+            activeCases = await (this.prisma as any).legalCase.findMany({
+              where: { lead_id: convo.lead_id, archived: false },
+              select: { id: true, case_number: true, specialty: true, tracking_stage: true, in_tracking: true, stage: true, opposing_party: true },
+              orderBy: { stage_changed_at: 'desc' },
+            });
+          } catch {
+            // Tabela legalCase pode não existir / estar vazia em tenants odonto.
+            // Não impede a ativação da skill Pós-Venda.
+            activeCases = [];
+          }
         }
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao verificar status de cliente: ${e.message}`);
@@ -1164,12 +1173,15 @@ export class AiProcessor extends WorkerHost {
       let routerReason = '';
       let routerTokens = 0;
 
-      // Se é cliente com processo ativo, forçar skill de Acompanhamento
+      // Se é cliente, forçar skill de Acompanhamento (Pós-Venda)
       if (isActiveClient) {
         skill = activeSkills.find((s: any) => s.area === 'Acompanhamento') || null;
         if (skill) {
-          routerReason = `cliente ativo com ${activeCases.length} processo(s) — skill Acompanhamento`;
-          this.logger.log(`[AI] Cliente ativo detectado (lead=${convo.lead_id}), usando skill Acompanhamento`);
+          const casesNote = activeCases.length > 0 ? ` com ${activeCases.length} processo(s) ativo(s)` : '';
+          routerReason = `cliente cadastrado${casesNote} — skill Pós-Venda`;
+          this.logger.log(`[AI] Cliente identificado (lead=${convo.lead_id})${casesNote}, usando skill Acompanhamento (Pós-Venda)`);
+        } else {
+          this.logger.warn(`[AI] Cliente identificado mas skill area='Acompanhamento' não encontrada — caindo no router padrão`);
         }
       }
 

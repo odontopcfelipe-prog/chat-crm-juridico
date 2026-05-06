@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass, Trophy, ShieldCheck, FileText, UserPlus,
+  Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -500,6 +500,16 @@ export function Sidebar() {
       badge: quotesExpiringSoon,
       show: true,
     },
+    fechamentos: {
+      // Kanban dedicado à fase de fechamento (orçamentos SENT) agrupados por
+      // procedimento principal. Complementa /orcamentos (lista plana) com
+      // visão por procedimento + ações inline (reenviar, marcar aceito).
+      label: 'Fechamentos',
+      href: '/atendimento/fechamentos',
+      icon: <Handshake size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/fechamentos'),
+      show: true,
+    },
     validacoes: {
       label: 'Atendimentos a validar',
       href: '/atendimento/validacoes',
@@ -642,7 +652,8 @@ export function Sidebar() {
       defaultExpanded: true,
       icon: <Briefcase size={14} strokeWidth={2.5} />,
       items: [
-        allItems.orcamentos,   // Orcamentos
+        allItems.orcamentos,   // Orcamentos (lista plana, todos os status)
+        allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
         allItems.returnAlerts, // Retornos (movido pra COMERCIAL)
         allItems.followup,     // Follow-up IA (admin)
       ].filter(i => i.show),

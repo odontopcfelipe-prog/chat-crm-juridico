@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/crypto.util';
+import {
+  POS_VENDA_SKILL,
+  POS_VENDA_INTENTS,
+  POS_VENDA_ESCALONAMENTO,
+  POS_VENDA_QUEIXAS,
+  POS_VENDA_CRM,
+  POS_VENDA_FUNIL,
+} from './pos-venda-content';
 
 // ── Tabela de preços OpenAI (USD por 1M tokens) ──────────────────────────────
 // Usa prefix-match: 'gpt-4.1-mini' cobre 'gpt-4.1-mini-2025-04-14', etc.
@@ -2043,6 +2051,27 @@ export class SettingsService {
           order: 8,
           description: 'Skill de atendimento ESPECIALISTA em LENTES DE CONTATO DENTAL (porcelana / cerâmica) e FACETAS DE PORCELANA — canal PREMIUM. Ative SEMPRE que o lead foi classificado no funil "lentes-porcelana" ou perguntar ESPECIFICAMENTE sobre lente de porcelana, lente cerâmica, lente de contato dental, faceta de porcelana, faceta cerâmica, "lente premium", "lente que dura", "lente da [famosa]", smile design, design de sorriso digital (DSD), mock-up, lente ultrafina, lente sem preparo, lente sem desgaste, e.max, dissilicato de lítio, veneer. Lead que chega aqui é PERFIL PREMIUM, geralmente já decidiu por porcelana antes de buscar a clínica, tem orçamento alto, expectativa específica (referência de famosa). Pode estar BEM INFORMADO (conhece termos como DSD, mock-up, ultrafina). TOM DE PARCEIRA À ALTURA — sem ostentação, sem infantilização, com honestidade técnica. ⚠️ NÃO menciona resina nesta skill (downsell agressivo proibido) — só se o lead perguntar diretamente. MOCK-UP é destacado como diferencial central (testa antes de fechar definitivo). Honestidade sobre TIPOS (tradicional com desgaste leve vs ultrafina sem desgaste), IRREVERSIBILIDADE da tradicional, PROCESSO de várias consultas (4-8 semanas), DURABILIDADE (10-15 anos com cuidado), "RESULTADO EM DIREÇÃO da referência, NÃO CÓPIA". NÃO passa preço, NÃO promete tom específico, NÃO promete resultado igual à famosa, NÃO afirma "lente não desgasta nada".',
           trigger_keywords: ['lente de porcelana', 'lentes de porcelana', 'lente porcelana', 'lentes porcelana', 'lente de contato dental', 'lentes de contato dental', 'lente de contato', 'lentes de contato', 'lente ceramica', 'lente cerâmica', 'lentes ceramicas', 'lentes cerâmicas', 'porcelana nos dentes', 'porcelana no dente', 'faceta de porcelana', 'facetas de porcelana', 'faceta porcelana', 'faceta ceramica', 'faceta cerâmica', 'facetas cerâmicas', 'lente', 'lentes', 'veneer', 'veneers', 'lente premium', 'lente que dura', 'lente da famosa', 'lente da larissa', 'lente da bruna', 'lente da sasha', 'lente da kim', 'smile design', 'design de sorriso', 'design digital de sorriso', 'planejamento digital', 'planejamento digital do sorriso', 'dsd', 'mock up', 'mock-up', 'mockup', 'ensaio do sorriso', 'ensaio digital', 'lente ultrafina', 'ultrafina', 'lente sem preparo', 'lente sem desgaste', 'no prep', 'no-prep', 'e.max', 'emax', 'dissilicato de litio', 'dissilicato de lítio', 'cerâmica premium', 'porcelana premium', 'smile makeover', 'transformação completa do sorriso', 'transformacao completa do sorriso', 'sorriso premium', 'sorriso de famosa premium', 'arcada inteira em porcelana', 'arcada toda em porcelana', 'lente dental', 'lentes dentais'],
+          skill_type: 'specialist',
+          provider: 'openai',
+        },
+        // ─── ATENDIMENTO PÓS-VENDA (paciente já cliente) ───────────────────
+        // Ativada automaticamente em ai.processor.ts quando lead.is_client=true.
+        // area='Acompanhamento' é o anchor que o worker procura (compatível com
+        // o hook legado, mas o gatilho hoje é só is_client — não exige LegalCase).
+        // Conteúdo (prompt + 5 references) vive em pos-venda-content.ts e foi
+        // gerado a partir do pacote sophia-pos-venda fornecido pelo time.
+        {
+          name: 'Sophia — Pós-Venda',
+          area: 'Acompanhamento',
+          system_prompt: POS_VENDA_SKILL,
+          model: 'gpt-4.1',
+          max_tokens: 800,
+          temperature: 0.5,
+          handoff_signal: 'ESCALAR_HUMANO',
+          active: true,
+          order: 9,
+          description: 'Skill de ATENDIMENTO PÓS-VENDA pra PACIENTES JÁ CADASTRADOS. Ative quando o lead/paciente já é cliente da clínica (is_client=true) OU quando se identifica como tal ("sou paciente daqui", "fiz tratamento aí", "fui atendida pela Dra. X"). Cobre TODOS os motivos pós-cadastro: remarcar/cancelar/confirmar consulta, dúvidas pós-procedimento, sintomas pós-procedimento (ESCALA imediato pro dentista), manutenção (limpeza/retoque/ajuste), retorno após pausa, dúvida sobre orçamento já apresentado, pedido de segunda informação, queixa sobre atendimento (acolhe e ESCALA pra gerência), agendamento de procedimento adicional já discutido, pedido de documento/recibo/atestado. ⭐ NÃO é skill de venda — é PONTE DE RESOLUÇÃO. Tom de continuidade (sem reapresentação), eficiência, acolhimento, escalação correta. NUNCA dá orientação clínica, NUNCA defende o time em queixa, NUNCA faz upsell oportunista, NUNCA inventa dado de CRM.',
+          trigger_keywords: ['sou paciente', 'sou paciente daqui', 'ja sou paciente', 'já sou paciente', 'ja fiz', 'já fiz', 'ja fiz tratamento', 'já fiz tratamento', 'ja fui atendida', 'já fui atendida', 'ja fui atendido', 'já fui atendido', 'minha consulta', 'meu retorno', 'meu agendamento', 'remarcar', 'remarcar consulta', 'cancelar consulta', 'confirmar consulta', 'minha avaliacao', 'minha avaliação', 'fiz extracao', 'fiz extração', 'fiz implante', 'fiz lente', 'fiz aparelho', 'fiz limpeza', 'fiz prótese', 'fiz protese', 'fiz canal', 'fiz clareamento', 'tô com dor depois', 'depois do procedimento', 'apos a consulta', 'após a consulta', 'pos consulta', 'pós consulta', 'depois que sai', 'tá doendo desde', 'tá inchado', 'caiu o ponto', 'caiu a coroa', 'caiu a lente', 'descolou', 'sangrando', 'sangramento depois', 'remedio que passou', 'remédio que passou', 'medicação que passou', 'manutencao', 'manutenção', 'retoque', 'voltei', 'tô voltando', 'tava sem ir', 'fiquei sem ir', 'reclamacao', 'reclamação', 'queria reclamar', 'fui mal atendida', 'fui mal atendido', 'recibo', 'nota fiscal', 'atestado', 'declaracao', 'declaração', 'meu orcamento', 'meu orçamento', 'orcamento que recebi', 'parcelamento', 'segunda opiniao', 'pode repetir o que', 'a Dra falou', 'a Dra. falou', 'o Dr. falou'],
           skill_type: 'specialist',
           provider: 'openai',
         },
@@ -7149,6 +7178,24 @@ SOPHIA (validação + descoberta): {"reply":"Show, transformação ampla. Lente 
 11. ✅ Quando lead aceita avaliação → "avaliacao-aceita" + next_step "avaliacao_agendada".
 12. ✅ ⭐ MOCK-UP é destacado como diferencial central — é o que justifica o investimento alto e quebra o medo de "fazer e não gostar".`,
             },
+          ],
+        },
+        // ─── REFERENCES DA SKILL "Sophia — Pós-Venda" ────────────────────────
+        // 5 references injetadas full_text no system prompt em todo turno:
+        //   1) Intents e Fluxos — 14 intenções + fluxo de cada
+        //   2) Escalonamento Clínico — protocolo crítico de escalação
+        //   3) Queixas e Conflitos — como acolher sem comprometer time
+        //   4) Integração CRM — workflow de uso dos dados do paciente
+        //   5) Funil e Etapas — slugs de intent_status / next_step
+        // Conteúdo gerado em pos-venda-content.ts a partir do pacote sophia-pos-venda.
+        {
+          skillName: 'Sophia — Pós-Venda',
+          refs: [
+            { name: 'Intents e Fluxos', content_text: POS_VENDA_INTENTS },
+            { name: 'Escalonamento Clínico', content_text: POS_VENDA_ESCALONAMENTO },
+            { name: 'Queixas e Conflitos', content_text: POS_VENDA_QUEIXAS },
+            { name: 'Integração com CRM', content_text: POS_VENDA_CRM },
+            { name: 'Funil e Etapas (Pós-Venda)', content_text: POS_VENDA_FUNIL },
           ],
         },
       ];

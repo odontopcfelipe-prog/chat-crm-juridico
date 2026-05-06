@@ -200,6 +200,17 @@ export class CommercialController {
     return this.quotesService.getDashboardStats(tenantId, { from, to });
   }
 
+  /**
+   * Closing Board — kanban dedicado à fase de fechamento (orçamentos SENT)
+   * agrupados em 6 colunas: LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE,
+   * ORTODONTIA, HARMONIZACAO_FACIAL, OUTROS.
+   * Frontend: /atendimento/fechamentos
+   */
+  @Get('quotes/closing-board')
+  quotesClosingBoard(@Authenticated() user: AuthUser) {
+    return this.quotesService.getClosingBoard(user.tenant_id);
+  }
+
   /** Envia orcamento por WhatsApp com link do portal */
   @Post('quotes/:id/send-whatsapp')
   sendQuoteByWhatsapp(@Param('id') id: string, @Request() req: any) {

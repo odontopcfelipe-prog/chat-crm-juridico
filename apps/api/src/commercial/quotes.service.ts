@@ -881,6 +881,177 @@ export class QuotesService {
     };
   }
 
+  // ─── Closing Board — kanban de fechamentos por procedimento ───────────
+  //
+  // Vista dedicada à fase de fechamento de venda: orçamentos SENT
+  // agrupados por procedimento principal (item de maior valor) em 6
+  // colunas: LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE, ORTODONTIA,
+  // HARMONIZACAO_FACIAL, OUTROS.
+  //
+  // Header (summary): pipeline_value total, count_total em fechamento,
+  // quantos vencem em 7d, quantos já expiraram, taxa de conversão dos
+  // últimos 30 dias.
+  //
+  // Endpoint: GET /quotes/closing-board (commercial.controller.ts)
+  // Frontend: /atendimento/fechamentos (kanban estilo "Advogado — Preparação")
+
+  /** Determina a coluna do card a partir do item de maior valor. */
+  private classifyQuoteColumn(items: Array<{
+    procedure: { category: string | null; name: string };
+    total_price: any;
+  }>): 'LENTES_PORCELANA' | 'FACETAS_RESINA' | 'IMPLANTE' | 'ORTODONTIA' | 'HARMONIZACAO_FACIAL' | 'OUTROS' {
+    if (!items.length) return 'OUTROS';
+
+    // Pega item de maior valor (= procedimento "principal" do orçamento)
+    const main = items.reduce((max, it) =>
+      Number(it.total_price) > Number(max.total_price) ? it : max,
+    );
+    const cat = (main.procedure.category || '').toUpperCase();
+    const name = (main.procedure.name || '').toLowerCase();
+
+    if (cat === 'IMPLANTE') return 'IMPLANTE';
+    if (cat === 'ORTODONTIA') return 'ORTODONTIA';
+
+    // Categorias estéticas faciais (Harmonização Orofacial)
+    const HOF_CATS = new Set([
+      'HOF', 'TOXINA_BOTULINICA', 'PREENCHIMENTO_AH', 'BIOESTIMULADOR',
+      'FIOS_PDO', 'FIOS_PLLA', 'PEELING_QUIMICO', 'MICROAGULHAMENTO',
+      'SKINBOOSTER', 'LASER', 'RADIOFREQUENCIA', 'ULTRASSOM_MICROFOCADO',
+      'LIPO_ENZIMATICA', 'LIMPEZA_PELE',
+    ]);
+    if (HOF_CATS.has(cat)) return 'HARMONIZACAO_FACIAL';
+
+    // ESTETICA_DENTAL precisa olhar o nome — pode ser lente OU faceta de resina
+    if (cat === 'ESTETICA_DENTAL') {
+      if (/lente|porcelan|cerâmic|ceramic|veneer|e\.?max|dissilicato/.test(name)) {
+        return 'LENTES_PORCELANA';
+      }
+      if (/resina|faceta direta/.test(name)) {
+        return 'FACETAS_RESINA';
+      }
+      // Clareamento e outros estéticos genéricos caem em OUTROS
+    }
+
+    // PROFILAXIA, DENTISTICA, ENDODONTIA, PERIODONTIA, PROTESE, CIRURGIA,
+    // CLAREAMENTO solto, e qualquer categoria não mapeada
+    return 'OUTROS';
+  }
+
+  /**
+   * Closing Board — orçamentos em fechamento agrupados por categoria.
+   * Pensado pra UI kanban com 6 colunas + summary no topo.
+   *
+   * - status=SENT (filtra automaticamente — DRAFT, ACCEPTED, REJECTED, EXPIRED não aparecem)
+   * - Agrupa pelo procedimento de MAIOR VALOR de cada quote
+   * - Cards ordenados por urgência (vencendo primeiro)
+   */
+  async getClosingBoard(tenantId: string) {
+    const quotes = await this.prisma.quote.findMany({
+      where: {
+        patient: { tenant_id: tenantId },
+        status: 'SENT',
+      },
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+        items: {
+          select: {
+            id: true,
+            total_price: true,
+            quantity: true,
+            procedure: { select: { name: true, category: true } },
+          },
+        },
+        created_by: { select: { id: true, name: true } },
+      },
+      orderBy: { valid_until: 'asc' }, // vencendo primeiro
+    });
+
+    // 6 colunas pré-inicializadas pra a UI sempre receber chave válida
+    const COLUMNS = ['LENTES_PORCELANA', 'FACETAS_RESINA', 'IMPLANTE', 'ORTODONTIA', 'HARMONIZACAO_FACIAL', 'OUTROS'] as const;
+    const byCategory: Record<string, any[]> = {};
+    for (const c of COLUMNS) byCategory[c] = [];
+
+    const now = Date.now();
+    const SEVEN_DAYS = 7 * 24 * 60 * 60 * 1000;
+    let expiring7d = 0;
+
+    for (const q of quotes) {
+      const column = this.classifyQuoteColumn(q.items as any);
+      const validUntilMs = q.valid_until ? q.valid_until.getTime() : null;
+      const daysLeft = validUntilMs !== null
+        ? Math.floor((validUntilMs - now) / (24 * 60 * 60 * 1000))
+        : null;
+
+      if (validUntilMs !== null && validUntilMs >= now && validUntilMs - now <= SEVEN_DAYS) {
+        expiring7d++;
+      }
+
+      // Resumo curto do procedimento principal pra exibir no card
+      const mainItem = q.items.length > 0
+        ? q.items.reduce((max, it) =>
+            Number(it.total_price) > Number(max.total_price) ? it : max,
+          )
+        : null;
+      const mainProcedureName = mainItem?.procedure.name || '—';
+      const itemsCount = q.items.length;
+
+      byCategory[column].push({
+        id: q.id,
+        status: q.status,
+        total_value: Number(q.total_value),
+        valid_until: q.valid_until,
+        days_left: daysLeft,
+        sent_at: q.sent_at,
+        whatsapp_read_at: q.whatsapp_read_at,
+        portal_view_count: q.portal_view_count,
+        portal_last_viewed_at: q.portal_last_viewed_at,
+        patient: q.patient,
+        created_by: q.created_by,
+        main_procedure: mainProcedureName,
+        items_count: itemsCount,
+      });
+    }
+
+    // Summary header
+    const pipelineValue = quotes.reduce((s, q) => s + Number(q.total_value), 0);
+
+    // Conversão últimos 30d (ACCEPTED / (ACCEPTED + REJECTED + EXPIRED))
+    const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
+    const decided = await this.prisma.quote.groupBy({
+      by: ['status'],
+      where: {
+        patient: { tenant_id: tenantId },
+        status: { in: ['ACCEPTED', 'REJECTED', 'EXPIRED'] },
+        OR: [
+          { accepted_at: { gte: thirtyDaysAgo } },
+          { rejected_at: { gte: thirtyDaysAgo } },
+          { AND: [{ status: 'EXPIRED' }, { valid_until: { gte: thirtyDaysAgo } }] },
+        ],
+      },
+      _count: true,
+    });
+    const counts = { ACCEPTED: 0, REJECTED: 0, EXPIRED: 0 } as Record<string, number>;
+    for (const d of decided) counts[d.status] = d._count;
+    const totalDecided = counts.ACCEPTED + counts.REJECTED + counts.EXPIRED;
+    const conversionRate30d = totalDecided > 0 ? counts.ACCEPTED / totalDecided : null;
+
+    // Expirados (status já = EXPIRED, ainda visíveis pra ação manual)
+    const expiredCount = await this.prisma.quote.count({
+      where: { patient: { tenant_id: tenantId }, status: 'EXPIRED' },
+    });
+
+    return {
+      summary: {
+        pipeline_value: pipelineValue,
+        count_total: quotes.length,
+        expiring_7d: expiring7d,
+        expired: expiredCount,
+        conversion_rate_30d: conversionRate30d,
+      },
+      by_category: byCategory,
+    };
+  }
+
   // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────
 
   /**
