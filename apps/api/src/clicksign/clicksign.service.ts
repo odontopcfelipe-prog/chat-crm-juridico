@@ -593,19 +593,39 @@ export class ClicksignService {
     // ─── Auto-ativar TreatmentPlan vinculado (Fase 4 — odonto) ───────────
     // Se este ContractSignature e o TCLE de um TreatmentPlan PENDING_SIGNATURE,
     // ativa o plano automaticamente assim que o paciente assina.
+    let linkedPlanId: string | null = null;
+    let linkedPlanLeadId: string | null = null;
     try {
       const linkedPlan = await this.prisma.treatmentPlan.findUnique({
         where: { contract_signature_id: sig.id },
+        include: { patient: { select: { lead_id: true, tenant_id: true } } },
       });
       if (linkedPlan && linkedPlan.status === 'PENDING_SIGNATURE') {
         await this.prisma.treatmentPlan.update({
           where: { id: linkedPlan.id },
           data: { status: 'ACTIVE', start_date: linkedPlan.start_date || signedAt },
         });
+        linkedPlanId = linkedPlan.id;
+        linkedPlanLeadId = linkedPlan.patient?.lead_id ?? null;
         this.logger.log(`[Clicksign] TreatmentPlan ${linkedPlan.id} ativado automaticamente apos assinatura`);
       }
     } catch (e: any) {
       this.logger.warn(`[Clicksign] Falha ao ativar TreatmentPlan vinculado: ${e.message}`);
+    }
+
+    // ─── HOOK 4: Lead → contrato-assinado (cierra ciclo de venda) ────────
+    // Quando o TreatmentPlan ativa após assinatura, move o Lead pra stage
+    // "contrato-assinado" (is_won=true). Isso dispara em cascata:
+    //   - Lead.is_client = true (já existente)
+    //   - Religar IA com Sophia Pós-Venda (já existente)
+    //   - convertFromLead idempotente (já existente — Hook 1)
+    //
+    // Best-effort: se falhar, plan já está ACTIVE, operador pode mover stage
+    // manualmente no kanban CRM.
+    if (linkedPlanId && linkedPlanLeadId) {
+      this.movleadToContractSigned(linkedPlanLeadId).catch((e: any) =>
+        this.logger.warn(`[POS-VENDA→LEAD] Falha ao mover lead ${linkedPlanLeadId} pra contrato-assinado: ${e.message}`),
+      );
     }
 
     // Enviar PDF assinado ao cliente via WhatsApp (se disponível)
@@ -700,5 +720,71 @@ export class ClicksignService {
       const stream = Readable.from(pdfBuffer);
       return { stream, contentType: 'application/pdf', contentLength: pdfBuffer.length };
     }
+  }
+
+  /**
+   * Hook 4: move o Lead pra stage `contrato-assinado` (is_won=true) quando o
+   * paciente assina o contrato no ClickSign. Isso dispara em cascata, via
+   * lógica já existente em LeadsService.updateStatus:
+   *  - Lead.is_client = true (became_client_at preenchido)
+   *  - Conversations religadas com ai_mode_source = 'POS_VENDA' (Sophia
+   *    Pós-Venda assume)
+   *  - convertFromLead idempotente confirma Patient
+   *
+   * Estratégia: usa Prisma direto pra evitar acoplar ClicksignModule ao
+   * LeadsModule. A lógica de cascata em leads.service só dispara via
+   * setStage/updateStatus, então simulamos esses efeitos aqui:
+   *   1. Move stage_id pra etapa is_won do pipeline atual do lead
+   *   2. Marca is_client + became_client_at
+   *   3. Religa ai_mode em todas as conversations do lead
+   */
+  private async movleadToContractSigned(leadId: string): Promise<void> {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, pipeline_id: true, is_client: true, tenant_id: true },
+    });
+    if (!lead) {
+      this.logger.warn(`[POS-VENDA→LEAD] Lead ${leadId} não encontrado`);
+      return;
+    }
+
+    // Já é cliente? Nada a fazer (idempotência).
+    if (lead.is_client) {
+      this.logger.log(`[POS-VENDA→LEAD] Lead ${leadId} já é cliente — skip`);
+      return;
+    }
+
+    // Resolve stage is_won do pipeline atual (se houver)
+    let stageId: string | null = null;
+    if (lead.pipeline_id) {
+      const wonStage = await (this.prisma as any).pipelineStage.findFirst({
+        where: { pipeline_id: lead.pipeline_id, is_won: true },
+        select: { id: true },
+      });
+      stageId = wonStage?.id ?? null;
+    }
+
+    await this.prisma.lead.update({
+      where: { id: leadId },
+      data: {
+        stage: 'FINALIZADO',
+        stage_entered_at: new Date(),
+        is_client: true,
+        became_client_at: new Date(),
+        ...(stageId ? { stage_id: stageId } : {}),
+      },
+    });
+
+    // Religar IA pra Sophia Pós-Venda assumir (mesmo padrão do leads.service)
+    await this.prisma.conversation.updateMany({
+      where: { lead_id: leadId },
+      data: {
+        ai_mode: true,
+        ai_mode_source: 'POS_VENDA',
+        ai_mode_disabled_at: null,
+      },
+    }).catch(() => {/* best-effort */});
+
+    this.logger.log(`[POS-VENDA→LEAD] Lead ${leadId} movido pra contrato-assinado/FINALIZADO + IA religada`);
   }
 }

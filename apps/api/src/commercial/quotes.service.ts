@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
+import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
 
@@ -35,6 +36,10 @@ export class QuotesService {
     @Optional() @Inject(forwardRef(() => WhatsappService)) private whatsapp?: WhatsappService,
     @Optional() @Inject(forwardRef(() => PortalAuthService)) private portalAuth?: PortalAuthService,
     @Optional() private versions?: QuoteVersionsService,
+    // Hook 3: TreatmentPlanContractService dispara ClickSign automaticamente
+    // ao aceitar orçamento. @Optional pra não quebrar boot caso esteja
+    // ausente (ex: em testes unitários do QuotesService).
+    @Optional() private contractService?: TreatmentPlanContractService,
   ) {}
 
   async create(
@@ -307,7 +312,7 @@ export class QuotesService {
     }
 
     // Transacao: marca quote + cria TreatmentPlan + TreatmentPlanItems
-    return this.prisma.$transaction(async (tx) => {
+    const result = await this.prisma.$transaction(async (tx) => {
       const acceptedQuote = await tx.quote.update({
         where: { id },
         data: { status: 'ACCEPTED', accepted_at: new Date() },
@@ -336,6 +341,27 @@ export class QuotesService {
 
       return { quote: acceptedQuote, treatment_plan: plan };
     });
+
+    // ─── HOOK 3: Quote ACCEPTED → dispara ClickSign automaticamente ──────
+    // Após o orçamento ser aceito + plano de tratamento criado, manda o TCLE
+    // pro paciente assinar via WhatsApp. Se falhar, NÃO bloqueia o accept
+    // (operador pode reenviar manualmente via UI). Roda em background.
+    //
+    // Pré-requisitos pro ClickSign:
+    //   - Patient com lead_id (auto-criado pelo Hook 1 se veio do funil)
+    //   - Patient.phone preenchido
+    // Se faltar, sendForSignature lança BadRequest e a operação é silenciada.
+    if (this.contractService) {
+      this.contractService.sendForSignature(result.treatment_plan.id, tenantId)
+        .then(({ signingUrl }) => {
+          this.logger.log(`[ACCEPT→CLICKSIGN] Plano ${result.treatment_plan.id} enviado pra assinatura — ${signingUrl.slice(0, 60)}...`);
+        })
+        .catch((err: any) => {
+          this.logger.warn(`[ACCEPT→CLICKSIGN] Falha ao disparar assinatura do plano ${result.treatment_plan.id}: ${err?.message}. Operador pode reenviar manualmente.`);
+        });
+    }
+
+    return result;
   }
 
   /**
