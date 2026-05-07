@@ -113,19 +113,58 @@ export default function FechamentosPage() {
   );
 }
 
+// Board "vazio" pra usar como fallback inicial / em caso de erro — garante
+// que a UI sempre renderize (KPIs zerados + 6 colunas vazias) em vez de
+// uma tela "Sem dados" sem nem cabeçalho.
+const EMPTY_BOARD: BoardData = {
+  summary: {
+    pipeline_value: 0,
+    count_total: 0,
+    expiring_7d: 0,
+    expired: 0,
+    conversion_rate_30d: null,
+  },
+  by_category: {
+    LENTES_PORCELANA: [],
+    FACETAS_RESINA: [],
+    IMPLANTE: [],
+    ORTODONTIA: [],
+    HARMONIZACAO_FACIAL: [],
+    OUTROS: [],
+  },
+};
+
 function FechamentosPageInner() {
   const router = useRouter();
-  const [board, setBoard] = useState<BoardData | null>(null);
+  const [board, setBoard] = useState<BoardData>(EMPTY_BOARD);
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const r = await api.get<BoardData>('/quotes/closing-board');
+      // Defesa: se a API retornar algo inesperado, manter board vazio mas
+      // mostrar erro inline em vez de tela em branco.
+      if (!r.data || !r.data.summary || !r.data.by_category) {
+        // eslint-disable-next-line no-console
+        console.warn('[fechamentos] resposta inesperada do endpoint:', r.data);
+        setErrorMsg('A API retornou um formato inesperado. Tente novamente em instantes.');
+        return;
+      }
       setBoard(r.data);
-    } catch (e) {
-      showError('Erro ao carregar fechamentos');
+    } catch (e: any) {
+      // eslint-disable-next-line no-console
+      console.error('[fechamentos] erro ao carregar:', e?.response?.status, e?.response?.data, e);
+      const apiMsg = e?.response?.data?.message;
+      const status = e?.response?.status;
+      const msg = apiMsg
+        ? `${apiMsg}${status ? ` (HTTP ${status})` : ''}`
+        : (status ? `Erro HTTP ${status}` : 'Erro ao carregar fechamentos');
+      setErrorMsg(msg);
+      showError(msg);
     } finally {
       setLoading(false);
     }
@@ -162,20 +201,6 @@ function FechamentosPageInner() {
     }
   };
 
-  if (loading && !board) {
-    return (
-      <div className="p-6 flex items-center justify-center text-muted-foreground">
-        <Loader2 size={20} className="animate-spin mr-2" /> Carregando fechamentos...
-      </div>
-    );
-  }
-
-  if (!board) {
-    return (
-      <div className="p-6 text-muted-foreground">Sem dados.</div>
-    );
-  }
-
   const { summary, by_category } = board;
 
   return (
@@ -190,11 +215,30 @@ function FechamentosPageInner() {
         </div>
         <button
           onClick={load}
-          className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors"
+          disabled={loading}
+          className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2"
         >
+          {loading && <Loader2 size={14} className="animate-spin" />}
           Atualizar
         </button>
       </div>
+
+      {/* Banner de erro inline (visível mesmo sem toast) */}
+      {errorMsg && (
+        <div className="border border-red-300 bg-red-50 text-red-800 rounded-lg p-3 flex items-start gap-3">
+          <AlertTriangle size={18} className="text-red-600 mt-0.5 shrink-0" />
+          <div className="flex-1 text-sm">
+            <div className="font-medium">Não foi possível carregar fechamentos</div>
+            <div className="text-red-700/80 mt-0.5">{errorMsg}</div>
+          </div>
+          <button
+            onClick={load}
+            className="text-xs px-2 py-1 rounded border border-red-300 hover:bg-red-100"
+          >
+            Tentar novamente
+          </button>
+        </div>
+      )}
 
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">

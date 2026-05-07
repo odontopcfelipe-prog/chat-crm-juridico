@@ -946,25 +946,36 @@ export class QuotesService {
    * - Cards ordenados por urgência (vencendo primeiro)
    */
   async getClosingBoard(tenantId: string) {
-    const quotes = await this.prisma.quote.findMany({
-      where: {
-        patient: { tenant_id: tenantId },
-        status: 'SENT',
-      },
-      include: {
-        patient: { select: { id: true, name: true, phone: true } },
-        items: {
-          select: {
-            id: true,
-            total_price: true,
-            quantity: true,
-            procedure: { select: { name: true, category: true } },
-          },
+    this.logger.log(`[CLOSING_BOARD] start tenantId=${tenantId}`);
+    let quotes: any[];
+    try {
+      quotes = await this.prisma.quote.findMany({
+        where: {
+          patient: { tenant_id: tenantId },
+          status: 'SENT',
         },
-        created_by: { select: { id: true, name: true } },
-      },
-      orderBy: { valid_until: 'asc' }, // vencendo primeiro
-    });
+        include: {
+          patient: { select: { id: true, name: true, phone: true } },
+          items: {
+            select: {
+              id: true,
+              total_price: true,
+              quantity: true,
+              procedure: { select: { name: true, category: true } },
+            },
+          },
+          created_by: { select: { id: true, name: true } },
+        },
+        orderBy: [
+          // valid_until pode ser null em alguns quotes — Prisma aceita {nulls: 'last'}
+          { valid_until: { sort: 'asc', nulls: 'last' } },
+        ],
+      });
+      this.logger.log(`[CLOSING_BOARD] findMany OK count=${quotes.length}`);
+    } catch (err: any) {
+      this.logger.error(`[CLOSING_BOARD] findMany FALHOU: ${err.message}`, err.stack);
+      throw err;
+    }
 
     // 6 colunas pré-inicializadas pra a UI sempre receber chave válida
     const COLUMNS = ['LENTES_PORCELANA', 'FACETAS_RESINA', 'IMPLANTE', 'ORTODONTIA', 'HARMONIZACAO_FACIAL', 'OUTROS'] as const;
@@ -988,7 +999,7 @@ export class QuotesService {
 
       // Resumo curto do procedimento principal pra exibir no card
       const mainItem = q.items.length > 0
-        ? q.items.reduce((max, it) =>
+        ? q.items.reduce((max: any, it: any) =>
             Number(it.total_price) > Number(max.total_price) ? it : max,
           )
         : null;
@@ -1015,32 +1026,40 @@ export class QuotesService {
     // Summary header
     const pipelineValue = quotes.reduce((s, q) => s + Number(q.total_value), 0);
 
-    // Conversão últimos 30d (ACCEPTED / (ACCEPTED + REJECTED + EXPIRED))
+    // Conversão últimos 30d — soma quotes com decisão final (accepted/rejected/expired)
+    // nos últimos 30 dias e calcula a taxa de aceite. Best-effort: se a query
+    // falhar, deixa null em vez de derrubar o endpoint inteiro.
     const thirtyDaysAgo = new Date(now - 30 * 24 * 60 * 60 * 1000);
-    const decided = await this.prisma.quote.groupBy({
-      by: ['status'],
-      where: {
-        patient: { tenant_id: tenantId },
-        status: { in: ['ACCEPTED', 'REJECTED', 'EXPIRED'] },
-        OR: [
-          { accepted_at: { gte: thirtyDaysAgo } },
-          { rejected_at: { gte: thirtyDaysAgo } },
-          { AND: [{ status: 'EXPIRED' }, { valid_until: { gte: thirtyDaysAgo } }] },
-        ],
-      },
-      _count: true,
-    });
-    const counts = { ACCEPTED: 0, REJECTED: 0, EXPIRED: 0 } as Record<string, number>;
-    for (const d of decided) counts[d.status] = d._count;
-    const totalDecided = counts.ACCEPTED + counts.REJECTED + counts.EXPIRED;
-    const conversionRate30d = totalDecided > 0 ? counts.ACCEPTED / totalDecided : null;
+    let conversionRate30d: number | null = null;
+    try {
+      const [acc, rej, exp] = await Promise.all([
+        this.prisma.quote.count({
+          where: { patient: { tenant_id: tenantId }, status: 'ACCEPTED', accepted_at: { gte: thirtyDaysAgo } },
+        }),
+        this.prisma.quote.count({
+          where: { patient: { tenant_id: tenantId }, status: 'REJECTED', rejected_at: { gte: thirtyDaysAgo } },
+        }),
+        this.prisma.quote.count({
+          where: { patient: { tenant_id: tenantId }, status: 'EXPIRED', valid_until: { gte: thirtyDaysAgo } },
+        }),
+      ]);
+      const totalDecided = acc + rej + exp;
+      conversionRate30d = totalDecided > 0 ? acc / totalDecided : null;
+    } catch (err: any) {
+      this.logger.warn(`[CLOSING_BOARD] conversion_rate_30d falhou (mantendo null): ${err.message}`);
+    }
 
-    // Expirados (status já = EXPIRED, ainda visíveis pra ação manual)
-    const expiredCount = await this.prisma.quote.count({
-      where: { patient: { tenant_id: tenantId }, status: 'EXPIRED' },
-    });
+    // Expirados totais (status já = EXPIRED, ainda visíveis pra ação manual)
+    let expiredCount = 0;
+    try {
+      expiredCount = await this.prisma.quote.count({
+        where: { patient: { tenant_id: tenantId }, status: 'EXPIRED' },
+      });
+    } catch (err: any) {
+      this.logger.warn(`[CLOSING_BOARD] expiredCount falhou (mantendo 0): ${err.message}`);
+    }
 
-    return {
+    const result = {
       summary: {
         pipeline_value: pipelineValue,
         count_total: quotes.length,
@@ -1050,6 +1069,8 @@ export class QuotesService {
       },
       by_category: byCategory,
     };
+    this.logger.log(`[CLOSING_BOARD] OK count=${quotes.length} pipeline=${pipelineValue}`);
+    return result;
   }
 
   // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────
