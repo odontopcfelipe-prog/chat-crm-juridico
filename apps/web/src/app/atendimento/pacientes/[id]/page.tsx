@@ -13,8 +13,8 @@
  *  - Card "Resumo clínico": dentista principal + queixa principal editáveis inline
  *  - Card "Alergias" / "Medicações": botão "+ Adicionar" + lixeira por item
  */
-import { useEffect, useRef, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
+import { useEffect, useRef, useState, Suspense } from 'react';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, ClipboardList, DollarSign,
@@ -114,12 +114,32 @@ const SEVERITY_CLS: Record<string, string> = {
   SEVERE:   'bg-red-500/10 text-red-600 border-red-500/20',
 };
 
+// Wrap padrão com <Suspense> exigido por Next 16 / Turbopack quando o
+// componente filho usa useSearchParams (pra ler ?tab=...).
 export default function PacienteFichaPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-muted-foreground">Carregando ficha...</div>}>
+      <PacienteFichaInner />
+    </Suspense>
+  );
+}
+
+function PacienteFichaInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<TabId>('overview');
+  // Aceita ?tab=odontogram (e variantes) na URL pra que outras páginas
+  // (ex: botão "Atender" do CRM Kanban) abram direto na aba certa.
+  // Lista permitida = TabId — qualquer valor inválido cai em 'overview'.
+  const initialTab: TabId = (() => {
+    const raw = searchParams?.get('tab');
+    if (!raw) return 'overview';
+    const valid = TABS.some(t => t.id === raw);
+    return valid ? (raw as TabId) : 'overview';
+  })();
+  const [tab, setTab] = useState<TabId>(initialTab);
   const [editOpen, setEditOpen] = useState(false);
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
   const [addMedOpen, setAddMedOpen] = useState(false);

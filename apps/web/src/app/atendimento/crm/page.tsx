@@ -1435,7 +1435,8 @@ export default function CrmPage() {
       }
 
       // 3. Redireciona pra ficha do paciente no odontograma (pronto pro orçamento)
-      const url = `/atendimento/pacientes/${patient.id}?tab=odontograma`;
+      // tab=odontogram é o id interno (ver TABS em pacientes/[id]/page.tsx).
+      const url = `/atendimento/pacientes/${patient.id}?tab=odontogram`;
       // eslint-disable-next-line no-console
       console.log('[ATTEND] redirect →', url);
       router.push(url);
