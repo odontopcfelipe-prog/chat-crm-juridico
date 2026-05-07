@@ -6,6 +6,7 @@ import { Prisma, Lead } from '@crm/shared';
 import { AutomationsService } from '../automations/automations.service';
 import { FollowupService } from '../followup/followup.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
+import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
 import OpenAI from 'openai';
 
@@ -430,6 +431,7 @@ export class LeadsService {
     let stage: string;
     let stageId: string | undefined = stageIdArg;
     let resolvedPipelineId: string | undefined;
+    let stageSlug: string | undefined;
 
     if (stageIdArg) {
       const st = await (this.prisma as any).pipelineStage.findUnique({
@@ -439,6 +441,7 @@ export class LeadsService {
       if (!st) throw new ForbiddenException('stage_id inválido');
       stage = this.legacyStageFromPipelineStage(st);
       resolvedPipelineId = st.pipeline_id;
+      stageSlug = st.slug;
     } else {
       stage = stageArg as string;
       // Dual-write best-effort: se o lead já está vinculado a um pipeline,
@@ -449,6 +452,13 @@ export class LeadsService {
       });
       if (leadPipe?.pipeline_id) {
         stageId = await this.resolveStageIdFromLegacy(leadPipe.pipeline_id, stage);
+        if (stageId) {
+          const st = await (this.prisma as any).pipelineStage.findUnique({
+            where: { id: stageId },
+            select: { slug: true },
+          });
+          stageSlug = st?.slug;
+        }
       }
     }
 
@@ -541,6 +551,45 @@ export class LeadsService {
       );
     }
 
+    // ─── HOOK Lead → Patient ───────────────────────────────────────────
+    // Quando o lead avança pra "Avaliação Aceita" (agendou) ou "Avaliação
+    // Realizada" (compareceu), criar Patient automaticamente. Sem isso, o
+    // dentista atende e não consegue criar Quote (que exige Patient existir).
+    //
+    // Idempotente: PatientsService.convertFromLead retorna o existente se
+    // já houver Patient com lead_id vinculado (não duplica).
+    //
+    // Best-effort: se falhar, não bloqueia o setStage. O log avisa pra
+    // investigação posterior. Roda em background com .then/.catch.
+    const PATIENT_TRIGGER_SLUGS = new Set([
+      'avaliacao-aceita',     // marcou avaliação
+      'avaliacao-realizada',  // compareceu (dentista vai atender)
+      'assinatura-contrato',  // entrou em fase de fechamento
+      'contrato-assinado',    // fechou venda (is_won)
+      'tratamento-iniciado',  // funil simples (odonto-clinico)
+    ]);
+    const shouldEnsurePatient =
+      (stageSlug && PATIENT_TRIGGER_SLUGS.has(stageSlug)) || stage === 'FINALIZADO';
+    if (shouldEnsurePatient) {
+      const tid = tenantId ?? lead.tenant_id ?? undefined;
+      if (tid) {
+        // Resolve via ModuleRef pra evitar dependência circular no boot do módulo
+        // (mesmo padrão usado acima pra FollowupService).
+        try {
+          const patientsService = this.moduleRef.get(PatientsService, { strict: false });
+          if (patientsService) {
+            patientsService.convertFromLead(id, tid).then((p: { id: string }) => {
+              this.logger.log(`[LEAD→PATIENT] Lead ${id} (stage=${stageSlug || stage}) garantido Patient ${p.id}`);
+            }).catch((err: Error) =>
+              this.logger.warn(`[LEAD→PATIENT] Falha ao converter lead ${id}: ${err.message}`),
+            );
+          }
+        } catch {
+          // PatientsModule pode não estar carregado em contextos de teste — ignorar
+        }
+      }
+    }
+
     // Broadcast: notificar outros clientes sobre mudanca de stage do lead
     this.chatGateway.emitConversationsUpdate(tenantId ?? null);
 
@@ -575,6 +624,28 @@ export class LeadsService {
     }
 
     return lead;
+  }
+
+  /**
+   * Garante (cria se não existir) o Patient vinculado a este lead.
+   * Idempotente. Endpoint público pra reparar leads antigos ou como
+   * fallback do hook em updateStatus. Resolve PatientsService via
+   * ModuleRef pra evitar dependência circular.
+   */
+  async ensurePatient(leadId: string, tenantId?: string) {
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { id: true, tenant_id: true },
+    });
+    if (!lead) throw new NotFoundException('Lead não encontrado');
+    const tid = tenantId ?? lead.tenant_id ?? undefined;
+    if (!tid) throw new ForbiddenException('Tenant ausente — não é possível criar Patient');
+
+    const patientsService = this.moduleRef.get(PatientsService, { strict: false });
+    if (!patientsService) {
+      throw new BadRequestException('PatientsService indisponível no contexto');
+    }
+    return patientsService.convertFromLead(leadId, tid);
   }
 
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {

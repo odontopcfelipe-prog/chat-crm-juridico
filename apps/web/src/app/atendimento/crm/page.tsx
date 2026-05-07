@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Stethoscope, Loader2 } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
@@ -218,6 +218,8 @@ function LeadCard({
   onOpen,
   onOpenDetail,
   onStageChange,
+  onAttend,
+  attendLoading,
   isSelected,
   onToggleSelect,
   selectionMode,
@@ -229,6 +231,8 @@ function LeadCard({
   onOpen: () => void;
   onOpenDetail: () => void;
   onStageChange: (stageId: string) => void;
+  onAttend: () => void;
+  attendLoading: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
   selectionMode: boolean;
@@ -456,6 +460,25 @@ function LeadCard({
           >
             <Calendar size={11} />
             Reunião
+          </button>
+        )}
+
+        {/* Atender — visível quando lead está pronto pra atendimento clínico
+            (compareceu à avaliação ou está na fila pra avaliação). Cria/garante
+            o Patient e redireciona pra ficha do paciente pra dentista fazer
+            anamnese + odontograma + orçamento sem trabalho duplicado. */}
+        {(lead.current_stage?.slug === 'avaliacao-aceita' ||
+          lead.current_stage?.slug === 'avaliacao-realizada' ||
+          lead.current_stage?.slug === 'consulta-agendada' ||
+          lead.current_stage?.slug === 'avaliacao-feita') && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onAttend(); }}
+            disabled={attendLoading}
+            title="Iniciar atendimento — abre a ficha do paciente"
+            className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-700 text-[10px] font-semibold transition-colors disabled:opacity-50"
+          >
+            {attendLoading ? <Loader2 size={11} className="animate-spin" /> : <Stethoscope size={11} />}
+            Atender
           </button>
         )}
 
@@ -1137,6 +1160,7 @@ export default function CrmPage() {
   const [dragOverPerdido, setDragOverPerdido] = useState(false);
   const [dragOverFinalizado, setDragOverFinalizado] = useState(false);
   const [previousStageMap, setPreviousStageMap] = useState<Record<string, string>>({});
+  const [attendingLeadId, setAttendingLeadId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [exporting, setExporting] = useState(false);
 
@@ -1345,6 +1369,61 @@ export default function CrmPage() {
     window.addEventListener('dragend', resetDrag);
     return () => window.removeEventListener('dragend', resetDrag);
   }, []);
+
+  /**
+   * Botão "Atender" do card — chamado quando dentista vai começar a
+   * avaliação clínica. Garante que existe Patient (cria se não houver,
+   * idempotente) e redireciona pra ficha do paciente já no odontograma.
+   *
+   * Também avança o stage pra "avaliacao-realizada" se ainda estiver em
+   * "avaliacao-aceita" / "consulta-agendada" — sinaliza pro CRM que a
+   * avaliação está em andamento (operador não precisa lembrar de mover).
+   */
+  const handleAttend = async (leadId: string) => {
+    const lead = leads.find(l => l.id === leadId);
+    if (!lead) return;
+    setAttendingLeadId(leadId);
+    try {
+      // 1. Garante Patient (POST /leads/:id/ensure-patient — idempotente)
+      const r = await api.post<{ id: string }>(`/leads/${leadId}/ensure-patient`);
+      const patient = r.data;
+      if (!patient?.id) {
+        showError('Não foi possível obter ficha do paciente');
+        return;
+      }
+
+      // 2. Avança stage pra "avaliacao-realizada" (best-effort — se falhar,
+      //    redirect ainda acontece). Ignora se já está em fases posteriores.
+      const currentSlug = lead.current_stage?.slug;
+      const NEEDS_ADVANCE = new Set(['avaliacao-aceita', 'consulta-agendada']);
+      if (currentSlug && NEEDS_ADVANCE.has(currentSlug) && lead.pipeline_id) {
+        try {
+          // Busca o stage_id de "avaliacao-realizada" no pipeline atual
+          const targetSlug = lead.current_stage?.pipeline_id === lead.pipeline_id
+            ? (currentSlug === 'consulta-agendada' ? 'avaliacao-feita' : 'avaliacao-realizada')
+            : 'avaliacao-realizada';
+          const pipeRes = await api.get<{ stages: Array<{ id: string; slug: string }> }>(`/pipelines/${lead.pipeline_id}`);
+          const target = pipeRes.data?.stages?.find(s => s.slug === targetSlug);
+          if (target) {
+            await api.patch(`/leads/${leadId}/stage`, { stage_id: target.id });
+            // Atualiza otimisticamente no estado local
+            setLeads(cur => cur.map(l => l.id === leadId
+              ? { ...l, current_stage: { ...(l.current_stage as any), id: target.id, slug: targetSlug } }
+              : l));
+          }
+        } catch {
+          // best-effort — não bloqueia o redirect
+        }
+      }
+
+      // 3. Redireciona pra ficha do paciente no odontograma (pronto pro orçamento)
+      router.push(`/atendimento/pacientes/${patient.id}?tab=odontograma`);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao iniciar atendimento');
+    } finally {
+      setAttendingLeadId(null);
+    }
+  };
 
   const moveLeadToStage = async (leadId: string, newStage: string) => {
     const lead = leads.find(l => l.id === leadId);
@@ -1968,6 +2047,8 @@ export default function CrmPage() {
                               onOpen={() => openInChat(lead)}
                               onOpenDetail={() => openDetail(lead)}
                               onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
+                              onAttend={() => handleAttend(lead.id)}
+                              attendLoading={attendingLeadId === lead.id}
                               isSelected={selectedLeads.has(lead.id)}
                               onToggleSelect={() => toggleSelect(lead.id)}
                               selectionMode={selectedLeads.size > 0}

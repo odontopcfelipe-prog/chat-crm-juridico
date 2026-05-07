@@ -95,6 +95,18 @@ export class LeadsController {
     return this.leadsService.summarizeLead(id, req.user?.tenant_id);
   }
 
+  /**
+   * Garante que existe Patient pra este lead (idempotente). Usado pra
+   * reparar leads antigos criados antes do hook automático em updateStatus,
+   * OU como fallback caso o hook falhe.
+   *
+   * Retorna o Patient (criado ou existente).
+   */
+  @Post(':id/ensure-patient')
+  ensurePatient(@Param('id') id: string, @Request() req: any) {
+    return this.leadsService.ensurePatient(id, req.user?.tenant_id);
+  }
+
   @Delete(':id/memory')
   resetMemory(@Param('id') id: string, @Request() req: any) {
     return this.leadsService.resetMemory(id, req.user?.tenant_id);
