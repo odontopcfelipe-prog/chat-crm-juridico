@@ -466,13 +466,20 @@ function LeadCard({
         {/* Atender — visível quando lead está pronto pra atendimento clínico
             (compareceu à avaliação ou está na fila pra avaliação). Cria/garante
             o Patient e redireciona pra ficha do paciente pra dentista fazer
-            anamnese + odontograma + orçamento sem trabalho duplicado. */}
+            anamnese + odontograma + orçamento sem trabalho duplicado.
+
+            ⚠️ Card pai tem draggable=true. Sem onMouseDown.stopPropagation
+            o browser pode iniciar drag do card mesmo durante click no botão.
+            Idem onPointerDown pra cobrir touch/pen. draggable={false} reforça. */}
         {(lead.current_stage?.slug === 'avaliacao-aceita' ||
           lead.current_stage?.slug === 'avaliacao-realizada' ||
           lead.current_stage?.slug === 'consulta-agendada' ||
           lead.current_stage?.slug === 'avaliacao-feita') && (
           <button
-            onClick={(e) => { e.stopPropagation(); onAttend(); }}
+            draggable={false}
+            onMouseDown={(e) => e.stopPropagation()}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onAttend(); }}
             disabled={attendLoading}
             title="Iniciar atendimento — abre a ficha do paciente"
             className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-700 text-[10px] font-semibold transition-colors disabled:opacity-50"
@@ -1380,13 +1387,23 @@ export default function CrmPage() {
    * avaliação está em andamento (operador não precisa lembrar de mover).
    */
   const handleAttend = async (leadId: string) => {
+    // eslint-disable-next-line no-console
+    console.log('[ATTEND] click leadId=', leadId);
     const lead = leads.find(l => l.id === leadId);
-    if (!lead) return;
+    if (!lead) {
+      // eslint-disable-next-line no-console
+      console.warn('[ATTEND] lead não encontrado no estado local');
+      return;
+    }
     setAttendingLeadId(leadId);
     try {
       // 1. Garante Patient (POST /leads/:id/ensure-patient — idempotente)
+      // eslint-disable-next-line no-console
+      console.log('[ATTEND] ensure-patient...');
       const r = await api.post<{ id: string }>(`/leads/${leadId}/ensure-patient`);
       const patient = r.data;
+      // eslint-disable-next-line no-console
+      console.log('[ATTEND] patient=', patient?.id);
       if (!patient?.id) {
         showError('Não foi possível obter ficha do paciente');
         return;
@@ -1411,15 +1428,23 @@ export default function CrmPage() {
               ? { ...l, current_stage: { ...(l.current_stage as any), id: target.id, slug: targetSlug } }
               : l));
           }
-        } catch {
-          // best-effort — não bloqueia o redirect
+        } catch (advErr: any) {
+          // eslint-disable-next-line no-console
+          console.warn('[ATTEND] avanço de stage falhou (best-effort):', advErr?.message);
         }
       }
 
       // 3. Redireciona pra ficha do paciente no odontograma (pronto pro orçamento)
-      router.push(`/atendimento/pacientes/${patient.id}?tab=odontograma`);
+      const url = `/atendimento/pacientes/${patient.id}?tab=odontograma`;
+      // eslint-disable-next-line no-console
+      console.log('[ATTEND] redirect →', url);
+      router.push(url);
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao iniciar atendimento');
+      // eslint-disable-next-line no-console
+      console.error('[ATTEND] falhou:', e?.response?.status, e?.response?.data, e);
+      const apiMsg = e?.response?.data?.message;
+      const status = e?.response?.status;
+      showError(apiMsg ? `${apiMsg}${status ? ` (HTTP ${status})` : ''}` : 'Erro ao iniciar atendimento');
     } finally {
       setAttendingLeadId(null);
     }
