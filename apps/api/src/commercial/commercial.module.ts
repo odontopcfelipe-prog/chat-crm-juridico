@@ -15,6 +15,7 @@ import { ReferralsModule } from '../referrals/referrals.module';
 import { WhatsappModule } from '../whatsapp/whatsapp.module';
 import { PortalModule } from '../portal/portal.module';
 import { MaintenanceModule } from '../maintenance/maintenance.module';
+import { LeadsModule } from '../leads/leads.module';
 import { FileStorageService } from '../media/filesystem.service';
 
 @Module({
@@ -27,6 +28,9 @@ import { FileStorageService } from '../media/filesystem.service';
     PortalModule,
     // Onda 5 (Fase 25) — auto-cria task quando TreatmentPlanItem vira DONE
     MaintenanceModule,
+    // Hook Funil 2: ao criar Quote, move Lead vinculado pra "Em Fechamento"
+    // (LeadsService resolvido via ModuleRef em QuotesService.advanceLeadToEmFechamento)
+    LeadsModule,
   ],
   controllers: [CommercialController],
   providers: [

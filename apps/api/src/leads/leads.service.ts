@@ -369,6 +369,8 @@ export class LeadsService {
       case 'consulta-agendada': return 'REUNIAO_AGENDADA';
       case 'avaliacao-feita': return 'AGUARDANDO_DOCS';
       case 'orcamento-enviado': return 'AGUARDANDO_PROC';
+      // Funil 2 — orcamento criado, lead saiu do Kanban, vive em /fechamentos
+      case 'em-fechamento': return 'EM_FECHAMENTO';
       case 'tratamento-iniciado':
       case 'procedimento-feito':
       case 'contrato-fechado': return 'FINALIZADO';

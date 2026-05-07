@@ -11,6 +11,10 @@ import { colorForSpecialty } from '@/lib/specialty-colors';
 
 interface Props {
   patientId: string;
+  // Quando informado, abre direto esse orcamento em modo detalhe ao montar.
+  // Usado quando a dra clica "Iniciar orcamento" na busca/ficha — o handler
+  // cria DRAFT e redireciona pra ?tab=quotes&quote=<id>.
+  initialQuoteId?: string;
 }
 
 interface Procedure {
@@ -126,7 +130,7 @@ const STATUS_LABEL: Record<QuoteListItem['status'], string> = {
   EXPIRED: 'Expirado',
 };
 
-export default function OrcamentoTab({ patientId }: Props) {
+export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
   const [list, setList] = useState<QuoteListItem[]>([]);
   const [current, setCurrent] = useState<QuoteDetail | null>(null);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
@@ -152,7 +156,7 @@ export default function OrcamentoTab({ patientId }: Props) {
 
   useEffect(() => { loadList(); }, [loadList]);
 
-  const openDetail = async (id: string) => {
+  const openDetail = useCallback(async (id: string) => {
     try {
       const { data } = await api.get<QuoteDetail>(`/quotes/${id}`);
       setCurrent(data);
@@ -160,7 +164,14 @@ export default function OrcamentoTab({ patientId }: Props) {
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao carregar orçamento');
     }
-  };
+  }, []);
+
+  // Deep-link: ?quote=<id> abre direto o orcamento em modo detalhe quando
+  // a dra clica "Iniciar orcamento" no header/busca. Roda 1x ao montar.
+  useEffect(() => {
+    if (initialQuoteId) openDetail(initialQuoteId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialQuoteId]);
 
   const createQuote = async () => {
     setSaving(true);

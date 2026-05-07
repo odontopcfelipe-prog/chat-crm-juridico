@@ -37,10 +37,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (medo de ficar artificial, dentista pode aplicar?, preço, dor, durabilidade, complicação) e a IA está quebrando.' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: medo_artificial, preferiu_medico, preco, medo_complicacao, contraindicacao_temporaria (gestante/amamentando — pode voltar), trauma_anterior, etc.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 7, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: medo_artificial, preferiu_medico, preco, medo_complicacao, contraindicacao_temporaria (gestante/amamentando — pode voltar), trauma_anterior, etc.' },
     ],
   },
   'comercial-b2b': {
@@ -71,10 +70,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 3, description: 'Lead levantou bloqueio (preço, medo, tempo, condição de saúde) e a IA está quebrando a objeção.' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 4, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 5, description: 'Lead confirmou data e horário da avaliação. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 6, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 7, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato (envio via ClickSign, conferência de docs, etc.). Operador move pra cá quando inicia o processo de contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban (visível em relatórios).' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, medo, outra clínica, etc.). Etapa terminal — não aparece no Kanban.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 6, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 7, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban (visível em relatórios).' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 8, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, medo, outra clínica, etc.). Etapa terminal — não aparece no Kanban.' },
     ],
   },
   'ortodontia': {
@@ -90,10 +88,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 3, description: 'Lead levantou bloqueio (preço/mensalidade, tempo de tratamento, estética/aparência, idade, dor, plano dental, retratamento frustrado) e a IA está quebrando.' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 4, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 5, description: 'Lead confirmou data e horário da avaliação. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 6, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 7, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato. Operador move pra cá quando inicia o processo.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, tempo, estética, idade, plano, paciente recusou, etc.). Etapa terminal.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 6, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 7, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 8, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo registrado em loss_reason (preço, tempo, estética, idade, plano, paciente recusou, etc.). Etapa terminal.' },
     ],
   },
   'protese': {
@@ -110,10 +107,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (vergonha, preço, medo de não se adaptar, idade, dentadura solta atual, "vai aparecer grampo?", etc.) e IA está quebrando.' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_adaptacao, vergonha_intensa, trauma_protese_anterior, escolheu_implante, sumiu, etc.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 7, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_adaptacao, vergonha_intensa, trauma_protese_anterior, escolheu_implante, sumiu, etc.' },
     ],
   },
   'facetas-resina': {
@@ -130,10 +126,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (durabilidade #1, manchamento, "vai durar pouco?", desgaste, "vale a pena se vou ter que refazer?").' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, durabilidade_curta, escolheu_porcelana, sumiu, etc.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 7, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, durabilidade_curta, escolheu_porcelana, sumiu, etc.' },
     ],
   },
   'clareamento': {
@@ -150,10 +145,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (objeção #1: SENSIBILIDADE, durabilidade, "vai voltar?", "funciona no meu caso?", preço, "já fiz e não funcionou", "vai ficar branco como porcelana?", restauração/coroa, gestante, idade).' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_sensibilidade, mancha_resistente_recusou_alternativa, trauma_clareamento_anterior, contraindicacao_temporaria, sumiu, etc.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 7, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_sensibilidade, mancha_resistente_recusou_alternativa, trauma_clareamento_anterior, contraindicacao_temporaria, sumiu, etc.' },
     ],
   },
   'lentes-porcelana': {
@@ -170,10 +164,9 @@ const PIPELINE_TEMPLATES = {
       { name: 'Contornando Objeções', slug: 'contornando-objecao', emoji: '🛡️', color: '#f59e0b', position: 4, description: 'Lead levantou bloqueio (objeção #1: DESGASTE DO DENTE, vai ficar artificial, preço, durabilidade, "vi vídeo de complicação", já fiz e descolou, dente torto/aparelho, posso tirar se não gostar, quero igual à famosa).' },
       { name: 'Convite à Avaliação', slug: 'convite-avaliacao', emoji: '📅', color: '#06b6d4', position: 5, description: 'IA já ofereceu marcar avaliação presencial e está coletando dia/horário com o lead.' },
       { name: 'Avaliação Aceita', slug: 'avaliacao-aceita', emoji: '✅', color: '#22c55e', position: 6, description: 'Lead confirmou data e horário. Agenda criada — aguardando comparecimento.' },
-      { name: 'Avaliação Realizada', slug: 'avaliacao-realizada', emoji: '🩺', color: '#14b8a6', position: 7, description: 'Paciente compareceu à avaliação. Operador confirma manualmente após a consulta.' },
-      { name: 'Assinatura do Contrato', slug: 'assinatura-contrato', emoji: '📝', color: '#0d9488', position: 8, description: 'Paciente aceitou o plano e está em processo de assinatura do contrato.' },
-      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 9, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
-      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 10, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_desgaste_dente, medo_resultado_artificial, trauma_lente_anterior, perfil_resina, contraindicacao_temporaria, sumiu, etc.' },
+      { name: 'Em Fechamento', slug: 'em-fechamento', emoji: '📝', color: '#0d9488', position: 7, is_hidden_from_kanban: true, description: 'Orcamento criado pela dra. Lead saiu do Kanban CRM e vive em /atendimento/fechamentos. Quando o ClickSign assinar, vira Contrato Assinado. Etapa oculta do Kanban — visivel so no Fechamentos.' },
+      { name: 'Contrato Assinado', slug: 'contrato-assinado', emoji: '🎉', color: '#10b981', position: 8, is_won: true, description: 'Contrato assinado e tratamento confirmado. Cliente efetivado. Etapa terminal — não aparece no Kanban.' },
+      { name: 'Perdido', slug: 'perdido', emoji: '❌', color: '#ef4444', position: 9, is_lost: true, description: 'Lead desistiu em qualquer etapa. Motivo em loss_reason: preco, medo_desgaste_dente, medo_resultado_artificial, trauma_lente_anterior, perfil_resina, contraindicacao_temporaria, sumiu, etc.' },
     ],
   },
 } as const;
@@ -351,6 +344,7 @@ export class PipelinesService {
       is_initial?: boolean;
       is_won?: boolean;
       is_lost?: boolean;
+      is_hidden_from_kanban?: boolean;
       auto_actions?: any;
     }>;
   }) {
@@ -407,6 +401,7 @@ export class PipelinesService {
               is_initial: s.is_initial ?? false,
               is_won: s.is_won ?? false,
               is_lost: s.is_lost ?? false,
+              is_hidden_from_kanban: s.is_hidden_from_kanban ?? false,
               auto_actions: s.auto_actions ?? null,
             })),
           },
@@ -535,6 +530,7 @@ export class PipelinesService {
       is_initial?: boolean;
       is_won?: boolean;
       is_lost?: boolean;
+      is_hidden_from_kanban?: boolean;
       auto_actions?: any;
     },
     tenantId?: string,
@@ -567,6 +563,7 @@ export class PipelinesService {
         is_initial: data.is_initial ?? false,
         is_won: data.is_won ?? false,
         is_lost: data.is_lost ?? false,
+        is_hidden_from_kanban: data.is_hidden_from_kanban ?? false,
         auto_actions: data.auto_actions ?? null,
       },
     });
@@ -585,6 +582,7 @@ export class PipelinesService {
       is_initial?: boolean;
       is_won?: boolean;
       is_lost?: boolean;
+      is_hidden_from_kanban?: boolean;
       auto_actions?: any;
     },
     tenantId?: string,
@@ -611,6 +609,7 @@ export class PipelinesService {
     if (data.emoji !== undefined) updateData.emoji = data.emoji;
     if (data.description !== undefined) updateData.description = data.description;
     if (data.position !== undefined) updateData.position = data.position;
+    if (data.is_hidden_from_kanban !== undefined) updateData.is_hidden_from_kanban = data.is_hidden_from_kanban;
     if (data.auto_actions !== undefined) updateData.auto_actions = data.auto_actions;
 
     if (data.is_initial === true) {

@@ -199,6 +199,28 @@ function PacienteFichaInner() {
     }
   };
 
+  // Atalho da dra: iniciar orcamento direto. Cria DRAFT (idempotente — reusa
+  // se ja existe) + abre tab Orcamentos com o quote ja em modo edicao.
+  // Backend (QuotesService.advanceLeadToEmFechamento) gradua o lead vinculado
+  // pra "Em Fechamento" silenciosamente (some do Kanban CRM, vai pra /fechamentos).
+  const [startingQuote, setStartingQuote] = useState(false);
+  const handleStartQuote = async () => {
+    if (!patient || startingQuote) return;
+    setStartingQuote(true);
+    try {
+      const { data } = await api.post<{ id: string }>(
+        `/patients/${patient.id}/quotes/draft-or-create`,
+      );
+      // Substitui a URL pra refletir o estado novo (refresh nao perde)
+      router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${data.id}`);
+      setTab('quotes');
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao iniciar orcamento');
+    } finally {
+      setStartingQuote(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="p-6 flex items-center justify-center text-muted-foreground">
@@ -263,6 +285,20 @@ function PacienteFichaInner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Iniciar Orcamento: cria DRAFT idempotente + abre aba Orcamentos.
+              Backend gradua o lead vinculado pra "Em Fechamento" (Funil 2)
+              automaticamente — dra nao precisa tocar no CRM. */}
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={handleStartQuote}
+              disabled={startingQuote}
+              className="text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
+              title="Cria rascunho de orcamento e abre na aba Orcamentos"
+            >
+              {startingQuote ? <Loader2 size={14} className="animate-spin" /> : <DollarSign size={14} />}
+              Iniciar orcamento
+            </button>
+          )}
           {/* Onda 5e v30 (Fase 25) — Agendar consulta direto da ficha do paciente.
               Deep-link pra /agenda?new=1&patient_id=X&patient_name=X&phone=X
               que abre o modal de evento ja com paciente pre-selecionado. */}
@@ -358,7 +394,12 @@ function PacienteFichaInner() {
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
-      {tab === 'quotes' && <OrcamentoTab patientId={patient.id} />}
+      {tab === 'quotes' && (
+        <OrcamentoTab
+          patientId={patient.id}
+          initialQuoteId={searchParams?.get('quote') || undefined}
+        />
+      )}
       {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
       {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
 

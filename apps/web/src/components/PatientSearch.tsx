@@ -2,8 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, User, Phone, IdCard, Plus } from 'lucide-react';
+import { Search, Loader2, User, Phone, IdCard, Plus, DollarSign } from 'lucide-react';
 import api from '@/lib/api';
+import { showError } from '@/lib/toast';
 
 /**
  * Busca global de paciente — convencao Clinicorp.
@@ -104,6 +105,23 @@ export function PatientSearch({ className = '' }: { className?: string }) {
     setQuery('');
   };
 
+  // Atalho da dra: iniciar orcamento direto. Cria DRAFT (idempotente, reusa
+  // se ja existe) e abre a ficha ja na aba Orcamentos com esse quote em edicao.
+  const startQuote = async (patientId: string, e: React.MouseEvent) => {
+    e.stopPropagation(); // nao dispara o goto do botao pai
+    try {
+      const { data } = await api.post<{ id: string }>(
+        `/patients/${patientId}/quotes/draft-or-create`,
+      );
+      router.push(`/atendimento/pacientes/${patientId}?tab=quotes&quote=${data.id}`);
+      setOpen(false);
+      setQuery('');
+      setResults([]);
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao iniciar orcamento');
+    }
+  };
+
   // Navegacao com setas
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (!open) return;
@@ -163,32 +181,43 @@ export function PatientSearch({ className = '' }: { className?: string }) {
             <ul className="py-1">
               {results.map((p, i) => (
                 <li key={p.id}>
-                  <button
-                    onClick={() => goto(p.id)}
+                  <div
                     onMouseEnter={() => setHighlighted(i)}
-                    className={`w-full text-left px-3 py-2 flex items-center gap-3 ${
+                    className={`group flex items-stretch ${
                       i === highlighted ? 'bg-accent' : 'hover:bg-accent/50'
                     }`}
                   >
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                      <User size={16} className="text-primary" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="text-sm font-medium truncate">{p.name}</div>
-                      <div className="text-xs text-muted-foreground flex items-center gap-3 mt-0.5">
-                        {p.cpf && (
-                          <span className="flex items-center gap-1">
-                            <IdCard size={10} /> {p.cpf}
-                          </span>
-                        )}
-                        {p.phone && (
-                          <span className="flex items-center gap-1">
-                            <Phone size={10} /> {p.phone}
-                          </span>
-                        )}
+                    <button
+                      onClick={() => goto(p.id)}
+                      className="flex-1 text-left px-3 py-2 flex items-center gap-3 min-w-0"
+                    >
+                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
+                        <User size={16} className="text-primary" />
                       </div>
-                    </div>
-                  </button>
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-medium truncate">{p.name}</div>
+                        <div className="text-xs text-muted-foreground flex items-center gap-3 mt-0.5">
+                          {p.cpf && (
+                            <span className="flex items-center gap-1">
+                              <IdCard size={10} /> {p.cpf}
+                            </span>
+                          )}
+                          {p.phone && (
+                            <span className="flex items-center gap-1">
+                              <Phone size={10} /> {p.phone}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                    <button
+                      onClick={(e) => startQuote(p.id, e)}
+                      title="Iniciar orcamento (cria rascunho e abre na aba Orcamentos)"
+                      className="px-3 flex items-center gap-1 text-xs text-primary hover:bg-primary/10 border-l border-border opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                    >
+                      <DollarSign size={12} /> Orcar
+                    </button>
+                  </div>
                 </li>
               ))}
               {results.length > 0 && (

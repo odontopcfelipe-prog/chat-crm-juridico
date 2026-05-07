@@ -65,6 +65,9 @@ interface PipelineStageLite {
   is_initial: boolean;
   is_won: boolean;
   is_lost: boolean;
+  // Funil 2: stages ocultas do Kanban CRM (lead foi pra /fechamentos
+  // automaticamente quando dra criou orcamento)
+  is_hidden_from_kanban?: boolean;
 }
 interface PipelineLite {
   id: string;
@@ -1978,9 +1981,11 @@ export default function CrmPage() {
               // Esconde stages won/lost do Kanban — ficam acessíveis em
               // relatórios e no badge da conversa. O Kanban mostra só as etapas
               // ATIVAS do funil (operador trabalha aqui).
+              // is_hidden_from_kanban: stages do Funil 2 ("Em Fechamento")
+              // tambem somem — leads la vivem em /atendimento/fechamentos.
               const cols: Col[] = selectedPipeline
                 ? selectedPipeline.stages
-                    .filter(s => !s.is_won && !s.is_lost)
+                    .filter(s => !s.is_won && !s.is_lost && !s.is_hidden_from_kanban)
                     .slice()
                     .sort((a, b) => a.position - b.position)
                     .map(s => ({

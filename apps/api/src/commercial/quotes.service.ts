@@ -1,10 +1,12 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
+import { LeadsService } from '../leads/leads.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
 
@@ -33,6 +35,7 @@ export class QuotesService {
 
   constructor(
     private prisma: PrismaService,
+    private moduleRef: ModuleRef,
     @Optional() @Inject(forwardRef(() => WhatsappService)) private whatsapp?: WhatsappService,
     @Optional() @Inject(forwardRef(() => PortalAuthService)) private portalAuth?: PortalAuthService,
     @Optional() private versions?: QuoteVersionsService,
@@ -126,6 +129,18 @@ export class QuotesService {
         duration_ms: Date.now() - start,
       }, 'Orcamento criado'));
 
+      // ─── HOOK Quote.create -> Lead "Em Fechamento" ──────────────────────
+      // Quando a dra cria orcamento, gradua o lead vinculado pro Funil 2
+      // (Fechamentos). Lead some do Kanban CRM (stage oculto) e aparece em
+      // /atendimento/fechamentos automaticamente pelo Quote.
+      //
+      // Best-effort: roda em background, nao bloqueia create. Idempotente.
+      // Pula se patient sem lead, lead sem pipeline, pipeline sem stage
+      // 'em-fechamento' (ex: odonto-clinico), ou lead ja em won/lost/em-fechamento.
+      this.advanceLeadToEmFechamento(patientId, tenantId, userId).catch((err) =>
+        this.logger.warn(`[QUOTE→EM_FECHAMENTO] Hook falhou pra patient ${patientId}: ${err?.message}`),
+      );
+
       return quote;
     } catch (e: any) {
       this.logger.error(ctx({
@@ -134,6 +149,65 @@ export class QuotesService {
       }, 'Falha ao criar orcamento'));
       throw e;
     }
+  }
+
+  /**
+   * Hook Funil 2: ao criar orcamento, move o lead vinculado ao paciente
+   * pro stage 'em-fechamento' (oculto do Kanban CRM, visivel em /fechamentos).
+   *
+   * Idempotente, best-effort. Resolve LeadsService via ModuleRef pra evitar
+   * dependencia circular no boot. Mesmo padrao do hook ClickSign->FINALIZADO.
+   *
+   * Pula sem erro quando:
+   *   - Patient nao tem lead vinculado (cadastro direto, sem captacao)
+   *   - Lead nao tem pipeline_id (lead legado puro)
+   *   - Pipeline nao tem stage 'em-fechamento' (ex: odonto-clinico, b2b)
+   *   - Lead ja esta em won/lost/em-fechamento (nao regride)
+   */
+  private async advanceLeadToEmFechamento(
+    patientId: string,
+    tenantId: string,
+    userId: string,
+  ): Promise<void> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { lead_id: true },
+    });
+    if (!patient?.lead_id) return;
+
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: patient.lead_id },
+      select: { id: true, pipeline_id: true, stage_id: true },
+    });
+    if (!lead?.pipeline_id) return;
+
+    const currentStage = lead.stage_id
+      ? await (this.prisma as any).pipelineStage.findUnique({
+          where: { id: lead.stage_id },
+          select: { slug: true, is_won: true, is_lost: true },
+        })
+      : null;
+    if (currentStage?.is_won || currentStage?.is_lost) return;
+    if (currentStage?.slug === 'em-fechamento') return;
+
+    const targetStage = await (this.prisma as any).pipelineStage.findFirst({
+      where: { pipeline_id: lead.pipeline_id, slug: 'em-fechamento' },
+      select: { id: true },
+    });
+    if (!targetStage) return;
+
+    const leadsService = this.moduleRef.get(LeadsService, { strict: false });
+    if (!leadsService) return;
+
+    await leadsService.updateStatus(
+      lead.id,
+      undefined,        // stage (legado) — resolvido via stage_id
+      tenantId,
+      undefined,        // loss_reason
+      userId,           // actor
+      targetStage.id,   // stage_id
+    );
+    this.logger.log(`[QUOTE→EM_FECHAMENTO] Lead ${lead.id} movido pra Em Fechamento (patient ${patientId})`);
   }
 
   /**

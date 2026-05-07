@@ -569,6 +569,10 @@ model PipelineStage {
   is_initial    Boolean  @default(false) // lead novo cai aqui
   is_won        Boolean  @default(false) // converteu (ex: FINALIZADO)
   is_lost       Boolean  @default(false) // perdeu (ex: PERDIDO)
+  // Oculta a coluna no Kanban CRM. Usado pra "graduar" leads que sairam
+  // do funil de captacao e foram pro funil de Fechamentos (orcamento criado).
+  // Continuam visiveis em /atendimento/fechamentos pelo Quote vinculado.
+  is_hidden_from_kanban Boolean @default(false)
   // Auto-ações disparadas ao entrar nessa etapa.
   // Formato: [{ type: "create_drive_folder" }, { type: "enroll_followup", sequence_id: "..." }]
   auto_actions  Json?
