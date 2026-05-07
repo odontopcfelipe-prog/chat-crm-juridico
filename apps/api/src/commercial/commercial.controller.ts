@@ -84,6 +84,19 @@ export class CommercialController {
     return this.quotesService.findByPatient(patientId, user.tenant_id);
   }
 
+  /**
+   * Closing Board — kanban dedicado à fase de fechamento (orçamentos SENT)
+   * agrupados em 6 colunas: LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE,
+   * ORTODONTIA, HARMONIZACAO_FACIAL, OUTROS. Frontend: /atendimento/fechamentos.
+   *
+   * ⚠️ DEVE vir ANTES de @Get('quotes/:id') — caso contrário 'closing-board'
+   * é capturado como :id e o handler retorna "Orçamento não encontrado".
+   */
+  @Get('quotes/closing-board')
+  quotesClosingBoard(@Authenticated() user: AuthUser) {
+    return this.quotesService.getClosingBoard(user.tenant_id);
+  }
+
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findOne(id, user.tenant_id);
@@ -198,17 +211,6 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.getDashboardStats(tenantId, { from, to });
-  }
-
-  /**
-   * Closing Board — kanban dedicado à fase de fechamento (orçamentos SENT)
-   * agrupados em 6 colunas: LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE,
-   * ORTODONTIA, HARMONIZACAO_FACIAL, OUTROS.
-   * Frontend: /atendimento/fechamentos
-   */
-  @Get('quotes/closing-board')
-  quotesClosingBoard(@Authenticated() user: AuthUser) {
-    return this.quotesService.getClosingBoard(user.tenant_id);
   }
 
   /** Envia orcamento por WhatsApp com link do portal */
