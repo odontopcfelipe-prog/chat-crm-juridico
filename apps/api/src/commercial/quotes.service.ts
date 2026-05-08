@@ -130,16 +130,11 @@ export class QuotesService {
       }, 'Orcamento criado'));
 
       // ─── HOOK Quote.create -> Lead "Em Fechamento" ──────────────────────
-      // Quando a dra cria orcamento, gradua o lead vinculado pro Funil 2
-      // (Fechamentos). Lead some do Kanban CRM (stage oculto) e aparece em
-      // /atendimento/fechamentos automaticamente pelo Quote.
-      //
-      // Best-effort: roda em background, nao bloqueia create. Idempotente.
-      // Pula se patient sem lead, lead sem pipeline, pipeline sem stage
-      // 'em-fechamento' (ex: odonto-clinico), ou lead ja em won/lost/em-fechamento.
-      this.advanceLeadToEmFechamento(patientId, tenantId, userId).catch((err) =>
-        this.logger.warn(`[QUOTE→EM_FECHAMENTO] Hook falhou pra patient ${patientId}: ${err?.message}`),
-      );
+      // Quando a dra cria orcamento, gradua o lead vinculado pro Funil 2.
+      // Lead some do Kanban CRM (stage oculto) e aparece em /fechamentos.
+      // Best-effort: roda em background, idempotente. Lógica delegada pra
+      // LeadsService.graduateLeadToEmFechamento (reutilizada por start-attending).
+      this.tryGraduateLead(patientId, tenantId, userId);
 
       return quote;
     } catch (e: any) {
@@ -152,62 +147,20 @@ export class QuotesService {
   }
 
   /**
-   * Hook Funil 2: ao criar orcamento, move o lead vinculado ao paciente
-   * pro stage 'em-fechamento' (oculto do Kanban CRM, visivel em /fechamentos).
-   *
-   * Idempotente, best-effort. Resolve LeadsService via ModuleRef pra evitar
-   * dependencia circular no boot. Mesmo padrao do hook ClickSign->FINALIZADO.
-   *
-   * Pula sem erro quando:
-   *   - Patient nao tem lead vinculado (cadastro direto, sem captacao)
-   *   - Lead nao tem pipeline_id (lead legado puro)
-   *   - Pipeline nao tem stage 'em-fechamento' (ex: odonto-clinico, b2b)
-   *   - Lead ja esta em won/lost/em-fechamento (nao regride)
+   * Helper: dispara graduação pra Em Fechamento via LeadsService (resolvido
+   * via ModuleRef pra evitar ciclo no boot). Best-effort. Chamado em todo
+   * ponto onde a dra "inicia/avanca" um orcamento — create, getOrCreateDraft.
    */
-  private async advanceLeadToEmFechamento(
-    patientId: string,
-    tenantId: string,
-    userId: string,
-  ): Promise<void> {
-    const patient = await this.prisma.patient.findUnique({
-      where: { id: patientId },
-      select: { lead_id: true },
-    });
-    if (!patient?.lead_id) return;
-
-    const lead = await this.prisma.lead.findUnique({
-      where: { id: patient.lead_id },
-      select: { id: true, pipeline_id: true, stage_id: true },
-    });
-    if (!lead?.pipeline_id) return;
-
-    const currentStage = lead.stage_id
-      ? await (this.prisma as any).pipelineStage.findUnique({
-          where: { id: lead.stage_id },
-          select: { slug: true, is_won: true, is_lost: true },
-        })
-      : null;
-    if (currentStage?.is_won || currentStage?.is_lost) return;
-    if (currentStage?.slug === 'em-fechamento') return;
-
-    const targetStage = await (this.prisma as any).pipelineStage.findFirst({
-      where: { pipeline_id: lead.pipeline_id, slug: 'em-fechamento' },
-      select: { id: true },
-    });
-    if (!targetStage) return;
-
-    const leadsService = this.moduleRef.get(LeadsService, { strict: false });
-    if (!leadsService) return;
-
-    await leadsService.updateStatus(
-      lead.id,
-      undefined,        // stage (legado) — resolvido via stage_id
-      tenantId,
-      undefined,        // loss_reason
-      userId,           // actor
-      targetStage.id,   // stage_id
-    );
-    this.logger.log(`[QUOTE→EM_FECHAMENTO] Lead ${lead.id} movido pra Em Fechamento (patient ${patientId})`);
+  private tryGraduateLead(patientId: string, tenantId: string, userId: string): void {
+    try {
+      const leadsService = this.moduleRef.get(LeadsService, { strict: false });
+      if (!leadsService) return;
+      leadsService.graduateLeadToEmFechamento(patientId, tenantId, userId).catch((err) =>
+        this.logger.warn(`[QUOTE→EM_FECHAMENTO] Hook falhou pra patient ${patientId}: ${err?.message}`),
+      );
+    } catch {
+      // LeadsService pode nao estar carregado em testes — ignorar
+    }
   }
 
   /**
@@ -256,6 +209,11 @@ export class QuotesService {
         action: 'get_or_create_draft',
         patient_id: patientId,
       })({ quote_id: existing.id, reused: true }, 'DRAFT existente reutilizado'));
+      // Mesmo reusando DRAFT antigo, graduar lead pra Em Fechamento.
+      // Cobre o caso "dra ja tinha selecionado dentes no odontograma e
+      // agora abriu o quote de novo" — lead precisa avancar pra refletir
+      // a intencao de fechar. Idempotente.
+      this.tryGraduateLead(patientId, tenantId, userId);
       return existing;
     }
 

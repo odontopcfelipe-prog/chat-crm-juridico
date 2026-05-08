@@ -650,6 +650,66 @@ export class LeadsService {
     return patientsService.convertFromLead(leadId, tid);
   }
 
+  /**
+   * Funil 2 — gradua o lead vinculado ao paciente pra "Em Fechamento"
+   * (etapa oculta do Kanban CRM, visivel em /atendimento/fechamentos).
+   *
+   * Usado por:
+   *  - QuotesService.create / getOrCreateDraft (dra criou orcamento)
+   *  - PatientsController.startAttending (dra clicou "Atender" na ficha)
+   *
+   * Idempotente, best-effort. Pula sem erro quando:
+   *   - Patient nao tem lead vinculado (cadastro direto, sem captacao)
+   *   - Lead nao tem pipeline_id (lead legado puro)
+   *   - Pipeline nao tem stage 'em-fechamento' (ex: odonto-clinico, b2b)
+   *   - Lead ja esta em won/lost/em-fechamento (nao regride)
+   *
+   * Retorna o lead atualizado se moveu, ou null se nao precisou mover.
+   */
+  async graduateLeadToEmFechamento(
+    patientId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<Lead | null> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { lead_id: true },
+    });
+    if (!patient?.lead_id) return null;
+
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: patient.lead_id },
+      select: { id: true, pipeline_id: true, stage_id: true },
+    });
+    if (!lead?.pipeline_id) return null;
+
+    const currentStage = lead.stage_id
+      ? await (this.prisma as any).pipelineStage.findUnique({
+          where: { id: lead.stage_id },
+          select: { slug: true, is_won: true, is_lost: true },
+        })
+      : null;
+    if (currentStage?.is_won || currentStage?.is_lost) return null;
+    if (currentStage?.slug === 'em-fechamento') return null;
+
+    const targetStage = await (this.prisma as any).pipelineStage.findFirst({
+      where: { pipeline_id: lead.pipeline_id, slug: 'em-fechamento' },
+      select: { id: true },
+    });
+    if (!targetStage) return null;
+
+    const updated = await this.updateStatus(
+      lead.id,
+      undefined,        // stage (legado) — resolvido via stage_id
+      tenantId,
+      undefined,        // loss_reason
+      userId,
+      targetStage.id,
+    );
+    this.logger.log(`[GRADUATE→EM_FECHAMENTO] Lead ${lead.id} graduado (patient ${patientId})`);
+    return updated;
+  }
+
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });

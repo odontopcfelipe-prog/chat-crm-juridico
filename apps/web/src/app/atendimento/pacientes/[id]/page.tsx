@@ -201,7 +201,7 @@ function PacienteFichaInner() {
 
   // Atalho da dra: iniciar orcamento direto. Cria DRAFT (idempotente — reusa
   // se ja existe) + abre tab Orcamentos com o quote ja em modo edicao.
-  // Backend (QuotesService.advanceLeadToEmFechamento) gradua o lead vinculado
+  // Backend (LeadsService.graduateLeadToEmFechamento) gradua o lead vinculado
   // pra "Em Fechamento" silenciosamente (some do Kanban CRM, vai pra /fechamentos).
   const [startingQuote, setStartingQuote] = useState(false);
   const handleStartQuote = async () => {
@@ -218,6 +218,25 @@ function PacienteFichaInner() {
       showError(err?.response?.data?.message || 'Erro ao iniciar orcamento');
     } finally {
       setStartingQuote(false);
+    }
+  };
+
+  // Atalho da dra: iniciar atendimento clinico. Marca lead vinculado como
+  // "Em Fechamento" (silencioso, dra nao ve CRM) e abre Odontograma direto
+  // — onde a dra avalia, marca dentes (Ctrl+click) e adiciona procedimentos
+  // ao orcamento DRAFT automaticamente.
+  const [startingAttending, setStartingAttending] = useState(false);
+  const handleStartAttending = async () => {
+    if (!patient || startingAttending) return;
+    setStartingAttending(true);
+    try {
+      await api.post(`/patients/${patient.id}/start-attending`);
+      router.replace(`/atendimento/pacientes/${patient.id}?tab=odontogram`);
+      setTab('odontogram');
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao iniciar atendimento');
+    } finally {
+      setStartingAttending(false);
     }
   };
 
@@ -285,6 +304,20 @@ function PacienteFichaInner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {/* Atender: comeca triagem clinica. Gradua lead pra "Em Fechamento"
+              (silencioso) e abre Odontograma direto — onde a dra marca dentes
+              + adiciona procedimentos ao orcamento DRAFT automaticamente. */}
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={handleStartAttending}
+              disabled={startingAttending}
+              className="text-xs text-white bg-sky-600 hover:bg-sky-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
+              title="Inicia atendimento e abre o Odontograma"
+            >
+              {startingAttending ? <Loader2 size={14} className="animate-spin" /> : <Stethoscope size={14} />}
+              Atender
+            </button>
+          )}
           {/* Iniciar Orcamento: cria DRAFT idempotente + abre aba Orcamentos.
               Backend gradua o lead vinculado pra "Em Fechamento" (Funil 2)
               automaticamente — dra nao precisa tocar no CRM. */}

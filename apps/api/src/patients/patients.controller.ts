@@ -18,13 +18,17 @@ import {
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
+import { LeadsService } from '../leads/leads.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
 
 @UseGuards(JwtAuthGuard)
 @Controller('patients')
 export class PatientsController {
-  constructor(private readonly patientsService: PatientsService) {}
+  constructor(
+    private readonly patientsService: PatientsService,
+    private readonly leadsService: LeadsService,
+  ) {}
 
   @Post()
   create(@Body() dto: CreatePatientDto, @Request() req: any) {
@@ -91,6 +95,28 @@ export class PatientsController {
     const validPeriods = ['today', 'week', 'month'];
     const p = (validPeriods.includes(period as any) ? period : 'today') as 'today' | 'week' | 'month';
     return this.patientsService.getBirthdays(tenantId, p);
+  }
+
+  /**
+   * Funil 2 — botao "Atender" da ficha do paciente.
+   * Gradua o lead vinculado pra "Em Fechamento" (etapa oculta do Kanban CRM,
+   * visivel em /atendimento/fechamentos). Mesma logica usada pelo hook do
+   * QuotesService.create — aqui standalone, sem criar Quote.
+   *
+   * Idempotente: nao regride won/lost/em-fechamento, e nao falha se patient
+   * sem lead, lead sem pipeline, ou pipeline sem stage 'em-fechamento'.
+   *
+   * Retorna { graduated: boolean } — true se moveu, false se nada a fazer.
+   */
+  @Post(':id/start-attending')
+  async startAttending(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // Valida que o paciente existe + pertence ao tenant antes de tentar graduar
+    await this.patientsService.findOne(id, tenantId);
+    const lead = await this.leadsService.graduateLeadToEmFechamento(id, tenantId, userId);
+    return { graduated: !!lead, lead_id: lead?.id ?? null };
   }
 
   @Get(':id')
