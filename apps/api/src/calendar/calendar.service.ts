@@ -113,6 +113,10 @@ export class CalendarService {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true } },
+        // Paciente vinculado: exibido no card da agenda + botao "Abrir ficha"
+        // no modal de edicao. Necessario tanto no findAll quanto no findOne
+        // pra evitar fetch extra ao clicar no evento.
+        patient: { select: { id: true, name: true, phone: true } },
         appointment_type: true,
         reminders: true,
         _count: { select: { comments: true } },

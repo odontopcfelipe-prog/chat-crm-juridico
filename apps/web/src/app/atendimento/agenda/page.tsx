@@ -2399,6 +2399,32 @@ export default function AgendaPage() {
                 </div>
               )}
 
+              {/* ── Paciente Vinculado — atalho da dra pra abrir cadastro ── */}
+              {editingEvent?.patient && (
+                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5">
+                  <User size={14} className="text-emerald-600 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600/70 mb-0.5">
+                      Paciente vinculado
+                    </p>
+                    <p className="text-xs font-semibold text-foreground truncate">
+                      {editingEvent.patient.name || 'Sem nome'}
+                    </p>
+                    {editingEvent.patient.phone && (
+                      <p className="text-[11px] text-foreground/80 truncate">📱 {editingEvent.patient.phone}</p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient!.id}`); }}
+                    className="shrink-0 p-1.5 rounded-lg text-emerald-600/60 hover:text-emerald-600 hover:bg-emerald-600/10 transition-colors"
+                    title="Abrir ficha do paciente"
+                  >
+                    <ExternalLink size={14} />
+                  </button>
+                </div>
+              )}
+
               {/* Tipo */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Tipo</label>
