@@ -2251,23 +2251,25 @@ export default function AgendaPage() {
               return (<>
             <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border gap-3">
               <div className="min-w-0 flex-1">
-                <h2 className="text-base font-bold text-foreground">
-                  {editingEvent ? (canEdit ? 'Editar Evento' : 'Visualizar Evento') : 'Novo Evento'}
-                </h2>
-                {/* Nome do paciente clicavel — atalho da dra pra abrir a
-                    ficha completa (anamnese, odontograma, orcamento) sem
-                    precisar fechar o modal e procurar manualmente. */}
-                {editingEvent?.patient && (
+                {/* Quando o evento esta vinculado a um paciente, ele assume o
+                    titulo do modal — nome grande, clicavel, abre a ficha.
+                    Sem paciente (bloqueio, tarefa, novo evento) cai no titulo
+                    generico "Editar Evento" / "Novo Evento". */}
+                {editingEvent?.patient ? (
                   <button
                     type="button"
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient!.id}`); }}
                     title="Abrir ficha do paciente"
-                    className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline group"
+                    className="inline-flex items-center gap-2 text-lg font-bold text-emerald-600 hover:text-emerald-700 hover:underline group min-w-0 max-w-full"
                   >
-                    <User size={12} />
-                    <span className="truncate max-w-[220px]">{editingEvent.patient.name || 'Paciente sem nome'}</span>
-                    <ExternalLink size={11} className="opacity-60 group-hover:opacity-100" />
+                    <User size={16} className="shrink-0" />
+                    <span className="truncate">{editingEvent.patient.name || 'Paciente sem nome'}</span>
+                    <ExternalLink size={14} className="shrink-0 opacity-60 group-hover:opacity-100" />
                   </button>
+                ) : (
+                  <h2 className="text-base font-bold text-foreground">
+                    {editingEvent ? (canEdit ? 'Editar Evento' : 'Visualizar Evento') : 'Novo Evento'}
+                  </h2>
                 )}
                 {editingEvent?.created_by && (
                   <p className="text-[10px] text-muted-foreground mt-0.5">
