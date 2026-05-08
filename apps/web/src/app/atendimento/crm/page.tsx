@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Stethoscope, Loader2 } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2 } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
@@ -222,7 +222,6 @@ function LeadCard({
   onOpenDetail,
   onOpenPatient,
   onStageChange,
-  onAttend,
   attendLoading,
   isSelected,
   onToggleSelect,
@@ -236,7 +235,6 @@ function LeadCard({
   onOpenDetail: () => void;
   onOpenPatient: () => void;
   onStageChange: (stageId: string) => void;
-  onAttend: () => void;
   attendLoading: boolean;
   isSelected: boolean;
   onToggleSelect: () => void;
@@ -468,11 +466,15 @@ function LeadCard({
           </button>
         )}
 
-        {/* Ficha do paciente — sempre visivel, em qualquer stage.
+        {/* Visualizar — sempre visivel, em qualquer stage.
             Garante Patient (idempotente) e abre /pacientes/:id em "Visao geral".
-            Diferente do "Atender": NAO avanca stage, NAO gradua lead — so
-            consulta. Bom pra equipe de vendas que quer ver dados clinicos
-            antes de mover o lead. Mesmo padrao de stopPropagation do Atender. */}
+            Equipe de vendas usa pra consultar dados clinicos do paciente sem
+            comprometer nada (NAO avanca stage, NAO gradua lead). O atendimento
+            propriamente dito acontece quando a dra/dentista clica "Atender" no
+            header da ficha — esse caminho e exclusivo dela, pq dentista nao ve CRM.
+
+            ⚠️ Card pai tem draggable=true. Sem onMouseDown.stopPropagation
+            o browser pode iniciar drag do card mesmo durante click no botão. */}
         <button
           draggable={false}
           onMouseDown={(e) => e.stopPropagation()}
@@ -483,34 +485,8 @@ function LeadCard({
           className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg bg-accent hover:bg-sky-500/15 hover:text-sky-500 text-muted-foreground text-[10px] font-semibold transition-colors disabled:opacity-50"
         >
           {attendLoading ? <Loader2 size={11} className="animate-spin" /> : <User size={11} />}
-          Ficha
+          Visualizar
         </button>
-
-        {/* Atender — visível quando lead está pronto pra atendimento clínico
-            (compareceu à avaliação ou está na fila pra avaliação). Cria/garante
-            o Patient e redireciona pra ficha do paciente pra dentista fazer
-            anamnese + odontograma + orçamento sem trabalho duplicado.
-
-            ⚠️ Card pai tem draggable=true. Sem onMouseDown.stopPropagation
-            o browser pode iniciar drag do card mesmo durante click no botão.
-            Idem onPointerDown pra cobrir touch/pen. draggable={false} reforça. */}
-        {(lead.current_stage?.slug === 'avaliacao-aceita' ||
-          lead.current_stage?.slug === 'avaliacao-realizada' ||
-          lead.current_stage?.slug === 'consulta-agendada' ||
-          lead.current_stage?.slug === 'avaliacao-feita') && (
-          <button
-            draggable={false}
-            onMouseDown={(e) => e.stopPropagation()}
-            onPointerDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); e.preventDefault(); onAttend(); }}
-            disabled={attendLoading}
-            title="Iniciar atendimento — abre a ficha do paciente"
-            className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 hover:bg-emerald-500/20 text-emerald-700 text-[10px] font-semibold transition-colors disabled:opacity-50"
-          >
-            {attendLoading ? <Loader2 size={11} className="animate-spin" /> : <Stethoscope size={11} />}
-            Atender
-          </button>
-        )}
 
         {/* Avançar etapa */}
         {nextStageInfo && normalizedStage !== 'FINALIZADO' && (
@@ -1401,87 +1377,14 @@ export default function CrmPage() {
   }, []);
 
   /**
-   * Botão "Atender" do card — chamado quando dentista vai começar a
-   * avaliação clínica. Garante que existe Patient (cria se não houver,
-   * idempotente) e redireciona pra ficha do paciente já no odontograma.
+   * Botao "Visualizar" do card — equipe de vendas abre a ficha do paciente
+   * sem comprometer (nao avanca stage, nao gradua lead). Apenas garante que
+   * o Patient existe (POST /leads/:id/ensure-patient idempotente) e
+   * redireciona pra /atendimento/pacientes/:id em "Visao geral".
    *
-   * Também avança o stage pra "avaliacao-realizada" se ainda estiver em
-   * "avaliacao-aceita" / "consulta-agendada" — sinaliza pro CRM que a
-   * avaliação está em andamento (operador não precisa lembrar de mover).
-   */
-  const handleAttend = async (leadId: string) => {
-    // eslint-disable-next-line no-console
-    console.log('[ATTEND] click leadId=', leadId);
-    const lead = leads.find(l => l.id === leadId);
-    if (!lead) {
-      // eslint-disable-next-line no-console
-      console.warn('[ATTEND] lead não encontrado no estado local');
-      return;
-    }
-    setAttendingLeadId(leadId);
-    try {
-      // 1. Garante Patient (POST /leads/:id/ensure-patient — idempotente)
-      // eslint-disable-next-line no-console
-      console.log('[ATTEND] ensure-patient...');
-      const r = await api.post<{ id: string }>(`/leads/${leadId}/ensure-patient`);
-      const patient = r.data;
-      // eslint-disable-next-line no-console
-      console.log('[ATTEND] patient=', patient?.id);
-      if (!patient?.id) {
-        showError('Não foi possível obter ficha do paciente');
-        return;
-      }
-
-      // 2. Avança stage pra "avaliacao-realizada" (best-effort — se falhar,
-      //    redirect ainda acontece). Ignora se já está em fases posteriores.
-      const currentSlug = lead.current_stage?.slug;
-      const NEEDS_ADVANCE = new Set(['avaliacao-aceita', 'consulta-agendada']);
-      if (currentSlug && NEEDS_ADVANCE.has(currentSlug) && lead.pipeline_id) {
-        try {
-          // Busca o stage_id de "avaliacao-realizada" no pipeline atual
-          const targetSlug = lead.current_stage?.pipeline_id === lead.pipeline_id
-            ? (currentSlug === 'consulta-agendada' ? 'avaliacao-feita' : 'avaliacao-realizada')
-            : 'avaliacao-realizada';
-          const pipeRes = await api.get<{ stages: Array<{ id: string; slug: string }> }>(`/pipelines/${lead.pipeline_id}`);
-          const target = pipeRes.data?.stages?.find(s => s.slug === targetSlug);
-          if (target) {
-            await api.patch(`/leads/${leadId}/stage`, { stage_id: target.id });
-            // Atualiza otimisticamente no estado local
-            setLeads(cur => cur.map(l => l.id === leadId
-              ? { ...l, current_stage: { ...(l.current_stage as any), id: target.id, slug: targetSlug } }
-              : l));
-          }
-        } catch (advErr: any) {
-          // eslint-disable-next-line no-console
-          console.warn('[ATTEND] avanço de stage falhou (best-effort):', advErr?.message);
-        }
-      }
-
-      // 3. Redireciona pra ficha do paciente no odontograma (pronto pro orçamento)
-      // tab=odontogram é o id interno (ver TABS em pacientes/[id]/page.tsx).
-      const url = `/atendimento/pacientes/${patient.id}?tab=odontogram`;
-      // eslint-disable-next-line no-console
-      console.log('[ATTEND] redirect →', url);
-      router.push(url);
-    } catch (e: any) {
-      // eslint-disable-next-line no-console
-      console.error('[ATTEND] falhou:', e?.response?.status, e?.response?.data, e);
-      const apiMsg = e?.response?.data?.message;
-      const status = e?.response?.status;
-      showError(apiMsg ? `${apiMsg}${status ? ` (HTTP ${status})` : ''}` : 'Erro ao iniciar atendimento');
-    } finally {
-      setAttendingLeadId(null);
-    }
-  };
-
-  /**
-   * Abrir ficha do paciente direto do card — SEM efeitos colaterais
-   * (nao avanca stage, nao gradua lead). Apenas garante que o Patient
-   * existe (idempotente) e redireciona pra /atendimento/pacientes/:id.
-   *
-   * Diferente de handleAttend (que tambem abre a ficha):
-   *   - handleAttend: avanca stage + abre na aba Odontograma (intent: atender)
-   *   - handleOpenPatient: so abre a ficha em "Visao geral" (intent: consultar)
+   * O atendimento clinico propriamente dito acontece quando a dra clica
+   * "Atender" no header da ficha — esse caminho e exclusivo dela, pq
+   * dentista nao tem acesso ao Kanban CRM.
    */
   const handleOpenPatient = async (leadId: string) => {
     setAttendingLeadId(leadId);
@@ -2127,7 +2030,6 @@ export default function CrmPage() {
                               onOpenDetail={() => openDetail(lead)}
                               onOpenPatient={() => handleOpenPatient(lead.id)}
                               onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
-                              onAttend={() => handleAttend(lead.id)}
                               attendLoading={attendingLeadId === lead.id}
                               isSelected={selectedLeads.has(lead.id)}
                               onToggleSelect={() => toggleSelect(lead.id)}
