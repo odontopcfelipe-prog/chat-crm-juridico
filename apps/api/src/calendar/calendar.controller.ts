@@ -4,6 +4,11 @@ import { CalendarService } from './calendar.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
 import {
+  canViewAllAgenda,
+  canCreateAgendaEvent,
+  canDeleteAgendaEvent,
+} from '../common/utils/permissions.util';
+import {
   CreateEventDto,
   UpdateEventDto,
   CreateAppointmentTypeDto,
@@ -29,15 +34,17 @@ export class CalendarController {
     @Query('userId') userId: string | undefined,
     @Query('leadId') leadId: string | undefined,
     @Query('search') search: string | undefined,
-    @Query('showAll') showAll: string | undefined,
+    @Query('showAll') _showAll: string | undefined,
     @Request() req: any,
   ) {
-    // Default: mostra apenas eventos do usuario logado
-    // showAll=true: ADMIN vê tudo, DENTIST vê eventos dos seus casos
-    const isAdmin = req.user?.roles?.includes('ADMIN');
-    const isDentist = req.user?.roles?.includes('DENTIST');
-    const canViewAll = isAdmin || (showAll === 'true' && isDentist);
-    const effectiveUserId = canViewAll ? undefined : (userId || req.user.id);
+    // Restricao por role:
+    //   - ADMIN/OPERADOR (secretaria)/ASSISTANT: veem tudo do tenant.
+    //     Filtro userId opcional (pra escolher uma agenda especifica).
+    //   - DENTIST/FINANCEIRO/outros: forcado a ver SO os proprios eventos
+    //     (assigned_user_id = self). Param userId e ignorado — backend
+    //     impoe pra evitar bypass via query string.
+    const canViewAll = canViewAllAgenda(req.user?.roles);
+    const effectiveUserId = canViewAll ? userId : req.user.id;
     return this.calendarService.findAll({
       start,
       end,
@@ -50,18 +57,40 @@ export class CalendarController {
   }
 
   @Get('events/:id')
-  findOne(@Param('id') id: string) {
+  async findOne(@Param('id') id: string, @Request() req: any) {
+    // Tampa furo: antes qualquer user logado abria qualquer evento por ID.
+    // Agora respeita a mesma regra do findAll — DENTIST so ve os proprios.
+    const canAccess = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
+    if (!canAccess) throw new ForbiddenException('Sem permissao para ver este evento');
     return this.calendarService.findOne(id);
   }
 
   @Post('events')
   create(@Body() data: CreateEventDto, @Request() req: any) {
+    // So ADMIN/OPERADOR (secretaria)/ASSISTANT criam eventos. DENTIST nao
+    // cria — deve ser agendado pela secretaria/admin pra evitar conflito.
+    if (!canCreateAgendaEvent(req.user?.roles)) {
+      throw new ForbiddenException('Sem permissao para criar evento na agenda. Solicite a secretaria.');
+    }
     return this.calendarService.create({
       ...data,
       created_by_id: req.user.id,
       tenant_id: req.user?.tenant_id,
     });
   }
+
+  /**
+   * Campos que DENTIST/FINANCEIRO podem alterar do proprio evento.
+   * Cobre o fluxo clinico: dentista marca status (CONCLUIDO/CONFIRMADO/etc)
+   * e/ou valida atendimento. Mudancas estruturais (titulo, datas, paciente,
+   * dentista responsavel) ficam restritas a ADMIN/OPERADOR/ASSISTANT.
+   */
+  private static readonly DENTIST_EDITABLE_FIELDS = new Set([
+    'status',
+    'validated_at',
+    'validated_by_user_id',
+    'validation_notes',
+  ]);
 
   @Patch('events/:id')
   async update(
@@ -72,6 +101,19 @@ export class CalendarController {
   ) {
     const canEdit = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
     if (!canEdit) throw new ForbiddenException('Sem permissao para editar este evento');
+
+    // DENTIST/FINANCEIRO so podem mexer no status do proprio evento.
+    // Bloqueia tentativa de mudar titulo, datas, paciente, dentista, etc.
+    if (!canViewAllAgenda(req.user?.roles)) {
+      const blocked = Object.keys(data || {}).filter(
+        k => !CalendarController.DENTIST_EDITABLE_FIELDS.has(k),
+      );
+      if (blocked.length > 0) {
+        throw new ForbiddenException(
+          `Sem permissao para alterar: ${blocked.join(', ')}. Dentista pode mudar apenas o status do proprio evento.`,
+        );
+      }
+    }
 
     if (updateScope === 'all') {
       return this.calendarService.updateRecurrenceAll(id, data);
@@ -146,6 +188,12 @@ export class CalendarController {
     @Query('deleteScope') deleteScope: string | undefined,
     @Request() req: any,
   ) {
+    // Apagar evento e exclusivo do ADMIN. Secretaria/dentista que precisar
+    // remover deve marcar o status como CANCELADO (preserva historico).
+    if (!canDeleteAgendaEvent(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode remover eventos da agenda. Use o status CANCELADO no lugar.');
+    }
+    // checkOwnership ainda garante que o evento pertence ao tenant
     const canEdit = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
     if (!canEdit) throw new ForbiddenException('Sem permissao para remover este evento');
 

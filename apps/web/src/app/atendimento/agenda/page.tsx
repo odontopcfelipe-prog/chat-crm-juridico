@@ -1813,33 +1813,37 @@ export default function AgendaPage() {
           </label>
         </div>
 
-        {/* Filtro por dentista (admin) — compactado */}
-        <div className="px-2 py-1">
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
-            <button
-              onClick={() => setShowAllUsers(v => !v)}
-              className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border transition-colors ${
-                showAllUsers
-                  ? 'bg-primary/10 text-primary border-primary/30'
-                  : 'text-muted-foreground border-border hover:bg-accent'
-              }`}
-              title={showAllUsers ? 'Mostrando todos' : 'Somente meus eventos'}
-            >
-              {showAllUsers ? 'Todos' : 'Meus'}
-            </button>
+        {/* Filtro por dentista — apenas pra ADMIN/OPERADOR/ASSISTANT.
+            DENTIST/FINANCEIRO so veem a propria agenda (backend forca o
+            filtro), entao o seletor e omitido pra evitar UX confusa. */}
+        {role.canViewAllAgenda && (
+          <div className="px-2 py-1">
+            <div className="flex items-center justify-between mb-1">
+              <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground">Dentista</p>
+              <button
+                onClick={() => setShowAllUsers(v => !v)}
+                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full border transition-colors ${
+                  showAllUsers
+                    ? 'bg-primary/10 text-primary border-primary/30'
+                    : 'text-muted-foreground border-border hover:bg-accent'
+                }`}
+                title={showAllUsers ? 'Mostrando todos' : 'Somente meus eventos'}
+              >
+                {showAllUsers ? 'Todos' : 'Meus'}
+              </button>
+            </div>
+            {showAllUsers && (
+              <select
+                value={filterUserId}
+                onChange={e => setFilterUserId(e.target.value)}
+                className="w-full px-2 py-1 rounded-md border border-border bg-background text-[11px] text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+              >
+                <option value="">Todos os dentistas</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            )}
           </div>
-          {showAllUsers && (
-            <select
-              value={filterUserId}
-              onChange={e => setFilterUserId(e.target.value)}
-              className="w-full px-2 py-1 rounded-md border border-border bg-background text-[11px] text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-            >
-              <option value="">Todos os dentistas</option>
-              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-            </select>
-          )}
-        </div>
+        )}
 
         <div className="mx-2 border-t border-border/50 my-0.5" />
 
@@ -1937,14 +1941,17 @@ export default function AgendaPage() {
             <Filter size={13} />
           </button>
           <div className="flex-1" />
-          <button
-            onClick={() => setShowAllUsers(v => !v)}
-            className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold transition-colors ${
-              showAllUsers ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground'
-            }`}
-          >
-            {showAllUsers ? <Users size={11} /> : <User size={11} />}
-          </button>
+          {/* Toggle Todos/Meus — so pra quem pode ver agenda alheia */}
+          {role.canViewAllAgenda && (
+            <button
+              onClick={() => setShowAllUsers(v => !v)}
+              className={`inline-flex items-center gap-1 px-2 py-1 rounded-md border text-[11px] font-semibold transition-colors ${
+                showAllUsers ? 'border-primary/40 bg-primary/10 text-primary' : 'border-border text-muted-foreground'
+              }`}
+            >
+              {showAllUsers ? <Users size={11} /> : <User size={11} />}
+            </button>
+          )}
         </div>
 
         {/* Kanban + Novo Evento — POSITION ABSOLUTE alinhados com header do
@@ -1964,26 +1971,30 @@ export default function AgendaPage() {
             <span>{kanbanView ? 'Calendário' : 'Kanban'}</span>
           </button>
 
-          {/* Onda 5e v9 (Fase 25) — botao Bloquear em VERMELHO pra destacar
-              ação destrutiva (impede agendamento). v11: estilo solido com
-              hover mais escuro pra alinhar visualmente com a gravidade da acao. */}
-          <button
-            onClick={() => setShowBlockModal(true)}
-            className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-md"
-            title="Bloquear agenda (férias, doença, etc)"
-          >
-            <Ban size={12} />
-            <span>Bloquear</span>
-          </button>
+          {/* Bloquear agenda — apenas pra quem pode gerenciar (ADMIN/OPERADOR/ASSISTANT).
+              DENTIST nao tem permissao de criar/bloquear na agenda. */}
+          {role.canCreateAgendaEvent && (
+            <button
+              onClick={() => setShowBlockModal(true)}
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-md"
+              title="Bloquear agenda (férias, doença, etc)"
+            >
+              <Ban size={12} />
+              <span>Bloquear</span>
+            </button>
+          )}
 
-          <button
-            onClick={() => openCreateModal()}
-            className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-md"
-            title="Criar evento (atalho: N)"
-          >
-            <Plus size={13} />
-            <span>Novo Evento</span>
-          </button>
+          {/* Novo Evento — mesma regra de Bloquear */}
+          {role.canCreateAgendaEvent && (
+            <button
+              onClick={() => openCreateModal()}
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-md"
+              title="Criar evento (atalho: N)"
+            >
+              <Plus size={13} />
+              <span>Novo Evento</span>
+            </button>
+          )}
         </div>
 
         {/* Filtros mobile (expansível) */}
@@ -2714,19 +2725,26 @@ export default function AgendaPage() {
               <div className="flex items-center gap-1 flex-wrap order-2 sm:order-1">
                 {editingEvent && canEdit && (
                   <>
-                    <button
-                      onClick={() => handleDelete()}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
-                    >
-                      Remover
-                    </button>
-                    <button
-                      onClick={handleDuplicate}
-                      className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
-                      title="Duplicar evento"
-                    >
-                      <Copy size={12} /> <span className="hidden md:inline">Duplicar</span>
-                    </button>
+                    {/* Remover — exclusivo do ADMIN. Backend tambem valida. */}
+                    {role.canDeleteAgendaEvent && (
+                      <button
+                        onClick={() => handleDelete()}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-destructive hover:bg-destructive/10 rounded-lg transition-colors"
+                      >
+                        Remover
+                      </button>
+                    )}
+                    {/* Duplicar — usa o mesmo POST que Novo Evento, entao
+                        respeita a permissao de criar eventos. */}
+                    {role.canCreateAgendaEvent && (
+                      <button
+                        onClick={handleDuplicate}
+                        className="px-2.5 py-1.5 text-xs font-semibold text-muted-foreground hover:bg-accent rounded-lg transition-colors inline-flex items-center gap-1"
+                        title="Duplicar evento"
+                      >
+                        <Copy size={12} /> <span className="hidden md:inline">Duplicar</span>
+                      </button>
+                    )}
                   </>
                 )}
                 {editingEvent && (

@@ -65,3 +65,27 @@ export function effectiveRole(roles: string | string[]): string {
   const priority = [ROLES.ADMIN, ROLES.DENTIST, ROLES.OPERADOR, ROLES.ASSISTANT, ROLES.FINANCEIRO];
   return priority.find(p => r.includes(p)) || r[0] || 'OPERADOR';
 }
+
+// ─── Agenda (calendar) ──────────────────────────────────────────────────────
+// ADMIN/OPERADOR (secretaria)/ASSISTANT veem agenda de qualquer dentista e
+// podem criar/editar eventos. DENTIST/FINANCEIRO so veem os proprios eventos
+// (assigned_user_id = self) e nao podem criar nem apagar. Apagar e exclusivo
+// do ADMIN. DENTIST pode editar status/validacao do proprio evento (fluxo
+// clinico: validar atendimento, marcar concluido).
+
+/** Pode ver toda a agenda do tenant (sem restricao por dentista). */
+export function canViewAllAgenda(roles: string | string[]): boolean {
+  const r = normalizeRoles(roles);
+  return r.some(role => ['ADMIN', 'OPERADOR', 'ASSISTANT'].includes(role));
+}
+
+/** Pode criar evento na agenda. */
+export function canCreateAgendaEvent(roles: string | string[]): boolean {
+  const r = normalizeRoles(roles);
+  return r.some(role => ['ADMIN', 'OPERADOR', 'ASSISTANT'].includes(role));
+}
+
+/** Pode apagar evento da agenda — exclusivo do ADMIN. */
+export function canDeleteAgendaEvent(roles: string | string[]): boolean {
+  return normalizeRoles(roles).includes(ROLES.ADMIN);
+}

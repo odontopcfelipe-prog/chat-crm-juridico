@@ -3,7 +3,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
-import { isAdmin } from '../common/utils/permissions.util';
+import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
 
 // Tipos de evento da clinica odontologica.
@@ -1927,7 +1927,6 @@ export class CalendarService {
   // ─── Ownership Check ──────────────────────────────────
 
   async checkOwnership(eventId: string, userId: string, userRoles: string | string[], tenantId?: string): Promise<boolean> {
-    if (isAdmin(userRoles)) return true;
     const event = await this.prisma.calendarEvent.findUnique({
       where: { id: eventId },
       select: { created_by_id: true, assigned_user_id: true, tenant_id: true },
@@ -1935,6 +1934,9 @@ export class CalendarService {
     if (!event) throw new NotFoundException('Evento nao encontrado');
     // Tenant isolation check
     if (tenantId && event.tenant_id && event.tenant_id !== tenantId) return false;
+    // ADMIN/OPERADOR (secretaria)/ASSISTANT enxergam e mexem em qualquer
+    // evento do tenant. DENTIST/FINANCEIRO so se for owner ou assigned.
+    if (canViewAllAgenda(userRoles)) return true;
     return event.created_by_id === userId ||
       (event.assigned_user_id !== null && event.assigned_user_id === userId);
   }

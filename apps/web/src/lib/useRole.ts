@@ -22,6 +22,10 @@ export interface RoleInfo {
   canViewDashboard: boolean;     // dashboard
   canViewAnalytics: boolean;     // analytics/marketing
   canViewFinanceiro: boolean;    // módulo financeiro
+  // ─── Agenda ──────────────────────────────────────────────────────────────
+  canViewAllAgenda: boolean;     // ADMIN/OPERADOR/ASSISTANT veem agenda de todos
+  canCreateAgendaEvent: boolean; // mesma regra: ADMIN/OPERADOR/ASSISTANT criam
+  canDeleteAgendaEvent: boolean; // exclusivo do ADMIN — secretaria usa CANCELADO
 }
 
 /**
@@ -90,5 +94,8 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     canViewDashboard: has(['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL']),
     canViewAnalytics: has(['ADMIN']),
     canViewFinanceiro: has(['ADMIN', 'FINANCEIRO', 'DENTIST']),
+    canViewAllAgenda: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
+    canCreateAgendaEvent: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
+    canDeleteAgendaEvent: roles.includes('ADMIN'),
   };
 }
