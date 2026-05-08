@@ -1,6 +1,39 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { AnamnesisTemplatesService } from './anamnesis-templates.service';
+
+interface UpsertInput {
+  answers: Record<string, any>;
+  template_id?: string;
+  submitted_via?: 'STAFF' | 'PATIENT_PORTAL';
+  ip?: string;
+  user_agent?: string;
+  consent_text?: string;
+  signature_method?: 'TYPED_NAME' | 'DRAWN';
+  signature_data?: string;
+}
+
+/**
+ * Calcula hash SHA-256 de fingerprint forense da anamnese.
+ * Qualquer mudanca em answers, IP, UA, signature ou timestamp produz hash diferente.
+ */
+export function computeAnamneseAuditHash(input: {
+  answers: Record<string, any>;
+  ip?: string | null;
+  user_agent?: string | null;
+  signature_data?: string | null;
+  filled_at: Date;
+}): string {
+  const payload = JSON.stringify({
+    answers: input.answers,
+    ip: input.ip || '',
+    user_agent: input.user_agent || '',
+    signature_data: input.signature_data || '',
+    filled_at: input.filled_at.toISOString(),
+  });
+  return createHash('sha256').update(payload).digest('hex');
+}
 
 @Injectable()
 export class AnamnesisService {
@@ -22,6 +55,12 @@ export class AnamnesisService {
       ? await this.templatesService.findOne(data.template_id, tenantId)
       : await this.templatesService.findActive(tenantId);
 
+    const filled_at = new Date();
+    const audit_hash = computeAnamneseAuditHash({
+      answers: data.answers,
+      filled_at,
+    });
+
     return this.prisma.anamnesis.create({
       data: {
         patient_id: patientId,
@@ -29,6 +68,9 @@ export class AnamnesisService {
         template_schema: template.schema as any,
         answers: data.answers,
         filled_by_user_id: userId || null,
+        submitted_via: 'STAFF',
+        filled_at,
+        audit_hash,
       },
     });
   }
@@ -39,6 +81,123 @@ export class AnamnesisService {
       where: { patient_id: patientId },
       orderBy: { filled_at: 'desc' },
       include: { template: { select: { id: true, version: true } } },
+    });
+  }
+
+  /**
+   * Retorna a anamnese ativa do paciente (mais recente) com template_schema embutido.
+   * Se nao existe ainda, retorna { exists: false, template } com o template ATIVO
+   * para o frontend renderizar form vazio.
+   */
+  async findActiveByPatient(patientId: string, tenantId: string) {
+    await this.assertPatientBelongsToTenant(patientId, tenantId);
+
+    const anm = await this.prisma.anamnesis.findFirst({
+      where: { patient_id: patientId },
+      orderBy: { filled_at: 'desc' },
+      include: {
+        template: { select: { id: true, version: true, schema: true } },
+      },
+    });
+
+    if (anm) {
+      // Busca nome do usuario que preencheu (relation nao existe no schema, lookup manual)
+      let filled_by_user: { id: string; name: string } | null = null;
+      if (anm.filled_by_user_id) {
+        filled_by_user = await this.prisma.user.findUnique({
+          where: { id: anm.filled_by_user_id },
+          select: { id: true, name: true },
+        });
+      }
+      return {
+        exists: true,
+        anamnesis: { ...anm, filled_by_user },
+      };
+    }
+
+    // Sem anamnese ainda — devolve template ativo pro form
+    const template = await this.templatesService.findActive(tenantId);
+    return {
+      exists: false,
+      template: { id: template.id, version: template.version, schema: template.schema },
+    };
+  }
+
+  /**
+   * Upsert: se ja existe anamnese pro paciente, atualiza; senao cria.
+   * Usado por preenchimento da equipe (PUT /patients/:id/anamnesis) e
+   * por preenchimento do paciente via portal (POST /portal/anamnesis/submit).
+   */
+  async upsertByPatient(
+    patientId: string,
+    tenantId: string,
+    input: UpsertInput,
+    userId?: string,
+  ) {
+    await this.assertPatientBelongsToTenant(patientId, tenantId);
+    if (!input.answers || typeof input.answers !== 'object') {
+      throw new BadRequestException('answers obrigatorio');
+    }
+
+    const existing = await this.prisma.anamnesis.findFirst({
+      where: { patient_id: patientId },
+      orderBy: { filled_at: 'desc' },
+    });
+
+    const submitted_via = input.submitted_via || 'STAFF';
+    const filled_at = new Date();
+    const consent_accepted_at = submitted_via === 'PATIENT_PORTAL' ? filled_at : null;
+
+    const audit_hash = computeAnamneseAuditHash({
+      answers: input.answers,
+      ip: input.ip,
+      user_agent: input.user_agent,
+      signature_data: input.signature_data,
+      filled_at,
+    });
+
+    if (existing) {
+      // Atualiza existente — preserva template_id original (snapshot imutavel)
+      return this.prisma.anamnesis.update({
+        where: { id: existing.id },
+        data: {
+          answers: input.answers,
+          filled_by_user_id: userId ?? existing.filled_by_user_id,
+          filled_at,
+          submitted_via,
+          submitted_ip: input.ip || null,
+          submitted_user_agent: input.user_agent?.slice(0, 500) || null,
+          consent_text: input.consent_text || existing.consent_text,
+          consent_accepted_at: consent_accepted_at || existing.consent_accepted_at,
+          signature_method: input.signature_method || null,
+          signature_data: input.signature_data || null,
+          audit_hash,
+        },
+      });
+    }
+
+    // Primeira anamnese — pega template ativo
+    const template = input.template_id
+      ? await this.templatesService.findOne(input.template_id, tenantId)
+      : await this.templatesService.findActive(tenantId);
+
+    return this.prisma.anamnesis.create({
+      data: {
+        patient_id: patientId,
+        template_id: template.id,
+        template_schema: template.schema as any,
+        answers: input.answers,
+        filled_by_user_id: userId || null,
+        filled_at,
+        submitted_via,
+        submitted_ip: input.ip || null,
+        submitted_user_agent: input.user_agent?.slice(0, 500) || null,
+        consent_text: input.consent_text || null,
+        consent_accepted_at,
+        signature_method: input.signature_method || null,
+        signature_data: input.signature_data || null,
+        audit_hash,
+      },
     });
   }
 
@@ -59,9 +218,16 @@ export class AnamnesisService {
   async update(id: string, tenantId: string, answers: Record<string, any>) {
     await this.findOne(id, tenantId);
     if (!answers || typeof answers !== 'object') throw new BadRequestException('answers obrigatorio');
+    const filled_at = new Date();
+    const audit_hash = computeAnamneseAuditHash({ answers, filled_at });
     return this.prisma.anamnesis.update({
       where: { id },
-      data: { answers },
+      data: {
+        answers,
+        filled_at,
+        submitted_via: 'STAFF',
+        audit_hash,
+      },
     });
   }
 

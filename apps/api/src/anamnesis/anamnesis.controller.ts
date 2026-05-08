@@ -63,7 +63,48 @@ export class AnamnesisController {
     return this.templatesService.update(id, tenantId, dto as any);
   }
 
-  // ─── Anamnese do paciente ─────────────────────────────────────
+  // ─── Anamnese do paciente (singular — 1 ativa por paciente) ───
+
+  /**
+   * Retorna a anamnese ativa do paciente OU o template ativo se ainda nao existe.
+   * Frontend renderiza form direto (preenchido ou vazio) sem listagem.
+   */
+  @Get('patients/:patientId/anamnesis')
+  findActive(@Param('patientId') patientId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.anamnesisService.findActiveByPatient(patientId, tenantId);
+  }
+
+  /**
+   * Upsert: equipe preenche/atualiza anamnese do paciente.
+   * Marca submitted_via='STAFF', captura IP+UA, recalcula audit_hash.
+   */
+  @Patch('patients/:patientId/anamnesis')
+  upsert(
+    @Param('patientId') patientId: string,
+    @Body() dto: UpdateAnamnesisDto,
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!dto.answers) throw new BadRequestException('answers obrigatorio');
+    const ip = (req.ip || req.headers?.['x-forwarded-for'] || '').toString().split(',')[0].trim();
+    const ua = req.headers?.['user-agent'];
+    return this.anamnesisService.upsertByPatient(
+      patientId,
+      tenantId,
+      {
+        answers: dto.answers,
+        submitted_via: 'STAFF',
+        ip,
+        user_agent: ua,
+      },
+      req.user?.id,
+    );
+  }
+
+  // ─── Endpoints legados (compat — multiplas anamneses) ─────────
 
   @Post('patients/:patientId/anamneses')
   create(@Param('patientId') patientId: string, @Body() dto: CreateAnamnesisDto, @Request() req: any) {

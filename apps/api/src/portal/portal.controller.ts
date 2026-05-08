@@ -20,13 +20,13 @@ export class PortalController {
   @UseGuards(JwtAuthGuard)
   @Post('portal/magic-link')
   createMagicLink(
-    @Body() body: { patient_id: string; channel?: string },
+    @Body() body: { patient_id: string; channel?: string; purpose?: 'GENERIC' | 'ANAMNESE' },
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     if (!body?.patient_id) throw new BadRequestException('patient_id obrigatorio');
-    return this.auth.createMagicLink(tenantId, body.patient_id, body.channel);
+    return this.auth.createMagicLink(tenantId, body.patient_id, body.channel, body.purpose);
   }
 
   /** Publico — paciente troca token magico por JWT. */
@@ -93,5 +93,42 @@ export class PortalController {
   getAnamneses(@Request() req: any) {
     const { tenant_id, patient_id } = req.patient;
     return this.portal.getAnamneses(tenant_id, patient_id);
+  }
+
+  // ─── Anamnese unica do paciente (portal) ──────────────────────
+
+  /**
+   * Retorna a anamnese ativa do paciente OU template ativo + texto do
+   * consentimento. Usado pela tela /area-paciente/anamnese/preencher.
+   */
+  @Public()
+  @UseGuards(PortalJwtGuard)
+  @Get('portal/anamnesis')
+  getActiveAnamnese(@Request() req: any) {
+    const { tenant_id, patient_id } = req.patient;
+    return this.portal.getActiveAnamneseForPatient(tenant_id, patient_id);
+  }
+
+  /**
+   * Paciente submete sua propria anamnese. Captura IP + user-agent +
+   * consentimento + assinatura. Persiste audit_hash imutavel.
+   */
+  @Public()
+  @UseGuards(PortalJwtGuard)
+  @Post('portal/anamnesis/submit')
+  submitAnamnese(
+    @Body() body: {
+      answers: Record<string, any>;
+      signature_data: string;
+      signature_method?: 'TYPED_NAME' | 'DRAWN';
+      consent_accepted: boolean;
+    },
+    @Request() req: any,
+  ) {
+    const { tenant_id, patient_id } = req.patient;
+    if (!body) throw new BadRequestException('Body obrigatorio');
+    const ip = (req.ip || req.headers?.['x-forwarded-for'] || '').toString().split(',')[0].trim();
+    const ua = req.headers?.['user-agent'];
+    return this.portal.submitAnamneseByPatient(tenant_id, patient_id, body, ip, ua);
   }
 }

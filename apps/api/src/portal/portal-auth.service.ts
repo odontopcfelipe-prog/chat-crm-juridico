@@ -29,6 +29,7 @@ export class PortalAuthService {
     tenantId: string,
     patientId: string,
     channel: string = 'WHATSAPP',
+    purpose: 'GENERIC' | 'ANAMNESE' = 'GENERIC',
   ) {
     const patient = await this.prisma.patient.findFirst({
       where: { id: patientId, tenant_id: tenantId },
@@ -55,7 +56,10 @@ export class PortalAuthService {
       process.env.PORTAL_PUBLIC_URL ||
       process.env.PUBLIC_WEB_URL ||
       'https://sistema.institutoodontopassos.com.br';
-    const link = `${publicUrl.replace(/\/+$/, '')}/area-paciente/login?token=${created.token}`;
+    // ?next=... e lido pelo /area-paciente/login para redirecionar apos auth
+    const nextPath = purpose === 'ANAMNESE' ? '/area-paciente/anamnese/preencher' : '';
+    const nextParam = nextPath ? `&next=${encodeURIComponent(nextPath)}` : '';
+    const link = `${publicUrl.replace(/\/+$/, '')}/area-paciente/login?token=${created.token}${nextParam}`;
 
     // Auto-dispatch via WhatsApp (best-effort)
     let dispatch: { status: 'SENT' | 'SKIPPED' | 'FAILED'; reason?: string } = {
@@ -63,7 +67,7 @@ export class PortalAuthService {
     };
 
     if (channel === 'WHATSAPP' && patient.phone) {
-      dispatch = await this.dispatchWhatsApp(tenantId, patient.phone, patient.name, link);
+      dispatch = await this.dispatchWhatsApp(tenantId, patient.phone, patient.name, link, purpose);
     } else if (channel === 'WHATSAPP' && !patient.phone) {
       dispatch = { status: 'SKIPPED', reason: 'Paciente sem telefone' };
     }
@@ -72,6 +76,7 @@ export class PortalAuthService {
       token: created.token,
       expires_at: created.expires_at,
       link,
+      purpose,
       patient: {
         id: patient.id,
         name: patient.name,
@@ -92,6 +97,7 @@ export class PortalAuthService {
     phone: string,
     name: string,
     link: string,
+    purpose: 'GENERIC' | 'ANAMNESE' = 'GENERIC',
   ): Promise<{ status: 'SENT' | 'FAILED'; reason?: string }> {
     try {
       const cfg = await this.settings.getWhatsAppConfig();
@@ -108,14 +114,25 @@ export class PortalAuthService {
       }
 
       const firstName = name.split(' ')[0];
-      const text =
-        `Ola ${firstName}! 👋\n\n` +
-        `Seu portal do paciente esta pronto. Acesse para ver:\n` +
-        `📅 Agendamentos\n` +
-        `💰 Parcelas\n` +
-        `📋 Anamnese\n\n` +
-        `${link}\n\n` +
-        `Link valido por 7 dias e de uso unico.`;
+      const text = purpose === 'ANAMNESE'
+        ? (
+          `Ola ${firstName}! 👋\n\n` +
+          `Para sua proxima consulta na nossa clinica, precisamos que voce ` +
+          `preencha sua *ficha de anamnese* (historico de saude).\n\n` +
+          `Acesse o link abaixo, responda as perguntas e confirme com seu ` +
+          `nome ao final. Leva so uns 3 minutos:\n\n` +
+          `${link}\n\n` +
+          `🔒 Link pessoal, valido por 7 dias.`
+        )
+        : (
+          `Ola ${firstName}! 👋\n\n` +
+          `Seu portal do paciente esta pronto. Acesse para ver:\n` +
+          `📅 Agendamentos\n` +
+          `💰 Parcelas\n` +
+          `📋 Anamnese\n\n` +
+          `${link}\n\n` +
+          `Link valido por 7 dias e de uso unico.`
+        );
 
       await axios.post(
         `${cfg.apiUrl}/message/sendText/${instance.name}`,
@@ -125,7 +142,7 @@ export class PortalAuthService {
           timeout: 15000,
         },
       );
-      this.logger.log(`[Portal] Magic link enviado para ${name} (${phone})`);
+      this.logger.log(`[Portal] Magic link (${purpose}) enviado para ${name} (${phone})`);
       return { status: 'SENT' };
     } catch (err: any) {
       const reason = err?.response?.data?.message || err?.message || 'erro';

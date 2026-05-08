@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, FileText, Plus, ArrowLeft, Edit3, CheckCircle2 } from 'lucide-react';
+import { Loader2, FileText, Send, ShieldCheck, User, Hash } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import DynamicAnamneseForm, { AnamnesisSchema } from './DynamicAnamneseForm';
@@ -10,80 +10,56 @@ interface Props {
   patientId: string;
 }
 
-interface AnamneseListItem {
-  id: string;
-  filled_at: string;
-  filled_by_user_id: string | null;
-  template: { id: string; version: number };
+interface ActiveAnamnese {
+  exists: boolean;
+  anamnesis?: {
+    id: string;
+    answers: Record<string, any>;
+    template_schema: AnamnesisSchema;
+    template: { id: string; version: number };
+    filled_at: string;
+    updated_at: string;
+    submitted_via: 'STAFF' | 'PATIENT_PORTAL' | null;
+    submitted_ip: string | null;
+    submitted_user_agent: string | null;
+    consent_text: string | null;
+    consent_accepted_at: string | null;
+    signature_method: 'TYPED_NAME' | 'DRAWN' | null;
+    signature_data: string | null;
+    audit_hash: string | null;
+    filled_by_user: { id: string; name: string } | null;
+  };
+  template?: { id: string; version: number; schema: AnamnesisSchema };
 }
-
-interface AnamneseDetail {
-  id: string;
-  filled_at: string;
-  answers: Record<string, any>;
-  template_schema: AnamnesisSchema;
-  template: { id: string; version: number };
-}
-
-interface Template {
-  id: string;
-  version: number;
-  schema: AnamnesisSchema;
-}
-
-type Mode = 'list' | 'new' | 'view' | 'edit';
 
 export default function AnamneseTab({ patientId }: Props) {
-  const [list, setList] = useState<AnamneseListItem[]>([]);
-  const [activeTemplate, setActiveTemplate] = useState<Template | null>(null);
-  const [current, setCurrent] = useState<AnamneseDetail | null>(null);
-  const [mode, setMode] = useState<Mode>('list');
+  const [data, setData] = useState<ActiveAnamnese | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [sendingLink, setSendingLink] = useState(false);
 
-  const loadList = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<AnamneseListItem[]>(`/patients/${patientId}/anamneses`);
-      setList(data);
+      const { data } = await api.get<ActiveAnamnese>(`/patients/${patientId}/anamnesis`);
+      setData(data);
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar anamneses');
+      showError(err?.response?.data?.message || 'Erro ao carregar anamnese');
     } finally {
       setLoading(false);
     }
   }, [patientId]);
 
   useEffect(() => {
-    loadList();
-  }, [loadList]);
+    load();
+  }, [load]);
 
-  const handleNew = async () => {
-    try {
-      const { data } = await api.get<Template>('/anamnesis-templates/active');
-      setActiveTemplate(data);
-      setMode('new');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Nenhum template ativo. Admin precisa cadastrar.');
-    }
-  };
-
-  const handleView = async (id: string) => {
-    try {
-      const { data } = await api.get<AnamneseDetail>(`/anamneses/${id}`);
-      setCurrent(data);
-      setMode('view');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar anamnese');
-    }
-  };
-
-  const handleSaveNew = async (answers: Record<string, any>) => {
+  const handleSave = async (answers: Record<string, any>) => {
     setSaving(true);
     try {
-      await api.post(`/patients/${patientId}/anamneses`, { answers });
+      await api.patch(`/patients/${patientId}/anamnesis`, { answers });
       showSuccess('Anamnese salva');
-      setMode('list');
-      await loadList();
+      await load();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao salvar');
     } finally {
@@ -91,134 +67,163 @@ export default function AnamneseTab({ patientId }: Props) {
     }
   };
 
-  const handleSaveEdit = async (answers: Record<string, any>) => {
-    if (!current) return;
-    setSaving(true);
+  const handleSendLink = async () => {
+    if (sendingLink) return;
+    if (!confirm('Enviar link de preenchimento da anamnese para o paciente via WhatsApp?')) return;
+    setSendingLink(true);
     try {
-      await api.patch(`/anamneses/${current.id}`, { answers });
-      showSuccess('Anamnese atualizada');
-      setMode('list');
-      setCurrent(null);
-      await loadList();
+      const { data: resp } = await api.post('/portal/magic-link', {
+        patient_id: patientId,
+        channel: 'WHATSAPP',
+        purpose: 'ANAMNESE',
+      });
+      if (resp?.dispatch?.status === 'SENT') {
+        showSuccess('Link enviado pelo WhatsApp');
+      } else if (resp?.dispatch?.status === 'SKIPPED') {
+        showError(resp.dispatch.reason || 'Nao foi possivel enviar (paciente sem telefone)');
+      } else {
+        showError(resp?.dispatch?.reason || 'Falha ao enviar WhatsApp — link gerado mesmo assim');
+      }
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao salvar');
+      showError(err?.response?.data?.message || 'Erro ao enviar link');
     } finally {
-      setSaving(false);
+      setSendingLink(false);
     }
   };
 
-  // ─── Modos: new ───────────────────────────────────────────────
-  if (mode === 'new' && activeTemplate) {
+  if (loading) {
     return (
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={() => setMode('list')}
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            <ArrowLeft size={14} /> Voltar
-          </button>
-          <span className="text-xs text-muted-foreground">
-            Template v{activeTemplate.version}
-          </span>
-        </div>
-        <DynamicAnamneseForm
-          schema={activeTemplate.schema}
-          onSave={handleSaveNew}
-          onCancel={() => setMode('list')}
-          saving={saving}
-        />
+      <div className="py-12 flex items-center justify-center text-muted-foreground">
+        <Loader2 size={18} className="animate-spin mr-2" /> Carregando...
       </div>
     );
   }
 
-  // ─── Modos: view / edit ───────────────────────────────────────
-  if ((mode === 'view' || mode === 'edit') && current) {
-    return (
-      <div>
-        <div className="flex items-center justify-between mb-3">
-          <button
-            onClick={() => {
-              setMode('list');
-              setCurrent(null);
-            }}
-            className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1"
-          >
-            <ArrowLeft size={14} /> Voltar
-          </button>
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-muted-foreground">
-              Preenchido em {new Date(current.filled_at).toLocaleString('pt-BR')} · Template v{current.template.version}
-            </span>
-            {mode === 'view' && (
-              <button
-                onClick={() => setMode('edit')}
-                className="text-xs text-primary hover:bg-primary/10 px-2 py-1 rounded flex items-center gap-1"
-              >
-                <Edit3 size={12} /> Editar
-              </button>
-            )}
-          </div>
-        </div>
-        <DynamicAnamneseForm
-          schema={current.template_schema}
-          initialAnswers={current.answers}
-          readOnly={mode === 'view'}
-          onSave={mode === 'edit' ? handleSaveEdit : undefined}
-          onCancel={mode === 'edit' ? () => setMode('view') : undefined}
-          saving={saving}
-        />
-      </div>
-    );
-  }
+  if (!data) return null;
 
-  // ─── Modo list (default) ──────────────────────────────────────
+  const schema = data.exists
+    ? data.anamnesis!.template_schema
+    : data.template!.schema;
+  const initialAnswers = data.exists ? data.anamnesis!.answers : {};
+  const templateVersion = data.exists ? data.anamnesis!.template.version : data.template!.version;
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <p className="text-sm text-muted-foreground">
-          {list.length} anamnese(s) registrada(s)
-        </p>
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <FileText size={14} />
+          <span>Ficha unica do paciente</span>
+          <span className="text-xs">· Template v{templateVersion}</span>
+        </div>
         <button
-          onClick={handleNew}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90"
+          onClick={handleSendLink}
+          disabled={sendingLink}
+          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 disabled:opacity-50"
+          title="Enviar link de preenchimento via WhatsApp"
         >
-          <Plus size={14} /> Nova anamnese
+          {sendingLink ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+          Enviar p/ paciente preencher
         </button>
       </div>
 
-      {loading ? (
-        <div className="py-12 flex items-center justify-center text-muted-foreground">
-          <Loader2 size={18} className="animate-spin mr-2" /> Carregando...
-        </div>
-      ) : list.length === 0 ? (
-        <div className="bg-card border border-border border-dashed rounded-xl p-8 text-center">
-          <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
-          <p className="text-muted-foreground text-sm">Nenhuma anamnese preenchida ainda.</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Clique em "Nova anamnese" para começar a primeira ficha.
+      {/* Bloco de auditoria — so aparece se ja foi preenchida */}
+      {data.exists && data.anamnesis && (
+        <AuditPanel anm={data.anamnesis} />
+      )}
+
+      {/* Formulario sempre aberto */}
+      <DynamicAnamneseForm
+        schema={schema}
+        initialAnswers={initialAnswers}
+        onSave={handleSave}
+        saving={saving}
+      />
+    </div>
+  );
+}
+
+function AuditPanel({ anm }: { anm: NonNullable<ActiveAnamnese['anamnesis']> }) {
+  const isPatient = anm.submitted_via === 'PATIENT_PORTAL';
+  const isStaff = anm.submitted_via === 'STAFF';
+
+  const filledAt = new Date(anm.filled_at).toLocaleString('pt-BR', {
+    day: '2-digit', month: '2-digit', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  });
+
+  if (!anm.submitted_via) {
+    // Anamnese legada (pre-prova-eletronica) — mostra so o que tem
+    return (
+      <div className="bg-muted/30 border border-border rounded-xl p-3 text-xs text-muted-foreground">
+        Preenchida em {filledAt}
+        {anm.filled_by_user && <> por {anm.filled_by_user.name}</>}
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className={`rounded-xl p-4 border ${
+        isPatient
+          ? 'bg-emerald-50 border-emerald-200 dark:bg-emerald-950/30 dark:border-emerald-900'
+          : 'bg-blue-50 border-blue-200 dark:bg-blue-950/30 dark:border-blue-900'
+      }`}
+    >
+      <div className="flex items-start gap-2 mb-2">
+        <ShieldCheck
+          size={18}
+          className={isPatient ? 'text-emerald-600' : 'text-blue-600'}
+        />
+        <div className="flex-1">
+          <p className="text-sm font-semibold">
+            {isPatient
+              ? 'Confirmada eletronicamente pelo paciente'
+              : 'Preenchida pela equipe'}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            {filledAt}
+            {isStaff && anm.filled_by_user && <> · {anm.filled_by_user.name}</>}
           </p>
         </div>
-      ) : (
-        <ul className="bg-card border border-border rounded-xl divide-y divide-border">
-          {list.map((a) => (
-            <li
-              key={a.id}
-              onClick={() => handleView(a.id)}
-              className="px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3"
-            >
-              <CheckCircle2 size={18} className="text-primary shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  Anamnese preenchida
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  {new Date(a.filled_at).toLocaleString('pt-BR')} · Template v{a.template.version}
-                </p>
-              </div>
-            </li>
-          ))}
-        </ul>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs mt-3">
+        {anm.signature_data && (
+          <div className="flex items-start gap-1.5">
+            <User size={12} className="mt-0.5 text-muted-foreground shrink-0" />
+            <div>
+              <span className="text-muted-foreground">Assinatura:</span>{' '}
+              <span className="font-medium">{anm.signature_data}</span>
+            </div>
+          </div>
+        )}
+        {anm.submitted_ip && (
+          <div className="flex items-start gap-1.5">
+            <span className="text-muted-foreground shrink-0">IP:</span>
+            <span className="font-mono">{anm.submitted_ip}</span>
+          </div>
+        )}
+        {anm.audit_hash && (
+          <div className="flex items-start gap-1.5 md:col-span-2">
+            <Hash size={12} className="mt-0.5 text-muted-foreground shrink-0" />
+            <div className="min-w-0">
+              <span className="text-muted-foreground">Hash de integridade:</span>{' '}
+              <span className="font-mono text-[10px] break-all">{anm.audit_hash}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {isPatient && anm.consent_text && (
+        <details className="mt-3">
+          <summary className="text-xs text-muted-foreground cursor-pointer hover:text-foreground">
+            Ver termo aceito pelo paciente
+          </summary>
+          <p className="mt-2 text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">
+            {anm.consent_text}
+          </p>
+        </details>
       )}
     </div>
   );

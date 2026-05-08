@@ -1,0 +1,230 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { Loader2, ShieldCheck, CheckCircle, AlertCircle, FileText } from 'lucide-react';
+import portalApi from '@/lib/portalApi';
+import DynamicAnamneseForm, { AnamnesisSchema } from '@/app/atendimento/pacientes/components/DynamicAnamneseForm';
+
+interface ActiveAnamneseResp {
+  exists: boolean;
+  anamnesis?: {
+    id: string;
+    answers: Record<string, any>;
+    template_schema: AnamnesisSchema;
+    template: { id: string; version: number };
+    filled_at: string;
+  };
+  template?: { id: string; version: number; schema: AnamnesisSchema };
+  consent_text: string;
+}
+
+interface SubmitResp {
+  id: string;
+  filled_at: string;
+  audit_hash: string | null;
+}
+
+export default function AreaPacienteAnamnesePreencherPage() {
+  const router = useRouter();
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<ActiveAnamneseResp | null>(null);
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [consentAccepted, setConsentAccepted] = useState(false);
+  const [signature, setSignature] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [success, setSuccess] = useState<SubmitResp | null>(null);
+
+  useEffect(() => {
+    portalApi.get<ActiveAnamneseResp>('/portal/anamnesis')
+      .then(({ data }) => {
+        setData(data);
+        if (data.exists && data.anamnesis) {
+          setAnswers(data.anamnesis.answers || {});
+        }
+      })
+      .catch((err) => {
+        setErrorMsg(err?.response?.data?.message || 'Erro ao carregar ficha');
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  const handleSubmit = async () => {
+    setErrorMsg('');
+    if (!consentAccepted) {
+      setErrorMsg('Voce precisa concordar com o termo para enviar.');
+      return;
+    }
+    if (signature.trim().length < 3) {
+      setErrorMsg('Digite seu nome completo para confirmar.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const { data: resp } = await portalApi.post<SubmitResp>('/portal/anamnesis/submit', {
+        answers,
+        signature_data: signature.trim(),
+        signature_method: 'TYPED_NAME',
+        consent_accepted: true,
+      });
+      setSuccess(resp);
+    } catch (err: any) {
+      setErrorMsg(err?.response?.data?.message || 'Erro ao enviar anamnese');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center py-16 text-muted-foreground">
+        <Loader2 size={20} className="animate-spin mr-2" /> Carregando sua ficha...
+      </div>
+    );
+  }
+
+  if (errorMsg && !data) {
+    return (
+      <div className="max-w-xl mx-auto bg-card border border-destructive/30 rounded-xl p-6 text-center">
+        <AlertCircle size={32} className="mx-auto text-destructive mb-2" />
+        <p className="text-sm font-medium">{errorMsg}</p>
+      </div>
+    );
+  }
+
+  if (success) {
+    const filledAt = new Date(success.filled_at).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+    return (
+      <div className="max-w-xl mx-auto space-y-4">
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-2xl p-6 text-center">
+          <CheckCircle size={48} className="mx-auto text-emerald-600 mb-3" />
+          <h2 className="text-lg font-bold mb-1">Anamnese confirmada!</h2>
+          <p className="text-sm text-muted-foreground mb-4">
+            Suas informacoes foram registradas com seguranca.
+          </p>
+          <div className="text-xs text-muted-foreground space-y-1 bg-white/60 dark:bg-black/20 rounded-lg p-3 inline-block text-left">
+            <p>📅 <span className="font-medium">{filledAt}</span></p>
+            {success.audit_hash && (
+              <p className="font-mono break-all">
+                🔒 Protocolo: {success.audit_hash.slice(0, 16)}...
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={() => router.replace('/area-paciente')}
+          className="w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90"
+        >
+          Voltar para o portal
+        </button>
+      </div>
+    );
+  }
+
+  if (!data) return null;
+
+  const schema = data.exists
+    ? data.anamnesis!.template_schema
+    : data.template!.schema;
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-4 pb-8">
+      {/* Cabecalho */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <div className="flex items-start gap-2">
+          <FileText size={20} className="text-primary mt-0.5" />
+          <div>
+            <h1 className="text-lg font-bold">Ficha de anamnese</h1>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {data.exists
+                ? 'Voce ja preencheu antes — revise e atualize se algo mudou.'
+                : 'Responda com calma. Suas respostas ajudam a equipe a oferecer o melhor atendimento.'}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* Formulario dinamico — sem botoes internos */}
+      <DynamicAnamneseForm
+        schema={schema}
+        initialAnswers={answers}
+        onAnswersChange={setAnswers}
+        hideActions
+        onSave={() => {}}
+      />
+
+      {/* Bloco de consentimento + assinatura */}
+      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-4 space-y-3">
+        <div className="flex items-start gap-2">
+          <ShieldCheck size={18} className="text-amber-600 mt-0.5 shrink-0" />
+          <div>
+            <h3 className="font-semibold text-sm">Confirmacao eletronica</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Para validar legalmente sua anamnese, leia o termo abaixo e assine.
+            </p>
+          </div>
+        </div>
+
+        <div className="text-xs leading-relaxed text-foreground bg-white/60 dark:bg-black/20 border border-amber-200/60 dark:border-amber-900/60 rounded-lg p-3 max-h-40 overflow-y-auto">
+          {data.consent_text}
+        </div>
+
+        <label className="flex items-start gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={consentAccepted}
+            onChange={(e) => setConsentAccepted(e.target.checked)}
+            className="mt-0.5 w-4 h-4 accent-primary"
+          />
+          <span className="text-sm">
+            Li e concordo com o termo acima.
+          </span>
+        </label>
+
+        <div>
+          <label className="block text-xs font-medium mb-1">
+            Digite seu nome completo para confirmar <span className="text-destructive">*</span>
+          </label>
+          <input
+            type="text"
+            value={signature}
+            onChange={(e) => setSignature(e.target.value)}
+            placeholder="Ex: Maria Silva Santos"
+            className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <p className="text-[10px] text-muted-foreground mt-1">
+            Este campo equivale a sua assinatura. Sera registrado junto com data,
+            hora e dispositivo de acesso para fins de comprovacao.
+          </p>
+        </div>
+      </div>
+
+      {errorMsg && (
+        <div className="bg-destructive/10 border border-destructive/30 text-destructive rounded-lg px-3 py-2 text-sm flex items-start gap-2">
+          <AlertCircle size={14} className="mt-0.5 shrink-0" />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      <button
+        onClick={handleSubmit}
+        disabled={submitting}
+        className="w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground font-semibold hover:bg-primary/90 disabled:opacity-50 flex items-center justify-center gap-2"
+      >
+        {submitting ? (
+          <>
+            <Loader2 size={16} className="animate-spin" /> Enviando...
+          </>
+        ) : (
+          <>
+            <ShieldCheck size={16} /> Confirmar e enviar anamnese
+          </>
+        )}
+      </button>
+    </div>
+  );
+}

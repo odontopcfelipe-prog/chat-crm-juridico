@@ -1,5 +1,20 @@
 import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AnamnesisService } from '../anamnesis/anamnesis.service';
+
+/**
+ * Texto fixo do termo de consentimento aceito pelo paciente ao confirmar
+ * a anamnese. Versao 1 — alterar este texto exige bump de versao para nao
+ * invalidar provas anteriores. Snapshot e salvo em Anamnesis.consent_text.
+ */
+export const ANAMNESE_CONSENT_TEXT_V1 =
+  'Declaro, sob minha responsabilidade, que as informacoes prestadas nesta ' +
+  'anamnese sao verdadeiras e completas. Estou ciente de que a omissao ou ' +
+  'falsidade de dados pode prejudicar meu diagnostico e tratamento, e ' +
+  'autorizo o uso destas informacoes pelos profissionais da clinica para ' +
+  'fins clinicos e de prontuario, conforme LGPD (Lei 13.709/2018). ' +
+  'Confirmo eletronicamente este preenchimento, ciente de que data, hora, ' +
+  'IP e dispositivo de acesso ficarao registrados como prova de autoria.';
 
 /**
  * Servico de leitura/acoes do portal do paciente. Todas as funcoes
@@ -8,7 +23,10 @@ import { PrismaService } from '../prisma/prisma.service';
  */
 @Injectable()
 export class PortalService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private anamnesisService: AnamnesisService,
+  ) {}
 
   async getMe(tenantId: string, patientId: string) {
     const patient = await this.prisma.patient.findFirst({
@@ -174,5 +192,61 @@ export class PortalService {
         template: { select: { id: true, version: true } },
       },
     });
+  }
+
+  /**
+   * Retorna anamnese ativa do paciente OU template ativo se ainda nao existe.
+   * Usado pelo portal para o paciente preencher/revisar sua anamnese.
+   * Inclui consent_text v1 para o front exibir.
+   */
+  async getActiveAnamneseForPatient(tenantId: string, patientId: string) {
+    const data = await this.anamnesisService.findActiveByPatient(patientId, tenantId);
+    return {
+      ...data,
+      consent_text: ANAMNESE_CONSENT_TEXT_V1,
+    };
+  }
+
+  /**
+   * Paciente submete/atualiza anamnese pelo portal. Captura IP + user-agent
+   * + assinatura digitada + texto de consentimento. Persiste audit_hash
+   * SHA-256 como fingerprint imutavel para futura comprovacao.
+   */
+  async submitAnamneseByPatient(
+    tenantId: string,
+    patientId: string,
+    body: {
+      answers: Record<string, any>;
+      signature_data: string;
+      signature_method?: 'TYPED_NAME' | 'DRAWN';
+      consent_accepted: boolean;
+    },
+    ip?: string,
+    userAgent?: string,
+  ) {
+    if (!body?.consent_accepted) {
+      throw new BadRequestException('E necessario aceitar o termo de consentimento');
+    }
+    if (!body.signature_data || body.signature_data.trim().length < 3) {
+      throw new BadRequestException('Assinatura obrigatoria (digite seu nome completo)');
+    }
+    if (!body.answers || typeof body.answers !== 'object') {
+      throw new BadRequestException('answers obrigatorio');
+    }
+
+    return this.anamnesisService.upsertByPatient(
+      patientId,
+      tenantId,
+      {
+        answers: body.answers,
+        submitted_via: 'PATIENT_PORTAL',
+        ip,
+        user_agent: userAgent,
+        consent_text: ANAMNESE_CONSENT_TEXT_V1,
+        signature_method: body.signature_method || 'TYPED_NAME',
+        signature_data: body.signature_data.trim(),
+      },
+      undefined, // sem userId — paciente, nao funcionario
+    );
   }
 }

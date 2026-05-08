@@ -30,16 +30,25 @@ interface Props {
   onSave?: (answers: Record<string, any>) => Promise<void> | void;
   onCancel?: () => void;
   saving?: boolean;
+  /** Esconde botoes Salvar/Cancelar — quem renderiza o submit fica fora. */
+  hideActions?: boolean;
+  /** Notifica cada mudanca — usado quando o submit eh externo (portal). */
+  onAnswersChange?: (answers: Record<string, any>) => void;
 }
 
 export default function DynamicAnamneseForm({
   schema, initialAnswers = {}, readOnly = false, onSave, onCancel, saving,
+  hideActions = false, onAnswersChange,
 }: Props) {
   const [answers, setAnswers] = useState<Record<string, any>>(initialAnswers);
   const [error, setError] = useState<string | null>(null);
 
   const setAnswer = (qid: string, value: any) => {
-    setAnswers((prev) => ({ ...prev, [qid]: value }));
+    setAnswers((prev) => {
+      const next = { ...prev, [qid]: value };
+      onAnswersChange?.(next);
+      return next;
+    });
     setError(null);
   };
 
@@ -88,7 +97,7 @@ export default function DynamicAnamneseForm({
         </div>
       ))}
 
-      {!readOnly && onSave && (
+      {!readOnly && onSave && !hideActions && (
         <div className="flex justify-end gap-2 pt-2">
           {onCancel && (
             <button

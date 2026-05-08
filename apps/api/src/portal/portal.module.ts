@@ -5,10 +5,12 @@ import { PortalAuthService } from './portal-auth.service';
 import { PortalService } from './portal.service';
 import { PortalJwtGuard } from './portal-jwt.guard';
 import { SettingsModule } from '../settings/settings.module';
+import { AnamnesisModule } from '../anamnesis/anamnesis.module';
 
 @Module({
   imports: [
     SettingsModule,
+    AnamnesisModule,
     // Registra JwtModule local — usa mesmo JWT_SECRET global, mas com
     // expiresIn 30d (sessao do paciente). PortalJwtGuard valida claim
     // kind='patient' para isolar de tokens de funcionario.

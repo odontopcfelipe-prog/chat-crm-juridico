@@ -15,6 +15,9 @@ function PortalLoginInner() {
   const router = useRouter();
   const params = useSearchParams();
   const token = params?.get('token') || '';
+  // Permite redirect para destino especifico apos auth (ex.: /area-paciente/anamnese/preencher)
+  const next = params?.get('next') || '/area-paciente';
+  const safeNext = next.startsWith('/area-paciente') ? next : '/area-paciente';
   const [status, setStatus] = useState<'idle' | 'loading' | 'error' | 'success'>('idle');
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -25,13 +28,13 @@ function PortalLoginInner() {
       .then(({ data }) => {
         setPortalToken(data.jwt);
         setStatus('success');
-        setTimeout(() => router.replace('/area-paciente'), 600);
+        setTimeout(() => router.replace(safeNext), 600);
       })
       .catch((err) => {
         setErrorMsg(err?.response?.data?.message || 'Link invalido ou expirado');
         setStatus('error');
       });
-  }, [token, router]);
+  }, [token, router, safeNext]);
 
   return (
     <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-primary/5 to-accent/10">

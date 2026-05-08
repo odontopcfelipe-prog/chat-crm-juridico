@@ -1912,6 +1912,21 @@ model Anamnesis {
   filled_at         DateTime @default(now())
   updated_at        DateTime @updatedAt
 
+  // ─── Prova eletronica de preenchimento (Fase 26) ────────────────
+  /// "STAFF" (equipe preencheu) | "PATIENT_PORTAL" (paciente preencheu via portal)
+  submitted_via       String?
+  submitted_ip        String?
+  submitted_user_agent String?
+  /// Snapshot do termo de consentimento aceito (preserva texto original)
+  consent_text        String?
+  consent_accepted_at DateTime?
+  /// "TYPED_NAME" | "DRAWN"
+  signature_method    String?
+  /// Nome digitado ou data-url base64 da assinatura desenhada
+  signature_data      String?
+  /// SHA-256 hex de answers + ip + ua + timestamp + signature_data — fingerprint de integridade
+  audit_hash          String?
+
   patient  Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   template AnamnesisTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
 
