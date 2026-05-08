@@ -220,6 +220,7 @@ function LeadCard({
   onDragEnd,
   onOpen,
   onOpenDetail,
+  onOpenPatient,
   onStageChange,
   onAttend,
   attendLoading,
@@ -233,6 +234,7 @@ function LeadCard({
   onDragEnd: () => void;
   onOpen: () => void;
   onOpenDetail: () => void;
+  onOpenPatient: () => void;
   onStageChange: (stageId: string) => void;
   onAttend: () => void;
   attendLoading: boolean;
@@ -465,6 +467,24 @@ function LeadCard({
             Reunião
           </button>
         )}
+
+        {/* Ficha do paciente — sempre visivel, em qualquer stage.
+            Garante Patient (idempotente) e abre /pacientes/:id em "Visao geral".
+            Diferente do "Atender": NAO avanca stage, NAO gradua lead — so
+            consulta. Bom pra equipe de vendas que quer ver dados clinicos
+            antes de mover o lead. Mesmo padrao de stopPropagation do Atender. */}
+        <button
+          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => { e.stopPropagation(); e.preventDefault(); onOpenPatient(); }}
+          disabled={attendLoading}
+          title="Abrir ficha do paciente"
+          className="flex-1 flex items-center justify-center gap-1 py-1 rounded-lg bg-accent hover:bg-sky-500/15 hover:text-sky-500 text-muted-foreground text-[10px] font-semibold transition-colors disabled:opacity-50"
+        >
+          {attendLoading ? <Loader2 size={11} className="animate-spin" /> : <User size={11} />}
+          Ficha
+        </button>
 
         {/* Atender — visível quando lead está pronto pra atendimento clínico
             (compareceu à avaliação ou está na fila pra avaliação). Cria/garante
@@ -1454,6 +1474,34 @@ export default function CrmPage() {
     }
   };
 
+  /**
+   * Abrir ficha do paciente direto do card — SEM efeitos colaterais
+   * (nao avanca stage, nao gradua lead). Apenas garante que o Patient
+   * existe (idempotente) e redireciona pra /atendimento/pacientes/:id.
+   *
+   * Diferente de handleAttend (que tambem abre a ficha):
+   *   - handleAttend: avanca stage + abre na aba Odontograma (intent: atender)
+   *   - handleOpenPatient: so abre a ficha em "Visao geral" (intent: consultar)
+   */
+  const handleOpenPatient = async (leadId: string) => {
+    setAttendingLeadId(leadId);
+    try {
+      const r = await api.post<{ id: string }>(`/leads/${leadId}/ensure-patient`);
+      const patient = r.data;
+      if (!patient?.id) {
+        showError('Não foi possível obter ficha do paciente');
+        return;
+      }
+      router.push(`/atendimento/pacientes/${patient.id}`);
+    } catch (e: any) {
+      const apiMsg = e?.response?.data?.message;
+      const status = e?.response?.status;
+      showError(apiMsg ? `${apiMsg}${status ? ` (HTTP ${status})` : ''}` : 'Erro ao abrir ficha do paciente');
+    } finally {
+      setAttendingLeadId(null);
+    }
+  };
+
   const moveLeadToStage = async (leadId: string, newStage: string) => {
     const lead = leads.find(l => l.id === leadId);
     if (!lead) return;
@@ -2077,6 +2125,7 @@ export default function CrmPage() {
                               onDragEnd={() => { setDraggingId(null); setDragOverStage(null); }}
                               onOpen={() => openInChat(lead)}
                               onOpenDetail={() => openDetail(lead)}
+                              onOpenPatient={() => handleOpenPatient(lead.id)}
                               onStageChange={(newStage) => moveLeadToStage(lead.id, newStage)}
                               onAttend={() => handleAttend(lead.id)}
                               attendLoading={attendingLeadId === lead.id}
