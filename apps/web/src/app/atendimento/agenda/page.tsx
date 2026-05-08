@@ -2249,11 +2249,26 @@ export default function AgendaPage() {
                 || editingEvent.created_by?.id === currentUserId
                 || editingEvent.assigned_user?.id === currentUserId;
               return (<>
-            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border">
-              <div>
+            <div className="flex items-center justify-between px-5 pt-5 pb-3 border-b border-border gap-3">
+              <div className="min-w-0 flex-1">
                 <h2 className="text-base font-bold text-foreground">
                   {editingEvent ? (canEdit ? 'Editar Evento' : 'Visualizar Evento') : 'Novo Evento'}
                 </h2>
+                {/* Nome do paciente clicavel — atalho da dra pra abrir a
+                    ficha completa (anamnese, odontograma, orcamento) sem
+                    precisar fechar o modal e procurar manualmente. */}
+                {editingEvent?.patient && (
+                  <button
+                    type="button"
+                    onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient!.id}`); }}
+                    title="Abrir ficha do paciente"
+                    className="mt-1 inline-flex items-center gap-1.5 text-[12px] font-semibold text-emerald-600 hover:text-emerald-700 hover:underline group"
+                  >
+                    <User size={12} />
+                    <span className="truncate max-w-[220px]">{editingEvent.patient.name || 'Paciente sem nome'}</span>
+                    <ExternalLink size={11} className="opacity-60 group-hover:opacity-100" />
+                  </button>
+                )}
                 {editingEvent?.created_by && (
                   <p className="text-[10px] text-muted-foreground mt-0.5">
                     Criado por: {editingEvent.created_by.name}
@@ -2261,7 +2276,7 @@ export default function AgendaPage() {
                   </p>
                 )}
               </div>
-              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground">
+              <button onClick={() => setShowModal(false)} className="p-1.5 rounded-lg hover:bg-accent text-muted-foreground shrink-0">
                 <X size={18} />
               </button>
             </div>
@@ -2393,32 +2408,6 @@ export default function AgendaPage() {
                     onClick={() => { setShowModal(false); router.push(`/atendimento/workspace/${editingEvent.legal_case!.id}`); }}
                     className="shrink-0 p-1.5 rounded-lg text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors"
                     title="Abrir processo"
-                  >
-                    <ExternalLink size={14} />
-                  </button>
-                </div>
-              )}
-
-              {/* ── Paciente Vinculado — atalho da dra pra abrir cadastro ── */}
-              {editingEvent?.patient && (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-emerald-500/25 bg-emerald-500/5">
-                  <User size={14} className="text-emerald-600 shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-emerald-600/70 mb-0.5">
-                      Paciente vinculado
-                    </p>
-                    <p className="text-xs font-semibold text-foreground truncate">
-                      {editingEvent.patient.name || 'Sem nome'}
-                    </p>
-                    {editingEvent.patient.phone && (
-                      <p className="text-[11px] text-foreground/80 truncate">📱 {editingEvent.patient.phone}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient!.id}`); }}
-                    className="shrink-0 p-1.5 rounded-lg text-emerald-600/60 hover:text-emerald-600 hover:bg-emerald-600/10 transition-colors"
-                    title="Abrir ficha do paciente"
                   >
                     <ExternalLink size={14} />
                   </button>
