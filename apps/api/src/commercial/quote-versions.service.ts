@@ -23,7 +23,11 @@
  * ou removida depois, o historico fica intacto.
  */
 import {
-  Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  ForbiddenException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
@@ -49,9 +53,18 @@ export class QuoteVersionsService {
       include: {
         items: {
           orderBy: { order_index: 'asc' },
-          include: { procedure: { select: { id: true, name: true, code_tuss: true } } },
+          include: {
+            procedure: { select: { id: true, name: true, code_tuss: true } },
+          },
         },
-        coupon: { select: { id: true, code: true, discount_type: true, discount_amount: true } },
+        coupon: {
+          select: {
+            id: true,
+            code: true,
+            discount_type: true,
+            discount_amount: true,
+          },
+        },
       },
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
@@ -113,7 +126,9 @@ export class QuoteVersionsService {
       },
     });
 
-    this.logger.log(`[VERSION] Snapshot v${versionNumber} (${trigger}) criado pra quote ${quoteId}`);
+    this.logger.log(
+      `[VERSION] Snapshot v${versionNumber} (${trigger}) criado pra quote ${quoteId}`,
+    );
     return version;
   }
 
@@ -270,7 +285,9 @@ export class QuoteVersionsService {
           },
         },
         include: {
-          items: { include: { procedure: { select: { id: true, name: true } } } },
+          items: {
+            include: { procedure: { select: { id: true, name: true } } },
+          },
         },
       });
 
@@ -279,6 +296,114 @@ export class QuoteVersionsService {
       );
       return newQuote;
     });
+  }
+
+  /**
+   * Onda 3.4 — Duplica orcamento como NOVA OPCAO PARALELA.
+   *
+   * Diferente de renegotiate: original NAO eh marcado como REJECTED, original
+   * permanece ativo. Permite ao operador apresentar varias opcoes ao paciente
+   * (ex: opcao 1 — a vista 5%, opcao 2 — 10x s/ juros, opcao 3 — 12x c/ juros)
+   * com os MESMOS procedimentos clinicos, variando so condicoes comerciais.
+   *
+   * O novo quote inicia como DRAFT, sem desconto/cupom/payment_terms — operador
+   * configura cada um separadamente. Items copiados na ordem original, com
+   * dentist_id e payment_method (por item) preservados.
+   *
+   * Permitido em qualquer status do original — inclusive ACCEPTED/REJECTED
+   * (caso queira "ressuscitar" um plano antigo como nova opcao). Nao cria
+   * snapshot porque nao altera o original.
+   */
+  async duplicateAsOption(
+    quoteId: string,
+    tenantId: string,
+    actorUserId: string,
+  ) {
+    const original = await this.prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        patient: { select: { tenant_id: true } },
+        items: { orderBy: { order_index: 'asc' } },
+      },
+    });
+    if (!original) throw new NotFoundException('Orcamento nao encontrado');
+    if (original.patient.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado');
+    }
+    if (original.deleted_at) {
+      throw new BadRequestException(
+        'Nao eh possivel duplicar orcamento deletado',
+      );
+    }
+
+    // Recalcula subtotal a partir dos items copiados (defesa caso original
+    // esteja com totais inconsistentes — afinal o usuario pode editar depois)
+    const subtotal = original.items.reduce(
+      (acc: number, i: { total_price: unknown }) => acc + Number(i.total_price),
+      0,
+    );
+
+    const newQuote = await this.prisma.quote.create({
+      data: {
+        patient_id: original.patient_id,
+        created_by_user_id: actorUserId,
+        status: 'DRAFT',
+        valid_until: (() => {
+          const d = new Date();
+          d.setDate(d.getDate() + 30);
+          return d;
+        })(),
+        // Copia notes pra preservar contexto clinico, mas zera condicoes
+        // comerciais — operador define do zero (ex: "10x sem juros")
+        notes: original.notes,
+        payment_terms: null,
+        // Sem desconto/cupom — operador aplica conforme a opcao
+        subtotal,
+        discount_percent: 0,
+        discount_value: 0,
+        total_value: subtotal,
+        coupon_id: null,
+        // renegotiated_from_id NAO eh setado — opcoes sao paralelas, nao sucessoras
+        items: {
+          create: original.items.map(
+            (
+              i: {
+                procedure_id: string;
+                tooth_fdi: string | null;
+                quantity: number;
+                unit_price: unknown;
+                total_price: unknown;
+                notes: string | null;
+                dentist_id: string | null;
+                payment_method: string | null;
+                installments_count: number | null;
+              },
+              idx: number,
+            ) => ({
+              procedure_id: i.procedure_id,
+              tooth_fdi: i.tooth_fdi,
+              quantity: i.quantity,
+              unit_price: i.unit_price as never,
+              total_price: i.total_price as never,
+              notes: i.notes,
+              order_index: idx,
+              dentist_id: i.dentist_id,
+              // payment_method por item nao copia — operador define no novo quote
+              payment_method: null,
+              installments_count: null,
+            }),
+          ),
+        },
+      },
+      include: {
+        items: { include: { procedure: { select: { id: true, name: true } } } },
+      },
+    });
+
+    this.logger.log(
+      `[DUPLICATE-AS-OPTION] Quote ${quoteId} duplicado -> nova opcao DRAFT ${newQuote.id}`,
+    );
+    return newQuote;
   }
 
   // ─── Helper ──────────────────────────────────────────────────

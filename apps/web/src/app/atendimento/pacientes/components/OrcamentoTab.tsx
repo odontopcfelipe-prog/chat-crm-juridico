@@ -206,6 +206,10 @@ export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
           const { data } = await api.get<QuoteDetail>(`/quotes/${current.id}`);
           setCurrent(data);
         }}
+        onSwitchQuote={async (newQuoteId: string) => {
+          const { data } = await api.get<QuoteDetail>(`/quotes/${newQuoteId}`);
+          setCurrent(data);
+        }}
       />
     );
   }
@@ -302,12 +306,14 @@ function expiryStatus(
 }
 
 function QuoteDetailView({
-  quote, procedures, onBack, onReload,
+  quote, procedures, onBack, onReload, onSwitchQuote,
 }: {
   quote: QuoteDetail;
   procedures: Procedure[];
   onBack: () => void;
   onReload: () => Promise<void>;
+  /** Onda 3.4 — abre outro quote sem passar pela lista (usado em "Duplicar como opcao") */
+  onSwitchQuote?: (newQuoteId: string) => Promise<void>;
 }) {
   // addingItem agora abre modal AddQuoteItemModal — nao mais form inline
   const [addingItem, setAddingItem] = useState(false);
@@ -556,6 +562,31 @@ function QuoteDetailView({
       await onReload();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao rejeitar');
+    }
+  };
+
+  /**
+   * Onda 3.4 — Duplica como NOVA OPCAO PARALELA. Original NAO eh marcado como
+   * REJECTED — fica ativo. Permite apresentar varias opcoes ao paciente
+   * (a vista, parcelado, etc.) com os mesmos procedimentos clinicos.
+   */
+  const duplicateAsOption = async () => {
+    if (!confirm(
+      'Duplicar como nova opcao?\n\n' +
+      'Os mesmos procedimentos serao copiados em um novo orcamento DRAFT.\n' +
+      'O orcamento atual NAO sera alterado — voce podera apresentar ambas\n' +
+      'as opcoes ao paciente (ex: a vista vs. parcelado).',
+    )) return;
+    try {
+      const { data } = await api.post<{ id: string }>(`/quotes/${quote.id}/duplicate-as-option`);
+      showSuccess('Nova opcao criada — abrindo para edicao');
+      if (onSwitchQuote) {
+        await onSwitchQuote(data.id);
+      } else {
+        onBack();
+      }
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao duplicar como opcao');
     }
   };
 
@@ -1076,6 +1107,16 @@ function QuoteDetailView({
             </button>
           </>
         )}
+        {/* Onda 3.4 — Duplicar como nova opcao paralela.
+            Disponivel em qualquer status nao-deletado — permite "ressuscitar"
+            um plano antigo (REJECTED/EXPIRED) como nova opcao tambem. */}
+        <button
+          onClick={duplicateAsOption}
+          className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-blue-500/40 text-blue-700 text-sm hover:bg-blue-50"
+          title="Cria nova opcao DRAFT com os mesmos procedimentos (original permanece ativo)"
+        >
+          <Plus size={14} /> Nova opção
+        </button>
         {/* Onda 3b — Renegociar: disponivel em SENT/REJECTED/EXPIRED */}
         {(isSent || quote.status === 'REJECTED' || quote.status === 'EXPIRED') && (
           <button

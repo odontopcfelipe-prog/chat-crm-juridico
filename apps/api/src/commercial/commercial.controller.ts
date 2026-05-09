@@ -1,13 +1,29 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, Res, BadRequestException, NotFoundException,
-  UseInterceptors, UploadedFile,
+  Controller,
+  Get,
+  Post,
+  Patch,
+  Delete,
+  Body,
+  Param,
+  Query,
+  UseGuards,
+  Request,
+  Res,
+  BadRequestException,
+  NotFoundException,
+  UseInterceptors,
+  UploadedFile,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
-import type { CreateTemplateDto, UpdateTemplateDto } from './quote-templates.service';
+import type {
+  CreateTemplateDto,
+  UpdateTemplateDto,
+} from './quote-templates.service';
 import { QuoteCouponsService } from './quote-coupons.service';
 import type { CreateCouponDto, UpdateCouponDto } from './quote-coupons.service';
 import { QuoteAttachmentsService } from './quote-attachments.service';
@@ -20,8 +36,14 @@ import { Authenticated } from '../auth/decorators/authenticated.decorator';
 import type { AuthUser } from '../auth/decorators/authenticated.decorator';
 import { Public } from '../auth/decorators/public.decorator';
 import {
-  CreateQuoteDto, UpdateQuoteDto, CreateQuoteItemDto, UpdateQuoteItemDto, RejectQuoteDto,
-  UpdateTreatmentPlanDto, UpdateTreatmentPlanItemDto, ExecuteTreatmentPlanItemDto,
+  CreateQuoteDto,
+  UpdateQuoteDto,
+  CreateQuoteItemDto,
+  UpdateQuoteItemDto,
+  RejectQuoteDto,
+  UpdateTreatmentPlanDto,
+  UpdateTreatmentPlanItemDto,
+  ExecuteTreatmentPlanItemDto,
 } from './dto/commercial.dto';
 
 /**
@@ -76,11 +98,18 @@ export class CommercialController {
     @Param('patientId') patientId: string,
     @Authenticated() user: AuthUser,
   ) {
-    return this.quotesService.getOrCreateDraft(patientId, user.tenant_id, user.id);
+    return this.quotesService.getOrCreateDraft(
+      patientId,
+      user.tenant_id,
+      user.id,
+    );
   }
 
   @Get('patients/:patientId/quotes')
-  listQuotes(@Param('patientId') patientId: string, @Authenticated() user: AuthUser) {
+  listQuotes(
+    @Param('patientId') patientId: string,
+    @Authenticated() user: AuthUser,
+  ) {
     return this.quotesService.findByPatient(patientId, user.tenant_id);
   }
 
@@ -103,7 +132,11 @@ export class CommercialController {
   }
 
   @Patch('quotes/:id')
-  updateQuote(@Param('id') id: string, @Body() dto: UpdateQuoteDto, @Authenticated() user: AuthUser) {
+  updateQuote(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteDto,
+    @Authenticated() user: AuthUser,
+  ) {
     return this.quotesService.update(id, user.tenant_id, dto as any);
   }
 
@@ -162,16 +195,32 @@ export class CommercialController {
     @Authenticated() user: AuthUser,
   ) {
     if (!Array.isArray(body?.item_ids) || body.item_ids.length === 0) {
-      throw new BadRequestException('item_ids[] eh obrigatorio (selecione ao menos 1)');
+      throw new BadRequestException(
+        'item_ids[] eh obrigatorio (selecione ao menos 1)',
+      );
     }
-    return this.quotesService.acceptPartial(id, user.tenant_id, body.item_ids, user.id);
+    return this.quotesService.acceptPartial(
+      id,
+      user.tenant_id,
+      body.item_ids,
+      user.id,
+    );
   }
 
   @Post('quotes/:id/reject')
-  rejectQuote(@Param('id') id: string, @Body() dto: RejectQuoteDto, @Request() req: any) {
+  rejectQuote(
+    @Param('id') id: string,
+    @Body() dto: RejectQuoteDto,
+    @Request() req: any,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.reject(id, tenantId, dto?.rejection_reason, req.user?.id);
+    return this.quotesService.reject(
+      id,
+      tenantId,
+      dto?.rejection_reason,
+      req.user?.id,
+    );
   }
 
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
@@ -233,12 +282,19 @@ export class CommercialController {
 
   /** Gera PDF profissional do orcamento */
   @Get('quotes/:id/pdf')
-  async quotePdf(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+  async quotePdf(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Res() res: Response,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const buffer = await this.pdfService.generatePdf(id, tenantId);
     res.set('Content-Type', 'application/pdf');
-    res.set('Content-Disposition', `inline; filename="orcamento-${id.slice(0, 8)}.pdf"`);
+    res.set(
+      'Content-Disposition',
+      `inline; filename="orcamento-${id.slice(0, 8)}.pdf"`,
+    );
     res.set('Content-Length', String(buffer.length));
     res.end(buffer);
   }
@@ -268,7 +324,11 @@ export class CommercialController {
   }
 
   @Patch('quote-templates/:id')
-  updateTemplate(@Param('id') id: string, @Request() req: any, @Body() dto: UpdateTemplateDto) {
+  updateTemplate(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Body() dto: UpdateTemplateDto,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.templatesService.update(id, tenantId, dto);
@@ -290,8 +350,13 @@ export class CommercialController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!body?.template_id) throw new BadRequestException('template_id obrigatorio');
-    return this.templatesService.applyToQuote(quoteId, body.template_id, tenantId);
+    if (!body?.template_id)
+      throw new BadRequestException('template_id obrigatorio');
+    return this.templatesService.applyToQuote(
+      quoteId,
+      body.template_id,
+      tenantId,
+    );
   }
 
   // Cupons
@@ -319,7 +384,11 @@ export class CommercialController {
   }
 
   @Patch('quote-coupons/:id')
-  updateCoupon(@Param('id') id: string, @Request() req: any, @Body() dto: UpdateCouponDto) {
+  updateCoupon(
+    @Param('id') id: string,
+    @Request() req: any,
+    @Body() dto: UpdateCouponDto,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.couponsService.update(id, tenantId, dto);
@@ -365,7 +434,9 @@ export class CommercialController {
 
   /** Upload de anexo (multipart, campo "file" + opcional category/description) */
   @Post('quotes/:id/attachments')
-  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }))
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
+  )
   uploadAttachment(
     @Param('id') quoteId: string,
     @UploadedFile() file: any,
@@ -391,9 +462,13 @@ export class CommercialController {
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const { buffer, mime_type, filename } = await this.attachmentsService.getFileBuffer(attachmentId, tenantId);
+    const { buffer, mime_type, filename } =
+      await this.attachmentsService.getFileBuffer(attachmentId, tenantId);
     res.set('Content-Type', mime_type);
-    res.set('Content-Disposition', `inline; filename="${encodeURIComponent(filename)}"`);
+    res.set(
+      'Content-Disposition',
+      `inline; filename="${encodeURIComponent(filename)}"`,
+    );
     res.set('Content-Length', String(buffer.length));
     res.set('Cache-Control', 'private, max-age=3600');
     res.end(buffer);
@@ -401,7 +476,10 @@ export class CommercialController {
 
   /** Remove anexo (apaga arquivo + registro) */
   @Delete('quote-attachments/:attachmentId')
-  removeAttachment(@Param('attachmentId') attachmentId: string, @Request() req: any) {
+  removeAttachment(
+    @Param('attachmentId') attachmentId: string,
+    @Request() req: any,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.attachmentsService.remove(attachmentId, tenantId);
@@ -438,20 +516,46 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
-    return this.versionsService.renegotiate(quoteId, tenantId, userId, body?.note);
+    return this.versionsService.renegotiate(
+      quoteId,
+      tenantId,
+      userId,
+      body?.note,
+    );
+  }
+
+  /**
+   * Onda 3.4 — Duplicar como nova OPCAO paralela. Original permanece ativo.
+   * Ideal para apresentar varias condicoes comerciais (a vista, parcelado)
+   * com os mesmos procedimentos clinicos.
+   */
+  @Post('quotes/:id/duplicate-as-option')
+  duplicateAsOption(@Param('id') quoteId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
+    if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
+    return this.versionsService.duplicateAsOption(quoteId, tenantId, userId);
   }
 
   // ─── QuoteItems ───────────────────────────────────────────────
 
   @Post('quotes/:id/items')
-  addQuoteItem(@Param('id') id: string, @Body() dto: CreateQuoteItemDto, @Request() req: any) {
+  addQuoteItem(
+    @Param('id') id: string,
+    @Body() dto: CreateQuoteItemDto,
+    @Request() req: any,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.addItem(id, tenantId, dto);
   }
 
   @Patch('quote-items/:id')
-  updateQuoteItem(@Param('id') id: string, @Body() dto: UpdateQuoteItemDto, @Request() req: any) {
+  updateQuoteItem(
+    @Param('id') id: string,
+    @Body() dto: UpdateQuoteItemDto,
+    @Request() req: any,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.updateItem(id, tenantId, dto);
@@ -481,7 +585,11 @@ export class CommercialController {
   }
 
   @Patch('treatment-plans/:id')
-  updatePlan(@Param('id') id: string, @Body() dto: UpdateTreatmentPlanDto, @Request() req: any) {
+  updatePlan(
+    @Param('id') id: string,
+    @Body() dto: UpdateTreatmentPlanDto,
+    @Request() req: any,
+  ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.plansService.update(id, tenantId, dto as any);
@@ -497,13 +605,22 @@ export class CommercialController {
   @Post('treatment-plans/:id/create-charges')
   createInstallmentCharges(
     @Param('id') id: string,
-    @Body() dto: { billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD'; installmentCount: number; firstDueDate?: string },
+    @Body()
+    dto: {
+      billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+      installmentCount: number;
+      firstDueDate?: string;
+    },
     @Request() req: any,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!dto?.billingType) throw new BadRequestException('billingType obrigatorio (PIX, BOLETO, CREDIT_CARD)');
-    if (!dto?.installmentCount) throw new BadRequestException('installmentCount obrigatorio (1-24)');
+    if (!dto?.billingType)
+      throw new BadRequestException(
+        'billingType obrigatorio (PIX, BOLETO, CREDIT_CARD)',
+      );
+    if (!dto?.installmentCount)
+      throw new BadRequestException('installmentCount obrigatorio (1-24)');
     return this.billingService.createInstallmentCharges(id, tenantId, dto);
   }
 
