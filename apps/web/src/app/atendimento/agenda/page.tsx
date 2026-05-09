@@ -20,10 +20,10 @@ import './agenda-theme.css';
 import {
   Plus, X, Calendar as CalendarIcon, Filter, ChevronDown,
   ChevronLeft, ChevronRight,
-  Clock, MapPin, User, FileText, Gavel, AlertTriangle, CheckCircle2, Bell,
-  Search, Download, Copy, Repeat, MessageSquare, Users, Send,
-  LayoutGrid, CalendarDays as CalendarViewIcon, CheckSquare, List,
-  BookOpen, ExternalLink, Ban, Loader2,
+  Clock, User, AlertTriangle, CheckCircle2, Bell,
+  Download, Copy, Users,
+  LayoutGrid, CalendarDays as CalendarViewIcon,
+  ExternalLink, Ban, Loader2,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { useSocket } from '@/lib/SocketProvider';
@@ -31,7 +31,6 @@ import { showError, showSuccess } from '@/lib/toast';
 import { swallow } from '@/lib/errors';
 import { useRole } from '@/lib/useRole';
 import { playNotificationSound } from '@/lib/notificationSounds';
-import { AvailabilityPicker } from '@/components/AvailabilityPicker';
 import { TasksPanel } from './TasksPanel';
 import { ScheduleBlockModal } from './ScheduleBlockModal';
 
@@ -66,13 +65,6 @@ interface CalendarEvent {
   validation_notes?: string | null;
   legal_case?: { id: string; case_number: string | null; specialty: string | null; lead?: { name: string | null } | null } | null;
   _count?: { comments: number };
-}
-
-interface EventComment {
-  id: string;
-  text: string;
-  created_at: string;
-  user: { id: string; name: string };
 }
 
 interface UserOption {
@@ -139,24 +131,6 @@ const KANBAN_COLUMNS = [
   { id: 'CONFIRMADO', label: 'Em Andamento', emoji: '🔄', color: '#f59e0b' },
   { id: 'CONCLUIDO', label: 'Concluído',    emoji: '✅', color: '#22c55e' },
 ];
-
-const REMINDER_OPTIONS = [
-  { value: 15, label: '15 minutos antes' },
-  { value: 30, label: '30 minutos antes' },
-  { value: 60, label: '1 hora antes' },
-  { value: 1440, label: '1 dia antes' },
-];
-
-const RECURRENCE_OPTIONS = [
-  { value: '', label: 'Não repetir' },
-  { value: 'DAILY', label: 'Diário' },
-  { value: 'WEEKLY', label: 'Semanal' },
-  { value: 'BIWEEKLY', label: 'Quinzenal' },
-  { value: 'MONTHLY', label: 'Mensal' },
-  { value: 'CUSTOM', label: 'Personalizado' },
-];
-
-const WEEKDAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 
 function getEventColor(type: string) {
   return EVENT_TYPES.find(t => t.id === type)?.color || '#6b7280';
@@ -596,13 +570,8 @@ export default function AgendaPage() {
   const role = useRole();
   const [showAllUsers, setShowAllUsers] = useState(false);
 
-  // Comentarios do evento
-  const [eventComments, setEventComments] = useState<EventComment[]>([]);
-  const [newComment, setNewComment] = useState('');
-
   // Real-time & UX
   const [reminderToast, setReminderToast] = useState<{ eventId: string; title: string; type: string; start_at: string; minutesBefore: number } | null>(null);
-  const [conflictWarning, setConflictWarning] = useState<{ id: string; title: string; start_at: string; end_at: string }[]>([]);
   // Onda 5e v20: indicador visual de Salvando — operador ve feedback
   // imediato ao clicar em "Salvar alteracoes"
   const [savingEvent, setSavingEvent] = useState(false);
@@ -684,9 +653,6 @@ export default function AgendaPage() {
       recurrence_days: [],
     });
     setEditingEvent(null);
-    setEventComments([]);
-    setNewComment('');
-    setConflictWarning([]);
     setShowModal(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUserId]);
@@ -1362,31 +1328,7 @@ export default function AgendaPage() {
       recurrence_days: (ev as any).recurrence_days || [],
     });
     setEditingEvent(ev);
-    setConflictWarning([]);
-    setNewComment('');
-    // Buscar comentarios
-    api.get(`/calendar/events/${ev.id}/comments`).then(r => setEventComments(r.data || [])).catch(() => setEventComments([]));
     setShowModal(true);
-  };
-
-  const fetchEventComments = async (eventId: string) => {
-    try {
-      const res = await api.get(`/calendar/events/${eventId}/comments`);
-      setEventComments(res.data || []);
-    } catch {
-      setEventComments([]);
-    }
-  };
-
-  const handleAddComment = async () => {
-    if (!editingEvent || !newComment.trim()) return;
-    try {
-      await api.post(`/calendar/events/${editingEvent.id}/comments`, { text: newComment.trim() });
-      setNewComment('');
-      fetchEventComments(editingEvent.id);
-    } catch (e: any) {
-      showError(e?.response?.data?.message || e?.message || 'Erro ao comentar');
-    }
   };
 
   const handleSave = async (forceIgnoreConflict = false) => {
@@ -1426,44 +1368,35 @@ export default function AgendaPage() {
     const endIso = formData.endTime ? toISOFromLocal(`${formData.date} ${formData.endTime}`) : undefined;
     console.log('[handleSave] datas convertidas', { startIso, endIso });
 
-    // Conflict check
-    if (!forceIgnoreConflict && formData.assigned_user_id && endIso) {
+    // Conflict check — modal simplificado nao tem botao "salvar mesmo assim",
+    // entao conflito vira hard-block (operador escolhe outro horario).
+    if (formData.assigned_user_id && endIso) {
       try {
         const params: any = { userId: formData.assigned_user_id, start: startIso, end: endIso };
         if (editingEvent) params.excludeId = editingEvent.id;
         const conflicts = await api.get('/calendar/conflicts', { params });
         if (conflicts.data?.length > 0) {
-          setConflictWarning(conflicts.data);
-          // v19: feedback EXPLICITO via toast + scroll ao topo (antes o aviso
-          // ficava escondido se modal estivesse com scroll embaixo, dando
-          // impressao de "Salvar nao funciona")
-          showError('Conflito de horário detectado — veja o aviso no topo do modal');
-          // Scroll suave pro topo do conteudo do modal pra mostrar o aviso
-          try {
-            document.querySelector('[data-modal-content]')?.scrollTo({ top: 0, behavior: 'smooth' });
-          } catch { /* sem suporte — ignora */ }
+          const c = conflicts.data[0];
+          const hh = (s: string) => new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
+          showError(`Conflito com "${c.title}" (${hh(c.start_at)}–${hh(c.end_at)}) — escolha outro horario`);
           return;
         }
       } catch (e) { swallow('conflict check falhou — segue com save (server valida tb)')(e); }
     }
 
+    // Modal simplificado — só envia campos visiveis no UI. Description,
+    // location, reminders e recurrence sairam da UI (decisao do usuario).
+    // Backend mantem o que ja estiver no banco quando os campos nao vierem.
     const payload: any = {
       type: formData.type,
       title: formData.title.trim(),
-      description: formData.description.trim() || null,
       start_at: startIso,
       end_at: endIso || null,
       all_day: formData.all_day,
       priority: formData.priority,
-      location: formData.location.trim() || null,
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
       patient_id: formData.patient_id || null,
-      // legal_case_id removido — herança do CRM juridico, nao existe mais no DTO
-      reminders: formData.reminders.length > 0 ? formData.reminders : undefined,
-      recurrence_rule: formData.recurrence_rule || undefined,
-      recurrence_end: formData.recurrence_end || undefined,
-      recurrence_days: formData.recurrence_days.length > 0 ? formData.recurrence_days : undefined,
     };
 
     console.log('[handleSave] enviando payload pro backend', {
@@ -1483,7 +1416,6 @@ export default function AgendaPage() {
         showSuccess('Evento criado');
       }
       setShowModal(false);
-      setConflictWarning([]);
       if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
     } catch (e: any) {
       // v19: log no console pra debug + erro do backend pro user
@@ -1641,7 +1573,6 @@ export default function AgendaPage() {
         recurrence_days: [],
       });
       setEditingEvent(null);
-      setConflictWarning([]);
       setShowModal(true);
     }, 100);
   };
@@ -2324,6 +2255,19 @@ export default function AgendaPage() {
               </button>
             </div>
 
+            {/* Dentista — primeiro campo, vem antes das pills de status conforme layout simplificado */}
+            <fieldset disabled={!canEdit} className="px-5 pt-4">
+              <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Dentista / Responsavel</label>
+              <select
+                value={formData.assigned_user_id}
+                onChange={e => setFormData(f => ({ ...f, assigned_user_id: e.target.value }))}
+                className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60"
+              >
+                <option value="">Nenhum</option>
+                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+              </select>
+            </fieldset>
+
             {/* Status pills (only when editing) */}
             {editingEvent && (
               <div className="px-5 pt-3 flex flex-wrap gap-1.5">
@@ -2409,54 +2353,6 @@ export default function AgendaPage() {
 
             <fieldset disabled={!canEdit} className="contents">
             <div className="p-5 space-y-4">
-              {/* Conflict warning */}
-              {conflictWarning.length > 0 && (
-                <div className="p-3 rounded-lg bg-amber-500/10 border border-amber-500/30">
-                  <div className="flex items-center gap-2 mb-1">
-                    <AlertTriangle size={14} className="text-amber-500" />
-                    <span className="text-xs font-bold text-amber-500">Conflito de horario</span>
-                  </div>
-                  {conflictWarning.map(c => (
-                    <p key={c.id} className="text-xs text-amber-400 ml-5">
-                      {c.title} ({new Date(c.start_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} - {new Date(c.end_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })})
-                    </p>
-                  ))}
-                  <button
-                    onClick={() => { setConflictWarning([]); handleSave(true); }}
-                    className="mt-2 ml-5 text-[11px] font-semibold text-amber-500 underline hover:text-amber-400"
-                  >
-                    Salvar mesmo assim
-                  </button>
-                </div>
-              )}
-
-              {/* ── Processo Vinculado ── */}
-              {editingEvent?.legal_case && (
-                <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl border border-primary/25 bg-primary/5">
-                  <BookOpen size={14} className="text-primary shrink-0" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-[10px] font-bold uppercase tracking-wider text-primary/70 mb-0.5">Processo vinculado</p>
-                    <p className="text-xs font-semibold text-foreground truncate">
-                      {editingEvent.legal_case.case_number ?? 'Nº não informado'}
-                    </p>
-                    {editingEvent.legal_case.lead?.name && (
-                      <p className="text-[11px] text-foreground/80 truncate">👤 {editingEvent.legal_case.lead.name}</p>
-                    )}
-                    {editingEvent.legal_case.specialty && (
-                      <p className="text-[10px] text-muted-foreground">{editingEvent.legal_case.specialty}</p>
-                    )}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { setShowModal(false); router.push(`/atendimento/workspace/${editingEvent.legal_case!.id}`); }}
-                    className="shrink-0 p-1.5 rounded-lg text-primary/60 hover:text-primary hover:bg-primary/10 transition-colors"
-                    title="Abrir processo"
-                  >
-                    <ExternalLink size={14} />
-                  </button>
-                </div>
-              )}
-
               {/* Tipo */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Tipo</label>
@@ -2519,40 +2415,19 @@ export default function AgendaPage() {
                 </div>
               </div>
 
-              {/* Dentista */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Dentista / Responsavel</label>
-                <select
-                  value={formData.assigned_user_id}
-                  onChange={e => setFormData(f => ({ ...f, assigned_user_id: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  <option value="">Nenhum</option>
-                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-                </select>
-              </div>
-
-              {/* Availability picker (only for CONSULTA with assigned user) */}
-              {formData.type === 'CONSULTA' && formData.assigned_user_id && !editingEvent && (
-                <AvailabilityPicker
-                  userId={formData.assigned_user_id}
-                  duration={60}
-                  onSelectSlot={(start, end) => {
-                    setFormData(f => ({ ...f, startTime: start, endTime: end }));
-                  }}
-                />
+              {/* Paciente / Lead — so visivel quando criando evento (na edicao
+                  o paciente ja aparece em destaque no header do modal). */}
+              {!editingEvent && (
+                <div>
+                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Paciente / Lead</label>
+                  <ContactPicker
+                    value={{ patient_id: formData.patient_id || null, lead_id: formData.lead_id || null }}
+                    onChange={(s) => setFormData((f) => ({ ...f, patient_id: s.patient_id || '', lead_id: s.lead_id || '' }))}
+                    leads={leads}
+                    patients={patients}
+                  />
+                </div>
               )}
-
-              {/* Paciente / Lead — busca por nome, telefone ou CPF */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Paciente / Lead</label>
-                <ContactPicker
-                  value={{ patient_id: formData.patient_id || null, lead_id: formData.lead_id || null }}
-                  onChange={(s) => setFormData((f) => ({ ...f, patient_id: s.patient_id || '', lead_id: s.lead_id || '' }))}
-                  leads={leads}
-                  patients={patients}
-                />
-              </div>
 
               {/* Prioridade */}
               <div>
@@ -2565,185 +2440,8 @@ export default function AgendaPage() {
                   {EVENT_PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
                 </select>
               </div>
-
-              {/* Local */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Local</label>
-                <input
-                  type="text"
-                  value={formData.location}
-                  onChange={e => setFormData(f => ({ ...f, location: e.target.value }))}
-                  placeholder="Ex: Sala 3, Zoom, Vara 1a TRT..."
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-2 focus:ring-primary/30"
-                />
-              </div>
-
-              {/* Lembretes */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
-                  <Bell size={11} /> Lembretes
-                </label>
-                <div className="space-y-1.5">
-                  {formData.reminders.map((rem, idx) => (
-                    <div key={idx} className="flex items-center gap-2">
-                      <select
-                        value={rem.minutes_before}
-                        onChange={e => {
-                          const updated = [...formData.reminders];
-                          updated[idx] = { ...updated[idx], minutes_before: parseInt(e.target.value) };
-                          setFormData(f => ({ ...f, reminders: updated }));
-                        }}
-                        className="flex-1 px-2 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground outline-none"
-                      >
-                        {REMINDER_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                      </select>
-                      <select
-                        value={rem.channel}
-                        onChange={e => {
-                          const updated = [...formData.reminders];
-                          updated[idx] = { ...updated[idx], channel: e.target.value };
-                          setFormData(f => ({ ...f, reminders: updated }));
-                        }}
-                        className="w-28 px-2 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground outline-none"
-                      >
-                        <option value="PUSH">Push</option>
-                        <option value="WHATSAPP">WhatsApp</option>
-                        <option value="EMAIL">Email</option>
-                      </select>
-                      <button
-                        onClick={() => setFormData(f => ({ ...f, reminders: f.reminders.filter((_, i) => i !== idx) }))}
-                        className="p-1 text-muted-foreground hover:text-destructive"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
-                  {formData.reminders.length < 3 && (
-                    <button
-                      onClick={() => setFormData(f => ({ ...f, reminders: [...f.reminders, { minutes_before: 60, channel: 'WHATSAPP' }] }))}
-                      className="text-[11px] font-semibold text-primary hover:underline"
-                    >
-                      + Adicionar lembrete
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Recorrência */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 flex items-center gap-1">
-                  <Repeat size={11} /> Repetir
-                </label>
-                <select
-                  value={formData.recurrence_rule}
-                  onChange={e => setFormData(f => ({ ...f, recurrence_rule: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                >
-                  {RECURRENCE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-
-                {formData.recurrence_rule && (
-                  <div className="mt-2 space-y-2">
-                    {/* Custom weekdays */}
-                    {formData.recurrence_rule === 'CUSTOM' && (
-                      <div>
-                        <label className="text-[10px] font-semibold text-muted-foreground mb-1 block">Dias da semana</label>
-                        <div className="flex gap-1">
-                          {WEEKDAYS.map((day, idx) => (
-                            <button
-                              key={idx}
-                              type="button"
-                              onClick={() => {
-                                setFormData(f => ({
-                                  ...f,
-                                  recurrence_days: f.recurrence_days.includes(idx)
-                                    ? f.recurrence_days.filter(d => d !== idx)
-                                    : [...f.recurrence_days, idx].sort(),
-                                }));
-                              }}
-                              className={`w-9 h-8 rounded-md text-[11px] font-bold border transition-all ${
-                                formData.recurrence_days.includes(idx)
-                                  ? 'bg-primary text-primary-foreground border-primary'
-                                  : 'border-border text-muted-foreground hover:bg-accent'
-                              }`}
-                            >
-                              {day}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {/* End date */}
-                    <div>
-                      <label className="text-[10px] font-semibold text-muted-foreground mb-1 block">Repetir até</label>
-                      <input
-                        type="date"
-                        value={formData.recurrence_end}
-                        onChange={e => setFormData(f => ({ ...f, recurrence_end: e.target.value }))}
-                        className="w-full px-2 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-                      />
-                    </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Descricao */}
-              <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Descricao</label>
-                <textarea
-                  value={formData.description}
-                  onChange={e => setFormData(f => ({ ...f, description: e.target.value }))}
-                  rows={2}
-                  placeholder="Notas adicionais..."
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-2 focus:ring-primary/30 resize-none"
-                />
-              </div>
             </div>
             </fieldset>
-
-              {/* Comentarios (sempre visivel, qualquer usuario pode comentar) */}
-              {editingEvent && (
-                <div className="px-5 pb-4">
-                  <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
-                    <MessageSquare size={11} /> Comentarios ({eventComments.length})
-                  </label>
-                  {eventComments.length > 0 && (
-                    <div className="space-y-2 mb-3 max-h-40 overflow-y-auto">
-                      {eventComments.map(c => (
-                        <div key={c.id} className="p-2 rounded-lg bg-accent/30 border border-border/30">
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <span className="text-[10px] font-bold text-foreground">{c.user.name}</span>
-                            <span className="text-[9px] text-muted-foreground">
-                              {new Date(c.created_at).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' })}
-                              {' '}
-                              {new Date(c.created_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
-                            </span>
-                          </div>
-                          <p className="text-xs text-foreground/80">{c.text}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
-                      value={newComment}
-                      onChange={e => setNewComment(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') handleAddComment(); }}
-                      placeholder="Adicionar comentario..."
-                      className="flex-1 px-3 py-1.5 rounded-lg border border-border bg-background text-xs text-foreground placeholder:text-muted-foreground/50 outline-none focus:ring-2 focus:ring-primary/30"
-                    />
-                    <button
-                      onClick={handleAddComment}
-                      disabled={!newComment.trim()}
-                      className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 transition-colors disabled:opacity-40 disabled:pointer-events-none inline-flex items-center gap-1"
-                    >
-                      <Send size={11} />
-                    </button>
-                  </div>
-                </div>
-              )}
 
             {/* Modal footer — sticky no rodapé do modal.
                 Onda 5e v18 (Fase 25) — flex-wrap pra evitar botao "Salvar"
