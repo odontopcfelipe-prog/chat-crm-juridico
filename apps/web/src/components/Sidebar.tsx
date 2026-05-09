@@ -9,7 +9,7 @@ import {
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
-  Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake,
+  Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -473,6 +473,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/contacts'),
       show: true,
     },
+    portalPaciente: {
+      label: 'Portal do paciente',
+      href: '/atendimento/portal-paciente',
+      icon: <Smartphone size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/portal-paciente'),
+      show: true,
+    },
     agenda: {
       // Onda 5e v8 — encurtado de "Agenda & Tarefas" pra "Agenda" (tarefas
       // sao acessadas via tab interna ?tab=tasks, nao precisa virar label)
@@ -641,9 +648,10 @@ export function Sidebar() {
       defaultExpanded: true,
       icon: <Users size={14} strokeWidth={2.5} />,
       items: [
-        allItems.novoPaciente, // + Novo paciente (top-level agora)
-        allItems.pacientes,    // Lista de pacientes
-        allItems.contacts,     // Contatos
+        allItems.novoPaciente,    // + Novo paciente (top-level agora)
+        allItems.pacientes,       // Lista de pacientes
+        allItems.contacts,        // Contatos
+        allItems.portalPaciente,  // Portal do paciente
       ].filter(i => i.show),
     },
     {
