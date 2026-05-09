@@ -29,6 +29,8 @@ export class CreateQuoteDto {
 
   @IsOptional() @IsString() payment_terms?: string;
   @IsOptional() @IsString() notes?: string;
+  // Onda 3.9 — Nome customizavel do orcamento
+  @IsOptional() @IsString() title?: string;
 
   @IsOptional() @IsArray() @ValidateNested({ each: true }) @Type(() => CreateQuoteItemDto)
   items?: CreateQuoteItemDto[];
@@ -39,6 +41,7 @@ export class UpdateQuoteDto {
   @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) discount_percent?: number;
   @IsOptional() @IsString() payment_terms?: string;
   @IsOptional() @IsString() notes?: string;
+  @IsOptional() @IsString() title?: string;
 }
 
 export class RejectQuoteDto {

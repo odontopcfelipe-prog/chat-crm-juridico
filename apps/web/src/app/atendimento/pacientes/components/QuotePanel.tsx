@@ -80,6 +80,13 @@ interface Props {
   lastAnnotation?: { tooth_fdi: string; state: string; ts: number } | null;
   /** Callback pra consumir/descartar a anotacao apos o usuario decidir. */
   onAnnotationConsumed?: () => void;
+  /**
+   * Onda 3.9 — Modo compacto: usado quando o painel esta DENTRO de um card
+   * expansivel (cada orcamento na lista tem um QuotePanel inline). Esconde
+   * o header proprio (o card pai ja tem nome/status/categoria) e o link
+   * "Ir para orcamentos" (operador ja esta editando o quote).
+   */
+  compact?: boolean;
 }
 
 // Onda 3.2 — sugestao buscada de /state-suggestions
@@ -111,6 +118,7 @@ export default function QuotePanel({
   loading,
   lastAnnotation,
   onAnnotationConsumed,
+  compact,
 }: Props) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -298,30 +306,44 @@ export default function QuotePanel({
   }
 
   return (
-    <div className="bg-card border border-border rounded-xl overflow-hidden">
-      {/* Header */}
-      <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
-        <div className="flex items-center gap-2">
-          <DollarSign size={16} className="text-primary" />
-          <h3 className="font-semibold text-foreground">
-            Plano de tratamento
-            {items.length > 0 && (
-              <span className="ml-2 text-xs font-normal text-muted-foreground">
-                {items.length} {items.length === 1 ? 'item' : 'itens'} ·{' '}
-                {quote.status === 'DRAFT' ? 'rascunho' : quote.status.toLowerCase()}
-              </span>
-            )}
-          </h3>
+    <div className={compact ? '' : 'bg-card border border-border rounded-xl overflow-hidden'}>
+      {/* Header — escondido no modo compact (card pai ja tem nome/status) */}
+      {!compact && (
+        <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex items-center gap-2">
+            <DollarSign size={16} className="text-primary" />
+            <h3 className="font-semibold text-foreground">
+              Plano de tratamento
+              {items.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  {items.length} {items.length === 1 ? 'item' : 'itens'} ·{' '}
+                  {quote.status === 'DRAFT' ? 'rascunho' : quote.status.toLowerCase()}
+                </span>
+              )}
+            </h3>
+          </div>
+          {items.length > 0 && !pickerOpen && (
+            <button
+              onClick={() => setPickerOpen(true)}
+              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+            >
+              <Plus size={12} /> procedimentos
+            </button>
+          )}
         </div>
-        {items.length > 0 && !pickerOpen && (
+      )}
+      {/* Compact mode: botao "+ procedimentos" so no canto superior direito
+          (sem header completo). Aparece quando ha items + picker fechado. */}
+      {compact && items.length > 0 && !pickerOpen && (
+        <div className="px-4 pt-3 flex justify-end">
           <button
             onClick={() => setPickerOpen(true)}
             className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
           >
             <Plus size={12} /> procedimentos
           </button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Banner de multi-selecao via Ctrl+click — diferencia 1 dente (modo
           "empilhar varios procedimentos no mesmo dente") de 2+ dentes (modo
@@ -572,7 +594,10 @@ export default function QuotePanel({
             </div>
           )}
 
-          {items.length > 0 && (
+          {/* Rodape com link "Ir para orcamentos" — escondido no modo compact
+              (operador ja esta vendo o orcamento no Odontograma; o link
+              equivalente vem do header do card pai se necessario). */}
+          {items.length > 0 && !compact && (
             <div className="border-t border-border p-4 flex items-center justify-between flex-wrap gap-3 bg-background/30">
               <div className="text-xs text-muted-foreground italic">
                 Plano clinico — valores, descontos e condicoes ficam no tab Orçamentos

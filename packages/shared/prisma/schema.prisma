@@ -2136,6 +2136,11 @@ model Quote {
   patient_id         String
   created_by_user_id String
 
+  /// Onda 3.9 — Nome customizavel pelo operador (ex: "Reabilitacao superior",
+  /// "Canal + coroa 36"). Independente da closing_category derivada por
+  /// procedimento. Frontend mostra como titulo do card no Odontograma.
+  title       String?
+
   status      String    @default("DRAFT") // "DRAFT"|"SENT"|"ACCEPTED"|"REJECTED"|"EXPIRED"
   valid_until DateTime?
 

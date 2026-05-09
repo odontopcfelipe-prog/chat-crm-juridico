@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Loader2, Activity, X, Trash2, Save, Printer } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
@@ -66,6 +66,8 @@ type ClosingCategory =
 interface QuoteListItem {
   id: string;
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+  // Onda 3.9 — nome customizavel pelo operador (ex: "Reabilitacao superior")
+  title: string | null;
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
@@ -159,16 +161,17 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
   const [selectedTeethForQuote, setSelectedTeethForQuote] = useState<Set<string>>(new Set());
   const [procedures, setProcedures] = useState<Procedure[]>([]);
 
-  // Onda 3.2 — Quote draft + procedures carregados no mount (nao mais ao
-  // abrir modal). QuotePanel fica sempre visivel embaixo do odontograma.
-  const [quote, setQuote] = useState<QuoteDraft | null>(null);
-  const [loadingQuote, setLoadingQuote] = useState(true);
-
-  // Onda 3.7 — Lista TODOS os orcamentos do paciente (DRAFT, SENT, etc.) com
-  // categoria de fechamento (LENTES PORCELANAS / FACETAS RESINAS / etc.) pra
-  // exibir abaixo do plano de tratamento como "histórico/opções". ACEITAR
-  // direto da lista promove o quote pra ACCEPTED + cria TreatmentPlan.
+  // Onda 3.9 — Modelo "cada orcamento eh um plano clinico autocontido":
+  // - quotesList: lista TODOS os orcamentos do paciente (cards na UI)
+  // - expandedQuoteId: id do orcamento atualmente expandido (so 1 por vez)
+  // - expandedQuote: quote completo (com items) do expandido — usado pra
+  //   renderizar o QuotePanel inline dentro do card
+  // O conceito de "draft idempotente unico" foi removido — agora o operador
+  // cria/expande/edita orcamentos como entidades independentes.
   const [quotesList, setQuotesList] = useState<QuoteListItem[]>([]);
+  const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
+  const [expandedQuote, setExpandedQuote] = useState<QuoteDraft | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(true);
 
   // Onda 3.2 — captura ultima anotacao NOVA (nao edicao) pra acionar sugestao
   // automatica no QuotePanel. Inclui ts pra garantir disparo mesmo se mesma
@@ -192,17 +195,18 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
     }
   }, [patientId]);
 
-  const loadQuote = useCallback(async () => {
+  // Onda 3.9 — Carrega quote completo (com items) quando o usuario expande um card
+  const loadExpandedQuote = useCallback(async (id: string) => {
     try {
-      const draftRes = await api.post<{ id: string }>(`/patients/${patientId}/quotes/draft-or-create`);
-      const detailRes = await api.get<QuoteDraft>(`/quotes/${draftRes.data.id}`);
-      setQuote(detailRes.data);
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar orcamento');
+      const { data } = await api.get<QuoteDraft>(`/quotes/${id}`);
+      setExpandedQuote(data);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao carregar orcamento');
     }
-  }, [patientId]);
+  }, []);
 
-  // Onda 3.7 — Lista de orcamentos do paciente (com closing_category derivado)
+  // Lista de orcamentos do paciente (com closing_category derivado)
   const loadQuotesList = useCallback(async () => {
     try {
       const { data } = await api.get<QuoteListItem[]>(`/patients/${patientId}/quotes`);
@@ -213,36 +217,66 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
   }, [patientId]);
 
   // Refetch unificado: usado pelo QuotePanel apos cada mutacao em items.
-  // Recarrega draft (pra refresh items + closing_category) E lista (pra
-  // contadores e categorias atualizados nos cards).
+  // Recarrega lista (pra contadores) E o expandido (pra refresh items).
   const refreshQuotes = useCallback(async () => {
-    await Promise.all([loadQuote(), loadQuotesList()]);
-  }, [loadQuote, loadQuotesList]);
+    await Promise.all([
+      loadQuotesList(),
+      expandedQuoteId ? loadExpandedQuote(expandedQuoteId) : Promise.resolve(),
+    ]);
+  }, [loadQuotesList, expandedQuoteId, loadExpandedQuote]);
+
+  // Toggle expansion: clica no card pra expandir; clica no expandido pra fechar.
+  // Single-expand: so 1 orcamento aberto por vez (UX accordion clean).
+  const toggleExpand = useCallback(async (id: string) => {
+    if (expandedQuoteId === id) {
+      setExpandedQuoteId(null);
+      setExpandedQuote(null);
+      return;
+    }
+    setExpandedQuoteId(id);
+    setExpandedQuote(null); // limpa enquanto carrega
+    await loadExpandedQuote(id);
+  }, [expandedQuoteId, loadExpandedQuote]);
+
+  // Cria orcamento DRAFT vazio + auto-expande pra edicao imediata
+  const createNewQuote = useCallback(async () => {
+    try {
+      const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
+      showSuccess('Orcamento criado');
+      await loadQuotesList();
+      setExpandedQuoteId(data.id);
+      await loadExpandedQuote(data.id);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao criar orcamento');
+    }
+  }, [patientId, loadQuotesList, loadExpandedQuote]);
+
+  // Atualiza titulo do orcamento (edicao inline no card)
+  const updateQuoteTitle = useCallback(async (id: string, title: string) => {
+    try {
+      await api.patch(`/quotes/${id}`, { title: title || null });
+      await loadQuotesList();
+      if (expandedQuoteId === id) await loadExpandedQuote(id);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao renomear');
+    }
+  }, [loadQuotesList, expandedQuoteId, loadExpandedQuote]);
 
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     setLoadingQuote(true);
     Promise.all([
-      loadQuote(),
       loadQuotesList(),
       api.get<Procedure[]>('/procedures').then((r) => setProcedures(r.data || [])).catch(() => {}),
     ]).finally(() => setLoadingQuote(false));
-  }, [loadQuote, loadQuotesList]);
-
-  // Onda 3.7 — Aceita orcamento direto da lista (qualquer status DRAFT/SENT).
-  // Backend permite aceitar de DRAFT (operador confirma sem passar pelo portal).
-  const acceptQuote = useCallback(async (id: string) => {
-    if (!confirm('Aceitar este orcamento?\n\nIsso vai marcar como ACEITO e criar um plano de tratamento (TreatmentPlan).')) return;
-    try {
-      await api.post(`/quotes/${id}/accept`);
-      showSuccess('Orcamento aceito — plano de tratamento criado');
-      await loadQuotesList();
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao aceitar orcamento');
-    }
   }, [loadQuotesList]);
+
+  // Onda 3.9 — acceptQuote removido daqui. Aprovacao agora acontece SO na
+  // aba Orcamentos (visao comercial) — operador escolhe items, aplica
+  // desconto, envia ao paciente, aceita parcial ou completo.
 
   // Apaga DRAFT (soft-delete via service). Bloqueia em outros status —
   // apenas DRAFT eh "descartavel"; SENT/ACCEPTED ficam no historico.
@@ -258,18 +292,18 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
     }
   }, [refreshQuotes]);
 
-  // Onda 3.3 — Mapa fdi → items, pra renderizar bolinhas coloridas (uma por
-  // procedimento, com cor da especialidade) e tooltip rico no odontograma.
+  // Onda 3.9 — Mapa fdi → items do orcamento EXPANDIDO. Reflete o que esta
+  // sendo editado naquele momento. Quando nada expandido, FDI grid fica limpo.
   const itemsByFdi = useMemo(() => {
     const m = new Map<string, QuoteItemLite[]>();
-    for (const item of quote?.items || []) {
+    for (const item of expandedQuote?.items || []) {
       if (!item.tooth_fdi) continue;
       const arr = m.get(item.tooth_fdi) || [];
       arr.push(item);
       m.set(item.tooth_fdi, arr);
     }
     return m;
-  }, [quote?.items]);
+  }, [expandedQuote?.items]);
 
   // Array estavel de dentes selecionados — Set#values() retorna nova
   // referencia a cada render, e Array.from(set) tambem. Memoizar baseado
@@ -478,103 +512,208 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         </div>
       )}
 
-      {/* Onda 3.2 — Painel de orcamento inline (substitui FAB+modal) */}
+      {/* Onda 3.9 — Bloco unico: empty state quando nenhum orcamento OU
+          lista de cards expansiveis. Cada card eh um orcamento autocontido
+          com nome editavel e procedimentos sem valores (visao clinica).
+          Mesmas entidades aparecem na aba Orcamentos com valores e UI de
+          negociacao comercial completa. */}
       <div className="print-hide">
-        <QuotePanel
-          patientId={patientId}
-          quote={quote}
-          procedures={procedures}
-          selectedTeeth={selectedTeethArray}
-          onClearSelection={clearTeethSelection}
-          onQuoteChange={refreshQuotes}
-          loading={loadingQuote}
-          lastAnnotation={lastAnnotation}
-          onAnnotationConsumed={consumeLastAnnotation}
-        />
+        {loadingQuote ? (
+          <div className="bg-card border border-border rounded-xl p-8 flex items-center justify-center text-muted-foreground">
+            <Loader2 size={16} className="animate-spin mr-2" />
+            Carregando orcamentos...
+          </div>
+        ) : quotesList.length === 0 ? (
+          // Empty state: nenhum orcamento ainda
+          <div className="bg-card border border-border rounded-xl p-10 text-center">
+            <DollarSign size={28} className="mx-auto text-muted-foreground/50 mb-3" />
+            <p className="text-sm font-medium text-foreground mb-1">
+              Comece adicionando procedimentos
+            </p>
+            <p className="text-xs text-muted-foreground mb-5 max-w-md mx-auto">
+              Clique em um dente para anotar · Ctrl+clique em varios para orcar em lote · Ou use o botao abaixo
+            </p>
+            <button
+              onClick={createNewQuote}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition"
+            >
+              <DollarSign size={16} /> Iniciar orcamento
+            </button>
+          </div>
+        ) : (
+          // Lista de cards expansiveis
+          <div className="space-y-2">
+            {quotesList.map((q, idx) => (
+              <QuoteCard
+                key={q.id}
+                quote={q}
+                index={quotesList.length - idx}
+                expanded={expandedQuoteId === q.id}
+                expandedQuote={expandedQuoteId === q.id ? expandedQuote : null}
+                onToggleExpand={() => toggleExpand(q.id)}
+                onRename={(newTitle) => updateQuoteTitle(q.id, newTitle)}
+                onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
+                patientId={patientId}
+                procedures={procedures}
+                selectedTeeth={expandedQuoteId === q.id ? selectedTeethArray : []}
+                onClearSelection={clearTeethSelection}
+                onQuoteChange={refreshQuotes}
+                lastAnnotation={expandedQuoteId === q.id ? lastAnnotation : null}
+                onAnnotationConsumed={consumeLastAnnotation}
+              />
+            ))}
+            {/* CTA final: criar mais um orcamento */}
+            <button
+              onClick={createNewQuote}
+              className="w-full bg-card border border-dashed border-border hover:border-emerald-500/40 hover:bg-emerald-500/5 rounded-xl py-3 text-sm font-medium text-emerald-700 transition-colors inline-flex items-center justify-center gap-2"
+            >
+              <DollarSign size={14} /> Iniciar novo orcamento
+            </button>
+          </div>
+        )}
       </div>
-
-      {/* Onda 3.7 — Lista de orcamentos do paciente.
-          Renderiza abaixo do plano de tratamento. Cada orcamento mostra
-          a categoria de fechamento (LENTES PORCELANAS / FACETAS RESINAS /
-          IMPLANTE / etc.) computada automaticamente pelo procedimento
-          de maior valor. Operador pode ACEITAR direto da lista. */}
-      {quotesList.length > 0 && (
-        <div className="mt-4 print-hide space-y-2">
-          {quotesList.map((q, idx) => (
-            <QuoteListCard
-              key={q.id}
-              quote={q}
-              index={quotesList.length - idx}
-              onAccept={() => acceptQuote(q.id)}
-              onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
-              patientId={patientId}
-            />
-          ))}
-        </div>
-      )}
     </div>
   );
 }
 
-// ─── Card de orcamento na lista (Onda 3.7) ────────────────────
+// ─── Card de orcamento expansivel (Onda 3.9) ──────────────────
+// Click no header expande/contrai. Quando expandido, renderiza QuotePanel
+// inline com a tabela de procedimentos (sem valores — visao clinica). Para
+// negociacao comercial (valores, descontos, envio), operador clica no link
+// "Abrir na aba Orcamentos" no rodape.
 
-function QuoteListCard({
-  quote, index, onAccept, onDelete, patientId,
+function QuoteCard({
+  quote, index, expanded, expandedQuote, onToggleExpand, onRename, onDelete,
+  patientId, procedures, selectedTeeth, onClearSelection, onQuoteChange,
+  lastAnnotation, onAnnotationConsumed,
 }: {
   quote: QuoteListItem;
   index: number;
-  onAccept: () => void;
+  expanded: boolean;
+  expandedQuote: QuoteDraft | null;
+  onToggleExpand: () => void;
+  onRename: (newTitle: string) => void | Promise<void>;
   onDelete?: () => void;
   patientId: string;
+  procedures: Procedure[];
+  selectedTeeth: string[];
+  onClearSelection: () => void;
+  onQuoteChange: () => void | Promise<void>;
+  lastAnnotation: { tooth_fdi: string; state: string; ts: number } | null;
+  onAnnotationConsumed: () => void;
 }) {
   const itemsCount = quote._count?.items ?? 0;
   const createdDate = new Date(quote.created_at).toLocaleDateString('pt-BR');
-  const isAcceptable = quote.status === 'DRAFT' || quote.status === 'SENT';
   const categoryLabel = CLOSING_CATEGORY_LABEL[quote.closing_category] || 'OUTROS';
 
+  // Edicao inline do titulo: state local enquanto edita, commit no blur/Enter
+  const [titleDraft, setTitleDraft] = useState<string | null>(null);
+  const startEditTitle = (e: React.MouseEvent) => {
+    e.stopPropagation(); // nao expandir/colapsar ao clicar no titulo
+    setTitleDraft(quote.title || '');
+  };
+  const commitTitle = () => {
+    if (titleDraft === null) return;
+    const trimmed = titleDraft.trim();
+    if (trimmed !== (quote.title || '')) onRename(trimmed);
+    setTitleDraft(null);
+  };
+
   return (
-    <div className="bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap hover:border-primary/40 transition-colors">
-      <span className="text-xs text-muted-foreground font-mono">#{index}</span>
-      <a
-        href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${quote.id}`}
-        className="text-sm font-bold text-primary hover:underline tracking-wide"
-        title="Abrir detalhes no tab Orçamentos"
+    <div className={`bg-card border rounded-xl overflow-hidden transition-colors ${
+      expanded ? 'border-primary/40 shadow-sm' : 'border-border hover:border-primary/30'
+    }`}>
+      {/* HEADER — sempre visivel, click expande/colapsa */}
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        className="w-full px-4 py-3 flex items-center gap-3 flex-wrap text-left"
       >
-        {categoryLabel}
-      </a>
-      <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
-        {STATUS_LABEL[quote.status]}
-      </span>
-      <div className="flex flex-col text-xs text-muted-foreground">
-        <span>
-          {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}
-          {' · '}
-          Criado em {createdDate}
+        <span className="text-xs text-muted-foreground font-mono">#{index}</span>
+        {titleDraft !== null ? (
+          <input
+            autoFocus
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onClick={(e) => e.stopPropagation()}
+            onBlur={commitTitle}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === 'Enter') commitTitle();
+              if (e.key === 'Escape') setTitleDraft(null);
+            }}
+            placeholder="Nome do orcamento (ex: Reabilitacao superior)"
+            className="text-sm font-bold tracking-wide px-2 py-0.5 rounded border border-primary bg-background min-w-[200px] focus:outline-none"
+          />
+        ) : (
+          <span
+            onClick={startEditTitle}
+            className="text-sm font-bold text-primary hover:underline tracking-wide cursor-text"
+            title="Clique pra editar nome"
+          >
+            {quote.title || categoryLabel}
+          </span>
+        )}
+        {/* Quando tem titulo customizado, mostra a categoria como badge secundaria */}
+        {quote.title && (
+          <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+            {categoryLabel}
+          </span>
+        )}
+        <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
+          {STATUS_LABEL[quote.status]}
         </span>
-        {quote.created_by?.name && (
-          <span>por {quote.created_by.name}</span>
-        )}
-      </div>
-      <div className="ml-auto flex items-center gap-2">
-        {onDelete && (
-          <button
-            onClick={onDelete}
-            className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-            title="Apagar rascunho"
-          >
-            <Trash2 size={12} />
-          </button>
-        )}
-        {isAcceptable && (
-          <button
-            onClick={onAccept}
-            className="text-xs font-bold tracking-wide px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white shadow-sm transition"
-            title="Aceitar este orcamento e criar plano de tratamento"
-          >
-            ACEITAR
-          </button>
-        )}
-      </div>
+        <div className="flex flex-col text-xs text-muted-foreground">
+          <span>
+            {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}
+            {' · '}
+            Criado em {createdDate}
+          </span>
+          {quote.created_by?.name && (
+            <span>por {quote.created_by.name}</span>
+          )}
+        </div>
+        <div className="ml-auto flex items-center gap-2">
+          {onDelete && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+              title="Apagar rascunho"
+            >
+              <Trash2 size={12} />
+            </button>
+          )}
+          <span className="text-muted-foreground" title={expanded ? 'Recolher' : 'Expandir pra editar procedimentos'}>
+            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+          </span>
+        </div>
+      </button>
+
+      {/* CONTEUDO EXPANSIVEL — QuotePanel inline (sem valores) */}
+      {expanded && (
+        <div className="border-t border-border bg-background/30">
+          {!expandedQuote ? (
+            <div className="p-8 flex items-center justify-center text-muted-foreground text-sm">
+              <Loader2 size={14} className="animate-spin mr-2" />
+              Carregando procedimentos...
+            </div>
+          ) : (
+            <QuotePanel
+              patientId={patientId}
+              quote={expandedQuote}
+              procedures={procedures}
+              selectedTeeth={selectedTeeth}
+              onClearSelection={onClearSelection}
+              onQuoteChange={onQuoteChange}
+              loading={false}
+              lastAnnotation={lastAnnotation}
+              onAnnotationConsumed={onAnnotationConsumed}
+              compact
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
