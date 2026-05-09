@@ -1167,13 +1167,11 @@ export default function AgendaPage() {
           return !isNaN(startMs);
         })
         .map(e => {
-          // No modo "Todos", incluir o nome COMPLETO do dentista numa LINHA propria
-          // (Onda 5d v9 — bug fix: split(' ')[0] estava pegando so "Dra." em
-          // vez de "Dra. Suellen Passos"). Sem colchetes — visual mais limpo.
-          // CSS trunca se passar do largura do card.
-          const userLine = (showAllUsers && !filterUserId && e.assigned_user)
-            ? `${e.assigned_user.name}\n`
-            : '';
+          // Nome do dentista responsavel SEMPRE visivel no card (numa linha
+          // propria, em cima do tipo/titulo). Mesmo quando filtramos por 1
+          // dentista, manter o nome reforca o padrao visual e evita confusao
+          // quando varias agendas estao abertas em abas diferentes.
+          const userLine = e.assigned_user ? `${e.assigned_user.name}\n` : '';
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
           if (e.end_at && !isNaN(new Date(e.end_at).getTime())) {
