@@ -17,7 +17,7 @@ import { useEffect, useRef, useState, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
   ArrowLeft, Loader2, User, Phone, Mail, IdCard,
-  FileText, Stethoscope, Activity, ClipboardList, DollarSign,
+  FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
 } from 'lucide-react';
@@ -29,8 +29,6 @@ import AnamneseTab from '../components/AnamneseTab';
 import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
 import OrcamentoTab from '../components/OrcamentoTab';
-import TratamentoTab from '../components/TratamentoTab';
-import ManutencoesTab from '../components/ManutencoesTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
@@ -93,9 +91,10 @@ const TABS = [
   { id: 'smile-design', label: 'Smile Design', icon: Sparkles },
   { id: 'radiografias', label: 'Radiografias', icon: Activity },
   { id: 'quotes', label: 'Orçamentos', icon: DollarSign },
-  { id: 'treatment-plans', label: 'Tratamentos', icon: ClipboardList },
-  // Onda 5.3 (Fase 25) — Manutencoes/recall pos-procedimento
-  { id: 'maintenance', label: 'Manutenções', icon: Clock },
+  // Onda 3.7 — Tabs "Tratamentos" e "Manutencoes" removidas: o conteudo
+  // (lista de orcamentos com acoes) agora vive no Odontograma como hub
+  // central. Componentes TratamentoTab e ManutencoesTab permanecem no
+  // codigo (so removemos do menu) — podem ser reativados se necessario.
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -205,42 +204,8 @@ function PacienteFichaInner() {
   // se ja existe) + abre tab Orcamentos com o quote ja em modo edicao.
   // Backend (LeadsService.graduateLeadToEmFechamento) gradua o lead vinculado
   // pra "Em Fechamento" silenciosamente (some do Kanban CRM, vai pra /fechamentos).
-  const [startingQuote, setStartingQuote] = useState(false);
-  const handleStartQuote = async () => {
-    if (!patient || startingQuote) return;
-    setStartingQuote(true);
-    try {
-      const { data } = await api.post<{ id: string }>(
-        `/patients/${patient.id}/quotes/draft-or-create`,
-      );
-      // Substitui a URL pra refletir o estado novo (refresh nao perde)
-      router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${data.id}`);
-      setTab('quotes');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao iniciar orcamento');
-    } finally {
-      setStartingQuote(false);
-    }
-  };
-
-  // Atalho da dra: iniciar atendimento clinico. Marca lead vinculado como
-  // "Em Fechamento" (silencioso, dra nao ve CRM) e abre Odontograma direto
-  // — onde a dra avalia, marca dentes (Ctrl+click) e adiciona procedimentos
-  // ao orcamento DRAFT automaticamente.
-  const [startingAttending, setStartingAttending] = useState(false);
-  const handleStartAttending = async () => {
-    if (!patient || startingAttending) return;
-    setStartingAttending(true);
-    try {
-      await api.post(`/patients/${patient.id}/start-attending`);
-      router.replace(`/atendimento/pacientes/${patient.id}?tab=odontogram`);
-      setTab('odontogram');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao iniciar atendimento');
-    } finally {
-      setStartingAttending(false);
-    }
-  };
+  // Onda 3.7 — handleStartQuote e handleStartAttending removidos
+  // (botoes correspondentes saindo do header — fluxo migrou pro Odontograma).
 
   if (loading) {
     return (
@@ -307,34 +272,11 @@ function PacienteFichaInner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Atender: comeca triagem clinica. Gradua lead pra "Em Fechamento"
-              (silencioso) e abre Odontograma direto — onde a dra marca dentes
-              + adiciona procedimentos ao orcamento DRAFT automaticamente. */}
-          {patient.status !== 'ARCHIVED' && (
-            <button
-              onClick={handleStartAttending}
-              disabled={startingAttending}
-              className="text-xs text-white bg-sky-600 hover:bg-sky-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
-              title="Inicia atendimento e abre o Odontograma"
-            >
-              {startingAttending ? <Loader2 size={14} className="animate-spin" /> : <Stethoscope size={14} />}
-              Atender
-            </button>
-          )}
-          {/* Iniciar Orcamento: cria DRAFT idempotente + abre aba Orcamentos.
-              Backend gradua o lead vinculado pra "Em Fechamento" (Funil 2)
-              automaticamente — dra nao precisa tocar no CRM. */}
-          {patient.status !== 'ARCHIVED' && (
-            <button
-              onClick={handleStartQuote}
-              disabled={startingQuote}
-              className="text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
-              title="Cria rascunho de orcamento e abre na aba Orcamentos"
-            >
-              {startingQuote ? <Loader2 size={14} className="animate-spin" /> : <DollarSign size={14} />}
-              Iniciar orcamento
-            </button>
-          )}
+          {/* Onda 3.7 — Botoes "Atender" e "Iniciar orcamento" removidos do
+              header. "Iniciar orcamento" virou CTA verde grande no proprio
+              tab Odontograma (centro da tela). "Atender" foi descontinuado
+              porque o fluxo dele (graduar lead + abrir Odontograma) eh agora
+              implicito quando o operador entra na aba Odontograma. */}
           {/* Onda 5e v30 (Fase 25) — Agendar consulta direto da ficha do paciente.
               Deep-link pra /agenda?new=1&patient_id=X&patient_name=X&phone=X
               que abre o modal de evento ja com paciente pre-selecionado. */}
@@ -442,8 +384,8 @@ function PacienteFichaInner() {
           initialQuoteId={searchParams?.get('quote') || undefined}
         />
       )}
-      {tab === 'treatment-plans' && <TratamentoTab patientId={patient.id} />}
-      {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
+      {/* Onda 3.7 — tabs treatment-plans e maintenance removidas do menu
+          (componentes preservados em components/ pra reativacao futura). */}
 
       {/* Modais */}
       {editOpen && (

@@ -223,15 +223,28 @@ export class QuotesService {
 
   async findByPatient(patientId: string, tenantId: string) {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
-    return this.prisma.quote.findMany({
+    const quotes = await this.prisma.quote.findMany({
       // Onda 25.6 — exclui soft-deletados da listagem normal
       where: { patient_id: patientId, deleted_at: null },
       orderBy: { created_at: 'desc' },
       include: {
         _count: { select: { items: true } },
         created_by: { select: { id: true, name: true } },
+        // Onda 3.7 — items minimo pra classificar a categoria de fechamento
+        // (LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE, etc.) e mostrar no UI
+        items: {
+          select: {
+            total_price: true,
+            procedure: { select: { name: true, category: true } },
+          },
+        },
       },
     });
+    // Anexa closing_category derivada (sem persistir — eh computada)
+    return quotes.map((q) => ({
+      ...q,
+      closing_category: this.classifyQuoteColumn(q.items),
+    }));
   }
 
   async findOne(id: string, tenantId: string) {
@@ -250,6 +263,8 @@ export class QuotesService {
                 name: true,
                 code_tuss: true,
                 duration_minutes: true,
+                // Onda 3.7 — category necessaria pra classificacao de fechamento
+                category: true,
                 specialty: { select: { id: true, name: true } },
               },
             },
@@ -277,7 +292,11 @@ export class QuotesService {
     });
     if (!quote) throw new NotFoundException('Orcamento nao encontrado');
     if (quote.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
-    return quote;
+    // Onda 3.7 — closing_category exposto pra UI mostrar nome categorico
+    return {
+      ...quote,
+      closing_category: this.classifyQuoteColumn(quote.items),
+    };
   }
 
   async update(id: string, tenantId: string, data: Prisma.QuoteUncheckedUpdateInput) {
@@ -332,8 +351,13 @@ export class QuotesService {
 
   async accept(id: string, tenantId: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
-    if (quote.status !== 'SENT') {
-      throw new BadRequestException('Apenas orcamentos SENT podem ser aceitos');
+    // Onda 3.7 — DRAFT tambem pode ser aceito (operador confirma direto sem
+    // passar pelo portal — caso comum: paciente fechou na recepcao). Auto-seta
+    // sent_at quando aceitar de DRAFT pra registrar que houve um envio implicito.
+    if (!['DRAFT', 'SENT'].includes(quote.status)) {
+      throw new BadRequestException(
+        `Apenas orcamentos DRAFT/SENT podem ser aceitos. Status atual: ${quote.status}`,
+      );
     }
 
     // Onda 3b — snapshot da versao final antes de mudar pra ACCEPTED
@@ -345,9 +369,16 @@ export class QuotesService {
 
     // Transacao: marca quote + cria TreatmentPlan + TreatmentPlanItems
     const result = await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
       const acceptedQuote = await tx.quote.update({
         where: { id },
-        data: { status: 'ACCEPTED', accepted_at: new Date() },
+        data: {
+          status: 'ACCEPTED',
+          accepted_at: now,
+          // Onda 3.7 — se aceitando direto de DRAFT, registra sent_at agora pra
+          // manter audit trail consistente (todo aceito teve um "envio").
+          ...(quote.status === 'DRAFT' && !quote.sent_at ? { sent_at: now } : {}),
+        },
       });
 
       const plan = await tx.treatmentPlan.create({
@@ -953,8 +984,12 @@ export class QuotesService {
   // Endpoint: GET /quotes/closing-board (commercial.controller.ts)
   // Frontend: /atendimento/fechamentos (kanban estilo "Advogado — Preparação")
 
-  /** Determina a coluna do card a partir do item de maior valor. */
-  private classifyQuoteColumn(items: Array<{
+  /**
+   * Onda 3.7 — exposto como public pra ser usado no findOne/findByPatient
+   * (nao so no closing-board). Frontend mostra o nome categorico na UI
+   * "Plano de tratamento" do paciente: "#1 LENTES PORCELANAS · 3 itens".
+   */
+  classifyQuoteColumn(items: Array<{
     procedure: { category: string | null; name: string };
     total_price: any;
   }>): 'LENTES_PORCELANA' | 'FACETAS_RESINA' | 'IMPLANTE' | 'ORTODONTIA' | 'HARMONIZACAO_FACIAL' | 'OUTROS' {

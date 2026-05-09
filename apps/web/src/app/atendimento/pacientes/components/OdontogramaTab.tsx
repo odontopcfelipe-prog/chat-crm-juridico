@@ -54,6 +54,51 @@ interface QuoteDraft {
   items: QuoteItemLite[];
 }
 
+// Onda 3.7 — lista de orcamentos do paciente, abaixo do plano de tratamento
+type ClosingCategory =
+  | 'LENTES_PORCELANA'
+  | 'FACETAS_RESINA'
+  | 'IMPLANTE'
+  | 'ORTODONTIA'
+  | 'HARMONIZACAO_FACIAL'
+  | 'OUTROS';
+
+interface QuoteListItem {
+  id: string;
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+  total_value: string | number;
+  created_at: string;
+  valid_until: string | null;
+  closing_category: ClosingCategory;
+  _count?: { items: number };
+  created_by?: { id: string; name: string };
+}
+
+const CLOSING_CATEGORY_LABEL: Record<ClosingCategory, string> = {
+  LENTES_PORCELANA: 'LENTES PORCELANAS',
+  FACETAS_RESINA: 'FACETAS RESINAS',
+  IMPLANTE: 'IMPLANTE',
+  ORTODONTIA: 'ORTODONTIA',
+  HARMONIZACAO_FACIAL: 'HARMONIZAÇÃO FACIAL',
+  OUTROS: 'OUTROS',
+};
+
+const STATUS_LABEL: Record<QuoteListItem['status'], string> = {
+  DRAFT: 'rascunho',
+  SENT: 'enviado',
+  ACCEPTED: 'aceito',
+  REJECTED: 'rejeitado',
+  EXPIRED: 'expirado',
+};
+
+const STATUS_CLS: Record<QuoteListItem['status'], string> = {
+  DRAFT: 'bg-muted text-muted-foreground',
+  SENT: 'bg-blue-500/10 text-blue-700',
+  ACCEPTED: 'bg-emerald-500/10 text-emerald-700',
+  REJECTED: 'bg-destructive/10 text-destructive',
+  EXPIRED: 'bg-amber-500/10 text-amber-700',
+};
+
 interface ToothRecord {
   id: string;
   tooth_fdi: string;
@@ -119,6 +164,12 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
   const [quote, setQuote] = useState<QuoteDraft | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(true);
 
+  // Onda 3.7 — Lista TODOS os orcamentos do paciente (DRAFT, SENT, etc.) com
+  // categoria de fechamento (LENTES PORCELANAS / FACETAS RESINAS / etc.) pra
+  // exibir abaixo do plano de tratamento como "histórico/opções". ACEITAR
+  // direto da lista promove o quote pra ACCEPTED + cria TreatmentPlan.
+  const [quotesList, setQuotesList] = useState<QuoteListItem[]>([]);
+
   // Onda 3.2 — captura ultima anotacao NOVA (nao edicao) pra acionar sugestao
   // automatica no QuotePanel. Inclui ts pra garantir disparo mesmo se mesma
   // dupla (fdi, state) for anotada de novo.
@@ -151,15 +202,61 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
     }
   }, [patientId]);
 
+  // Onda 3.7 — Lista de orcamentos do paciente (com closing_category derivado)
+  const loadQuotesList = useCallback(async () => {
+    try {
+      const { data } = await api.get<QuoteListItem[]>(`/patients/${patientId}/quotes`);
+      setQuotesList(data || []);
+    } catch {
+      // silencia — lista vazia eh estado valido
+    }
+  }, [patientId]);
+
+  // Refetch unificado: usado pelo QuotePanel apos cada mutacao em items.
+  // Recarrega draft (pra refresh items + closing_category) E lista (pra
+  // contadores e categorias atualizados nos cards).
+  const refreshQuotes = useCallback(async () => {
+    await Promise.all([loadQuote(), loadQuotesList()]);
+  }, [loadQuote, loadQuotesList]);
+
   useEffect(() => { load(); }, [load]);
 
   useEffect(() => {
     setLoadingQuote(true);
     Promise.all([
       loadQuote(),
+      loadQuotesList(),
       api.get<Procedure[]>('/procedures').then((r) => setProcedures(r.data || [])).catch(() => {}),
     ]).finally(() => setLoadingQuote(false));
-  }, [loadQuote]);
+  }, [loadQuote, loadQuotesList]);
+
+  // Onda 3.7 — Aceita orcamento direto da lista (qualquer status DRAFT/SENT).
+  // Backend permite aceitar de DRAFT (operador confirma sem passar pelo portal).
+  const acceptQuote = useCallback(async (id: string) => {
+    if (!confirm('Aceitar este orcamento?\n\nIsso vai marcar como ACEITO e criar um plano de tratamento (TreatmentPlan).')) return;
+    try {
+      await api.post(`/quotes/${id}/accept`);
+      showSuccess('Orcamento aceito — plano de tratamento criado');
+      await loadQuotesList();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao aceitar orcamento');
+    }
+  }, [loadQuotesList]);
+
+  // Apaga DRAFT (soft-delete via service). Bloqueia em outros status —
+  // apenas DRAFT eh "descartavel"; SENT/ACCEPTED ficam no historico.
+  const deleteDraft = useCallback(async (id: string) => {
+    if (!confirm('Apagar este rascunho?')) return;
+    try {
+      await api.delete(`/quotes/${id}`);
+      showSuccess('Rascunho apagado');
+      await refreshQuotes();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao apagar');
+    }
+  }, [refreshQuotes]);
 
   // Onda 3.3 — Mapa fdi → items, pra renderizar bolinhas coloridas (uma por
   // procedimento, com cor da especialidade) e tooltip rico no odontograma.
@@ -291,7 +388,7 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
       <div className="flex items-center justify-between mb-3 print-hide">
         <div className="flex items-center gap-2">
           <Activity size={18} className="text-primary" />
-          <h3 className="font-semibold text-foreground">Odontograma (notação FDI)</h3>
+          <h3 className="font-semibold text-foreground">Odontograma</h3>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -389,11 +486,94 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
           procedures={procedures}
           selectedTeeth={selectedTeethArray}
           onClearSelection={clearTeethSelection}
-          onQuoteChange={loadQuote}
+          onQuoteChange={refreshQuotes}
           loading={loadingQuote}
           lastAnnotation={lastAnnotation}
           onAnnotationConsumed={consumeLastAnnotation}
         />
+      </div>
+
+      {/* Onda 3.7 — Lista de orcamentos do paciente.
+          Renderiza abaixo do plano de tratamento. Cada orcamento mostra
+          a categoria de fechamento (LENTES PORCELANAS / FACETAS RESINAS /
+          IMPLANTE / etc.) computada automaticamente pelo procedimento
+          de maior valor. Operador pode ACEITAR direto da lista. */}
+      {quotesList.length > 0 && (
+        <div className="mt-4 print-hide space-y-2">
+          {quotesList.map((q, idx) => (
+            <QuoteListCard
+              key={q.id}
+              quote={q}
+              index={quotesList.length - idx}
+              onAccept={() => acceptQuote(q.id)}
+              onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
+              patientId={patientId}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Card de orcamento na lista (Onda 3.7) ────────────────────
+
+function QuoteListCard({
+  quote, index, onAccept, onDelete, patientId,
+}: {
+  quote: QuoteListItem;
+  index: number;
+  onAccept: () => void;
+  onDelete?: () => void;
+  patientId: string;
+}) {
+  const itemsCount = quote._count?.items ?? 0;
+  const createdDate = new Date(quote.created_at).toLocaleDateString('pt-BR');
+  const isAcceptable = quote.status === 'DRAFT' || quote.status === 'SENT';
+  const categoryLabel = CLOSING_CATEGORY_LABEL[quote.closing_category] || 'OUTROS';
+
+  return (
+    <div className="bg-card border border-border rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap hover:border-primary/40 transition-colors">
+      <span className="text-xs text-muted-foreground font-mono">#{index}</span>
+      <a
+        href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${quote.id}`}
+        className="text-sm font-bold text-primary hover:underline tracking-wide"
+        title="Abrir detalhes no tab Orçamentos"
+      >
+        {categoryLabel}
+      </a>
+      <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
+        {STATUS_LABEL[quote.status]}
+      </span>
+      <div className="flex flex-col text-xs text-muted-foreground">
+        <span>
+          {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}
+          {' · '}
+          Criado em {createdDate}
+        </span>
+        {quote.created_by?.name && (
+          <span>por {quote.created_by.name}</span>
+        )}
+      </div>
+      <div className="ml-auto flex items-center gap-2">
+        {onDelete && (
+          <button
+            onClick={onDelete}
+            className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+            title="Apagar rascunho"
+          >
+            <Trash2 size={12} />
+          </button>
+        )}
+        {isAcceptable && (
+          <button
+            onClick={onAccept}
+            className="text-xs font-bold tracking-wide px-4 py-2 rounded-lg bg-orange-500 hover:bg-orange-600 text-white shadow-sm transition"
+            title="Aceitar este orcamento e criar plano de tratamento"
+          >
+            ACEITAR
+          </button>
+        )}
       </div>
     </div>
   );

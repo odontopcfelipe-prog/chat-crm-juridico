@@ -453,14 +453,14 @@ export default function QuotePanel({
           <p className="text-sm font-medium text-foreground mb-1">
             Comece adicionando procedimentos
           </p>
-          <p className="text-xs text-muted-foreground mb-4 max-w-md mx-auto">
+          <p className="text-xs text-muted-foreground mb-5 max-w-md mx-auto">
             Clique em um dente para anotar · Ctrl+clique em varios para orcar em lote · Ou use o botao abaixo
           </p>
           <button
             onClick={() => setPickerOpen(true)}
-            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90"
+            className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition"
           >
-            <Plus size={14} /> procedimentos
+            <DollarSign size={16} /> Iniciar orçamento
           </button>
         </div>
       ) : (
