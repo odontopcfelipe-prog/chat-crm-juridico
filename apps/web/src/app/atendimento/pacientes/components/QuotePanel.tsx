@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { useRole } from '@/lib/useRole';
+import { colorForSpecialty } from '@/lib/specialty-colors';
 
 interface Procedure {
   id: string;
@@ -45,6 +45,8 @@ interface QuoteItem {
     id: string;
     name: string;
     code_tuss?: string | null;
+    specialty_id?: string | null;
+    specialty?: { id: string; name: string } | null;
   };
 }
 
@@ -94,21 +96,6 @@ interface Suggestion {
   };
 }
 
-const SPECIALTY_COLORS = [
-  '#a855f7', '#3b82f6', '#22c55e', '#f97316',
-  '#ec4899', '#14b8a6', '#eab308', '#06b6d4',
-];
-
-function colorForSpecialty(key: string): string {
-  if (!key || key === '__none__') return '#94a3b8';
-  let hash = 0;
-  for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) | 0;
-  return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
-}
-
-const formatBRL = (v: number | string) =>
-  Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
 // Helper pra tipar respostas de erro do axios sem usar `any`
 type ApiError = { response?: { data?: { message?: string } } };
 const errMsg = (err: unknown, fallback: string) =>
@@ -131,10 +118,10 @@ export default function QuotePanel({
   // Quando ha multi-selecao: 1 item por dente (multiplicar) ou agregado (unificar)
   const [teethMode, setTeethMode] = useState<'multiply' | 'unify'>('multiply');
 
-  // Onda 3.3 — DENTIST avaliador nao ve precos/totais. Esconde colunas Unit/Total
-  // e rodape de subtotal/total. Plano clinico (procedimentos+dentes) fica visivel
-  // pra todos; valores ficam restritos a admin/financeiro/comercial.
-  const { canViewQuoteValues } = useRole();
+  // Onda 3.5 — Plano de tratamento eh ESTRITAMENTE CLINICO. Sem valores
+  // pra ninguem (nem admin/financeiro). Valores aparecem so na aba Orcamentos.
+  // Beneficio: dentista, secretaria, paciente vendo a tela juntos nao tem
+  // distração com precos durante o planejamento clinico.
 
   // Onda 3.2 — Sugestao automatica baseada no estado anotado.
   // Quando lastAnnotation muda, busca /state-suggestions?state=X. Primeira
@@ -148,9 +135,6 @@ export default function QuotePanel({
 
   const items = quote?.items ?? [];
   const hasSelectedTeeth = selectedTeeth.length > 0;
-  const total = Number(quote?.total_value || 0);
-  const subtotal = Number(quote?.subtotal || 0);
-  const discountValue = Number(quote?.discount_value || 0);
 
   // Auto-abre o picker quando usuario seleciona dentes via Ctrl+click — 1 click a menos
   useEffect(() => {
@@ -400,11 +384,6 @@ export default function QuotePanel({
             <span className="font-semibold truncate">
               {suggestion.candidate.procedure.name}
             </span>
-            {canViewQuoteValues && (
-              <span className="text-amber-700 font-bold shrink-0">
-                {formatBRL(suggestion.candidate.procedure.base_price)}
-              </span>
-            )}
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -458,12 +437,6 @@ export default function QuotePanel({
                     <th className="text-left px-4 py-2 font-medium w-16">Dente</th>
                     <th className="text-left px-3 py-2 font-medium">Procedimento</th>
                     <th className="text-center px-2 py-2 font-medium w-20">Qtd</th>
-                    {canViewQuoteValues && (
-                      <>
-                        <th className="text-right px-3 py-2 font-medium w-28">Unit.</th>
-                        <th className="text-right px-3 py-2 font-medium w-28">Total</th>
-                      </>
-                    )}
                     <th className="w-12" />
                   </tr>
                 </thead>
@@ -472,7 +445,6 @@ export default function QuotePanel({
                     <ItemRow
                       key={item.id}
                       item={item}
-                      canViewValues={canViewQuoteValues}
                       onUpdate={(patch) => updateItem(item.id, patch)}
                       onRemove={() => removeItem(item.id)}
                     />
@@ -519,7 +491,7 @@ export default function QuotePanel({
                   </div>
                 ) : (
                   grouped.map((g) => {
-                    const color = colorForSpecialty(g.key);
+                    const c = colorForSpecialty(g.key);
                     return (
                       <div
                         key={g.key}
@@ -527,10 +499,10 @@ export default function QuotePanel({
                       >
                         <div
                           className="px-3 py-1.5 flex items-center gap-2 border-l-4"
-                          style={{ borderLeftColor: color, background: color + '12' }}
+                          style={{ borderLeftColor: c.bar, background: c.tint }}
                         >
-                          <Layers size={10} style={{ color }} />
-                          <span className="text-[11px] font-bold" style={{ color }}>
+                          <Layers size={10} style={{ color: c.bar }} />
+                          <span className="text-[11px] font-bold" style={{ color: c.bar }}>
                             {g.name}
                           </span>
                           <span className="text-[10px] text-muted-foreground">
@@ -553,11 +525,6 @@ export default function QuotePanel({
                                   {p.duration_minutes ? ` · ${p.duration_minutes} min` : ''}
                                 </div>
                               </div>
-                              {canViewQuoteValues && (
-                                <div className="text-sm font-semibold shrink-0">
-                                  {formatBRL(p.base_price)}
-                                </div>
-                              )}
                             </button>
                           ))}
                         </div>
@@ -571,38 +538,15 @@ export default function QuotePanel({
 
           {items.length > 0 && (
             <div className="border-t border-border p-4 flex items-center justify-between flex-wrap gap-3 bg-background/30">
-              {canViewQuoteValues ? (
-                <div className="flex items-center gap-6 text-sm flex-wrap">
-                  <div>
-                    <span className="text-muted-foreground">Subtotal: </span>
-                    <span className="font-medium">{formatBRL(subtotal)}</span>
-                  </div>
-                  {discountValue > 0 && (
-                    <div>
-                      <span className="text-muted-foreground">Desconto: </span>
-                      <span className="font-medium text-destructive">
-                        - {formatBRL(discountValue)}
-                      </span>
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-muted-foreground">Total: </span>
-                    <span className="text-base font-bold text-primary">
-                      {formatBRL(total)}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div className="text-xs text-muted-foreground italic">
-                  Valores e condições visíveis apenas no tab Orçamentos (admin/financeiro)
-                </div>
-              )}
+              <div className="text-xs text-muted-foreground italic">
+                Plano clinico — valores, descontos e condicoes ficam no tab Orçamentos
+              </div>
               <a
                 href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${quote.id}`}
                 className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:bg-accent text-foreground"
-                title={canViewQuoteValues ? 'Abrir detalhes — desconto, envio WhatsApp, contrato, etc.' : 'Ir para o tab Orçamentos'}
+                title="Ir para o tab Orçamentos pra ver valores, aplicar descontos e enviar ao paciente"
               >
-                <Pencil size={11} /> {canViewQuoteValues ? 'Detalhes do orçamento' : 'Ir para orçamentos'}
+                <Pencil size={11} /> Ir para orçamentos
               </a>
             </div>
           )}
@@ -612,30 +556,30 @@ export default function QuotePanel({
   );
 }
 
-// ─── Linha da tabela (edicao inline tooth/qtd/preco) ──────────
+// ─── Linha da tabela (edicao inline tooth/qtd) ────────────────
 // Estrategia: o draft local so existe DURANTE a edicao. Quando o usuario
 // clica pra editar, copia o valor atual do item pro draft. Em re-render
 // (ex: refetch do quote), nao precisa sync via useEffect — se nao estiver
 // editando, mostra item.quantity direto. Elimina o anti-pattern do
 // react-hooks/set-state-in-effect.
 //
+// Onda 3.5 — preco/total removidos da tabela. Plano clinico estritamente
+// nao-comercial. Valores ficam no tab Orcamentos.
+//
 // FDI valido: 11-48 (permanente) ou 51-85 (deciduo). Mesma regra do backend.
 const FDI_REGEX = /^([1-4][1-8]|[5-8][1-5])$/;
 
 function ItemRow({
-  item, canViewValues, onUpdate, onRemove,
+  item, onUpdate, onRemove,
 }: {
   item: QuoteItem;
-  canViewValues: boolean;
   onUpdate: (patch: Partial<QuoteItem>) => void | Promise<void>;
   onRemove: () => void;
 }) {
   const [toothDraft, setToothDraft] = useState<string | null>(null);
   const [qtyDraft, setQtyDraft] = useState<number | null>(null);
-  const [priceDraft, setPriceDraft] = useState<string | null>(null);
   const editingTooth = toothDraft !== null;
   const editingQty = qtyDraft !== null;
-  const editingPrice = priceDraft !== null;
 
   const startEditTooth = () => setToothDraft(item.tooth_fdi || '');
   const cancelEditTooth = () => setToothDraft(null);
@@ -661,20 +605,15 @@ function ItemRow({
     setQtyDraft(null);
   };
 
-  const startEditPrice = () => setPriceDraft(String(item.unit_price));
-  const cancelEditPrice = () => setPriceDraft(null);
-  const commitPrice = () => {
-    if (priceDraft !== null) {
-      const n = Number(priceDraft);
-      if (!Number.isNaN(n) && n >= 0 && n !== Number(item.unit_price)) {
-        onUpdate({ unit_price: n });
-      }
-    }
-    setPriceDraft(null);
-  };
-
   // Item sem dente vinculado fica destacado pra dentista lembrar de preencher
   const toothEmpty = !item.tooth_fdi;
+
+  // Onda 3.5 — Cor da especialidade do procedimento, pra pintar o badge
+  // do dente e o nome do procedimento. Mantem consistencia visual entre
+  // o Plano de Tratamento e as bolinhas no odontograma.
+  const specialtyKey =
+    item.procedure?.specialty?.id || item.procedure?.specialty_id || '__none__';
+  const specColor = colorForSpecialty(specialtyKey);
 
   return (
     <tr className="border-b border-border last:border-b-0 hover:bg-background/50">
@@ -698,8 +637,13 @@ function ItemRow({
         ) : item.tooth_fdi ? (
           <button
             onClick={startEditTooth}
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary font-mono font-semibold text-xs hover:bg-primary/20 transition"
-            title="Clique para editar dente"
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md font-mono font-bold text-xs border-2 transition hover:scale-105"
+            style={{
+              backgroundColor: specColor.tint,
+              borderColor: specColor.bar,
+              color: specColor.bar,
+            }}
+            title={`Clique para editar dente · ${item.procedure?.specialty?.name || 'sem especialidade'}`}
           >
             {item.tooth_fdi}
           </button>
@@ -714,7 +658,9 @@ function ItemRow({
         )}
       </td>
       <td className="px-3 py-2.5">
-        <div className="text-sm font-medium">{item.procedure?.name || '—'}</div>
+        <div className="text-sm font-medium" style={{ color: specColor.bar }}>
+          {item.procedure?.name || '—'}
+        </div>
         {item.notes && (
           <div className="text-[10px] text-muted-foreground truncate max-w-md">
             {item.notes}
@@ -751,39 +697,6 @@ function ItemRow({
           </button>
         )}
       </td>
-      {canViewValues && (
-        <>
-          <td className="px-3 py-2.5 text-right">
-            {editingPrice ? (
-              <input
-                autoFocus
-                type="number"
-                step="0.01"
-                min={0}
-                value={priceDraft ?? String(item.unit_price)}
-                onChange={(e) => setPriceDraft(e.target.value)}
-                onBlur={commitPrice}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') commitPrice();
-                  if (e.key === 'Escape') cancelEditPrice();
-                }}
-                className="w-24 px-2 py-1 text-right rounded border border-primary bg-background text-sm focus:outline-none"
-              />
-            ) : (
-              <button
-                onClick={startEditPrice}
-                className="text-sm hover:bg-accent rounded px-2 py-0.5"
-                title="Clique para editar"
-              >
-                {formatBRL(item.unit_price)}
-              </button>
-            )}
-          </td>
-          <td className="px-3 py-2.5 text-right text-sm font-semibold">
-            {formatBRL(item.total_price)}
-          </td>
-        </>
-      )}
       <td className="px-2 py-2.5">
         <button
           onClick={onRemove}

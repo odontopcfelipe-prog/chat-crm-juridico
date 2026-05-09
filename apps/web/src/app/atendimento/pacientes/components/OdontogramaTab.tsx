@@ -423,6 +423,24 @@ function TeethRow({
         const isSelected = selectedSet?.has(fdi);
         const items = quotedItems?.get(fdi) || [];
         const isQuoted = items.length > 0;
+        // Onda 3.5 — Cor da especialidade do PRIMEIRO procedimento planejado.
+        // Pinta o numero do dente. Se ha mais procedimentos com especialidades
+        // diferentes, mostra bolinha "+N" embaixo (sem fragmentar o numero).
+        const primaryItem = items[0];
+        const primarySpecKey = primaryItem
+          ? primaryItem.procedure?.specialty?.id ||
+            primaryItem.procedure?.specialty_id ||
+            '__none__'
+          : null;
+        const primaryColor = primarySpecKey ? colorForSpecialty(primarySpecKey).bar : null;
+        // Especialidades distintas (set) — pra decidir se mostra "+N"
+        const distinctSpecs = new Set<string>();
+        for (const it of items) {
+          distinctSpecs.add(
+            it.procedure?.specialty?.id || it.procedure?.specialty_id || '__none__',
+          );
+        }
+        const extraSpecs = distinctSpecs.size > 1 ? distinctSpecs.size - 1 : 0;
         // Tooltip combina anotacoes + procedimentos planejados
         const tooltipParts: string[] = [];
         if (isSelected) tooltipParts.push('selecionado pra orcamento (Ctrl+click pra remover)');
@@ -440,48 +458,28 @@ function TeethRow({
           <button
             key={fdi}
             onClick={(e) => onClick(fdi, e)}
-            className={`relative ${isDeciduous ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs'} rounded-md border-2 font-semibold flex items-center justify-center hover:scale-110 transition-transform ${cls} ${
+            className={`relative ${isDeciduous ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs'} rounded-md border-2 font-bold flex items-center justify-center hover:scale-110 transition-transform ${cls} ${
               isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-105' : ''
             }`}
             title={`${fdi} — ${tooltipParts.join('\n')}`}
+            // Onda 3.5 — quando dente tem item no orcamento, pinta numero
+            // com cor da especialidade do primeiro procedimento. Override
+            // do `text-*` herdado de cls (estado clinico).
+            style={primaryColor ? { color: primaryColor } : undefined}
           >
             {fdi}
-            {isQuoted && (
-              <ProcedureDots items={items} />
+            {extraSpecs > 0 && (
+              <span
+                className="absolute -bottom-1 -right-1 text-[7px] font-bold bg-background rounded-full px-0.5 border border-border leading-none print-hide"
+                title={`${distinctSpecs.size} especialidades diferentes`}
+              >
+                +{extraSpecs}
+              </span>
             )}
           </button>
         );
       })}
     </div>
-  );
-}
-
-// Onda 3.3 — Bolinhas coloridas por especialidade no canto inferior direito
-// do dente, indicando procedimentos planejados. Ate 3 visiveis, depois mostra
-// "+N". Cor vem de colorForSpecialty(specialty.id) — mesma usada na tabela
-// de precos e orcamento, garantindo consistencia visual entre telas.
-function ProcedureDots({ items }: { items: QuoteItemLite[] }) {
-  const visible = items.slice(0, 3);
-  const overflow = items.length - visible.length;
-  return (
-    <span className="absolute -bottom-1 -right-1 flex items-center gap-0.5 print-hide">
-      {visible.map((it, i) => {
-        const specialtyKey = it.procedure?.specialty?.id || it.procedure?.specialty_id || '__none__';
-        const color = colorForSpecialty(specialtyKey).bar;
-        return (
-          <span
-            key={`${it.id}-${i}`}
-            className="w-2 h-2 rounded-full border border-background shadow-sm"
-            style={{ backgroundColor: color }}
-          />
-        );
-      })}
-      {overflow > 0 && (
-        <span className="text-[7px] font-bold text-foreground bg-background rounded-full px-0.5 border border-border leading-none">
-          +{overflow}
-        </span>
-      )}
-    </span>
   );
 }
 
