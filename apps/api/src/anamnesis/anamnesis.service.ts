@@ -115,11 +115,17 @@ export class AnamnesisService {
       };
     }
 
-    // Sem anamnese ainda — devolve template ativo pro form
-    const template = await this.templatesService.findActive(tenantId);
+    // Sem anamnese ainda — devolve template ativo pro form (ou null se admin
+    // ainda nao cadastrou template; frontend mostra mensagem amigavel).
+    const template = await this.prisma.anamnesisTemplate.findFirst({
+      where: { tenant_id: tenantId, active: true },
+      orderBy: { version: 'desc' },
+    });
     return {
       exists: false,
-      template: { id: template.id, version: template.version, schema: template.schema },
+      template: template
+        ? { id: template.id, version: template.version, schema: template.schema }
+        : null,
     };
   }
 

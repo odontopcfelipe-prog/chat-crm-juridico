@@ -29,7 +29,7 @@ interface ActiveAnamnese {
     audit_hash: string | null;
     filled_by_user: { id: string; name: string } | null;
   };
-  template?: { id: string; version: number; schema: AnamnesisSchema };
+  template?: { id: string; version: number; schema: AnamnesisSchema } | null;
 }
 
 export default function AnamneseTab({ patientId }: Props) {
@@ -100,6 +100,21 @@ export default function AnamneseTab({ patientId }: Props) {
   }
 
   if (!data) return null;
+
+  // Sem anamnese E sem template ativo cadastrado pelo admin
+  if (!data.exists && !data.template) {
+    return (
+      <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-6 text-center">
+        <FileText size={32} className="mx-auto text-amber-600 mb-2" />
+        <p className="text-sm font-semibold mb-1">Template de anamnese nao cadastrado</p>
+        <p className="text-xs text-muted-foreground">
+          Peça a um admin para cadastrar o modelo de ficha em
+          {' '}<span className="font-mono">Settings &rarr; Anamnese</span>{' '}
+          antes de preencher.
+        </p>
+      </div>
+    );
+  }
 
   const schema = data.exists
     ? data.anamnesis!.template_schema

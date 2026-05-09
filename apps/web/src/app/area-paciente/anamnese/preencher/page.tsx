@@ -15,7 +15,7 @@ interface ActiveAnamneseResp {
     template: { id: string; version: number };
     filled_at: string;
   };
-  template?: { id: string; version: number; schema: AnamnesisSchema };
+  template?: { id: string; version: number; schema: AnamnesisSchema } | null;
   consent_text: string;
 }
 
@@ -126,6 +126,19 @@ export default function AreaPacienteAnamnesePreencherPage() {
   }
 
   if (!data) return null;
+
+  if (!data.exists && !data.template) {
+    return (
+      <div className="max-w-xl mx-auto bg-card border border-amber-300 dark:border-amber-900 rounded-xl p-6 text-center">
+        <AlertCircle size={32} className="mx-auto text-amber-600 mb-2" />
+        <p className="text-sm font-semibold mb-1">Anamnese indisponivel</p>
+        <p className="text-xs text-muted-foreground">
+          A clinica ainda nao configurou o modelo de ficha. Por favor, entre
+          em contato com a recepcao.
+        </p>
+      </div>
+    );
+  }
 
   const schema = data.exists
     ? data.anamnesis!.template_schema
