@@ -89,3 +89,29 @@ export function canCreateAgendaEvent(roles: string | string[]): boolean {
 export function canDeleteAgendaEvent(roles: string | string[]): boolean {
   return normalizeRoles(roles).includes(ROLES.ADMIN);
 }
+
+// ─── Pacientes (cadastro) ───────────────────────────────────────────────────
+// Visualizar: todos os roles autenticados.
+// Criar: ADMIN/OPERADOR (secretaria)/ASSISTANT — quem agenda/atende. Hooks
+//        de "Atender"/"Iniciar Orcamento" (DENTIST) usam ensure-patient
+//        idempotente, que e POST /patients tambem mas so cria se faltar.
+// Editar dados pessoais (nome, CPF, telefone, endereco, etc): SO ADMIN.
+//        Mudar telefone/endereco errado vai exigir o admin — protege contra
+//        mudanca de dados sensiveis sem auditoria.
+// Arquivar: SO ADMIN.
+// Dados clinicos (anamnese, odontograma, prontuario, plano de tratamento,
+//        alergias, medicacoes) NAO sao "dados pessoais" — vivem em endpoints
+//        proprios e seguem regras separadas (DENTIST pode mexer).
+
+export function canCreatePatient(roles: string | string[]): boolean {
+  const r = normalizeRoles(roles);
+  return r.some(role => ['ADMIN', 'OPERADOR', 'ASSISTANT'].includes(role));
+}
+
+export function canEditPatientPersonalData(roles: string | string[]): boolean {
+  return normalizeRoles(roles).includes(ROLES.ADMIN);
+}
+
+export function canArchivePatient(roles: string | string[]): boolean {
+  return normalizeRoles(roles).includes(ROLES.ADMIN);
+}

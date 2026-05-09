@@ -10,6 +10,7 @@ import {
   UseGuards,
   Request,
   BadRequestException,
+  ForbiddenException,
   NotFoundException,
   Res,
   UseInterceptors,
@@ -21,6 +22,11 @@ import { PatientsService } from './patients.service';
 import { LeadsService } from '../leads/leads.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
+import {
+  canCreatePatient,
+  canEditPatientPersonalData,
+  canArchivePatient,
+} from '../common/utils/permissions.util';
 
 @UseGuards(JwtAuthGuard)
 @Controller('patients')
@@ -34,6 +40,13 @@ export class PatientsController {
   create(@Body() dto: CreatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // Cadastro de paciente: ADMIN/OPERADOR (secretaria)/ASSISTANT.
+    // DENTIST/FINANCEIRO nao cadastram paciente standalone — pra atender
+    // existe POST /:id/start-attending que so funciona se o paciente ja
+    // existir (ou via convertFromLead automatico).
+    if (!canCreatePatient(req.user?.roles)) {
+      throw new ForbiddenException('Sem permissao para cadastrar paciente');
+    }
     return this.patientsService.create(tenantId, {
       ...dto,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
@@ -139,6 +152,12 @@ export class PatientsController {
   update(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // Editar dados pessoais (nome, CPF, telefone, endereco, etc): SO ADMIN.
+    // Dados clinicos (anamnese, odontograma, prontuario, alergias, medicacoes)
+    // tem endpoints proprios e seguem regras separadas — DENTIST pode mexer.
+    if (!canEditPatientPersonalData(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode alterar dados pessoais do paciente');
+    }
     return this.patientsService.update(id, tenantId, {
       ...dto,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
@@ -149,6 +168,9 @@ export class PatientsController {
   archive(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!canArchivePatient(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode arquivar paciente');
+    }
     return this.patientsService.archive(id, tenantId);
   }
 
@@ -242,6 +264,10 @@ export class PatientsController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     if (!file) throw new BadRequestException('Nenhum arquivo enviado.');
+    // Foto eh dado pessoal — SO ADMIN troca.
+    if (!canEditPatientPersonalData(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode alterar a foto do paciente');
+    }
     return this.patientsService.updateAvatar(id, tenantId, file.buffer, file.mimetype);
   }
 
@@ -260,6 +286,9 @@ export class PatientsController {
   async removeAvatar(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!canEditPatientPersonalData(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode remover a foto do paciente');
+    }
     return this.patientsService.removeAvatar(id, tenantId);
   }
 }

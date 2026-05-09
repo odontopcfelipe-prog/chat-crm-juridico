@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 import { calculateAge, formatBirthDateWithAge } from '@/lib/age';
 import AnamneseTab from '../components/AnamneseTab';
 import ProntuarioTab from '../components/ProntuarioTab';
@@ -128,6 +129,7 @@ function PacienteFichaInner() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const role = useRole();
   const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
   // Aceita ?tab=odontogram (e variantes) na URL pra que outras páginas
@@ -276,6 +278,7 @@ function PacienteFichaInner() {
             avatarUrl={avatarUrl}
             patientName={patient.name}
             onUploaded={() => { setAvatarBust(Date.now()); load(); }}
+            readOnly={!role.canEditPatientPersonalData}
           />
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2 flex-wrap">
@@ -361,7 +364,9 @@ function PacienteFichaInner() {
               <MessageCircle size={14} /> Enviar portal
             </button>
           )}
-          {patient.status !== 'ARCHIVED' && (
+          {/* Arquivar — exclusivo do ADMIN (backend tambem valida).
+              Secretaria/dentista nao podem apagar paciente do sistema. */}
+          {patient.status !== 'ARCHIVED' && role.canArchivePatient && (
             <button
               onClick={handleArchive}
               className="text-xs text-destructive hover:bg-destructive/10 px-3 py-2 rounded-lg flex items-center gap-1"
@@ -405,7 +410,11 @@ function PacienteFichaInner() {
         <OverviewTab
           patient={patient}
           onReload={load}
-          onEdit={() => setEditOpen(true)}
+          // Editar dados pessoais e exclusivo do ADMIN. Pra nao-ADMIN o
+          // OverviewTab esconde os botoes "Editar" do card de dados pessoais
+          // e os pencils inline do Resumo Clinico (queixa, dentista responsavel).
+          // Adicionar alergias/medicacoes continua liberado (sao dados clinicos).
+          onEdit={role.canEditPatientPersonalData ? () => setEditOpen(true) : undefined}
           onAddAllergy={() => setAddAllergyOpen(true)}
           onAddMedication={() => setAddMedOpen(true)}
           onGoToHistory={(types) => {
@@ -465,12 +474,13 @@ function PacienteFichaInner() {
 // ─── Avatar com upload ───────────────────────────────────────
 
 function AvatarUploader({
-  patientId, avatarUrl, patientName, onUploaded,
+  patientId, avatarUrl, patientName, onUploaded, readOnly = false,
 }: {
   patientId: string;
   avatarUrl: string | null;
   patientName: string;
   onUploaded: () => void;
+  readOnly?: boolean;
 }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -522,10 +532,10 @@ function AvatarUploader({
       />
       <button
         type="button"
-        onClick={() => fileRef.current?.click()}
-        disabled={uploading}
-        title="Trocar foto"
-        className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden relative disabled:opacity-60"
+        onClick={() => { if (!readOnly) fileRef.current?.click(); }}
+        disabled={uploading || readOnly}
+        title={readOnly ? 'Apenas ADMIN pode trocar a foto' : 'Trocar foto'}
+        className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden relative disabled:opacity-60 disabled:cursor-default"
       >
         {avatarUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -533,10 +543,12 @@ function AvatarUploader({
         ) : (
           <span className="text-xl font-bold text-primary">{initials}</span>
         )}
-        {/* overlay no hover */}
-        <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-          {uploading ? <Loader2 size={20} className="text-white animate-spin" /> : <Camera size={20} className="text-white" />}
-        </span>
+        {/* overlay no hover — escondido em readOnly (sinaliza que nao pode trocar) */}
+        {!readOnly && (
+          <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+            {uploading ? <Loader2 size={20} className="text-white animate-spin" /> : <Camera size={20} className="text-white" />}
+          </span>
+        )}
       </button>
     </div>
   );
@@ -549,12 +561,16 @@ function OverviewTab({
 }: {
   patient: Patient;
   onReload: () => void;
-  onEdit: () => void;
+  // onEdit indefinido = user nao tem permissao pra editar dados pessoais.
+  // Usado pra esconder o botao "Editar" do card e os pencils inline do
+  // Resumo Clinico (queixa principal, dentista responsavel).
+  onEdit?: () => void;
   onAddAllergy: () => void;
   onAddMedication: () => void;
   onGoToHistory: (types: Set<string>) => void;
   onGoToQuotes: () => void;
 }) {
+  const canEditPersonal = !!onEdit;
   const enderecoFmt = [
     patient.address && `${patient.address}${patient.address_number ? ', ' + patient.address_number : ''}`,
     patient.address_complement,
@@ -593,12 +609,15 @@ function OverviewTab({
           <h3 className="font-semibold text-sm text-foreground flex items-center gap-2">
             <User size={16} /> Dados pessoais
           </h3>
-          <button
-            onClick={onEdit}
-            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border hover:bg-accent"
-          >
-            <Pencil size={12} /> Editar
-          </button>
+          {/* Editar — escondido pra nao-ADMIN (canEditPersonal=false). */}
+          {canEditPersonal && (
+            <button
+              onClick={onEdit}
+              className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg border border-border hover:bg-accent"
+            >
+              <Pencil size={12} /> Editar
+            </button>
+          )}
         </div>
         <dl className="space-y-2 text-sm">
           <Field label="Nome" value={patient.name} />
@@ -637,6 +656,7 @@ function OverviewTab({
         onReload={onReload}
         onGoToHistory={onGoToHistory}
         onGoToQuotes={onGoToQuotes}
+        canEditPersonal={canEditPersonal}
       />
 
       {/* Alergias */}
@@ -731,12 +751,15 @@ function OverviewTab({
 // ─── Card "Resumo clínico" com edição inline ───────────────────────────────
 
 function ResumoClinicoCard({
-  patient, onReload, onGoToHistory, onGoToQuotes,
+  patient, onReload, onGoToHistory, onGoToQuotes, canEditPersonal = true,
 }: {
   patient: Patient;
   onReload: () => void;
   onGoToHistory: (types: Set<string>) => void;
   onGoToQuotes: () => void;
+  // Quando false: esconde os pencils inline de "dentista principal" e
+  // "queixa principal" (ambos vao via PATCH /patients/:id que e admin-only).
+  canEditPersonal?: boolean;
 }) {
   const [users, setUsers] = useState<UserOption[]>([]);
   const [editingDentist, setEditingDentist] = useState(false);
@@ -823,9 +846,14 @@ function ResumoClinicoCard({
                 <span className={patient.primary_dentist?.name ? '' : 'text-muted-foreground'}>
                   {patient.primary_dentist?.name ? `Dr(a). ${patient.primary_dentist.name}` : '—'}
                 </span>
-                <button onClick={() => setEditingDentist(true)} className="text-muted-foreground hover:text-foreground p-1">
-                  <Pencil size={11} />
-                </button>
+                {/* Pencil escondido pra nao-ADMIN — alocacao de dentista
+                    eh decisao administrativa, mexe via PATCH /patients/:id
+                    que so ADMIN pode chamar. */}
+                {canEditPersonal && (
+                  <button onClick={() => setEditingDentist(true)} className="text-muted-foreground hover:text-foreground p-1">
+                    <Pencil size={11} />
+                  </button>
+                )}
               </>
             )}
           </dd>
@@ -861,9 +889,13 @@ function ResumoClinicoCard({
                 <span className={complaintDisplay ? 'whitespace-pre-wrap' : 'text-muted-foreground'}>
                   {complaintDisplay || '—'}
                 </span>
-                <button onClick={() => setEditingComplaint(true)} className="text-muted-foreground hover:text-foreground p-1 shrink-0">
-                  <Pencil size={11} />
-                </button>
+                {/* Pencil escondido pra nao-ADMIN — backend bloqueia
+                    PATCH /patients/:id pra nao-ADMIN. */}
+                {canEditPersonal && (
+                  <button onClick={() => setEditingComplaint(true)} className="text-muted-foreground hover:text-foreground p-1 shrink-0">
+                    <Pencil size={11} />
+                  </button>
+                )}
               </>
             )}
           </dd>

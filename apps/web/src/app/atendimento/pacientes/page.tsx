@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon, SlidersHorizontal, Download } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
 import BirthdaysCard from './components/BirthdaysCard';
@@ -53,6 +54,7 @@ export default function PacientesPage() {
 function PacientesPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const role = useRole();
   const [list, setList] = useState<PatientList>({ data: [], total: 0, page: 1, totalPages: 0 });
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -168,12 +170,17 @@ function PacientesPageInner() {
           <h1 className="text-2xl font-bold text-foreground">Pacientes</h1>
           <p className="text-sm text-muted-foreground">Cadastro e ficha clínica dos pacientes da clínica</p>
         </div>
-        <button
-          onClick={() => setShowModal(true)}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-        >
-          <Plus size={16} /> Novo paciente
-        </button>
+        {/* Novo paciente — apenas pra ADMIN/OPERADOR (secretaria)/ASSISTANT.
+            DENTIST/FINANCEIRO nao cadastram standalone — pra atender, usam
+            o botao "Atender" da ficha (ensure-patient idempotente). */}
+        {role.canCreatePatient && (
+          <button
+            onClick={() => setShowModal(true)}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+          >
+            <Plus size={16} /> Novo paciente
+          </button>
+        )}
       </div>
 
       {/* Aniversariantes (auto-esconde se nao tem ninguem hoje) */}

@@ -32,6 +32,10 @@ export interface RoleInfo {
   canViewAllAgenda: boolean;     // ADMIN/OPERADOR/ASSISTANT veem agenda de todos
   canCreateAgendaEvent: boolean; // mesma regra: ADMIN/OPERADOR/ASSISTANT criam
   canDeleteAgendaEvent: boolean; // exclusivo do ADMIN — secretaria usa CANCELADO
+  // ─── Pacientes ──────────────────────────────────────────────────────────
+  canCreatePatient: boolean;          // ADMIN/OPERADOR/ASSISTANT cadastram
+  canEditPatientPersonalData: boolean; // SO ADMIN edita dados pessoais
+  canArchivePatient: boolean;          // SO ADMIN arquiva
 }
 
 /**
@@ -104,5 +108,8 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     canViewAllAgenda: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
     canCreateAgendaEvent: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
     canDeleteAgendaEvent: roles.includes('ADMIN'),
+    canCreatePatient: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
+    canEditPatientPersonalData: roles.includes('ADMIN'),
+    canArchivePatient: roles.includes('ADMIN'),
   };
 }
