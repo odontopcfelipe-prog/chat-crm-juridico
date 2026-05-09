@@ -817,11 +817,24 @@ export default function AgendaPage() {
       const params: any = {};
       if (start) params.start = start;
       if (end) params.end = end;
-      if (showAllUsers) {
-        params.showAll = 'true';
-        if (filterUserId) params.userId = filterUserId;
+
+      // Logica de filtragem por dentista:
+      //   - DENTIST/FINANCEIRO: backend forca userId=self, nao mandamos nada
+      //     (qualquer userId enviado e ignorado pelo backend mesmo).
+      //   - ADMIN/OPERADOR/ASSISTANT em "Meus": forcamos userId=self pra
+      //     filtrar pelos eventos do user logado.
+      //   - ADMIN/OPERADOR/ASSISTANT em "Todos" + dentista escolhido:
+      //     filtra pelo dentista do dropdown.
+      //   - ADMIN/OPERADOR/ASSISTANT em "Todos" + sem dentista escolhido:
+      //     nao mandamos userId (backend retorna tudo).
+      if (role.canViewAllAgenda) {
+        if (!showAllUsers && currentUserId) {
+          params.userId = currentUserId;
+        } else if (showAllUsers && filterUserId) {
+          params.userId = filterUserId;
+        }
       }
-      // Quando showAllUsers=false, backend filtra automaticamente pelo user logado
+
       const res = await api.get('/calendar/events', { params });
       setEvents(res.data || []);
     } catch {
@@ -844,7 +857,7 @@ export default function AgendaPage() {
     } catch {
       setScheduleBlocks([]);
     }
-  }, [filterUserId, showAllUsers]);
+  }, [filterUserId, showAllUsers, role.canViewAllAgenda, currentUserId]);
 
   // Manter refs atualizados com os valores mais recentes
   useEffect(() => { fetchEventsRef.current = fetchEvents; }, [fetchEvents]);
