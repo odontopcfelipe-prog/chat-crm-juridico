@@ -95,6 +95,15 @@ export class PortalController {
     return this.portal.getAnamneses(tenant_id, patient_id);
   }
 
+  /** Timeline unificada: consultas + anamneses + procedimentos finalizados. */
+  @Public()
+  @UseGuards(PortalJwtGuard)
+  @Get('portal/timeline')
+  getTimeline(@Request() req: any) {
+    const { tenant_id, patient_id } = req.patient;
+    return this.portal.getTimeline(tenant_id, patient_id);
+  }
+
   // ─── Anamnese unica do paciente (portal) ──────────────────────
 
   /**

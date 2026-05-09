@@ -3,15 +3,16 @@
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import {
-  Calendar, Wallet, FileText, Home, LogOut, Menu, X,
+  Calendar, Clock, Wallet, FileText, Home, LogOut, Menu, X,
 } from 'lucide-react';
 import { clearPortalToken, getPortalToken } from '@/lib/portalApi';
 
 const NAV_ITEMS = [
-  { href: '/area-paciente', label: 'Início',       icon: Home },
+  { href: '/area-paciente',              label: 'Início',       icon: Home },
   { href: '/area-paciente/agendamentos', label: 'Agendamentos', icon: Calendar },
-  { href: '/area-paciente/parcelas',    label: 'Parcelas',     icon: Wallet },
-  { href: '/area-paciente/anamnese',    label: 'Anamnese',     icon: FileText },
+  { href: '/area-paciente/historico',    label: 'Histórico',    icon: Clock },
+  { href: '/area-paciente/parcelas',     label: 'Parcelas',     icon: Wallet },
+  { href: '/area-paciente/anamnese',     label: 'Anamnese',     icon: FileText },
 ];
 
 export default function PortalLayout({ children }: { children: React.ReactNode }) {
@@ -142,7 +143,7 @@ export default function PortalLayout({ children }: { children: React.ReactNode }
 
       {/* Bottom nav (mobile) */}
       <nav className="md:hidden fixed bottom-0 inset-x-0 bg-card border-t border-border z-40">
-        <div className="grid grid-cols-4 max-w-3xl mx-auto">
+        <div className="grid grid-cols-5 max-w-3xl mx-auto">
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;

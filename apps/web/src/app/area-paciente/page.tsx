@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Calendar, Wallet, FileText, ChevronRight, CheckCircle, Clock, AlertTriangle, Loader2,
+  Calendar, Wallet, FileText, ChevronRight, CheckCircle, AlertTriangle, Loader2, Clock,
 } from 'lucide-react';
 import portalApi from '@/lib/portalApi';
 
@@ -114,6 +114,22 @@ export default function AreaPacienteDashboardPage() {
         ) : (
           <p className="text-sm text-muted-foreground">Nenhuma consulta agendada.</p>
         )}
+      </div>
+
+      {/* Histórico */}
+      <div className="bg-card border border-border rounded-xl p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground mb-2 flex items-center gap-1">
+          <Clock size={12} /> Histórico
+        </h3>
+        <p className="text-sm text-muted-foreground mb-3">
+          Veja sua linha do tempo de consultas e atendimentos.
+        </p>
+        <Link
+          href="/area-paciente/historico"
+          className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent"
+        >
+          Acessar <ChevronRight size={14} />
+        </Link>
       </div>
 
       {/* Resumo financeiro */}

@@ -180,6 +180,91 @@ export class PortalService {
     return { installments, totals };
   }
 
+  /**
+   * Timeline unificada do paciente: consultas concluidas/canceladas,
+   * anamneses preenchidas e procedimentos finalizados — ordem desc por data.
+   */
+  async getTimeline(tenantId: string, patientId: string) {
+    const now = new Date();
+
+    const [appointments, anamneses, procedures] = await Promise.all([
+      this.prisma.calendarEvent.findMany({
+        where: {
+          tenant_id: tenantId,
+          patient_id: patientId,
+          start_at: { lt: now },
+        },
+        orderBy: { start_at: 'desc' },
+        take: 50,
+        select: {
+          id: true,
+          title: true,
+          start_at: true,
+          status: true,
+          assigned_user: { select: { id: true, name: true } },
+        },
+      }),
+      this.prisma.anamnesis.findMany({
+        where: { patient: { id: patientId, tenant_id: tenantId } },
+        orderBy: { filled_at: 'desc' },
+        take: 20,
+        select: {
+          id: true,
+          filled_at: true,
+          submitted_via: true,
+          template: { select: { version: true } },
+        },
+      }),
+      this.prisma.treatmentPlanItem.findMany({
+        where: {
+          treatment_plan: {
+            patient: { id: patientId, tenant_id: tenantId },
+          },
+          status: 'DONE',
+          executed_at: { not: null },
+        },
+        orderBy: { executed_at: 'desc' },
+        take: 50,
+        include: {
+          procedure: { select: { name: true } },
+          executed_by: { select: { id: true, name: true } },
+        },
+      }),
+    ]);
+
+    const events = [
+      ...appointments.map((a) => ({
+        type: 'APPOINTMENT' as const,
+        id: a.id,
+        date: a.start_at,
+        title: a.title,
+        status: a.status,
+        professional: a.assigned_user?.name || null,
+      })),
+      ...anamneses.map((a) => ({
+        type: 'ANAMNESIS' as const,
+        id: a.id,
+        date: a.filled_at,
+        title: `Anamnese preenchida (v${a.template.version})`,
+        status: a.submitted_via, // 'STAFF' | 'PATIENT_PORTAL' | null
+        professional: null,
+      })),
+      ...procedures.map((p) => ({
+        type: 'PROCEDURE' as const,
+        id: p.id,
+        date: p.executed_at!,
+        title: p.tooth_fdi
+          ? `${p.procedure.name} — dente ${p.tooth_fdi}`
+          : p.procedure.name,
+        status: 'DONE',
+        professional: p.executed_by?.name || null,
+        notes: p.notes,
+      })),
+    ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+
+    return { events };
+  }
+
   /** Lista anamneses (preenchidas + pendentes). */
   async getAnamneses(tenantId: string, patientId: string) {
     return this.prisma.anamnesis.findMany({
