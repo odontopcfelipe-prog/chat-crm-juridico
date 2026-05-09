@@ -19,7 +19,8 @@
 'use client';
 
 import { useMemo } from 'react';
-import { Clock, MapPin, User, Printer } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { Clock, MapPin, User, Printer, Stethoscope } from 'lucide-react';
 
 interface CalendarEventLike {
   id: string;
@@ -31,6 +32,7 @@ interface CalendarEventLike {
   assigned_user_id?: string | null;
   assigned_user?: { id: string; name: string } | null;
   location?: string | null;
+  patient_id?: string | null;
 }
 
 interface UserLike {
@@ -105,6 +107,8 @@ export function AgendaListView({
   currentUserId,
   onEventClick,
 }: Props) {
+  const router = useRouter();
+
   // Agrupar eventos por dia (próximos 14 dias a partir de hoje).
   const groupedByDay = useMemo(() => {
     const today = new Date();
@@ -226,11 +230,24 @@ export function AgendaListView({
                 const typeLabel = TYPE_LABEL[ev.type] ?? ev.type;
                 const isCancelled = ev.status === 'CANCELADO';
 
+                // Atender so faz sentido em evento clinico com paciente vinculado.
+                // Bloqueio/tarefa nao tem ficha pra abrir.
+                const canAttend = !!ev.patient_id && !isCancelled
+                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(ev.type);
+
                 return (
-                  <button
+                  <div
                     key={ev.id}
+                    role="button"
+                    tabIndex={0}
                     onClick={() => onEventClick(ev.id)}
-                    className={`w-full text-left px-4 py-3 hover:bg-accent/40 transition-colors flex items-start gap-4 group ${
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        onEventClick(ev.id);
+                      }
+                    }}
+                    className={`w-full text-left px-4 py-3 hover:bg-accent/40 transition-colors flex items-start gap-4 group cursor-pointer ${
                       isCancelled ? 'opacity-60' : ''
                     }`}
                   >
@@ -273,7 +290,26 @@ export function AgendaListView({
                         )}
                       </div>
                     </div>
-                  </button>
+
+                    {/* Coluna 3: botao Atender — abre ficha do paciente
+                        direto na aba Odontograma (mesmo destino do Kanban
+                        antigo, commit 0b90a40c). stopPropagation pra nao
+                        disparar o onEventClick do wrapper. */}
+                    {canAttend && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          router.push(`/atendimento/pacientes/${ev.patient_id}?tab=odontogram`);
+                        }}
+                        className="shrink-0 self-center px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors inline-flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100"
+                        title="Atender — abre odontograma do paciente"
+                      >
+                        <Stethoscope size={12} />
+                        Atender
+                      </button>
+                    )}
+                  </div>
                 );
               })}
             </div>

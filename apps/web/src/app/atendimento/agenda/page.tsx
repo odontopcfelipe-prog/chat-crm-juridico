@@ -21,7 +21,7 @@ import {
   Plus, X, Calendar as CalendarIcon, Filter, ChevronDown,
   ChevronLeft, ChevronRight,
   Clock, User, AlertTriangle, CheckCircle2, Bell,
-  Download, Copy, Users,
+  Download, Copy, Users, Stethoscope,
   LayoutGrid, CalendarDays as CalendarViewIcon,
   ExternalLink, Ban, Loader2,
 } from 'lucide-react';
@@ -2492,6 +2492,19 @@ export default function AgendaPage() {
                     title="Reenviar notificação WhatsApp ao paciente"
                   >
                     <Bell size={12} /> <span className="hidden md:inline">{sendingNotify ? 'Enviando…' : 'Notificar'}</span>
+                  </button>
+                )}
+                {/* Atender — abre ficha do paciente direto na aba Odontograma.
+                    So aparece quando ha paciente vinculado e tipo clinico (sem
+                    sentido pra BLOQUEIO/TAREFA). Mesmo destino do antigo botao
+                    Atender que existia no Kanban CRM (commit 0b90a40c). */}
+                {editingEvent && editingEvent.patient_id && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+                  <button
+                    onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
+                    title="Atender — abre odontograma do paciente"
+                  >
+                    <Stethoscope size={12} /> <span className="hidden md:inline">Atender</span>
                   </button>
                 )}
               </div>
