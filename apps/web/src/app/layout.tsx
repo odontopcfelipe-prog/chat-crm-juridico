@@ -28,7 +28,8 @@ export default function RootLayout({
             nao precisa de traducao automatica, e o Tradutor causa crash
             tipo "removeChild/insertBefore on Node — no anterior nao eh filho
             deste no" ao trocar nodes de texto que o React e libs externas
-            (schedule-x, day-pilot) gerenciam diretamente. */}
+            (schedule-x, day-pilot) gerenciam diretamente.
+            Bug ref: facebook/react#11538. */}
         <meta name="google" content="notranslate" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -36,7 +37,7 @@ export default function RootLayout({
         {/* Google Tag Manager */}
         <GTMScript />
       </head>
-      <body className="font-sans antialiased text-foreground bg-background" translate="no">
+      <body className="font-sans antialiased text-foreground bg-background notranslate" translate="no">
         {/* GTM noscript fallback */}
         <GTMNoScript />
         <Providers>

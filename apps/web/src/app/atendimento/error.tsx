@@ -2,6 +2,29 @@
 
 import { useEffect, useState } from 'react';
 
+/**
+ * Error boundary do segmento /atendimento.
+ *
+ * Combina dois comportamentos:
+ *  1. Auto-recovery silencioso: erros de DOM reconciliation (causados por
+ *     Google Translate, extensoes do Chrome, ou libs que mexem direto no DOM)
+ *     disparam reset() automaticamente sem mostrar tela. Throttle 5s evita
+ *     loop se o erro persistir — apos isso, mostra a tela pro usuario agir.
+ *     Bug ref: facebook/react#11538.
+ *  2. Visualizacao rica de erros reais: mensagem visivel + stack expansivel
+ *     pra debug sem precisar abrir DevTools.
+ */
+const RECONCILIATION_ERROR_PATTERNS = [
+  'removeChild',
+  'insertBefore',
+  'appendChild',
+  'The node to be removed',
+  'is not a child of this node',
+];
+
+const RECOVERY_THROTTLE_KEY = 'atendimento-error-last-recovery';
+const RECOVERY_THROTTLE_MS = 5000;
+
 export default function AtendimentoError({
   error,
   reset,
@@ -9,14 +32,52 @@ export default function AtendimentoError({
   error: Error & { digest?: string };
   reset: () => void;
 }) {
+  // Decide UMA VEZ no mount (initializer do useState eh puro do ponto de vista
+  // do React — roda 1x, side-effects ok aqui). Como cada erro re-monta o
+  // boundary, o initializer reavalia a cada erro.
+  const [shouldAutoRecover] = useState<boolean>(() => {
+    const message = error?.message || '';
+    const isReconciliationError = RECONCILIATION_ERROR_PATTERNS.some((p) =>
+      message.includes(p),
+    );
+    if (!isReconciliationError) return false;
+    try {
+      const lastRecovery = Number(
+        sessionStorage.getItem(RECOVERY_THROTTLE_KEY) || 0,
+      );
+      return Date.now() - lastRecovery >= RECOVERY_THROTTLE_MS;
+    } catch {
+      // sessionStorage indisponivel — ainda permite recovery (uma vez)
+      return true;
+    }
+  });
+
   const [showDetails, setShowDetails] = useState(false);
 
   useEffect(() => {
+    if (shouldAutoRecover) {
+      console.warn(
+        '[Atendimento] Auto-recuperando de erro de DOM (provavel Translate/extensao):',
+        error?.message,
+      );
+      try {
+        sessionStorage.setItem(RECOVERY_THROTTLE_KEY, String(Date.now()));
+      } catch {
+        // ignore
+      }
+      const timer = setTimeout(() => reset(), 100);
+      return () => clearTimeout(timer);
+    }
     // Stack completo no console pra debug — abrir DevTools (F12) pra ver
     console.error('[Atendimento] Erro capturado pelo Error Boundary:', error);
     console.error('[Atendimento] Stack:', error?.stack);
     if (error?.digest) console.error('[Atendimento] Digest:', error.digest);
-  }, [error]);
+  }, [shouldAutoRecover, error, reset]);
+
+  // Tela "fantasma" durante auto-recovery — usuario nao percebe a interrupcao
+  if (shouldAutoRecover) {
+    return <div className="h-screen bg-background" aria-hidden="true" />;
+  }
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background p-4">
