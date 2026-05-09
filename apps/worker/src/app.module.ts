@@ -18,6 +18,7 @@ import { AfterHoursModule } from './after-hours/after-hours.module';
 import { MemoryModule } from './memory/memory.module';
 import { AutomationModule } from './automation/automation.module';
 import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
+import { PostCareModule } from './post-care/post-care.module';
 
 @Module({
   imports: [
@@ -49,6 +50,8 @@ import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
     AutomationModule,
     // Fase 25 Onda 5.4 — recall de manutencao (WhatsApp 7d antes)
     WorkerMaintenanceModule,
+    // Fase 26 — pesquisa de satisfacao pos-atendimento
+    PostCareModule,
   ],
 })
 export class AppModule {}

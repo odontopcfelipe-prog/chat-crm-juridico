@@ -11,6 +11,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { FollowupService } from '../followup/followup.service';
 import { AdminBotService } from '../admin-bot/admin-bot.service';
 import { MediaDownloadService } from '../media/media-download.service';
+import { PostCareService } from '../post-care/post-care.service';
 
 interface EvolutionWebhookPayload {
   event: string;
@@ -88,7 +89,21 @@ export class EvolutionService implements OnApplicationBootstrap {
     private moduleRef: ModuleRef,
     private adminBotService: AdminBotService,
     private mediaDownloadService: MediaDownloadService,
+    private postCareService: PostCareService,
   ) {}
+
+  /**
+   * Verifica se a mensagem recebida eh resposta a uma pesquisa pos-atendimento.
+   * Procura paciente com mesmo phone+tenant que tenha survey SENT recente.
+   */
+  private async checkPostCareResponse(tenantId: string, phone: string, text: string) {
+    const patient = await this.prisma.patient.findFirst({
+      where: { tenant_id: tenantId, phone },
+      select: { id: true },
+    });
+    if (!patient) return;
+    await this.postCareService.tryCaptureResponse(tenantId, patient.id, text);
+  }
 
   async handleMessagesUpsert(payload: EvolutionWebhookPayload) {
     const instanceName = payload?.instance || payload?.instanceId;
@@ -492,6 +507,12 @@ export class EvolutionService implements OnApplicationBootstrap {
           this.checkFollowupResponse(lead.id, messageContent).catch(e =>
             this.logger.warn(`[FOLLOWUP-LISTENER] ${e.message}`),
           );
+          // Pos-atendimento: paciente respondeu? captura sentiment + escala se NEGATIVE
+          if (lead.tenant_id && lead.phone) {
+            this.checkPostCareResponse(lead.tenant_id, lead.phone, messageContent).catch(e =>
+              this.logger.warn(`[POST-CARE-LISTENER] ${e.message}`),
+            );
+          }
         }
       }
 

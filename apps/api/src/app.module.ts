@@ -42,6 +42,7 @@ import { PatientsModule } from './patients/patients.module';
 import { SpecialtiesModule } from './specialties/specialties.module';
 import { ProceduresModule } from './procedures/procedures.module';
 import { AnamnesisModule } from './anamnesis/anamnesis.module';
+import { PostCareModule } from './post-care/post-care.module';
 import { ClinicalRecordsModule } from './clinical-records/clinical-records.module';
 import { OdontogramModule } from './odontogram/odontogram.module';
 import { CommercialModule } from './commercial/commercial.module';
@@ -126,6 +127,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     SpecialtiesModule,
     ProceduresModule,
     AnamnesisModule,
+    PostCareModule,
     ClinicalRecordsModule,
     OdontogramModule,
     CommercialModule,

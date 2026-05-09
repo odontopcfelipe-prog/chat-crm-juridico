@@ -76,6 +76,8 @@ model Tenant {
   // Onda 2 orcamentos (Fase 24)
   quote_templates           QuoteTemplate[]
   quote_coupons             QuoteCoupon[]
+  // Pos-atendimento (Fase 26)
+  post_care_surveys         PostCareSurvey[]
 }
 
 model User {
@@ -152,6 +154,8 @@ model User {
   radiography_exams_linked      RadiographyExam[]      @relation("RadiographyLinker")
   // Lista de espera (Fase 19)
   waitlist_assigned             WaitlistEntry[]        @relation("WaitlistDentist")
+  // Pos-atendimento (Fase 26)
+  post_care_surveys_dentist     PostCareSurvey[]       @relation("PostCareSurveyDentist")
 }
 
 model Lead {
@@ -844,6 +848,8 @@ model CalendarEvent {
   confirmations         AppointmentConfirmation[]     @relation("AppointmentConfirmations")
   source_return_alerts  ReturnAlert[]                 @relation("AppointmentSourceAlerts")
   scheduled_by_alert    ReturnAlert[]                 @relation("AppointmentScheduledByAlert")
+  // Pos-atendimento (Fase 26)
+  post_care_survey      PostCareSurvey?
 
   created_by_ai Boolean @default(false) // true quando o evento foi criado por tool da IA (book_appointment)
 
@@ -1663,6 +1669,8 @@ model Patient {
   // Indicacao premiada (Fase 21)
   referrals_given       Referral[]            @relation("ReferralsGiven")
   referral_received     Referral?             @relation("ReferralReceived")
+  // Pos-atendimento (Fase 26)
+  post_care_surveys     PostCareSurvey[]
 
   @@unique([tenant_id, cpf])
   @@index([tenant_id, name])
@@ -1900,6 +1908,58 @@ model AnamnesisTemplate {
 
   @@unique([tenant_id, version])
   @@index([tenant_id, active])
+}
+
+// ============================================================================
+// FASE 26 — PESQUISA DE SATISFACAO POS-ATENDIMENTO
+// ============================================================================
+
+/// Pesquisa de satisfacao disparada automaticamente apos consulta concluida.
+/// Cron escaneia CalendarEvent com status=CONCLUIDO, cria survey PENDING,
+/// agenda job no worker pra disparar via Evolution apos delay configurado
+/// (default 2h). Resposta do paciente eh capturada pelo webhook do Evolution
+/// e classificada por sentimento — respostas NEGATIVE notificam admins.
+model PostCareSurvey {
+  id                   String  @id @default(uuid())
+  tenant_id            String
+  patient_id           String
+  appointment_id       String? @unique // 1 survey por consulta
+  dentist_id           String?
+  /// Resumo do procedimento (vindo do CalendarEvent.title) usado no template
+  procedure_summary    String?
+
+  /// Quando o job de envio deve disparar (start_at + delay)
+  trigger_at           DateTime
+  sent_at              DateTime?
+  /// PENDING | SENT | RESPONDED | FAILED | SKIPPED
+  status               String   @default("PENDING")
+
+  /// 1-5 ou 1-10 se mencionado pelo paciente na resposta (regex)
+  score                Int?
+  /// POSITIVE | NEGATIVE | NEUTRAL — analisado por keywords pt-BR
+  sentiment            String?
+  /// Texto livre da resposta do paciente
+  comment              String?
+  responded_at         DateTime?
+  /// Quando os admins foram notificados (sentiment NEGATIVE)
+  escalated_at         DateTime?
+
+  /// ID da mensagem no Evolution (pra rastrear na conversa)
+  evolution_message_id String?
+  /// Erro do disparo (se houver)
+  last_error           String?
+
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
+
+  tenant      Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient     Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  appointment CalendarEvent? @relation(fields: [appointment_id], references: [id], onDelete: SetNull)
+  dentist     User?          @relation("PostCareSurveyDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, status, trigger_at])
+  @@index([tenant_id, sentiment])
+  @@index([patient_id, sent_at])
 }
 
 model Anamnesis {

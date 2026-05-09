@@ -7,12 +7,14 @@ import {
   Trash2, Play, Pause, X, Search, Filter, ChevronDown,
   MessageSquare, Settings, BarChart2, List, Shield, AlertOctagon,
   Phone, Mail, Smartphone, Eye, Download, Sprout, FileJson,
-  Radio, Calendar, MapPin, Hash, Bell,
+  Radio, Calendar, MapPin, Hash, Bell, Heart,
 } from 'lucide-react';
 import { showError, showSuccess } from '@/lib/toast';
 import { API_BASE_URL } from '@/lib/api';
 // Onda 5e v21 (Fase 25) — aba dedicada pra acompanhamento de lembretes
 import { RemindersTab } from './components/RemindersTab';
+// Fase 26 — pesquisa de satisfacao pos-atendimento
+import { PosAtendimentoTab } from './components/PosAtendimentoTab';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -150,6 +152,8 @@ const TABS = [
   // Onda 5e v21 (Fase 25) — disparos de lembretes de agendamento
   // (separado de "Disparos" que sao de sequencias de follow-up)
   { id: 'lembretes', label: 'Lembretes', icon: Bell },
+  // Fase 26 — pesquisa de satisfacao pos-atendimento
+  { id: 'pos-atendimento', label: 'Pós-atendimento', icon: Heart },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -2601,6 +2605,7 @@ export default function FollowupPage() {
 
         {/* ── TAB: LEMBRETES (Onda 5e v21, Fase 25) ─────────────────────── */}
         {activeTab === 'lembretes' && <RemindersTab />}
+        {activeTab === 'pos-atendimento' && <PosAtendimentoTab />}
       </div>
 
       {/* ── Modais ─────────────────────────────────────────────────────────── */}
