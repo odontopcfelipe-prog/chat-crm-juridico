@@ -220,6 +220,11 @@ export default function QuotePanel({
   const addProcedure = async (p: Procedure) => {
     if (!quote) return;
     setBusy(true);
+    // Onda 3.6 — Modo "dente unico em cadeia": quando ha 1 dente selecionado,
+    // mantemos a selecao apos adicionar pra permitir empilhar varios procedimentos
+    // no mesmo dente (canal + coroa + restauracao eh comum). Multi-selecao
+    // (2+ dentes) limpa apos add — comportamento intencional.
+    const keepSelection = hasSelectedTeeth && selectedTeeth.length === 1;
     try {
       if (hasSelectedTeeth) {
         if (teethMode === 'multiply') {
@@ -231,7 +236,11 @@ export default function QuotePanel({
               tooth_fdi: tooth,
             });
           }
-          showSuccess(`${selectedTeeth.length} item(ns) adicionado(s)`);
+          showSuccess(
+            keepSelection
+              ? `Adicionado ao dente ${selectedTeeth[0]} — continue ou clique Concluir`
+              : `${selectedTeeth.length} item(ns) adicionado(s)`,
+          );
         } else {
           await api.post(`/quotes/${quote.id}/items`, {
             procedure_id: p.id,
@@ -241,7 +250,7 @@ export default function QuotePanel({
           });
           showSuccess('Item unificado adicionado');
         }
-        onClearSelection();
+        if (!keepSelection) onClearSelection();
       } else {
         await api.post(`/quotes/${quote.id}/items`, {
           procedure_id: p.id,
@@ -314,58 +323,85 @@ export default function QuotePanel({
         )}
       </div>
 
-      {/* Banner de multi-selecao via Ctrl+click */}
+      {/* Banner de multi-selecao via Ctrl+click — diferencia 1 dente (modo
+          "empilhar varios procedimentos no mesmo dente") de 2+ dentes (modo
+          multiplicar/unificar). */}
       {hasSelectedTeeth && (
         <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-3 flex-wrap">
-          <span className="text-sm font-semibold text-primary inline-flex items-center gap-1.5">
-            🦷 {selectedTeeth.length} {selectedTeeth.length === 1 ? 'dente' : 'dentes'}:
-          </span>
-          <div className="flex flex-wrap gap-1">
-            {selectedTeeth.slice(0, 12).map((t) => (
-              <span
-                key={t}
-                className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-xs bg-primary text-primary-foreground"
-              >
-                {t}
+          {selectedTeeth.length === 1 ? (
+            // Modo "dente unico em cadeia" — empilhar canal+coroa+restauracao etc.
+            <>
+              <span className="text-sm font-semibold text-primary inline-flex items-center gap-1.5">
+                🦷 Adicionando ao dente
+                <span className="inline-flex items-center px-2 py-0.5 rounded font-mono text-xs bg-primary text-primary-foreground">
+                  {selectedTeeth[0]}
+                </span>
               </span>
-            ))}
-            {selectedTeeth.length > 12 && (
-              <span className="text-xs text-muted-foreground">+{selectedTeeth.length - 12}</span>
-            )}
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="flex items-center bg-background border border-border rounded-lg p-0.5">
+              <span className="text-xs text-muted-foreground">
+                — escolha quantos procedimentos quiser (canal, coroa, restauracao...)
+              </span>
               <button
-                onClick={() => setTeethMode('multiply')}
-                className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${
-                  teethMode === 'multiply'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={`1 item por dente (cobra ${selectedTeeth.length}x)`}
+                onClick={onClearSelection}
+                className="ml-auto text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                title="Encerrar e desmarcar o dente"
               >
-                Multiplicar
+                <Check size={12} /> Concluir
               </button>
-              <button
-                onClick={() => setTeethMode('unify')}
-                className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${
-                  teethMode === 'unify'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="1 item unico cobrindo todos"
-              >
-                Unificar
-              </button>
-            </div>
-            <button
-              onClick={onClearSelection}
-              className="text-xs px-1.5 py-1 rounded text-muted-foreground hover:bg-muted"
-              title="Limpar selecao"
-            >
-              <X size={12} />
-            </button>
-          </div>
+            </>
+          ) : (
+            // Modo multi-selecao — multiplicar/unificar entre varios dentes
+            <>
+              <span className="text-sm font-semibold text-primary inline-flex items-center gap-1.5">
+                🦷 {selectedTeeth.length} dentes:
+              </span>
+              <div className="flex flex-wrap gap-1">
+                {selectedTeeth.slice(0, 12).map((t) => (
+                  <span
+                    key={t}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-xs bg-primary text-primary-foreground"
+                  >
+                    {t}
+                  </span>
+                ))}
+                {selectedTeeth.length > 12 && (
+                  <span className="text-xs text-muted-foreground">+{selectedTeeth.length - 12}</span>
+                )}
+              </div>
+              <div className="ml-auto flex items-center gap-2">
+                <div className="flex items-center bg-background border border-border rounded-lg p-0.5">
+                  <button
+                    onClick={() => setTeethMode('multiply')}
+                    className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${
+                      teethMode === 'multiply'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title={`1 item por dente (cobra ${selectedTeeth.length}x)`}
+                  >
+                    Multiplicar
+                  </button>
+                  <button
+                    onClick={() => setTeethMode('unify')}
+                    className={`px-2 py-0.5 text-[11px] rounded font-medium transition-colors ${
+                      teethMode === 'unify'
+                        ? 'bg-primary text-primary-foreground'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title="1 item unico cobrindo todos"
+                  >
+                    Unificar
+                  </button>
+                </div>
+                <button
+                  onClick={onClearSelection}
+                  className="text-xs px-1.5 py-1 rounded text-muted-foreground hover:bg-muted"
+                  title="Limpar selecao"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
