@@ -173,6 +173,36 @@
 .sx-react-calendar-wrapper .sx__event.dentist-color-8 { border-left: 4px solid #ec4899 !important; } /* rosa */
 
 /**
+ * SEPARACAO VISUAL ENTRE EVENTOS CONSECUTIVOS
+ *
+ * Quando dois eventos do mesmo paciente/status ficam encostados (ex:
+ * 09:00-10:00 + 10:00-11:00 ambos rosa AGENDADO), o schedule-x posiciona
+ * eles pixel a pixel sem gap, e a cor identica faz parecer 1 unico bloco
+ * continuo. Isso confunde — operador ve 1 evento de 2h em vez de 2 de 1h.
+ *
+ * Solucao: outline na cor do fundo do grid + offset negativo cria uma
+ * "moldura vazada" dentro do card (~2px) que separa visualmente cards
+ * consecutivos sem afetar o posicionamento ou conteudo. Sombra sutil
+ * reforça aparencia de "card flutuante".
+ *
+ * Border-radius arredonda os cantos pra dar acabamento. A border-left
+ * colorida do dentista (regra acima) ainda funciona — segue o radius.
+ */
+.sx-react-calendar-wrapper .sx__time-grid-event {
+  outline: 2px solid var(--bg-primary, #ffffff) !important;
+  outline-offset: -2px !important;
+  border-radius: 6px !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
+}
+
+/* Modo escuro: outline vai pra cor de fundo escura tambem */
+.sx-react-calendar-wrapper.is-dark .sx__time-grid-event,
+[data-theme="escuro"] .sx-react-calendar-wrapper .sx__time-grid-event {
+  outline-color: var(--bg-primary, #0f172a) !important;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
+}
+
+/**
  * ═══════════════════════════════════════════════════════════════════
  * @media print — Layout otimizado pra impressão da view "Lista".
  *
