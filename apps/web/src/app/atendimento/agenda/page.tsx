@@ -1143,10 +1143,21 @@ export default function AgendaPage() {
       const T = (globalThis as any).Temporal;
       const tz: string = T ? T.Now.timeZoneId() : 'America/Sao_Paulo';
 
+      // Defesa em camadas: backend ja filtra por userId quando enviado, mas
+      // garantimos a filtragem local pra que o usuario nunca veja eventos
+      // de outros dentistas — mesmo se backend retornar a mais por cache,
+      // race condition, ou bug. Aplica a mesma regra do backend:
+      //   - assigned_user_id = filterUserId, OU
+      //   - assigned_user_id is null AND created_by_id = filterUserId
       const filtered = events.filter(e => {
         if (!filterTypes.includes(e.type)) return false;
         // Esconder cancelados por padrão (operador habilita via toggle "Mostrar cancelados")
         if (!showCancelled && e.status === 'CANCELADO') return false;
+        if (filterUserId) {
+          const isAssigned = e.assigned_user_id === filterUserId;
+          const isCreatorWithoutAssignee = e.assigned_user_id == null && e.created_by_id === filterUserId;
+          if (!isAssigned && !isCreatorWithoutAssignee) return false;
+        }
         return true;
       });
       const calEvents = filtered
