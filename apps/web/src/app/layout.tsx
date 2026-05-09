@@ -21,16 +21,19 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="pt-BR" suppressHydrationWarning className={ubuntuSans.variable}>
+    <html lang="pt-BR" translate="no" suppressHydrationWarning className={ubuntuSans.variable}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        {/* Bloqueia Google Translate / Chrome auto-translate — quebra o reconciliador
+            do React com erro "insertBefore: node anterior nao eh filho deste no". */}
+        <meta name="google" content="notranslate" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap" rel="stylesheet" />
         {/* Google Tag Manager */}
         <GTMScript />
       </head>
-      <body className="font-sans antialiased text-foreground bg-background">
+      <body className="font-sans antialiased text-foreground bg-background" translate="no">
         {/* GTM noscript fallback */}
         <GTMNoScript />
         <Providers>

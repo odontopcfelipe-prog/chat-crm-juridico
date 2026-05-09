@@ -148,8 +148,10 @@ export default function AnamneseTab({ patientId }: Props) {
         <AuditPanel anm={data.anamnesis} />
       )}
 
-      {/* Formulario sempre aberto */}
+      {/* Formulario sempre aberto. Key forca remontar quando muda a anamnese
+          (ex.: apos save) — assim o useState interno pega o novo initialAnswers. */}
       <DynamicAnamneseForm
+        key={data.exists ? `anm-${data.anamnesis!.id}-${data.anamnesis!.updated_at}` : 'new'}
         schema={schema}
         initialAnswers={initialAnswers}
         onSave={handleSave}
