@@ -343,6 +343,11 @@ function QuoteDetailView({
 
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
+  // Onda 3.8 — aprovacao parcial agora permitida em DRAFT tambem (operador
+  // confirma na recepcao sem passar pelo portal). Os items NAO selecionados
+  // ficam preservados no orcamento original pra venda futura — nao sao mais
+  // perdidos com REJECTED como antes.
+  const canPartialAccept = (isDraft || isSent) && quote.items.length > 1;
 
   // Onda 4.1 — handlers da selecao parcial
   const togglePartialItem = (itemId: string) => {
@@ -365,19 +370,24 @@ function QuoteDetailView({
       return;
     }
     const total = partialTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const msg = `Aprovar ${partialSelection.size} de ${quote.items.length} procedimentos (${total})?\n\n` +
-      `O orçamento atual ficará marcado como REJECTED com motivo automático.\n` +
-      `Um novo orçamento ACCEPTED será criado com os items selecionados, gerando um Plano de Tratamento.\n\n` +
-      `Os items NÃO selecionados ficam preservados no histórico — você pode usar "Renegociar" depois pra criar novo DRAFT só com eles.`;
+    const remaining = quote.items.length - partialSelection.size;
+    // Onda 3.8 — mensagem reflete novo comportamento: original FICA com os
+    // items NAO selecionados (em vez de virar REJECTED). Permite o paciente
+    // comprar mais depois sem precisar reconstruir orcamento.
+    const msg = `Aceitar ${partialSelection.size} de ${quote.items.length} procedimentos (${total})?\n\n` +
+      `• Items selecionados → criam novo orçamento ACEITO + Plano de Tratamento\n` +
+      `• ${remaining} item(ns) NÃO selecionado(s) ficam neste orçamento — disponíveis pra venda futura sem precisar recriar.`;
     if (!confirm(msg)) return;
     setAcceptingPartial(true);
     try {
       await api.post(`/quotes/${quote.id}/accept-partial`, {
         item_ids: Array.from(partialSelection),
       });
-      showSuccess('Aprovação parcial registrada — plano de tratamento criado');
+      showSuccess(`Aceito! ${remaining} item(ns) restante(s) ficam disponíveis pra próxima venda.`);
       setPartialSelection(new Set());
-      onBack(); // volta pra lista (vai ver os 2 quotes: REJECTED + ACCEPTED)
+      // Onda 3.8 — recarrega o quote atual em vez de voltar pra lista,
+      // pra operador ver os items restantes ja aplicados.
+      await onReload();
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro na aprovacao parcial');
     } finally {
@@ -664,13 +674,16 @@ function QuoteDetailView({
         </div>
       )}
 
-      {/* Onda 4.1 — Hint pra operadora quando orcamento esta SENT (pra aprovacao parcial) */}
-      {isSent && quote.items.length > 1 && (
+      {/* Onda 3.8 — Hint pra operadora: aprovacao parcial agora preserva
+          os items NAO selecionados no proprio orcamento (nao mais REJECTED
+          como antes). Disponivel em DRAFT tambem. */}
+      {canPartialAccept && (
         <div className="mb-3 p-2 rounded-lg bg-emerald-500/5 border border-dashed border-emerald-500/30 text-xs text-emerald-700 flex items-center gap-2">
           <Check size={12} />
           <span>
-            <strong>Dica:</strong> marque os checkboxes ao lado dos procedimentos pra aprovar SO ALGUNS items
-            (paciente fechou parte do orçamento). Use "Marcar aceito" se for tudo.
+            <strong>Dica:</strong> marque os checkboxes ao lado dos procedimentos pra aceitar SÓ ALGUNS items
+            (paciente fechou parte do orçamento). Os <strong>não selecionados ficam aqui</strong> pra venda futura.
+            Use "Marcar aceito" se for tudo.
           </span>
         </div>
       )}
@@ -866,14 +879,16 @@ function QuoteDetailView({
                   }`}
                   style={{ borderLeftColor: color.bar, backgroundColor: color.tint }}
                 >
-                  {/* Onda 4.1 — checkbox de selecao parcial (so em SENT) */}
-                  {isSent && (
+                  {/* Onda 3.8 — checkbox de selecao parcial em DRAFT/SENT.
+                      Marcar = item entra no novo orcamento ACEITO; nao marcado
+                      fica no orcamento original pra venda futura. */}
+                  {canPartialAccept && (
                     <input
                       type="checkbox"
                       checked={isPartialSelected}
                       onChange={() => togglePartialItem(it.id)}
                       className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
-                      title="Selecionar pra aprovação parcial"
+                      title="Selecionar pra aceitar (não selecionado fica neste orçamento pra venda futura)"
                     />
                   )}
                   <div className="flex-1 min-w-0">
@@ -1143,8 +1158,9 @@ function QuoteDetailView({
       {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) — movido pro fim por ser secundário */}
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
-      {/* Onda 4.1 — FAB sticky pra aprovacao parcial (visivel quando ha selecao) */}
-      {isSent && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
+      {/* Onda 3.8 — FAB sticky pra aprovacao parcial (visivel em DRAFT/SENT
+          quando ha selecao). Restantes ficam no orcamento original. */}
+      {canPartialAccept && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-4 duration-200">
           <div className="bg-card border border-emerald-500/40 shadow-2xl rounded-full pl-4 pr-2 py-2 flex items-center gap-3 flex-wrap max-w-[95vw]">
             <span className="text-sm font-semibold flex items-center gap-2 text-emerald-700">

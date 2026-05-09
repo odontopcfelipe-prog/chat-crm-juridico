@@ -486,8 +486,13 @@ export class QuotesService {
     userId?: string,
   ) {
     const quote = await this.findOne(id, tenantId);
-    if (quote.status !== 'SENT') {
-      throw new BadRequestException('Apenas orcamentos SENT podem ser aprovados parcialmente');
+    // Onda 3.8 — DRAFT tambem pode ser aprovado parcialmente (operador
+    // confirma na recepcao sem passar pelo portal). Auto-seta sent_at no
+    // novo quote pra manter audit trail.
+    if (!['DRAFT', 'SENT'].includes(quote.status)) {
+      throw new BadRequestException(
+        `Apenas orcamentos DRAFT/SENT podem ser aprovados parcialmente. Status atual: ${quote.status}`,
+      );
     }
     if (!selectedItemIds || selectedItemIds.length === 0) {
       throw new BadRequestException('Selecione ao menos 1 item pra aprovar');
@@ -512,26 +517,56 @@ export class QuotesService {
     const discountValue = subtotal * (discountPct / 100);
     const totalValue = subtotal - discountValue;
 
+    // Onda 3.8 — Items que FICAM no original (nao selecionados). Vao
+    // continuar disponiveis pra venda futura. Calcula novo total do
+    // original.
+    const remainingItems = quote.items.filter(
+      (it) => !selectedItemIds.includes(it.id),
+    );
+    const remainingSubtotal = remainingItems.reduce(
+      (acc, it) => acc + Number(it.total_price),
+      0,
+    );
+    const remainingDiscountValue = remainingSubtotal * (discountPct / 100);
+    const remainingTotalValue = remainingSubtotal - remainingDiscountValue;
+
     // Snapshot do original ANTES da mudanca (preserva historico)
     if (this.versions && userId) {
       await this.versions
-        .createSnapshot(id, userId, 'REJECT', `Aprovacao parcial: ${selectedItems.length}/${quote.items.length} items aceitos`)
-        .catch((e) => this.logger.warn(`[VERSION] snapshot REJECT falhou: ${e?.message}`));
+        .createSnapshot(
+          id,
+          userId,
+          'MANUAL',
+          `Aprovacao parcial: ${selectedItems.length}/${quote.items.length} items movidos para novo orcamento ACCEPTED — restantes ficam neste`,
+        )
+        .catch((e) => this.logger.warn(`[VERSION] snapshot parcial falhou: ${e?.message}`));
     }
 
-    // Transaction: marca original REJECTED + cria novo ACCEPTED + TreatmentPlan
+    // Transaction: remove items selecionados do original + recalcula totais
+    // + cria novo Quote ACCEPTED com items copiados + TreatmentPlan
     return this.prisma.$transaction(async (tx) => {
-      // 1. Marca original como REJECTED (preserva items pra historico)
-      await tx.quote.update({
-        where: { id },
-        data: {
-          status: 'REJECTED',
-          rejected_at: new Date(),
-          rejection_reason: `Aprovacao parcial: ${selectedItems.length} de ${quote.items.length} items movidos pra novo orcamento ACCEPTED`,
+      // 1. Onda 3.8 — Remove os items SELECIONADOS do original (eles foram
+      // pro novo). Os items NAO selecionados ficam no original pra venda
+      // futura. Original mantem status (DRAFT continua DRAFT, SENT continua
+      // SENT — operador pode renviar se quiser).
+      await tx.quoteItem.deleteMany({
+        where: {
+          quote_id: id,
+          id: { in: selectedItemIds },
         },
       });
 
-      // 2. Cria novo Quote ACCEPTED com items selecionados
+      // 2. Atualiza totais do original com items restantes
+      await tx.quote.update({
+        where: { id },
+        data: {
+          subtotal: remainingSubtotal,
+          discount_value: remainingDiscountValue,
+          total_value: remainingTotalValue,
+        },
+      });
+
+      // 3. Cria novo Quote ACCEPTED com items selecionados
       const acceptedQuote = await tx.quote.create({
         data: {
           patient_id: quote.patient_id,
@@ -561,7 +596,7 @@ export class QuotesService {
         },
       });
 
-      // 3. Cria TreatmentPlan a partir do novo quote ACCEPTED
+      // 4. Cria TreatmentPlan a partir do novo quote ACCEPTED
       const plan = await tx.treatmentPlan.create({
         data: {
           patient_id: quote.patient_id,
@@ -594,13 +629,18 @@ export class QuotesService {
         items_accepted: selectedItems.length,
         items_total: quote.items.length,
         accepted_value: totalValue,
-        rejected_value: Number(quote.total_value) - totalValue,
-      }, 'Orcamento aprovado parcialmente'));
+        // Onda 3.8 — items restantes ficam disponiveis no original
+        items_remaining: remainingItems.length,
+        remaining_value: remainingTotalValue,
+      }, 'Orcamento aprovado parcialmente — restantes preservados no original'));
 
       return {
         original_quote_id: id,
         accepted_quote: acceptedQuote,
         treatment_plan: plan,
+        // Onda 3.8 — frontend usa isso pra mostrar mensagem clara ao operador
+        items_remaining_in_original: remainingItems.length,
+        remaining_total_value: remainingTotalValue,
       };
     });
   }
