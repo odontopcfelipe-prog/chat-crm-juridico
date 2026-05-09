@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
@@ -24,6 +25,7 @@ export class CalendarService {
     private chatGateway: ChatGateway,
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
     @Inject(forwardRef(() => WaitlistService)) private waitlist: WaitlistService,
+    @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
   ) {}
 
   // ─── CRUD Events ──────────────────────────────────────
@@ -1361,6 +1363,172 @@ export class CalendarService {
     });
     this.logger.log(`[REMINDER_CONFIG] salvo pra ${key}`);
     return this.getReminderConfig(tenant_id);
+  }
+
+  // ─── Resumo Diario pra Dentistas (Onda 5e v30, Fase 25) ──────────────
+  // Disparo unico no inicio do dia com lista dos atendimentos do dentista.
+  // Diferente dos reminders por evento — sao consolidados num so disparo.
+
+  async getDentistDailySummaryConfig(tenant_id?: string) {
+    const { DEFAULT_DENTIST_DAILY_SUMMARY } = await import('@crm/shared');
+    const key = tenant_id ? `DENTIST_DAILY_SUMMARY_${tenant_id}` : 'DENTIST_DAILY_SUMMARY';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return DEFAULT_DENTIST_DAILY_SUMMARY;
+      const parsed = JSON.parse(setting.value);
+      return { ...DEFAULT_DENTIST_DAILY_SUMMARY, ...parsed };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando defaults: ${(e as any)?.message}`);
+      return DEFAULT_DENTIST_DAILY_SUMMARY;
+    }
+  }
+
+  async setDentistDailySummaryConfig(
+    tenant_id: string | undefined,
+    config: { enabled?: boolean; send_at?: string; channel?: string; template?: string },
+  ) {
+    if (config.send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.send_at)) {
+      throw new BadRequestException('send_at deve estar no formato HH:MM');
+    }
+    if (config.channel !== undefined && !['WHATSAPP', 'PUSH'].includes(config.channel)) {
+      throw new BadRequestException('channel deve ser WHATSAPP ou PUSH');
+    }
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') {
+        throw new BadRequestException('template deve ser string');
+      }
+      if (config.template.length > 2000) {
+        throw new BadRequestException('template ultrapassa 2000 caracteres');
+      }
+    }
+    const key = tenant_id ? `DENTIST_DAILY_SUMMARY_${tenant_id}` : 'DENTIST_DAILY_SUMMARY';
+    const current = await this.getDentistDailySummaryConfig(tenant_id);
+    const merged = { ...current, ...config };
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value: JSON.stringify(merged) },
+      update: { value: JSON.stringify(merged) },
+    });
+    this.logger.log(`[DENTIST_DAILY_SUMMARY] salvo pra ${key}`);
+    return merged;
+  }
+
+  /**
+   * Monta a mensagem do resumo diario pra um dentista especifico,
+   * substituindo as variaveis do template. Retorna a string final.
+   * Se o dentista nao tem atendimentos no dia, retorna null.
+   */
+  private async buildDentistDailySummaryMessage(
+    user: { id: string; name: string | null; phone: string | null },
+    template: string,
+    dayStart: Date,
+    dayEnd: Date,
+  ): Promise<string | null> {
+    const events = await this.prisma.calendarEvent.findMany({
+      where: {
+        assigned_user_id: user.id,
+        start_at: { gte: dayStart, lt: dayEnd },
+        status: { in: ['AGENDADO', 'CONFIRMADO'] },
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+      },
+      include: {
+        patient: { select: { name: true } },
+        lead: { select: { name: true } },
+      },
+      orderBy: { start_at: 'asc' },
+    });
+
+    if (events.length === 0) return null;
+
+    const TYPE_LABEL: Record<string, string> = {
+      CONSULTA: 'Avaliacao',
+      PROCEDIMENTO: 'Procedimento',
+      RETORNO: 'Retorno',
+    };
+
+    const agendaLines = events.map((e) => {
+      const d = new Date(e.start_at);
+      const hh = String(d.getUTCHours()).padStart(2, '0');
+      const mm = String(d.getUTCMinutes()).padStart(2, '0');
+      const who = e.patient?.name || e.lead?.name || 'Paciente';
+      const tipo = TYPE_LABEL[e.type] || e.type;
+      return `- ${hh}:${mm}  ${who} (${tipo})`;
+    });
+
+    const dataStr = dayStart.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' });
+
+    let msg = template;
+    msg = msg.replace(/\{nome\}/g, user.name || 'Doutor(a)');
+    msg = msg.replace(/\{data\}/g, dataStr);
+    msg = msg.replace(/\{qtd\}/g, String(events.length));
+    msg = msg.replace(/\{agenda\}/g, agendaLines.join('\n'));
+    msg = msg.replace(/\n{3,}/g, '\n\n').trim();
+    return msg;
+  }
+
+  /**
+   * Envia o resumo diario pra TODOS os dentistas do tenant que tiverem
+   * atendimentos hoje. Usado tanto pelo cron diario quanto pelo trigger
+   * manual "Enviar agora" da UI.
+   */
+  async sendDentistDailySummaryNow(tenant_id?: string) {
+    const config = await this.getDentistDailySummaryConfig(tenant_id);
+
+    // Janela do dia em UTC (mesmo padrao que o resto da agenda usa)
+    const now = new Date();
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
+    const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
+
+    const dentists = await this.prisma.user.findMany({
+      where: {
+        ...(tenant_id ? { tenant_id } : {}),
+        roles: { has: 'DENTIST' },
+      },
+      select: { id: true, name: true, phone: true },
+    });
+
+    const results: { user_id: string; name: string | null; sent: boolean; reason?: string }[] = [];
+    for (const u of dentists) {
+      const msg = await this.buildDentistDailySummaryMessage(u, config.template, dayStart, dayEnd);
+      if (!msg) {
+        results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem atendimentos hoje' });
+        continue;
+      }
+
+      if (config.channel === 'PUSH') {
+        try {
+          this.chatGateway.emitCalendarReminder(u.id, {
+            eventId: 'daily-summary',
+            title: 'Resumo do dia',
+            type: 'DAILY_SUMMARY',
+            start_at: now.toISOString(),
+            minutesBefore: 0,
+          });
+          results.push({ user_id: u.id, name: u.name, sent: true });
+        } catch (e: any) {
+          results.push({ user_id: u.id, name: u.name, sent: false, reason: `push falhou: ${e.message}` });
+        }
+        continue;
+      }
+
+      // WHATSAPP
+      if (!u.phone) {
+        results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem telefone cadastrado' });
+        continue;
+      }
+      const phone = u.phone.replace(/\D/g, '');
+      try {
+        await this.whatsapp.sendText(phone, msg);
+        results.push({ user_id: u.id, name: u.name, sent: true });
+      } catch (e: any) {
+        results.push({ user_id: u.id, name: u.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
+      }
+    }
+
+    this.logger.log(
+      `[DENTIST_DAILY_SUMMARY] disparado: ${results.filter((r) => r.sent).length}/${dentists.length} dentistas`,
+    );
+    return { total: dentists.length, results };
   }
 
   // ─── Backfill de Reminders (Onda 5e v19, Fase 25) ────────────────────

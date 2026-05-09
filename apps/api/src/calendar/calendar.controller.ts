@@ -400,6 +400,29 @@ export class CalendarController {
     return this.calendarService.setReminderConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Resumo Diario pra Dentistas (Onda 5e v30, Fase 25) ──────────────
+  // Disparo unico no inicio do dia listando os atendimentos do dia do
+  // dentista. Config separada dos lembretes por evento.
+
+  @Get('dentist-daily-summary/config')
+  getDentistDailySummaryConfig(@Request() req: any) {
+    return this.calendarService.getDentistDailySummaryConfig(req.user?.tenant_id);
+  }
+
+  @Put('dentist-daily-summary/config')
+  @Roles('ADMIN')
+  setDentistDailySummaryConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setDentistDailySummaryConfig(req.user?.tenant_id, body);
+  }
+
+  // Trigger manual — admin clica "Enviar agora" pra teste ou disparo
+  // antecipado. O cron diario continua funcionando independente.
+  @Post('dentist-daily-summary/send-now')
+  @Roles('ADMIN')
+  sendDentistDailySummaryNow(@Request() req: any) {
+    return this.calendarService.sendDentistDailySummaryNow(req.user?.tenant_id);
+  }
+
   // v25 (Onda C #11): metricas de saude dos lembretes (taxa entrega, leitura, etc)
   @Get('reminders/health')
   getRemindersHealth(

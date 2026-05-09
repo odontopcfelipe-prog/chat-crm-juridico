@@ -7,7 +7,7 @@ import {
   Trash2, Play, Pause, X, Search, Filter, ChevronDown,
   MessageSquare, Settings, BarChart2, List, Shield, AlertOctagon,
   Phone, Mail, Smartphone, Eye, Download, Sprout, FileJson,
-  Radio, Calendar, MapPin, Hash, Bell, Heart,
+  Radio, Calendar, MapPin, Hash, Bell, Heart, Stethoscope,
 } from 'lucide-react';
 import { showError, showSuccess } from '@/lib/toast';
 import { API_BASE_URL } from '@/lib/api';
@@ -15,6 +15,8 @@ import { API_BASE_URL } from '@/lib/api';
 import { RemindersTab } from './components/RemindersTab';
 // Fase 26 — pesquisa de satisfacao pos-atendimento
 import { PosAtendimentoTab } from './components/PosAtendimentoTab';
+// Onda 5e v30 (Fase 25) — resumo diario pra dentistas
+import { DentistSummaryTab } from './components/DentistSummaryTab';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -154,6 +156,9 @@ const TABS = [
   { id: 'lembretes', label: 'Lembretes', icon: Bell },
   // Fase 26 — pesquisa de satisfacao pos-atendimento
   { id: 'pos-atendimento', label: 'Pós-atendimento', icon: Heart },
+  // Onda 5e v30 (Fase 25) — resumo diario pra dentistas
+  // ("hoje voce tem 5 pacientes...") via WhatsApp/Push
+  { id: 'dentista', label: 'Dentista', icon: Stethoscope },
 ] as const;
 
 type TabId = (typeof TABS)[number]['id'];
@@ -2605,7 +2610,12 @@ export default function FollowupPage() {
 
         {/* ── TAB: LEMBRETES (Onda 5e v21, Fase 25) ─────────────────────── */}
         {activeTab === 'lembretes' && <RemindersTab />}
+
+        {/* ── TAB: PÓS-ATENDIMENTO — pesquisa de satisfacao (Fase 26) ──── */}
         {activeTab === 'pos-atendimento' && <PosAtendimentoTab />}
+
+        {/* ── TAB: DENTISTA — Resumo diario (Onda 5e v30, Fase 25) ──────── */}
+        {activeTab === 'dentista' && <DentistSummaryTab />}
       </div>
 
       {/* ── Modais ─────────────────────────────────────────────────────────── */}

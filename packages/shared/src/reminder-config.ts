@@ -110,3 +110,46 @@ export function pickTemplateKey(minutesBefore: number): keyof ReminderTemplates 
   if (minutesBefore >= 60) return 'consulta_1h';
   return 'consulta_15min';
 }
+
+/**
+ * Configuracao do RESUMO DIARIO PRA DENTISTAS — Onda 5e v30 (Fase 25).
+ *
+ * Diferente dos lembretes por evento (templates acima, voltados a paciente),
+ * esse e um disparo unico no inicio do dia, listando todos os atendimentos
+ * que o dentista tem no dia.
+ *
+ * Mensagem fica tipo:
+ *   Bom dia, Dra. Suellen!
+ *   Sua agenda hoje (qua 06/05) tem 4 pacientes:
+ *   - 09:00  Jilfran Batista (Avaliacao)
+ *   - 10:00  Jilfran Batista (Avaliacao)
+ *   - 14:00  Maria Silva (Procedimento)
+ *   - 15:30  Pedro Santos (Retorno)
+ *
+ * Variaveis suportadas no template (alem de {nome}, {data}, {clinica}):
+ *   {qtd}              → numero de atendimentos do dia
+ *   {agenda}           → bloco multilinha com cada atendimento
+ *
+ * Persistido em GlobalSetting com key DENTIST_DAILY_SUMMARY_<tenant_id>.
+ */
+export interface DentistDailySummaryConfig {
+  /** Liga/desliga o disparo automatico diario */
+  enabled: boolean;
+  /** Horario do disparo no formato "HH:MM" (default 07:00) */
+  send_at: string;
+  /** Canal de entrega — WHATSAPP usa Evolution API, PUSH via WebSocket */
+  channel: 'WHATSAPP' | 'PUSH';
+  /** Template da mensagem com variaveis {nome}, {data}, {qtd}, {agenda} */
+  template: string;
+}
+
+export const DEFAULT_DENTIST_DAILY_SUMMARY: DentistDailySummaryConfig = {
+  enabled: false,
+  send_at: '07:00',
+  channel: 'WHATSAPP',
+  template:
+    'Bom dia, {nome}! 👋\n\n' +
+    'Sua agenda hoje ({data}) tem {qtd} atendimento(s):\n\n' +
+    '{agenda}\n\n' +
+    'Tenha um excelente dia!',
+};

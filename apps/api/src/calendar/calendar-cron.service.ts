@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Inject, forwardRef } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { ChatGateway } from '../gateway/chat.gateway';
+import { CalendarService } from './calendar.service';
 
 @Injectable()
 export class CalendarCronService {
@@ -10,6 +11,7 @@ export class CalendarCronService {
   constructor(
     private prisma: PrismaService,
     private chatGateway: ChatGateway,
+    @Inject(forwardRef(() => CalendarService)) private calendarService: CalendarService,
   ) {}
 
   /**
@@ -66,6 +68,56 @@ export class CalendarCronService {
       }
     } catch (e: any) {
       this.logger.error(`[CRON] Erro no checkPushReminders: ${e.message}`);
+    }
+  }
+
+  /**
+   * Resumo diario pra dentistas — Onda 5e v30 (Fase 25).
+   *
+   * Roda toda hora cheia. Pra cada tenant com config enabled=true cuja
+   * send_at bate com a hora atual (HH:00, ignora minutos), dispara o
+   * resumo do dia pra todos os dentistas com atendimentos.
+   *
+   * Multi-tenant: itera todas as configs DENTIST_DAILY_SUMMARY_*
+   * cadastradas no GlobalSetting.
+   */
+  @Cron('0 * * * *')
+  async checkDentistDailySummary() {
+    try {
+      const now = new Date();
+      const currentHHMM = `${String(now.getUTCHours()).padStart(2, '0')}:00`;
+
+      const settings = await this.prisma.globalSetting.findMany({
+        where: { key: { startsWith: 'DENTIST_DAILY_SUMMARY' } },
+      });
+
+      for (const s of settings) {
+        let cfg: any;
+        try {
+          cfg = JSON.parse(s.value || '{}');
+        } catch {
+          continue;
+        }
+        if (!cfg.enabled) continue;
+        // Compara so a hora — minutos sao ignorados pra simplicidade
+        // (cron roda no minuto 0 entao send_at "07:30" ainda dispara as 07:00).
+        const sendHH = String(cfg.send_at || '07:00').split(':')[0];
+        if (sendHH !== String(now.getUTCHours()).padStart(2, '0')) continue;
+
+        // Extrai tenant_id da chave (DENTIST_DAILY_SUMMARY_<tenant>)
+        const tenantId = s.key === 'DENTIST_DAILY_SUMMARY'
+          ? undefined
+          : s.key.replace(/^DENTIST_DAILY_SUMMARY_/, '');
+
+        try {
+          await this.calendarService.sendDentistDailySummaryNow(tenantId);
+          this.logger.log(`[CRON] Resumo diario disparado pra tenant ${tenantId || 'global'} (${currentHHMM})`);
+        } catch (e: any) {
+          this.logger.error(`[CRON] Erro no resumo diario tenant ${tenantId}: ${e.message}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.error(`[CRON] Erro no checkDentistDailySummary: ${e.message}`);
     }
   }
 }
