@@ -2,33 +2,28 @@
 # ============================================================================
 # VPS Deploy — Anamnese: prova eletronica de preenchimento (2026-05-08)
 # ============================================================================
-# Uso na VPS (Swarm), sem precisar clonar o repo:
+# Script STANDALONE: nao depende de GitHub raw (repo privado).
+# O SQL esta embutido inline neste arquivo.
 #
-#   curl -fsSL https://raw.githubusercontent.com/odontopcfelipe-prog/chat-crm-juridico/master/scripts/vps-apply-anamnese-prova.sh | bash
+# Uso na VPS:
 #
-# OU baixa primeiro:
+#   # Se voce ja tem o repo clonado na VPS:
+#   bash scripts/vps-apply-anamnese-prova.sh
 #
-#   curl -fsSLO https://raw.githubusercontent.com/odontopcfelipe-prog/chat-crm-juridico/master/scripts/vps-apply-anamnese-prova.sh
+#   # Ou copie o conteudo deste arquivo para um arquivo na VPS e rode:
 #   bash vps-apply-anamnese-prova.sh
 #
 # O que faz:
 #   1) Detecta container postgres + credenciais
-#   2) Backup rapido em /tmp
-#   3) Baixa o SQL idempotente do GitHub raw
-#   4) Aplica com ON_ERROR_STOP=1
-#   5) Verifica colunas criadas em "Anamnesis"
-#   6) Force-update services chatcrm_api/worker/web pra puxar imagens :latest
-#   7) Aguarda e mostra status
+#   2) Backup rapido da tabela Anamnesis
+#   3) Aplica o SQL (embutido)
+#   4) Verifica colunas criadas
+#   5) Force-update services chatcrm_api/worker/web pra puxar :latest
 #
-# Idempotente — pode rodar quantas vezes precisar.
+# Idempotente.
 # ============================================================================
 
 set -e
-
-BRANCH="${BRANCH:-master}"
-REPO="${REPO:-odontopcfelipe-prog/chat-crm-juridico}"
-RAW="https://raw.githubusercontent.com/$REPO/$BRANCH/packages/shared/prisma/manual-sql"
-SQL="2026-05-08-anamnesis-prova-eletronica.sql"
 
 # ─── 1) Detecta postgres ────────────────────────────────────────────────────
 echo "═══════════════════════════════════════════════════════════════"
@@ -56,24 +51,34 @@ echo "   DB:        $PGDB"
 # ─── 2) Backup ──────────────────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo " 2/5  Backup rapido (so a tabela Anamnesis em /tmp)..."
+echo " 2/5  Backup da tabela Anamnesis..."
 echo "═══════════════════════════════════════════════════════════════"
 
 BACKUP="/tmp/backup-anamnesis-$(date +%F-%H%M).sql.gz"
-docker exec "$PG" pg_dump -U "$PGUSER" -d "$PGDB" -t '"Anamnesis"' | gzip > "$BACKUP" || true
-ls -lh "$BACKUP" || echo "(backup vazio se a tabela ainda nao existir — ok)"
+docker exec "$PG" pg_dump -U "$PGUSER" -d "$PGDB" -t '"Anamnesis"' 2>/dev/null | gzip > "$BACKUP" || true
+ls -lh "$BACKUP" 2>/dev/null || echo "(backup vazio se a tabela ainda nao existir — ok)"
 
-# ─── 3) Baixa e aplica SQL ──────────────────────────────────────────────────
+# ─── 3) Aplica SQL embutido ─────────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo " 3/5  Baixando e aplicando $SQL..."
+echo " 3/5  Aplicando migration..."
 echo "═══════════════════════════════════════════════════════════════"
 
-TMPDIR=$(mktemp -d)
-curl -fsSL "$RAW/$SQL" -o "$TMPDIR/$SQL"
-echo "   Baixado em $TMPDIR/$SQL"
+docker exec -i "$PG" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 <<'SQL'
+BEGIN;
 
-docker exec -i "$PG" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 < "$TMPDIR/$SQL"
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "submitted_via"        TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "submitted_ip"         TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "submitted_user_agent" TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "consent_text"         TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "consent_accepted_at"  TIMESTAMP(3);
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "signature_method"     TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "signature_data"       TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "audit_hash"           TEXT;
+
+COMMIT;
+SQL
+
 echo "   ✅ SQL aplicado"
 
 # ─── 4) Verifica colunas ────────────────────────────────────────────────────
@@ -92,25 +97,33 @@ docker exec "$PG" psql -U "$PGUSER" -d "$PGDB" -c "
   ORDER BY column_name;
 "
 
-# ─── 5) Force-update services pra puxar imagens novas ───────────────────────
+# ─── 5) Force-update services ───────────────────────────────────────────────
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo " 5/5  Atualizando services (puxa imagens :latest do DockerHub)..."
 echo "═══════════════════════════════════════════════════════════════"
 
+UPDATED=0
 for svc in chatcrm_api chatcrm_worker chatcrm_web; do
-  if docker service ls --filter "name=$svc" --format "{{.Name}}" | grep -q "^$svc$"; then
-    echo "   → docker service update --force $svc"
-    docker service update --force --image "odontopassos/chat-crm-juridico-${svc#chatcrm_}:latest" "$svc" >/dev/null
-  else
-    echo "   ⚠ service $svc nao encontrado (ok se estiver em compose normal)"
+  if docker service ls --filter "name=$svc" --format "{{.Name}}" 2>/dev/null | grep -q "^$svc$"; then
+    suffix="${svc#chatcrm_}"
+    echo "   → docker service update --force $svc (imagem odontopassos/chat-crm-juridico-${suffix}:latest)"
+    docker service update --force --image "odontopassos/chat-crm-juridico-${suffix}:latest" "$svc" >/dev/null
+    UPDATED=$((UPDATED + 1))
   fi
 done
+
+if [ "$UPDATED" -eq 0 ]; then
+  echo "   ⚠ Nenhum service Swarm encontrado (chatcrm_*)."
+  echo "   Se voce usa docker compose normal, rode manualmente:"
+  echo "     docker compose -f docker-compose.prod.yml pull"
+  echo "     docker compose -f docker-compose.prod.yml up -d"
+fi
 
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
 echo " ✅ Concluido. Aguarde 30-60s para os containers reiniciarem."
 echo "═══════════════════════════════════════════════════════════════"
 echo ""
-echo "Status dos services:"
+echo "Status:"
 docker service ls --filter "name=chatcrm_" 2>/dev/null || docker ps --filter "name=chatcrm" --format "table {{.Names}}\t{{.Status}}"
