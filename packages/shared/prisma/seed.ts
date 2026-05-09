@@ -426,7 +426,9 @@ Perfil do paciente:
   },
 ];
 
-const ANAMNESIS_TEMPLATE_V1 = {
+// V2 — todos campos opcionais, foco em Sim/Nao + textos abertos opcionais.
+// Sincronizado com manual-sql/2026-05-09-anamnesis-template-v2.sql.
+const ANAMNESIS_TEMPLATE_V2 = {
   sections: [
     {
       id: 'general',
@@ -434,99 +436,104 @@ const ANAMNESIS_TEMPLATE_V1 = {
       questions: [
         { id: 'height', type: 'number', label: 'Altura (cm)', required: false },
         { id: 'weight', type: 'number', label: 'Peso (kg)', required: false },
+        { id: 'blood_type', type: 'select', label: 'Tipo sanguíneo',
+          options: ['A+','A-','B+','B-','AB+','AB-','O+','O-','Não sei'], required: false },
       ],
     },
     {
       id: 'medical_history',
       title: 'Histórico Médico',
       questions: [
-        {
-          id: 'chronic_diseases',
-          type: 'multiselect',
-          label: 'Possui alguma doença crônica?',
-          options: [
-            'Diabetes',
-            'Hipertensão',
-            'Doença cardíaca',
-            'Doença renal',
-            'Doença hepática',
-            'Problema de tireoide',
-            'Outra',
-          ],
-          required: false,
-        },
+        { id: 'chronic_diseases', type: 'multiselect', label: 'Possui alguma doença crônica?',
+          options: ['Diabetes','Hipertensão','Doença cardíaca','Doença renal','Doença hepática','Problema de tireoide','Epilepsia','Asma','Anemia','Outra','Nenhuma'],
+          required: false },
         { id: 'chronic_disease_other', type: 'text', label: 'Se outra, especifique', required: false },
-        { id: 'surgeries', type: 'textarea', label: 'Já fez alguma cirurgia? Qual(is)?', required: false },
-        { id: 'hospitalizations', type: 'textarea', label: 'Esteve hospitalizado nos últimos 2 anos?', required: false },
+        { id: 'had_surgery', type: 'boolean', label: 'Já fez alguma cirurgia?', required: false },
+        { id: 'surgeries_detail', type: 'textarea', label: 'Se sim, qual(is)?', required: false },
+        { id: 'was_hospitalized', type: 'boolean', label: 'Esteve hospitalizado nos últimos 2 anos?', required: false },
+        { id: 'hospitalizations_detail', type: 'textarea', label: 'Se sim, motivo?', required: false },
       ],
     },
     {
       id: 'allergies_meds',
       title: 'Alergias e Medicamentos',
       questions: [
-        { id: 'allergies_known', type: 'boolean', label: 'Possui alergias conhecidas?', required: true },
-        { id: 'allergies_list', type: 'textarea', label: 'Se sim, quais?', required: false },
-        { id: 'medications_current', type: 'textarea', label: 'Medicamentos em uso (nome, dose, frequência)', required: false },
+        { id: 'allergies_known', type: 'boolean', label: 'Possui alergias conhecidas?', required: false },
+        { id: 'allergies_list', type: 'textarea', label: 'Se sim, quais? (medicamentos, látex, anestésicos, etc.)', required: false },
+        { id: 'uses_medication', type: 'boolean', label: 'Usa algum medicamento atualmente?', required: false },
+        { id: 'medications_current', type: 'textarea', label: 'Se sim, quais? (nome, dose, frequência)', required: false },
+        { id: 'uses_anticoagulant', type: 'boolean', label: 'Usa anticoagulante (AAS, varfarina, rivaroxabana, etc.)?', required: false },
       ],
     },
     {
       id: 'lifestyle',
       title: 'Hábitos e Estilo de Vida',
       questions: [
-        {
-          id: 'smoker',
-          type: 'select',
-          label: 'Fuma?',
-          options: ['Nunca', 'Ex-fumante', 'Fumante ocasional', 'Fumante diário'],
-          required: true,
-        },
-        {
-          id: 'alcohol',
-          type: 'select',
-          label: 'Consome álcool?',
-          options: ['Não', 'Socialmente', 'Frequentemente', 'Diariamente'],
-          required: false,
-        },
-        { id: 'bruxism', type: 'boolean', label: 'Aperta ou range os dentes (bruxismo)?', required: false },
+        { id: 'smoker', type: 'select', label: 'Fuma?',
+          options: ['Nunca','Ex-fumante','Fumante ocasional','Fumante diário'], required: false },
+        { id: 'alcohol', type: 'select', label: 'Consome álcool?',
+          options: ['Não','Socialmente','Frequentemente','Diariamente'], required: false },
+        { id: 'uses_drugs', type: 'boolean', label: 'Faz uso de drogas recreativas?', required: false },
+        { id: 'snoring', type: 'boolean', label: 'Costuma roncar ou tem apneia?', required: false },
       ],
     },
     {
       id: 'dental_history',
       title: 'Histórico Odontológico',
       questions: [
-        {
-          id: 'last_visit',
-          type: 'select',
-          label: 'Quando foi sua última consulta odontológica?',
-          options: ['Menos de 6 meses', '6 a 12 meses', '1 a 2 anos', 'Mais de 2 anos', 'Nunca'],
-          required: true,
-        },
-        {
-          id: 'brushing_frequency',
-          type: 'select',
-          label: 'Frequência de escovação',
-          options: ['1x ao dia', '2x ao dia', '3x ao dia', 'Mais de 3x ao dia'],
-          required: true,
-        },
-        { id: 'floss_use', type: 'boolean', label: 'Usa fio dental diariamente?', required: true },
-        { id: 'pain_current', type: 'boolean', label: 'Sente dor em algum dente agora?', required: true },
+        { id: 'last_visit', type: 'select', label: 'Quando foi sua última consulta odontológica?',
+          options: ['Menos de 6 meses','6 a 12 meses','1 a 2 anos','Mais de 2 anos','Nunca'], required: false },
+        { id: 'brushing_frequency', type: 'select', label: 'Frequência de escovação',
+          options: ['1x ao dia','2x ao dia','3x ao dia','Mais de 3x ao dia','Irregular'], required: false },
+        { id: 'floss_use', type: 'boolean', label: 'Usa fio dental diariamente?', required: false },
+        { id: 'uses_mouthwash', type: 'boolean', label: 'Usa enxaguante bucal?', required: false },
+        { id: 'had_orthodontic', type: 'boolean', label: 'Já usou aparelho ortodôntico?', required: false },
+        { id: 'had_extraction', type: 'boolean', label: 'Já extraiu algum dente?', required: false },
+        { id: 'anesthesia_reaction', type: 'boolean', label: 'Já teve reação a anestesia odontológica?', required: false },
+        { id: 'anesthesia_reaction_detail', type: 'textarea', label: 'Se sim, descreva', required: false },
+      ],
+    },
+    {
+      id: 'oral_health',
+      title: 'Saúde Bucal Atual',
+      questions: [
+        { id: 'pain_current', type: 'boolean', label: 'Sente dor em algum dente agora?', required: false },
         { id: 'pain_description', type: 'textarea', label: 'Se sim, descreva a dor e localização', required: false },
-        {
-          id: 'sensitivity',
-          type: 'multiselect',
-          label: 'Sensibilidade a:',
-          options: ['Frio', 'Calor', 'Doces', 'Pressão', 'Nenhuma'],
-          required: false,
-        },
+        { id: 'gum_bleeding', type: 'boolean', label: 'Suas gengivas sangram ao escovar?', required: false },
+        { id: 'bad_breath', type: 'boolean', label: 'Tem mau hálito persistente?', required: false },
+        { id: 'dry_mouth', type: 'boolean', label: 'Sente boca seca com frequência?', required: false },
+        { id: 'mouth_sores', type: 'boolean', label: 'Aparecem feridas/aftas na boca com frequência?', required: false },
+        { id: 'bruxism', type: 'boolean', label: 'Aperta ou range os dentes (bruxismo)?', required: false },
+        { id: 'jaw_pain', type: 'boolean', label: 'Sente estalos ou dor na ATM (mandíbula)?', required: false },
+        { id: 'sensitivity', type: 'multiselect', label: 'Sensibilidade a:',
+          options: ['Frio','Calor','Doces','Pressão','Nenhuma'], required: false },
       ],
     },
     {
       id: 'pregnancy',
-      title: 'Gravidez (se aplicável)',
+      title: 'Gestação e Hormônios (se aplicável)',
       questions: [
         { id: 'pregnant', type: 'boolean', label: 'Está gestante?', required: false },
         { id: 'pregnancy_weeks', type: 'number', label: 'Se sim, quantas semanas?', required: false },
         { id: 'breastfeeding', type: 'boolean', label: 'Está amamentando?', required: false },
+        { id: 'uses_contraceptive', type: 'boolean', label: 'Usa anticoncepcional?', required: false },
+        { id: 'menopause', type: 'boolean', label: 'Está na menopausa?', required: false },
+      ],
+    },
+    {
+      id: 'family_history',
+      title: 'Histórico Familiar',
+      questions: [
+        { id: 'family_diseases', type: 'multiselect', label: 'Parentes próximos com:',
+          options: ['Diabetes','Hipertensão','Câncer','Doença cardíaca','Problemas dentários graves','Nenhum'],
+          required: false },
+      ],
+    },
+    {
+      id: 'notes',
+      title: 'Observações Livres',
+      questions: [
+        { id: 'patient_notes', type: 'textarea', label: 'Algo mais que considera importante informar?', required: false },
       ],
     },
   ],
@@ -605,20 +612,29 @@ async function main() {
   }
   console.log(`  ${PROCEDURES.length} procedimentos OK`);
 
-  // 4. AnamnesisTemplate v1
-  console.log('Seedando AnamnesisTemplate v1...');
+  // 4. AnamnesisTemplate v2 (todos opcionais, 9 secoes — atualiza v2 ou cria)
+  console.log('Seedando AnamnesisTemplate v2...');
   await prisma.anamnesisTemplate.upsert({
-    where: { tenant_id_version: { tenant_id: tenant.id, version: 1 } },
-    update: {},
+    where: { tenant_id_version: { tenant_id: tenant.id, version: 2 } },
+    update: {
+      schema: ANAMNESIS_TEMPLATE_V2 as any,
+      active: true,
+      notes: 'Template V2 odontológico — 9 seções, todos opcionais, foco em Sim/Não.',
+    },
     create: {
       tenant_id: tenant.id,
-      version: 1,
-      schema: ANAMNESIS_TEMPLATE_V1,
+      version: 2,
+      schema: ANAMNESIS_TEMPLATE_V2 as any,
       active: true,
-      notes: 'Template inicial — 6 seções padrão de anamnese odontológica.',
+      notes: 'Template V2 odontológico — 9 seções, todos opcionais, foco em Sim/Não.',
     },
   });
-  console.log('  AnamnesisTemplate v1 OK');
+  // Desativa v1 se existir
+  await prisma.anamnesisTemplate.updateMany({
+    where: { tenant_id: tenant.id, version: 1 },
+    data: { active: false },
+  });
+  console.log('  AnamnesisTemplate v2 OK (v1 desativada se existia)');
 
   // 5. Skills odontológicas — 5 skills + tools associadas
   console.log('Seedando Skills Odontologicas...');
