@@ -121,6 +121,7 @@ export class PortalController {
       answers: Record<string, any>;
       signature_data: string;
       signature_method?: 'TYPED_NAME' | 'DRAWN';
+      selfie_data?: string;
       consent_accepted: boolean;
     },
     @Request() req: any,

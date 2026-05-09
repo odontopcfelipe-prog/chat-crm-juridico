@@ -426,14 +426,16 @@ Perfil do paciente:
   },
 ];
 
-// V2 — todos campos opcionais, foco em Sim/Nao + textos abertos opcionais.
-// Sincronizado com manual-sql/2026-05-09-anamnesis-template-v2.sql.
-const ANAMNESIS_TEMPLATE_V2 = {
+// V3 — todos opcionais + section "pregnancy" condicional ao sexo (so Feminino).
+// Sincronizado com manual-sql/2026-05-09-anamnesis-template-v3.sql.
+const ANAMNESIS_TEMPLATE_V3 = {
   sections: [
     {
       id: 'general',
       title: 'Dados Gerais',
       questions: [
+        { id: 'sex', type: 'select', label: 'Sexo biológico',
+          options: ['Feminino','Masculino','Outro','Prefiro não informar'], required: false },
         { id: 'height', type: 'number', label: 'Altura (cm)', required: false },
         { id: 'weight', type: 'number', label: 'Peso (kg)', required: false },
         { id: 'blood_type', type: 'select', label: 'Tipo sanguíneo',
@@ -511,7 +513,8 @@ const ANAMNESIS_TEMPLATE_V2 = {
     },
     {
       id: 'pregnancy',
-      title: 'Gestação e Hormônios (se aplicável)',
+      title: 'Gestação e Hormônios',
+      show_if: { question_id: 'sex', equals: 'Feminino' },
       questions: [
         { id: 'pregnant', type: 'boolean', label: 'Está gestante?', required: false },
         { id: 'pregnancy_weeks', type: 'number', label: 'Se sim, quantas semanas?', required: false },
@@ -612,29 +615,29 @@ async function main() {
   }
   console.log(`  ${PROCEDURES.length} procedimentos OK`);
 
-  // 4. AnamnesisTemplate v2 (todos opcionais, 9 secoes — atualiza v2 ou cria)
-  console.log('Seedando AnamnesisTemplate v2...');
+  // 4. AnamnesisTemplate v3 (todos opcionais, 9 secoes, gestacao condicional)
+  console.log('Seedando AnamnesisTemplate v3...');
   await prisma.anamnesisTemplate.upsert({
-    where: { tenant_id_version: { tenant_id: tenant.id, version: 2 } },
+    where: { tenant_id_version: { tenant_id: tenant.id, version: 3 } },
     update: {
-      schema: ANAMNESIS_TEMPLATE_V2 as any,
+      schema: ANAMNESIS_TEMPLATE_V3 as any,
       active: true,
-      notes: 'Template V2 odontológico — 9 seções, todos opcionais, foco em Sim/Não.',
+      notes: 'Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.',
     },
     create: {
       tenant_id: tenant.id,
-      version: 2,
-      schema: ANAMNESIS_TEMPLATE_V2 as any,
+      version: 3,
+      schema: ANAMNESIS_TEMPLATE_V3 as any,
       active: true,
-      notes: 'Template V2 odontológico — 9 seções, todos opcionais, foco em Sim/Não.',
+      notes: 'Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.',
     },
   });
-  // Desativa v1 se existir
+  // Desativa versoes anteriores
   await prisma.anamnesisTemplate.updateMany({
-    where: { tenant_id: tenant.id, version: 1 },
+    where: { tenant_id: tenant.id, version: { lt: 3 } },
     data: { active: false },
   });
-  console.log('  AnamnesisTemplate v2 OK (v1 desativada se existia)');
+  console.log('  AnamnesisTemplate v3 OK');
 
   // 5. Skills odontológicas — 5 skills + tools associadas
   console.log('Seedando Skills Odontologicas...');

@@ -14,7 +14,10 @@ export const ANAMNESE_CONSENT_TEXT_V1 =
   'autorizo o uso destas informacoes pelos profissionais da clinica para ' +
   'fins clinicos e de prontuario, conforme LGPD (Lei 13.709/2018). ' +
   'Confirmo eletronicamente este preenchimento, ciente de que data, hora, ' +
-  'IP e dispositivo de acesso ficarao registrados como prova de autoria.';
+  'IP, dispositivo de acesso e a foto de confirmacao tirada neste momento ' +
+  'ficarao registrados como prova de autoria. Apos a confirmacao nao sera ' +
+  'possivel reeditar pelo portal — alteracoes deverao ser solicitadas a ' +
+  'recepcao da clinica.';
 
 /**
  * Servico de leitura/acoes do portal do paciente. Todas as funcoes
@@ -219,6 +222,7 @@ export class PortalService {
       answers: Record<string, any>;
       signature_data: string;
       signature_method?: 'TYPED_NAME' | 'DRAWN';
+      selfie_data?: string;
       consent_accepted: boolean;
     },
     ip?: string,
@@ -229,6 +233,13 @@ export class PortalService {
     }
     if (!body.signature_data || body.signature_data.trim().length < 3) {
       throw new BadRequestException('Assinatura obrigatoria (digite seu nome completo)');
+    }
+    if (!body.selfie_data || !body.selfie_data.startsWith('data:image/')) {
+      throw new BadRequestException('Foto de confirmacao obrigatoria');
+    }
+    // Limite defensivo (~1.3MB base64 = ~1MB JPEG); o front comprime pra ~150KB
+    if (body.selfie_data.length > 1_400_000) {
+      throw new BadRequestException('Foto muito grande — tente novamente');
     }
     if (!body.answers || typeof body.answers !== 'object') {
       throw new BadRequestException('answers obrigatorio');
@@ -245,6 +256,7 @@ export class PortalService {
         consent_text: ANAMNESE_CONSENT_TEXT_V1,
         signature_method: body.signature_method || 'TYPED_NAME',
         signature_data: body.signature_data.trim(),
+        selfie_data: body.selfie_data,
       },
       undefined, // sem userId — paciente, nao funcionario
     );

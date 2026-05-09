@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, FileText, Send, ShieldCheck, User, Hash } from 'lucide-react';
+import { Loader2, FileText, Send, ShieldCheck, User, Hash, Camera } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import DynamicAnamneseForm, { AnamnesisSchema } from './DynamicAnamneseForm';
@@ -26,6 +26,7 @@ interface ActiveAnamnese {
     consent_accepted_at: string | null;
     signature_method: 'TYPED_NAME' | 'DRAWN' | null;
     signature_data: string | null;
+    selfie_data: string | null;
     audit_hash: string | null;
     filled_by_user: { id: string; name: string } | null;
   };
@@ -229,6 +230,28 @@ function AuditPanel({ anm }: { anm: NonNullable<ActiveAnamnese['anamnesis']> }) 
           </div>
         )}
       </div>
+
+      {/* Selfie de confirmacao — so aparece quando preenchido pelo paciente */}
+      {isPatient && anm.selfie_data && (
+        <div className="mt-3 pt-3 border-t border-emerald-200/60 dark:border-emerald-900/60">
+          <div className="flex items-center gap-1.5 mb-2 text-xs text-muted-foreground">
+            <Camera size={12} />
+            <span>Foto tirada no momento da confirmacao</span>
+          </div>
+          <a
+            href={anm.selfie_data}
+            target="_blank"
+            rel="noopener noreferrer"
+            title="Clique para ampliar"
+          >
+            <img
+              src={anm.selfie_data}
+              alt="Selfie de confirmacao do paciente"
+              className="w-32 h-32 object-cover rounded-lg border border-emerald-200 dark:border-emerald-900 hover:opacity-90 transition-opacity"
+            />
+          </a>
+        </div>
+      )}
 
       {isPatient && anm.consent_text && (
         <details className="mt-3">

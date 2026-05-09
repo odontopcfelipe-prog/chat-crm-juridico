@@ -74,17 +74,18 @@ ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "consent_text"         TEXT;
 ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "consent_accepted_at"  TIMESTAMP(3);
 ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "signature_method"     TEXT;
 ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "signature_data"       TEXT;
+ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "selfie_data"          TEXT;
 ALTER TABLE "Anamnesis" ADD COLUMN IF NOT EXISTS "audit_hash"           TEXT;
 
 COMMIT;
 SQL
 
-echo "   ✅ Colunas de prova eletronica aplicadas"
+echo "   ✅ Colunas de prova eletronica aplicadas (incluindo selfie_data)"
 
-# ─── 3b) Upsert template V2 (todos opcionais) ───────────────────────────────
+# ─── 3b) Upsert template V3 (todos opcionais + sex + gestacao condicional) ──
 echo ""
 echo "═══════════════════════════════════════════════════════════════"
-echo " 3b/5 Atualizando template de anamnese para V2 (todos opcionais)..."
+echo " 3b/5 Atualizando template de anamnese para V3..."
 echo "═══════════════════════════════════════════════════════════════"
 
 docker exec -i "$PG" psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 <<'SQL'
@@ -93,13 +94,14 @@ BEGIN;
 DO $$
 DECLARE
   t            RECORD;
-  v2_schema    JSONB;
+  v3_schema    JSONB;
   existing_id  TEXT;
   next_version INT;
 BEGIN
-  v2_schema := '{
+  v3_schema := '{
     "sections": [
       {"id":"general","title":"Dados Gerais","questions":[
+        {"id":"sex","type":"select","label":"Sexo biologico","options":["Feminino","Masculino","Outro","Prefiro nao informar"],"required":false},
         {"id":"height","type":"number","label":"Altura (cm)","required":false},
         {"id":"weight","type":"number","label":"Peso (kg)","required":false},
         {"id":"blood_type","type":"select","label":"Tipo sanguineo","options":["A+","A-","B+","B-","AB+","AB-","O+","O-","Nao sei"],"required":false}
@@ -146,7 +148,7 @@ BEGIN
         {"id":"jaw_pain","type":"boolean","label":"Sente estalos ou dor na ATM (mandibula)?","required":false},
         {"id":"sensitivity","type":"multiselect","label":"Sensibilidade a:","options":["Frio","Calor","Doces","Pressao","Nenhuma"],"required":false}
       ]},
-      {"id":"pregnancy","title":"Gestacao e Hormonios (se aplicavel)","questions":[
+      {"id":"pregnancy","title":"Gestacao e Hormonios","show_if":{"question_id":"sex","equals":"Feminino"},"questions":[
         {"id":"pregnant","type":"boolean","label":"Esta gestante?","required":false},
         {"id":"pregnancy_weeks","type":"number","label":"Se sim, quantas semanas?","required":false},
         {"id":"breastfeeding","type":"boolean","label":"Esta amamentando?","required":false},
@@ -164,25 +166,25 @@ BEGIN
 
   FOR t IN SELECT id FROM "Tenant" LOOP
     SELECT id INTO existing_id FROM "AnamnesisTemplate"
-    WHERE tenant_id = t.id AND version >= 2 ORDER BY version DESC LIMIT 1;
+    WHERE tenant_id = t.id AND version >= 3 ORDER BY version DESC LIMIT 1;
 
     IF existing_id IS NOT NULL THEN
-      UPDATE "AnamnesisTemplate" SET schema=v2_schema,
-        notes='Template V2 odontologico — 9 secoes, todos opcionais, foco em Sim/Nao',
+      UPDATE "AnamnesisTemplate" SET schema=v3_schema,
+        notes='Template V3 odontologico — 9 secoes, todos opcionais, gestacao condicional ao sexo',
         active=TRUE, updated_at=NOW() WHERE id=existing_id;
       UPDATE "AnamnesisTemplate" SET active=FALSE
         WHERE tenant_id=t.id AND id<>existing_id;
-      RAISE NOTICE 'Tenant %: V2 atualizado (id=%)', t.id, existing_id;
+      RAISE NOTICE 'Tenant %: V3 atualizado (id=%)', t.id, existing_id;
     ELSE
-      SELECT COALESCE(MAX(version),1)+1 INTO next_version
+      SELECT COALESCE(MAX(version),2)+1 INTO next_version
         FROM "AnamnesisTemplate" WHERE tenant_id=t.id;
       INSERT INTO "AnamnesisTemplate" (id,tenant_id,version,schema,active,notes,created_at,updated_at)
-      VALUES (gen_random_uuid()::text, t.id, next_version, v2_schema, TRUE,
-        'Template V2 odontologico — 9 secoes, todos opcionais, foco em Sim/Nao',
+      VALUES (gen_random_uuid()::text, t.id, next_version, v3_schema, TRUE,
+        'Template V3 odontologico — 9 secoes, todos opcionais, gestacao condicional ao sexo',
         NOW(), NOW());
       UPDATE "AnamnesisTemplate" SET active=FALSE
         WHERE tenant_id=t.id AND version<>next_version;
-      RAISE NOTICE 'Tenant %: V2 criado como versao %', t.id, next_version;
+      RAISE NOTICE 'Tenant %: V3 criado como versao %', t.id, next_version;
     END IF;
   END LOOP;
 END $$;
@@ -190,7 +192,7 @@ END $$;
 COMMIT;
 SQL
 
-echo "   ✅ Template V2 ativo"
+echo "   ✅ Template V3 ativo"
 
 # ─── 4) Verifica colunas ────────────────────────────────────────────────────
 echo ""

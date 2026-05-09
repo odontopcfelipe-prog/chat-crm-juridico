@@ -1,8 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { Loader2, ShieldCheck, CheckCircle, AlertCircle, FileText } from 'lucide-react';
+import {
+  Loader2, ShieldCheck, CheckCircle, AlertCircle, FileText, Camera, RotateCcw, Lock,
+} from 'lucide-react';
 import portalApi from '@/lib/portalApi';
 import DynamicAnamneseForm, { AnamnesisSchema } from '@/app/atendimento/pacientes/components/DynamicAnamneseForm';
 
@@ -14,6 +16,9 @@ interface ActiveAnamneseResp {
     template_schema: AnamnesisSchema;
     template: { id: string; version: number };
     filled_at: string;
+    submitted_via: 'STAFF' | 'PATIENT_PORTAL' | null;
+    consent_accepted_at: string | null;
+    audit_hash: string | null;
   };
   template?: { id: string; version: number; schema: AnamnesisSchema } | null;
   consent_text: string;
@@ -25,6 +30,47 @@ interface SubmitResp {
   audit_hash: string | null;
 }
 
+/**
+ * Comprime e redimensiona imagem JPEG via canvas. Retorna data-url base64.
+ * Default: max 800x800, quality 0.7 — ~80-150KB para selfie tipica.
+ */
+async function compressImage(
+  file: File,
+  maxDim = 800,
+  quality = 0.7,
+): Promise<string> {
+  const dataUrl = await new Promise<string>((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(r.result as string);
+    r.onerror = rej;
+    r.readAsDataURL(file);
+  });
+  const img = await new Promise<HTMLImageElement>((res, rej) => {
+    const i = new Image();
+    i.onload = () => res(i);
+    i.onerror = rej;
+    i.src = dataUrl;
+  });
+  let { width, height } = img;
+  if (width > maxDim || height > maxDim) {
+    const ratio = width / height;
+    if (ratio > 1) {
+      width = maxDim;
+      height = Math.round(maxDim / ratio);
+    } else {
+      height = maxDim;
+      width = Math.round(maxDim * ratio);
+    }
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas indisponivel');
+  ctx.drawImage(img, 0, 0, width, height);
+  return canvas.toDataURL('image/jpeg', quality);
+}
+
 export default function AreaPacienteAnamnesePreencherPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
@@ -32,9 +78,11 @@ export default function AreaPacienteAnamnesePreencherPage() {
   const [answers, setAnswers] = useState<Record<string, any>>({});
   const [consentAccepted, setConsentAccepted] = useState(false);
   const [signature, setSignature] = useState('');
+  const [selfie, setSelfie] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [success, setSuccess] = useState<SubmitResp | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     portalApi.get<ActiveAnamneseResp>('/portal/anamnesis')
@@ -50,6 +98,20 @@ export default function AreaPacienteAnamnesePreencherPage() {
       .finally(() => setLoading(false));
   }, []);
 
+  const handleSelfieSelect = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setErrorMsg('');
+    try {
+      const compressed = await compressImage(file);
+      setSelfie(compressed);
+    } catch (err: any) {
+      setErrorMsg('Nao foi possivel processar a foto. Tente outra.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  }, []);
+
   const handleSubmit = async () => {
     setErrorMsg('');
     if (!consentAccepted) {
@@ -60,12 +122,17 @@ export default function AreaPacienteAnamnesePreencherPage() {
       setErrorMsg('Digite seu nome completo para confirmar.');
       return;
     }
+    if (!selfie) {
+      setErrorMsg('Tire uma foto de confirmacao para enviar.');
+      return;
+    }
     setSubmitting(true);
     try {
       const { data: resp } = await portalApi.post<SubmitResp>('/portal/anamnesis/submit', {
         answers,
         signature_data: signature.trim(),
         signature_method: 'TYPED_NAME',
+        selfie_data: selfie,
         consent_accepted: true,
       });
       setSuccess(resp);
@@ -93,6 +160,43 @@ export default function AreaPacienteAnamnesePreencherPage() {
     );
   }
 
+  // Tela "ja confirmada" — paciente nao pode reeditar
+  const alreadyConfirmed =
+    data?.exists && data.anamnesis?.consent_accepted_at != null;
+
+  if (alreadyConfirmed && !success) {
+    const filledAt = new Date(data!.anamnesis!.consent_accepted_at!).toLocaleString('pt-BR', {
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit',
+    });
+    return (
+      <div className="max-w-xl mx-auto space-y-4">
+        <div className="bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-200 dark:border-emerald-900 rounded-2xl p-6 text-center">
+          <Lock size={40} className="mx-auto text-emerald-600 mb-2" />
+          <h2 className="text-lg font-bold mb-1">Anamnese ja confirmada</h2>
+          <p className="text-sm text-muted-foreground">
+            Voce confirmou eletronicamente sua anamnese em <strong>{filledAt}</strong>.
+          </p>
+          <p className="text-xs text-muted-foreground mt-3">
+            Para alterar qualquer informacao, fale com a recepcao da clinica
+            durante sua proxima visita.
+          </p>
+          {data!.anamnesis!.audit_hash && (
+            <div className="mt-4 inline-block bg-white/60 dark:bg-black/20 rounded-lg px-3 py-2 text-xs font-mono text-muted-foreground break-all">
+              🔒 Protocolo: {data!.anamnesis!.audit_hash.slice(0, 16)}...
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => router.replace('/area-paciente')}
+          className="w-full px-4 py-3 rounded-lg bg-primary text-primary-foreground font-medium hover:bg-primary/90"
+        >
+          Voltar para o portal
+        </button>
+      </div>
+    );
+  }
+
   if (success) {
     const filledAt = new Date(success.filled_at).toLocaleString('pt-BR', {
       day: '2-digit', month: '2-digit', year: 'numeric',
@@ -114,6 +218,9 @@ export default function AreaPacienteAnamnesePreencherPage() {
               </p>
             )}
           </div>
+          <p className="text-[11px] text-muted-foreground mt-3">
+            Apos a confirmacao, alteracoes precisam ser feitas pela recepcao.
+          </p>
         </div>
         <button
           onClick={() => router.replace('/area-paciente')}
@@ -153,15 +260,14 @@ export default function AreaPacienteAnamnesePreencherPage() {
           <div>
             <h1 className="text-lg font-bold">Ficha de anamnese</h1>
             <p className="text-xs text-muted-foreground mt-0.5">
-              {data.exists
-                ? 'Voce ja preencheu antes — revise e atualize se algo mudou.'
-                : 'Responda com calma. Suas respostas ajudam a equipe a oferecer o melhor atendimento.'}
+              Responda com calma. Suas respostas ajudam a equipe a oferecer o
+              melhor atendimento. <strong>Apos confirmar, nao sera possivel reeditar</strong>.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Formulario dinamico — sem botoes internos */}
+      {/* Formulario dinamico */}
       <DynamicAnamneseForm
         schema={schema}
         initialAnswers={answers}
@@ -170,6 +276,54 @@ export default function AreaPacienteAnamnesePreencherPage() {
         onSave={() => {}}
       />
 
+      {/* Bloco selfie */}
+      <div className="bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl p-4 space-y-3">
+        <div className="flex items-start gap-2">
+          <Camera size={18} className="text-blue-600 mt-0.5 shrink-0" />
+          <div>
+            <h3 className="font-semibold text-sm">Foto de confirmacao</h3>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Tire uma selfie agora. A foto fica registrada como prova de que
+              voce mesmo preencheu a anamnese.
+            </p>
+          </div>
+        </div>
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="user"
+          onChange={handleSelfieSelect}
+          className="hidden"
+        />
+
+        {selfie ? (
+          <div className="space-y-2">
+            <img
+              src={selfie}
+              alt="Selfie de confirmacao"
+              className="w-full max-w-xs mx-auto rounded-lg border border-blue-200 dark:border-blue-900"
+            />
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full px-3 py-2 rounded-lg border border-blue-300 dark:border-blue-800 text-sm font-medium hover:bg-blue-100 dark:hover:bg-blue-900/40 flex items-center justify-center gap-2"
+            >
+              <RotateCcw size={14} /> Tirar outra
+            </button>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full px-4 py-4 rounded-lg bg-blue-600 text-white font-semibold hover:bg-blue-700 flex items-center justify-center gap-2"
+          >
+            <Camera size={18} /> Abrir camera
+          </button>
+        )}
+      </div>
+
       {/* Bloco de consentimento + assinatura */}
       <div className="bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-900 rounded-xl p-4 space-y-3">
         <div className="flex items-start gap-2">
@@ -177,7 +331,7 @@ export default function AreaPacienteAnamnesePreencherPage() {
           <div>
             <h3 className="font-semibold text-sm">Confirmacao eletronica</h3>
             <p className="text-xs text-muted-foreground mt-0.5">
-              Para validar legalmente sua anamnese, leia o termo abaixo e assine.
+              Para validar legalmente, leia o termo abaixo e assine.
             </p>
           </div>
         </div>
@@ -210,8 +364,8 @@ export default function AreaPacienteAnamnesePreencherPage() {
             className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
           <p className="text-[10px] text-muted-foreground mt-1">
-            Este campo equivale a sua assinatura. Sera registrado junto com data,
-            hora e dispositivo de acesso para fins de comprovacao.
+            Este campo equivale a sua assinatura. Sera registrado junto com a
+            foto, data, hora, IP e dispositivo de acesso.
           </p>
         </div>
       </div>

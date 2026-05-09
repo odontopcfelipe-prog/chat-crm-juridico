@@ -13,14 +13,35 @@ export interface Question {
   options?: string[];
 }
 
+export interface SectionShowIf {
+  /** ID de outra question — quando essa question for igual a `equals`, a section eh exibida. */
+  question_id: string;
+  /** Valor unico ou lista de valores aceitos. */
+  equals: string | string[];
+}
+
 export interface Section {
   id: string;
   title: string;
   questions: Question[];
+  /** Renderizacao condicional — section so aparece se a condicao for satisfeita. */
+  show_if?: SectionShowIf;
 }
 
 export interface AnamnesisSchema {
   sections: Section[];
+}
+
+function sectionMatchesCondition(
+  section: Section,
+  answers: Record<string, any>,
+): boolean {
+  if (!section.show_if) return true;
+  const v = answers[section.show_if.question_id];
+  if (v === undefined || v === null || v === '') return false;
+  const expected = section.show_if.equals;
+  if (Array.isArray(expected)) return expected.includes(v);
+  return v === expected;
 }
 
 interface Props {
@@ -54,6 +75,8 @@ export default function DynamicAnamneseForm({
 
   const validate = () => {
     for (const section of schema.sections) {
+      // Sections ocultas pela condicao show_if nao validam seus campos
+      if (!sectionMatchesCondition(section, answers)) continue;
       for (const q of section.questions) {
         if (!q.required) continue;
         const v = answers[q.id];
@@ -80,22 +103,25 @@ export default function DynamicAnamneseForm({
         </div>
       )}
 
-      {schema.sections.map((section) => (
-        <div key={section.id} className="bg-card border border-border rounded-xl p-4">
-          <h3 className="font-semibold text-foreground mb-3">{section.title}</h3>
-          <div className="space-y-3">
-            {section.questions.map((q) => (
-              <QuestionField
-                key={q.id}
-                question={q}
-                value={answers[q.id]}
-                onChange={(v) => setAnswer(q.id, v)}
-                readOnly={readOnly}
-              />
-            ))}
+      {schema.sections.map((section) => {
+        if (!sectionMatchesCondition(section, answers)) return null;
+        return (
+          <div key={section.id} className="bg-card border border-border rounded-xl p-4">
+            <h3 className="font-semibold text-foreground mb-3">{section.title}</h3>
+            <div className="space-y-3">
+              {section.questions.map((q) => (
+                <QuestionField
+                  key={q.id}
+                  question={q}
+                  value={answers[q.id]}
+                  onChange={(v) => setAnswer(q.id, v)}
+                  readOnly={readOnly}
+                />
+              ))}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
 
       {!readOnly && onSave && !hideActions && (
         <div className="flex justify-end gap-2 pt-2">

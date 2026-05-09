@@ -12,24 +12,34 @@ interface UpsertInput {
   consent_text?: string;
   signature_method?: 'TYPED_NAME' | 'DRAWN';
   signature_data?: string;
+  selfie_data?: string;
 }
 
 /**
  * Calcula hash SHA-256 de fingerprint forense da anamnese.
- * Qualquer mudanca em answers, IP, UA, signature ou timestamp produz hash diferente.
+ * Qualquer mudanca em answers, IP, UA, signature, selfie ou timestamp produz hash diferente.
+ * Para selfie/signature usa-se sub-hash em vez do data-url completo (evita inflar payload).
  */
 export function computeAnamneseAuditHash(input: {
   answers: Record<string, any>;
   ip?: string | null;
   user_agent?: string | null;
   signature_data?: string | null;
+  selfie_data?: string | null;
   filled_at: Date;
 }): string {
+  const sigHash = input.signature_data
+    ? createHash('sha256').update(input.signature_data).digest('hex')
+    : '';
+  const selfieHash = input.selfie_data
+    ? createHash('sha256').update(input.selfie_data).digest('hex')
+    : '';
   const payload = JSON.stringify({
     answers: input.answers,
     ip: input.ip || '',
     user_agent: input.user_agent || '',
-    signature_data: input.signature_data || '',
+    signature_hash: sigHash,
+    selfie_hash: selfieHash,
     filled_at: input.filled_at.toISOString(),
   });
   return createHash('sha256').update(payload).digest('hex');
@@ -154,11 +164,25 @@ export class AnamnesisService {
     const filled_at = new Date();
     const consent_accepted_at = submitted_via === 'PATIENT_PORTAL' ? filled_at : null;
 
+    // TRAVA: paciente nao pode re-confirmar uma anamnese ja confirmada por ele.
+    // Equipe (STAFF) pode atualizar a qualquer momento.
+    if (
+      existing &&
+      submitted_via === 'PATIENT_PORTAL' &&
+      existing.consent_accepted_at != null
+    ) {
+      throw new BadRequestException(
+        'Sua anamnese ja foi confirmada eletronicamente. Para alterar, ' +
+        'entre em contato com a clinica.',
+      );
+    }
+
     const audit_hash = computeAnamneseAuditHash({
       answers: input.answers,
       ip: input.ip,
       user_agent: input.user_agent,
       signature_data: input.signature_data,
+      selfie_data: input.selfie_data,
       filled_at,
     });
 
@@ -177,6 +201,7 @@ export class AnamnesisService {
           consent_accepted_at: consent_accepted_at || existing.consent_accepted_at,
           signature_method: input.signature_method || null,
           signature_data: input.signature_data || null,
+          selfie_data: input.selfie_data || existing.selfie_data,
           audit_hash,
         },
       });
@@ -202,6 +227,7 @@ export class AnamnesisService {
         consent_accepted_at,
         signature_method: input.signature_method || null,
         signature_data: input.signature_data || null,
+        selfie_data: input.selfie_data || null,
         audit_hash,
       },
     });

@@ -1924,7 +1924,9 @@ model Anamnesis {
   signature_method    String?
   /// Nome digitado ou data-url base64 da assinatura desenhada
   signature_data      String?
-  /// SHA-256 hex de answers + ip + ua + timestamp + signature_data — fingerprint de integridade
+  /// Selfie capturada no momento do consent (data-url JPEG comprimido) — prova facial
+  selfie_data         String?
+  /// SHA-256 hex de answers + ip + ua + timestamp + signature_data + selfie_data — fingerprint de integridade
   audit_hash          String?
 
   patient  Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
