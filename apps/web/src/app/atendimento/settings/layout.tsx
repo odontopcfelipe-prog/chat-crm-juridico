@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain, DoorOpen, Tag, Percent, Network, Trash2,
+  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -58,6 +58,7 @@ const settingsSections: MenuSection[] = [
     items: [
       { label: 'Tabela de Preços', href: '/atendimento/settings/procedures', icon: DollarSign },
       { label: 'Especialidades', href: '/atendimento/settings/specialties', icon: Layout },
+      { label: 'Sugestões Clínicas', href: '/atendimento/settings/sugestoes-clinicas', icon: Lightbulb },
       { label: 'Modelos de Orçamento', href: '/atendimento/settings/quote-templates', icon: FileText },
       { label: 'Cupons de Desconto', href: '/atendimento/settings/quote-coupons', icon: Tag },
       { label: 'Lixeira de Orçamentos', href: '/atendimento/settings/quotes-trash', icon: Trash2 },

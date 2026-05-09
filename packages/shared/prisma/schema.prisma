@@ -39,6 +39,8 @@ model Tenant {
   specialties               Specialty[]
   procedures                Procedure[]
   anamnesis_templates       AnamnesisTemplate[]
+  // Onda 3.2 — sugestoes de procedimento por estado clinico
+  state_procedure_suggestions StateProcedureSuggestion[]
   // Estetica facial + estoque (Fase 6)
   suppliers                 Supplier[]
   products                  Product[]
@@ -1864,6 +1866,8 @@ model Procedure {
   commissions           Commission[]          @relation("CommissionProcedure")
   // Onda 2 orcamentos (Fase 24)
   quote_template_items  QuoteTemplateItem[]
+  // Onda 3.2 — sugestoes automaticas vinculadas a este procedimento
+  state_suggestions     StateProcedureSuggestion[]
 
   @@unique([tenant_id, name])
   @@index([tenant_id, active])
@@ -2032,6 +2036,35 @@ model ToothRecord {
   odontogram Odontogram @relation(fields: [odontogram_id], references: [id], onDelete: Cascade)
 
   @@index([odontogram_id, tooth_fdi])
+}
+
+// ============================================================================
+// SUGESTOES AUTOMATICAS — Mapping de estado clinico -> procedimento (Onda 3.2)
+// ============================================================================
+
+/// Mapping configuravel POR TENANT: quando dentista anota um estado clinico
+/// (ex: "CARIE"), sistema sugere automaticamente um procedimento no orcamento
+/// (ex: Restauracao em resina). Reduz cliques de anotar->orcar de ~4 pra 2.
+///
+/// Pode haver MULTIPLAS sugestoes pro mesmo estado — priority decide ordem.
+/// Se nao houver mapping, fluxo cai pro picker manual (UX atual).
+model StateProcedureSuggestion {
+  id           String @id @default(uuid())
+  tenant_id    String
+  state        String // "CARIE", "EXTRACAO_INDICADA", "ENDODONTIA", "COROA", etc.
+  procedure_id String
+  /// Quando ha varias sugestoes pro mesmo estado, menor priority aparece primeiro
+  priority     Int    @default(0)
+
+  active     Boolean  @default(true)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant    Tenant    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, state, procedure_id])
+  @@index([tenant_id, state, active])
 }
 
 // ============================================================================
