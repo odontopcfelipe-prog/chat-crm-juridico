@@ -1748,7 +1748,15 @@ export default function AgendaPage() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-background overflow-hidden">
+    // translate="no" + class notranslate: protege contra Google Tradutor.
+    // Schedule-x e DayPilot manipulam o DOM diretamente, e o Tradutor troca
+    // os nodes de texto por conta propria — isso causa "Failed to execute
+    // 'removeChild' on 'Node'" quando o React tenta atualizar (ex: ao trocar
+    // dentista no filtro). O atributo desliga a traducao so neste subtree.
+    <div
+      className="flex flex-col h-full bg-background overflow-hidden notranslate"
+      translate="no"
+    >
 
       {/* Onda 5d v10: tabs Calendario/Tarefas removidas — acesso pela sidebar */}
 

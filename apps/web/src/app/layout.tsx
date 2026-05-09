@@ -24,8 +24,11 @@ export default function RootLayout({
     <html lang="pt-BR" translate="no" suppressHydrationWarning className={ubuntuSans.variable}>
       <head>
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        {/* Bloqueia Google Translate / Chrome auto-translate — quebra o reconciliador
-            do React com erro "insertBefore: node anterior nao eh filho deste no". */}
+        {/* Desliga o Google Tradutor globalmente. Sistema interno em PT-BR
+            nao precisa de traducao automatica, e o Tradutor causa crash
+            tipo "removeChild/insertBefore on Node — no anterior nao eh filho
+            deste no" ao trocar nodes de texto que o React e libs externas
+            (schedule-x, day-pilot) gerenciam diretamente. */}
         <meta name="google" content="notranslate" />
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
