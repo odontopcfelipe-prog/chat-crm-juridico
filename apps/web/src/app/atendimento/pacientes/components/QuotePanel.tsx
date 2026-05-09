@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 
 interface Procedure {
   id: string;
@@ -129,6 +130,11 @@ export default function QuotePanel({
   const [busy, setBusy] = useState(false);
   // Quando ha multi-selecao: 1 item por dente (multiplicar) ou agregado (unificar)
   const [teethMode, setTeethMode] = useState<'multiply' | 'unify'>('multiply');
+
+  // Onda 3.3 — DENTIST avaliador nao ve precos/totais. Esconde colunas Unit/Total
+  // e rodape de subtotal/total. Plano clinico (procedimentos+dentes) fica visivel
+  // pra todos; valores ficam restritos a admin/financeiro/comercial.
+  const { canViewQuoteValues } = useRole();
 
   // Onda 3.2 — Sugestao automatica baseada no estado anotado.
   // Quando lastAnnotation muda, busca /state-suggestions?state=X. Primeira
@@ -394,9 +400,11 @@ export default function QuotePanel({
             <span className="font-semibold truncate">
               {suggestion.candidate.procedure.name}
             </span>
-            <span className="text-amber-700 font-bold shrink-0">
-              {formatBRL(suggestion.candidate.procedure.base_price)}
-            </span>
+            {canViewQuoteValues && (
+              <span className="text-amber-700 font-bold shrink-0">
+                {formatBRL(suggestion.candidate.procedure.base_price)}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-1.5">
             <button
@@ -450,8 +458,12 @@ export default function QuotePanel({
                     <th className="text-left px-4 py-2 font-medium w-16">Dente</th>
                     <th className="text-left px-3 py-2 font-medium">Procedimento</th>
                     <th className="text-center px-2 py-2 font-medium w-20">Qtd</th>
-                    <th className="text-right px-3 py-2 font-medium w-28">Unit.</th>
-                    <th className="text-right px-3 py-2 font-medium w-28">Total</th>
+                    {canViewQuoteValues && (
+                      <>
+                        <th className="text-right px-3 py-2 font-medium w-28">Unit.</th>
+                        <th className="text-right px-3 py-2 font-medium w-28">Total</th>
+                      </>
+                    )}
                     <th className="w-12" />
                   </tr>
                 </thead>
@@ -460,6 +472,7 @@ export default function QuotePanel({
                     <ItemRow
                       key={item.id}
                       item={item}
+                      canViewValues={canViewQuoteValues}
                       onUpdate={(patch) => updateItem(item.id, patch)}
                       onRemove={() => removeItem(item.id)}
                     />
@@ -540,9 +553,11 @@ export default function QuotePanel({
                                   {p.duration_minutes ? ` · ${p.duration_minutes} min` : ''}
                                 </div>
                               </div>
-                              <div className="text-sm font-semibold shrink-0">
-                                {formatBRL(p.base_price)}
-                              </div>
+                              {canViewQuoteValues && (
+                                <div className="text-sm font-semibold shrink-0">
+                                  {formatBRL(p.base_price)}
+                                </div>
+                              )}
                             </button>
                           ))}
                         </div>
@@ -556,32 +571,38 @@ export default function QuotePanel({
 
           {items.length > 0 && (
             <div className="border-t border-border p-4 flex items-center justify-between flex-wrap gap-3 bg-background/30">
-              <div className="flex items-center gap-6 text-sm flex-wrap">
-                <div>
-                  <span className="text-muted-foreground">Subtotal: </span>
-                  <span className="font-medium">{formatBRL(subtotal)}</span>
-                </div>
-                {discountValue > 0 && (
+              {canViewQuoteValues ? (
+                <div className="flex items-center gap-6 text-sm flex-wrap">
                   <div>
-                    <span className="text-muted-foreground">Desconto: </span>
-                    <span className="font-medium text-destructive">
-                      - {formatBRL(discountValue)}
+                    <span className="text-muted-foreground">Subtotal: </span>
+                    <span className="font-medium">{formatBRL(subtotal)}</span>
+                  </div>
+                  {discountValue > 0 && (
+                    <div>
+                      <span className="text-muted-foreground">Desconto: </span>
+                      <span className="font-medium text-destructive">
+                        - {formatBRL(discountValue)}
+                      </span>
+                    </div>
+                  )}
+                  <div>
+                    <span className="text-muted-foreground">Total: </span>
+                    <span className="text-base font-bold text-primary">
+                      {formatBRL(total)}
                     </span>
                   </div>
-                )}
-                <div>
-                  <span className="text-muted-foreground">Total: </span>
-                  <span className="text-base font-bold text-primary">
-                    {formatBRL(total)}
-                  </span>
                 </div>
-              </div>
+              ) : (
+                <div className="text-xs text-muted-foreground italic">
+                  Valores e condições visíveis apenas no tab Orçamentos (admin/financeiro)
+                </div>
+              )}
               <a
                 href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${quote.id}`}
                 className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg border border-border hover:bg-accent text-foreground"
-                title="Abrir detalhes — desconto, envio WhatsApp, contrato, etc."
+                title={canViewQuoteValues ? 'Abrir detalhes — desconto, envio WhatsApp, contrato, etc.' : 'Ir para o tab Orçamentos'}
               >
-                <Pencil size={11} /> Detalhes do orcamento
+                <Pencil size={11} /> {canViewQuoteValues ? 'Detalhes do orçamento' : 'Ir para orçamentos'}
               </a>
             </div>
           )}
@@ -591,24 +612,45 @@ export default function QuotePanel({
   );
 }
 
-// ─── Linha da tabela (edicao inline qtd/preco) ─────────────────
+// ─── Linha da tabela (edicao inline tooth/qtd/preco) ──────────
 // Estrategia: o draft local so existe DURANTE a edicao. Quando o usuario
 // clica pra editar, copia o valor atual do item pro draft. Em re-render
 // (ex: refetch do quote), nao precisa sync via useEffect — se nao estiver
 // editando, mostra item.quantity direto. Elimina o anti-pattern do
 // react-hooks/set-state-in-effect.
+//
+// FDI valido: 11-48 (permanente) ou 51-85 (deciduo). Mesma regra do backend.
+const FDI_REGEX = /^([1-4][1-8]|[5-8][1-5])$/;
 
 function ItemRow({
-  item, onUpdate, onRemove,
+  item, canViewValues, onUpdate, onRemove,
 }: {
   item: QuoteItem;
+  canViewValues: boolean;
   onUpdate: (patch: Partial<QuoteItem>) => void | Promise<void>;
   onRemove: () => void;
 }) {
+  const [toothDraft, setToothDraft] = useState<string | null>(null);
   const [qtyDraft, setQtyDraft] = useState<number | null>(null);
   const [priceDraft, setPriceDraft] = useState<string | null>(null);
+  const editingTooth = toothDraft !== null;
   const editingQty = qtyDraft !== null;
   const editingPrice = priceDraft !== null;
+
+  const startEditTooth = () => setToothDraft(item.tooth_fdi || '');
+  const cancelEditTooth = () => setToothDraft(null);
+  const commitTooth = () => {
+    if (toothDraft !== null) {
+      const trimmed = toothDraft.trim();
+      // Vazio = remove o vinculo. Valido = atualiza. Invalido = ignora.
+      if (trimmed === '' && item.tooth_fdi !== null) {
+        onUpdate({ tooth_fdi: null });
+      } else if (FDI_REGEX.test(trimmed) && trimmed !== item.tooth_fdi) {
+        onUpdate({ tooth_fdi: trimmed });
+      }
+    }
+    setToothDraft(null);
+  };
 
   const startEditQty = () => setQtyDraft(item.quantity);
   const cancelEditQty = () => setQtyDraft(null);
@@ -631,15 +673,44 @@ function ItemRow({
     setPriceDraft(null);
   };
 
+  // Item sem dente vinculado fica destacado pra dentista lembrar de preencher
+  const toothEmpty = !item.tooth_fdi;
+
   return (
     <tr className="border-b border-border last:border-b-0 hover:bg-background/50">
       <td className="px-4 py-2.5">
-        {item.tooth_fdi ? (
-          <span className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary font-mono font-semibold text-xs">
+        {editingTooth ? (
+          <input
+            autoFocus
+            type="text"
+            inputMode="numeric"
+            maxLength={2}
+            value={toothDraft ?? ''}
+            onChange={(e) => setToothDraft(e.target.value.replace(/\D/g, '').slice(0, 2))}
+            onBlur={commitTooth}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commitTooth();
+              if (e.key === 'Escape') cancelEditTooth();
+            }}
+            placeholder="—"
+            className="w-12 px-1 py-1 text-center rounded border border-primary bg-background text-xs font-mono font-semibold focus:outline-none"
+          />
+        ) : item.tooth_fdi ? (
+          <button
+            onClick={startEditTooth}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-primary/10 text-primary font-mono font-semibold text-xs hover:bg-primary/20 transition"
+            title="Clique para editar dente"
+          >
             {item.tooth_fdi}
-          </span>
+          </button>
         ) : (
-          <span className="text-xs text-muted-foreground">—</span>
+          <button
+            onClick={startEditTooth}
+            className="inline-flex items-center justify-center w-8 h-8 rounded-md border-2 border-dashed border-amber-500 text-amber-700 font-mono font-bold text-xs hover:bg-amber-500/10 transition animate-pulse"
+            title="Clique para vincular um dente FDI (ex: 12, 36)"
+          >
+            ?
+          </button>
         )}
       </td>
       <td className="px-3 py-2.5">
@@ -647,6 +718,11 @@ function ItemRow({
         {item.notes && (
           <div className="text-[10px] text-muted-foreground truncate max-w-md">
             {item.notes}
+          </div>
+        )}
+        {toothEmpty && (
+          <div className="text-[10px] text-amber-700 mt-0.5">
+            Vincule um dente para que apareca no odontograma
           </div>
         )}
       </td>
@@ -675,35 +751,39 @@ function ItemRow({
           </button>
         )}
       </td>
-      <td className="px-3 py-2.5 text-right">
-        {editingPrice ? (
-          <input
-            autoFocus
-            type="number"
-            step="0.01"
-            min={0}
-            value={priceDraft ?? String(item.unit_price)}
-            onChange={(e) => setPriceDraft(e.target.value)}
-            onBlur={commitPrice}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') commitPrice();
-              if (e.key === 'Escape') cancelEditPrice();
-            }}
-            className="w-24 px-2 py-1 text-right rounded border border-primary bg-background text-sm focus:outline-none"
-          />
-        ) : (
-          <button
-            onClick={startEditPrice}
-            className="text-sm hover:bg-accent rounded px-2 py-0.5"
-            title="Clique para editar"
-          >
-            {formatBRL(item.unit_price)}
-          </button>
-        )}
-      </td>
-      <td className="px-3 py-2.5 text-right text-sm font-semibold">
-        {formatBRL(item.total_price)}
-      </td>
+      {canViewValues && (
+        <>
+          <td className="px-3 py-2.5 text-right">
+            {editingPrice ? (
+              <input
+                autoFocus
+                type="number"
+                step="0.01"
+                min={0}
+                value={priceDraft ?? String(item.unit_price)}
+                onChange={(e) => setPriceDraft(e.target.value)}
+                onBlur={commitPrice}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') commitPrice();
+                  if (e.key === 'Escape') cancelEditPrice();
+                }}
+                className="w-24 px-2 py-1 text-right rounded border border-primary bg-background text-sm focus:outline-none"
+              />
+            ) : (
+              <button
+                onClick={startEditPrice}
+                className="text-sm hover:bg-accent rounded px-2 py-0.5"
+                title="Clique para editar"
+              >
+                {formatBRL(item.unit_price)}
+              </button>
+            )}
+          </td>
+          <td className="px-3 py-2.5 text-right text-sm font-semibold">
+            {formatBRL(item.total_price)}
+          </td>
+        </>
+      )}
       <td className="px-2 py-2.5">
         <button
           onClick={onRemove}

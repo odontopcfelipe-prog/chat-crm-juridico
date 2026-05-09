@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { Loader2, Activity, X, Trash2, Save, Printer } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { colorForSpecialty } from '@/lib/specialty-colors';
 import QuotePanel from './QuotePanel';
 
 interface Props {
@@ -33,7 +34,14 @@ interface QuoteItemLite {
   unit_price: string | number;
   total_price: string | number;
   notes?: string | null;
-  procedure?: { id: string; name: string; code_tuss?: string | null };
+  // Onda 3.3 — incluido specialty pra renderizar bolinha colorida no dente
+  procedure?: {
+    id: string;
+    name: string;
+    code_tuss?: string | null;
+    specialty_id?: string | null;
+    specialty?: { id: string; name: string } | null;
+  };
 }
 
 interface QuoteDraft {
@@ -153,11 +161,18 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
     ]).finally(() => setLoadingQuote(false));
   }, [loadQuote]);
 
-  // Set de dentes que ja estao no orcamento — pra mostrar badge $ no odontograma
-  const quotedFdis = useMemo(
-    () => new Set(quote?.items.filter((i) => i.tooth_fdi).map((i) => i.tooth_fdi as string) || []),
-    [quote?.items],
-  );
+  // Onda 3.3 — Mapa fdi → items, pra renderizar bolinhas coloridas (uma por
+  // procedimento, com cor da especialidade) e tooltip rico no odontograma.
+  const itemsByFdi = useMemo(() => {
+    const m = new Map<string, QuoteItemLite[]>();
+    for (const item of quote?.items || []) {
+      if (!item.tooth_fdi) continue;
+      const arr = m.get(item.tooth_fdi) || [];
+      arr.push(item);
+      m.set(item.tooth_fdi, arr);
+    }
+    return m;
+  }, [quote?.items]);
 
   // Array estavel de dentes selecionados — Set#values() retorna nova
   // referencia a cada render, e Array.from(set) tambem. Memoizar baseado
@@ -304,15 +319,15 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         <div className="mb-6">
           <p className="text-xs text-muted-foreground text-center mb-2">Superior</p>
           <div className="flex justify-center gap-8">
-            <TeethRow fdiList={FDI_PERMANENT.superior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+            <TeethRow fdiList={FDI_PERMANENT.superior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
             <div className="w-px bg-border" />
-            <TeethRow fdiList={FDI_PERMANENT.superior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+            <TeethRow fdiList={FDI_PERMANENT.superior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
           </div>
           {showDeciduous && (
             <div className="mt-2 flex justify-center gap-8">
-              <TeethRow fdiList={FDI_DECIDUOUS.superior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+              <TeethRow fdiList={FDI_DECIDUOUS.superior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
               <div className="w-px bg-border" />
-              <TeethRow fdiList={FDI_DECIDUOUS.superior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+              <TeethRow fdiList={FDI_DECIDUOUS.superior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
             </div>
           )}
         </div>
@@ -324,15 +339,15 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         <div>
           {showDeciduous && (
             <div className="mb-2 flex justify-center gap-8">
-              <TeethRow fdiList={FDI_DECIDUOUS.inferior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+              <TeethRow fdiList={FDI_DECIDUOUS.inferior_direito_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
               <div className="w-px bg-border" />
-              <TeethRow fdiList={FDI_DECIDUOUS.inferior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+              <TeethRow fdiList={FDI_DECIDUOUS.inferior_esquerdo_dec} toothRecords={toothRecords} onClick={onToothClick} isDeciduous selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
             </div>
           )}
           <div className="flex justify-center gap-8">
-            <TeethRow fdiList={FDI_PERMANENT.inferior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+            <TeethRow fdiList={FDI_PERMANENT.inferior_direito} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
             <div className="w-px bg-border" />
-            <TeethRow fdiList={FDI_PERMANENT.inferior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedSet={quotedFdis} />
+            <TeethRow fdiList={FDI_PERMANENT.inferior_esquerdo} toothRecords={toothRecords} onClick={onToothClick} selectedSet={selectedTeethForQuote} quotedItems={itemsByFdi} />
           </div>
           <p className="text-xs text-muted-foreground text-center mt-2">Inferior</p>
         </div>
@@ -387,7 +402,7 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
 // ─── Linha de dentes ──────────────────────────────────────────
 
 function TeethRow({
-  fdiList, toothRecords, onClick, isDeciduous, selectedSet, quotedSet,
+  fdiList, toothRecords, onClick, isDeciduous, selectedSet, quotedItems,
 }: {
   fdiList: string[];
   toothRecords: (fdi: string) => ToothRecord[];
@@ -395,8 +410,9 @@ function TeethRow({
   isDeciduous?: boolean;
   /** Onda 3.1 — dentes selecionados pra orcamento (renderiza ring azul) */
   selectedSet?: Set<string>;
-  /** Onda 3.2 — dentes que ja tem item no orcamento draft (badge $ no canto) */
-  quotedSet?: Set<string>;
+  /** Onda 3.3 — items do orcamento agrupados por dente, pra renderizar
+   * bolinhas coloridas por especialidade no canto + tooltip rico. */
+  quotedItems?: Map<string, QuoteItemLite[]>;
 }) {
   return (
     <div className="flex gap-1">
@@ -405,7 +421,21 @@ function TeethRow({
         const primaryState = records[0]?.state;
         const cls = primaryState ? STATE_CLS[primaryState] : 'bg-background border-border text-muted-foreground';
         const isSelected = selectedSet?.has(fdi);
-        const isQuoted = quotedSet?.has(fdi);
+        const items = quotedItems?.get(fdi) || [];
+        const isQuoted = items.length > 0;
+        // Tooltip combina anotacoes + procedimentos planejados
+        const tooltipParts: string[] = [];
+        if (isSelected) tooltipParts.push('selecionado pra orcamento (Ctrl+click pra remover)');
+        if (records.length > 0) tooltipParts.push(`${records.length} anotacao(oes) clinica(s)`);
+        if (isQuoted) {
+          tooltipParts.push('Plano de tratamento:');
+          for (const it of items) {
+            tooltipParts.push(`  • ${it.procedure?.name || 'procedimento'}`);
+          }
+        }
+        if (!isSelected && !isQuoted && records.length === 0) {
+          tooltipParts.push('Ctrl+click pra adicionar ao orcamento');
+        }
         return (
           <button
             key={fdi}
@@ -413,26 +443,45 @@ function TeethRow({
             className={`relative ${isDeciduous ? 'w-7 h-7 text-[10px]' : 'w-9 h-9 text-xs'} rounded-md border-2 font-semibold flex items-center justify-center hover:scale-110 transition-transform ${cls} ${
               isSelected ? 'ring-2 ring-primary ring-offset-2 ring-offset-background scale-105' : ''
             }`}
-            title={
-              isSelected
-                ? `${fdi} — selecionado pra orçamento (Ctrl+click pra remover)`
-                : isQuoted
-                ? `${fdi} — já está no orçamento${records.length > 0 ? ` · ${records.length} anotação(ões)` : ''}`
-                : records.length > 0
-                ? `${fdi} — ${records.length} anotação(ões) · Ctrl+click pra adicionar ao orçamento`
-                : `${fdi} — Ctrl+click pra adicionar ao orçamento`
-            }
+            title={`${fdi} — ${tooltipParts.join('\n')}`}
           >
             {fdi}
             {isQuoted && (
-              <span className="absolute -top-1 -right-1 w-3 h-3 rounded-full bg-amber-500 border border-background flex items-center justify-center text-[8px] font-bold text-white print-hide">
-                $
-              </span>
+              <ProcedureDots items={items} />
             )}
           </button>
         );
       })}
     </div>
+  );
+}
+
+// Onda 3.3 — Bolinhas coloridas por especialidade no canto inferior direito
+// do dente, indicando procedimentos planejados. Ate 3 visiveis, depois mostra
+// "+N". Cor vem de colorForSpecialty(specialty.id) — mesma usada na tabela
+// de precos e orcamento, garantindo consistencia visual entre telas.
+function ProcedureDots({ items }: { items: QuoteItemLite[] }) {
+  const visible = items.slice(0, 3);
+  const overflow = items.length - visible.length;
+  return (
+    <span className="absolute -bottom-1 -right-1 flex items-center gap-0.5 print-hide">
+      {visible.map((it, i) => {
+        const specialtyKey = it.procedure?.specialty?.id || it.procedure?.specialty_id || '__none__';
+        const color = colorForSpecialty(specialtyKey).bar;
+        return (
+          <span
+            key={`${it.id}-${i}`}
+            className="w-2 h-2 rounded-full border border-background shadow-sm"
+            style={{ backgroundColor: color }}
+          />
+        );
+      })}
+      {overflow > 0 && (
+        <span className="text-[7px] font-bold text-foreground bg-background rounded-full px-0.5 border border-border leading-none">
+          +{overflow}
+        </span>
+      )}
+    </span>
   );
 }
 

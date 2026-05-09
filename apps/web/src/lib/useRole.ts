@@ -22,6 +22,12 @@ export interface RoleInfo {
   canViewDashboard: boolean;     // dashboard
   canViewAnalytics: boolean;     // analytics/marketing
   canViewFinanceiro: boolean;    // módulo financeiro
+  /**
+   * Valores monetários no Plano de tratamento (aba Odontograma).
+   * DENTIST avaliador NÃO vê preços — só admin/financeiro/comercial enxerga.
+   * Se um usuário acumula DENTIST + ADMIN/FINANCEIRO, vê.
+   */
+  canViewQuoteValues: boolean;
   // ─── Agenda ──────────────────────────────────────────────────────────────
   canViewAllAgenda: boolean;     // ADMIN/OPERADOR/ASSISTANT veem agenda de todos
   canCreateAgendaEvent: boolean; // mesma regra: ADMIN/OPERADOR/ASSISTANT criam
@@ -94,6 +100,7 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     canViewDashboard: has(['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL']),
     canViewAnalytics: has(['ADMIN']),
     canViewFinanceiro: has(['ADMIN', 'FINANCEIRO', 'DENTIST']),
+    canViewQuoteValues: has(['ADMIN', 'FINANCEIRO', 'COMERCIAL']),
     canViewAllAgenda: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
     canCreateAgendaEvent: has(['ADMIN', 'OPERADOR', 'ASSISTANT']),
     canDeleteAgendaEvent: roles.includes('ADMIN'),
