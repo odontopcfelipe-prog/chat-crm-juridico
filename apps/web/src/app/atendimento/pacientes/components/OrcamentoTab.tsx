@@ -77,9 +77,12 @@ interface DentistOption {
 interface QuoteListItem {
   id: string;
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
-  /// Onda 3.9 — nome customizavel pelo operador. Onda 5 — quando vira "Procedimento
-  /// restante" automaticamente apos aprovacao parcial, frontend mostra badge.
+  /// Onda 3.9 — nome customizavel pelo operador. Pode ser editado livremente.
   title: string | null;
+  /// Onda 5 — usado pra detectar "resto de aprovacao parcial" via prefix
+  /// "[Resto de aprovacao parcial em X]" automatico nas notes — preserva
+  /// o title customizado do operador.
+  notes: string | null;
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
@@ -244,7 +247,13 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
         <ul className="bg-card border border-border rounded-xl divide-y divide-border">
           {list.map((q) => {
             const expiry = expiryStatus(q.valid_until, q.status);
-            const isRemainder = q.title === 'Procedimento restante';
+            // Onda 5 — detecta "resto de aprovacao parcial" pelo prefixo
+            // automatico nas notes (preserva titulo customizado do operador).
+            // Fallback: title === 'Procedimento restante' pra compat com
+            // quotes antigos que tinham titulo sobrescrito.
+            const isRemainder =
+              (q.notes || '').startsWith('[Resto de aprovacao parcial')
+              || q.title === 'Procedimento restante';
             return (
               <li
                 key={q.id}

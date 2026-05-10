@@ -552,23 +552,30 @@ export class QuotesService {
         },
       });
 
-      // 2. Atualiza totais do original com items restantes + renomeia
-      //    automaticamente pra "Procedimento restante" e marca origem nas
+      // 2. Atualiza totais do original com items restantes + marca origem nas
       //    notes pra deixar claro que veio de aprovacao parcial. (Onda 5)
-      const remainderTitle = 'Procedimento restante';
+      //    O title NAO eh mais sobrescrito — se o operador ja deu nome
+      //    customizado ("teste", "Reabilitacao superior"), preserva.
+      //    Frontend detecta "resto de aprovacao parcial" via notes prefix,
+      //    nao via title. So seta titulo default se quote ainda nao tiver nome.
       const remainderTag = `[Resto de aprovacao parcial em ${new Date().toLocaleDateString('pt-BR')}]`;
-      const newNotes = quote.notes
-        ? `${remainderTag}\n${quote.notes}`
-        : remainderTag;
+      const alreadyTagged = (quote.notes || '').startsWith('[Resto de aprovacao parcial');
+      const newNotes = alreadyTagged
+        ? quote.notes
+        : (quote.notes ? `${remainderTag}\n${quote.notes}` : remainderTag);
+      const updateData: Prisma.QuoteUpdateInput = {
+        notes: newNotes,
+        subtotal: remainingSubtotal,
+        discount_value: remainingDiscountValue,
+        total_value: remainingTotalValue,
+      };
+      // So define titulo default se ainda nao houver
+      if (!quote.title || !quote.title.trim()) {
+        updateData.title = 'Procedimento restante';
+      }
       await tx.quote.update({
         where: { id },
-        data: {
-          title: remainderTitle,
-          notes: newNotes,
-          subtotal: remainingSubtotal,
-          discount_value: remainingDiscountValue,
-          total_value: remainingTotalValue,
-        },
+        data: updateData,
       });
 
       // 3. Cria novo Quote ACCEPTED com items selecionados
