@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, Stethoscope } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, Stethoscope, DollarSign } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
@@ -11,6 +11,8 @@ import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 5e v31 (Fase 25) — sub-categoria pos-avaliacao
 import { PostAvaliacaoView } from './PostAvaliacaoView';
+// Onda 5e v33 (Fase 25) — CRM de Fechamento (Kanban pos-consulta)
+import { ClosingKanban } from './ClosingKanban';
 
 interface CrmLead {
   id: string;
@@ -1187,11 +1189,13 @@ export default function CrmPage() {
   // Painel lateral de detalhes
   const [detailLead, setDetailLead] = useState<CrmLead | null>(null);
 
-  // Modo de visualização: kanban, lista ou pos-avaliacao
-  // Onda 5e v31 (Fase 25) — pos-avaliacao mostra leads que JA fizeram a
-  // consulta clinica (CONSULTA/PROCEDIMENTO/RETORNO concluido) — agrupados
-  // por bucket: aguardando-decisao / com-orcamento / em-tratamento / perdido
-  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pos-avaliacao'>('kanban');
+  // Modo de visualização: kanban, lista, pos-avaliacao ou fechamento
+  // - Onda 5e v31 (Fase 25): pos-avaliacao = lista agrupada de quem ja
+  //   fez avaliacao clinica
+  // - Onda 5e v33 (Fase 25): fechamento = Kanban pos-consulta com 4
+  //   colunas (Avaliacao Concluida -> Orcamento -> Em Tratamento -> Perdido).
+  //   Auto-popula quando consulta vira CONCLUIDO (hook calendar.service)
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pos-avaliacao' | 'fechamento'>('kanban');
 
   // Analytics panel
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -1855,6 +1859,13 @@ export default function CrmPage() {
               >
                 <Stethoscope size={14} />
               </button>
+              <button
+                onClick={() => setViewMode('fechamento')}
+                className={`p-1.5 transition-all ${viewMode === 'fechamento' ? 'bg-emerald-500/10 text-emerald-600' : 'text-muted-foreground hover:bg-accent'}`}
+                title="CRM de Fechamento — Kanban pós-consulta, auto-populado ao concluir avaliação"
+              >
+                <DollarSign size={14} />
+              </button>
             </div>
 
             {/* Exportar CSV */}
@@ -1917,6 +1928,11 @@ export default function CrmPage() {
           </div>
         ) : viewMode === 'pos-avaliacao' ? (
           <PostAvaliacaoView
+            onOpenDetail={openDetail}
+            onOpenChat={openInChat}
+          />
+        ) : viewMode === 'fechamento' ? (
+          <ClosingKanban
             onOpenDetail={openDetail}
             onOpenChat={openInChat}
           />
