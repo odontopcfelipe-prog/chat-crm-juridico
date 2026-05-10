@@ -28,6 +28,13 @@ interface Procedure {
 }
 
 interface BasketItem {
+  /**
+   * Onda 3.40 — Quando definido, item ja existe no backend (carregado via
+   * GET na abertura do modal). X no chip remove do basket E adiciona o id
+   * em removedIds — DELETE roda no submit. Sem id, item eh novo (POST no
+   * submit).
+   */
+  id?: string;
   procedure_id: string;
   procedure_name: string;
   unit_price: string;
@@ -35,6 +42,21 @@ interface BasketItem {
   /** Onda 3.35 — array de dentes (em vez de string única). Click no
    *  mini-odontograma adiciona/remove. Submit expande em N POSTs. */
   tooth_fdis: string[];
+}
+
+interface ExistingQuoteItem {
+  id: string;
+  procedure_id: string;
+  tooth_fdi: string | null;
+  quantity: number;
+  unit_price: string | number;
+  procedure?: { id: string; name: string };
+}
+
+interface QuoteData {
+  id: string;
+  title: string | null;
+  items: ExistingQuoteItem[];
 }
 
 interface Props {
@@ -80,16 +102,60 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   // Onda 3.37 — Nome do orcamento, editavel no header do modal. Salvo via
   // PATCH no submit junto com os items.
   const [titleDraft, setTitleDraft] = useState<string>(initialTitle || '');
+  // Onda 3.40 — Items existentes que o operador removeu — DELETEdos no submit.
+  const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
+  // Onda 3.40 — Carregando items existentes do quote (so quando o modal abre
+  // pra um quote que ja tem items).
+  const [loadingExisting, setLoadingExisting] = useState(true);
+  // Onda 3.40 — Titulo de origem (do GET, pra detectar se mudou).
+  const [originalTitle, setOriginalTitle] = useState<string>(initialTitle || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasPrefilledTeeth = !!(prefillTeeth && prefillTeeth.length > 0);
   const activeItem = activeBasketIdx !== null ? basket[activeBasketIdx] : null;
   const prefilledConsumedRef = useRef(false);
-  const titleChanged = titleDraft.trim() !== (initialTitle || '').trim();
+  const titleChanged = titleDraft.trim() !== originalTitle.trim();
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
+
+  // Onda 3.40 — Carrega items existentes do quote ao montar. Operador ve os
+  // procedimentos ja cadastrados na cesta + pode adicionar mais OU remover
+  // existentes (X no chip → DELETE no submit).
+  useEffect(() => {
+    if (!quoteId) {
+      setLoadingExisting(false);
+      return;
+    }
+    let cancelled = false;
+    setLoadingExisting(true);
+    (async () => {
+      try {
+        const { data } = await api.get<QuoteData>(`/quotes/${quoteId}`);
+        if (cancelled) return;
+        const t = data.title || '';
+        setTitleDraft(t);
+        setOriginalTitle(t);
+        // Cada quote_item vira um BasketItem proprio (1 item por dente).
+        const items: BasketItem[] = data.items.map((it) => ({
+          id: it.id,
+          procedure_id: it.procedure_id,
+          procedure_name: it.procedure?.name || 'procedimento',
+          unit_price: String(it.unit_price ?? ''),
+          quantity: it.quantity,
+          tooth_fdis: it.tooth_fdi ? [it.tooth_fdi] : [],
+        }));
+        setBasket(items);
+      } catch (err: unknown) {
+        if (cancelled) return;
+        // Silencia: se nao conseguir carregar, abre vazio mesmo
+      } finally {
+        if (!cancelled) setLoadingExisting(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [quoteId]);
 
   // Agrupa por especialidade + filtra por search
   const grouped = useMemo(() => {
@@ -149,7 +215,18 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   };
 
   const removeFromBasket = (idx: number) => {
-    setBasket((prev) => prev.filter((_, i) => i !== idx));
+    setBasket((prev) => {
+      const target = prev[idx];
+      if (target?.id) {
+        // Onda 3.40 — Item existente — marca pra DELETE no submit
+        setRemovedIds((rs) => {
+          const next = new Set(rs);
+          next.add(target.id!);
+          return next;
+        });
+      }
+      return prev.filter((_, i) => i !== idx);
+    });
     setActiveBasketIdx((prev) => {
       if (prev === idx) return null;
       if (prev !== null && prev > idx) return prev - 1;
@@ -185,30 +262,42 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     return m;
   }, [basket, activeBasketIdx]);
 
-  // Total de items REAIS apos expansao tooth_fdis
-  const totalItemsToCreate = basket.reduce(
-    (acc, it) => acc + Math.max(it.tooth_fdis.length, 1),
-    0,
-  );
+  // Onda 3.40 — Total de items NOVOS apos expansao tooth_fdis (so os sem id).
+  // Items existentes ja estao no backend, nao contam aqui.
+  const totalItemsToCreate = basket.reduce((acc, it) => {
+    if (it.id) return acc;
+    return acc + Math.max(it.tooth_fdis.length, 1);
+  }, 0);
+  const newItemsCount = basket.filter((it) => !it.id).length;
+  const hasChanges = newItemsCount > 0 || removedIds.size > 0 || titleChanged;
 
   const submit = async (keepOpen: boolean) => {
-    if (basket.length === 0 && !titleChanged) {
-      showError('Adicione ao menos um procedimento');
+    if (!hasChanges) {
+      showError('Nada pra salvar — adicione, remova procedimentos ou edite o nome');
       return;
     }
     setSaving(true);
     try {
       // Onda 3.37 — PATCH titulo do orçamento se mudou. Roda ANTES dos items
-      // pra que o cabecalho da lista de orçamentos ja reflita o nome novo
-      // quando o operador voltar.
+      // pra que o cabecalho da lista de orçamentos ja reflita o nome novo.
       if (titleChanged) {
         await api.patch(`/quotes/${quoteId}`, {
           title: titleDraft.trim() || null,
         });
       }
+      // Onda 3.40 — DELETE items que o operador removeu (existentes que tinham id)
+      for (const id of removedIds) {
+        try {
+          await api.delete(`/quote-items/${id}`);
+        } catch {
+          // ignora — provavelmente ja foi deletado
+        }
+      }
       // Expande tooth_fdis em N POSTs (1 por dente). Sem dentes = 1 POST.
-      // Onda 3.21 — qty sempre 1 quando ha dentes (cada dente = 1 procedimento).
+      // So items novos (sem id) sao POSTados — existentes ja estao no backend.
+      let createdCount = 0;
       for (const it of basket) {
+        if (it.id) continue;
         const teeth = it.tooth_fdis.length > 0 ? it.tooth_fdis : [null];
         const qtyPerPost = it.tooth_fdis.length > 0 ? 1 : it.quantity;
         for (const tooth of teeth) {
@@ -218,19 +307,23 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             unit_price: it.unit_price === '' ? undefined : Number(it.unit_price),
             tooth_fdi: tooth || undefined,
           });
+          createdCount++;
         }
       }
-      showSuccess(
-        titleChanged && titleDraft.trim()
-          ? `Orçamento "${titleDraft.trim()}" salvo (${totalItemsToCreate} item(ns))`
-          : `${totalItemsToCreate} procedimento(s) adicionado(s)`,
-      );
+      const summary = [
+        createdCount > 0 ? `+${createdCount} novo(s)` : null,
+        removedIds.size > 0 ? `-${removedIds.size} removido(s)` : null,
+        titleChanged && titleDraft.trim() ? `nome: "${titleDraft.trim()}"` : null,
+      ].filter(Boolean).join(' · ');
+      showSuccess(summary || 'Orçamento atualizado');
       await onAdded();
       if (keepOpen) {
-        setBasket([]);
+        setBasket((prev) => prev.filter((it) => it.id)); // mantem so existentes
+        setRemovedIds(new Set());
         setActiveBasketIdx(null);
         prefilledConsumedRef.current = false;
         setSearch('');
+        setOriginalTitle(titleDraft);
         setTimeout(() => inputRef.current?.focus(), 50);
       } else {
         onClose();
@@ -405,7 +498,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             </div>
 
             <div className="flex-1 overflow-y-auto p-3 space-y-2">
-              {basket.length === 0 ? (
+              {loadingExisting ? (
+                <div className="p-6 text-center text-xs text-muted-foreground">
+                  <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
+                  Carregando procedimentos...
+                </div>
+              ) : basket.length === 0 ? (
                 <div className="p-6 text-center text-xs text-muted-foreground">
                   <ShoppingCart size={24} className="mx-auto mb-2 opacity-30" />
                   Click nos procedimentos da esquerda pra adicionar à cesta.
@@ -415,9 +513,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   const isActive = activeBasketIdx === idx;
                   const hasTeeth = it.tooth_fdis.length > 0;
                   const effectiveQty = hasTeeth ? it.tooth_fdis.length : it.quantity;
+                  const isExisting = !!it.id;
                   return (
                     <div
-                      key={idx}
+                      key={it.id || `new-${idx}`}
                       onClick={() => setActiveBasketIdx(idx)}
                       className={`bg-card border rounded-lg p-2 space-y-1.5 cursor-pointer transition-colors ${
                         isActive
@@ -430,6 +529,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                           {isActive && (
                             <span className="text-[10px] font-bold uppercase text-primary">
                               ← Editando
+                            </span>
+                          )}
+                          {!isExisting && !isActive && (
+                            <span className="text-[10px] font-bold uppercase text-emerald-600">
+                              Novo
                             </span>
                           )}
                           <p className="text-xs font-medium truncate" title={it.procedure_name}>
@@ -551,17 +655,17 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           <button
             type="button"
             onClick={() => submit(true)}
-            disabled={saving || basket.length === 0}
+            disabled={saving || !hasChanges}
             className="px-3 py-2 rounded-lg border border-primary/30 text-primary text-sm hover:bg-primary/10 disabled:opacity-50 inline-flex items-center gap-1"
-            title="Adiciona e mantém o modal aberto pra continuar adicionando"
+            title="Salva e mantém o modal aberto pra continuar editando"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Adicionar e continuar
+            Salvar e continuar
           </button>
           <button
             type="button"
             onClick={() => submit(false)}
-            disabled={saving || basket.length === 0}
+            disabled={saving || !hasChanges}
             className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
