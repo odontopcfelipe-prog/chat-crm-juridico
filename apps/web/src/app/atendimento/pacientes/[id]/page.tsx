@@ -87,7 +87,7 @@ const TABS = [
   // pra fluxo de dia-a-dia ficar à esquerda, documentação à direita.
   // Operational
   { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
-  { id: 'odontogram',     label: 'Odontograma',     icon: Activity,    group: 'operational' as const },
+  { id: 'odontogram',     label: 'Avaliação',       icon: Activity,    group: 'operational' as const },
   { id: 'quotes',         label: 'Orçamentos',      icon: DollarSign,  group: 'operational' as const },
   { id: 'financial',      label: 'Financeiro',      icon: DollarSign,  group: 'operational' as const },
   // Clinical (documentação/histórico)
