@@ -525,3 +525,130 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     </div>
   );
 }
+
+// ─── Mini-odontograma ────────────────────────────────────────
+
+const FDI_PERM_SUP_DIR = ['18', '17', '16', '15', '14', '13', '12', '11'];
+const FDI_PERM_SUP_ESQ = ['21', '22', '23', '24', '25', '26', '27', '28'];
+const FDI_PERM_INF_ESQ = ['31', '32', '33', '34', '35', '36', '37', '38'];
+const FDI_PERM_INF_DIR = ['48', '47', '46', '45', '44', '43', '42', '41'];
+
+function MiniOdontograma({
+  activeFdis,
+  activeProcedureName,
+  otherUsedFdis,
+  onToggle,
+  hasActive,
+}: {
+  activeFdis: string[];
+  activeProcedureName?: string;
+  /** Onda 3.29 — fdi → nome do outro procedimento que ja usa esse dente */
+  otherUsedFdis: Map<string, string>;
+  onToggle: (fdi: string) => void;
+  hasActive: boolean;
+}) {
+  const activeSet = new Set(activeFdis);
+  const totalOtherUsed = otherUsedFdis.size;
+  return (
+    <div className="px-4 py-3 border-b border-border bg-background/50">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-xs font-medium text-foreground">
+          {hasActive ? (
+            <>
+              Selecione os dentes para{' '}
+              <span className="text-primary font-semibold">
+                {activeProcedureName}
+              </span>
+            </>
+          ) : (
+            <span className="text-muted-foreground italic">
+              Adicione um procedimento &agrave; cesta para vincular dentes
+            </span>
+          )}
+        </p>
+        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+          {hasActive && (
+            <span>
+              {activeFdis.length === 0
+                ? 'Nenhum dente selecionado'
+                : `${activeFdis.length} ${activeFdis.length === 1 ? 'dente' : 'dentes'} selecionado${activeFdis.length === 1 ? '' : 's'}`}
+            </span>
+          )}
+          {totalOtherUsed > 0 && (
+            <span className="inline-flex items-center gap-1">
+              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
+              {totalOtherUsed} em outros procedimentos
+            </span>
+          )}
+        </div>
+      </div>
+      <div className="flex flex-col items-center gap-1.5">
+        <div className="flex justify-center gap-6">
+          <MiniRow fdiList={FDI_PERM_SUP_DIR} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+          <div className="w-px bg-border" />
+          <MiniRow fdiList={FDI_PERM_SUP_ESQ} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+        </div>
+        <div className="h-px bg-border w-full max-w-[560px]" />
+        <div className="flex justify-center gap-6">
+          <MiniRow fdiList={FDI_PERM_INF_DIR} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+          <div className="w-px bg-border" />
+          <MiniRow fdiList={FDI_PERM_INF_ESQ} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniRow({
+  fdiList, activeSet, otherUsedFdis, onToggle, hasActive,
+}: {
+  fdiList: string[];
+  activeSet: Set<string>;
+  otherUsedFdis: Map<string, string>;
+  onToggle: (fdi: string) => void;
+  hasActive: boolean;
+}) {
+  return (
+    <div className="flex gap-1">
+      {fdiList.map((fdi) => {
+        const isActive = activeSet.has(fdi);
+        const otherProcName = otherUsedFdis.get(fdi);
+        const isOtherUsed = !!otherProcName && !isActive;
+        return (
+          <button
+            key={fdi}
+            type="button"
+            onClick={() => onToggle(fdi)}
+            disabled={!hasActive}
+            className={`relative w-10 h-10 rounded-md text-xs font-bold border-2 flex items-center justify-center transition-all ${
+              isActive
+                ? 'bg-primary text-primary-foreground border-primary scale-105'
+                : isOtherUsed
+                ? 'bg-amber-100 dark:bg-amber-950/40 border-amber-400 text-amber-800 dark:text-amber-200 hover:border-primary hover:bg-primary hover:text-primary-foreground'
+                : hasActive
+                ? 'bg-background border-border text-muted-foreground hover:border-primary hover:text-primary'
+                : 'bg-muted/30 border-border/50 text-muted-foreground/50 cursor-not-allowed'
+            }`}
+            title={
+              isActive
+                ? `Click pra remover dente ${fdi}`
+                : isOtherUsed
+                ? `Dente ${fdi} ja em uso por: ${otherProcName} (click pra adicionar tambem ao ativo)`
+                : hasActive
+                ? `Click pra adicionar dente ${fdi}`
+                : 'Selecione um procedimento da cesta primeiro'
+            }
+          >
+            {fdi}
+            {isOtherUsed && (
+              <span
+                className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-amber-500 border border-background"
+                aria-hidden="true"
+              />
+            )}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
