@@ -990,6 +990,34 @@ function QuoteDetailView({
             </div>
           );
         })()}
+
+        {/* Onda 5 — Acoes da selecao parcial integradas ao resumo (era FAB flutuante).
+            So aparece quando ha selecao parcial e e possivel aprovar parcial. */}
+        {canPartialAccept && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
+          <div className="mt-4 pt-3 border-t border-emerald-200 dark:border-emerald-900/40 flex items-center justify-end gap-2 flex-wrap">
+            <button
+              onClick={() => setPartialSelection(new Set())}
+              className="text-xs px-3 py-1.5 rounded-lg text-muted-foreground hover:bg-muted border border-border"
+              title="Limpar seleção"
+            >
+              <X size={12} className="inline mr-1" />
+              Limpar seleção
+            </button>
+            <button
+              onClick={acceptPartial}
+              disabled={acceptingPartial}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
+            >
+              {acceptingPartial ? (
+                <Loader2 size={14} className="animate-spin" />
+              ) : (
+                <Check size={14} />
+              )}
+              Aprovar selecionados ({partialSelection.size})
+            </button>
+          </div>
+        )}
+
         {quote.rejection_reason && (
           <div className="mt-3 pt-3 border-t border-border">
             <p className="text-xs text-muted-foreground">Motivo da rejeição</p>
@@ -1135,40 +1163,6 @@ function QuoteDetailView({
       {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) — movido pro fim por ser secundário */}
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
-      {/* Onda 3.8 — FAB sticky pra aprovacao parcial (visivel em DRAFT/SENT
-          quando ha selecao). Restantes ficam no orcamento original. */}
-      {canPartialAccept && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40 animate-in slide-in-from-bottom-4 duration-200">
-          <div className="bg-card border border-emerald-500/40 shadow-2xl rounded-full pl-4 pr-2 py-2 flex items-center gap-3 flex-wrap max-w-[95vw]">
-            <span className="text-sm font-semibold flex items-center gap-2 text-emerald-700">
-              <Check size={14} />
-              {partialSelection.size} de {quote.items.length} {quote.items.length === 1 ? 'procedimento' : 'procedimentos'}
-            </span>
-            <span className="text-sm font-bold text-emerald-700">
-              {partialTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
-            </span>
-            <button
-              onClick={() => setPartialSelection(new Set())}
-              className="text-xs px-2 py-1 rounded-full text-muted-foreground hover:bg-muted"
-              title="Limpar seleção"
-            >
-              <X size={14} />
-            </button>
-            <button
-              onClick={acceptPartial}
-              disabled={acceptingPartial}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50"
-            >
-              {acceptingPartial ? (
-                <Loader2 size={14} className="animate-spin" />
-              ) : (
-                <Check size={14} />
-              )}
-              Aprovar selecionados
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
