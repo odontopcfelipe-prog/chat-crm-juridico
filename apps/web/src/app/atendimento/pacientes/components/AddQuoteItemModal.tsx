@@ -48,6 +48,12 @@ interface Props {
    * o primeiro procedimento adicionado herda esses dentes.
    */
   prefillTeeth?: string[];
+  /**
+   * Onda 3.37 — Nome atual do orçamento. Modal mostra campo editavel pra
+   * o operador renomear (ex: "Reabilitação superior"). Salvo via PATCH no
+   * submit junto com items. null/undefined = orçamento sem nome ainda.
+   */
+  initialTitle?: string | null;
 }
 
 // Mesma paleta da pagina de tabela de precos pra consistencia visual
@@ -63,7 +69,7 @@ function colorForSpecialty(key: string): string {
   return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
 }
 
-export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth }: Props) {
+export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle }: Props) {
   const [search, setSearch] = useState('');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -71,11 +77,15 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   // Onda 3.35 — Item ATIVO da cesta. Mini-odontograma reflete os dentes desse
   // item; click num dente do mini adiciona/remove do item ativo.
   const [activeBasketIdx, setActiveBasketIdx] = useState<number | null>(null);
+  // Onda 3.37 — Nome do orcamento, editavel no header do modal. Salvo via
+  // PATCH no submit junto com os items.
+  const [titleDraft, setTitleDraft] = useState<string>(initialTitle || '');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasPrefilledTeeth = !!(prefillTeeth && prefillTeeth.length > 0);
   const activeItem = activeBasketIdx !== null ? basket[activeBasketIdx] : null;
   const prefilledConsumedRef = useRef(false);
+  const titleChanged = titleDraft.trim() !== (initialTitle || '').trim();
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -182,12 +192,20 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   );
 
   const submit = async (keepOpen: boolean) => {
-    if (basket.length === 0) {
+    if (basket.length === 0 && !titleChanged) {
       showError('Adicione ao menos um procedimento');
       return;
     }
     setSaving(true);
     try {
+      // Onda 3.37 — PATCH titulo do orçamento se mudou. Roda ANTES dos items
+      // pra que o cabecalho da lista de orçamentos ja reflita o nome novo
+      // quando o operador voltar.
+      if (titleChanged) {
+        await api.patch(`/quotes/${quoteId}`, {
+          title: titleDraft.trim() || null,
+        });
+      }
       // Expande tooth_fdis em N POSTs (1 por dente). Sem dentes = 1 POST.
       // Onda 3.21 — qty sempre 1 quando ha dentes (cada dente = 1 procedimento).
       for (const it of basket) {
@@ -202,7 +220,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           });
         }
       }
-      showSuccess(`${totalItemsToCreate} procedimento(s) adicionado(s)`);
+      showSuccess(
+        titleChanged && titleDraft.trim()
+          ? `Orçamento "${titleDraft.trim()}" salvo (${totalItemsToCreate} item(ns))`
+          : `${totalItemsToCreate} procedimento(s) adicionado(s)`,
+      );
       await onAdded();
       if (keepOpen) {
         setBasket([]);
@@ -230,14 +252,33 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-border">
-          <div className="flex items-center gap-2">
-            <Plus size={18} className="text-primary" />
-            <h2 className="text-base font-semibold">Adicionar procedimentos ao orçamento</h2>
+        <div className="p-4 border-b border-border space-y-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Plus size={18} className="text-primary" />
+              <h2 className="text-base font-semibold">Adicionar procedimentos ao orçamento</h2>
+            </div>
+            <button onClick={onClose} className="p-1 hover:bg-accent rounded">
+              <X size={18} />
+            </button>
           </div>
-          <button onClick={onClose} className="p-1 hover:bg-accent rounded">
-            <X size={18} />
-          </button>
+
+          {/* Onda 3.37 — Nome customizavel do orçamento. Salvo via PATCH no
+              submit junto com items. Vazio = sem nome (cai pra categoria
+              automatica na lista). */}
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-medium text-muted-foreground shrink-0">
+              Nome do orçamento:
+            </label>
+            <input
+              type="text"
+              value={titleDraft}
+              onChange={(e) => setTitleDraft(e.target.value)}
+              placeholder="Ex: Reabilitação superior, Canal + coroa 36 (opcional)"
+              maxLength={100}
+              className="flex-1 px-3 py-1.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
         </div>
 
         {/* Mini-odontograma — click toggla dente do item ativo */}

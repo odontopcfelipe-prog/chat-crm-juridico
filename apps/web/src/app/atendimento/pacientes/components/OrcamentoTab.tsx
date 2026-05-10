@@ -4,8 +4,10 @@ import { useEffect, useState, useCallback } from 'react';
 import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat, Pencil, User as UserIcon } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
-// Onda 5 — AddQuoteItemModal removido daqui. Aba Orcamentos so RECEBE/VALIDA;
-// adicao de procedimentos so pelo Odontograma.
+// Onda 5 — Aba Orcamentos so RECEBE/VALIDA (sem botao "+ Adicionar"). Mas
+// AddQuoteItemModal continua importado pra suportar autoOpenAddItem (fluxo
+// vindo da aba Avaliacao que cria DRAFT + abre modal de procedimentos direto).
+import AddQuoteItemModal from './AddQuoteItemModal';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
@@ -729,6 +731,19 @@ function QuoteDetailView({
           {/* Onda 5 — aba Orcamentos so RECEBE e VALIDA. Adicao de procedimentos
               acontece exclusivamente no Odontograma (visao clinica). */}
         </div>
+
+        {/* Modal de adicionar — Onda 5: nao aparece mais via botao na aba
+            Orcamentos. Mas continua sendo aberto automaticamente quando o
+            operador navega da aba Avaliacao com autoOpenAddItem=true. */}
+        {addingItem && (
+          <AddQuoteItemModal
+            quoteId={quote.id}
+            procedures={procedures}
+            initialTitle={quote.title}
+            onClose={() => setAddingItem(false)}
+            onAdded={onReload}
+          />
+        )}
 
         {quote.items.length === 0 ? (
           <div className="py-10 px-6 text-center">
