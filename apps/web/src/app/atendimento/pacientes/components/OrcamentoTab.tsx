@@ -934,34 +934,25 @@ function QuoteDetailView({
         {/* Layout adapta — adiciona col "Selecionados" quando ha selecao parcial */}
         {(() => {
           const hasDiscount = Number(quote.discount_value) > 0;
-          const hasSelection = partialSelection.size > 0;
-          const cols = 1 + (hasDiscount ? 1 : 0) + (hasSelection ? 1 : 0) + 1;
-          const gridCls = cols === 4
-            ? 'md:grid-cols-4'
-            : cols === 3
-            ? 'md:grid-cols-3'
-            : 'md:grid-cols-2';
+          // Subtotal removido — espaco agora e ocupado pelo card "Selecionados"
+          // que mostra o total dos itens marcados (R$ 0,00 quando nada marcado).
+          const cols = 1 + (hasDiscount ? 1 : 0) + 1; // Selecionados | [Desconto] | Total
+          const gridCls = cols === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
           return (
             <div className={`grid grid-cols-2 gap-4 text-sm ${gridCls}`}>
               <div>
-                <p className="text-xs text-muted-foreground">Subtotal</p>
-                <p className="font-semibold">R$ {Number(quote.subtotal).toFixed(2)}</p>
+                <p className="text-xs text-emerald-700">
+                  Selecionados ({partialSelection.size})
+                </p>
+                <p className="text-lg font-bold text-emerald-600">
+                  R$ {partialTotal.toFixed(2)}
+                </p>
               </div>
               {hasDiscount && (
                 <div>
                   <p className="text-xs text-muted-foreground">Desconto</p>
                   <p className="font-semibold text-emerald-600">
                     {Number(quote.discount_percent)}% (-R$ {Number(quote.discount_value).toFixed(2)})
-                  </p>
-                </div>
-              )}
-              {hasSelection && (
-                <div>
-                  <p className="text-xs text-emerald-700">
-                    Selecionados ({partialSelection.size})
-                  </p>
-                  <p className="text-lg font-bold text-emerald-600">
-                    R$ {partialTotal.toFixed(2)}
                   </p>
                 </div>
               )}
