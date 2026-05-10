@@ -241,24 +241,14 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     ]);
   }, [loadQuotesList, expandedQuoteId, loadExpandedQuote]);
 
-  // Onda 3.33 — Click num card abre o detalhe na aba Orçamentos (em vez
-  // de expandir inline). Mais espaço, fluxo limpo. Fallback pra expansão
-  // inline se onOpenQuoteDetail nao for passada (back-compat).
-  const openQuoteDetail = useCallback(async (id: string) => {
-    if (onOpenQuoteDetail) {
-      onOpenQuoteDetail(id);
-      return;
-    }
-    // Fallback: expansão inline (legacy)
-    if (expandedQuoteId === id) {
-      setExpandedQuoteId(null);
-      setExpandedQuote(null);
-      return;
-    }
-    setExpandedQuoteId(id);
-    setExpandedQuote(null);
-    await loadExpandedQuote(id);
-  }, [onOpenQuoteDetail, expandedQuoteId, loadExpandedQuote]);
+  // Onda 3.39 — Click num card abre o modal AddQuoteItemModal NA propria
+  // aba Avaliação (sem navegar pra Orcamentos). Dentista nunca ve valores
+  // ou negociacao — visao clinica pura. Aba Orcamentos eh exclusiva pro
+  // financeiro/admin que faz negociacao com paciente (descontos, envio,
+  // aprovacao, cobranca).
+  const openQuoteDetail = useCallback((id: string) => {
+    setAddingItemForQuoteId(id);
+  }, []);
 
   // Cria orcamento DRAFT vazio + abre o modal AddQuoteItemModal direto na
   // propria aba Avaliação (NAO navega pra aba Orcamentos). Onda 3.36 —

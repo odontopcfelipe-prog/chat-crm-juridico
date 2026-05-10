@@ -405,16 +405,10 @@ function PacienteFichaInner() {
         <OdontogramaTab
           patientId={patient.id}
           patientName={patient.name}
-          onOpenQuoteDetail={(quoteId, options) => {
-            // Onda 3.33 — Click em quote da Avaliacao -> navega pra aba
-            // Orcamentos em modo detalhe (em vez de expandir inline).
-            // Onda 3.34 — Quando autoOpenAddItem=true (vindo de "Iniciar
-            // nova avaliação"), passa &add=1 pro OrcamentoTab abrir o
-            // modal de procedimentos direto.
-            const addParam = options?.autoOpenAddItem ? '&add=1' : '';
-            router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}${addParam}`);
-            setTab('quotes');
-          }}
+          // Onda 3.39 — onOpenQuoteDetail NAO eh mais passado.
+          // Click em card da Avaliacao agora abre modal NA propria aba
+          // (visao clinica, sem valores). Dentista nao precisa nem deve ver
+          // a aba Orcamentos (negociacao/cobranca eh do financeiro).
         />
       )}
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
