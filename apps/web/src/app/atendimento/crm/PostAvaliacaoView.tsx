@@ -26,6 +26,7 @@ import { useRouter } from 'next/navigation';
 import {
   Stethoscope, MessageSquare, ExternalLink, Clock,
   AlertCircle, FileText, Calendar, CheckCircle2, XCircle, Loader2, RefreshCw,
+  HeartPulse,
 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -270,6 +271,20 @@ export function PostAvaliacaoView({ onOpenDetail, onOpenChat }: Props) {
                         <span className="text-sm font-bold text-foreground truncate">
                           {lead.name || lead.phone || 'Sem nome'}
                         </span>
+                        {/* Onda 5e v32: badge "Paciente da clinica" — sinaliza
+                            que o lead JA virou Patient (auto-convertido pelo
+                            backend ao validar/concluir consulta). Aparece
+                            sempre que post_avaliacao.patient existe, em
+                            qualquer bucket. */}
+                        {lead.post_avaliacao?.patient && (
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 inline-flex items-center gap-1"
+                            title="Cadastrado como paciente da clínica"
+                          >
+                            <HeartPulse size={10} />
+                            Paciente
+                          </span>
+                        )}
                         {specialty && (
                           <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground px-1.5 py-0.5 rounded bg-muted">
                             {specialty}

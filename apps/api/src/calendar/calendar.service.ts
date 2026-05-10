@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException, Logger, Inject, forwardRef } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
@@ -6,6 +7,9 @@ import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+// Type-only import pra evitar circular runtime dep CalendarModule <-> LeadsModule.
+// Resolvido via moduleRef.get em runtime.
+import type { LeadsService } from '../leads/leads.service';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
@@ -26,7 +30,55 @@ export class CalendarService {
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
     @Inject(forwardRef(() => WaitlistService)) private waitlist: WaitlistService,
     @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
+    private moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * Auto-conversao Lead → Patient quando paciente "entra em tratamento"
+   * (Onda 5e v32, Fase 25).
+   *
+   * Chamado quando um evento clinico e validado ou marcado como CONCLUIDO.
+   * Se o lead vinculado ainda nao tem Patient cadastrado, cria automaticamente
+   * via LeadsService.ensurePatient (idempotente — nao duplica).
+   *
+   * Best-effort: erros sao logados mas nao bloqueiam a validacao do evento.
+   * Carrega LeadsService dinamicamente via ModuleRef pra evitar circular dep
+   * entre CalendarModule e LeadsModule.
+   */
+  private async autoEnsurePatientFromEvent(eventId: string): Promise<void> {
+    try {
+      const event = await this.prisma.calendarEvent.findUnique({
+        where: { id: eventId },
+        select: {
+          lead_id: true,
+          patient_id: true,
+          tenant_id: true,
+          type: true,
+        },
+      });
+      if (!event?.lead_id || event.patient_id) return; // ja tem patient ou nao tem lead
+      if (!this.isClinicalEvent(event.type)) return;
+
+      // Carrega LeadsService dinamicamente (sem injecao direta pra evitar
+      // circular dependency CalendarModule <-> LeadsModule).
+      // moduleRef.get com strict:false busca em todo o app, fora do escopo
+      // do CalendarModule. Usa require pra runtime (type-only import nao
+      // existe em runtime).
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { LeadsService: LeadsServiceClass } = require('../leads/leads.service');
+      const leadsService = this.moduleRef.get<LeadsService>(LeadsServiceClass, { strict: false });
+      if (!leadsService || typeof leadsService.ensurePatient !== 'function') {
+        this.logger.warn(`[AUTO_PATIENT] LeadsService indisponivel pra evento ${eventId}`);
+        return;
+      }
+
+      await leadsService.ensurePatient(event.lead_id, event.tenant_id ?? undefined);
+      this.logger.log(`[AUTO_PATIENT] Lead ${event.lead_id} virou Patient apos evento ${eventId} validado/concluido`);
+    } catch (e: any) {
+      // Swallow — patient creation falhou mas validacao do evento ja foi
+      this.logger.warn(`[AUTO_PATIENT] Falhou pra evento ${eventId}: ${e?.message}`);
+    }
+  }
 
   // ─── CRUD Events ──────────────────────────────────────
 
@@ -579,6 +631,13 @@ export class CalendarService {
       await this.updatePatientVisitDates(event.patient_id, event.start_at).catch((e) =>
         this.logger.warn(`[VISIT_DATES] hook falhou: ${e?.message}`),
       );
+    }
+
+    // Onda 5e v32 (Fase 25) — auto-conversao Lead → Patient quando consulta
+    // clinica vira CONCLUIDO. Se o lead ainda nao tem Patient cadastrado,
+    // cria automaticamente. Idempotente.
+    if (status === 'CONCLUIDO' && this.isClinicalEvent(event.type)) {
+      await this.autoEnsurePatientFromEvent(id);
     }
 
     // Lista de espera (Fase 19): se cancelou/adiou uma CONSULTA com dentista atribuído,
@@ -2382,6 +2441,13 @@ export class CalendarService {
     // Atualiza visit dates do paciente (mesmo hook do updateStatus)
     if (validated.patient_id && this.isClinicalEvent(validated.type) && validated.start_at) {
       await this.updatePatientVisitDates(validated.patient_id, validated.start_at).catch(() => {});
+    }
+
+    // Onda 5e v32 (Fase 25) — auto-conversao Lead → Patient quando dentista
+    // valida atendimento clinico. Lead vira paciente da clinica
+    // automaticamente (idempotente).
+    if (this.isClinicalEvent(validated.type)) {
+      await this.autoEnsurePatientFromEvent(eventId);
     }
 
     // Notifica via socket pra refresh em tempo real
