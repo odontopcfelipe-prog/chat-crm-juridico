@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat, Pencil, User as UserIcon } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
-import AddQuoteItemModal from './AddQuoteItemModal';
+// Onda 5 — AddQuoteItemModal removido daqui. Aba Orcamentos so RECEBE/VALIDA;
+// adicao de procedimentos so pelo Odontograma.
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
@@ -323,8 +324,6 @@ function QuoteDetailView({
   /** Onda 3.4 — abre outro quote sem passar pela lista (usado em "Duplicar como opcao") */
   onSwitchQuote?: (newQuoteId: string) => Promise<void>;
 }) {
-  // addingItem agora abre modal AddQuoteItemModal — nao mais form inline
-  const [addingItem, setAddingItem] = useState(false);
 
   // Cupom (Onda 2)
   const [couponCode, setCouponCode] = useState('');
@@ -707,43 +706,20 @@ function QuoteDetailView({
               </span>
             )}
           </div>
-          {isDraft && quote.items.length > 0 && (
-            <button
-              onClick={() => setAddingItem(true)}
-              className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 font-medium"
-            >
-              <Plus size={12} /> Adicionar procedimentos
-            </button>
-          )}
+          {/* Onda 5 — aba Orcamentos so RECEBE e VALIDA. Adicao de procedimentos
+              acontece exclusivamente no Odontograma (visao clinica). */}
         </div>
-
-        {/* Modal de adicionar (substitui form inline cramped) */}
-        {addingItem && (
-          <AddQuoteItemModal
-            quoteId={quote.id}
-            procedures={procedures}
-            onClose={() => setAddingItem(false)}
-            onAdded={onReload}
-          />
-        )}
 
         {quote.items.length === 0 ? (
           <div className="py-10 px-6 text-center">
             <DollarSign size={36} className="mx-auto text-muted-foreground/40 mb-3" />
-            {isDraft ? (
-              <>
-                <p className="text-sm text-muted-foreground mb-4">
-                  Comece adicionando procedimentos ao orçamento.
-                </p>
-                <button
-                  onClick={() => setAddingItem(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 shadow-sm"
-                >
-                  <Plus size={16} /> Adicionar procedimentos
-                </button>
-              </>
-            ) : (
-              <p className="text-sm text-muted-foreground">Nenhum procedimento neste orçamento.</p>
+            <p className="text-sm text-muted-foreground">
+              Nenhum procedimento neste orçamento.
+            </p>
+            {isDraft && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Para adicionar procedimentos, acesse a aba <strong>Odontograma</strong> do paciente.
+              </p>
             )}
           </div>
         ) : (
