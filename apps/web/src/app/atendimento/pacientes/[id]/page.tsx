@@ -29,6 +29,7 @@ import AnamneseTab from '../components/AnamneseTab';
 import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
 import OrcamentoTab from '../components/OrcamentoTab';
+import FinanceiroTab from '../components/FinanceiroTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
@@ -82,19 +83,20 @@ interface Patient {
 interface UserOption { id: string; name: string }
 
 const TABS = [
-  { id: 'overview', label: 'Visão geral', icon: User },
-  { id: 'timeline', label: 'Histórico', icon: Clock },
-  { id: 'anamnesis', label: 'Anamnese', icon: FileText },
-  { id: 'medical-record', label: 'Prontuário', icon: Stethoscope },
-  { id: 'odontogram', label: 'Odontograma', icon: Activity },
-  { id: 'esthetic', label: 'Estética facial', icon: Sparkles },
-  { id: 'smile-design', label: 'Smile Design', icon: Sparkles },
-  { id: 'radiografias', label: 'Radiografias', icon: Activity },
-  { id: 'quotes', label: 'Orçamentos', icon: DollarSign },
-  // Onda 3.7 — Tabs "Tratamentos" e "Manutencoes" removidas: o conteudo
-  // (lista de orcamentos com acoes) agora vive no Odontograma como hub
-  // central. Componentes TratamentoTab e ManutencoesTab permanecem no
-  // codigo (so removemos do menu) — podem ser reativados se necessario.
+  // Onda 3.30 — Tabs reorganizadas em 2 grupos (operational + clinical)
+  // pra fluxo de dia-a-dia ficar à esquerda, documentação à direita.
+  // Operational
+  { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
+  { id: 'odontogram',     label: 'Odontograma',     icon: Activity,    group: 'operational' as const },
+  { id: 'quotes',         label: 'Orçamentos',      icon: DollarSign,  group: 'operational' as const },
+  { id: 'financial',      label: 'Financeiro',      icon: DollarSign,  group: 'operational' as const },
+  // Clinical (documentação/histórico)
+  { id: 'timeline',       label: 'Histórico',       icon: Clock,       group: 'clinical'    as const },
+  { id: 'anamnesis',      label: 'Anamnese',        icon: FileText,    group: 'clinical'    as const },
+  { id: 'medical-record', label: 'Prontuário',      icon: Stethoscope, group: 'clinical'    as const },
+  { id: 'radiografias',   label: 'Radiografias',    icon: Activity,    group: 'clinical'    as const },
+  { id: 'smile-design',   label: 'Smile Design',    icon: Sparkles,    group: 'clinical'    as const },
+  { id: 'esthetic',       label: 'Estética facial', icon: Sparkles,    group: 'clinical'    as const },
 ] as const;
 
 type TabId = typeof TABS[number]['id'];
@@ -200,12 +202,24 @@ function PacienteFichaInner() {
     }
   };
 
-  // Atalho da dra: iniciar orcamento direto. Cria DRAFT (idempotente — reusa
-  // se ja existe) + abre tab Orcamentos com o quote ja em modo edicao.
-  // Backend (LeadsService.graduateLeadToEmFechamento) gradua o lead vinculado
-  // pra "Em Fechamento" silenciosamente (some do Kanban CRM, vai pra /fechamentos).
-  // Onda 3.7 — handleStartQuote e handleStartAttending removidos
-  // (botoes correspondentes saindo do header — fluxo migrou pro Odontograma).
+  // Onda 3.30 — Avaliação restaurado no header (antigo "Atender", renomeado).
+  // Marca que o paciente compareceu (gradua lead pra "Avaliacao Feita") + abre
+  // o Odontograma. Permite contabilizar quem efetivamente veio na clínica.
+  const [startingAttending, setStartingAttending] = useState(false);
+  const handleStartAttending = async () => {
+    if (!patient || startingAttending) return;
+    setStartingAttending(true);
+    try {
+      await api.post(`/patients/${patient.id}/start-attending`);
+      router.replace(`/atendimento/pacientes/${patient.id}?tab=odontogram`);
+      setTab('odontogram');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao iniciar avaliação');
+    } finally {
+      setStartingAttending(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -272,14 +286,19 @@ function PacienteFichaInner() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {/* Onda 3.7 — Botoes "Atender" e "Iniciar orcamento" removidos do
-              header. "Iniciar orcamento" virou CTA verde grande no proprio
-              tab Odontograma (centro da tela). "Atender" foi descontinuado
-              porque o fluxo dele (graduar lead + abrir Odontograma) eh agora
-              implicito quando o operador entra na aba Odontograma. */}
-          {/* Onda 5e v30 (Fase 25) — Agendar consulta direto da ficha do paciente.
-              Deep-link pra /agenda?new=1&patient_id=X&patient_name=X&phone=X
-              que abre o modal de evento ja com paciente pre-selecionado. */}
+          {/* Onda 3.30 — Avaliação (antigo "Atender" renomeado). Marca
+              comparecimento + abre Odontograma. */}
+          {patient.status !== 'ARCHIVED' && (
+            <button
+              onClick={handleStartAttending}
+              disabled={startingAttending}
+              className="text-xs text-white bg-sky-600 hover:bg-sky-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
+              title="Marca que o paciente compareceu pra avaliação e abre o Odontograma"
+            >
+              {startingAttending ? <Loader2 size={14} className="animate-spin" /> : <Stethoscope size={14} />}
+              Avaliação
+            </button>
+          )}
           {patient.status !== 'ARCHIVED' && (
             <button
               onClick={() => {
@@ -297,15 +316,8 @@ function PacienteFichaInner() {
               <Calendar size={14} /> Agendar
             </button>
           )}
-          {patient.status !== 'ARCHIVED' && (
-            <button
-              onClick={handleSendPortalLink}
-              className="text-xs text-primary hover:bg-primary/10 border border-primary/20 px-3 py-2 rounded-lg flex items-center gap-1"
-              title="Enviar link do portal do paciente via WhatsApp"
-            >
-              <MessageCircle size={14} /> Enviar portal
-            </button>
-          )}
+          {/* Onda 3.30 — "Enviar portal" removido do header pra limpar a
+              area principal de acoes. Acionavel via outras rotas. */}
           {/* Arquivar — exclusivo do ADMIN (backend tambem valida).
               Secretaria/dentista nao podem apagar paciente do sistema. */}
           {patient.status !== 'ARCHIVED' && role.canArchivePatient && (
@@ -325,8 +337,8 @@ function PacienteFichaInner() {
           Em xl ainda mantem icone visivel; em < md (768px) esconde icone
           pra ganhar mais espaco horizontal. */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
-        <div className="flex gap-0.5">
-          {TABS.map((t) => {
+        <div className="flex gap-0.5 items-end">
+          {TABS.filter((t) => t.group === 'operational').map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
@@ -334,9 +346,24 @@ function PacienteFichaInner() {
                 key={t.id}
                 onClick={() => setTab(t.id)}
                 className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
-                  active
-                    ? 'border-primary text-primary'
-                    : 'border-transparent text-muted-foreground hover:text-foreground'
+                  active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
+                {t.label}
+              </button>
+            );
+          })}
+          <div className="flex-1 min-w-[24px]" />
+          {TABS.filter((t) => t.group === 'clinical').map((t) => {
+            const Icon = t.icon;
+            const active = tab === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
+                  active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
                 <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
@@ -384,8 +411,7 @@ function PacienteFichaInner() {
           initialQuoteId={searchParams?.get('quote') || undefined}
         />
       )}
-      {/* Onda 3.7 — tabs treatment-plans e maintenance removidas do menu
-          (componentes preservados em components/ pra reativacao futura). */}
+      {tab === 'financial' && <FinanceiroTab patientId={patient.id} />}
 
       {/* Modais */}
       {editOpen && (

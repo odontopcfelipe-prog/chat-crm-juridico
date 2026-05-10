@@ -2502,9 +2502,9 @@ export default function AgendaPage() {
                   <button
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
                     className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
-                    title="Atender — abre odontograma do paciente"
+                    title="Avaliação — abre odontograma do paciente"
                   >
-                    <Stethoscope size={12} /> <span className="hidden md:inline">Atender</span>
+                    <Stethoscope size={12} /> <span className="hidden md:inline">Avaliação</span>
                   </button>
                 )}
               </div>

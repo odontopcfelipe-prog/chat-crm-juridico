@@ -303,10 +303,10 @@ export function AgendaListView({
                           router.push(`/atendimento/pacientes/${ev.patient_id}?tab=odontogram`);
                         }}
                         className="shrink-0 self-center px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/30 dark:hover:bg-emerald-950/60 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800 rounded-lg transition-colors inline-flex items-center gap-1.5 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                        title="Atender — abre odontograma do paciente"
+                        title="Avaliação — abre odontograma do paciente"
                       >
                         <Stethoscope size={12} />
-                        Atender
+                        Avaliação
                       </button>
                     )}
                   </div>
