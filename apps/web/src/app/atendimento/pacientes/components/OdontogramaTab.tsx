@@ -421,6 +421,14 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
         ) : (
           // Lista de cards expansiveis
           <div className="space-y-2">
+            {/* Onda 3.32 — CTA principal NO TOPO em verde solido grande pra
+                dar destaque maximo (era um botao pequeno tracejado embaixo). */}
+            <button
+              onClick={createNewQuote}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
+            >
+              <DollarSign size={18} /> Iniciar novo orçamento
+            </button>
             {quotesList.map((q, idx) => (
               <QuoteCard
                 key={q.id}
@@ -440,13 +448,6 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
                 onAnnotationConsumed={consumeLastAnnotation}
               />
             ))}
-            {/* CTA final: criar mais um orcamento */}
-            <button
-              onClick={createNewQuote}
-              className="w-full bg-card border border-dashed border-border hover:border-emerald-500/40 hover:bg-emerald-500/5 rounded-xl py-3 text-sm font-medium text-emerald-700 transition-colors inline-flex items-center justify-center gap-2"
-            >
-              <DollarSign size={14} /> Iniciar novo orcamento
-            </button>
           </div>
         )}
       </div>
