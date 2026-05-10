@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
@@ -441,7 +441,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
               onClick={createNewQuote}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition"
             >
-              <DollarSign size={16} /> Iniciar nova avaliação
+              <Plus size={16} /> Adicionar procedimento
             </button>
           </div>
         ) : (
@@ -453,7 +453,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
               onClick={createNewQuote}
               className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
             >
-              <DollarSign size={18} /> Iniciar nova avaliação
+              <Plus size={18} /> Adicionar procedimento
             </button>
             {quotesList.map((q, idx) => (
               <QuoteCard
