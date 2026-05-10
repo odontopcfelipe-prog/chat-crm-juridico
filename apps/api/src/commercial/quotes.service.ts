@@ -552,10 +552,19 @@ export class QuotesService {
         },
       });
 
-      // 2. Atualiza totais do original com items restantes
+      // 2. Atualiza totais do original com items restantes + renomeia
+      //    automaticamente pra "Procedimento restante" e marca origem nas
+      //    notes pra deixar claro que veio de aprovacao parcial. (Onda 5)
+      const remainderTitle = 'Procedimento restante';
+      const remainderTag = `[Resto de aprovacao parcial em ${new Date().toLocaleDateString('pt-BR')}]`;
+      const newNotes = quote.notes
+        ? `${remainderTag}\n${quote.notes}`
+        : remainderTag;
       await tx.quote.update({
         where: { id },
         data: {
+          title: remainderTitle,
+          notes: newNotes,
           subtotal: remainingSubtotal,
           discount_value: remainingDiscountValue,
           total_value: remainingTotalValue,

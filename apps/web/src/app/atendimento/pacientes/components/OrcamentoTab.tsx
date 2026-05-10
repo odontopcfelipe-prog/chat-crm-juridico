@@ -66,6 +66,9 @@ interface DentistOption {
 interface QuoteListItem {
   id: string;
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
+  /// Onda 3.9 — nome customizavel pelo operador. Onda 5 — quando vira "Procedimento
+  /// restante" automaticamente apos aprovacao parcial, frontend mostra badge.
+  title: string | null;
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
@@ -229,14 +232,27 @@ export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
         <ul className="bg-card border border-border rounded-xl divide-y divide-border">
           {list.map((q) => {
             const expiry = expiryStatus(q.valid_until, q.status);
+            const isRemainder = q.title === 'Procedimento restante';
             return (
               <li
                 key={q.id}
                 onClick={() => openDetail(q.id)}
-                className="px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3"
+                className={`px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3 ${
+                  isRemainder ? 'bg-amber-50/50 dark:bg-amber-950/20 border-l-4 border-amber-400' : ''
+                }`}
               >
-                <DollarSign size={18} className="text-primary shrink-0" />
+                <DollarSign size={18} className={`shrink-0 ${isRemainder ? 'text-amber-600' : 'text-primary'}`} />
                 <div className="flex-1 min-w-0">
+                  {q.title && (
+                    <p className={`text-sm font-semibold flex items-center gap-2 ${isRemainder ? 'text-amber-700' : 'text-foreground'}`}>
+                      {q.title}
+                      {isRemainder && (
+                        <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800 font-medium">
+                          ↩ resto de aprovação parcial
+                        </span>
+                      )}
+                    </p>
+                  )}
                   <p className="text-sm font-medium text-foreground">
                     R$ {Number(q.total_value).toFixed(2)}
                     {q._count && <span className="text-xs text-muted-foreground ml-2">({q._count.items} itens)</span>}
