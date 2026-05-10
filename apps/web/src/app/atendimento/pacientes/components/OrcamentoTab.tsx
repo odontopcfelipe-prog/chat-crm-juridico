@@ -757,7 +757,8 @@ function QuoteDetailView({
             )}
           </div>
           {/* Onda 5 — aba Orcamentos so RECEBE e VALIDA. Adicao de procedimentos
-              acontece exclusivamente no Odontograma (visao clinica). */}
+              acontece exclusivamente na aba Avaliacao (dentista registra ali e
+              uma copia sobe automaticamente pra ca pra negociar/aprovar). */}
         </div>
 
         {/* Modal de adicionar — Onda 5: nao aparece mais via botao na aba
@@ -781,7 +782,8 @@ function QuoteDetailView({
             </p>
             {isDraft && (
               <p className="text-xs text-muted-foreground mt-2">
-                Para adicionar procedimentos, acesse a aba <strong>Odontograma</strong> do paciente.
+                Para adicionar procedimentos, acesse a aba <strong>Avaliação</strong> do paciente —
+                o dentista registra lá e os itens sobem automaticamente pra cá.
               </p>
             )}
           </div>
