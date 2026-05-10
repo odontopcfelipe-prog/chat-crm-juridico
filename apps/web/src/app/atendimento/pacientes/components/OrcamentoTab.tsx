@@ -922,20 +922,6 @@ function QuoteDetailView({
                   <div className="text-right">
                     <p className="font-semibold">R$ {Number(it.total_price).toFixed(2)}</p>
                   </div>
-                  {isDraft && (
-                    <>
-                      <button
-                        onClick={() => startEditItem(it)}
-                        className="text-muted-foreground hover:text-primary hover:bg-primary/10 p-1 rounded"
-                        title="Editar item (qtd, preço, dente, dentista)"
-                      >
-                        <Pencil size={14} />
-                      </button>
-                      <button onClick={() => removeItem(it.id)} className="text-destructive hover:bg-destructive/10 p-1 rounded">
-                        <Trash2 size={14} />
-                      </button>
-                    </>
-                  )}
                 </li>
               );
             })}
