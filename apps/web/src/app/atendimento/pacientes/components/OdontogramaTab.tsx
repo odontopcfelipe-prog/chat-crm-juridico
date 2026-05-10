@@ -6,6 +6,7 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
 import QuotePanel from './QuotePanel';
+import AddQuoteItemModal from './AddQuoteItemModal';
 
 interface Props {
   patientId: string;
@@ -183,6 +184,10 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [expandedQuote, setExpandedQuote] = useState<QuoteDraft | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(true);
+  // Onda 3.36 — quote id pro qual o modal AddQuoteItemModal deve abrir.
+  // Quando "Iniciar nova avaliação" eh clicado, cria-se o DRAFT e seta isso —
+  // modal abre POR CIMA da aba Avaliação (sem navegar pra Orcamentos).
+  const [addingItemForQuoteId, setAddingItemForQuoteId] = useState<string | null>(null);
 
   // Onda 3.2 — captura ultima anotacao NOVA (nao edicao) pra acionar sugestao
   // automatica no QuotePanel. Inclui ts pra garantir disparo mesmo se mesma
@@ -255,26 +260,23 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     await loadExpandedQuote(id);
   }, [onOpenQuoteDetail, expandedQuoteId, loadExpandedQuote]);
 
-  // Cria orcamento DRAFT vazio + abre detalhe (na aba Orcamentos via callback).
-  // Onda 3.34 — passa autoOpenAddItem=true pra que o modal de procedimentos
-  // abra direto, sem operador precisar clicar "+ Adicionar procedimentos".
+  // Cria orcamento DRAFT vazio + abre o modal AddQuoteItemModal direto na
+  // propria aba Avaliação (NAO navega pra aba Orcamentos). Onda 3.36 —
+  // operador fluxo: click "Iniciar nova avaliação" → DRAFT criado → modal
+  // de procedimentos por cima da Avaliação. Click "Adicionar" no modal →
+  // items salvos → modal fecha → lista da Avaliação atualizada. Operador
+  // permanece no contexto clinico/operacional sem trocar de aba.
   const createNewQuote = useCallback(async () => {
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
       showSuccess('Orçamento criado');
       await loadQuotesList();
-      if (onOpenQuoteDetail) {
-        onOpenQuoteDetail(data.id, { autoOpenAddItem: true });
-      } else {
-        // Fallback legacy: auto-expande inline
-        setExpandedQuoteId(data.id);
-        await loadExpandedQuote(data.id);
-      }
+      setAddingItemForQuoteId(data.id);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao criar orcamento');
     }
-  }, [patientId, loadQuotesList, loadExpandedQuote, onOpenQuoteDetail]);
+  }, [patientId, loadQuotesList]);
 
   // Atualiza titulo do orcamento (edicao inline no card)
   const updateQuoteTitle = useCallback(async (id: string, title: string) => {
@@ -475,6 +477,22 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
           </div>
         )}
       </div>
+
+      {/* Onda 3.36 — Modal AddQuoteItemModal renderizado AQUI (na propria
+          aba Avaliação) quando "Iniciar nova avaliação" eh clicado.
+          Operador nao sai da Avaliação — modal abre por cima e ao salvar
+          atualiza a lista de cards. */}
+      {addingItemForQuoteId && (
+        <AddQuoteItemModal
+          quoteId={addingItemForQuoteId}
+          procedures={procedures}
+          onClose={() => setAddingItemForQuoteId(null)}
+          onAdded={async () => {
+            await refreshQuotes();
+            setAddingItemForQuoteId(null);
+          }}
+        />
+      )}
     </div>
   );
 }
