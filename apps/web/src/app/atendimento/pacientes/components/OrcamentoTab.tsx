@@ -218,14 +218,6 @@ export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
     <div>
       <div className="flex items-center justify-between mb-3">
         <p className="text-sm text-muted-foreground">{list.length} orçamento(s)</p>
-        <button
-          onClick={createQuote}
-          disabled={saving}
-          className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50"
-        >
-          {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-          Novo orçamento
-        </button>
       </div>
 
       {list.length === 0 ? (
