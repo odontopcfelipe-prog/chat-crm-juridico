@@ -931,66 +931,65 @@ function QuoteDetailView({
 
       {/* Resumo */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
-        {/* Onda 25.1: layout adapta — 4 cols se tem desconto, 3 cols sem */}
-        <div className={`grid grid-cols-2 gap-4 text-sm ${
-          Number(quote.discount_value) > 0 ? 'md:grid-cols-4' : 'md:grid-cols-3'
-        }`}>
-          <div>
-            <p className="text-xs text-muted-foreground">Subtotal</p>
-            <p className="font-semibold">R$ {Number(quote.subtotal).toFixed(2)}</p>
-          </div>
-          {/* Onda 25.1: so mostra Desconto se houver desconto aplicado */}
-          {Number(quote.discount_value) > 0 && (
-            <div>
-              <p className="text-xs text-muted-foreground">Desconto</p>
-              <p className="font-semibold text-emerald-600">
-                {Number(quote.discount_percent)}% (-R$ {Number(quote.discount_value).toFixed(2)})
-              </p>
-            </div>
-          )}
-          <div className="col-span-2 md:col-span-1">
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
-            {/* Onda 25.3 — tempo de cadeira (soma duration_minutes * quantity) */}
-            {(() => {
-              const totalMinutes = quote.items.reduce(
-                (acc, it) => acc + (it.procedure?.duration_minutes || 0) * it.quantity,
-                0,
-              );
-              if (totalMinutes <= 0) return null;
-              const h = Math.floor(totalMinutes / 60);
-              const m = totalMinutes % 60;
-              const label = h > 0
-                ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
-                : `~${m}min`;
-              return (
-                <p className="text-[11px] text-muted-foreground mt-0.5" title="Tempo estimado total de cadeira (soma da duração de cada procedimento)">
-                  ⏱ {label} de cadeira
-                </p>
-              );
-            })()}
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Validade</p>
-            {quote.valid_until ? (
-              (() => {
-                const expiry = expiryStatus(quote.valid_until, quote.status);
-                return (
-                  <p className="text-sm flex items-center gap-2 flex-wrap">
-                    <span>{new Date(quote.valid_until).toLocaleDateString('pt-BR')}</span>
-                    {expiry && (
-                      <span className={`text-xs font-medium ${expiry.cls}`}>
-                        ({expiry.text})
-                      </span>
-                    )}
+        {/* Layout adapta — adiciona col "Selecionados" quando ha selecao parcial */}
+        {(() => {
+          const hasDiscount = Number(quote.discount_value) > 0;
+          const hasSelection = partialSelection.size > 0;
+          const cols = 1 + (hasDiscount ? 1 : 0) + (hasSelection ? 1 : 0) + 1;
+          const gridCls = cols === 4
+            ? 'md:grid-cols-4'
+            : cols === 3
+            ? 'md:grid-cols-3'
+            : 'md:grid-cols-2';
+          return (
+            <div className={`grid grid-cols-2 gap-4 text-sm ${gridCls}`}>
+              <div>
+                <p className="text-xs text-muted-foreground">Subtotal</p>
+                <p className="font-semibold">R$ {Number(quote.subtotal).toFixed(2)}</p>
+              </div>
+              {hasDiscount && (
+                <div>
+                  <p className="text-xs text-muted-foreground">Desconto</p>
+                  <p className="font-semibold text-emerald-600">
+                    {Number(quote.discount_percent)}% (-R$ {Number(quote.discount_value).toFixed(2)})
                   </p>
-                );
-              })()
-            ) : (
-              <p className="text-sm">—</p>
-            )}
-          </div>
-        </div>
+                </div>
+              )}
+              {hasSelection && (
+                <div>
+                  <p className="text-xs text-emerald-700">
+                    Selecionados ({partialSelection.size})
+                  </p>
+                  <p className="text-lg font-bold text-emerald-600">
+                    R$ {partialTotal.toFixed(2)}
+                  </p>
+                </div>
+              )}
+              <div className="col-span-2 md:col-span-1">
+                <p className="text-xs text-muted-foreground">Total</p>
+                <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
+                {/* Tempo de cadeira (soma duration_minutes * quantity) */}
+                {(() => {
+                  const totalMinutes = quote.items.reduce(
+                    (acc, it) => acc + (it.procedure?.duration_minutes || 0) * it.quantity,
+                    0,
+                  );
+                  if (totalMinutes <= 0) return null;
+                  const h = Math.floor(totalMinutes / 60);
+                  const m = totalMinutes % 60;
+                  const label = h > 0
+                    ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
+                    : `~${m}min`;
+                  return (
+                    <p className="text-[11px] text-muted-foreground mt-0.5" title="Tempo estimado total de cadeira (soma da duração de cada procedimento)">
+                      ⏱ {label} de cadeira
+                    </p>
+                  );
+                })()}
+              </div>
+            </div>
+          );
+        })()}
         {quote.rejection_reason && (
           <div className="mt-3 pt-3 border-t border-border">
             <p className="text-xs text-muted-foreground">Motivo da rejeição</p>

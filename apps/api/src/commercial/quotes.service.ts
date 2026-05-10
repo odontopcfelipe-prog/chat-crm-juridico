@@ -72,15 +72,11 @@ export class QuotesService {
     const resolvedItems = await this.resolveItems(items, tenantId);
     const totals = this.computeTotals(resolvedItems, data.discount_percent || 0);
 
-    // Default valid_until = hoje + 30 dias se nao informado.
-    // Nunca cria orcamento sem validade — vira problema na auto-expiracao.
-    const validUntil = data.valid_until
-      ? new Date(data.valid_until)
-      : (() => {
-          const d = new Date();
-          d.setDate(d.getDate() + DEFAULT_VALID_DAYS);
-          return d;
-        })();
+    // Onda 5 — orcamentos nao tem mais validade automatica.
+    // Auto-expiracao desligada (cronDailyExpiry vira no-op). Mantem campo
+    // valid_until no schema pra compatibilidade, mas so popula se admin
+    // explicitamente passar uma data.
+    const validUntil = data.valid_until ? new Date(data.valid_until) : null;
 
     try {
       const quote = await this.prisma.quote.create({
@@ -1283,15 +1279,16 @@ export class QuotesService {
     return { sent };
   }
 
-  /** Cron: roda 1x ao dia (3h da manhã, fora do horário comercial). */
+  /**
+   * Cron diario — desativado na Onda 5: orcamentos nao expiram automaticamente
+   * mais (decisao de produto). Os metodos `expireOldQuotes` e `sendExpiryReminders`
+   * permanecem disponiveis pra chamada manual via admin se algum dia precisar.
+   */
   @Cron(CronExpression.EVERY_DAY_AT_3AM)
   async cronDailyExpiry() {
-    try {
-      await this.expireOldQuotes();
-      await this.sendExpiryReminders();
-    } catch (e: any) {
-      this.logger.error(`[QUOTES] cronDailyExpiry falhou: ${e?.message}`);
-    }
+    // No-op: auto-expiracao desligada. Para reativar, descomente:
+    // await this.expireOldQuotes();
+    // await this.sendExpiryReminders();
   }
 
   // ─── Onda 1 — Envio via WhatsApp ───────────────────────────────
