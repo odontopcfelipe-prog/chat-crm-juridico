@@ -578,7 +578,16 @@ export class QuotesService {
         data: updateData,
       });
 
-      // 3. Cria novo Quote ACCEPTED com items selecionados
+      // 3. Cria novo Quote ACCEPTED com items selecionados.
+      // Onda 5 — herda title do original pra preservar o nome dado pelo
+      // operador ("teste", "Reabilitacao superior"). Equipe distingue da
+      // versao "restante" pelo status ACCEPTED (fundo verde) vs DRAFT
+      // (fundo amber). Pode editar depois se quiser.
+      // Tambem nao herda o prefix "[Resto de aprovacao parcial...]" das
+      // notes — esse prefix so vai pro restante (que fica no original).
+      const acceptedNotes = (quote.notes || '').startsWith('[Resto de aprovacao parcial')
+        ? null
+        : quote.notes;
       const acceptedQuote = await tx.quote.create({
         data: {
           patient_id: quote.patient_id,
@@ -586,12 +595,13 @@ export class QuotesService {
           status: 'ACCEPTED',
           accepted_at: new Date(),
           accepted_from_id: id, // rastreio pro historico
+          title: quote.title, // preserva nome do operador
           subtotal,
           discount_percent: discountPct,
           discount_value: discountValue,
           total_value: totalValue,
           payment_terms: quote.payment_terms,
-          notes: quote.notes,
+          notes: acceptedNotes,
           valid_until: quote.valid_until,
           items: {
             create: selectedItems.map((qi, idx) => ({
