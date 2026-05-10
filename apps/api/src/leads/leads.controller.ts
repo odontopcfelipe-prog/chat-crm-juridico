@@ -46,6 +46,17 @@ export class LeadsController {
     return this.leadsService.checkPhone(phone);
   }
 
+  // Onda 5e v31 (Fase 25) — leads que ja realizaram a avaliacao clinica.
+  // Usado pela aba "Pos-Avaliacao" do CRM. Default = 60 dias.
+  @Get('post-avaliacao')
+  findPostAvaliacao(
+    @Request() req: any,
+    @Query('days') days?: string,
+  ) {
+    const d = days ? Math.max(1, Math.min(365, parseInt(days, 10) || 60)) : 60;
+    return this.leadsService.findPostAvaliacao(req.user?.tenant_id, d);
+  }
+
   @Get('export')
   async exportCsv(
     @Request() req: any,

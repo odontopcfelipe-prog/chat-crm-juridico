@@ -2,13 +2,15 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2 } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, Stethoscope } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
 import { CRM_STAGES, normalizeStage, findStage } from '@/lib/crmStages';
 import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
 import { showError, showSuccess } from '@/lib/toast';
+// Onda 5e v31 (Fase 25) — sub-categoria pos-avaliacao
+import { PostAvaliacaoView } from './PostAvaliacaoView';
 
 interface CrmLead {
   id: string;
@@ -1185,8 +1187,11 @@ export default function CrmPage() {
   // Painel lateral de detalhes
   const [detailLead, setDetailLead] = useState<CrmLead | null>(null);
 
-  // Modo de visualização: kanban ou lista
-  const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  // Modo de visualização: kanban, lista ou pos-avaliacao
+  // Onda 5e v31 (Fase 25) — pos-avaliacao mostra leads que JA fizeram a
+  // consulta clinica (CONSULTA/PROCEDIMENTO/RETORNO concluido) — agrupados
+  // por bucket: aguardando-decisao / com-orcamento / em-tratamento / perdido
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pos-avaliacao'>('kanban');
 
   // Analytics panel
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -1827,7 +1832,7 @@ export default function CrmPage() {
               <BarChart2 size={14} />
             </button>
 
-            {/* Toggle visualização kanban/lista */}
+            {/* Toggle visualização kanban / lista / pos-avaliacao */}
             <div className="flex items-center border border-border rounded-lg overflow-hidden">
               <button
                 onClick={() => setViewMode('kanban')}
@@ -1842,6 +1847,13 @@ export default function CrmPage() {
                 title="Visualização lista"
               >
                 <LayoutList size={14} />
+              </button>
+              <button
+                onClick={() => setViewMode('pos-avaliacao')}
+                className={`p-1.5 transition-all ${viewMode === 'pos-avaliacao' ? 'bg-emerald-500/10 text-emerald-600' : 'text-muted-foreground hover:bg-accent'}`}
+                title="Pós-Avaliação — leads que ja fizeram a consulta"
+              >
+                <Stethoscope size={14} />
               </button>
             </div>
 
@@ -1903,6 +1915,11 @@ export default function CrmPage() {
               Tentar novamente
             </button>
           </div>
+        ) : viewMode === 'pos-avaliacao' ? (
+          <PostAvaliacaoView
+            onOpenDetail={openDetail}
+            onOpenChat={openInChat}
+          />
         ) : viewMode === 'list' ? (
           <LeadListView
             leads={filteredLeads}

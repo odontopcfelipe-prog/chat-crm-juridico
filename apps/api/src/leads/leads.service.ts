@@ -194,6 +194,159 @@ export class LeadsService {
     }) as any;
   }
 
+  /**
+   * Pos-Avaliacao (Onda 5e v31) — Fase 25.
+   *
+   * Lista leads que JA realizaram a consulta de avaliacao (ou procedimento/
+   * retorno). Criterio: tem pelo menos um CalendarEvent com type clinico
+   * (CONSULTA/PROCEDIMENTO/RETORNO) e que ja aconteceu, considerado
+   * "concluido" se:
+   *   - status = CONCLUIDO    (operador marcou) OU
+   *   - validated_at != null  (dentista validou clinicamente — Fase 23)
+   *
+   * Janela default: ultimos 60 dias. Fora disso o lead vira historico.
+   *
+   * Usado pela aba "Pos-Avaliacao" do CRM pra acompanhar pacientes que
+   * vieram pra avaliacao mas ainda nao tem decisao final (orcamento /
+   * fechamento / perdeu).
+   */
+  async findPostAvaliacao(
+    tenantId?: string,
+    days: number = 60,
+  ) {
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    const now = new Date();
+
+    const leads = await this.prisma.lead.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        calendar_events: {
+          some: {
+            type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+            start_at: { gte: since, lte: now },
+            OR: [
+              { status: 'CONCLUIDO' },
+              { validated_at: { not: null } },
+            ],
+          },
+        },
+      },
+      include: {
+        current_stage: {
+          select: { id: true, slug: true, name: true, color: true, emoji: true, is_won: true, is_lost: true },
+        },
+        conversations: {
+          orderBy: { last_message_at: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            inbox_id: true,
+            specialty: true,
+            last_message_at: true,
+            assigned_dentist: { select: { id: true, name: true } },
+          },
+        },
+        // Apenas o evento de avaliacao mais recente concluido (pra exibir
+        // data/dentista que atendeu no card)
+        calendar_events: {
+          where: {
+            type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+            start_at: { gte: since, lte: now },
+            OR: [
+              { status: 'CONCLUIDO' },
+              { validated_at: { not: null } },
+            ],
+          },
+          orderBy: { start_at: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            type: true,
+            title: true,
+            status: true,
+            start_at: true,
+            validated_at: true,
+            assigned_user: { select: { id: true, name: true } },
+          },
+        },
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+
+    // Anota cada lead com um "post_avaliacao_status" calculado pra o
+    // frontend agrupar facilmente. 4 buckets:
+    //   - 'em-tratamento'  : virou Patient + tem evento futuro
+    //   - 'com-orcamento'  : tem quote ativa (DRAFT/SENT)
+    //   - 'aguardando'     : sem orcamento, sem proximo evento (decisao em aberto)
+    //   - 'perdido'        : stage com is_lost=true
+    const leadIds = leads.map((l) => l.id);
+
+    // Carrega Patients vinculados aos leads (Quote pertence a Patient, nao Lead direto)
+    const patients = await this.prisma.patient.findMany({
+      where: { lead_id: { in: leadIds } },
+      select: { id: true, lead_id: true, name: true },
+    });
+    const patientIds = patients.map((p) => p.id);
+
+    const [activeQuotes, futureEvents] = await Promise.all([
+      patientIds.length > 0
+        ? this.prisma.quote.findMany({
+            where: {
+              patient_id: { in: patientIds },
+              status: { in: ['DRAFT', 'SENT'] },
+            },
+            select: { id: true, patient_id: true, status: true, total_value: true },
+          }).catch(() => [] as any[])
+        : Promise.resolve([] as any[]),
+      this.prisma.calendarEvent.findMany({
+        where: {
+          lead_id: { in: leadIds },
+          start_at: { gte: now },
+          status: { in: ['AGENDADO', 'CONFIRMADO'] },
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+        },
+        select: { lead_id: true, id: true, start_at: true, type: true },
+        orderBy: { start_at: 'asc' },
+      }),
+    ]);
+
+    const patientByLead = new Map<string, any>();
+    for (const p of patients) if (p.lead_id) patientByLead.set(p.lead_id, p);
+    // Quote pertence a Patient — encadeia patient_id -> lead_id pra agrupar por lead
+    const patientToLead = new Map<string, string>();
+    for (const p of patients) if (p.lead_id) patientToLead.set(p.id, p.lead_id);
+    const quotesByLead = new Map<string, any>();
+    for (const q of activeQuotes) {
+      const leadId = patientToLead.get(q.patient_id);
+      if (leadId) quotesByLead.set(leadId, q);
+    }
+    const eventByLead = new Map<string, any>();
+    for (const e of futureEvents) if (e.lead_id && !eventByLead.has(e.lead_id)) eventByLead.set(e.lead_id, e);
+
+    const enriched = leads.map((l) => {
+      const quote = quotesByLead.get(l.id) ?? null;
+      const upcoming = eventByLead.get(l.id) ?? null;
+      const patient = patientByLead.get(l.id) ?? null;
+      let bucket: 'em-tratamento' | 'com-orcamento' | 'aguardando' | 'perdido';
+      if (l.current_stage?.is_lost) bucket = 'perdido';
+      else if (patient && upcoming) bucket = 'em-tratamento';
+      else if (quote) bucket = 'com-orcamento';
+      else bucket = 'aguardando';
+
+      return {
+        ...l,
+        post_avaliacao: {
+          bucket,
+          quote,
+          upcoming_event: upcoming,
+          patient,
+        },
+      };
+    });
+
+    return enriched;
+  }
+
   async findOne(id: string, tenantId?: string): Promise<Lead | null> {
     const lead = await this.prisma.lead.findUnique({
       where: { id },
