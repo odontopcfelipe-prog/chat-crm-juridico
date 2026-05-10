@@ -568,7 +568,7 @@ function QuoteCard({
         </div>
       </button>
 
-      {/* CONTEUDO EXPANSIVEL — QuotePanel inline (sem valores) */}
+      {/* CONTEUDO EXPANSIVEL — Mini-odontograma + QuotePanel inline */}
       {expanded && (
         <div className="border-t border-border bg-background/30">
           {!expandedQuote ? (
@@ -577,18 +577,25 @@ function QuoteCard({
               Carregando procedimentos...
             </div>
           ) : (
-            <QuotePanel
-              patientId={patientId}
-              quote={expandedQuote}
-              procedures={procedures}
-              selectedTeeth={selectedTeeth}
-              onClearSelection={onClearSelection}
-              onQuoteChange={onQuoteChange}
-              loading={false}
-              lastAnnotation={lastAnnotation}
-              onAnnotationConsumed={onAnnotationConsumed}
-              compact
-            />
+            <>
+              {/* Onda 3.31 — Mini-odontograma de visualizacao do orcamento.
+                  Mostra todos os dentes; os que ja estao no orcamento ficam
+                  destacados com a cor da especialidade do procedimento.
+                  Read-only — pra editar, usa "+ procedimentos" no QuotePanel. */}
+              <QuoteMiniOdontograma items={expandedQuote.items} />
+              <QuotePanel
+                patientId={patientId}
+                quote={expandedQuote}
+                procedures={procedures}
+                selectedTeeth={selectedTeeth}
+                onClearSelection={onClearSelection}
+                onQuoteChange={onQuoteChange}
+                loading={false}
+                lastAnnotation={lastAnnotation}
+                onAnnotationConsumed={onAnnotationConsumed}
+                compact
+              />
+            </>
           )}
         </div>
       )}
@@ -674,6 +681,95 @@ function TeethRow({
               </span>
             )}
           </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ─── Mini-odontograma de visualizacao do orcamento (Onda 3.31) ─
+
+const FDI_MINI_SUP_DIR = ['18', '17', '16', '15', '14', '13', '12', '11'];
+const FDI_MINI_SUP_ESQ = ['21', '22', '23', '24', '25', '26', '27', '28'];
+const FDI_MINI_INF_ESQ = ['31', '32', '33', '34', '35', '36', '37', '38'];
+const FDI_MINI_INF_DIR = ['48', '47', '46', '45', '44', '43', '42', '41'];
+
+function QuoteMiniOdontograma({ items }: { items: QuoteItemLite[] }) {
+  // Mapa fdi -> primeiro item daquele dente (pra cor da especialidade)
+  const itemsByFdi = new Map<string, QuoteItemLite>();
+  for (const it of items) {
+    if (!it.tooth_fdi) continue;
+    if (!itemsByFdi.has(it.tooth_fdi)) itemsByFdi.set(it.tooth_fdi, it);
+  }
+  const totalLinked = itemsByFdi.size;
+  const totalUnlinked = items.filter((it) => !it.tooth_fdi).length;
+
+  return (
+    <div className="px-4 py-3 border-b border-border bg-card/40">
+      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+        <p className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground">
+          Visão dos dentes deste orçamento
+        </p>
+        <p className="text-[10px] text-muted-foreground">
+          <strong className="text-foreground">{totalLinked}</strong> dente(s) com procedimento
+          {totalUnlinked > 0 && (
+            <>
+              {' · '}
+              <span className="text-amber-700">{totalUnlinked} sem dente vinculado</span>
+            </>
+          )}
+        </p>
+      </div>
+      <div className="flex flex-col items-center gap-1">
+        <div className="flex justify-center gap-3">
+          <QuoteMiniRow fdiList={FDI_MINI_SUP_DIR} itemsByFdi={itemsByFdi} />
+          <div className="w-px bg-border" />
+          <QuoteMiniRow fdiList={FDI_MINI_SUP_ESQ} itemsByFdi={itemsByFdi} />
+        </div>
+        <div className="h-px bg-border w-full max-w-[420px]" />
+        <div className="flex justify-center gap-3">
+          <QuoteMiniRow fdiList={FDI_MINI_INF_DIR} itemsByFdi={itemsByFdi} />
+          <div className="w-px bg-border" />
+          <QuoteMiniRow fdiList={FDI_MINI_INF_ESQ} itemsByFdi={itemsByFdi} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuoteMiniRow({
+  fdiList, itemsByFdi,
+}: {
+  fdiList: string[];
+  itemsByFdi: Map<string, QuoteItemLite>;
+}) {
+  return (
+    <div className="flex gap-0.5">
+      {fdiList.map((fdi) => {
+        const item = itemsByFdi.get(fdi);
+        const specKey = item
+          ? item.procedure?.specialty?.id || item.procedure?.specialty_id || '__none__'
+          : null;
+        const color = specKey ? colorForSpecialty(specKey) : null;
+        const procName = item?.procedure?.name;
+        const inlineStyle: React.CSSProperties | undefined = color
+          ? {
+              backgroundColor: color.tint,
+              borderColor: color.bar,
+              color: color.bar,
+            }
+          : undefined;
+        return (
+          <div
+            key={fdi}
+            className={`w-7 h-7 rounded text-[10px] font-bold border-2 flex items-center justify-center transition-all ${
+              color ? '' : 'bg-background border-border text-muted-foreground/60'
+            }`}
+            style={inlineStyle}
+            title={procName ? `${fdi} — ${procName}` : `${fdi} — sem procedimento`}
+          >
+            {fdi}
+          </div>
         );
       })}
     </div>
