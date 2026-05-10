@@ -16,6 +16,14 @@ interface Props {
   // Usado quando a dra clica "Iniciar orcamento" na busca/ficha — o handler
   // cria DRAFT e redireciona pra ?tab=quotes&quote=<id>.
   initialQuoteId?: string;
+  /**
+   * Onda 3.34 — Quando true junto com initialQuoteId, abre o modal
+   * AddQuoteItemModal automaticamente apos carregar o detalhe. Usado pela
+   * aba Avaliação ao clicar "Iniciar nova avaliação" — cria o DRAFT
+   * vazio e ja abre direto a tela de adicionar procedimentos, pulando
+   * o "click no botao + Adicionar procedimentos" extra.
+   */
+  autoOpenAddItem?: boolean;
 }
 
 interface Procedure {
@@ -134,7 +142,7 @@ const STATUS_LABEL: Record<QuoteListItem['status'], string> = {
   EXPIRED: 'Expirado',
 };
 
-export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
+export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddItem }: Props) {
   const [list, setList] = useState<QuoteListItem[]>([]);
   const [current, setCurrent] = useState<QuoteDetail | null>(null);
   const [procedures, setProcedures] = useState<Procedure[]>([]);
@@ -205,6 +213,7 @@ export default function OrcamentoTab({ patientId, initialQuoteId }: Props) {
       <QuoteDetailView
         quote={current}
         procedures={procedures}
+        autoOpenAddItem={autoOpenAddItem}
         onBack={() => { setMode('list'); setCurrent(null); loadList(); }}
         onReload={async () => {
           const { data } = await api.get<QuoteDetail>(`/quotes/${current.id}`);
@@ -315,15 +324,26 @@ function expiryStatus(
 }
 
 function QuoteDetailView({
-  quote, procedures, onBack, onReload, onSwitchQuote,
+  quote, procedures, autoOpenAddItem, onBack, onReload, onSwitchQuote,
 }: {
   quote: QuoteDetail;
   procedures: Procedure[];
+  /** Onda 3.34 — Abre o modal AddQuoteItemModal automaticamente ao montar
+   * (so na primeira vez). Usado quando navega da Avaliacao com "?add=1". */
+  autoOpenAddItem?: boolean;
   onBack: () => void;
   onReload: () => Promise<void>;
   /** Onda 3.4 — abre outro quote sem passar pela lista (usado em "Duplicar como opcao") */
   onSwitchQuote?: (newQuoteId: string) => Promise<void>;
 }) {
+  // addingItem agora abre modal AddQuoteItemModal — nao mais form inline.
+  // Onda 3.34 — Inicializa true se autoOpenAddItem (navegou da Avaliacao
+  // clicando "Iniciar nova avaliacao"). Modal abre direto sem precisar do
+  // botao "+ Adicionar procedimentos".
+  // Onda 5 — botao "+ Adicionar procedimentos" foi removido da aba Orcamentos
+  // (so recebe e valida). Mas o state addingItem permanece pra suportar o
+  // fluxo da Avaliacao que abre o modal automaticamente via autoOpenAddItem.
+  const [addingItem, setAddingItem] = useState(!!autoOpenAddItem);
 
   // Cupom (Onda 2)
   const [couponCode, setCouponCode] = useState('');

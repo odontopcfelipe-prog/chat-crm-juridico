@@ -13,11 +13,15 @@ interface Props {
   patientName?: string;
   /**
    * Onda 3.33 — Quando definido, click num card de orcamento (ou em
-   * "Iniciar novo orcamento") chama esta callback em vez de expandir
+   * "Iniciar nova avaliacao") chama esta callback em vez de expandir
    * inline. O parent (PacienteFichaInner) navega pra aba Orcamentos
    * em modo detalhe — mais espaco, fluxo nao quebra com listas longas.
+   *
+   * Onda 3.34 — `options.autoOpenAddItem` sinaliza pro destino abrir
+   * o modal de procedimentos direto (usado quando criou um quote DRAFT
+   * vazio e ja quer comecar a montar).
    */
-  onOpenQuoteDetail?: (quoteId: string) => void;
+  onOpenQuoteDetail?: (quoteId: string, options?: { autoOpenAddItem?: boolean }) => void;
 }
 
 // Onda 3.1 — type local do procedimento (espelha o que vem da /procedures)
@@ -251,14 +255,16 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     await loadExpandedQuote(id);
   }, [onOpenQuoteDetail, expandedQuoteId, loadExpandedQuote]);
 
-  // Cria orcamento DRAFT vazio + abre detalhe (na aba Orcamentos via callback)
+  // Cria orcamento DRAFT vazio + abre detalhe (na aba Orcamentos via callback).
+  // Onda 3.34 — passa autoOpenAddItem=true pra que o modal de procedimentos
+  // abra direto, sem operador precisar clicar "+ Adicionar procedimentos".
   const createNewQuote = useCallback(async () => {
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
       showSuccess('Orçamento criado');
       await loadQuotesList();
       if (onOpenQuoteDetail) {
-        onOpenQuoteDetail(data.id);
+        onOpenQuoteDetail(data.id, { autoOpenAddItem: true });
       } else {
         // Fallback legacy: auto-expande inline
         setExpandedQuoteId(data.id);
