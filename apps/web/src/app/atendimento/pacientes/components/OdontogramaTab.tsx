@@ -11,6 +11,13 @@ interface Props {
   patientId: string;
   /** Onda 25.5 — nome do paciente exibido no cabecalho de impressao */
   patientName?: string;
+  /**
+   * Onda 3.33 — Quando definido, click num card de orcamento (ou em
+   * "Iniciar novo orcamento") chama esta callback em vez de expandir
+   * inline. O parent (PacienteFichaInner) navega pra aba Orcamentos
+   * em modo detalhe — mais espaco, fluxo nao quebra com listas longas.
+   */
+  onOpenQuoteDetail?: (quoteId: string) => void;
 }
 
 // Onda 3.1 — type local do procedimento (espelha o que vem da /procedures)
@@ -148,7 +155,7 @@ const FACES = ['M', 'D', 'O', 'V', 'L', 'INCISAL'] as const;
 
 const STATE_CLS: Record<string, string> = Object.fromEntries(STATES.map((s) => [s.v, s.cls]));
 
-export default function OdontogramaTab({ patientId, patientName }: Props) {
+export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDetail }: Props) {
   const [odonto, setOdonto] = useState<Odontogram | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedTooth, setSelectedTooth] = useState<string | null>(null);
@@ -225,32 +232,43 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
     ]);
   }, [loadQuotesList, expandedQuoteId, loadExpandedQuote]);
 
-  // Toggle expansion: clica no card pra expandir; clica no expandido pra fechar.
-  // Single-expand: so 1 orcamento aberto por vez (UX accordion clean).
-  const toggleExpand = useCallback(async (id: string) => {
+  // Onda 3.33 — Click num card abre o detalhe na aba Orçamentos (em vez
+  // de expandir inline). Mais espaço, fluxo limpo. Fallback pra expansão
+  // inline se onOpenQuoteDetail nao for passada (back-compat).
+  const openQuoteDetail = useCallback(async (id: string) => {
+    if (onOpenQuoteDetail) {
+      onOpenQuoteDetail(id);
+      return;
+    }
+    // Fallback: expansão inline (legacy)
     if (expandedQuoteId === id) {
       setExpandedQuoteId(null);
       setExpandedQuote(null);
       return;
     }
     setExpandedQuoteId(id);
-    setExpandedQuote(null); // limpa enquanto carrega
+    setExpandedQuote(null);
     await loadExpandedQuote(id);
-  }, [expandedQuoteId, loadExpandedQuote]);
+  }, [onOpenQuoteDetail, expandedQuoteId, loadExpandedQuote]);
 
-  // Cria orcamento DRAFT vazio + auto-expande pra edicao imediata
+  // Cria orcamento DRAFT vazio + abre detalhe (na aba Orcamentos via callback)
   const createNewQuote = useCallback(async () => {
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
-      showSuccess('Orcamento criado');
+      showSuccess('Orçamento criado');
       await loadQuotesList();
-      setExpandedQuoteId(data.id);
-      await loadExpandedQuote(data.id);
+      if (onOpenQuoteDetail) {
+        onOpenQuoteDetail(data.id);
+      } else {
+        // Fallback legacy: auto-expande inline
+        setExpandedQuoteId(data.id);
+        await loadExpandedQuote(data.id);
+      }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao criar orcamento');
     }
-  }, [patientId, loadQuotesList, loadExpandedQuote]);
+  }, [patientId, loadQuotesList, loadExpandedQuote, onOpenQuoteDetail]);
 
   // Atualiza titulo do orcamento (edicao inline no card)
   const updateQuoteTitle = useCallback(async (id: string, title: string) => {
@@ -436,7 +454,7 @@ export default function OdontogramaTab({ patientId, patientName }: Props) {
                 index={quotesList.length - idx}
                 expanded={expandedQuoteId === q.id}
                 expandedQuote={expandedQuoteId === q.id ? expandedQuote : null}
-                onToggleExpand={() => toggleExpand(q.id)}
+                onToggleExpand={() => openQuoteDetail(q.id)}
                 onRename={(newTitle) => updateQuoteTitle(q.id, newTitle)}
                 onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
                 patientId={patientId}

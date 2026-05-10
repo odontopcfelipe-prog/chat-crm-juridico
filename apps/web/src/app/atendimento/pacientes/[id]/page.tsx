@@ -401,7 +401,18 @@ function PacienteFichaInner() {
       )}
       {tab === 'anamnesis' && <AnamneseTab patientId={patient.id} />}
       {tab === 'medical-record' && <ProntuarioTab patientId={patient.id} />}
-      {tab === 'odontogram' && <OdontogramaTab patientId={patient.id} patientName={patient.name} />}
+      {tab === 'odontogram' && (
+        <OdontogramaTab
+          patientId={patient.id}
+          patientName={patient.name}
+          onOpenQuoteDetail={(quoteId) => {
+            // Onda 3.33 — Click em quote da Avaliacao -> navega pra aba
+            // Orcamentos em modo detalhe (em vez de expandir inline).
+            router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
+            setTab('quotes');
+          }}
+        />
+      )}
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
