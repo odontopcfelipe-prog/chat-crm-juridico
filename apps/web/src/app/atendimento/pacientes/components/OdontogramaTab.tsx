@@ -433,7 +433,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
               onClick={createNewQuote}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition"
             >
-              <DollarSign size={16} /> Iniciar orcamento
+              <DollarSign size={16} /> Iniciar nova avaliação
             </button>
           </div>
         ) : (
@@ -445,7 +445,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
               onClick={createNewQuote}
               className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
             >
-              <DollarSign size={18} /> Iniciar novo orçamento
+              <DollarSign size={18} /> Iniciar nova avaliação
             </button>
             {quotesList.map((q, idx) => (
               <QuoteCard
