@@ -1,18 +1,14 @@
 'use client';
 
 /**
- * AddQuoteItemModal — modal pra adicionar procedimento ao orçamento.
+ * AddQuoteItemModal — modal pra adicionar procedimentos ao orçamento.
  *
- * UX otimizada pra ser usada MUITO:
- *  - Search instantânea no topo (autofocus)
- *  - Procedimentos agrupados por especialidade (collapse) com cor lateral
- *  - Click adiciona à "cesta de seleção" (lado direito)
- *  - Cada item da cesta: dente FDI editável + qtd + preço unitário pré-preenchido
- *  - Adicionar tudo de uma vez OU cancelar
- *  - "Salvar e adicionar mais" mantém modal aberto pra add em sequência
- *
- * Resolve dor: form inline antes era cramped/abaixo do scroll, com <select>
- * nativo difícil de usar com 30+ procedimentos.
+ * Visão clínica (sem valores monetários):
+ *  - Search instantânea (autofocus) + procedimentos agrupados por especialidade
+ *  - Click adiciona à cesta lateral (item ativo destacado)
+ *  - Mini-odontograma no topo: click num dente toggla no item ATIVO
+ *  - Cada item da cesta vira N procedimentos no submit (1 por dente)
+ *  - Sem preços visíveis aqui — preços moram só na aba Orçamentos
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -34,10 +30,11 @@ interface Procedure {
 interface BasketItem {
   procedure_id: string;
   procedure_name: string;
-  base_price: number;
   unit_price: string;
   quantity: number;
-  tooth_fdi: string;
+  /** Onda 3.35 — array de dentes (em vez de string única). Click no
+   *  mini-odontograma adiciona/remove. Submit expande em N POSTs. */
+  tooth_fdis: string[];
 }
 
 interface Props {
@@ -48,9 +45,7 @@ interface Props {
   onAdded: () => void | Promise<void>;
   /**
    * Onda 3.1 — dentes pre-selecionados via odontograma. Quando preenchido,
-   * mostra header indicando "Aplicar a X dentes" + toggle multiplicar/unificar.
-   * Ao adicionar procedimento da lista, cria N items (multiplicar) ou 1
-   * item agregado (unificar).
+   * o primeiro procedimento adicionado herda esses dentes.
    */
   prefillTeeth?: string[];
 }
@@ -68,22 +63,19 @@ function colorForSpecialty(key: string): string {
   return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
 }
 
-const formatBRL = (v: number | string) =>
-  Number(v).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-
 export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth }: Props) {
   const [search, setSearch] = useState('');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [saving, setSaving] = useState(false);
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  // Onda 3.1 — quando vem do odontograma com N dentes, escolhe modo:
-  //   multiplicar: cria N items (cada dente cobrado 1x)
-  //   unificar:    cria 1 item (cobra 1x, lista dentes nas notas)
-  // Default: multiplicar (caso mais comum em odonto — tratar varios dentes)
-  const [teethMode, setTeethMode] = useState<'multiply' | 'unify'>('multiply');
+  // Onda 3.35 — Item ATIVO da cesta. Mini-odontograma reflete os dentes desse
+  // item; click num dente do mini adiciona/remove do item ativo.
+  const [activeBasketIdx, setActiveBasketIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const hasPrefilledTeeth = prefillTeeth && prefillTeeth.length > 0;
+  const hasPrefilledTeeth = !!(prefillTeeth && prefillTeeth.length > 0);
+  const activeItem = activeBasketIdx !== null ? basket[activeBasketIdx] : null;
+  const prefilledConsumedRef = useRef(false);
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -122,70 +114,70 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   };
 
   const addToBasket = (p: Procedure) => {
-    // Onda 3.1 — se vem do odontograma com dentes pre-selecionados, aplica
-    // o modo escolhido (multiplicar/unificar) e adiciona items correspondentes.
-    if (hasPrefilledTeeth && prefillTeeth) {
-      if (teethMode === 'multiply') {
-        // 1 item por dente — facilita renegociar/remover individualmente
-        const newItems: BasketItem[] = prefillTeeth.map((tooth) => ({
-          procedure_id: p.id,
-          procedure_name: p.name,
-          base_price: Number(p.base_price),
-          unit_price: String(p.base_price),
-          quantity: 1,
-          tooth_fdi: tooth,
-        }));
-        setBasket([...basket, ...newItems]);
-      } else {
-        // Modo unificar: 1 item agregado, dentes listados no campo tooth_fdi
-        // (separados por vírgula). Permite "Limpeza geral" que cobre tudo.
-        setBasket([
-          ...basket,
-          {
-            procedure_id: p.id,
-            procedure_name: p.name,
-            base_price: Number(p.base_price),
-            unit_price: String(p.base_price),
-            quantity: 1,
-            tooth_fdi: prefillTeeth.join(', '),
-          },
-        ]);
-      }
-      return;
-    }
-
-    // Comportamento default (sem dentes pre-selecionados):
-    // Se ja esta na cesta, incrementa qty
-    const existing = basket.find((b) => b.procedure_id === p.id);
-    if (existing) {
-      setBasket(basket.map((b) =>
-        b.procedure_id === p.id ? { ...b, quantity: b.quantity + 1 } : b,
-      ));
-    } else {
-      setBasket([
-        ...basket,
-        {
-          procedure_id: p.id,
-          procedure_name: p.name,
-          base_price: Number(p.base_price),
-          unit_price: String(p.base_price),
-          quantity: 1,
-          tooth_fdi: '',
-        },
-      ]);
-    }
+    // Primeiro add com prefillTeeth: usa os dentes pre-selecionados.
+    // Demais adds começam com array vazio (operador clica no mini-odontograma).
+    const initialTeeth = !prefilledConsumedRef.current && hasPrefilledTeeth && prefillTeeth
+      ? [...prefillTeeth]
+      : [];
+    if (initialTeeth.length > 0) prefilledConsumedRef.current = true;
+    const newItem: BasketItem = {
+      procedure_id: p.id,
+      procedure_name: p.name,
+      unit_price: String(p.base_price),
+      quantity: 1,
+      tooth_fdis: initialTeeth,
+    };
+    setBasket((prev) => {
+      const next = [...prev, newItem];
+      setActiveBasketIdx(next.length - 1);
+      return next;
+    });
   };
 
   const updateBasketItem = (idx: number, patch: Partial<BasketItem>) => {
-    setBasket(basket.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
+    setBasket((prev) => prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)));
   };
 
   const removeFromBasket = (idx: number) => {
-    setBasket(basket.filter((_, i) => i !== idx));
+    setBasket((prev) => prev.filter((_, i) => i !== idx));
+    setActiveBasketIdx((prev) => {
+      if (prev === idx) return null;
+      if (prev !== null && prev > idx) return prev - 1;
+      return prev;
+    });
   };
 
-  const basketSubtotal = basket.reduce(
-    (acc, b) => acc + Number(b.unit_price || 0) * b.quantity,
+  // Click no dente do mini-odontograma → toggla no item ativo
+  const toggleToothInActive = (fdi: string) => {
+    if (activeBasketIdx === null) {
+      showError('Selecione um procedimento da cesta primeiro');
+      return;
+    }
+    const item = basket[activeBasketIdx];
+    if (!item) return;
+    const hasIt = item.tooth_fdis.includes(fdi);
+    const newFdis = hasIt
+      ? item.tooth_fdis.filter((f) => f !== fdi)
+      : [...item.tooth_fdis, fdi].sort();
+    updateBasketItem(activeBasketIdx, { tooth_fdis: newFdis });
+  };
+
+  // Mapa fdi → nome do OUTRO procedimento que ja usa esse dente
+  // (pra renderizar com cor amber no mini-odontograma)
+  const otherUsedFdis = useMemo(() => {
+    const m = new Map<string, string>();
+    basket.forEach((it, i) => {
+      if (i === activeBasketIdx) return;
+      it.tooth_fdis.forEach((fdi) => {
+        if (!m.has(fdi)) m.set(fdi, it.procedure_name);
+      });
+    });
+    return m;
+  }, [basket, activeBasketIdx]);
+
+  // Total de items REAIS apos expansao tooth_fdis
+  const totalItemsToCreate = basket.reduce(
+    (acc, it) => acc + Math.max(it.tooth_fdis.length, 1),
     0,
   );
 
@@ -196,19 +188,26 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     }
     setSaving(true);
     try {
-      // Submete em sequencia (poderia paralelizar, mas mantem ordem)
+      // Expande tooth_fdis em N POSTs (1 por dente). Sem dentes = 1 POST.
+      // Onda 3.21 — qty sempre 1 quando ha dentes (cada dente = 1 procedimento).
       for (const it of basket) {
-        await api.post(`/quotes/${quoteId}/items`, {
-          procedure_id: it.procedure_id,
-          quantity: it.quantity,
-          unit_price: it.unit_price === '' ? undefined : Number(it.unit_price),
-          tooth_fdi: it.tooth_fdi || undefined,
-        });
+        const teeth = it.tooth_fdis.length > 0 ? it.tooth_fdis : [null];
+        const qtyPerPost = it.tooth_fdis.length > 0 ? 1 : it.quantity;
+        for (const tooth of teeth) {
+          await api.post(`/quotes/${quoteId}/items`, {
+            procedure_id: it.procedure_id,
+            quantity: qtyPerPost,
+            unit_price: it.unit_price === '' ? undefined : Number(it.unit_price),
+            tooth_fdi: tooth || undefined,
+          });
+        }
       }
-      showSuccess(`${basket.length} procedimento(s) adicionado(s)`);
+      showSuccess(`${totalItemsToCreate} procedimento(s) adicionado(s)`);
       await onAdded();
       if (keepOpen) {
         setBasket([]);
+        setActiveBasketIdx(null);
+        prefilledConsumedRef.current = false;
         setSearch('');
         setTimeout(() => inputRef.current?.focus(), 50);
       } else {
@@ -241,52 +240,14 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           </button>
         </div>
 
-        {/* Onda 3.1 — banner quando vem do odontograma com dentes pre-selecionados */}
-        {hasPrefilledTeeth && prefillTeeth && (
-          <div className="px-4 py-2.5 bg-primary/5 border-b border-primary/20 flex items-center gap-3 flex-wrap">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-semibold text-primary">
-                {prefillTeeth.length} {prefillTeeth.length === 1 ? 'dente' : 'dentes'} selecionado{prefillTeeth.length === 1 ? '' : 's'}:
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {prefillTeeth.map((t) => (
-                  <span
-                    key={t}
-                    className="inline-flex items-center px-1.5 py-0.5 rounded font-mono text-xs bg-primary text-primary-foreground"
-                  >
-                    {t}
-                  </span>
-                ))}
-              </div>
-            </div>
-            <div className="ml-auto flex items-center gap-1 bg-background border border-border rounded-lg p-0.5">
-              <button
-                type="button"
-                onClick={() => setTeethMode('multiply')}
-                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-                  teethMode === 'multiply'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title={`Cria 1 item por dente (cobra ${prefillTeeth.length}x)`}
-              >
-                Multiplicar valor
-              </button>
-              <button
-                type="button"
-                onClick={() => setTeethMode('unify')}
-                className={`px-2.5 py-1 text-xs rounded font-medium transition-colors ${
-                  teethMode === 'unify'
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-                title="Cria 1 item unico cobrindo todos os dentes (cobra 1x)"
-              >
-                Unificar
-              </button>
-            </div>
-          </div>
-        )}
+        {/* Mini-odontograma — click toggla dente do item ativo */}
+        <MiniOdontograma
+          activeFdis={activeItem?.tooth_fdis || []}
+          activeProcedureName={activeItem?.procedure_name}
+          otherUsedFdis={otherUsedFdis}
+          onToggle={toggleToothInActive}
+          hasActive={activeBasketIdx !== null}
+        />
 
         {/* Body — 2 colunas: lista (esq) + cesta (dir) */}
         <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_360px] gap-0 overflow-hidden">
@@ -319,7 +280,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                 </div>
               ) : grouped.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
-                  Nenhum procedimento corresponde a "{search}"
+                  Nenhum procedimento corresponde a &quot;{search}&quot;
                 </div>
               ) : (
                 grouped.map((g) => {
@@ -351,7 +312,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                       {!collapsed && (
                         <div className="divide-y divide-border">
                           {g.items.map((p) => {
-                            const inBasket = basket.find((b) => b.procedure_id === p.id);
+                            // Onda 3.35 — count efetivo apos expansao de dentes
+                            const inBasketEffectiveCount = basket
+                              .filter((b) => b.procedure_id === p.id)
+                              .reduce((acc, b) => acc + Math.max(b.tooth_fdis.length, 1), 0);
                             return (
                               <button
                                 key={p.id}
@@ -361,7 +325,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                               >
                                 <Plus
                                   size={14}
-                                  className={inBasket ? 'text-primary' : 'text-muted-foreground'}
+                                  className={inBasketEffectiveCount > 0 ? 'text-primary' : 'text-muted-foreground'}
                                 />
                                 <div className="flex-1 min-w-0">
                                   <div className="text-sm font-medium truncate">{p.name}</div>
@@ -370,12 +334,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                                     {p.duration_minutes && <span>{p.duration_minutes} min</span>}
                                   </div>
                                 </div>
-                                <div className="text-sm font-semibold text-foreground">
-                                  {formatBRL(p.base_price)}
-                                </div>
-                                {inBasket && (
+                                {/* Onda 3.35 — preco removido (visao clinica
+                                    pura no modal). Indicador "Nx" mantido. */}
+                                {inBasketEffectiveCount > 0 && (
                                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">
-                                    {inBasket.quantity}×
+                                    {inBasketEffectiveCount}×
                                   </span>
                                 )}
                               </button>
@@ -407,85 +370,128 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   Click nos procedimentos da esquerda pra adicionar à cesta.
                 </div>
               ) : (
-                basket.map((it, idx) => (
-                  <div key={idx} className="bg-card border border-border rounded-lg p-2 space-y-1.5">
-                    <div className="flex items-start justify-between gap-2">
-                      <p className="text-xs font-medium truncate flex-1" title={it.procedure_name}>
-                        {it.procedure_name}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => removeFromBasket(idx)}
-                        className="text-muted-foreground hover:text-destructive shrink-0"
-                      >
-                        <X size={12} />
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-3 gap-1">
-                      <div>
-                        <label className="text-[9px] text-muted-foreground block">Qtd</label>
-                        <div className="flex items-center border border-border rounded">
-                          <button
-                            type="button"
-                            onClick={() => updateBasketItem(idx, { quantity: Math.max(1, it.quantity - 1) })}
-                            className="px-1 hover:bg-accent"
-                          >
-                            <Minus size={10} />
-                          </button>
-                          <input
-                            type="number"
-                            min={1}
-                            value={it.quantity}
-                            onChange={(e) => updateBasketItem(idx, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                            className="w-full px-1 py-1 text-xs text-center bg-transparent focus:outline-none"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => updateBasketItem(idx, { quantity: it.quantity + 1 })}
-                            className="px-1 hover:bg-accent"
-                          >
-                            <Plus size={10} />
-                          </button>
+                basket.map((it, idx) => {
+                  const isActive = activeBasketIdx === idx;
+                  const hasTeeth = it.tooth_fdis.length > 0;
+                  const effectiveQty = hasTeeth ? it.tooth_fdis.length : it.quantity;
+                  return (
+                    <div
+                      key={idx}
+                      onClick={() => setActiveBasketIdx(idx)}
+                      className={`bg-card border rounded-lg p-2 space-y-1.5 cursor-pointer transition-colors ${
+                        isActive
+                          ? 'border-primary shadow-sm bg-primary/5'
+                          : 'border-border hover:border-primary/30'
+                      }`}
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex-1 min-w-0 flex items-center gap-1.5">
+                          {isActive && (
+                            <span className="text-[10px] font-bold uppercase text-primary">
+                              ← Editando
+                            </span>
+                          )}
+                          <p className="text-xs font-medium truncate" title={it.procedure_name}>
+                            {it.procedure_name}
+                          </p>
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary shrink-0">
+                            {effectiveQty}×
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeFromBasket(idx); }}
+                          className="text-muted-foreground hover:text-destructive shrink-0"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+
+                      {/* Qtd + Dentes na mesma linha. Qtd auto-derivada quando
+                          ha dentes (1 por dente); manual quando sem dentes
+                          (procedimentos genericos como "Avaliacao inicial"). */}
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {hasTeeth ? (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] text-muted-foreground">Qtd:</span>
+                            <span className="text-xs font-bold text-primary px-1.5 py-0.5 rounded bg-primary/10">
+                              {it.tooth_fdis.length}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground italic">
+                              (1 por dente)
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex items-center gap-1 shrink-0">
+                            <span className="text-[10px] text-muted-foreground">Qtd:</span>
+                            <div className="flex items-center border border-border rounded">
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); updateBasketItem(idx, { quantity: Math.max(1, it.quantity - 1) }); }}
+                                className="px-1 hover:bg-accent"
+                              >
+                                <Minus size={10} />
+                              </button>
+                              <input
+                                type="number"
+                                min={1}
+                                value={it.quantity}
+                                onClick={(e) => e.stopPropagation()}
+                                onChange={(e) => updateBasketItem(idx, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
+                                className="w-10 px-1 py-1 text-xs text-center bg-transparent focus:outline-none"
+                              />
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); updateBasketItem(idx, { quantity: it.quantity + 1 }); }}
+                                className="px-1 hover:bg-accent"
+                              >
+                                <Plus size={10} />
+                              </button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="h-5 w-px bg-border" />
+
+                        <div className="flex items-center gap-1 flex-wrap flex-1 min-w-0">
+                          <span className="text-[10px] text-muted-foreground shrink-0">Dentes:</span>
+                          {it.tooth_fdis.length === 0 ? (
+                            <span className="text-[10px] text-muted-foreground italic">
+                              clique no odontograma acima
+                            </span>
+                          ) : (
+                            it.tooth_fdis.map((fdi) => (
+                              <button
+                                key={fdi}
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  updateBasketItem(idx, {
+                                    tooth_fdis: it.tooth_fdis.filter((f) => f !== fdi),
+                                  });
+                                }}
+                                className="inline-flex items-center gap-0.5 pl-1.5 pr-1 py-0.5 rounded font-mono text-[10px] bg-primary text-primary-foreground hover:bg-primary/80 group"
+                                title={`Remover dente ${fdi}`}
+                              >
+                                {fdi}
+                                <X size={10} className="opacity-60 group-hover:opacity-100" />
+                              </button>
+                            ))
+                          )}
                         </div>
                       </div>
-                      <div>
-                        <label className="text-[9px] text-muted-foreground block">Dente</label>
-                        <input
-                          type="text"
-                          value={it.tooth_fdi}
-                          onChange={(e) => updateBasketItem(idx, { tooth_fdi: e.target.value })}
-                          placeholder="—"
-                          className="w-full px-1.5 py-1 text-xs rounded border border-border bg-background"
-                        />
-                      </div>
-                      <div>
-                        <label className="text-[9px] text-muted-foreground block">Unit. R$</label>
-                        <input
-                          type="number"
-                          step="0.01"
-                          min={0}
-                          value={it.unit_price}
-                          onChange={(e) => updateBasketItem(idx, { unit_price: e.target.value })}
-                          className="w-full px-1.5 py-1 text-xs rounded border border-border bg-background"
-                        />
-                      </div>
                     </div>
-                    <div className="text-right text-xs font-semibold text-primary">
-                      = {formatBRL(Number(it.unit_price || 0) * it.quantity)}
-                    </div>
-                  </div>
-                ))
+                  );
+                })
               )}
             </div>
 
+            {/* Onda 3.35 — Rodape simplificado: total de items reais (apos
+                expansao tooth_fdis). SEM subtotal monetario — modal eh visao
+                clinica pura. */}
             {basket.length > 0 && (
-              <div className="p-3 border-t border-border bg-background/50">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-xs text-muted-foreground">Subtotal da cesta</span>
-                  <span className="text-base font-bold text-primary">
-                    {formatBRL(basketSubtotal)}
-                  </span>
-                </div>
+              <div className="p-3 border-t border-border bg-background/50 text-xs text-muted-foreground">
+                <strong className="text-foreground">{totalItemsToCreate}</strong> procedimento(s) ser&atilde;o adicionado(s)
               </div>
             )}
           </div>
@@ -518,7 +524,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            Adicionar {basket.length > 0 && `(${basket.length})`}
+            Adicionar {basket.length > 0 && `(${totalItemsToCreate})`}
           </button>
         </div>
       </div>
@@ -542,7 +548,7 @@ function MiniOdontograma({
 }: {
   activeFdis: string[];
   activeProcedureName?: string;
-  /** Onda 3.29 — fdi → nome do outro procedimento que ja usa esse dente */
+  /** fdi → nome do outro procedimento que ja usa esse dente */
   otherUsedFdis: Map<string, string>;
   onToggle: (fdi: string) => void;
   hasActive: boolean;
