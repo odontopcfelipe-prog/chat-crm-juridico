@@ -540,9 +540,20 @@ function QuoteCard({
     setTitleDraft(null);
   };
 
+  // Onda 3.38 — Card com fundo destacado pra orcamentos APROVADOS (verde
+  // emerald) e REJEITADOS (vermelho suave). DRAFT/SENT/EXPIRED ficam com
+  // fundo padrao. Da pra distinguir de relance na lista cheia.
+  const isAccepted = quote.status === 'ACCEPTED';
+  const isRejected = quote.status === 'REJECTED';
+  const cardBg = isAccepted
+    ? 'bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-500/50'
+    : isRejected
+    ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40'
+    : 'bg-card border-border hover:border-primary/30';
+
   return (
-    <div className={`bg-card border rounded-xl overflow-hidden transition-colors ${
-      expanded ? 'border-primary/40 shadow-sm' : 'border-border hover:border-primary/30'
+    <div className={`border rounded-xl overflow-hidden transition-colors ${
+      expanded ? 'border-primary/40 shadow-sm bg-card' : cardBg
     }`}>
       {/* HEADER — sempre visivel, click expande/colapsa */}
       <button
