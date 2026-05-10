@@ -254,18 +254,37 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
             const isRemainder =
               (q.notes || '').startsWith('[Resto de aprovacao parcial')
               || q.title === 'Procedimento restante';
+            // Onda 5 — destaque visual pro status ACCEPTED (fundo verde +
+            // borda esquerda emerald) pra equipe identificar de relance os
+            // orcamentos fechados/aceitos.
+            const isAccepted = q.status === 'ACCEPTED';
+
+            const rowCls = isAccepted
+              ? 'bg-emerald-50 dark:bg-emerald-950/30 border-l-4 border-emerald-500 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50'
+              : isRemainder
+              ? 'bg-amber-50/50 dark:bg-amber-950/20 border-l-4 border-amber-400 hover:bg-accent/40'
+              : 'hover:bg-accent/40';
+            const iconCls = isAccepted
+              ? 'text-emerald-600'
+              : isRemainder
+              ? 'text-amber-600'
+              : 'text-primary';
+            const titleCls = isAccepted
+              ? 'text-emerald-800 dark:text-emerald-200'
+              : isRemainder
+              ? 'text-amber-700'
+              : 'text-foreground';
+
             return (
               <li
                 key={q.id}
                 onClick={() => openDetail(q.id)}
-                className={`px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3 ${
-                  isRemainder ? 'bg-amber-50/50 dark:bg-amber-950/20 border-l-4 border-amber-400' : ''
-                }`}
+                className={`px-4 py-3 cursor-pointer flex items-center gap-3 ${rowCls}`}
               >
-                <DollarSign size={18} className={`shrink-0 ${isRemainder ? 'text-amber-600' : 'text-primary'}`} />
+                <DollarSign size={18} className={`shrink-0 ${iconCls}`} />
                 <div className="flex-1 min-w-0">
                   {q.title && (
-                    <p className={`text-sm font-semibold flex items-center gap-2 ${isRemainder ? 'text-amber-700' : 'text-foreground'}`}>
+                    <p className={`text-sm font-semibold flex items-center gap-2 ${titleCls}`}>
                       {q.title}
                       {isRemainder && (
                         <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800 font-medium">
@@ -274,7 +293,7 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                       )}
                     </p>
                   )}
-                  <p className="text-sm font-medium text-foreground">
+                  <p className={`text-sm font-medium ${isAccepted ? 'text-emerald-900 dark:text-emerald-100 font-bold' : 'text-foreground'}`}>
                     R$ {Number(q.total_value).toFixed(2)}
                     {q._count && <span className="text-xs text-muted-foreground ml-2">({q._count.items} itens)</span>}
                   </p>
