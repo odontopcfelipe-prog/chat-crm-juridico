@@ -991,12 +991,11 @@ function QuoteDetailView({
         {/* Layout adapta — adiciona col "Selecionados" quando ha selecao parcial */}
         {(() => {
           const hasDiscount = Number(quote.discount_value) > 0;
-          // Subtotal removido — espaco agora e ocupado pelo card "Selecionados"
-          // que mostra o total dos itens marcados (R$ 0,00 quando nada marcado).
-          const cols = 1 + (hasDiscount ? 1 : 0) + 1; // Selecionados | [Desconto] | Total
-          const gridCls = cols === 3 ? 'md:grid-cols-3' : 'md:grid-cols-2';
+          // Onda 6 — Layout EMPILHADO (1 coluna). Selecionados em cima,
+          // depois Desconto (se houver), depois Total. Total fica abaixo
+          // pra leitura natural de cima pra baixo.
           return (
-            <div className={`grid grid-cols-2 gap-4 text-sm ${gridCls}`}>
+            <div className="flex flex-col gap-3 text-sm">
               <div>
                 <p className="text-xs text-emerald-700">
                   Selecionados ({partialSelection.size})
@@ -1013,7 +1012,7 @@ function QuoteDetailView({
                   </p>
                 </div>
               )}
-              <div className="col-span-2 md:col-span-1">
+              <div className="pt-3 border-t border-border/60">
                 <p className="text-xs text-muted-foreground">Total</p>
                 <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
                 {/* Tempo de cadeira (soma duration_minutes * quantity) */}
