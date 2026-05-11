@@ -84,6 +84,8 @@ interface QuoteListItem {
   created_at: string;
   valid_until: string | null;
   closing_category: ClosingCategory;
+  /// Onda 6.4 — prioridade clinica definida pelo dentista
+  priority?: 'COMPLETO' | 'ESSENCIAL' | 'URGENTE' | null;
   _count?: { items: number };
   created_by?: { id: string; name: string };
 }
@@ -619,6 +621,19 @@ function QuoteCard({
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
           {STATUS_LABEL[quote.status]}
         </span>
+        {/* Onda 6.4 — badge da prioridade clinica */}
+        {quote.priority && quote.priority !== 'COMPLETO' && (
+          <span
+            className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
+              quote.priority === 'URGENTE'
+                ? 'bg-red-500/15 text-red-700 border-red-500/30'
+                : 'bg-amber-500/15 text-amber-700 border-amber-500/30'
+            }`}
+            title={quote.priority === 'URGENTE' ? 'Urgência clínica' : 'Procedimento essencial'}
+          >
+            {quote.priority === 'URGENTE' ? '🔥 URGENTE' : '⚠ ESSENCIAL'}
+          </span>
+        )}
         <div className="flex flex-col text-xs text-muted-foreground">
           <span>
             {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}

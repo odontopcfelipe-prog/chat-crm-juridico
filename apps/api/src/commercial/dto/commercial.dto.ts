@@ -42,6 +42,8 @@ export class UpdateQuoteDto {
   @IsOptional() @IsString() payment_terms?: string;
   @IsOptional() @IsString() notes?: string;
   @IsOptional() @IsString() title?: string;
+  /// Onda 6 — prioridade clinica: COMPLETO | ESSENCIAL | URGENTE | null
+  @IsOptional() @IsString() priority?: string | null;
 }
 
 export class RejectQuoteDto {

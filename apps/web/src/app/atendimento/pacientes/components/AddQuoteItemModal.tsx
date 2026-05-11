@@ -52,6 +52,7 @@ interface ExistingQuoteItem {
 interface QuoteData {
   id: string;
   title: string | null;
+  priority: string | null;
   items: ExistingQuoteItem[];
 }
 
@@ -102,12 +103,19 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   const [specialtyFilter, setSpecialtyFilter] = useState<string>('__all__');
   // Onda 6 — toggle Adulto/Infantil (visual; dentes deciduos podem vir depois)
   const [dentitionMode, setDentitionMode] = useState<'adult' | 'child'>('adult');
+  // Onda 6.4 — Prioridade clinica (Avaliacao). Dentista classifica o orcamento
+  // como COMPLETO (tratamento completo, default) | ESSENCIAL (importante) |
+  // URGENTE (precisa hoje). Recepcao usa pra priorizar o fechamento.
+  type Priority = 'COMPLETO' | 'ESSENCIAL' | 'URGENTE';
+  const [priority, setPriority] = useState<Priority>('COMPLETO');
+  const [originalPriority, setOriginalPriority] = useState<Priority>('COMPLETO');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasPrefilledTeeth = !!(prefillTeeth && prefillTeeth.length > 0);
   const activeItem = activeBasketIdx !== null ? basket[activeBasketIdx] : null;
   const prefilledConsumedRef = useRef(false);
   const titleChanged = titleDraft.trim() !== originalTitle.trim();
+  const priorityChanged = priority !== originalPriority;
 
   useEffect(() => {
     setTimeout(() => inputRef.current?.focus(), 50);
@@ -128,6 +136,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         const t = data.title || '';
         setTitleDraft(t);
         setOriginalTitle(t);
+        const pri = (data.priority === 'ESSENCIAL' || data.priority === 'URGENTE')
+          ? data.priority
+          : 'COMPLETO';
+        setPriority(pri);
+        setOriginalPriority(pri);
         const items: BasketItem[] = data.items.map((it) => ({
           id: it.id,
           procedure_id: it.procedure_id,
@@ -290,6 +303,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     newItemsCount > 0
     || removedIds.size > 0
     || titleChanged
+    || priorityChanged
     || itemsWithChangedTeeth.length > 0;
 
   const submit = async (keepOpen: boolean) => {
@@ -299,9 +313,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     }
     setSaving(true);
     try {
-      if (titleChanged) {
+      if (titleChanged || priorityChanged) {
         await api.patch(`/quotes/${quoteId}`, {
-          title: titleDraft.trim() || null,
+          ...(titleChanged ? { title: titleDraft.trim() || null } : {}),
+          ...(priorityChanged ? { priority } : {}),
         });
       }
       for (const id of removedIds) {
@@ -348,6 +363,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         updatedCount > 0 ? `${updatedCount} atualizado(s)` : null,
         removedIds.size > 0 ? `-${removedIds.size} removido(s)` : null,
         titleChanged && titleDraft.trim() ? `nome: "${titleDraft.trim()}"` : null,
+        priorityChanged ? `prioridade: ${priority}` : null,
       ].filter(Boolean).join(' · ');
       showSuccess(summary || 'Orçamento atualizado');
       await onAdded();
@@ -358,6 +374,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         prefilledConsumedRef.current = false;
         setSearch('');
         setOriginalTitle(titleDraft);
+        setOriginalPriority(priority);
         setTimeout(() => inputRef.current?.focus(), 50);
       } else {
         onClose();
@@ -404,6 +421,49 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             maxLength={100}
             className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
           />
+        </div>
+
+        {/* ─── PRIORIDADE CLÍNICA (Onda 6.4) ────────────────── */}
+        <div className="px-5 pb-3 flex items-center gap-3 flex-wrap">
+          <label className="text-sm font-medium text-foreground shrink-0">Prioridade</label>
+          <div className="inline-flex rounded-lg border border-border bg-background p-0.5 text-xs font-semibold">
+            <button
+              type="button"
+              onClick={() => setPriority('COMPLETO')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                priority === 'COMPLETO'
+                  ? 'bg-emerald-500 text-white'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              title="Tratamento completo — sem urgência"
+            >
+              ✓ Completo
+            </button>
+            <button
+              type="button"
+              onClick={() => setPriority('ESSENCIAL')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                priority === 'ESSENCIAL'
+                  ? 'bg-amber-500 text-white'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              title="Procedimentos importantes — fazer em breve"
+            >
+              ⚠ Essencial
+            </button>
+            <button
+              type="button"
+              onClick={() => setPriority('URGENTE')}
+              className={`px-3 py-1.5 rounded-md transition-colors ${
+                priority === 'URGENTE'
+                  ? 'bg-red-600 text-white'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+              }`}
+              title="Urgência — paciente precisa o quanto antes"
+            >
+              🔥 Urgente
+            </button>
+          </div>
         </div>
 
         {/* ─── ODONTOGRAMA ──────────────────────────────────── */}

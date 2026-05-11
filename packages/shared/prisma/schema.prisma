@@ -2204,6 +2204,11 @@ model Quote {
   status      String    @default("DRAFT") // "DRAFT"|"SENT"|"ACCEPTED"|"REJECTED"|"EXPIRED"
   valid_until DateTime?
 
+  /// Onda 6 — prioridade clinica definida pelo dentista na aba Avaliacao:
+  /// "COMPLETO" (default, tratamento completo) | "ESSENCIAL" (importante) |
+  /// "URGENTE" (urgencia). Recepcao usa pra priorizar fechamento.
+  priority    String?
+
   subtotal         Decimal @default(0) @db.Decimal(10, 2)
   discount_percent Decimal @default(0) @db.Decimal(5, 2)
   discount_value   Decimal @default(0) @db.Decimal(10, 2)
