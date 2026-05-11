@@ -83,6 +83,8 @@ interface QuoteListItem {
   /// "[Resto de aprovacao parcial em X]" automatico nas notes — preserva
   /// o title customizado do operador.
   notes: string | null;
+  /// Onda 6.4 — prioridade clinica definida pelo dentista na Avaliacao
+  priority?: 'COMPLETO' | 'ESSENCIAL' | 'URGENTE' | null;
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
@@ -307,6 +309,24 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                     )}
                   </p>
                 </div>
+                {/* Onda 6.4 — badge da prioridade clinica (mesmo padrao da
+                    aba Avaliacao) — sempre visivel, 3 cores distintas */}
+                {(() => {
+                  const p = q.priority || 'COMPLETO';
+                  const cfg = {
+                    URGENTE:   { label: '🔥 URGENTE',   cls: 'bg-red-500/15 text-red-700 border-red-500/30',         tip: 'Urgência clínica' },
+                    ESSENCIAL: { label: '⚠ ESSENCIAL', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30',   tip: 'Procedimento essencial' },
+                    COMPLETO:  { label: '✓ COMPLETO',  cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', tip: 'Tratamento completo (sem urgência)' },
+                  }[p];
+                  return (
+                    <span
+                      className={`inline-flex items-center text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
+                      title={cfg.tip}
+                    >
+                      {cfg.label}
+                    </span>
+                  );
+                })()}
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
                   {STATUS_LABEL[q.status]}
                 </span>
