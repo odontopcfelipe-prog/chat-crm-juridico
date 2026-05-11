@@ -3,16 +3,18 @@
 /**
  * AddQuoteItemModal — modal pra adicionar procedimentos ao orçamento.
  *
- * Visão clínica (sem valores monetários):
- *  - Search instantânea (autofocus) + procedimentos agrupados por especialidade
- *  - Click adiciona à cesta lateral (item ativo destacado)
- *  - Mini-odontograma no topo: click num dente toggla no item ATIVO
- *  - Cada item da cesta vira N procedimentos no submit (1 por dente)
- *  - Sem preços visíveis aqui — preços moram só na aba Orçamentos
+ * Redesign Onda 6 (visual baseado em mockup ChatGPT):
+ *  - Header limpo com label "Nome" lateral
+ *  - Odontograma sempre visivel com toggle Adulto/Infantil + dentes dourados
+ *  - Pills horizontais de filtro por especialidade (em vez de seções colapsáveis)
+ *  - Lista plana com cards estilizados (ícone colorido + nome + TUSS/duração + valor + +)
+ *  - Cesta lateral com chips amarelos dos dentes + controles -/+
+ *  - Footer com info "N dentes · M procedimentos · ~Th de cadeira"
+ *  - CTAs hierarquizados: Cancelar (ghost) + Adicionar ao orçamento (sólido)
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Plus, Minus, Search, Loader2, Layers, ShoppingCart, Save,
+  X, Plus, Minus, Search, Loader2, ShoppingCart, Save, Info, Check, Droplet,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -28,20 +30,13 @@ interface Procedure {
 }
 
 interface BasketItem {
-  /**
-   * Onda 3.40 — Quando definido, item ja existe no backend (carregado via
-   * GET na abertura do modal). X no chip remove do basket E adiciona o id
-   * em removedIds — DELETE roda no submit. Sem id, item eh novo (POST no
-   * submit).
-   */
   id?: string;
   procedure_id: string;
   procedure_name: string;
   unit_price: string;
   quantity: number;
-  /** Onda 3.35 — array de dentes (em vez de string única). Click no
-   *  mini-odontograma adiciona/remove. Submit expande em N POSTs. */
   tooth_fdis: string[];
+  duration_minutes?: number;
 }
 
 interface ExistingQuoteItem {
@@ -50,7 +45,7 @@ interface ExistingQuoteItem {
   tooth_fdi: string | null;
   quantity: number;
   unit_price: string | number;
-  procedure?: { id: string; name: string };
+  procedure?: { id: string; name: string; duration_minutes?: number };
 }
 
 interface QuoteData {
@@ -63,22 +58,12 @@ interface Props {
   quoteId: string;
   procedures: Procedure[];
   onClose: () => void;
-  /** Recarrega items do orçamento depois que adicionar */
   onAdded: () => void | Promise<void>;
-  /**
-   * Onda 3.1 — dentes pre-selecionados via odontograma. Quando preenchido,
-   * o primeiro procedimento adicionado herda esses dentes.
-   */
   prefillTeeth?: string[];
-  /**
-   * Onda 3.37 — Nome atual do orçamento. Modal mostra campo editavel pra
-   * o operador renomear (ex: "Reabilitação superior"). Salvo via PATCH no
-   * submit junto com items. null/undefined = orçamento sem nome ainda.
-   */
   initialTitle?: string | null;
 }
 
-// Mesma paleta da pagina de tabela de precos pra consistencia visual
+// Paleta de cores por especialidade (mesma da tabela de precos)
 const SPECIALTY_COLORS = [
   '#a855f7', '#3b82f6', '#22c55e', '#f97316',
   '#ec4899', '#14b8a6', '#eab308', '#06b6d4',
@@ -91,24 +76,22 @@ function colorForSpecialty(key: string): string {
   return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
 }
 
+const fmtBRL = (v: string | number) =>
+  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
+
 export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle }: Props) {
   const [search, setSearch] = useState('');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [saving, setSaving] = useState(false);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set());
-  // Onda 3.35 — Item ATIVO da cesta. Mini-odontograma reflete os dentes desse
-  // item; click num dente do mini adiciona/remove do item ativo.
   const [activeBasketIdx, setActiveBasketIdx] = useState<number | null>(null);
-  // Onda 3.37 — Nome do orcamento, editavel no header do modal. Salvo via
-  // PATCH no submit junto com os items.
   const [titleDraft, setTitleDraft] = useState<string>(initialTitle || '');
-  // Onda 3.40 — Items existentes que o operador removeu — DELETEdos no submit.
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
-  // Onda 3.40 — Carregando items existentes do quote (so quando o modal abre
-  // pra um quote que ja tem items).
   const [loadingExisting, setLoadingExisting] = useState(true);
-  // Onda 3.40 — Titulo de origem (do GET, pra detectar se mudou).
   const [originalTitle, setOriginalTitle] = useState<string>(initialTitle || '');
+  // Onda 6 — filtro por pill de especialidade ("__all__" mostra todas)
+  const [specialtyFilter, setSpecialtyFilter] = useState<string>('__all__');
+  // Onda 6 — toggle Adulto/Infantil (visual; dentes deciduos podem vir depois)
+  const [dentitionMode, setDentitionMode] = useState<'adult' | 'child'>('adult');
   const inputRef = useRef<HTMLInputElement>(null);
 
   const hasPrefilledTeeth = !!(prefillTeeth && prefillTeeth.length > 0);
@@ -120,9 +103,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     setTimeout(() => inputRef.current?.focus(), 50);
   }, []);
 
-  // Onda 3.40 — Carrega items existentes do quote ao montar. Operador ve os
-  // procedimentos ja cadastrados na cesta + pode adicionar mais OU remover
-  // existentes (X no chip → DELETE no submit).
+  // Carrega items existentes do quote ao montar
   useEffect(() => {
     if (!quoteId) {
       setLoadingExisting(false);
@@ -137,7 +118,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         const t = data.title || '';
         setTitleDraft(t);
         setOriginalTitle(t);
-        // Cada quote_item vira um BasketItem proprio (1 item por dente).
         const items: BasketItem[] = data.items.map((it) => ({
           id: it.id,
           procedure_id: it.procedure_id,
@@ -145,11 +125,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           unit_price: String(it.unit_price ?? ''),
           quantity: it.quantity,
           tooth_fdis: it.tooth_fdi ? [it.tooth_fdi] : [],
+          duration_minutes: it.procedure?.duration_minutes,
         }));
         setBasket(items);
-      } catch (err: unknown) {
-        if (cancelled) return;
-        // Silencia: se nao conseguir carregar, abre vazio mesmo
+      } catch {
+        // Silencia: se nao conseguir carregar, abre vazio
       } finally {
         if (!cancelled) setLoadingExisting(false);
       }
@@ -157,41 +137,35 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     return () => { cancelled = true; };
   }, [quoteId]);
 
-  // Agrupa por especialidade + filtra por search
-  const grouped = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    const filtered = q
-      ? procedures.filter(
-          (p) =>
-            p.name.toLowerCase().includes(q) ||
-            (p.code_tuss || '').toLowerCase().includes(q),
-        )
-      : procedures;
-
-    const groups: Record<string, { name: string; key: string; items: Procedure[] }> = {};
-    for (const p of filtered) {
+  // Contagem por especialidade (pra exibir nos pills)
+  const specialtyCounts = useMemo(() => {
+    const counts: Record<string, { name: string; count: number }> = {};
+    for (const p of procedures) {
       const key = p.specialty?.id || p.specialty_id || '__none__';
       const name = p.specialty?.name || 'Sem especialidade';
-      if (!groups[key]) groups[key] = { name, key, items: [] };
-      groups[key].items.push(p);
+      if (!counts[key]) counts[key] = { name, count: 0 };
+      counts[key].count++;
     }
-    return Object.values(groups).sort((a, b) =>
-      a.name.localeCompare(b.name, 'pt-BR'),
-    );
-  }, [procedures, search]);
+    return counts;
+  }, [procedures]);
 
-  const toggleGroup = (key: string) => {
-    setCollapsedGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
+  // Lista plana filtrada por search + especialidade
+  const filteredProcedures = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return procedures.filter((p) => {
+      if (specialtyFilter !== '__all__') {
+        const key = p.specialty?.id || p.specialty_id || '__none__';
+        if (key !== specialtyFilter) return false;
+      }
+      if (!q) return true;
+      return (
+        p.name.toLowerCase().includes(q) ||
+        (p.code_tuss || '').toLowerCase().includes(q)
+      );
     });
-  };
+  }, [procedures, search, specialtyFilter]);
 
   const addToBasket = (p: Procedure) => {
-    // Primeiro add com prefillTeeth: usa os dentes pre-selecionados.
-    // Demais adds começam com array vazio (operador clica no mini-odontograma).
     const initialTeeth = !prefilledConsumedRef.current && hasPrefilledTeeth && prefillTeeth
       ? [...prefillTeeth]
       : [];
@@ -202,6 +176,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       unit_price: String(p.base_price),
       quantity: 1,
       tooth_fdis: initialTeeth,
+      duration_minutes: p.duration_minutes,
     };
     setBasket((prev) => {
       const next = [...prev, newItem];
@@ -218,7 +193,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     setBasket((prev) => {
       const target = prev[idx];
       if (target?.id) {
-        // Onda 3.40 — Item existente — marca pra DELETE no submit
         setRemovedIds((rs) => {
           const next = new Set(rs);
           next.add(target.id!);
@@ -234,7 +208,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     });
   };
 
-  // Click no dente do mini-odontograma → toggla no item ativo
   const toggleToothInActive = (fdi: string) => {
     if (activeBasketIdx === null) {
       showError('Selecione um procedimento da cesta primeiro');
@@ -249,8 +222,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     updateBasketItem(activeBasketIdx, { tooth_fdis: newFdis });
   };
 
-  // Mapa fdi → nome do OUTRO procedimento que ja usa esse dente
-  // (pra renderizar com cor amber no mini-odontograma)
   const otherUsedFdis = useMemo(() => {
     const m = new Map<string, string>();
     basket.forEach((it, i) => {
@@ -262,8 +233,27 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     return m;
   }, [basket, activeBasketIdx]);
 
-  // Onda 3.40 — Total de items NOVOS apos expansao tooth_fdis (so os sem id).
-  // Items existentes ja estao no backend, nao contam aqui.
+  // Resumo no footer: total dentes únicos + procedimentos efetivos + tempo
+  const summaryStats = useMemo(() => {
+    const allTeeth = new Set<string>();
+    let procCount = 0;
+    let totalMinutes = 0;
+    basket.forEach((it) => {
+      it.tooth_fdis.forEach((t) => allTeeth.add(t));
+      const effectiveQty = Math.max(it.tooth_fdis.length, 1);
+      procCount += effectiveQty;
+      if (it.duration_minutes) totalMinutes += it.duration_minutes * effectiveQty;
+    });
+    const h = Math.floor(totalMinutes / 60);
+    const m = totalMinutes % 60;
+    const timeLabel = totalMinutes <= 0
+      ? null
+      : h > 0
+        ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
+        : `~${m}min`;
+    return { dentes: allTeeth.size, procedimentos: procCount, tempo: timeLabel };
+  }, [basket]);
+
   const totalItemsToCreate = basket.reduce((acc, it) => {
     if (it.id) return acc;
     return acc + Math.max(it.tooth_fdis.length, 1);
@@ -278,14 +268,11 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     }
     setSaving(true);
     try {
-      // Onda 3.37 — PATCH titulo do orçamento se mudou. Roda ANTES dos items
-      // pra que o cabecalho da lista de orçamentos ja reflita o nome novo.
       if (titleChanged) {
         await api.patch(`/quotes/${quoteId}`, {
           title: titleDraft.trim() || null,
         });
       }
-      // Onda 3.40 — DELETE items que o operador removeu (existentes que tinham id)
       for (const id of removedIds) {
         try {
           await api.delete(`/quote-items/${id}`);
@@ -293,8 +280,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           // ignora — provavelmente ja foi deletado
         }
       }
-      // Expande tooth_fdis em N POSTs (1 por dente). Sem dentes = 1 POST.
-      // So items novos (sem id) sao POSTados — existentes ja estao no backend.
       let createdCount = 0;
       for (const it of basket) {
         if (it.id) continue;
@@ -318,7 +303,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       showSuccess(summary || 'Orçamento atualizado');
       await onAdded();
       if (keepOpen) {
-        setBasket((prev) => prev.filter((it) => it.id)); // mantem so existentes
+        setBasket((prev) => prev.filter((it) => it.id));
         setRemovedIds(new Set());
         setActiveBasketIdx(null);
         prefilledConsumedRef.current = false;
@@ -341,53 +326,54 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl w-full max-w-5xl shadow-2xl max-h-[92vh] flex flex-col"
+        className="bg-card border border-border rounded-2xl w-full max-w-5xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="p-4 border-b border-border space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Plus size={18} className="text-primary" />
-              <h2 className="text-base font-semibold">Adicionar procedimentos ao orçamento</h2>
-            </div>
-            <button onClick={onClose} className="p-1 hover:bg-accent rounded">
-              <X size={18} />
-            </button>
-          </div>
-
-          {/* Onda 3.37 — Nome customizavel do orçamento. Salvo via PATCH no
-              submit junto com items. Vazio = sem nome (cai pra categoria
-              automatica na lista). */}
+        {/* ─── HEADER ────────────────────────────────────────── */}
+        <div className="px-5 py-4 border-b border-border flex items-center justify-between gap-3">
           <div className="flex items-center gap-2">
-            <label className="text-xs font-medium text-muted-foreground shrink-0">
-              Nome do orçamento:
-            </label>
-            <input
-              type="text"
-              value={titleDraft}
-              onChange={(e) => setTitleDraft(e.target.value)}
-              placeholder="Ex: Reabilitação superior, Canal + coroa 36 (opcional)"
-              maxLength={100}
-              className="flex-1 px-3 py-1.5 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-            />
+            <Plus size={18} className="text-primary" />
+            <h2 className="text-base font-semibold">Adicionar procedimentos ao orçamento</h2>
           </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 hover:bg-accent rounded-full"
+            aria-label="Fechar"
+          >
+            <X size={18} />
+          </button>
         </div>
 
-        {/* Mini-odontograma — click toggla dente do item ativo */}
-        <MiniOdontograma
+        {/* ─── NOME DO ORÇAMENTO ────────────────────────────── */}
+        <div className="px-5 py-3 flex items-center gap-3">
+          <label className="text-sm font-medium text-foreground shrink-0">Nome</label>
+          <input
+            type="text"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            placeholder="Ex: Reabilitação superior, Canal + coroa 36 (opcional)"
+            maxLength={100}
+            className="flex-1 px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
+          />
+        </div>
+
+        {/* ─── ODONTOGRAMA ──────────────────────────────────── */}
+        <Odontograma
           activeFdis={activeItem?.tooth_fdis || []}
           activeProcedureName={activeItem?.procedure_name}
           otherUsedFdis={otherUsedFdis}
           onToggle={toggleToothInActive}
           hasActive={activeBasketIdx !== null}
+          dentitionMode={dentitionMode}
+          onDentitionChange={setDentitionMode}
         />
 
-        {/* Body — 2 colunas: lista (esq) + cesta (dir) */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_360px] gap-0 overflow-hidden">
-          {/* COLUNA ESQ — busca + lista agrupada */}
+        {/* ─── BODY (lista esquerda + cesta direita) ────────── */}
+        <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_340px] gap-0 overflow-hidden border-t border-border">
+          {/* COLUNA ESQ — busca + pills + lista plana */}
           <div className="flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-border bg-background/30">
+            {/* Busca */}
+            <div className="px-5 pt-4">
               <div className="relative">
                 <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
                 <input
@@ -395,16 +381,36 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   type="text"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  placeholder="Buscar procedimento por nome ou código TUSS..."
-                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  placeholder="Buscar por nome ou código TUSS..."
+                  className="w-full pl-9 pr-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 placeholder:text-muted-foreground/60"
                 />
               </div>
-              <p className="text-[10px] text-muted-foreground mt-1.5">
-                Click pra adicionar à cesta. Click de novo no mesmo pra incrementar quantidade.
-              </p>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            {/* Pills de filtro por especialidade */}
+            <div className="px-5 pt-3 flex flex-wrap gap-2">
+              <FilterPill
+                label="Todos"
+                count={procedures.length}
+                active={specialtyFilter === '__all__'}
+                onClick={() => setSpecialtyFilter('__all__')}
+              />
+              {Object.entries(specialtyCounts)
+                .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'pt-BR'))
+                .map(([key, { name, count }]) => (
+                  <FilterPill
+                    key={key}
+                    label={name}
+                    count={count}
+                    active={specialtyFilter === key}
+                    color={colorForSpecialty(key)}
+                    onClick={() => setSpecialtyFilter(key)}
+                  />
+                ))}
+            </div>
+
+            {/* Lista plana de procedimentos */}
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
               {procedures.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   Nenhum procedimento cadastrado.{' '}
@@ -412,88 +418,76 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                     Cadastrar tabela de preços
                   </a>
                 </div>
-              ) : grouped.length === 0 ? (
+              ) : filteredProcedures.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
-                  Nenhum procedimento corresponde a &quot;{search}&quot;
+                  Nenhum procedimento corresponde aos filtros.
                 </div>
               ) : (
-                grouped.map((g) => {
-                  const color = colorForSpecialty(g.key);
-                  const collapsed = collapsedGroups.has(g.key);
+                filteredProcedures.map((p) => {
+                  const inBasketCount = basket
+                    .filter((b) => b.procedure_id === p.id)
+                    .reduce((acc, b) => acc + Math.max(b.tooth_fdis.length, 1), 0);
+                  const key = p.specialty?.id || p.specialty_id || '__none__';
+                  const color = colorForSpecialty(key);
                   return (
-                    <div
-                      key={g.key}
-                      className="border-l-4 rounded-r-lg overflow-hidden bg-background border border-border"
-                      style={{ borderLeftColor: color }}
+                    <button
+                      key={p.id}
+                      type="button"
+                      onClick={() => addToBasket(p)}
+                      className="w-full px-3 py-2.5 flex items-center gap-3 bg-background hover:bg-accent/40 border border-border hover:border-primary/30 rounded-xl transition-colors text-left group"
                     >
-                      <button
-                        type="button"
-                        onClick={() => toggleGroup(g.key)}
-                        className="w-full px-3 py-2 flex items-center gap-2 hover:bg-muted/50 text-left"
-                        style={{ background: color + '12' }}
+                      {/* Bolha de cor da especialidade */}
+                      <div
+                        className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center"
+                        style={{ backgroundColor: color + '20' }}
                       >
-                        <Layers size={12} style={{ color }} />
-                        <span className="text-xs font-bold" style={{ color }}>
-                          {g.name}
-                        </span>
-                        <span className="text-[10px] text-muted-foreground">
-                          {g.items.length}
-                        </span>
-                        <span className="ml-auto text-[10px] text-muted-foreground">
-                          {collapsed ? '+' : '−'}
-                        </span>
-                      </button>
-                      {!collapsed && (
-                        <div className="divide-y divide-border">
-                          {g.items.map((p) => {
-                            // Onda 3.35 — count efetivo apos expansao de dentes
-                            const inBasketEffectiveCount = basket
-                              .filter((b) => b.procedure_id === p.id)
-                              .reduce((acc, b) => acc + Math.max(b.tooth_fdis.length, 1), 0);
-                            return (
-                              <button
-                                key={p.id}
-                                type="button"
-                                onClick={() => addToBasket(p)}
-                                className="w-full px-3 py-2 flex items-center gap-2 hover:bg-accent/50 text-left transition-colors"
-                              >
-                                <Plus
-                                  size={14}
-                                  className={inBasketEffectiveCount > 0 ? 'text-primary' : 'text-muted-foreground'}
-                                />
-                                <div className="flex-1 min-w-0">
-                                  <div className="text-sm font-medium truncate">{p.name}</div>
-                                  <div className="text-[10px] text-muted-foreground flex items-center gap-2">
-                                    {p.code_tuss && <span>TUSS {p.code_tuss}</span>}
-                                    {p.duration_minutes && <span>{p.duration_minutes} min</span>}
-                                  </div>
-                                </div>
-                                {/* Onda 3.35 — preco removido (visao clinica
-                                    pura no modal). Indicador "Nx" mantido. */}
-                                {inBasketEffectiveCount > 0 && (
-                                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary text-primary-foreground">
-                                    {inBasketEffectiveCount}×
-                                  </span>
-                                )}
-                              </button>
-                            );
-                          })}
+                        <Droplet size={14} style={{ color }} />
+                      </div>
+                      {/* Nome + meta */}
+                      <div className="flex-1 min-w-0">
+                        <div className="text-sm font-semibold text-foreground truncate">
+                          {p.name}
                         </div>
-                      )}
-                    </div>
+                        <div className="text-[11px] text-muted-foreground flex items-center gap-2 mt-0.5">
+                          {p.duration_minutes && (
+                            <span className="inline-flex items-center gap-0.5">
+                              ⏱ {p.duration_minutes} min
+                            </span>
+                          )}
+                          {p.code_tuss && <span>TUSS {p.code_tuss}</span>}
+                        </div>
+                      </div>
+                      {/* Valor */}
+                      <div className="text-sm font-semibold text-foreground shrink-0">
+                        {fmtBRL(p.base_price)}
+                      </div>
+                      {/* Botão + */}
+                      <div className="relative">
+                        <span className="w-7 h-7 rounded-lg bg-background border border-border group-hover:bg-primary group-hover:border-primary group-hover:text-primary-foreground flex items-center justify-center transition-colors">
+                          <Plus size={14} />
+                        </span>
+                        {inBasketCount > 0 && (
+                          <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-primary text-primary-foreground text-[9px] font-bold flex items-center justify-center">
+                            {inBasketCount}
+                          </span>
+                        )}
+                      </div>
+                    </button>
                   );
                 })
               )}
             </div>
           </div>
 
-          {/* COLUNA DIR — cesta de selecao */}
-          <div className="border-l border-border bg-background/30 flex flex-col overflow-hidden">
-            <div className="p-3 border-b border-border flex items-center gap-2">
-              <ShoppingCart size={14} className="text-primary" />
-              <span className="text-sm font-semibold">Cesta</span>
+          {/* COLUNA DIR — cesta */}
+          <div className="border-l border-border bg-muted/20 flex flex-col overflow-hidden">
+            <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2">
+                <ShoppingCart size={14} className="text-primary" />
+                <span className="text-sm font-semibold">Cesta</span>
+              </div>
               <span className="text-xs text-muted-foreground">
-                ({basket.length} {basket.length === 1 ? 'item' : 'itens'})
+                {basket.length} {basket.length === 1 ? 'item' : 'itens'}
               </span>
             </div>
 
@@ -513,98 +507,42 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   const isActive = activeBasketIdx === idx;
                   const hasTeeth = it.tooth_fdis.length > 0;
                   const effectiveQty = hasTeeth ? it.tooth_fdis.length : it.quantity;
-                  const isExisting = !!it.id;
+                  const lineTotal = Number(it.unit_price || 0) * effectiveQty;
                   return (
                     <div
                       key={it.id || `new-${idx}`}
                       onClick={() => setActiveBasketIdx(idx)}
-                      className={`bg-card border rounded-lg p-2 space-y-1.5 cursor-pointer transition-colors ${
+                      className={`bg-card border rounded-xl p-3 space-y-2 cursor-pointer transition-colors ${
                         isActive
-                          ? 'border-primary shadow-sm bg-primary/5'
+                          ? 'border-primary shadow-sm ring-1 ring-primary/30'
                           : 'border-border hover:border-primary/30'
                       }`}
                     >
+                      {/* Linha 1: nome + valor + X */}
                       <div className="flex items-start justify-between gap-2">
-                        <div className="flex-1 min-w-0 flex items-center gap-1.5">
-                          {isActive && (
-                            <span className="text-[10px] font-bold uppercase text-primary">
-                              ← Editando
-                            </span>
-                          )}
-                          {!isExisting && !isActive && (
-                            <span className="text-[10px] font-bold uppercase text-emerald-600">
-                              Novo
-                            </span>
-                          )}
-                          <p className="text-xs font-medium truncate" title={it.procedure_name}>
-                            {it.procedure_name}
-                          </p>
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-primary/15 text-primary shrink-0">
-                            {effectiveQty}×
+                        <p className="text-xs font-semibold text-foreground line-clamp-2 flex-1">
+                          {it.procedure_name}
+                        </p>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className="text-xs font-bold text-foreground">
+                            {fmtBRL(lineTotal)}
                           </span>
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); removeFromBasket(idx); }}
+                            className="text-muted-foreground hover:text-destructive p-0.5 rounded"
+                            title="Remover"
+                          >
+                            <X size={12} />
+                          </button>
                         </div>
-                        <button
-                          type="button"
-                          onClick={(e) => { e.stopPropagation(); removeFromBasket(idx); }}
-                          className="text-muted-foreground hover:text-destructive shrink-0"
-                        >
-                          <X size={12} />
-                        </button>
                       </div>
 
-                      {/* Qtd + Dentes na mesma linha. Qtd auto-derivada quando
-                          ha dentes (1 por dente); manual quando sem dentes
-                          (procedimentos genericos como "Avaliacao inicial"). */}
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {hasTeeth ? (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] text-muted-foreground">Qtd:</span>
-                            <span className="text-xs font-bold text-primary px-1.5 py-0.5 rounded bg-primary/10">
-                              {it.tooth_fdis.length}
-                            </span>
-                            <span className="text-[10px] text-muted-foreground italic">
-                              (1 por dente)
-                            </span>
-                          </div>
-                        ) : (
-                          <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] text-muted-foreground">Qtd:</span>
-                            <div className="flex items-center border border-border rounded">
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); updateBasketItem(idx, { quantity: Math.max(1, it.quantity - 1) }); }}
-                                className="px-1 hover:bg-accent"
-                              >
-                                <Minus size={10} />
-                              </button>
-                              <input
-                                type="number"
-                                min={1}
-                                value={it.quantity}
-                                onClick={(e) => e.stopPropagation()}
-                                onChange={(e) => updateBasketItem(idx, { quantity: Math.max(1, parseInt(e.target.value, 10) || 1) })}
-                                className="w-10 px-1 py-1 text-xs text-center bg-transparent focus:outline-none"
-                              />
-                              <button
-                                type="button"
-                                onClick={(e) => { e.stopPropagation(); updateBasketItem(idx, { quantity: it.quantity + 1 }); }}
-                                className="px-1 hover:bg-accent"
-                              >
-                                <Plus size={10} />
-                              </button>
-                            </div>
-                          </div>
-                        )}
-
-                        <div className="h-5 w-px bg-border" />
-
-                        <div className="flex items-center gap-1 flex-wrap flex-1 min-w-0">
-                          <span className="text-[10px] text-muted-foreground shrink-0">Dentes:</span>
-                          {it.tooth_fdis.length === 0 ? (
-                            <span className="text-[10px] text-muted-foreground italic">
-                              clique no odontograma acima
-                            </span>
-                          ) : (
+                      {/* Linha 2: chips dos dentes + controles qtd */}
+                      <div className="flex items-center justify-between gap-2 flex-wrap">
+                        {/* Chips amarelos dos dentes */}
+                        <div className="flex items-center gap-1 flex-wrap min-w-0">
+                          {hasTeeth ? (
                             it.tooth_fdis.map((fdi) => (
                               <button
                                 key={fdi}
@@ -615,142 +553,240 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                                     tooth_fdis: it.tooth_fdis.filter((f) => f !== fdi),
                                   });
                                 }}
-                                className="inline-flex items-center gap-0.5 pl-1.5 pr-1 py-0.5 rounded font-mono text-[10px] bg-primary text-primary-foreground hover:bg-primary/80 group"
+                                className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded font-mono text-[10px] font-bold bg-amber-200 text-amber-900 hover:bg-amber-300 group"
                                 title={`Remover dente ${fdi}`}
                               >
                                 {fdi}
-                                <X size={10} className="opacity-60 group-hover:opacity-100" />
+                                <X size={9} className="opacity-50 group-hover:opacity-100" />
                               </button>
                             ))
+                          ) : (
+                            <span className="text-[10px] text-muted-foreground italic">
+                              clique no odontograma acima
+                            </span>
                           )}
                         </div>
+
+                        {/* Controles - 1 + */}
+                        {hasTeeth ? (
+                          <span className="text-[10px] text-muted-foreground italic shrink-0">
+                            {effectiveQty}× (1/dente)
+                          </span>
+                        ) : (
+                          <div
+                            className="flex items-center border border-border rounded-lg bg-background shrink-0"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              type="button"
+                              onClick={() => updateBasketItem(idx, { quantity: Math.max(1, it.quantity - 1) })}
+                              className="px-1.5 py-1 hover:bg-accent rounded-l-lg"
+                            >
+                              <Minus size={10} />
+                            </button>
+                            <span className="px-2 py-1 text-xs font-bold min-w-[1.5rem] text-center">
+                              {it.quantity}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => updateBasketItem(idx, { quantity: it.quantity + 1 })}
+                              className="px-1.5 py-1 hover:bg-accent rounded-r-lg"
+                            >
+                              <Plus size={10} />
+                            </button>
+                          </div>
+                        )}
                       </div>
                     </div>
                   );
                 })
               )}
             </div>
-
-            {/* Onda 3.35 — Rodape simplificado: total de items reais (apos
-                expansao tooth_fdis). SEM subtotal monetario — modal eh visao
-                clinica pura. */}
-            {basket.length > 0 && (
-              <div className="p-3 border-t border-border bg-background/50 text-xs text-muted-foreground">
-                <strong className="text-foreground">{totalItemsToCreate}</strong> procedimento(s) ser&atilde;o adicionado(s)
-              </div>
-            )}
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="border-t border-border p-3 flex justify-end gap-2 bg-background/30">
-          <button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50"
-          >
-            Cancelar
-          </button>
-          <button
-            type="button"
-            onClick={() => submit(true)}
-            disabled={saving || !hasChanges}
-            className="px-3 py-2 rounded-lg border border-primary/30 text-primary text-sm hover:bg-primary/10 disabled:opacity-50 inline-flex items-center gap-1"
-            title="Salva e mantém o modal aberto pra continuar editando"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Salvar e continuar
-          </button>
-          <button
-            type="button"
-            onClick={() => submit(false)}
-            disabled={saving || !hasChanges}
-            className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-            Adicionar {basket.length > 0 && `(${totalItemsToCreate})`}
-          </button>
+        {/* ─── FOOTER ────────────────────────────────────────── */}
+        <div className="border-t border-border px-5 py-3 flex items-center justify-between gap-3 flex-wrap bg-background/50">
+          <div className="text-xs text-muted-foreground flex items-center gap-1.5">
+            <Info size={12} />
+            <span>
+              <strong className="text-foreground">{summaryStats.dentes}</strong> dente{summaryStats.dentes === 1 ? '' : 's'}
+              {' · '}
+              <strong className="text-foreground">{summaryStats.procedimentos}</strong> procedimento{summaryStats.procedimentos === 1 ? '' : 's'}
+              {summaryStats.tempo && (
+                <>
+                  {' · '}
+                  <strong className="text-foreground">{summaryStats.tempo}</strong> de cadeira
+                </>
+              )}
+            </span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={saving}
+              className="px-4 py-2 rounded-lg text-sm hover:bg-accent disabled:opacity-50 text-muted-foreground"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={() => submit(true)}
+              disabled={saving || !hasChanges}
+              className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1.5"
+              title="Salva e mantém o modal aberto pra continuar editando"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Salvar e continuar
+            </button>
+            <button
+              type="button"
+              onClick={() => submit(false)}
+              disabled={saving || !hasChanges}
+              className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+              Adicionar ao orçamento
+            </button>
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-// ─── Mini-odontograma ────────────────────────────────────────
+// ─── Filter pill ──────────────────────────────────────────────────────
+
+function FilterPill({
+  label, count, active, onClick, color,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  color?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
+        active
+          ? 'bg-foreground text-background border-foreground'
+          : 'bg-background border-border text-foreground hover:border-primary/40 hover:bg-accent/40'
+      }`}
+      style={
+        active && color
+          ? { backgroundColor: color, borderColor: color, color: '#fff' }
+          : undefined
+      }
+    >
+      {label}
+      <span className={`text-[10px] ${active ? 'opacity-80' : 'text-muted-foreground'}`}>
+        {count}
+      </span>
+    </button>
+  );
+}
+
+// ─── Odontograma ──────────────────────────────────────────────────────
 
 const FDI_PERM_SUP_DIR = ['18', '17', '16', '15', '14', '13', '12', '11'];
 const FDI_PERM_SUP_ESQ = ['21', '22', '23', '24', '25', '26', '27', '28'];
 const FDI_PERM_INF_ESQ = ['31', '32', '33', '34', '35', '36', '37', '38'];
 const FDI_PERM_INF_DIR = ['48', '47', '46', '45', '44', '43', '42', '41'];
 
-function MiniOdontograma({
+// Dentes deciduos (infantil) — quadrantes 5/6/7/8
+const FDI_DEC_SUP_DIR = ['55', '54', '53', '52', '51'];
+const FDI_DEC_SUP_ESQ = ['61', '62', '63', '64', '65'];
+const FDI_DEC_INF_ESQ = ['71', '72', '73', '74', '75'];
+const FDI_DEC_INF_DIR = ['85', '84', '83', '82', '81'];
+
+function Odontograma({
   activeFdis,
   activeProcedureName,
   otherUsedFdis,
   onToggle,
   hasActive,
+  dentitionMode,
+  onDentitionChange,
 }: {
   activeFdis: string[];
   activeProcedureName?: string;
-  /** fdi → nome do outro procedimento que ja usa esse dente */
   otherUsedFdis: Map<string, string>;
   onToggle: (fdi: string) => void;
   hasActive: boolean;
+  dentitionMode: 'adult' | 'child';
+  onDentitionChange: (m: 'adult' | 'child') => void;
 }) {
   const activeSet = new Set(activeFdis);
-  const totalOtherUsed = otherUsedFdis.size;
+  const isAdult = dentitionMode === 'adult';
+  const supDir = isAdult ? FDI_PERM_SUP_DIR : FDI_DEC_SUP_DIR;
+  const supEsq = isAdult ? FDI_PERM_SUP_ESQ : FDI_DEC_SUP_ESQ;
+  const infDir = isAdult ? FDI_PERM_INF_DIR : FDI_DEC_INF_DIR;
+  const infEsq = isAdult ? FDI_PERM_INF_ESQ : FDI_DEC_INF_ESQ;
+
   return (
-    <div className="px-4 py-3 border-b border-border bg-background/50">
-      <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-        <p className="text-xs font-medium text-foreground">
-          {hasActive ? (
-            <>
-              Selecione os dentes para{' '}
-              <span className="text-primary font-semibold">
-                {activeProcedureName}
-              </span>
-            </>
-          ) : (
-            <span className="text-muted-foreground italic">
-              Adicione um procedimento &agrave; cesta para vincular dentes
-            </span>
-          )}
-        </p>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
-          {hasActive && (
+    <div className="px-5 py-3">
+      <div className="bg-stone-50 dark:bg-stone-900/40 border border-stone-200 dark:border-stone-800 rounded-xl px-4 py-3">
+        {/* Cabecalho com label + toggle Adulto/Infantil */}
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+          <div className="flex items-center gap-2 text-sm text-foreground">
+            <Droplet size={14} className="text-stone-500" />
             <span>
-              {activeFdis.length === 0
-                ? 'Nenhum dente selecionado'
-                : `${activeFdis.length} ${activeFdis.length === 1 ? 'dente' : 'dentes'} selecionado${activeFdis.length === 1 ? '' : 's'}`}
+              {hasActive ? (
+                <>
+                  Selecione os dentes para{' '}
+                  <strong className="text-primary">{activeProcedureName}</strong>
+                </>
+              ) : (
+                'Selecione os dentes envolvidos no tratamento'
+              )}
             </span>
-          )}
-          {totalOtherUsed > 0 && (
-            <span className="inline-flex items-center gap-1">
-              <span className="w-2 h-2 rounded-full bg-amber-400 inline-block" />
-              {totalOtherUsed} em outros procedimentos
-            </span>
-          )}
+          </div>
+          <div className="inline-flex rounded-full border border-stone-200 dark:border-stone-700 bg-background p-0.5 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => onDentitionChange('adult')}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                isAdult ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Adulto
+            </button>
+            <button
+              type="button"
+              onClick={() => onDentitionChange('child')}
+              className={`px-3 py-1 rounded-full transition-colors ${
+                !isAdult ? 'bg-foreground text-background' : 'text-muted-foreground hover:text-foreground'
+              }`}
+            >
+              Infantil
+            </button>
+          </div>
         </div>
-      </div>
-      <div className="flex flex-col items-center gap-1.5">
-        <div className="flex justify-center gap-6">
-          <MiniRow fdiList={FDI_PERM_SUP_DIR} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
-          <div className="w-px bg-border" />
-          <MiniRow fdiList={FDI_PERM_SUP_ESQ} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
-        </div>
-        <div className="h-px bg-border w-full max-w-[560px]" />
-        <div className="flex justify-center gap-6">
-          <MiniRow fdiList={FDI_PERM_INF_DIR} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
-          <div className="w-px bg-border" />
-          <MiniRow fdiList={FDI_PERM_INF_ESQ} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+
+        {/* Grid de dentes */}
+        <div className="flex flex-col items-center gap-1.5">
+          <div className="flex justify-center gap-4">
+            <ToothRow fdiList={supDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+            <div className="w-px bg-stone-300 dark:bg-stone-700" />
+            <ToothRow fdiList={supEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+          </div>
+          <div className="h-px bg-stone-300 dark:bg-stone-700 w-full max-w-[500px]" />
+          <div className="flex justify-center gap-4">
+            <ToothRow fdiList={infDir} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+            <div className="w-px bg-stone-300 dark:bg-stone-700" />
+            <ToothRow fdiList={infEsq} activeSet={activeSet} otherUsedFdis={otherUsedFdis} onToggle={onToggle} hasActive={hasActive} />
+          </div>
         </div>
       </div>
     </div>
   );
 }
 
-function MiniRow({
+function ToothRow({
   fdiList, activeSet, otherUsedFdis, onToggle, hasActive,
 }: {
   fdiList: string[];
@@ -771,20 +807,20 @@ function MiniRow({
             type="button"
             onClick={() => onToggle(fdi)}
             disabled={!hasActive}
-            className={`relative w-10 h-10 rounded-md text-xs font-bold border-2 flex items-center justify-center transition-all ${
+            className={`relative w-9 h-9 rounded-lg text-[11px] font-bold border flex items-center justify-center transition-all ${
               isActive
-                ? 'bg-primary text-primary-foreground border-primary scale-105'
+                ? 'bg-amber-400 text-amber-950 border-amber-500 shadow-sm scale-105'
                 : isOtherUsed
-                ? 'bg-amber-100 dark:bg-amber-950/40 border-amber-400 text-amber-800 dark:text-amber-200 hover:border-primary hover:bg-primary hover:text-primary-foreground'
+                ? 'bg-amber-100 dark:bg-amber-950/40 border-amber-300 text-amber-800 dark:text-amber-200 hover:border-amber-500'
                 : hasActive
-                ? 'bg-background border-border text-muted-foreground hover:border-primary hover:text-primary'
-                : 'bg-muted/30 border-border/50 text-muted-foreground/50 cursor-not-allowed'
+                ? 'bg-background border-stone-200 dark:border-stone-700 text-foreground hover:border-amber-400 hover:bg-amber-50 dark:hover:bg-amber-950/30'
+                : 'bg-background/60 border-stone-200/60 dark:border-stone-700/60 text-muted-foreground/70 cursor-not-allowed'
             }`}
             title={
               isActive
                 ? `Click pra remover dente ${fdi}`
                 : isOtherUsed
-                ? `Dente ${fdi} ja em uso por: ${otherProcName} (click pra adicionar tambem ao ativo)`
+                ? `Dente ${fdi} ja em uso por: ${otherProcName}`
                 : hasActive
                 ? `Click pra adicionar dente ${fdi}`
                 : 'Selecione um procedimento da cesta primeiro'
