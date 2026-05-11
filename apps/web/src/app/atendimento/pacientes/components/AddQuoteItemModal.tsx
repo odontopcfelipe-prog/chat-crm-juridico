@@ -16,6 +16,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   X, Plus, Minus, Search, Loader2, ShoppingCart, Save, Info, Check, Droplet,
 } from 'lucide-react';
+import { useTheme } from 'next-themes';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -80,6 +81,14 @@ const fmtBRL = (v: string | number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
 
 export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle }: Props) {
+  // Onda 6 — paleta dos cards se adapta ao tema (escuro precisa de tint mais
+  // forte pra cor ser visivel; claro precisa ser mais sutil pra nao saturar).
+  const { resolvedTheme } = useTheme();
+  const isDark = resolvedTheme === 'escuro' || resolvedTheme === 'dark';
+  const tintIdle  = isDark ? '24' : '0d';  // ~14% dark / ~5% light
+  const tintHover = isDark ? '3d' : '1f';  // ~24% dark / ~12% light
+  const borderTone = isDark ? '66' : '40'; // ~40% dark / ~25% light
+
   const [search, setSearch] = useState('');
   const [basket, setBasket] = useState<BasketItem[]>([]);
   const [saving, setSaving] = useState(false);
@@ -436,16 +445,16 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                       onClick={() => addToBasket(p)}
                       className="w-full px-3 py-2.5 flex items-center gap-3 border rounded-xl transition-colors text-left group"
                       style={{
-                        backgroundColor: color + '0d',     // ~5% tint da cor da especialidade
-                        borderColor: color + '40',         // ~25% pra borda mais visivel
+                        backgroundColor: color + tintIdle,
+                        borderColor: color + borderTone,
                         borderLeftWidth: 4,
                         borderLeftColor: color,
                       }}
                       onMouseEnter={(e) => {
-                        e.currentTarget.style.backgroundColor = color + '1f'; // ~12%
+                        e.currentTarget.style.backgroundColor = color + tintHover;
                       }}
                       onMouseLeave={(e) => {
-                        e.currentTarget.style.backgroundColor = color + '0d';
+                        e.currentTarget.style.backgroundColor = color + tintIdle;
                       }}
                     >
                       {/* Bolha de cor da especialidade */}
