@@ -184,6 +184,13 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [expandedQuote, setExpandedQuote] = useState<QuoteDraft | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(true);
+  // Onda 6 — quando o modal abre via "Adicionar procedimento" (cria DRAFT
+  // vazio no banco antes), guardamos o id aqui. Se o operador fechar sem
+  // adicionar nenhum item, o DRAFT vazio eh DELETED pra nao poluir a lista.
+  // Quando abre via click em quote ja existente, esse state fica null e
+  // nada eh deletado no close.
+  const [justCreatedQuoteId, setJustCreatedQuoteId] = useState<string | null>(null);
+  const [wasAddedInModal, setWasAddedInModal] = useState(false);
   // Onda 3.36 — quote id pro qual o modal AddQuoteItemModal deve abrir.
   // Quando "Iniciar nova avaliação" eh clicado, cria-se o DRAFT e seta isso —
   // modal abre POR CIMA da aba Avaliação (sem navegar pra Orcamentos).
@@ -259,8 +266,11 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   const createNewQuote = useCallback(async () => {
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
-      showSuccess('Orçamento criado');
       await loadQuotesList();
+      // Onda 6 — marca este quote como "criado-agora-pra-modal". Se o operador
+      // fechar o modal SEM adicionar nada, deletamos o DRAFT vazio (cleanup).
+      setJustCreatedQuoteId(data.id);
+      setWasAddedInModal(false);
       setAddingItemForQuoteId(data.id);
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -476,10 +486,33 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
         <AddQuoteItemModal
           quoteId={addingItemForQuoteId}
           procedures={procedures}
-          onClose={() => setAddingItemForQuoteId(null)}
+          onClose={async () => {
+            // Onda 6 — Cleanup de DRAFT vazio: se este modal foi aberto via
+            // "Adicionar procedimento" (criou DRAFT vazio antes), e o operador
+            // fechou SEM adicionar nada, deleta o DRAFT pra nao poluir a aba.
+            const shouldCleanup =
+              justCreatedQuoteId === addingItemForQuoteId
+              && !wasAddedInModal;
+            const idToCleanup = addingItemForQuoteId;
+            setAddingItemForQuoteId(null);
+            setJustCreatedQuoteId(null);
+            setWasAddedInModal(false);
+            if (shouldCleanup) {
+              try {
+                await api.delete(`/quotes/${idToCleanup}`);
+                await loadQuotesList();
+              } catch {
+                // silencia — quote pode ter sido deletado em outro lugar
+              }
+            }
+          }}
           onAdded={async () => {
+            // Onda 6 — Marca que houve adicao real → close NAO deleta o quote.
+            setWasAddedInModal(true);
             await refreshQuotes();
             setAddingItemForQuoteId(null);
+            setJustCreatedQuoteId(null);
+            setWasAddedInModal(false);
           }}
         />
       )}
