@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Plus, Minus, Search, Loader2, ShoppingCart, Save, Info, Check, Droplet,
+  X, Plus, Minus, Search, Loader2, ShoppingCart, Save, Info, Check, Droplet, Copy,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import api from '@/lib/api';
@@ -63,6 +63,9 @@ interface Props {
   onAdded: () => void | Promise<void>;
   prefillTeeth?: string[];
   initialTitle?: string | null;
+  /** Onda 3.42 — Duplica este orcamento (cria novo DRAFT com items + " cópia N").
+   * Quando definido, renderiza botao "Duplicar" vermelho no footer. */
+  onDuplicate?: () => void | Promise<void>;
 }
 
 // Paleta de cores por especialidade (mesma da tabela de precos)
@@ -78,7 +81,7 @@ function colorForSpecialty(key: string): string {
   return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
 }
 
-export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle }: Props) {
+export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle, onDuplicate }: Props) {
   // Onda 6 — paleta dos cards se adapta ao tema (escuro precisa de tint mais
   // forte pra cor ser visivel; claro precisa ser mais sutil pra nao saturar).
   const { resolvedTheme } = useTheme();
@@ -743,6 +746,17 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             >
               Cancelar
             </button>
+            {onDuplicate && (
+              <button
+                type="button"
+                onClick={() => onDuplicate()}
+                disabled={saving}
+                className="px-3 py-2 rounded-lg text-sm font-semibold inline-flex items-center gap-1.5 text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 disabled:opacity-50"
+                title="Duplicar este orçamento (cria novo rascunho com os mesmos procedimentos + ' cópia N')"
+              >
+                <Copy size={14} /> Duplicar
+              </button>
+            )}
             <button
               type="button"
               onClick={() => submit(true)}

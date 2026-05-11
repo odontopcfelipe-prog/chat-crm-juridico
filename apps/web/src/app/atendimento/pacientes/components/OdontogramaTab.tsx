@@ -324,17 +324,38 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   // procedimentos, mesmos dentes). Util quando paciente quer outra
   // versao similar (ex: outra opcao com mais procedimentos, ou repetir
   // um tratamento que ja foi feito antes). Backend: POST duplicate-as-option.
+  // Onda 3.42 — Apos duplicar, faz PATCH no titulo pra adicionar "cópia N"
+  // (auto-incrementa se ja terminar em "cópia N"). Sem nome no original
+  // vira "cópia 1".
   const duplicateQuote = useCallback(async (id: string) => {
     if (!confirm('Duplicar este orçamento? Vai criar um novo rascunho com os mesmos procedimentos.')) return;
     try {
-      await api.post(`/quotes/${id}/duplicate-as-option`);
-      showSuccess('Orçamento duplicado — novo rascunho criado');
+      const { data } = await api.post<{ id: string }>(`/quotes/${id}/duplicate-as-option`);
+      // Atualiza o titulo do novo quote com " cópia N"
+      const original = quotesList.find((q) => q.id === id);
+      const baseTitle = (original?.title || '').trim();
+      // Detecta " cópia N" no final pra incrementar
+      const copiaMatch = baseTitle.match(/^(.*) cópia (\d+)$/);
+      let newTitle: string;
+      if (copiaMatch) {
+        const root = copiaMatch[1];
+        const n = parseInt(copiaMatch[2], 10) + 1;
+        newTitle = `${root} cópia ${n}`;
+      } else if (baseTitle) {
+        newTitle = `${baseTitle} cópia 1`;
+      } else {
+        newTitle = 'Orçamento cópia 1';
+      }
+      if (data?.id) {
+        await api.patch(`/quotes/${data.id}`, { title: newTitle });
+      }
+      showSuccess(`Orçamento duplicado: "${newTitle}"`);
       await refreshQuotes();
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao duplicar');
     }
-  }, [refreshQuotes]);
+  }, [refreshQuotes, quotesList]);
 
   // Onda 3.9 — Mapa fdi → items do orcamento EXPANDIDO. Reflete o que esta
   // sendo editado naquele momento. Quando nada expandido, FDI grid fica limpo.
@@ -505,6 +526,15 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
         <AddQuoteItemModal
           quoteId={addingItemForQuoteId}
           procedures={procedures}
+          onDuplicate={async () => {
+            const id = addingItemForQuoteId;
+            // Onda 3.42 — Fecha o modal antes de duplicar pra nao perder
+            // estado. Operador pode editar o novo card depois se quiser.
+            setAddingItemForQuoteId(null);
+            setJustCreatedQuoteId(null);
+            setWasAddedInModal(false);
+            await duplicateQuote(id);
+          }}
           onClose={async () => {
             // Onda 6 — Cleanup de DRAFT vazio: se este modal foi aberto via
             // "Adicionar procedimento" (criou DRAFT vazio antes), e o operador
@@ -672,10 +702,11 @@ function QuoteCard({
           {onDuplicate && (
             <button
               onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
-              className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-semibold"
               title="Duplicar orçamento (cria novo rascunho com os mesmos procedimentos)"
             >
               <Copy size={12} />
+              Duplicar
             </button>
           )}
           {onDelete && (
