@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus, Copy } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
@@ -320,6 +320,22 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     }
   }, [refreshQuotes]);
 
+  // Onda 3.41 — Duplica orçamento: cria um novo DRAFT identico (mesmos
+  // procedimentos, mesmos dentes). Util quando paciente quer outra
+  // versao similar (ex: outra opcao com mais procedimentos, ou repetir
+  // um tratamento que ja foi feito antes). Backend: POST duplicate-as-option.
+  const duplicateQuote = useCallback(async (id: string) => {
+    if (!confirm('Duplicar este orçamento? Vai criar um novo rascunho com os mesmos procedimentos.')) return;
+    try {
+      await api.post(`/quotes/${id}/duplicate-as-option`);
+      showSuccess('Orçamento duplicado — novo rascunho criado');
+      await refreshQuotes();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao duplicar');
+    }
+  }, [refreshQuotes]);
+
   // Onda 3.9 — Mapa fdi → items do orcamento EXPANDIDO. Reflete o que esta
   // sendo editado naquele momento. Quando nada expandido, FDI grid fica limpo.
   const itemsByFdi = useMemo(() => {
@@ -467,6 +483,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
                 onToggleExpand={() => openQuoteDetail(q.id)}
                 onRename={(newTitle) => updateQuoteTitle(q.id, newTitle)}
                 onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
+                onDuplicate={() => duplicateQuote(q.id)}
                 patientId={patientId}
                 procedures={procedures}
                 selectedTeeth={expandedQuoteId === q.id ? selectedTeethArray : []}
@@ -529,7 +546,7 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
 // "Abrir na aba Orcamentos" no rodape.
 
 function QuoteCard({
-  quote, index, expanded, expandedQuote, onToggleExpand, onRename, onDelete,
+  quote, index, expanded, expandedQuote, onToggleExpand, onRename, onDelete, onDuplicate,
   patientId, procedures, selectedTeeth, onClearSelection, onQuoteChange,
   lastAnnotation, onAnnotationConsumed,
 }: {
@@ -540,6 +557,8 @@ function QuoteCard({
   onToggleExpand: () => void;
   onRename: (newTitle: string) => void | Promise<void>;
   onDelete?: () => void;
+  /** Onda 3.41 — duplica o orçamento (cria novo DRAFT com mesmos items) */
+  onDuplicate?: () => void;
   patientId: string;
   procedures: Procedure[];
   selectedTeeth: string[];
@@ -649,7 +668,16 @@ function QuoteCard({
             <span>por {quote.created_by.name}</span>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-1">
+          {onDuplicate && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+              className="p-1.5 rounded text-muted-foreground hover:text-primary hover:bg-primary/10"
+              title="Duplicar orçamento (cria novo rascunho com os mesmos procedimentos)"
+            >
+              <Copy size={12} />
+            </button>
+          )}
           {onDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
