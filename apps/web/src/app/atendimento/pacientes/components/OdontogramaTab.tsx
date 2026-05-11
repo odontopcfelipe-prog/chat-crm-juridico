@@ -621,19 +621,24 @@ function QuoteCard({
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
           {STATUS_LABEL[quote.status]}
         </span>
-        {/* Onda 6.4 — badge da prioridade clinica */}
-        {quote.priority && quote.priority !== 'COMPLETO' && (
-          <span
-            className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${
-              quote.priority === 'URGENTE'
-                ? 'bg-red-500/15 text-red-700 border-red-500/30'
-                : 'bg-amber-500/15 text-amber-700 border-amber-500/30'
-            }`}
-            title={quote.priority === 'URGENTE' ? 'Urgência clínica' : 'Procedimento essencial'}
-          >
-            {quote.priority === 'URGENTE' ? '🔥 URGENTE' : '⚠ ESSENCIAL'}
-          </span>
-        )}
+        {/* Onda 6.4 — badge da prioridade clinica (sempre visivel, mesmo
+            quando "Completo" — equipe distingue de relance qual eh urgente) */}
+        {(() => {
+          const p = quote.priority || 'COMPLETO';
+          const cfg = {
+            URGENTE:   { label: '🔥 URGENTE',   cls: 'bg-red-500/15 text-red-700 border-red-500/30',         tip: 'Urgência clínica' },
+            ESSENCIAL: { label: '⚠ ESSENCIAL', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30',   tip: 'Procedimento essencial' },
+            COMPLETO:  { label: '✓ COMPLETO',  cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', tip: 'Tratamento completo (sem urgência)' },
+          }[p];
+          return (
+            <span
+              className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
+              title={cfg.tip}
+            >
+              {cfg.label}
+            </span>
+          );
+        })()}
         <div className="flex flex-col text-xs text-muted-foreground">
           <span>
             {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}
