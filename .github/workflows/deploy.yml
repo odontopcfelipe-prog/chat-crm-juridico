@@ -9,7 +9,10 @@ on:
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
+    # Onda 6 — desliga fail-fast: se um job falhar (ex.: worker), os outros
+    # (api/web) continuam buildando. Antes 1 flake derrubava os 3.
     strategy:
+      fail-fast: false
       matrix:
         include:
           - name: api
