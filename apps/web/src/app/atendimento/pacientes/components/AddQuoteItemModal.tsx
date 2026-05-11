@@ -434,12 +434,24 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                       key={p.id}
                       type="button"
                       onClick={() => addToBasket(p)}
-                      className="w-full px-3 py-2.5 flex items-center gap-3 bg-background hover:bg-accent/40 border border-border hover:border-primary/30 rounded-xl transition-colors text-left group"
+                      className="w-full px-3 py-2.5 flex items-center gap-3 border rounded-xl transition-colors text-left group"
+                      style={{
+                        backgroundColor: color + '0d',     // ~5% tint da cor da especialidade
+                        borderColor: color + '40',         // ~25% pra borda mais visivel
+                        borderLeftWidth: 4,
+                        borderLeftColor: color,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.backgroundColor = color + '1f'; // ~12%
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.backgroundColor = color + '0d';
+                      }}
                     >
                       {/* Bolha de cor da especialidade */}
                       <div
                         className="w-9 h-9 rounded-lg shrink-0 flex items-center justify-center"
-                        style={{ backgroundColor: color + '20' }}
+                        style={{ backgroundColor: color + '33' }}
                       >
                         <Droplet size={14} style={{ color }} />
                       </div>
