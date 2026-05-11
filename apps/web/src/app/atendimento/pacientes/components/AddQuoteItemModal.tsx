@@ -94,6 +94,10 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [originalTitle, setOriginalTitle] = useState<string>(initialTitle || '');
+  // Onda 6.2 — Snapshot dos tooth_fdis originais por item.id pra detectar
+  // mudanca nos dentes de items existentes (operador toggla no odontograma).
+  // Sem isso, mudancas em items ja salvos nao habilitam o botao "Adicionar".
+  const [originalToothByItemId, setOriginalToothByItemId] = useState<Map<string, string[]>>(new Map());
   // Onda 6 — filtro por pill de especialidade ("__all__" mostra todas)
   const [specialtyFilter, setSpecialtyFilter] = useState<string>('__all__');
   // Onda 6 — toggle Adulto/Infantil (visual; dentes deciduos podem vir depois)
@@ -134,6 +138,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           duration_minutes: it.procedure?.duration_minutes,
         }));
         setBasket(items);
+        // Snapshot dos dentes originais pra detectar mudancas depois
+        const snap = new Map<string, string[]>();
+        items.forEach((it) => {
+          if (it.id) snap.set(it.id, [...it.tooth_fdis]);
+        });
+        setOriginalToothByItemId(snap);
       } catch {
         // Silencia: se nao conseguir carregar, abre vazio
       } finally {
@@ -265,7 +275,22 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     return acc + Math.max(it.tooth_fdis.length, 1);
   }, 0);
   const newItemsCount = basket.filter((it) => !it.id).length;
-  const hasChanges = newItemsCount > 0 || removedIds.size > 0 || titleChanged;
+
+  // Onda 6.2 — detecta items existentes com dentes alterados (toggla via odontograma)
+  const isItemToothChanged = (it: BasketItem): boolean => {
+    if (!it.id) return false;
+    const original = originalToothByItemId.get(it.id) || [];
+    if (original.length !== it.tooth_fdis.length) return true;
+    const a = [...it.tooth_fdis].sort();
+    const b = [...original].sort();
+    return a.some((v, i) => v !== b[i]);
+  };
+  const itemsWithChangedTeeth = basket.filter(isItemToothChanged);
+  const hasChanges =
+    newItemsCount > 0
+    || removedIds.size > 0
+    || titleChanged
+    || itemsWithChangedTeeth.length > 0;
 
   const submit = async (keepOpen: boolean) => {
     if (!hasChanges) {
@@ -286,6 +311,23 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           // ignora — provavelmente ja foi deletado
         }
       }
+      // Onda 6.2 — items existentes com dentes alterados: DELETE original + POST com novos
+      let updatedCount = 0;
+      for (const it of itemsWithChangedTeeth) {
+        if (!it.id) continue;
+        try { await api.delete(`/quote-items/${it.id}`); } catch {}
+        const teeth = it.tooth_fdis.length > 0 ? it.tooth_fdis : [null];
+        const qtyPerPost = it.tooth_fdis.length > 0 ? 1 : it.quantity;
+        for (const tooth of teeth) {
+          await api.post(`/quotes/${quoteId}/items`, {
+            procedure_id: it.procedure_id,
+            quantity: qtyPerPost,
+            unit_price: it.unit_price === '' ? undefined : Number(it.unit_price),
+            tooth_fdi: tooth || undefined,
+          });
+        }
+        updatedCount++;
+      }
       let createdCount = 0;
       for (const it of basket) {
         if (it.id) continue;
@@ -303,6 +345,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       }
       const summary = [
         createdCount > 0 ? `+${createdCount} novo(s)` : null,
+        updatedCount > 0 ? `${updatedCount} atualizado(s)` : null,
         removedIds.size > 0 ? `-${removedIds.size} removido(s)` : null,
         titleChanged && titleDraft.trim() ? `nome: "${titleDraft.trim()}"` : null,
       ].filter(Boolean).join(' · ');
