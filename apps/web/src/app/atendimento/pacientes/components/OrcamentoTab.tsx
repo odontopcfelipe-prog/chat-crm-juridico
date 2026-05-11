@@ -991,11 +991,11 @@ function QuoteDetailView({
         {/* Layout adapta — adiciona col "Selecionados" quando ha selecao parcial */}
         {(() => {
           const hasDiscount = Number(quote.discount_value) > 0;
-          // Onda 6 — Layout EMPILHADO (1 coluna). Selecionados em cima,
-          // depois Desconto (se houver), depois Total. Total fica abaixo
-          // pra leitura natural de cima pra baixo.
+          // Onda 6.3 — Layout lado-a-lado (Selecionados esquerda, Total
+          // direita). Desconto entra como coluna do meio quando aplicado.
+          // Total fica destacado a direita pra leitura rapida.
           return (
-            <div className="flex flex-col gap-3 text-sm">
+            <div className="flex items-start justify-between gap-4 text-sm flex-wrap">
               <div>
                 <p className="text-xs text-emerald-700">
                   Selecionados ({partialSelection.size})
@@ -1012,7 +1012,7 @@ function QuoteDetailView({
                   </p>
                 </div>
               )}
-              <div className="pt-3 border-t border-border/60">
+              <div className="text-right">
                 <p className="text-xs text-muted-foreground">Total</p>
                 <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
                 {/* Tempo de cadeira (soma duration_minutes * quantity) */}
