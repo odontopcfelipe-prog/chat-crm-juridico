@@ -77,9 +77,6 @@ function colorForSpecialty(key: string): string {
   return SPECIALTY_COLORS[Math.abs(hash) % SPECIALTY_COLORS.length];
 }
 
-const fmtBRL = (v: string | number) =>
-  new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v) || 0);
-
 export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle }: Props) {
   // Onda 6 — paleta dos cards se adapta ao tema (escuro precisa de tint mais
   // forte pra cor ser visivel; claro precisa ser mais sutil pra nao saturar).
@@ -464,7 +461,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                       >
                         <Droplet size={14} style={{ color }} />
                       </div>
-                      {/* Nome + meta */}
+                      {/* Nome + meta — visao clinica SEM valores monetarios.
+                          Dentistas nao tem acesso a valores; precos moram so
+                          na aba Orcamentos (visao comercial/recepcao). */}
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-semibold text-foreground truncate">
                           {p.name}
@@ -477,10 +476,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                           )}
                           {p.code_tuss && <span>TUSS {p.code_tuss}</span>}
                         </div>
-                      </div>
-                      {/* Valor */}
-                      <div className="text-sm font-semibold text-foreground shrink-0">
-                        {fmtBRL(p.base_price)}
                       </div>
                       {/* Botão + */}
                       <div className="relative">
@@ -528,7 +523,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                   const isActive = activeBasketIdx === idx;
                   const hasTeeth = it.tooth_fdis.length > 0;
                   const effectiveQty = hasTeeth ? it.tooth_fdis.length : it.quantity;
-                  const lineTotal = Number(it.unit_price || 0) * effectiveQty;
                   return (
                     <div
                       key={it.id || `new-${idx}`}
@@ -539,24 +533,19 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                           : 'border-border hover:border-primary/30'
                       }`}
                     >
-                      {/* Linha 1: nome + valor + X */}
+                      {/* Linha 1: nome + X (sem valor — visao clinica) */}
                       <div className="flex items-start justify-between gap-2">
                         <p className="text-xs font-semibold text-foreground line-clamp-2 flex-1">
                           {it.procedure_name}
                         </p>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className="text-xs font-bold text-foreground">
-                            {fmtBRL(lineTotal)}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); removeFromBasket(idx); }}
-                            className="text-muted-foreground hover:text-destructive p-0.5 rounded"
-                            title="Remover"
-                          >
-                            <X size={12} />
-                          </button>
-                        </div>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); removeFromBasket(idx); }}
+                          className="text-muted-foreground hover:text-destructive p-0.5 rounded shrink-0"
+                          title="Remover"
+                        >
+                          <X size={12} />
+                        </button>
                       </div>
 
                       {/* Linha 2: chips dos dentes + controles qtd */}
