@@ -428,21 +428,75 @@ function QuoteDetailView({
 
   // Onda 4.1 — selecao de items pra aprovacao parcial (so visivel em SENT)
   // Onda 7.9 — Default: TODOS os items pendentes ja vem pre-selecionados.
-  // Operador desmarca o que NAO vai aprovar (em vez de marcar o que vai —
-  // assume que paciente fechou tudo, marca exceções).
-  const [partialSelection, setPartialSelection] = useState<Set<string>>(
-    () => new Set(quote.items.filter((it) => !it.approved_at).map((it) => it.id)),
-  );
+  // Operador desmarca o que NAO vai aprovar (em vez de marcar o que vai).
+  // Onda 7.10 — MEMORIA da selecao via sessionStorage keyed por quote.id.
+  // Operador desmarca, sai pra lista, volta -> selecao preservada (nao volta
+  // todo selecionado de novo). sessionStorage limpa ao fechar a aba.
+  const storageKey = `quote-partial-selection-${quote.id}`;
+
+  const computeDefaultSelection = (items: typeof quote.items): Set<string> => {
+    return new Set(items.filter((it) => !it.approved_at).map((it) => it.id));
+  };
+
+  const [partialSelection, setPartialSelection] = useState<Set<string>>(() => {
+    // Tenta restaurar do sessionStorage primeiro
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = window.sessionStorage.getItem(storageKey);
+        if (stored) {
+          const ids: string[] = JSON.parse(stored);
+          const validIds = new Set(quote.items.map((it) => it.id));
+          // Filtra ids que ainda existem (items podem ter sido removidos)
+          // e que nao sao aprovados (approved_at == null)
+          const filtered = ids.filter((id) => {
+            const item = quote.items.find((it) => it.id === id);
+            return !!item && !item.approved_at;
+          });
+          return new Set(filtered);
+        }
+      } catch {
+        /* ignora — cai no default */
+      }
+    }
+    // Sem storage: pre-seleciona todos pendentes
+    return computeDefaultSelection(quote.items);
+  });
   const [acceptingPartial, setAcceptingPartial] = useState(false);
 
-  // Onda 7.9 — Re-sincroniza a selecao quando o quote muda (carrega outro,
-  // recarrega apos aprovacao, etc). Mantem todos os pendentes selecionados
-  // por default. Items ja aprovados nao entram (approved_at != null).
+  // Onda 7.10 — Persiste a selecao no sessionStorage sempre que mudar.
   useEffect(() => {
-    setPartialSelection(new Set(
-      quote.items.filter((it) => !it.approved_at).map((it) => it.id),
-    ));
-  }, [quote.id, quote.items]);
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(
+        storageKey,
+        JSON.stringify(Array.from(partialSelection)),
+      );
+    } catch {
+      /* sessionStorage pode estar cheio ou bloqueado — silencia */
+    }
+  }, [partialSelection, storageKey]);
+
+  // Re-sincroniza quando o quote muda (carrega outro detail). Restaura do
+  // sessionStorage se houver, senao volta pro default (todos pendentes).
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const stored = window.sessionStorage.getItem(storageKey);
+      if (stored) {
+        const ids: string[] = JSON.parse(stored);
+        const filtered = ids.filter((id) => {
+          const item = quote.items.find((it) => it.id === id);
+          return !!item && !item.approved_at;
+        });
+        setPartialSelection(new Set(filtered));
+        return;
+      }
+    } catch {
+      /* fallback */
+    }
+    setPartialSelection(computeDefaultSelection(quote.items));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quote.id]);
 
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
