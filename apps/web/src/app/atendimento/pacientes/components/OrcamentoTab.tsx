@@ -1021,7 +1021,7 @@ function QuoteDetailView({
                   Selecionados ({partialSelection.size})
                 </p>
                 <p className="text-lg font-bold text-emerald-600">
-                  R$ {partialTotal.toFixed(2)}
+                  R$ {partialTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
               </div>
               {/* Onda 7 — Card "Nao selecionados" em vermelho no meio.
@@ -1041,7 +1041,7 @@ function QuoteDetailView({
                       Não selecionados ({notSelected.length})
                     </p>
                     <p className="text-lg font-bold text-red-600">
-                      R$ {notSelectedTotal.toFixed(2)}
+                      R$ {notSelectedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
                 );
@@ -1056,7 +1056,7 @@ function QuoteDetailView({
               )}
               <div className="text-right">
                 <p className="text-xs text-muted-foreground">Total</p>
-                <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toFixed(2)}</p>
+                <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
                 {/* Tempo de cadeira (soma duration_minutes * quantity) */}
                 {(() => {
                   const totalMinutes = quote.items.reduce(
