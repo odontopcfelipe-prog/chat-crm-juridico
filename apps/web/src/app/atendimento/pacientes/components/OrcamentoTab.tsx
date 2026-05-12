@@ -1170,10 +1170,16 @@ function QuoteDetailView({
           Onda 3.3 (Fase 25) — agora aparece em QUALQUER status com total > 0.
           Antes era so SENT/ACCEPTED, mas o momento mais critico de vender
           condicao de pagamento eh DURANTE a montagem do orcamento, com paciente
-          junto. Recepcao precisa ver "5% PIX vs 12x cartao" pra negociar. */}
-      {Number(quote.total_value) > 0 && (
-        <PaymentSuggestionsCard total={Number(quote.total_value)} />
-      )}
+          junto. Recepcao precisa ver "5% PIX vs 12x cartao" pra negociar.
+          Onda 7.1 — usa partialTotal (soma dos SELECIONADOS) em vez do
+          quote.total_value (soma de TUDO). Recepcao marca os items que o
+          paciente vai fechar agora, e o card recalcula automaticamente as
+          condicoes de pagamento. Fallback pro total cheio quando 0 selec. */}
+      {(() => {
+        const baseTotal = partialSelection.size > 0 ? partialTotal : Number(quote.total_value);
+        if (baseTotal <= 0) return null;
+        return <PaymentSuggestionsCard total={baseTotal} />;
+      })()}
 
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
