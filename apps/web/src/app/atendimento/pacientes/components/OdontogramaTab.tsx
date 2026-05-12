@@ -497,11 +497,15 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
             >
               <Plus size={18} /> Adicionar procedimento
             </button>
-            {quotesList.map((q, idx) => (
+            {/* Onda 7.6 — Ordem crescente (#1, #2, #3...) — orcamento mais
+                antigo no topo. API retorna desc por created_at, fazemos
+                reverse aqui pra exibir asc. Numero (#N) eh a posicao no
+                array reverso (1-based). */}
+            {[...quotesList].reverse().map((q, idx) => (
               <QuoteCard
                 key={q.id}
                 quote={q}
-                index={quotesList.length - idx}
+                index={idx + 1}
                 expanded={expandedQuoteId === q.id}
                 expandedQuote={expandedQuoteId === q.id ? expandedQuote : null}
                 onToggleExpand={() => openQuoteDetail(q.id)}
@@ -623,10 +627,15 @@ function QuoteCard({
   // Onda 7.2 — Quando o quote tem aprovacao PARCIAL (alguns items aprovados
   // in-place + alguns pendentes), fundo fica amarelo claro pra sinalizar
   // "em andamento".
+  // Onda 7.6 — Quando TODOS os items estao aprovados in-place (approved_count
+  // == _count.items > 0), fundo verde mesmo que quote.status ainda seja
+  // DRAFT/SENT. Sinaliza "tudo fechado, falta finalizar contratualmente".
   const isAccepted = quote.status === 'ACCEPTED';
   const isRejected = quote.status === 'REJECTED';
+  const totalItems = quote._count?.items ?? 0;
+  const allApproved = totalItems > 0 && (quote.approved_count ?? 0) === totalItems;
   const hasPartialApproval = (quote.approved_count ?? 0) > 0 && (quote.pending_count ?? 0) > 0;
-  const cardBg = isAccepted
+  const cardBg = (isAccepted || allApproved)
     ? 'bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-500/50'
     : isRejected
     ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40'
