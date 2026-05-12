@@ -92,6 +92,9 @@ interface QuoteListItem {
   valid_until: string | null;
   _count?: { items: number };
   created_by?: { id: string; name: string };
+  // Onda 7.7 — contadores de aprovacao parcial (vem do backend)
+  approved_count?: number;
+  pending_count?: number;
 }
 
 interface QuoteDetail extends QuoteListItem {
@@ -249,7 +252,10 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
         </div>
       ) : (
         <ul className="bg-card border border-border rounded-xl divide-y divide-border">
-          {list.map((q) => {
+          {/* Onda 7.7 — Ordem crescente: mais antigo no topo (mesmo padrao
+              da aba Avaliacao). API retorna desc por created_at, fazemos
+              reverse aqui pra exibir asc. */}
+          {[...list].reverse().map((q) => {
             const expiry = expiryStatus(q.valid_until, q.status);
             // Onda 5 — detecta "resto de aprovacao parcial" pelo prefixo
             // automatico nas notes (preserva titulo customizado do operador).
@@ -261,7 +267,12 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
             // Onda 5 — destaque visual pro status ACCEPTED (fundo verde +
             // borda esquerda emerald) pra equipe identificar de relance os
             // orcamentos fechados/aceitos.
-            const isAccepted = q.status === 'ACCEPTED';
+            // Onda 7.7 — Tambem fica verde quando todos os items foram
+            // aprovados in-place (approved_count == _count.items > 0),
+            // mesmo que quote.status ainda seja DRAFT/SENT.
+            const totalItems = q._count?.items ?? 0;
+            const allApproved = totalItems > 0 && (q.approved_count ?? 0) === totalItems;
+            const isAccepted = q.status === 'ACCEPTED' || allApproved;
 
             const rowCls = isAccepted
               ? 'bg-emerald-50 dark:bg-emerald-950/30 border-l-4 border-emerald-500 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50'
