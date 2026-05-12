@@ -226,20 +226,26 @@ export class QuotesService {
       include: {
         _count: { select: { items: true } },
         created_by: { select: { id: true, name: true } },
-        // Onda 3.7 — items minimo pra classificar a categoria de fechamento
-        // (LENTES_PORCELANA, FACETAS_RESINA, IMPLANTE, etc.) e mostrar no UI
+        // Onda 3.7 — items minimo pra classificar a categoria de fechamento.
+        // Onda 7.2 — incluido approved_at pra calcular contadores parciais
+        // no frontend (badge "X/Y aprovados" nos cards da lista).
         items: {
           select: {
             total_price: true,
+            approved_at: true,
             procedure: { select: { name: true, category: true } },
           },
         },
       },
     });
-    // Anexa closing_category derivada (sem persistir — eh computada)
     return quotes.map((q) => ({
       ...q,
       closing_category: this.classifyQuoteColumn(q.items),
+      // Onda 7.2 — contadores de aprovacao parcial (cheap, calculado aqui
+      // pra evitar 2a query no frontend). approved_count = quantos items
+      // ja foram aprovados; pending_count = total - approved_count.
+      approved_count: q.items.filter((it) => it.approved_at !== null).length,
+      pending_count: q.items.filter((it) => it.approved_at === null).length,
     }));
   }
 
@@ -1090,6 +1096,58 @@ export class QuotesService {
     // PROFILAXIA, DENTISTICA, ENDODONTIA, PERIODONTIA, PROTESE, CIRURGIA,
     // CLAREAMENTO solto, e qualquer categoria não mapeada
     return 'OUTROS';
+  }
+
+  /**
+   * Onda 7.2 — Aprovar items IN-PLACE no mesmo orçamento (sem split).
+   * Marca approved_at = now() nos items selecionados. Os items pendentes
+   * (sem approved_at) ficam disponiveis pra futuras aprovacoes (paciente
+   * volta proxima consulta e fecha mais).
+   *
+   * NAO altera Quote.status, NAO cria TreatmentPlan, NAO gera Installments.
+   * Eh apenas o marcador de "esse item ja foi aprovado pelo paciente".
+   * Idempotente: items ja aprovados nao mudam approved_at (preserva
+   * timestamp original).
+   */
+  async approveItems(
+    quoteId: string,
+    tenantId: string,
+    selectedItemIds: string[],
+  ) {
+    if (!selectedItemIds || selectedItemIds.length === 0) {
+      throw new BadRequestException('Selecione ao menos 1 item pra aprovar');
+    }
+
+    // Valida quote existe + pertence ao tenant
+    const quote = await this.findOne(quoteId, tenantId);
+
+    // Filtra apenas items que pertencem a este quote (seguranca)
+    const validIds = new Set(quote.items.map((it) => it.id));
+    const safeIds = selectedItemIds.filter((id) => validIds.has(id));
+    if (safeIds.length !== selectedItemIds.length) {
+      throw new BadRequestException(
+        'Alguns item_ids nao pertencem a este orcamento',
+      );
+    }
+
+    // Marca os pendentes como aprovados. Items ja aprovados (approved_at
+    // != null) sao ignorados pra preservar timestamp original.
+    const now = new Date();
+    const result = await this.prisma.quoteItem.updateMany({
+      where: {
+        id: { in: safeIds },
+        quote_id: quoteId,
+        approved_at: null, // so atualiza pendentes
+      },
+      data: { approved_at: now },
+    });
+
+    return {
+      quote_id: quoteId,
+      approved_count: result.count,
+      already_approved: safeIds.length - result.count,
+      approved_at: now,
+    };
   }
 
   /**

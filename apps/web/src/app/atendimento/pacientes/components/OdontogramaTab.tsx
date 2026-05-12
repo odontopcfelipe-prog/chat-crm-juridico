@@ -88,6 +88,9 @@ interface QuoteListItem {
   priority?: 'COMPLETO' | 'ESSENCIAL' | 'URGENTE' | null;
   _count?: { items: number };
   created_by?: { id: string; name: string };
+  // Onda 7.2 — contadores de aprovacao parcial (vem do backend)
+  approved_count?: number;
+  pending_count?: number;
 }
 
 const CLOSING_CATEGORY_LABEL: Record<ClosingCategory, string> = {
@@ -617,12 +620,18 @@ function QuoteCard({
   // Onda 3.38 — Card com fundo destacado pra orcamentos APROVADOS (verde
   // emerald) e REJEITADOS (vermelho suave). DRAFT/SENT/EXPIRED ficam com
   // fundo padrao. Da pra distinguir de relance na lista cheia.
+  // Onda 7.2 — Quando o quote tem aprovacao PARCIAL (alguns items aprovados
+  // in-place + alguns pendentes), fundo fica amarelo claro pra sinalizar
+  // "em andamento".
   const isAccepted = quote.status === 'ACCEPTED';
   const isRejected = quote.status === 'REJECTED';
+  const hasPartialApproval = (quote.approved_count ?? 0) > 0 && (quote.pending_count ?? 0) > 0;
   const cardBg = isAccepted
     ? 'bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-500/50'
     : isRejected
     ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40'
+    : hasPartialApproval
+    ? 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500/50'
     : 'bg-card border-border hover:border-primary/30';
 
   return (
@@ -670,6 +679,16 @@ function QuoteCard({
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
           {STATUS_LABEL[quote.status]}
         </span>
+        {/* Onda 7.2 — Badge de aprovacao parcial: aparece quando ao menos 1
+            item aprovado in-place + ao menos 1 pendente. Mostra X/Y aprovados. */}
+        {hasPartialApproval && (
+          <span
+            className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 border border-amber-500/30 inline-flex items-center gap-1"
+            title="Aprovação parcial em andamento — alguns procedimentos já foram aprovados, outros pendentes"
+          >
+            ⚙ {quote.approved_count}/{quote._count?.items ?? 0} aprovados
+          </span>
+        )}
         {/* Onda 6.4 — badge da prioridade clinica (sempre visivel, mesmo
             quando "Completo" — equipe distingue de relance qual eh urgente) */}
         {(() => {

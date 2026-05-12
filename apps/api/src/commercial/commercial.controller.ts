@@ -207,6 +207,32 @@ export class CommercialController {
     );
   }
 
+  /**
+   * Onda 7.2 — Aprovar items IN-PLACE (no MESMO orcamento, sem split).
+   * Body: { item_ids: string[] }
+   * Marca approved_at = now() nos items selecionados. Items pendentes
+   * ficam visiveis na lista pra aprovacao futura. Sem criar novo quote,
+   * sem mexer em TreatmentPlan/Installments. Substitui o fluxo antigo
+   * (accept-partial) que dividia em 2 quotes.
+   */
+  @Post('quotes/:id/approve-items')
+  approveItems(
+    @Param('id') id: string,
+    @Body() body: { item_ids?: string[] },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!Array.isArray(body?.item_ids) || body.item_ids.length === 0) {
+      throw new BadRequestException(
+        'item_ids[] eh obrigatorio (selecione ao menos 1)',
+      );
+    }
+    return this.quotesService.approveItems(
+      id,
+      user.tenant_id,
+      body.item_ids,
+    );
+  }
+
   @Post('quotes/:id/reject')
   rejectQuote(
     @Param('id') id: string,

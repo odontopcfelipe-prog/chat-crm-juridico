@@ -56,6 +56,8 @@ interface QuoteItem {
   // Onda 4.2 (Fase 25) — pagamento por procedimento (NULL = default do quote)
   payment_method?: string | null;
   installments_count?: number | null;
+  // Onda 7.2 — aprovacao in-place. NULL = pendente, com data = aprovado.
+  approved_at?: string | null;
 }
 
 // Onda 4.2 — labels amigaveis pro select de payment_method
@@ -442,31 +444,24 @@ function QuoteDetailView({
 
   const acceptPartial = async () => {
     if (partialSelection.size === 0) return;
-    if (partialSelection.size === quote.items.length) {
-      showError('Todos items selecionados — use "Marcar aceito" pra aprovar tudo');
-      return;
-    }
     const total = partialTotal.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const remaining = quote.items.length - partialSelection.size;
-    // Onda 3.8 — mensagem reflete novo comportamento: original FICA com os
-    // items NAO selecionados (em vez de virar REJECTED). Permite o paciente
-    // comprar mais depois sem precisar reconstruir orcamento.
-    const msg = `Aceitar ${partialSelection.size} de ${quote.items.length} procedimentos (${total})?\n\n` +
-      `• Items selecionados → criam novo orçamento ACEITO + Plano de Tratamento\n` +
-      `• ${remaining} item(ns) NÃO selecionado(s) ficam neste orçamento — disponíveis pra venda futura sem precisar recriar.`;
+    // Onda 7.2 — Aprovacao in-place. Items selecionados ficam com approved_at
+    // setado, items pendentes ficam visiveis pra aprovacao futura. Sem split
+    // em novo orcamento, sem mexer em cash flow/installments.
+    const msg = `Aprovar ${partialSelection.size} procedimento(s) (${total})?\n\n` +
+      `Os procedimentos selecionados ficarão marcados como APROVADOS neste mesmo orçamento.\n` +
+      `Os demais continuam pendentes e podem ser aprovados depois (paciente volta proxima consulta).`;
     if (!confirm(msg)) return;
     setAcceptingPartial(true);
     try {
-      await api.post(`/quotes/${quote.id}/accept-partial`, {
+      await api.post(`/quotes/${quote.id}/approve-items`, {
         item_ids: Array.from(partialSelection),
       });
-      showSuccess(`Aceito! ${remaining} item(ns) restante(s) ficam disponíveis pra próxima venda.`);
+      showSuccess(`${partialSelection.size} item(ns) aprovado(s) neste orçamento`);
       setPartialSelection(new Set());
-      // Onda 3.8 — recarrega o quote atual em vez de voltar pra lista,
-      // pra operador ver os items restantes ja aplicados.
       await onReload();
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro na aprovacao parcial');
+      showError(err?.response?.data?.message || 'Erro ao aprovar items');
     } finally {
       setAcceptingPartial(false);
     }
@@ -940,29 +935,52 @@ function QuoteDetailView({
 
               // Modo READ normal
               const isPartialSelected = partialSelection.has(it.id);
+              // Onda 7.2 — Items com approved_at ficam INATIVOS visualmente
+              // (✓ verde + opaco + sem checkbox). Operador nao pode desmarcar.
+              const isApproved = !!it.approved_at;
+              const approvedDate = it.approved_at
+                ? new Date(it.approved_at).toLocaleDateString('pt-BR')
+                : null;
               return (
                 <li
                   key={it.id}
                   className={`px-4 py-2.5 flex items-center gap-3 text-sm border-l-4 transition-colors ${
-                    isPartialSelected ? 'ring-1 ring-emerald-500 ring-inset' : ''
+                    isApproved
+                      ? 'opacity-60'
+                      : isPartialSelected
+                      ? 'ring-1 ring-emerald-500 ring-inset'
+                      : ''
                   }`}
                   style={{ borderLeftColor: color.bar, backgroundColor: color.tint }}
                 >
-                  {/* Onda 3.8 — checkbox de selecao parcial em DRAFT/SENT.
-                      Marcar = item entra no novo orcamento ACEITO; nao marcado
-                      fica no orcamento original pra venda futura. */}
-                  {canPartialAccept && (
+                  {/* Onda 7.2 — Checkbox so em items pendentes; aprovados
+                      mostram ✓ verde indicando que ja foram fechados. */}
+                  {isApproved ? (
+                    <div
+                      className="w-4 h-4 rounded-full bg-emerald-500 flex items-center justify-center shrink-0"
+                      title={`Aprovado em ${approvedDate}`}
+                    >
+                      <Check size={10} className="text-white" />
+                    </div>
+                  ) : canPartialAccept ? (
                     <input
                       type="checkbox"
                       checked={isPartialSelected}
                       onChange={() => togglePartialItem(it.id)}
                       className="w-4 h-4 accent-emerald-600 cursor-pointer shrink-0"
-                      title="Selecionar pra aceitar (não selecionado fica neste orçamento pra venda futura)"
+                      title="Selecionar pra aprovar"
                     />
-                  )}
+                  ) : null}
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium">{it.procedure?.name || 'Procedimento'}</p>
+                      <p className={`font-medium ${isApproved ? 'line-through decoration-emerald-600/60' : ''}`}>
+                        {it.procedure?.name || 'Procedimento'}
+                      </p>
+                      {isApproved && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded-full font-semibold bg-emerald-500/15 text-emerald-700 border border-emerald-500/30">
+                          ✓ Aprovado em {approvedDate}
+                        </span>
+                      )}
                       {spec?.name && (
                         <span
                           className="text-[10px] px-1.5 py-0.5 rounded-full font-medium border"
@@ -1025,11 +1043,14 @@ function QuoteDetailView({
                 </p>
               </div>
               {/* Onda 7 — Card "Nao selecionados" em vermelho no meio.
-                  Mostra a soma dos items que ainda nao foram marcados —
-                  feedback rapido pra recepcao do "quanto sobra" caso o
-                  paciente feche so o que esta selecionado agora. */}
+                  Mostra a soma dos items pendentes que ainda nao foram
+                  marcados pra aprovar agora. Items ja aprovados (approved_at)
+                  NAO entram nessa conta — eles ja fecharam, nao sao "nao
+                  selecionados". */}
               {(() => {
-                const notSelected = quote.items.filter((it) => !partialSelection.has(it.id));
+                const notSelected = quote.items.filter(
+                  (it) => !it.approved_at && !partialSelection.has(it.id),
+                );
                 const notSelectedTotal = notSelected.reduce(
                   (acc, it) => acc + Number(it.total_price),
                   0,
@@ -1038,10 +1059,30 @@ function QuoteDetailView({
                 return (
                   <div>
                     <p className="text-xs text-red-700">
-                      Não selecionados ({notSelected.length})
+                      Pendentes ({notSelected.length})
                     </p>
                     <p className="text-lg font-bold text-red-600">
                       R$ {notSelectedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                    </p>
+                  </div>
+                );
+              })()}
+              {/* Onda 7.2 — Card "Aprovados" emerald no meio quando ha pelo
+                  menos 1 item aprovado. Mostra o quanto ja foi fechado. */}
+              {(() => {
+                const approved = quote.items.filter((it) => !!it.approved_at);
+                const approvedTotal = approved.reduce(
+                  (acc, it) => acc + Number(it.total_price),
+                  0,
+                );
+                if (approved.length === 0) return null;
+                return (
+                  <div>
+                    <p className="text-xs text-emerald-700 inline-flex items-center gap-1">
+                      <Check size={10} /> Aprovados ({approved.length})
+                    </p>
+                    <p className="text-lg font-bold text-emerald-700">
+                      R$ {approvedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                     </p>
                   </div>
                 );
@@ -1080,9 +1121,10 @@ function QuoteDetailView({
           );
         })()}
 
-        {/* Onda 5 — Acoes da selecao parcial integradas ao resumo (era FAB flutuante).
-            So aparece quando ha selecao parcial e e possivel aprovar parcial. */}
-        {canPartialAccept && partialSelection.size > 0 && partialSelection.size < quote.items.length && (
+        {/* Onda 5 — Acoes da selecao parcial integradas ao resumo.
+            Onda 7.2 — Removi `< quote.items.length`: aprovacao in-place
+            (sem split) pode aprovar TODOS pendentes de uma vez. */}
+        {canPartialAccept && partialSelection.size > 0 && (
           <div className="mt-4 pt-3 border-t border-emerald-200 dark:border-emerald-900/40 flex items-center justify-end gap-2 flex-wrap">
             <button
               onClick={() => setPartialSelection(new Set())}

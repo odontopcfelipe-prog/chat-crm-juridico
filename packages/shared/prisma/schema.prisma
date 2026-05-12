@@ -2459,6 +2459,16 @@ model QuoteItem {
   payment_method      String? // "PIX" | "CASH" | "CARD" | "INSTALLMENTS" | "BOLETO" | "TRANSFER"
   installments_count  Int? // se payment_method = INSTALLMENTS, quantas vezes (1-24)
 
+  // Onda 7.2 — Aprovacao parcial in-place. NULL = pendente (paciente nao
+  // fechou esse procedimento ainda); com data = aprovado naquele momento.
+  // Substitui o fluxo antigo que dividia em 2 quotes (um ACEITO + um
+  // "Procedimento restante"). Agora tudo fica no MESMO quote: items
+  // aprovados ficam visualmente inativos + ficam disponiveis pra historico,
+  // pendentes podem ser aprovados depois (paciente volta proxima consulta).
+  // Quote.status nao muda automaticamente — controlado por outras acoes
+  // (enviar, marcar aceito tudo, expirar, etc).
+  approved_at DateTime?
+
   quote     Quote     @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   procedure Procedure @relation(fields: [procedure_id], references: [id], onDelete: Restrict)
   dentist   User?     @relation("QuoteItemDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
