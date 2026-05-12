@@ -771,9 +771,47 @@ function QuoteDetailView({
               </span>
             )}
           </div>
-          {/* Onda 5 — aba Orcamentos so RECEBE e VALIDA. Adicao de procedimentos
-              acontece exclusivamente na aba Avaliacao (dentista registra ali e
-              uma copia sobe automaticamente pra ca pra negociar/aprovar). */}
+          {/* Onda 7.3 — Master checkbox: marca/desmarca todos os items
+              PENDENTES (aprovados nao entram). So aparece quando aprovacao
+              parcial eh possivel (DRAFT/SENT). Util pra orcamentos grandes
+              (10+ items) — operador clica 1x em vez de 10. */}
+          {canPartialAccept && (() => {
+            const pendingItems = quote.items.filter((it) => !it.approved_at);
+            const pendingIds = pendingItems.map((it) => it.id);
+            const allPendingSelected = pendingItems.length > 0
+              && pendingIds.every((id) => partialSelection.has(id));
+            const somePendingSelected = pendingIds.some((id) => partialSelection.has(id));
+            const indeterminate = somePendingSelected && !allPendingSelected;
+            const toggleAll = () => {
+              if (allPendingSelected) {
+                // Tem todos os pendentes marcados → desmarca todos
+                setPartialSelection(new Set());
+              } else {
+                // Marca todos os pendentes
+                setPartialSelection(new Set(pendingIds));
+              }
+            };
+            if (pendingItems.length === 0) return null;
+            return (
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={allPendingSelected}
+                  ref={(el) => { if (el) el.indeterminate = indeterminate; }}
+                  onChange={toggleAll}
+                  className="w-4 h-4 accent-emerald-600 cursor-pointer"
+                  title={allPendingSelected ? 'Desmarcar todos' : 'Marcar todos os pendentes'}
+                />
+                <button
+                  type="button"
+                  onClick={toggleAll}
+                  className="text-xs font-medium text-emerald-700 hover:underline"
+                >
+                  {allPendingSelected ? 'Desmarcar todos' : 'Marcar todos'}
+                </button>
+              </div>
+            );
+          })()}
         </div>
 
         {/* Modal de adicionar — Onda 5: nao aparece mais via botao na aba
