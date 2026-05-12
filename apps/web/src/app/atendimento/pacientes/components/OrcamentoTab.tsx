@@ -1024,6 +1024,28 @@ function QuoteDetailView({
                   R$ {partialTotal.toFixed(2)}
                 </p>
               </div>
+              {/* Onda 7 — Card "Nao selecionados" em vermelho no meio.
+                  Mostra a soma dos items que ainda nao foram marcados —
+                  feedback rapido pra recepcao do "quanto sobra" caso o
+                  paciente feche so o que esta selecionado agora. */}
+              {(() => {
+                const notSelected = quote.items.filter((it) => !partialSelection.has(it.id));
+                const notSelectedTotal = notSelected.reduce(
+                  (acc, it) => acc + Number(it.total_price),
+                  0,
+                );
+                if (notSelected.length === 0) return null;
+                return (
+                  <div>
+                    <p className="text-xs text-red-700">
+                      Não selecionados ({notSelected.length})
+                    </p>
+                    <p className="text-lg font-bold text-red-600">
+                      R$ {notSelectedTotal.toFixed(2)}
+                    </p>
+                  </div>
+                );
+              })()}
               {hasDiscount && (
                 <div>
                   <p className="text-xs text-muted-foreground">Desconto</p>
