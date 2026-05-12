@@ -427,8 +427,22 @@ function QuoteDetailView({
   const [savingEdit, setSavingEdit] = useState(false);
 
   // Onda 4.1 — selecao de items pra aprovacao parcial (so visivel em SENT)
-  const [partialSelection, setPartialSelection] = useState<Set<string>>(new Set());
+  // Onda 7.9 — Default: TODOS os items pendentes ja vem pre-selecionados.
+  // Operador desmarca o que NAO vai aprovar (em vez de marcar o que vai —
+  // assume que paciente fechou tudo, marca exceções).
+  const [partialSelection, setPartialSelection] = useState<Set<string>>(
+    () => new Set(quote.items.filter((it) => !it.approved_at).map((it) => it.id)),
+  );
   const [acceptingPartial, setAcceptingPartial] = useState(false);
+
+  // Onda 7.9 — Re-sincroniza a selecao quando o quote muda (carrega outro,
+  // recarrega apos aprovacao, etc). Mantem todos os pendentes selecionados
+  // por default. Items ja aprovados nao entram (approved_at != null).
+  useEffect(() => {
+    setPartialSelection(new Set(
+      quote.items.filter((it) => !it.approved_at).map((it) => it.id),
+    ));
+  }, [quote.id, quote.items]);
 
   const isDraft = quote.status === 'DRAFT';
   const isSent = quote.status === 'SENT';
@@ -1086,98 +1100,67 @@ function QuoteDetailView({
         )}
       </div>
 
-      {/* Resumo */}
+      {/* Resumo — Onda 7.9: layout simplificado em 2 colunas.
+          ESQUERDA (vermelho): Pendentes — soma dos items pendentes que o
+            operador NAO marcou (real time conforme desmarca).
+          DIREITA (verde): Aprovados — soma dos items que vao ser aprovados
+            (ja aprovados in-place + selecionados agora) + tempo de cadeira. */}
       <div className="bg-card border border-border rounded-xl p-4 mb-4">
-        {/* Layout adapta — adiciona col "Selecionados" quando ha selecao parcial */}
         {(() => {
-          const hasDiscount = Number(quote.discount_value) > 0;
-          // Onda 6.3 — Layout lado-a-lado (Selecionados esquerda, Total
-          // direita). Desconto entra como coluna do meio quando aplicado.
-          // Total fica destacado a direita pra leitura rapida.
+          // Items pendentes NAO selecionados (vao ficar de fora dessa aprovacao)
+          const pendentesNaoSelec = quote.items.filter(
+            (it) => !it.approved_at && !partialSelection.has(it.id),
+          );
+          const pendentesTotal = pendentesNaoSelec.reduce(
+            (acc, it) => acc + Number(it.total_price),
+            0,
+          );
+          // Aprovados = ja aprovados in-place + selecionados agora
+          const jaAprovados = quote.items.filter((it) => !!it.approved_at);
+          const selecionadosNovos = quote.items.filter(
+            (it) => !it.approved_at && partialSelection.has(it.id),
+          );
+          const aprovadosCount = jaAprovados.length + selecionadosNovos.length;
+          const aprovadosTotal =
+            jaAprovados.reduce((acc, it) => acc + Number(it.total_price), 0)
+            + selecionadosNovos.reduce((acc, it) => acc + Number(it.total_price), 0);
+          // Tempo de cadeira dos APROVADOS (ja + serao) — operador planeja
+          // quanto vai ocupar de agenda apos essa aprovacao.
+          const totalMinutes = [...jaAprovados, ...selecionadosNovos].reduce(
+            (acc, it) => acc + (it.procedure?.duration_minutes || 0) * it.quantity,
+            0,
+          );
+          let tempoLabel = '';
+          if (totalMinutes > 0) {
+            const h = Math.floor(totalMinutes / 60);
+            const m = totalMinutes % 60;
+            tempoLabel = h > 0
+              ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
+              : `~${m}min`;
+          }
           return (
-            <div className="flex items-start justify-between gap-4 text-sm flex-wrap">
-              <div>
-                <p className="text-xs text-emerald-700">
-                  Selecionados ({partialSelection.size})
+            <div className="flex items-center justify-between gap-4 text-sm flex-wrap">
+              {/* ESQUERDA — pendentes em vermelho */}
+              <div className="flex items-baseline gap-2">
+                <p className="text-xl font-bold text-red-600">
+                  R$ {pendentesTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </p>
-                <p className="text-lg font-bold text-emerald-600">
-                  R$ {partialTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </p>
+                <p className="text-xs text-red-700">Pendentes ({pendentesNaoSelec.length})</p>
               </div>
-              {/* Onda 7 — Card "Nao selecionados" em vermelho no meio.
-                  Mostra a soma dos items pendentes que ainda nao foram
-                  marcados pra aprovar agora. Items ja aprovados (approved_at)
-                  NAO entram nessa conta — eles ja fecharam, nao sao "nao
-                  selecionados". */}
-              {(() => {
-                const notSelected = quote.items.filter(
-                  (it) => !it.approved_at && !partialSelection.has(it.id),
-                );
-                const notSelectedTotal = notSelected.reduce(
-                  (acc, it) => acc + Number(it.total_price),
-                  0,
-                );
-                if (notSelected.length === 0) return null;
-                return (
-                  <div>
-                    <p className="text-xs text-red-700">
-                      Pendentes ({notSelected.length})
-                    </p>
-                    <p className="text-lg font-bold text-red-600">
-                      R$ {notSelectedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                );
-              })()}
-              {/* Onda 7.2 — Card "Aprovados" emerald no meio quando ha pelo
-                  menos 1 item aprovado. Mostra o quanto ja foi fechado. */}
-              {(() => {
-                const approved = quote.items.filter((it) => !!it.approved_at);
-                const approvedTotal = approved.reduce(
-                  (acc, it) => acc + Number(it.total_price),
-                  0,
-                );
-                if (approved.length === 0) return null;
-                return (
-                  <div>
-                    <p className="text-xs text-emerald-700 inline-flex items-center gap-1">
-                      <Check size={10} /> Aprovados ({approved.length})
-                    </p>
-                    <p className="text-lg font-bold text-emerald-700">
-                      R$ {approvedTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                    </p>
-                  </div>
-                );
-              })()}
-              {hasDiscount && (
-                <div>
-                  <p className="text-xs text-muted-foreground">Desconto</p>
-                  <p className="font-semibold text-emerald-600">
-                    {Number(quote.discount_percent)}% (-R$ {Number(quote.discount_value).toFixed(2)})
-                  </p>
-                </div>
-              )}
+              {/* DIREITA — aprovados (ja + serao) com tempo de cadeira */}
               <div className="text-right">
+                <p className="text-xs text-emerald-700 inline-flex items-center gap-1 justify-end">
+                  <Check size={10} /> Aprovados ({aprovadosCount})
+                </p>
                 <p className="text-xs text-muted-foreground">Total</p>
-                <p className="text-xl font-bold text-primary">R$ {Number(quote.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
-                {/* Tempo de cadeira (soma duration_minutes * quantity) */}
-                {(() => {
-                  const totalMinutes = quote.items.reduce(
-                    (acc, it) => acc + (it.procedure?.duration_minutes || 0) * it.quantity,
-                    0,
-                  );
-                  if (totalMinutes <= 0) return null;
-                  const h = Math.floor(totalMinutes / 60);
-                  const m = totalMinutes % 60;
-                  const label = h > 0
-                    ? (m > 0 ? `~${h}h${String(m).padStart(2, '0')}min` : `~${h}h`)
-                    : `~${m}min`;
-                  return (
-                    <p className="text-[11px] text-muted-foreground mt-0.5" title="Tempo estimado total de cadeira (soma da duração de cada procedimento)">
-                      ⏱ {label} de cadeira
-                    </p>
-                  );
-                })()}
+                <p className="text-xl font-bold text-emerald-700">
+                  R$ {aprovadosTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+                {tempoLabel && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5" title="Tempo estimado total de cadeira dos procedimentos aprovados">
+                    ⏱ {tempoLabel} de cadeira
+                  </p>
+                )}
               </div>
             </div>
           );
