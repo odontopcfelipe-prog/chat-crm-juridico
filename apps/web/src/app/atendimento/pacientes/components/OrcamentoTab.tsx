@@ -979,6 +979,20 @@ function QuoteDetailView({
               const approvedDate = it.approved_at
                 ? new Date(it.approved_at).toLocaleDateString('pt-BR')
                 : null;
+              // Onda 7.5 — Fundo do item segue o estado:
+              // - Aprovado (in-place): mantem cor da especialidade + opacity
+              // - Selecionado (pendente marcado): fundo verde claro
+              // - Pendente nao selecionado: fundo vermelho claro
+              // Sobrescreve o tint da especialidade pra dar sinalizacao visual
+              // forte do "fechou / vai fechar / nao decidiu".
+              let bgColor = color.tint; // default = cor da especialidade
+              if (!isApproved) {
+                if (isPartialSelected) {
+                  bgColor = 'rgba(16,185,129,0.10)'; // emerald-500/10
+                } else {
+                  bgColor = 'rgba(239,68,68,0.06)'; // red-500/6 (sutil)
+                }
+              }
               return (
                 <li
                   key={it.id}
@@ -987,9 +1001,9 @@ function QuoteDetailView({
                       ? 'opacity-60'
                       : isPartialSelected
                       ? 'ring-1 ring-emerald-500 ring-inset'
-                      : ''
+                      : 'ring-1 ring-red-500/30 ring-inset'
                   }`}
-                  style={{ borderLeftColor: color.bar, backgroundColor: color.tint }}
+                  style={{ borderLeftColor: color.bar, backgroundColor: bgColor }}
                 >
                   {/* Onda 7.2 — Checkbox so em items pendentes; aprovados
                       mostram ✓ verde indicando que ja foram fechados. */}
