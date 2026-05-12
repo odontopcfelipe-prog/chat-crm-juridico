@@ -267,12 +267,11 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
             // Onda 5 — destaque visual pro status ACCEPTED (fundo verde +
             // borda esquerda emerald) pra equipe identificar de relance os
             // orcamentos fechados/aceitos.
-            // Onda 7.7 — Tambem fica verde quando todos os items foram
-            // aprovados in-place (approved_count == _count.items > 0),
-            // mesmo que quote.status ainda seja DRAFT/SENT.
-            const totalItems = q._count?.items ?? 0;
-            const allApproved = totalItems > 0 && (q.approved_count ?? 0) === totalItems;
-            const isAccepted = q.status === 'ACCEPTED' || allApproved;
+            // Onda 7.8 — Card fica verde com QUALQUER aprovacao (parcial ou
+            // total), mesmo se quote.status ainda for DRAFT/SENT. Mesma
+            // logica da aba Avaliacao pra consistencia visual.
+            const hasAnyApproved = (q.approved_count ?? 0) > 0;
+            const isAccepted = q.status === 'ACCEPTED' || hasAnyApproved;
 
             const rowCls = isAccepted
               ? 'bg-emerald-50 dark:bg-emerald-950/30 border-l-4 border-emerald-500 hover:bg-emerald-100/60 dark:hover:bg-emerald-950/50'
