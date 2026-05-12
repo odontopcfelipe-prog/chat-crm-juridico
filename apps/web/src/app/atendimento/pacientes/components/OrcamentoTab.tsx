@@ -1247,16 +1247,24 @@ function QuoteDetailView({
       )}
 
       {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly).
-          Onda 3.3 (Fase 25) — agora aparece em QUALQUER status com total > 0.
-          Antes era so SENT/ACCEPTED, mas o momento mais critico de vender
-          condicao de pagamento eh DURANTE a montagem do orcamento, com paciente
-          junto. Recepcao precisa ver "5% PIX vs 12x cartao" pra negociar.
-          Onda 7.1 — usa partialTotal (soma dos SELECIONADOS) em vez do
-          quote.total_value (soma de TUDO). Recepcao marca os items que o
-          paciente vai fechar agora, e o card recalcula automaticamente as
-          condicoes de pagamento. Fallback pro total cheio quando 0 selec. */}
+          Onda 7.4 — Total das sugestoes = APROVADOS + SELECIONADOS pendentes.
+          Logica:
+          - Items aprovados in-place (approved_at != null) ja entraram no
+            "compromisso financeiro" — sempre contam.
+          - Items selecionados (partialSelection) sao os que o paciente vai
+            fechar AGORA — somam ao aprovado pra recepcao ver "quanto vai
+            pagar no total se fechar isso aqui".
+          - Items pendentes nao selecionados NAO contam (paciente ainda nao
+            decidiu).
+          - Fallback pro total cheio quando 0 selec + 0 aprovado (orcamento
+            todo pendente). */}
       {(() => {
-        const baseTotal = partialSelection.size > 0 ? partialTotal : Number(quote.total_value);
+        const approvedTotal = quote.items
+          .filter((it) => !!it.approved_at)
+          .reduce((acc, it) => acc + Number(it.total_price), 0);
+        const baseTotal = (partialSelection.size > 0 || approvedTotal > 0)
+          ? approvedTotal + partialTotal
+          : Number(quote.total_value);
         if (baseTotal <= 0) return null;
         return <PaymentSuggestionsCard total={baseTotal} />;
       })()}
