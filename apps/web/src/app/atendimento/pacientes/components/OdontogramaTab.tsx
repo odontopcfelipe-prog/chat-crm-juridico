@@ -510,7 +510,14 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
                 expandedQuote={expandedQuoteId === q.id ? expandedQuote : null}
                 onToggleExpand={() => openQuoteDetail(q.id)}
                 onRename={(newTitle) => updateQuoteTitle(q.id, newTitle)}
-                onDelete={q.status === 'DRAFT' ? () => deleteDraft(q.id) : undefined}
+                // Onda 7.8 — Orcamentos com items APROVADOS nao podem ser
+                // excluidos (operador nao pode apagar registro de procedimento
+                // que paciente ja fechou). So DRAFT sem nenhuma aprovacao.
+                onDelete={
+                  q.status === 'DRAFT' && (q.approved_count ?? 0) === 0
+                    ? () => deleteDraft(q.id)
+                    : undefined
+                }
                 onDuplicate={() => duplicateQuote(q.id)}
                 patientId={patientId}
                 procedures={procedures}
@@ -621,26 +628,17 @@ function QuoteCard({
     setTitleDraft(null);
   };
 
-  // Onda 3.38 — Card com fundo destacado pra orcamentos APROVADOS (verde
-  // emerald) e REJEITADOS (vermelho suave). DRAFT/SENT/EXPIRED ficam com
-  // fundo padrao. Da pra distinguir de relance na lista cheia.
-  // Onda 7.2 — Quando o quote tem aprovacao PARCIAL (alguns items aprovados
-  // in-place + alguns pendentes), fundo fica amarelo claro pra sinalizar
-  // "em andamento".
-  // Onda 7.6 — Quando TODOS os items estao aprovados in-place (approved_count
-  // == _count.items > 0), fundo verde mesmo que quote.status ainda seja
-  // DRAFT/SENT. Sinaliza "tudo fechado, falta finalizar contratualmente".
+  // Onda 7.8 — Qualquer aprovacao (mesmo parcial) deixa o card verde.
+  // Antes amber = parcial, agora unificado em verde pra simplificar.
+  // REJEITADO continua vermelho suave. DRAFT/SENT/EXPIRED sem nenhuma
+  // aprovacao = neutro.
   const isAccepted = quote.status === 'ACCEPTED';
   const isRejected = quote.status === 'REJECTED';
-  const totalItems = quote._count?.items ?? 0;
-  const allApproved = totalItems > 0 && (quote.approved_count ?? 0) === totalItems;
-  const hasPartialApproval = (quote.approved_count ?? 0) > 0 && (quote.pending_count ?? 0) > 0;
-  const cardBg = (isAccepted || allApproved)
+  const hasAnyApproved = (quote.approved_count ?? 0) > 0;
+  const cardBg = (isAccepted || hasAnyApproved)
     ? 'bg-emerald-500/10 border-emerald-500/30 hover:border-emerald-500/50'
     : isRejected
     ? 'bg-destructive/5 border-destructive/20 hover:border-destructive/40'
-    : hasPartialApproval
-    ? 'bg-amber-500/10 border-amber-500/30 hover:border-amber-500/50'
     : 'bg-card border-border hover:border-primary/30';
 
   return (
@@ -688,14 +686,15 @@ function QuoteCard({
         <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
           {STATUS_LABEL[quote.status]}
         </span>
-        {/* Onda 7.2 — Badge de aprovacao parcial: aparece quando ao menos 1
-            item aprovado in-place + ao menos 1 pendente. Mostra X/Y aprovados. */}
-        {hasPartialApproval && (
+        {/* Onda 7.8 — Badge de aprovacao: aparece quando ao menos 1 item
+            aprovado in-place. Mostra X/Y aprovados (X=Y quando totalmente
+            aprovado). Badge em verde (mesmo padrao do fundo do card). */}
+        {hasAnyApproved && (
           <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded bg-amber-500/15 text-amber-700 border border-amber-500/30 inline-flex items-center gap-1"
-            title="Aprovação parcial em andamento — alguns procedimentos já foram aprovados, outros pendentes"
+            className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 inline-flex items-center gap-1"
+            title="Procedimentos aprovados"
           >
-            ⚙ {quote.approved_count}/{quote._count?.items ?? 0} aprovados
+            ✓ {quote.approved_count}/{quote._count?.items ?? 0} aprovados
           </span>
         )}
         {/* Onda 6.4 — badge da prioridade clinica (sempre visivel, mesmo
