@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat, Pencil, User as UserIcon } from 'lucide-react';
+import { Loader2, DollarSign, Plus, ArrowLeft, Send, Check, X, Trash2, MessageCircle, Calendar, Download, Tag, CreditCard, Repeat, Pencil, User as UserIcon, Wallet } from 'lucide-react';
 import QuoteAttachments from './QuoteAttachments';
 import QuoteVersions from './QuoteVersions';
 // Onda 5 — Aba Orcamentos so RECEBE/VALIDA (sem botao "+ Adicionar"). Mas
@@ -1327,7 +1327,12 @@ function QuoteDetailView({
           ? approvedTotal + partialTotal
           : Number(quote.total_value);
         if (baseTotal <= 0) return null;
-        return <PaymentSuggestionsCard total={baseTotal} />;
+        return (
+          <>
+            <PaymentSuggestionsCard total={baseTotal} />
+            <CapacitySimulatorCard total={baseTotal} quoteId={quote.id} />
+          </>
+        );
       })()}
 
       {/* Ações */}
@@ -1590,6 +1595,146 @@ function PaymentSuggestionsCard({ total }: { total: number }) {
       <p className="text-[10px] text-muted-foreground mt-2 italic">
         Valores calculados automaticamente. Confirme as condições com a recepção antes de finalizar.
       </p>
+    </div>
+  );
+}
+
+// ─── Onda 7.12 — Simulador de capacidade ────────────────────────
+//
+// Inspirado no "Modo negociação" do reference. Operador digita "quanto cabe
+// no mes do paciente" e o sistema mostra:
+//  - Capacidade total em 12x sem juros (input × 12)
+//  - Capacidade total em 24x sem juros (input × 24)
+//  - Barra de progresso comparando capacidade vs total do orcamento
+//  - Label: "✓ Cabe em N parcelas" ou "⚠ Faltam R$ X"
+//
+// Persiste valor em sessionStorage[capacity-<quoteId>] pra preservar a
+// simulacao ao sair/voltar.
+
+function CapacitySimulatorCard({
+  total,
+  quoteId,
+}: {
+  total: number;
+  quoteId: string;
+}) {
+  const storageKey = `capacity-sim-${quoteId}`;
+  const [capacity, setCapacity] = useState<number>(() => {
+    if (typeof window === 'undefined') return 0;
+    try {
+      const stored = window.sessionStorage.getItem(storageKey);
+      return stored ? Number(stored) : 0;
+    } catch {
+      return 0;
+    }
+  });
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.sessionStorage.setItem(storageKey, String(capacity));
+    } catch {
+      /* silencia */
+    }
+  }, [capacity, storageKey]);
+
+  const formatBRL = (v: number) =>
+    v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+  // Capacidade total: input × parcelas (sem juros)
+  const cap12 = capacity * 12;
+  const cap24 = capacity * 24;
+
+  // Em quantas parcelas o orcamento cabe pra essa capacidade
+  const months = capacity > 0 ? total / capacity : 0;
+  const fits12 = cap12 >= total;
+  const fits24 = cap24 >= total;
+  const missing = Math.max(total - cap12, 0); // pra 12x
+
+  // Progresso pra barra: o quanto a capacidade em 12x cobre do total
+  const progress12 = total > 0 ? Math.min((cap12 / total) * 100, 100) : 0;
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-4 mb-4">
+      <h3 className="text-sm font-semibold mb-3 flex items-center gap-2">
+        <Wallet size={14} className="text-primary" />
+        Quanto cabe no mês do paciente?
+        <span className="text-[10px] font-normal text-muted-foreground italic">
+          parte da realidade dele, não das parcelas fixas
+        </span>
+      </h3>
+
+      <div className="space-y-3">
+        {/* Input principal — quanto cabe por mes */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <label className="text-xs text-muted-foreground shrink-0">
+            cabe no mês:
+          </label>
+          <div className="flex items-center gap-1">
+            <span className="text-sm font-bold text-foreground">R$</span>
+            <input
+              type="number"
+              min={0}
+              step={50}
+              value={capacity || ''}
+              onChange={(e) => setCapacity(Math.max(0, Number(e.target.value) || 0))}
+              placeholder="0,00"
+              className="w-32 px-3 py-1.5 rounded-lg bg-background border-2 border-emerald-500/30 text-lg font-bold text-emerald-700 text-center focus:outline-none focus:border-emerald-500"
+            />
+          </div>
+          {capacity > 0 && (
+            <span className="text-xs text-muted-foreground">
+              em até 12x sem juros isso vale{' '}
+              <strong className="text-foreground">{formatBRL(cap12)}</strong>{' '}
+              de capacidade total
+            </span>
+          )}
+        </div>
+
+        {/* Barra de progresso */}
+        {capacity > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="text-muted-foreground">
+                Capacidade vs total deste orçamento ({formatBRL(total)})
+              </span>
+              {fits12 ? (
+                <span className="text-emerald-700 font-medium inline-flex items-center gap-1">
+                  <Check size={11} /> cabe em {months.toFixed(1)}x
+                </span>
+              ) : fits24 ? (
+                <span className="text-amber-700 font-medium">
+                  cabe em {months.toFixed(1)}x (acima de 12)
+                </span>
+              ) : (
+                <span className="text-red-700 font-medium">
+                  faltam {formatBRL(missing)} pra caber em 12x
+                </span>
+              )}
+            </div>
+            <div className="h-3 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${
+                  fits12 ? 'bg-emerald-500' : fits24 ? 'bg-amber-500' : 'bg-red-500'
+                }`}
+                style={{ width: `${progress12}%` }}
+              />
+            </div>
+            <div className="flex justify-between text-[10px] text-muted-foreground">
+              <span>R$ 0</span>
+              <span className="font-semibold">12x = {formatBRL(cap12)}</span>
+              <span>24x = {formatBRL(cap24)}</span>
+            </div>
+          </div>
+        )}
+
+        {capacity === 0 && (
+          <p className="text-xs text-muted-foreground italic">
+            Digite quanto o paciente consegue pagar por mês pra simular se cabe
+            em 12x ou 24x.
+          </p>
+        )}
+      </div>
     </div>
   );
 }
