@@ -489,7 +489,11 @@ function QuotePicker({
           {inOtherSlot.length > 0 && (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5 px-1">
-                Em outro slot — trocar pra {cfg.label}
+                Em outro slot — mover pra {cfg.label}
+              </p>
+              <p className="text-[11px] text-amber-700 bg-amber-500/10 border border-amber-500/30 rounded-md px-2 py-1.5 mb-2">
+                ⚠ Cada orçamento tem só uma prioridade. Mover daqui vai{' '}
+                <strong>esvaziar o slot atual</strong>.
               </p>
               <ul className="space-y-1.5">
                 {inOtherSlot.map((q) => (
@@ -498,7 +502,15 @@ function QuotePicker({
                     quote={q}
                     loading={loading}
                     currentPriority={q.priority as Priority}
-                    onSelect={() => onSelect(q.id)}
+                    targetPriority={targetPriority}
+                    onSelect={() => {
+                      const fromLabel = PRIORITY_CONFIG[q.priority as Priority].label;
+                      const toLabel = cfg.label;
+                      const ok = window.confirm(
+                        `Mover "${q.title || 'orçamento'}" de ${fromLabel} pra ${toLabel}?\n\nO slot ${fromLabel} vai ficar vazio.`,
+                      );
+                      if (ok) onSelect(q.id);
+                    }}
                   />
                 ))}
               </ul>
@@ -526,21 +538,28 @@ function QuotePickerRow({
   quote,
   loading,
   currentPriority,
+  targetPriority,
   onSelect,
 }: {
   quote: QuoteListItem;
   loading: boolean;
   currentPriority?: Priority;
+  targetPriority?: Priority;
   onSelect: () => void;
 }) {
   const total = Number(quote.total_value);
+  const isMove = !!currentPriority && !!targetPriority;
   return (
     <li>
       <button
         type="button"
         onClick={onSelect}
         disabled={loading}
-        className="w-full text-left px-3 py-2 rounded-lg border border-border hover:bg-accent/40 hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait flex items-center gap-3 transition-colors"
+        className={`w-full text-left px-3 py-2 rounded-lg border disabled:opacity-50 disabled:cursor-wait flex items-center gap-3 transition-colors ${
+          isMove
+            ? 'border-amber-500/40 hover:bg-amber-500/10 hover:border-amber-500/70'
+            : 'border-border hover:bg-accent/40 hover:border-primary/40'
+        }`}
       >
         <DollarSign size={14} className="text-muted-foreground shrink-0" />
         <div className="flex-1 min-w-0">
@@ -553,9 +572,17 @@ function QuotePickerRow({
             {currentPriority && (
               <>
                 {' · '}
-                <span className={PRIORITY_CONFIG[currentPriority].iconCls}>
-                  atualmente em {PRIORITY_CONFIG[currentPriority].label}
+                <span className={`font-semibold ${PRIORITY_CONFIG[currentPriority].iconCls}`}>
+                  {PRIORITY_CONFIG[currentPriority].label}
                 </span>
+                {targetPriority && (
+                  <>
+                    {' → '}
+                    <span className={`font-semibold ${PRIORITY_CONFIG[targetPriority].iconCls}`}>
+                      {PRIORITY_CONFIG[targetPriority].label}
+                    </span>
+                  </>
+                )}
               </>
             )}
           </p>

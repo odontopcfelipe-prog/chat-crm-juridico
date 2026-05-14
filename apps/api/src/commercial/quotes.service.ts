@@ -303,7 +303,13 @@ export class QuotesService {
 
   async update(id: string, tenantId: string, data: Prisma.QuoteUncheckedUpdateInput) {
     const quote = await this.findOne(id, tenantId);
-    if (quote.status !== 'DRAFT') {
+    // Onda 8.3 — `priority` e metadado de classificacao (aba Propostas) e nao
+    // muda dados financeiros/itens. Pode ser alterado em qualquer status.
+    // Demais campos continuam bloqueados apos envio.
+    const onlyPriorityChange =
+      Object.keys(data).length > 0 &&
+      Object.keys(data).every((k) => k === 'priority');
+    if (!onlyPriorityChange && quote.status !== 'DRAFT') {
       throw new BadRequestException('Orcamento nao pode ser editado apos envio');
     }
 
