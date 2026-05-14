@@ -19,9 +19,10 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
+  Plus, X,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { showError } from '@/lib/toast';
+import { showError, showSuccess } from '@/lib/toast';
 
 interface Props {
   patientId: string;
@@ -83,6 +84,10 @@ const PRIORITY_CONFIG: Record<Priority, {
 export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // Onda 8.1 — picker pra atribuir orcamento a slot vazio (Completo/Essencial/Urgente).
+  // Quando != null, abre modal listando quotes elegiveis.
+  const [pickerFor, setPickerFor] = useState<Priority | null>(null);
+  const [assigning, setAssigning] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,6 +103,23 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   }, [patientId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Onda 8.1 — atribui priority a um quote existente (slot vazio recebe quote).
+  // Reusa PATCH /quotes/:id (ja aceita { priority }) — sem endpoint novo.
+  const assignPriority = useCallback(async (quoteId: string, priority: Priority) => {
+    setAssigning(true);
+    try {
+      await api.patch(`/quotes/${quoteId}`, { priority });
+      showSuccess(`Orcamento marcado como ${PRIORITY_CONFIG[priority].label}`);
+      setPickerFor(null);
+      await load();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao atribuir prioridade');
+    } finally {
+      setAssigning(false);
+    }
+  }, [load]);
 
   // Filtra so DRAFT/SENT (aceitos/rejeitados ja foram decididos, nao
   // sao "propostas em negociacao"). Agrupa por priority.
@@ -185,10 +207,22 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
               olderCount={olderCount}
               completoTotal={completoTotal}
               onOpen={() => main && onOpenQuoteDetail && onOpenQuoteDetail(main.id)}
+              onPickEmpty={() => setPickerFor(priority)}
             />
           );
         })}
       </div>
+
+      {/* Onda 8.1 — Picker modal: lista quotes elegiveis pra atribuir ao slot */}
+      {pickerFor && (
+        <QuotePicker
+          targetPriority={pickerFor}
+          quotes={quotes.filter((q) => q.status === 'DRAFT' || q.status === 'SENT')}
+          loading={assigning}
+          onCancel={() => setPickerFor(null)}
+          onSelect={(quoteId) => assignPriority(quoteId, pickerFor)}
+        />
+      )}
 
       {/* Orcamentos sem priority — lista flat embaixo */}
       {noneItems.length > 0 && (
@@ -244,6 +278,7 @@ function PropostaCard({
   olderCount,
   completoTotal,
   onOpen,
+  onPickEmpty,
 }: {
   priority: Priority;
   cfg: typeof PRIORITY_CONFIG[Priority];
@@ -251,11 +286,18 @@ function PropostaCard({
   olderCount: number;
   completoTotal: number | null;
   onOpen: () => void;
+  /** Onda 8.1 — click no card vazio abre picker pra atribuir orcamento ao slot */
+  onPickEmpty: () => void;
 }) {
-  // Quote nao existe → empty state pro slot daquela prioridade
+  // Quote nao existe → empty state clicavel: click abre picker pra escolher
+  // qual orcamento (sem priority ou em outro slot) vai pra esse slot.
   if (!quote) {
     return (
-      <div className={`p-4 rounded-xl border-2 border-dashed ${cfg.borderCls} bg-card opacity-50`}>
+      <button
+        type="button"
+        onClick={onPickEmpty}
+        className={`p-4 rounded-xl border-2 border-dashed ${cfg.borderCls} bg-card text-left w-full transition-all hover:opacity-100 hover:shadow-sm hover:bg-accent/30 opacity-70 group`}
+      >
         <div className="flex items-center gap-2 mb-2">
           <span className={cfg.iconCls}>{cfg.icon}</span>
           <h3 className={`text-sm font-bold ${cfg.iconCls}`}>{cfg.label}</h3>
@@ -263,10 +305,14 @@ function PropostaCard({
         <p className="text-[11px] text-muted-foreground mb-3">
           {cfg.description}
         </p>
-        <p className="text-xs text-muted-foreground italic">
+        <p className="text-xs text-muted-foreground italic mb-3">
           Sem proposta {cfg.label.toLowerCase()} criada ainda.
         </p>
-      </div>
+        <div className={`flex items-center gap-1.5 text-[11px] font-semibold ${cfg.iconCls} group-hover:underline`}>
+          <Plus size={12} />
+          <span>Escolher orçamento</span>
+        </div>
+      </button>
     );
   }
 
@@ -345,5 +391,187 @@ function PropostaCard({
         <ChevronRight size={12} />
       </div>
     </button>
+  );
+}
+
+// ─── Picker modal: atribui orcamento existente a slot vazio ──────
+// Onda 8.1 — abre quando user clica num card vazio (Completo/Essencial/Urgente).
+// Lista todos os quotes elegiveis (DRAFT/SENT) e destaca os "sem prioridade"
+// no topo. Click em um → patch /quotes/:id { priority } no parent.
+
+function QuotePicker({
+  targetPriority,
+  quotes,
+  loading,
+  onCancel,
+  onSelect,
+}: {
+  targetPriority: Priority;
+  quotes: QuoteListItem[];
+  loading: boolean;
+  onCancel: () => void;
+  onSelect: (quoteId: string) => void;
+}) {
+  const cfg = PRIORITY_CONFIG[targetPriority];
+
+  // Separa: 1) sem prioridade (alvo natural) 2) em outro slot (permite trocar)
+  // 3) ja neste slot (filtra fora — nao faz sentido reatribuir pra mesmo lugar)
+  const withoutPriority = quotes.filter((q) => !q.priority);
+  const inOtherSlot = quotes.filter(
+    (q) => q.priority && q.priority !== targetPriority,
+  );
+
+  const empty = withoutPriority.length === 0 && inOtherSlot.length === 0;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full max-h-[80vh] overflow-hidden flex flex-col"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-4 border-b border-border">
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <span className={cfg.iconCls}>{cfg.icon}</span>
+              Escolher orçamento — {cfg.label}
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Selecione qual orçamento vai ser exibido no slot{' '}
+              <span className={`font-semibold ${cfg.iconCls}`}>{cfg.label}</span>
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Lista */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-3">
+          {empty && (
+            <div className="py-8 text-center">
+              <Layers size={28} className="mx-auto text-muted-foreground/60 mb-2" />
+              <p className="text-xs text-muted-foreground">
+                Nenhum orçamento disponível pra atribuir.
+              </p>
+              <p className="text-[11px] text-muted-foreground italic mt-1">
+                Crie um orçamento na aba <strong>Avaliação</strong> primeiro.
+              </p>
+            </div>
+          )}
+
+          {withoutPriority.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5 px-1">
+                Sem prioridade ({withoutPriority.length})
+              </p>
+              <ul className="space-y-1.5">
+                {withoutPriority.map((q) => (
+                  <QuotePickerRow
+                    key={q.id}
+                    quote={q}
+                    loading={loading}
+                    onSelect={() => onSelect(q.id)}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {inOtherSlot.length > 0 && (
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground mb-1.5 px-1">
+                Em outro slot — trocar pra {cfg.label}
+              </p>
+              <ul className="space-y-1.5">
+                {inOtherSlot.map((q) => (
+                  <QuotePickerRow
+                    key={q.id}
+                    quote={q}
+                    loading={loading}
+                    currentPriority={q.priority as Priority}
+                    onSelect={() => onSelect(q.id)}
+                  />
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function QuotePickerRow({
+  quote,
+  loading,
+  currentPriority,
+  onSelect,
+}: {
+  quote: QuoteListItem;
+  loading: boolean;
+  currentPriority?: Priority;
+  onSelect: () => void;
+}) {
+  const total = Number(quote.total_value);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onSelect}
+        disabled={loading}
+        className="w-full text-left px-3 py-2 rounded-lg border border-border hover:bg-accent/40 hover:border-primary/40 disabled:opacity-50 disabled:cursor-wait flex items-center gap-3 transition-colors"
+      >
+        <DollarSign size={14} className="text-muted-foreground shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">
+            {quote.title || 'Orçamento sem nome'}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {quote._count?.items ?? 0} item(ns) ·{' '}
+            {new Date(quote.created_at).toLocaleDateString('pt-BR')}
+            {currentPriority && (
+              <>
+                {' · '}
+                <span className={PRIORITY_CONFIG[currentPriority].iconCls}>
+                  atualmente em {PRIORITY_CONFIG[currentPriority].label}
+                </span>
+              </>
+            )}
+          </p>
+        </div>
+        <p className="text-sm font-bold text-foreground shrink-0">
+          R$ {total.toLocaleString('pt-BR', {
+            minimumFractionDigits: 2,
+            maximumFractionDigits: 2,
+          })}
+        </p>
+        {loading ? (
+          <Loader2 size={14} className="animate-spin text-muted-foreground shrink-0" />
+        ) : (
+          <ChevronRight size={14} className="text-muted-foreground shrink-0" />
+        )}
+      </button>
+    </li>
   );
 }
