@@ -1519,17 +1519,19 @@ function PaymentSuggestionsCard({ total }: { total: number }) {
   const formatBRL = (v: number) =>
     v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-  const cashDiscount = 0.05;
+  // Onda 7.11 — 3 opcoes finais: 1x com 10% off, 12x e 24x.
+  const cashDiscount = 0.10; // 10% de desconto à vista
   const cashTotal = total * (1 - cashDiscount);
 
-  // Juros simples mensal pra parcelas longas (modelo conservador)
-  const interestRate12x = 0.015; // 1.5% ao mes
-  const totalWith12xInterest = total * (1 + interestRate12x * 12);
+  // Juros simples mensal (modelo conservador). Mesma taxa pra 12x e 24x.
+  const interestRate = 0.015; // 1.5% ao mes
+  const totalWith12x = total * (1 + interestRate * 12);
+  const totalWith24x = total * (1 + interestRate * 24);
 
   const options = [
     {
       label: 'À vista (PIX/dinheiro)',
-      sub: `5% de desconto · economia de ${formatBRL(total - cashTotal)}`,
+      sub: `10% de desconto · economia de ${formatBRL(total - cashTotal)}`,
       value: cashTotal,
       installments: '1x',
       highlighted: true,
@@ -1537,21 +1539,15 @@ function PaymentSuggestionsCard({ total }: { total: number }) {
     },
     {
       label: 'Cartão de crédito',
-      sub: 'Sem juros',
-      value: total / 3,
-      installments: '3x',
-    },
-    {
-      label: 'Cartão de crédito',
-      sub: 'Sem juros',
-      value: total / 6,
-      installments: '6x',
-    },
-    {
-      label: 'Cartão de crédito',
-      sub: `Com juros (1,5%/mês) · total ${formatBRL(totalWith12xInterest)}`,
-      value: totalWith12xInterest / 12,
+      sub: `Com juros (1,5%/mês) · total ${formatBRL(totalWith12x)}`,
+      value: totalWith12x / 12,
       installments: '12x',
+    },
+    {
+      label: 'Cartão de crédito',
+      sub: `Com juros (1,5%/mês) · total ${formatBRL(totalWith24x)}`,
+      value: totalWith24x / 24,
+      installments: '24x',
     },
   ];
 
@@ -1561,7 +1557,7 @@ function PaymentSuggestionsCard({ total }: { total: number }) {
         <CreditCard size={14} className="text-primary" />
         Sugestões de pagamento
       </h3>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
         {options.map((opt, idx) => (
           <div
             key={idx}
