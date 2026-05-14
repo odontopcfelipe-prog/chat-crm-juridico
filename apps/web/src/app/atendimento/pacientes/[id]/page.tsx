@@ -20,6 +20,7 @@ import {
   FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
+  Layers,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -30,6 +31,7 @@ import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
 import OrcamentoTab from '../components/OrcamentoTab';
 import FinanceiroTab from '../components/FinanceiroTab';
+import PropostasTab from '../components/PropostasTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
@@ -89,6 +91,7 @@ const TABS = [
   { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
   { id: 'odontogram',     label: 'Avaliação',       icon: Activity,    group: 'operational' as const },
   { id: 'quotes',         label: 'Orçamentos',      icon: DollarSign,  group: 'operational' as const },
+  { id: 'proposals',      label: 'Propostas',       icon: Layers,      group: 'operational' as const },
   { id: 'financial',      label: 'Financeiro',      icon: DollarSign,  group: 'operational' as const },
   // Clinical (documentação/histórico)
   { id: 'timeline',       label: 'Histórico',       icon: Clock,       group: 'clinical'    as const },
@@ -419,6 +422,18 @@ function PacienteFichaInner() {
           patientId={patient.id}
           initialQuoteId={searchParams?.get('quote') || undefined}
           autoOpenAddItem={searchParams?.get('add') === '1'}
+        />
+      )}
+      {tab === 'proposals' && (
+        <PropostasTab
+          patientId={patient.id}
+          onOpenQuoteDetail={(quoteId) => {
+            // Onda 8 — Click num card da aba Propostas navega pro detalhe
+            // do orcamento na aba Orcamentos. Reusa fluxo existente (sem
+            // duplicar UI de aprovacao/edicao).
+            router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
+            setTab('quotes');
+          }}
         />
       )}
       {tab === 'financial' && <FinanceiroTab patientId={patient.id} />}
