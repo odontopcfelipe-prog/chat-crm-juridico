@@ -347,6 +347,7 @@ function PacienteFichaInner() {
             return (
               <button
                 key={t.id}
+                data-tab-id={t.id}
                 onClick={() => setTab(t.id)}
                 className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
                   active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
@@ -364,6 +365,7 @@ function PacienteFichaInner() {
             return (
               <button
                 key={t.id}
+                data-tab-id={t.id}
                 onClick={() => setTab(t.id)}
                 className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
                   active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
