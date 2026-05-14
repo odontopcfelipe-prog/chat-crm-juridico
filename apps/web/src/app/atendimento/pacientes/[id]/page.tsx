@@ -433,8 +433,10 @@ function PacienteFichaInner() {
             // Onda 8 — Click num card da aba Propostas navega pro detalhe
             // do orcamento na aba Orcamentos. Reusa fluxo existente (sem
             // duplicar UI de aprovacao/edicao).
-            router.replace(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
+            // Onda 8.2 — setTab primeiro (state-first) + router.push (nao
+            // replace) pra back button do browser voltar pra Propostas.
             setTab('quotes');
+            router.push(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
           }}
         />
       )}
