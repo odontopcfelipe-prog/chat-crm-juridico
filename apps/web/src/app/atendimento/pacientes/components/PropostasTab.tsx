@@ -2028,14 +2028,23 @@ function CreditCheckDialog({
         <div className="flex-1 overflow-y-auto p-4">
           {phase === 'cadastro' && (
             <>
-              {/* Resumo da proposta */}
+              {/* Resumo da proposta — Onda 12.1: parcela em destaque, total secundario */}
               <div className="bg-muted/30 border border-border/60 rounded-md p-3 mb-4">
-                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                  proposta a financiar
-                </p>
-                <div className="flex items-baseline justify-between flex-wrap gap-2">
-                  <p className="text-sm font-bold">R$ {fmtBRL(valorTotal)} total</p>
-                  <div className="flex gap-1.5">
+                <div className="flex items-start justify-between gap-3 flex-wrap">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                      proposta a financiar
+                    </p>
+                    <p className="text-2xl font-bold tabular-nums leading-tight">
+                      {parcelas}x de R$ {fmtBRL(calc.installmentValue)}
+                      <span className="text-xs font-normal text-muted-foreground"> /mês</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">
+                      entrada R$ {fmtBRL(calc.downPaymentValue)} ·{' '}
+                      <span className="opacity-75">total R$ {fmtBRL(valorTotal)}</span>
+                    </p>
+                  </div>
+                  <div className="flex gap-1.5 shrink-0">
                     {([12, 18, 24] as const).map((n) => (
                       <button
                         key={n}
@@ -2052,9 +2061,6 @@ function CreditCheckDialog({
                     ))}
                   </div>
                 </div>
-                <p className="text-[11px] text-muted-foreground mt-1">
-                  entrada R$ {fmtBRL(calc.downPaymentValue)} + {parcelas}x R$ {fmtBRL(calc.installmentValue)}/mês
-                </p>
               </div>
 
               {/* Form */}
