@@ -106,6 +106,15 @@ interface CreditCheckResult {
     juros_mes: number;
     entrada_pct: number;
   };
+  /** Onda 12.1 — fonte da decisao: internal (mock), asaas_history (cliente
+   *  recorrente da clinica) ou serasa (quando integrar). */
+  source?: 'internal' | 'asaas_history' | 'serasa';
+  /** Onda 12.1 — sumario do historico Asaas quando o paciente e cliente recorrente */
+  asaas_summary?: {
+    is_recurring: boolean;
+    on_time_rate?: number;
+    charges_count?: number;
+  };
   checked_at: string;
 }
 
@@ -2198,6 +2207,35 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
   );
 }
 
+/** Onda 12.1 — Selo da fonte da decisao + sumario Asaas (quando ha) */
+function SourceBadge({ result }: { result: CreditCheckResult }) {
+  const source = result.source || 'internal';
+  if (source === 'serasa') {
+    return (
+      <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 border border-blue-500/30 mb-3">
+        <ShieldCheck size={10} />
+        Validado por Serasa Crediscore
+      </div>
+    );
+  }
+  if (source === 'asaas_history' && result.asaas_summary?.is_recurring) {
+    const rate = result.asaas_summary.on_time_rate;
+    const count = result.asaas_summary.charges_count ?? 0;
+    return (
+      <div className="inline-flex items-center gap-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-700 border border-blue-500/30 mb-3">
+        <ShieldCheck size={10} />
+        Cliente recorrente · {count} cobrança{count === 1 ? '' : 's'}
+        {rate !== undefined && ` · ${Math.round(rate * 100)}% em dia`}
+      </div>
+    );
+  }
+  return (
+    <div className="inline-flex items-center gap-1.5 text-[10px] text-muted-foreground italic mb-3">
+      análise interna · paciente novo (sem histórico)
+    </div>
+  );
+}
+
 function ResultPanel({
   result,
   parcelas,
@@ -2218,6 +2256,7 @@ function ResultPanel({
           <ShieldCheck size={32} className="text-emerald-700" />
         </div>
         <p className="text-base font-bold text-emerald-700 mb-1">{result.message}</p>
+        <SourceBadge result={result} />
         <p className="text-[11px] text-muted-foreground mb-4">
           decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
         </p>
@@ -2251,6 +2290,7 @@ function ResultPanel({
           <AlertTriangle size={32} className="text-amber-700" />
         </div>
         <p className="text-base font-bold text-amber-800 mb-1">{result.message}</p>
+        <SourceBadge result={result} />
         <p className="text-[11px] text-muted-foreground mb-4">
           decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
         </p>
@@ -2275,6 +2315,7 @@ function ResultPanel({
         <XCircle size={32} className="text-red-700" />
       </div>
       <p className="text-base font-bold text-red-800 mb-1">{result.message}</p>
+      <SourceBadge result={result} />
       <p className="text-[11px] text-muted-foreground mb-4">
         decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
       </p>
