@@ -75,8 +75,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git fetch origin main:main || git branch main origin/master
           git checkout main
-          git merge --ff-only origin/master
-          git push origin main
+          # Idempotente: nao falha se main ja esta sincronizado (caso o
+          # operador tenha pushado nas duas branches manualmente, ver MEMORY.md).
+          git merge --ff-only origin/master || echo "Main already up to date"
+          git push origin main || echo "Nothing to push"
 
   # Deploy manual via Claude Code na VPS após o build — sem SSH automático aqui
   # para manter controle sobre o momento de aplicar em produção.
