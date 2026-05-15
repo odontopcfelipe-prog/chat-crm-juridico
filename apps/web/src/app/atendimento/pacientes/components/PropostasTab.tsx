@@ -1077,49 +1077,14 @@ function PropostaPainel({
         onChangePayment={onChangePayment}
       />
 
-      {/* Onda 11.2 — Boleto parcelado com juros 1,5%/mes
-          Onda 11.3 — entrada de 20% abate o valor financiado */}
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-          Boleto parcelado — entrada de 20% + juros 1,5%/mês
-        </p>
-        <div className="grid grid-cols-3 gap-2">
-          {options.parcelado.map((opt) => {
-            const isActive = activePaymentKey === opt.key;
-            const calc = applyPaymentOption(total, opt);
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => onChangePayment(opt.key)}
-                className={`p-2.5 rounded-lg border text-left transition-colors ${
-                  isActive
-                    ? 'border-amber-500 bg-amber-500/10'
-                    : 'border-border hover:bg-accent/40'
-                }`}
-              >
-                <p className="text-[11px] font-semibold mb-1 flex items-center justify-between">
-                  <span>{opt.label}</span>
-                  <span className="text-[10px] text-amber-700 font-normal">
-                    +R$ {fmtBRL(calc.extraInterest)}
-                  </span>
-                </p>
-                <p className="text-[10px] text-muted-foreground tabular-nums mb-0.5">
-                  entrada R$ {fmtBRL(calc.downPaymentValue)}
-                </p>
-                <p className="text-sm font-bold tabular-nums">
-                  R$ {fmtBRL(calc.installmentValue)}
-                  <span className="text-[10px] font-normal text-muted-foreground">/mês</span>
-                </p>
-                <p className="text-[10px] text-muted-foreground tabular-nums">
-                  total R$ {fmtBRL(calc.finalValue)}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      {/* Onda 11.8 — Boleto parcelado vira card reclinavel (nao exposto por padrao).
+          Operador abre so quando quer propor essa alternativa ao paciente. */}
+      <CardBoletoParcelado
+        options={options.parcelado}
+        total={total}
+        activePaymentKey={activePaymentKey}
+        onChangePayment={onChangePayment}
+      />
 
       {/* Resumo "voce esta oferecendo" */}
       <div className="mt-4 pt-3 border-t border-border">
@@ -1327,6 +1292,123 @@ function CardCartao({
           <p className="px-3 py-2 text-[10px] text-muted-foreground bg-muted/20 border-t border-border">
             Taxa de juros 3,59% a.m. da PagBank aplicada nas parcelas de 7x a 12x.
           </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Onda 11.8 — Card de boleto parcelado reclinavel. Por padrao colapsado pra
+ *  nao ficar exposto ao paciente — abre apenas quando operador quer propor
+ *  essa alternativa (prazo maior com entrada + juros). */
+function CardBoletoParcelado({
+  options,
+  total,
+  activePaymentKey,
+  onChangePayment,
+}: {
+  options: PaymentOption[];
+  total: number;
+  activePaymentKey: string;
+  onChangePayment: (key: string) => void;
+}) {
+  // Detecta se alguma parcelada esta ativa — se sim, abre por padrao
+  const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
+  const isSelected = activeIdx >= 0;
+  const [open, setOpen] = useState(isSelected);
+  const active = isSelected ? options[activeIdx] : null;
+  const activeCalc = active ? applyPaymentOption(total, active) : null;
+
+  return (
+    <div className="mb-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full p-3 rounded-lg border text-left transition-colors relative ${
+          isSelected
+            ? 'border-amber-500 bg-amber-500/10'
+            : 'border-border bg-muted/10 hover:bg-accent/40 hover:border-amber-300 border-dashed'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-semibold flex items-center gap-1.5 mb-0.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              Boleto parcelado
+              {!isSelected && (
+                <span className="text-[10px] font-normal text-muted-foreground italic ml-1">
+                  (outra proposta — prazo maior)
+                </span>
+              )}
+            </p>
+            {isSelected && active && activeCalc ? (
+              <>
+                <p className="text-sm font-bold tabular-nums">
+                  {active.installments}x · entrada R$ {fmtBRL(activeCalc.downPaymentValue)} +
+                  {' '}R$ {fmtBRL(activeCalc.installmentValue)}/mês
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  total R$ {fmtBRL(activeCalc.finalValue)} · +R$ {fmtBRL(activeCalc.extraInterest)} juros
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                entrada de 20% + juros 1,5%/mês · 12x, 18x ou 24x
+              </p>
+            )}
+          </div>
+          <span
+            className={`text-muted-foreground transition-transform shrink-0 mt-0.5 ${
+              open ? 'rotate-180' : ''
+            }`}
+            aria-hidden="true"
+          >
+            <ChevronDown size={14} />
+          </span>
+        </div>
+      </button>
+
+      {/* Dropdown inline: grid 3 cols com 12x/18x/24x */}
+      {open && (
+        <div className="mt-2 p-2 border border-border rounded-lg bg-card shadow-sm">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-2 px-1">
+            Escolha o prazo
+          </p>
+          <div className="grid grid-cols-3 gap-2">
+            {options.map((opt) => {
+              const isActive = activePaymentKey === opt.key;
+              const calc = applyPaymentOption(total, opt);
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => onChangePayment(opt.key)}
+                  className={`p-2.5 rounded-lg border text-left transition-colors ${
+                    isActive
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : 'border-border hover:bg-accent/40'
+                  }`}
+                >
+                  <p className="text-[11px] font-semibold mb-1 flex items-center justify-between">
+                    <span>{opt.label}</span>
+                    <span className="text-[10px] text-amber-700 font-normal">
+                      +R$ {fmtBRL(calc.extraInterest)}
+                    </span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground tabular-nums mb-0.5">
+                    entrada R$ {fmtBRL(calc.downPaymentValue)}
+                  </p>
+                  <p className="text-sm font-bold tabular-nums">
+                    R$ {fmtBRL(calc.installmentValue)}
+                    <span className="text-[10px] font-normal text-muted-foreground">/mês</span>
+                  </p>
+                  <p className="text-[10px] text-muted-foreground tabular-nums">
+                    total R$ {fmtBRL(calc.finalValue)}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
         </div>
       )}
     </div>
