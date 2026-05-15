@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown,
+  Building2, ShieldCheck, XCircle, Search,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -76,6 +77,36 @@ interface QuoteDetailLite {
 interface CounterProposalEntry {
   timestamp: string;
   body: string; // texto apos o timestamp (ex: "Essencial em PIX à vista = R$ 15.675,00 — paciente vai pensar")
+}
+
+/** Onda 12 — payload + resposta do credit-check */
+interface CreditCheckRequest {
+  cpf: string;
+  nome: string;
+  data_nascimento: string;
+  renda_mensal: number;
+  telefone: string;
+  profissao: string;
+  parcela_alvo: number;
+  parcelas: number;
+  valor_total: number;
+}
+
+interface CreditCheckResult {
+  status: 'approved' | 'pending' | 'denied';
+  decision_id: string;
+  ratio: number;
+  message: string;
+  motivo?: string;
+  suggestion?: string;
+  conditions?: {
+    max_parcelas: number;
+    parcela_aprovada: number;
+    total_aprovado: number;
+    juros_mes: number;
+    entrada_pct: number;
+  };
+  checked_at: string;
 }
 
 function parseCounterProposals(notes: string | null): CounterProposalEntry[] {
@@ -395,6 +426,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     }
   }, [selectedDetail]);
 
+  // Onda 12 — Consulta de credito do Financiamento Banco PASSOS
+  const [creditCheckOpen, setCreditCheckOpen] = useState(false);
+
   // Onda 10 — Salvar contraproposta (registra oferta como linha em notes)
   const [counterPropOpen, setCounterPropOpen] = useState(false);
   const [savingCounter, setSavingCounter] = useState(false);
@@ -550,6 +584,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           onSend={sendToPatient}
           sending={sending}
           onSaveCounter={() => setCounterPropOpen(true)}
+          onOpenCreditCheck={() => setCreditCheckOpen(true)}
         />
       )}
 
@@ -617,6 +652,28 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
                 note,
               })
             }
+          />
+        );
+      })()}
+
+      {/* Onda 12 — Dialog "Financiamento Banco PASSOS" (consulta de credito) */}
+      {creditCheckOpen && selectedDetail && (() => {
+        const totalForCheck = (() => {
+          const approved = selectedDetail.items
+            .filter((it) => !!it.approved_at)
+            .reduce((acc, it) => acc + Number(it.total_price), 0);
+          const has = selectedDetail.items.some((it) => !!it.approved_at);
+          return has ? approved : Number(selectedDetail.total_value);
+        })();
+        return (
+          <CreditCheckDialog
+            valorTotal={totalForCheck}
+            onCancel={() => setCreditCheckOpen(false)}
+            onApprove={(parcelaKey) => {
+              setActivePaymentKey(parcelaKey);
+              setCreditCheckOpen(false);
+              showSuccess('Financiamento aprovado e proposta aplicada');
+            }}
           />
         );
       })()}
@@ -870,6 +927,7 @@ function PropostaPainel({
   onSend,
   sending,
   onSaveCounter,
+  onOpenCreditCheck,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -884,6 +942,8 @@ function PropostaPainel({
   sending: boolean;
   /** Onda 10 — abre dialog pra registrar a oferta atual como contraproposta */
   onSaveCounter: () => void;
+  /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
+  onOpenCreditCheck: () => void;
 }) {
   if (loading) {
     return (
@@ -1087,6 +1147,7 @@ function PropostaPainel({
         total={total}
         activePaymentKey={activePaymentKey}
         onChangePayment={onChangePayment}
+        onOpenCreditCheck={onOpenCreditCheck}
       />
 
       {/* Resumo "voce esta oferecendo" */}
@@ -1303,22 +1364,24 @@ function CardCartao({
 
 /** Onda 11.8 — Card de boleto parcelado reclinavel. Por padrao colapsado pra
  *  nao ficar exposto ao paciente — abre apenas quando operador quer propor
- *  essa alternativa (prazo maior com entrada + juros). */
+ *  essa alternativa (prazo maior com entrada + juros).
+ *  Onda 12 — agora abre dialog de credit-check ao inves de dropdown inline. */
 function CardBoletoParcelado({
   options,
   total,
   activePaymentKey,
   onChangePayment,
+  onOpenCreditCheck,
 }: {
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
   onChangePayment: (key: string) => void;
+  /** Onda 12 — abre dialog de consulta de credito (Banco PASSOS) */
+  onOpenCreditCheck: () => void;
 }) {
-  // Detecta se alguma parcelada esta ativa — se sim, abre por padrao
   const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
   const isSelected = activeIdx >= 0;
-  const [open, setOpen] = useState(isSelected);
   const active = isSelected ? options[activeIdx] : null;
   const activeCalc = active ? applyPaymentOption(total, active) : null;
 
@@ -1326,7 +1389,7 @@ function CardBoletoParcelado({
     <div className="mb-3">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={onOpenCreditCheck}
         className={`w-full p-3 rounded-lg border text-left transition-colors relative ${
           isSelected
             ? 'border-amber-500 bg-amber-500/10'
@@ -1336,11 +1399,11 @@ function CardBoletoParcelado({
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold flex items-center gap-1.5 mb-0.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+              <Building2 size={11} className="text-amber-700" />
               Financiamento Banco PASSOS
               {!isSelected && (
                 <span className="text-[10px] font-normal text-muted-foreground italic ml-1">
-                  (outra proposta — prazo maior)
+                  (consulta de crédito · aprovação imediata)
                 </span>
               )}
             </p>
@@ -1356,64 +1419,15 @@ function CardBoletoParcelado({
               </>
             ) : (
               <p className="text-[11px] text-muted-foreground">
-                entrada de 20% + juros 1,5%/mês · 12x, 18x ou 24x
+                entrada de 20% + juros 1,5%/mês · 12x, 18x ou 24x · clique para iniciar a consulta
               </p>
             )}
           </div>
-          <span
-            className={`text-muted-foreground transition-transform shrink-0 mt-0.5 ${
-              open ? 'rotate-180' : ''
-            }`}
-            aria-hidden="true"
-          >
-            <ChevronDown size={14} />
+          <span className="text-amber-700 shrink-0 mt-0.5 text-[10px] font-bold uppercase tracking-wide">
+            <Search size={14} className="inline-block" />
           </span>
         </div>
       </button>
-
-      {/* Dropdown inline: grid 3 cols com 12x/18x/24x */}
-      {open && (
-        <div className="mt-2 p-2 border border-border rounded-lg bg-card shadow-sm">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-2 px-1">
-            Escolha o prazo
-          </p>
-          <div className="grid grid-cols-3 gap-2">
-            {options.map((opt) => {
-              const isActive = activePaymentKey === opt.key;
-              const calc = applyPaymentOption(total, opt);
-              return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => onChangePayment(opt.key)}
-                  className={`p-2.5 rounded-lg border text-left transition-colors ${
-                    isActive
-                      ? 'border-amber-500 bg-amber-500/10'
-                      : 'border-border hover:bg-accent/40'
-                  }`}
-                >
-                  <p className="text-[11px] font-semibold mb-1 flex items-center justify-between">
-                    <span>{opt.label}</span>
-                    <span className="text-[10px] text-amber-700 font-normal">
-                      +R$ {fmtBRL(calc.extraInterest)}
-                    </span>
-                  </p>
-                  <p className="text-[10px] text-muted-foreground tabular-nums mb-0.5">
-                    entrada R$ {fmtBRL(calc.downPaymentValue)}
-                  </p>
-                  <p className="text-sm font-bold tabular-nums">
-                    R$ {fmtBRL(calc.installmentValue)}
-                    <span className="text-[10px] font-normal text-muted-foreground">/mês</span>
-                  </p>
-                  <p className="text-[10px] text-muted-foreground tabular-nums">
-                    total R$ {fmtBRL(calc.finalValue)}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -1868,6 +1882,415 @@ function CounterProposalDialog({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Dialog Financiamento Banco PASSOS — Onda 12 ─────────────
+// Consulta de credito em tempo real (mock backend). 3 fases:
+//   cadastro → consultando → resultado (approved/pending/denied)
+// Em producao, substituir o endpoint mock por integracao Serasa Crediscore.
+
+type CreditPhase = 'cadastro' | 'consultando' | 'resultado';
+
+function CreditCheckDialog({
+  valorTotal,
+  onCancel,
+  onApprove,
+}: {
+  valorTotal: number;
+  onCancel: () => void;
+  /** Chamado quando user clica "Aplicar essa proposta" no resultado aprovado.
+   *  parcelaKey: ex "parcelado-12x" — alimenta activePaymentKey no painel. */
+  onApprove: (parcelaKey: string) => void;
+}) {
+  const [phase, setPhase] = useState<CreditPhase>('cadastro');
+  const [parcelas, setParcelas] = useState<12 | 18 | 24>(18); // padrao 18x
+  const [result, setResult] = useState<CreditCheckResult | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingMsg, setLoadingMsg] = useState('Consultando Serasa...');
+
+  // Form fields
+  const [cpf, setCpf] = useState('');
+  const [nome, setNome] = useState('');
+  const [dataNasc, setDataNasc] = useState('');
+  const [renda, setRenda] = useState('');
+  const [telefone, setTelefone] = useState('');
+  const [profissao, setProfissao] = useState('');
+
+  // Calcula a parcela alvo baseado no prazo escolhido (sem entrada pra
+  // simulacao de credito — o credit-check avalia o comprometimento total).
+  const opt: PaymentOption = useMemo(() => ({
+    key: `parcelado-${parcelas}x`,
+    label: `${parcelas}x`,
+    sublabel: '',
+    discountPercent: 0,
+    installments: parcelas,
+    variant: 'parcelado',
+    interestRate: 1.5,
+    downPaymentPercent: 20,
+  }), [parcelas]);
+  const calc = applyPaymentOption(valorTotal, opt);
+
+  // Mensagens dinamicas durante consultando
+  useEffect(() => {
+    if (phase !== 'consultando') return;
+    const msgs = [
+      'Consultando Serasa...',
+      'Avaliando histórico de crédito...',
+      'Calculando condições...',
+    ];
+    let i = 0;
+    const id = setInterval(() => {
+      i = (i + 1) % msgs.length;
+      setLoadingMsg(msgs[i]);
+    }, 700);
+    return () => clearInterval(id);
+  }, [phase]);
+
+  const fmtCpf = (v: string) => {
+    const c = v.replace(/\D/g, '').slice(0, 11);
+    return c
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d)/, '$1.$2')
+      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  };
+  const fmtTel = (v: string) => {
+    const c = v.replace(/\D/g, '').slice(0, 11);
+    if (c.length <= 10) return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
+    return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
+  };
+  const fmtCurrency = (v: string) => v.replace(/\D/g, '');
+  const rendaNum = Number(renda) / 100;
+
+  const canSubmit = cpf.replace(/\D/g, '').length === 11
+    && nome.trim().length >= 3
+    && dataNasc.length === 10
+    && rendaNum > 0
+    && telefone.replace(/\D/g, '').length >= 10
+    && profissao.trim().length >= 2;
+
+  const submit = async () => {
+    setError(null);
+    setPhase('consultando');
+    try {
+      const { data } = await api.post<CreditCheckResult>('/credit-check/simulate', {
+        cpf: cpf.replace(/\D/g, ''),
+        nome: nome.trim(),
+        data_nascimento: dataNasc,
+        renda_mensal: rendaNum,
+        telefone: telefone.replace(/\D/g, ''),
+        profissao: profissao.trim(),
+        parcela_alvo: calc.installmentValue,
+        parcelas,
+        valor_total: valorTotal,
+      });
+      setResult(data);
+      setPhase('resultado');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(e?.response?.data?.message || 'Erro ao consultar crédito');
+      setPhase('cadastro');
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-4 border-b border-border bg-amber-500/5">
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <Building2 size={14} className="text-amber-700" />
+              Financiamento Banco PASSOS
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              consulta de crédito em tempo real · aprovação imediata
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4">
+          {phase === 'cadastro' && (
+            <>
+              {/* Resumo da proposta */}
+              <div className="bg-muted/30 border border-border/60 rounded-md p-3 mb-4">
+                <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+                  proposta a financiar
+                </p>
+                <div className="flex items-baseline justify-between flex-wrap gap-2">
+                  <p className="text-sm font-bold">R$ {fmtBRL(valorTotal)} total</p>
+                  <div className="flex gap-1.5">
+                    {([12, 18, 24] as const).map((n) => (
+                      <button
+                        key={n}
+                        type="button"
+                        onClick={() => setParcelas(n)}
+                        className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
+                          parcelas === n
+                            ? 'border-amber-500 bg-amber-500/15 text-amber-800 font-semibold'
+                            : 'border-border hover:bg-accent'
+                        }`}
+                      >
+                        {n}x
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <p className="text-[11px] text-muted-foreground mt-1">
+                  entrada R$ {fmtBRL(calc.downPaymentValue)} + {parcelas}x R$ {fmtBRL(calc.installmentValue)}/mês
+                </p>
+              </div>
+
+              {/* Form */}
+              <div className="space-y-3">
+                <Field label="CPF">
+                  <input
+                    type="text"
+                    value={cpf}
+                    onChange={(e) => setCpf(fmtCpf(e.target.value))}
+                    placeholder="000.000.000-00"
+                    inputMode="numeric"
+                    className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                  />
+                </Field>
+                <Field label="Nome completo">
+                  <input
+                    type="text"
+                    value={nome}
+                    onChange={(e) => setNome(e.target.value)}
+                    placeholder="Como consta no CPF"
+                    className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                  />
+                </Field>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Data de nascimento">
+                    <input
+                      type="date"
+                      value={dataNasc}
+                      onChange={(e) => setDataNasc(e.target.value)}
+                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </Field>
+                  <Field label="Renda mensal (R$)">
+                    <input
+                      type="text"
+                      value={renda ? `R$ ${(Number(renda) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                      onChange={(e) => setRenda(fmtCurrency(e.target.value))}
+                      placeholder="R$ 0,00"
+                      inputMode="numeric"
+                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </Field>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Telefone">
+                    <input
+                      type="text"
+                      value={telefone}
+                      onChange={(e) => setTelefone(fmtTel(e.target.value))}
+                      placeholder="(00) 00000-0000"
+                      inputMode="numeric"
+                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </Field>
+                  <Field label="Profissão">
+                    <input
+                      type="text"
+                      value={profissao}
+                      onChange={(e) => setProfissao(e.target.value)}
+                      placeholder="Ex: professor"
+                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                  </Field>
+                </div>
+                {error && (
+                  <p className="text-[11px] text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-2.5 py-1.5">
+                    {error}
+                  </p>
+                )}
+                <p className="text-[10px] text-muted-foreground italic">
+                  🔒 Os dados são enviados criptografados pra consulta na Serasa. Nada é salvo no sistema.
+                </p>
+              </div>
+            </>
+          )}
+
+          {phase === 'consultando' && (
+            <div className="py-12 flex flex-col items-center justify-center text-center">
+              <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
+                <Loader2 size={32} className="text-amber-600 animate-spin" />
+              </div>
+              <p className="text-sm font-semibold text-foreground mb-1">{loadingMsg}</p>
+              <p className="text-[11px] text-muted-foreground">isso leva poucos segundos</p>
+            </div>
+          )}
+
+          {phase === 'resultado' && result && (
+            <ResultPanel
+              result={result}
+              parcelas={parcelas}
+              calc={calc}
+              onApply={() => onApprove(`parcelado-${parcelas}x`)}
+              onRetryWithMore={() => {
+                const next = parcelas === 12 ? 18 : parcelas === 18 ? 24 : 24;
+                setParcelas(next);
+                setResult(null);
+                setPhase('cadastro');
+              }}
+            />
+          )}
+        </div>
+
+        {/* Footer */}
+        {phase === 'cadastro' && (
+          <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              onClick={submit}
+              disabled={!canSubmit}
+              className="text-xs px-4 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+            >
+              <Search size={12} />
+              Consultar aprovação
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="text-[11px] font-semibold text-foreground block mb-1">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function ResultPanel({
+  result,
+  parcelas,
+  calc,
+  onApply,
+  onRetryWithMore,
+}: {
+  result: CreditCheckResult;
+  parcelas: number;
+  calc: ReturnType<typeof applyPaymentOption>;
+  onApply: () => void;
+  onRetryWithMore: () => void;
+}) {
+  if (result.status === 'approved') {
+    return (
+      <div className="text-center">
+        <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
+          <ShieldCheck size={32} className="text-emerald-700" />
+        </div>
+        <p className="text-base font-bold text-emerald-700 mb-1">{result.message}</p>
+        <p className="text-[11px] text-muted-foreground mb-4">
+          decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
+        </p>
+        <div className="bg-emerald-500/5 border border-emerald-500/30 rounded-md p-3 text-left space-y-1.5 mb-4">
+          <p className="text-[10px] uppercase tracking-wide text-emerald-700 font-bold">
+            condições liberadas
+          </p>
+          <p className="text-sm font-bold">
+            {parcelas}x · entrada R$ {fmtBRL(calc.downPaymentValue)} + R$ {fmtBRL(calc.installmentValue)}/mês
+          </p>
+          <p className="text-[11px] text-muted-foreground">
+            total R$ {fmtBRL(calc.finalValue)} · juros {result.conditions?.juros_mes}%/mês
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onApply}
+          className="w-full text-sm font-semibold px-4 py-2.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"
+        >
+          <Check size={14} />
+          Aplicar essa proposta
+        </button>
+      </div>
+    );
+  }
+
+  if (result.status === 'pending') {
+    return (
+      <div className="text-center">
+        <div className="w-16 h-16 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto mb-3">
+          <AlertTriangle size={32} className="text-amber-700" />
+        </div>
+        <p className="text-base font-bold text-amber-800 mb-1">{result.message}</p>
+        <p className="text-[11px] text-muted-foreground mb-4">
+          decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
+        </p>
+        <div className="bg-amber-500/5 border border-amber-500/30 rounded-md p-3 text-left space-y-1.5 mb-3">
+          <p className="text-[11px] text-foreground">
+            <strong>Motivo:</strong> {result.motivo}
+          </p>
+          {result.suggestion && (
+            <p className="text-[11px] text-muted-foreground">
+              💡 {result.suggestion}
+            </p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // denied
+  return (
+    <div className="text-center">
+      <div className="w-16 h-16 rounded-full bg-red-500/15 flex items-center justify-center mx-auto mb-3">
+        <XCircle size={32} className="text-red-700" />
+      </div>
+      <p className="text-base font-bold text-red-800 mb-1">{result.message}</p>
+      <p className="text-[11px] text-muted-foreground mb-4">
+        decisão {result.decision_id} · comprometimento {Math.round(100 / result.ratio)}% da renda
+      </p>
+      <div className="bg-red-500/5 border border-red-500/30 rounded-md p-3 text-left space-y-1.5 mb-3">
+        <p className="text-[11px] text-foreground">
+          <strong>Motivo:</strong> {result.motivo}
+        </p>
+        {result.suggestion && (
+          <p className="text-[11px] text-muted-foreground">
+            💡 {result.suggestion}
+          </p>
+        )}
+      </div>
+      {parcelas < 24 && (
+        <button
+          type="button"
+          onClick={onRetryWithMore}
+          className="text-xs font-semibold px-3 py-2 rounded-lg border border-amber-500 text-amber-700 hover:bg-amber-500/10 inline-flex items-center gap-1.5"
+        >
+          Tentar com prazo maior
+        </button>
+      )}
     </div>
   );
 }

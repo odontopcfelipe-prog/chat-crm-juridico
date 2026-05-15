@@ -59,6 +59,20 @@ export class SaveCounterProposalDto {
   @IsOptional() @IsString() note?: string;
 }
 
+// Onda 12 — Simulacao de consulta de credito (Financiamento Banco PASSOS).
+// MVP mock; em producao integrar com Serasa Crediscore API.
+export class CreditCheckSimulateDto {
+  @IsString() cpf!: string;
+  @IsString() nome!: string;
+  @IsDateString() data_nascimento!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) renda_mensal!: number;
+  @IsString() telefone!: string;
+  @IsString() profissao!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) parcela_alvo!: number;
+  @IsInt() @Min(1) @Max(36) parcelas!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) valor_total!: number;
+}
+
 export class UpdateQuoteItemDto {
   @IsOptional() @IsString() tooth_fdi?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;

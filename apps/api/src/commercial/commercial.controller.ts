@@ -42,10 +42,12 @@ import {
   UpdateQuoteItemDto,
   RejectQuoteDto,
   SaveCounterProposalDto,
+  CreditCheckSimulateDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   ExecuteTreatmentPlanItemDto,
 } from './dto/commercial.dto';
+import { CreditCheckService } from './credit-check.service';
 
 /**
  * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
@@ -74,6 +76,7 @@ export class CommercialController {
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
+    private readonly creditCheckService: CreditCheckService,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -249,6 +252,26 @@ export class CommercialController {
       payment_label: dto.payment_label,
       final_value: Number(dto.final_value),
       note: dto.note,
+    });
+  }
+
+  /**
+   * Onda 12 — Simula consulta de credito pro Financiamento Banco PASSOS.
+   * MVP mock — decisao em ~1.5s baseada em regras renda × parcela.
+   * Em producao: substituir credit-check.service por integracao Serasa.
+   */
+  @Post('credit-check/simulate')
+  simulateCreditCheck(@Body() dto: CreditCheckSimulateDto) {
+    return this.creditCheckService.simulate({
+      cpf: dto.cpf,
+      nome: dto.nome,
+      data_nascimento: dto.data_nascimento,
+      renda_mensal: Number(dto.renda_mensal),
+      telefone: dto.telefone,
+      profissao: dto.profissao,
+      parcela_alvo: Number(dto.parcela_alvo),
+      parcelas: dto.parcelas,
+      valor_total: Number(dto.valor_total),
     });
   }
 
