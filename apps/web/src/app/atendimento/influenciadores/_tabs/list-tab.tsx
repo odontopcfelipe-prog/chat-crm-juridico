@@ -9,7 +9,9 @@ import {
   Plus, Search, Loader2, Pencil, Trash2,
   Instagram, Music2, Youtube, Globe, Phone, Mail, AtSign,
   Tag, Users as UsersIcon, Pause, CheckCircle2, XCircle, Megaphone,
+  HeartPulse,
 } from 'lucide-react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import ModalBase from '@/components/ModalBase';
@@ -33,6 +35,8 @@ export interface Influencer {
   coupon_code: string | null;
   status: Status;
   notes: string | null;
+  patient_id: string | null;
+  patient: { id: string; name: string } | null;
   created_at: string;
   updated_at: string;
 }
@@ -172,14 +176,12 @@ export function ListTab() {
         await api.patch(`/influencers/${editing.id}`, payload);
         showSuccess('Influenciador atualizado');
       } else {
-        const res = await api.post('/influencers', payload);
-        // v35: backend retorna { ...influencer, patient: { id, name } }
-        const patientId = res.data?.patient?.id;
-        if (patientId) {
-          showSuccess('Influenciador cadastrado e vinculado como paciente afiliado');
-        } else {
-          showSuccess('Influenciador cadastrado');
-        }
+        const { data: created } = await api.post<Influencer>('/influencers', payload);
+        showSuccess(
+          created?.patient
+            ? `Influenciador cadastrado e vinculado ao paciente "${created.patient.name}" (afiliado)`
+            : 'Influenciador cadastrado',
+        );
       }
       setModalOpen(false);
       setEditing(null);
@@ -326,6 +328,17 @@ export function ListTab() {
                   )}
                 </div>
 
+                {inf.patient && (
+                  <div className="mb-3 -mt-1">
+                    <Link
+                      href={`/atendimento/pacientes/${inf.patient.id}`}
+                      className="inline-flex items-center gap-1.5 text-[11px] text-primary hover:underline font-medium"
+                    >
+                      <HeartPulse size={11} /> Ver ficha do paciente
+                    </Link>
+                  </div>
+                )}
+
                 <div className="flex gap-2 pt-2 border-t border-border">
                   <button
                     onClick={() => openEdit(inf)}
@@ -375,9 +388,8 @@ export function ListTab() {
         }
       >
         <div className="space-y-4">
-          {/* Onda 5e v35: aviso de que influenciador vira Patient + Afiliado.
-              So aparece na criacao (editing == null) — na edicao o vinculo
-              ja existe e mexer nele tem regras proprias. */}
+          {/* Aviso: influenciador também vira Patient + Afiliado. Só aparece
+              na criação — na edição o vínculo já existe. */}
           {!editing && (
             <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
               <span className="text-base leading-none mt-0.5">🤝</span>
@@ -398,6 +410,7 @@ export function ListTab() {
               </div>
             </div>
           )}
+
           <fieldset className="space-y-3">
             <legend className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Contato</legend>
             <Field label="Nome *">
