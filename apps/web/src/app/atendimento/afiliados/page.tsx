@@ -22,6 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   HandCoins, Users, TrendingUp, Wallet, Clock, ExternalLink,
   Trophy, Loader2, RefreshCw, CheckCircle2, XCircle, AlertCircle,
+  Plus, Search, UserPlus, X, ArrowRight,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
@@ -82,6 +83,8 @@ export default function AfiliadosPage() {
   const [data, setData] = useState<Dashboard | null>(null);
   const [pending, setPending] = useState<PendingWithdrawal[]>([]);
   const [processingId, setProcessingId] = useState<string | null>(null);
+  // v37 — modal de "Adicionar afiliado" (selecionar existente OU criar novo)
+  const [addModalOpen, setAddModalOpen] = useState(false);
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -172,15 +175,36 @@ export default function AfiliadosPage() {
               </p>
             </div>
           </div>
-          <button
-            onClick={fetchAll}
-            disabled={loading}
-            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
-            title="Atualizar"
-          >
-            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setAddModalOpen(true)}
+              className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm"
+              title="Adicionar paciente como afiliado"
+            >
+              <Plus size={14} strokeWidth={2.5} /> Adicionar afiliado
+            </button>
+            <button
+              onClick={fetchAll}
+              disabled={loading}
+              className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+              title="Atualizar"
+            >
+              <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+            </button>
+          </div>
         </header>
+
+        {addModalOpen && (
+          <AddAffiliateModal
+            onClose={() => setAddModalOpen(false)}
+            onSuccess={(patientId) => {
+              setAddModalOpen(false);
+              fetchAll();
+              // Pula direto pra ficha do novo afiliado na aba Afiliado
+              router.push(`/atendimento/pacientes/${patientId}?tab=affiliate`);
+            }}
+          />
+        )}
 
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -392,6 +416,314 @@ export default function AfiliadosPage() {
             </div>
           )}
         </section>
+      </div>
+    </div>
+  );
+}
+
+// ─── AddAffiliateModal ────────────────────────────────────────────────────
+// Modal pra adicionar afiliado: 2 modos
+//   1) Selecionar paciente existente (busca por nome/telefone, debounce 300ms)
+//   2) Criar paciente novo (mini-form com nome+telefone+email)
+// Em ambos casos faz PATCH is_affiliate=true + affiliate_code auto-gerado
+// do nome (uppercase, sem acento).
+
+interface PatientLite {
+  id: string;
+  name: string;
+  phone: string | null;
+  is_affiliate: boolean;
+}
+
+function slugifyName(name: string): string {
+  return (name || '')
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .slice(0, 20);
+}
+
+function AddAffiliateModal({
+  onClose,
+  onSuccess,
+}: {
+  onClose: () => void;
+  onSuccess: (patientId: string) => void;
+}) {
+  const [mode, setMode] = useState<'pick' | 'create'>('pick');
+  const [submitting, setSubmitting] = useState(false);
+
+  // Modo "pick": busca paciente existente
+  const [query, setQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState<PatientLite[]>([]);
+
+  // Modo "create": cadastro novo
+  const [newName, setNewName] = useState('');
+  const [newPhone, setNewPhone] = useState('');
+  const [newEmail, setNewEmail] = useState('');
+
+  // Debounced search
+  useEffect(() => {
+    if (mode !== 'pick') return;
+    if (!query.trim()) {
+      setResults([]);
+      return;
+    }
+    let cancelled = false;
+    setSearching(true);
+    const handle = setTimeout(async () => {
+      try {
+        const res = await api.get('/patients', { params: { search: query, limit: 20 } });
+        if (cancelled) return;
+        const list = Array.isArray(res.data?.data) ? res.data.data : Array.isArray(res.data) ? res.data : [];
+        setResults(
+          list.map((p: any) => ({
+            id: p.id,
+            name: p.name,
+            phone: p.phone,
+            is_affiliate: !!p.is_affiliate,
+          })),
+        );
+      } catch {
+        if (!cancelled) setResults([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [query, mode]);
+
+  const selectExisting = async (p: PatientLite) => {
+    if (p.is_affiliate) {
+      if (!confirm(`${p.name} já é afiliado. Abrir a ficha?`)) return;
+      onSuccess(p.id);
+      return;
+    }
+    if (!confirm(
+      `Tornar ${p.name} um afiliado da clínica?\n\n` +
+      `• Recebe 3% por indicação fechada\n` +
+      `• Saldo acumula e pode ser sacado\n` +
+      `• Código: ${slugifyName(p.name) || '(definir depois)'}`,
+    )) return;
+    setSubmitting(true);
+    try {
+      await api.patch(`/patients/${p.id}`, {
+        is_affiliate: true,
+        affiliate_code: slugifyName(p.name) || null,
+        affiliate_commission_pct: 3,
+      });
+      showSuccess('Afiliado adicionado');
+      onSuccess(p.id);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao ativar afiliado');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const createNew = async () => {
+    if (!newName.trim()) {
+      showError('Nome é obrigatório');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      // Cria patient + ja marca como afiliado num so payload
+      const res = await api.post('/patients', {
+        name: newName.trim(),
+        phone: newPhone.trim() || undefined,
+        email: newEmail.trim() || undefined,
+        is_affiliate: true,
+        affiliate_code: slugifyName(newName) || null,
+        affiliate_commission_pct: 3,
+      });
+      const patientId = res.data?.id;
+      if (!patientId) throw new Error('Patient criado mas id não retornado');
+      showSuccess('Paciente criado e adicionado como afiliado');
+      onSuccess(patientId);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao criar paciente');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+      <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-border">
+          <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+            <HandCoins size={16} className="text-emerald-600" />
+            Adicionar afiliado
+          </h3>
+          <button onClick={onClose} className="p-1 rounded text-muted-foreground hover:bg-accent">
+            <X size={16} />
+          </button>
+        </header>
+
+        {/* Toggle entre modos */}
+        <div className="flex border-b border-border">
+          <button
+            onClick={() => setMode('pick')}
+            className={`flex-1 px-4 py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+              mode === 'pick'
+                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-b-2 border-emerald-500'
+                : 'text-muted-foreground hover:bg-accent border-b-2 border-transparent'
+            }`}
+          >
+            <Search size={14} /> Paciente existente
+          </button>
+          <button
+            onClick={() => setMode('create')}
+            className={`flex-1 px-4 py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
+              mode === 'create'
+                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-b-2 border-emerald-500'
+                : 'text-muted-foreground hover:bg-accent border-b-2 border-transparent'
+            }`}
+          >
+            <UserPlus size={14} /> Novo paciente
+          </button>
+        </div>
+
+        {/* Conteúdo */}
+        <div className="p-5 space-y-4">
+          {mode === 'pick' ? (
+            <>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  Buscar paciente
+                </label>
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Nome ou telefone..."
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+
+              <div className="max-h-72 overflow-y-auto -mx-2">
+                {searching && (
+                  <div className="flex items-center justify-center py-6 text-muted-foreground text-sm">
+                    <Loader2 size={14} className="animate-spin mr-2" /> Buscando…
+                  </div>
+                )}
+                {!searching && query.trim() && results.length === 0 && (
+                  <div className="text-center py-6 text-sm text-muted-foreground">
+                    Nenhum paciente encontrado pra <strong>{query}</strong>.
+                    <p className="text-xs mt-2">
+                      Tente cadastrar novo na aba ao lado.
+                    </p>
+                  </div>
+                )}
+                {!searching && !query.trim() && (
+                  <div className="text-center py-6 text-sm text-muted-foreground">
+                    Digite o nome ou telefone do paciente.
+                  </div>
+                )}
+                <div className="divide-y divide-border">
+                  {results.map((p) => (
+                    <button
+                      key={p.id}
+                      onClick={() => selectExisting(p)}
+                      disabled={submitting}
+                      className="w-full text-left flex items-center gap-3 px-3 py-2.5 hover:bg-accent/40 transition-colors disabled:opacity-50"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <div className="font-semibold text-sm text-foreground truncate">{p.name}</div>
+                        {p.phone && (
+                          <div className="text-xs text-muted-foreground">{p.phone}</div>
+                        )}
+                      </div>
+                      {p.is_affiliate ? (
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+                          Já é afiliado
+                        </span>
+                      ) : (
+                        <ArrowRight size={14} className="text-emerald-600 shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200">
+                Cria um paciente novo já marcado como afiliado ativo (3% de comissão).
+                Você pode completar os dados depois pelo botão Editar da ficha.
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  Nome *
+                </label>
+                <input
+                  value={newName}
+                  onChange={(e) => setNewName(e.target.value)}
+                  placeholder="Nome completo"
+                  autoFocus
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+                {newName.trim() && (
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Código de afiliado:{' '}
+                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
+                      {slugifyName(newName) || '(definir depois)'}
+                    </span>
+                  </p>
+                )}
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  Telefone
+                </label>
+                <input
+                  value={newPhone}
+                  onChange={(e) => setNewPhone(e.target.value)}
+                  placeholder="82 99999-9999"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
+                  E-mail
+                </label>
+                <input
+                  type="email"
+                  value={newEmail}
+                  onChange={(e) => setNewEmail(e.target.value)}
+                  placeholder="email@dominio.com"
+                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                />
+              </div>
+            </>
+          )}
+        </div>
+
+        <footer className="flex justify-end gap-2 px-5 py-3 border-t border-border bg-muted/20">
+          <button
+            onClick={onClose}
+            disabled={submitting}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-muted-foreground hover:bg-accent disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          {mode === 'create' && (
+            <button
+              onClick={createNew}
+              disabled={submitting || !newName.trim()}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-40"
+            >
+              {submitting ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
+              Cadastrar e adicionar
+            </button>
+          )}
+        </footer>
       </div>
     </div>
   );

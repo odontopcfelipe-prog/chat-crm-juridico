@@ -232,46 +232,6 @@ function PacienteFichaInner() {
     }
   };
 
-  // Onda 5e v36 — Tornar Afiliado direto do header da ficha. Ativa
-  // is_affiliate=true + gera affiliate_code automatico (slug do nome
-  // se nao tiver). Apos ativar, redireciona pra aba 'affiliate' onde
-  // o usuario ve o saldo/indicacoes/saques. Reverter (desativar) so
-  // pelo modal Editar — proteger contra clique acidental.
-  const [togglingAffiliate, setTogglingAffiliate] = useState(false);
-  const handleMakeAffiliate = async () => {
-    if (!patient || togglingAffiliate) return;
-    // Gera codigo automatico baseado no nome (uppercase, sem espaco/acento)
-    const autoCode = (patient.name || '')
-      .normalize('NFD')
-      .replace(/[̀-ͯ]/g, '')
-      .toUpperCase()
-      .replace(/[^A-Z0-9]/g, '')
-      .slice(0, 20);
-    if (!confirm(
-      `Tornar ${patient.name} um afiliado da clínica?\n\n` +
-      `• Recebe 3% de cada tratamento fechado por indicação\n` +
-      `• Saldo acumula e pode ser sacado (PIX/dinheiro/crédito)\n` +
-      `• Código de divulgação: ${autoCode || '(será definido depois)'}\n\n` +
-      `Você pode editar o código e desativar depois pelo botão Editar.`,
-    )) return;
-    setTogglingAffiliate(true);
-    try {
-      await api.patch(`/patients/${patient.id}`, {
-        is_affiliate: true,
-        affiliate_code: autoCode || null,
-        affiliate_commission_pct: 3,
-      });
-      showSuccess('Paciente agora é afiliado da clínica');
-      await load();
-      router.replace(`/atendimento/pacientes/${patient.id}?tab=affiliate`);
-      setTab('affiliate');
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao tornar afiliado');
-    } finally {
-      setTogglingAffiliate(false);
-    }
-  };
 
   if (loading) {
     return (
@@ -338,9 +298,10 @@ function PacienteFichaInner() {
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          {/* Onda 5e v36 — Botao de afiliado direto no header.
-              Se ja e afiliado: badge verde clicavel que abre a aba Afiliado.
-              Se nao e: botao "Tornar Afiliado" que ativa + redireciona. */}
+          {/* Onda 5e v36 — Badge "Afiliado" quando ativo (atalho pra aba).
+              Onda 5e v37: o botao "Tornar Afiliado" foi removido daqui —
+              ativacao agora so pelo modal Editar > Programa de Afiliado
+              (toggle), pra manter o header da ficha enxuto. */}
           {patient.status !== 'ARCHIVED' && patient.is_affiliate && (
             <button
               onClick={() => {
@@ -351,17 +312,6 @@ function PacienteFichaInner() {
               title="Paciente é afiliado — ver saldo e indicações"
             >
               <HandCoins size={14} /> Afiliado
-            </button>
-          )}
-          {patient.status !== 'ARCHIVED' && !patient.is_affiliate && role.isAdmin && (
-            <button
-              onClick={handleMakeAffiliate}
-              disabled={togglingAffiliate}
-              className="text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm disabled:opacity-50"
-              title="Tornar este paciente um afiliado da clínica (3% por indicação)"
-            >
-              {togglingAffiliate ? <Loader2 size={14} className="animate-spin" /> : <HandCoins size={14} />}
-              Tornar Afiliado
             </button>
           )}
 
