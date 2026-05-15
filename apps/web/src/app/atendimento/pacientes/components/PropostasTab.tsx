@@ -106,7 +106,9 @@ function formatCadeira(totalMinutes: number | undefined): string | null {
   return `${display} cadeira`;
 }
 
-/** Onda 9 — opcoes de pagamento renderizadas no painel inline */
+/** Onda 9 — opcoes de pagamento renderizadas no painel inline.
+ *  Onda 11.2 — adicionado interestRate (% a.m.) pra suportar boleto parcelado
+ *  com juros (12x/18x/24x a 1,5%/mes). */
 interface PaymentOption {
   key: string;
   label: string;
@@ -114,9 +116,11 @@ interface PaymentOption {
   discountPercent: number; // 0 = sem desconto
   installments: number;
   variant: 'avista' | 'parcelado';
+  /** Onda 11.2 — % de juros ao mes (default 0 = sem juros, Tabela Price quando > 0) */
+  interestRate?: number;
 }
 
-function buildPaymentOptions(total: number): { avista: PaymentOption[]; parcelado: PaymentOption[] } {
+function buildPaymentOptions(): { avista: PaymentOption[]; parcelado: PaymentOption[] } {
   return {
     avista: [
       {
@@ -136,24 +140,44 @@ function buildPaymentOptions(total: number): { avista: PaymentOption[]; parcelad
         variant: 'avista',
       },
     ],
+    // Onda 11.2 — Boleto parcelado com juros 1,5%/mes (substituiu cartao sem juros)
     parcelado: [
-      { key: '3x', label: '3x', sublabel: '', discountPercent: 0, installments: 3, variant: 'parcelado' },
-      { key: '6x', label: '6x', sublabel: '', discountPercent: 0, installments: 6, variant: 'parcelado' },
-      { key: '10x', label: '10x', sublabel: '', discountPercent: 0, installments: 10, variant: 'parcelado' },
+      { key: '12x', label: '12x', sublabel: '', discountPercent: 0, installments: 12, variant: 'parcelado', interestRate: 1.5 },
+      { key: '18x', label: '18x', sublabel: '', discountPercent: 0, installments: 18, variant: 'parcelado', interestRate: 1.5 },
+      { key: '24x', label: '24x', sublabel: '', discountPercent: 0, installments: 24, variant: 'parcelado', interestRate: 1.5 },
     ],
   };
 }
 
-/** Calcula valor final dado opcao + total base */
+/** Calcula valor final dado opcao + total base. Onda 11.2 — usa Tabela Price
+ *  quando interestRate > 0: PMT = PV × i / (1 − (1+i)^(−n)) */
 function applyPaymentOption(total: number, opt: PaymentOption): {
   finalValue: number;
   installmentValue: number;
   savedValue: number;
+  /** Onda 11.2 — juros pagos a mais (so quando parcelado com juros) */
+  extraInterest: number;
 } {
+  if (opt.interestRate && opt.interestRate > 0) {
+    const i = opt.interestRate / 100;
+    const n = opt.installments;
+    const pmt = total * i / (1 - Math.pow(1 + i, -n));
+    const finalValue = pmt * n;
+    return {
+      finalValue,
+      installmentValue: pmt,
+      savedValue: 0,
+      extraInterest: finalValue - total,
+    };
+  }
   const savedValue = total * (opt.discountPercent / 100);
   const finalValue = total - savedValue;
-  const installmentValue = finalValue / opt.installments;
-  return { finalValue, installmentValue, savedValue };
+  return {
+    finalValue,
+    installmentValue: finalValue / opt.installments,
+    savedValue,
+    extraInterest: 0,
+  };
 }
 
 function fmtBRL(n: number): string {
@@ -521,7 +545,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         const total = selectedDetail.items.some((it) => !!it.approved_at)
           ? pendingValue
           : totalBruto;
-        const opts = buildPaymentOptions(total);
+        const opts = buildPaymentOptions();
         const allOptions = [...opts.avista, ...opts.parcelado];
         const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
         const calc = applyPaymentOption(total, activeOption);
@@ -530,9 +554,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         const paymentLabel =
           activeOption.variant === 'avista'
             ? `${activeOption.label} à vista`
-            : `${activeOption.installments}x no cartão`;
-        const finalValue =
-          activeOption.variant === 'avista' ? calc.finalValue : total;
+            : `${activeOption.installments}x no boleto (${activeOption.interestRate}%/mês)`;
+        // Onda 11.2 — finalValue agora reflete o que foi ofertado:
+        // a vista = descontado / parcelado = total com juros
+        const finalValue = calc.finalValue;
         return (
           <CounterProposalDialog
             priorityLabel={priorityLabel}
@@ -836,7 +861,7 @@ function PropostaPainel({
   // Base usada pra calcular formas de pagamento — desconta o ja aprovado.
   const total = hasPartialApproval ? pendingValue : totalBruto;
 
-  const options = buildPaymentOptions(total);
+  const options = buildPaymentOptions();
   const allOptions = [...options.avista, ...options.parcelado];
   const activeOption = allOptions.find((o) => o.key === activePaymentKey) || options.avista[0];
   const activeCalc = applyPaymentOption(total, activeOption);
@@ -987,11 +1012,11 @@ function PropostaPainel({
         </div>
       </div>
 
-      {/* Parcelado */}
+      {/* Onda 11.2 — Boleto parcelado com juros 1,5%/mes */}
       <div className="mb-3">
         <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Parcelado no cartão — sem juros
+          <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+          Boleto parcelado — juros 1,5%/mês
         </p>
         <div className="grid grid-cols-3 gap-2">
           {options.parcelado.map((opt) => {
@@ -1002,24 +1027,30 @@ function PropostaPainel({
                 key={opt.key}
                 type="button"
                 onClick={() => onChangePayment(opt.key)}
-                className={`p-2.5 rounded-lg border text-center transition-colors ${
+                className={`p-2.5 rounded-lg border text-left transition-colors ${
                   isActive
-                    ? 'border-emerald-500 bg-emerald-500/10'
+                    ? 'border-amber-500 bg-amber-500/10'
                     : 'border-border hover:bg-accent/40'
                 }`}
               >
-                <p className="text-[11px] font-semibold mb-0.5">{opt.label}</p>
+                <p className="text-[11px] font-semibold mb-0.5 flex items-center justify-between">
+                  <span>{opt.label}</span>
+                  <span className="text-[10px] text-amber-700 font-normal">
+                    +R$ {fmtBRL(calc.extraInterest)}
+                  </span>
+                </p>
                 <p className="text-sm font-bold tabular-nums">
                   R$ {fmtBRL(calc.installmentValue)}
+                  <span className="text-[10px] font-normal text-muted-foreground">/mês</span>
+                </p>
+                <p className="text-[10px] text-muted-foreground tabular-nums">
+                  total R$ {fmtBRL(calc.finalValue)}
                 </p>
               </button>
             );
           })}
         </div>
       </div>
-
-      {/* Aviso de juros 12x — calculado (1,5% a.m.) */}
-      <PaymentInterestNote total={total} />
 
       {/* Resumo "voce esta oferecendo" */}
       <div className="mt-4 pt-3 border-t border-border">
@@ -1029,12 +1060,17 @@ function PropostaPainel({
             {cfg?.label || 'Proposta'} em{' '}
             {activeOption.variant === 'avista'
               ? `${activeOption.label} à vista`
-              : `${activeOption.installments}x no cartão`}
-            {' = R$ '}
-            {fmtBRL(
-              activeOption.variant === 'avista'
-                ? activeCalc.finalValue
-                : total,
+              : `${activeOption.installments}x no boleto`}
+            {' = '}
+            {activeOption.variant === 'avista' ? (
+              <>R$ {fmtBRL(activeCalc.finalValue)}</>
+            ) : (
+              <>
+                R$ {fmtBRL(activeCalc.installmentValue)}/mês ·{' '}
+                <span className="text-muted-foreground font-normal">
+                  total R$ {fmtBRL(activeCalc.finalValue)}
+                </span>
+              </>
             )}
           </strong>
         </p>
@@ -1118,21 +1154,6 @@ function CounterProposalsHistory({ notes }: { notes: string | null }) {
         </div>
       )}
     </div>
-  );
-}
-
-/** Calcula 12x com juros 1,5% a.m. e renderiza alerta amber */
-function PaymentInterestNote({ total }: { total: number }) {
-  const monthlyRate = 0.015;
-  const n = 12;
-  // Tabela Price: PMT = PV × i / (1 − (1+i)^(−n))
-  const pmt = total * monthlyRate / (1 - Math.pow(1 + monthlyRate, -n));
-  const totalWithInterest = pmt * n;
-  const extra = totalWithInterest - total;
-  return (
-    <p className="text-[11px] text-amber-800 bg-amber-500/10 border border-amber-500/30 rounded-md px-2.5 py-1.5">
-      ⚠ 12x com juros 1,5%/mês: R$ {fmtBRL(pmt)}/mês · total R$ {fmtBRL(totalWithInterest)} · paga R$ {fmtBRL(extra)} a mais
-    </p>
   );
 }
 
