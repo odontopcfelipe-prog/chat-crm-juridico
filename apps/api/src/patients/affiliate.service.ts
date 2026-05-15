@@ -204,6 +204,167 @@ export class AffiliateService {
   }
 
   /**
+   * Lista global de afiliados do tenant + KPIs agregados.
+   * Usado pela pagina /atendimento/afiliados (dashboard admin).
+   *
+   * Retorna:
+   *   - kpis: total ativos, indicacoes do mes, saldo total acumulado, saques pendentes
+   *   - top5: ranking de afiliados por # de indicacoes fechadas no mes
+   *   - affiliates: lista completa com nome, codigo, qtd indicacoes,
+   *     saldo, ultimo saque, status
+   */
+  async listAffiliatesDashboard(tenantId: string) {
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+
+    const [affiliates, allReferrals, allWithdrawals] = await Promise.all([
+      this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, is_affiliate: true, status: 'ACTIVE' },
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          affiliate_code: true,
+          affiliate_commission_pct: true,
+          created_at: true,
+        },
+      }),
+      this.prisma.affiliateReferral.findMany({
+        where: { tenant_id: tenantId },
+        select: {
+          referrer_id: true,
+          commission_value: true,
+          status: true,
+          closed_at: true,
+        },
+      }),
+      this.prisma.affiliateWithdrawal.findMany({
+        where: { tenant_id: tenantId },
+        select: {
+          patient_id: true,
+          amount: true,
+          status: true,
+          requested_at: true,
+        },
+      }),
+    ]);
+
+    // Agrega por referrer_id
+    type Agg = {
+      indicacoes_total: number;
+      indicacoes_mes: number;
+      creditado_total: number;
+      sacado_total: number;
+      pendente_saque: number;
+    };
+    const agg = new Map<string, Agg>();
+    for (const a of affiliates) {
+      agg.set(a.id, {
+        indicacoes_total: 0,
+        indicacoes_mes: 0,
+        creditado_total: 0,
+        sacado_total: 0,
+        pendente_saque: 0,
+      });
+    }
+    for (const r of allReferrals) {
+      const row = agg.get(r.referrer_id);
+      if (!row) continue;
+      if (r.status === 'creditado') {
+        row.indicacoes_total += 1;
+        row.creditado_total += Number(r.commission_value);
+        if (r.closed_at >= monthStart) row.indicacoes_mes += 1;
+      }
+    }
+    for (const w of allWithdrawals) {
+      const row = agg.get(w.patient_id);
+      if (!row) continue;
+      if (w.status === 'pago') row.sacado_total += Number(w.amount);
+      if (w.status === 'solicitado') row.pendente_saque += Number(w.amount);
+    }
+
+    const enriched = affiliates.map((a) => {
+      const ag = agg.get(a.id) ?? {
+        indicacoes_total: 0,
+        indicacoes_mes: 0,
+        creditado_total: 0,
+        sacado_total: 0,
+        pendente_saque: 0,
+      };
+      const saldo_disponivel = Math.max(
+        0,
+        ag.creditado_total - ag.sacado_total - ag.pendente_saque,
+      );
+      return {
+        id: a.id,
+        name: a.name,
+        phone: a.phone,
+        affiliate_code: a.affiliate_code,
+        commission_pct: Number(a.affiliate_commission_pct ?? 3),
+        created_at: a.created_at.toISOString(),
+        indicacoes_total: ag.indicacoes_total,
+        indicacoes_mes: ag.indicacoes_mes,
+        creditado_total: ag.creditado_total,
+        sacado_total: ag.sacado_total,
+        pendente_saque: ag.pendente_saque,
+        saldo_disponivel,
+      };
+    });
+
+    // KPIs agregados
+    const kpis = {
+      total_ativos: enriched.length,
+      indicacoes_mes: enriched.reduce((a, e) => a + e.indicacoes_mes, 0),
+      saldo_total: enriched.reduce((a, e) => a + e.saldo_disponivel, 0),
+      saques_pendentes_qtd: allWithdrawals.filter((w) => w.status === 'solicitado').length,
+      saques_pendentes_valor: allWithdrawals
+        .filter((w) => w.status === 'solicitado')
+        .reduce((a, w) => a + Number(w.amount), 0),
+    };
+
+    // Top 5 do mes (ordenado por indicacoes_mes desc, creditado_total como tiebreak)
+    const top5 = [...enriched]
+      .filter((e) => e.indicacoes_mes > 0)
+      .sort((a, b) => {
+        if (b.indicacoes_mes !== a.indicacoes_mes) return b.indicacoes_mes - a.indicacoes_mes;
+        return b.creditado_total - a.creditado_total;
+      })
+      .slice(0, 5);
+
+    return {
+      kpis,
+      top5,
+      affiliates: enriched.sort((a, b) => b.saldo_disponivel - a.saldo_disponivel),
+    };
+  }
+
+  /**
+   * Lista de saques solicitados (admin pra aprovar/recusar em massa).
+   */
+  async listPendingWithdrawals(tenantId: string) {
+    const rows = await this.prisma.affiliateWithdrawal.findMany({
+      where: { tenant_id: tenantId, status: 'solicitado' },
+      orderBy: { requested_at: 'asc' },
+      include: {
+        patient: { select: { id: true, name: true, phone: true, affiliate_code: true } },
+      },
+    });
+    return rows.map((w) => ({
+      id: w.id,
+      patient_id: w.patient_id,
+      patient_name: w.patient?.name ?? '—',
+      patient_phone: w.patient?.phone ?? null,
+      affiliate_code: w.patient?.affiliate_code ?? null,
+      amount: Number(w.amount),
+      method: w.method,
+      pix_key: w.pix_key,
+      requested_at: w.requested_at.toISOString(),
+      notes: w.notes,
+    }));
+  }
+
+  /**
    * Admin recusa o saque (ex: dados PIX invalidos, saldo retroativamente
    * cancelado, etc). Libera o valor pra voltar pro saldo disponivel.
    */

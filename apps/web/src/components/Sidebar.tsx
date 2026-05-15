@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone,
+  Megaphone, HandCoins,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -611,6 +611,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/influenciadores'),
       show: perms.isAdmin,
     },
+    afiliados: {
+      label: 'Afiliados',
+      href: '/atendimento/afiliados',
+      icon: <HandCoins size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/afiliados'),
+      show: perms.isAdmin,
+    },
     manual: {
       label: 'Manual',
       href: '/atendimento/manual',
@@ -681,6 +688,7 @@ export function Sidebar() {
       icon: <Megaphone size={14} strokeWidth={2.5} />,
       items: [
         allItems.influencers,  // Cadastro de influenciadores (admin only)
+        allItems.afiliados,    // Onda 5e v36 — dashboard global de afiliados
       ].filter(i => i.show),
     },
     {

@@ -298,6 +298,37 @@ export class PatientsController {
   // ─── Programa de Afiliado (Onda 5e v34, Fase 25) ─────────────────────
 
   /**
+   * Onda 5e v36 — dashboard GLOBAL de afiliados do tenant (admin only).
+   * Lista todos os afiliados ativos com KPIs agregados + top 5 do mes.
+   * Usado pela rota /atendimento/afiliados.
+   *
+   * IMPORTANTE: declarado ANTES de :id/affiliate pra Nest nao tratar
+   * 'affiliates' como id de paciente.
+   */
+  @Get('affiliates')
+  listAffiliatesDashboard(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver dashboard de afiliados');
+    }
+    return this.affiliateService.listAffiliatesDashboard(tenantId);
+  }
+
+  /**
+   * Onda 5e v36 — lista de saques pendentes pra aprovacao (admin).
+   */
+  @Get('affiliates/pending-withdrawals')
+  listPendingWithdrawals(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode listar saques');
+    }
+    return this.affiliateService.listPendingWithdrawals(tenantId);
+  }
+
+  /**
    * Dashboard do afiliado: saldo (disponivel/acumulado/sacado/pendente)
    * + indicacoes + historico de saques.
    */
