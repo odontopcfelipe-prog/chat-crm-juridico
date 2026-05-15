@@ -129,7 +129,9 @@ function buildPaymentOptions(): {
   cartao: PaymentOption[];
   parcelado: PaymentOption[];
 } {
-  // Onda 11.4 — gera 12 opcoes de cartao (1x ate 12x, sem juros)
+  // Onda 11.4 — gera 12 opcoes de cartao (1x ate 12x).
+  // Onda 11.7 — 1x..6x sem juros / 7x..12x com juros padrao PagBank 3,59% a.m.
+  const PAGBANK_INTEREST_RATE = 3.59; // % ao mes (taxa padrao PagBank para 7x-12x)
   const cartao: PaymentOption[] = Array.from({ length: 12 }, (_, idx) => {
     const n = idx + 1;
     return {
@@ -139,6 +141,7 @@ function buildPaymentOptions(): {
       discountPercent: 0,
       installments: n,
       variant: 'cartao',
+      interestRate: n <= 6 ? 0 : PAGBANK_INTEREST_RATE,
     };
   });
 
@@ -595,7 +598,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           activeOption.variant === 'avista'
             ? `${activeOption.label} à vista`
             : activeOption.variant === 'cartao'
-            ? `${activeOption.installments}x no cartão (sem juros)`
+            ? `${activeOption.installments}x no cartão (${(activeOption.interestRate ?? 0) === 0 ? 'sem juros' : `juros PagBank ${activeOption.interestRate}%/mês`})`
             : `${activeOption.installments}x no boleto (entrada ${activeOption.downPaymentPercent ?? 0}% + ${activeOption.interestRate}%/mês)`;
         // Onda 11.2 — finalValue agora reflete o que foi ofertado:
         // a vista = descontado / parcelado = total com juros
@@ -1213,7 +1216,7 @@ function CardCartao({
     <div className="mb-4">
       <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-        Cartão de crédito — sem juros
+        Cartão de crédito — 1x a 6x sem juros · 7x a 12x com juros PagBank
       </p>
       <button
         type="button"
@@ -1235,7 +1238,14 @@ function CardCartao({
               {display.installments}x de R$ {fmtBRL(calc.installmentValue)}
             </p>
             <p className="text-[10px] text-muted-foreground">
-              total R$ {fmtBRL(calc.finalValue)} · sem juros
+              total R$ {fmtBRL(calc.finalValue)} ·{' '}
+              {(display.interestRate ?? 0) === 0 ? (
+                <span className="text-emerald-700 font-semibold">sem juros</span>
+              ) : (
+                <span className="text-amber-700 font-semibold">
+                  +R$ {fmtBRL(calc.extraInterest)} juros
+                </span>
+              )}
             </p>
           </div>
           <span
@@ -1279,6 +1289,7 @@ function CardCartao({
             {options.map((opt) => {
               const isActive = activePaymentKey === opt.key;
               const c = applyPaymentOption(total, opt);
+              const hasInterest = (opt.interestRate ?? 0) > 0;
               return (
                 <li key={opt.key}>
                   <button
@@ -1298,8 +1309,10 @@ function CardCartao({
                     </span>
                     <span className="text-xs tabular-nums">
                       de <strong className={isActive ? 'text-sky-700' : 'text-foreground'}>R$ {fmtBRL(c.installmentValue)}</strong>
-                      {opt.installments === 1 && (
-                        <span className="text-muted-foreground"> sem juros</span>
+                      {!hasInterest ? (
+                        <span className="text-emerald-700"> sem juros</span>
+                      ) : (
+                        <span className="text-amber-700"> com juros</span>
                       )}
                     </span>
                     <span className="text-xs tabular-nums text-right text-muted-foreground">
@@ -1310,6 +1323,10 @@ function CardCartao({
               );
             })}
           </ul>
+          {/* Rodape: nota dos juros */}
+          <p className="px-3 py-2 text-[10px] text-muted-foreground bg-muted/20 border-t border-border">
+            Taxa de juros 3,59% a.m. da PagBank aplicada nas parcelas de 7x a 12x.
+          </p>
         </div>
       )}
     </div>
