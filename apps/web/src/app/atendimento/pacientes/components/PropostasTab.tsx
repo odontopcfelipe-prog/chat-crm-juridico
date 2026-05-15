@@ -543,8 +543,6 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     );
   }
 
-  const noneItems = grouped.get('NONE') || [];
-
   return (
     <div className="space-y-4">
       {/* Header */}
@@ -712,47 +710,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         );
       })()}
 
-      {/* Orcamentos sem priority — lista flat embaixo */}
-      {noneItems.length > 0 && (
-        <div className="bg-card border border-border rounded-xl p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted-foreground">
-              Sem prioridade definida ({noneItems.length})
-            </p>
-          </div>
-          <p className="text-[11px] text-muted-foreground italic mb-3">
-            Defina prioridade (Completo / Essencial / Urgente) na aba Avaliação
-            pra esses orçamentos aparecerem agrupados acima.
-          </p>
-          <ul className="space-y-1.5">
-            {noneItems.map((q) => (
-              <li
-                key={q.id}
-                onClick={() => onOpenQuoteDetail && onOpenQuoteDetail(q.id)}
-                className="px-3 py-2 rounded-lg border border-border hover:bg-accent/40 cursor-pointer flex items-center gap-3"
-              >
-                <DollarSign size={14} className="text-muted-foreground" />
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate">
-                    {q.title || 'Orçamento sem nome'}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground">
-                    {q._count?.items ?? 0} item(ns) ·{' '}
-                    {new Date(q.created_at).toLocaleDateString('pt-BR')}
-                  </p>
-                </div>
-                <p className="text-sm font-bold text-foreground">
-                  R$ {Number(q.total_value).toLocaleString('pt-BR', {
-                    minimumFractionDigits: 2,
-                    maximumFractionDigits: 2,
-                  })}
-                </p>
-                <ChevronRight size={14} className="text-muted-foreground" />
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {/* Onda 12.6 — Bloco "Sem prioridade definida" removido.
+          Orcamentos sem priority continuam acessiveis via picker dos cards
+          vazios (sao listados quando voce clica em "Escolher orcamento"
+          em qualquer slot Urgente/Essencial/Completo). */}
     </div>
   );
 }
