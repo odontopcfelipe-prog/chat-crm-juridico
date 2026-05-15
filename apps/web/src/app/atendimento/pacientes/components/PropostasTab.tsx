@@ -1025,57 +1025,60 @@ function PropostaPainel({
         )}
       </div>
 
-      {/* Pagamento à vista — Onda 11.6: so PIX/dinheiro, valor original e com desconto em destaque */}
-      <div className="mb-4">
-        <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          À vista — com desconto
-        </p>
-        {options.avista.map((opt) => {
-          const isActive = activePaymentKey === opt.key;
-          const calc = applyPaymentOption(total, opt);
-          return (
-            <button
-              key={opt.key}
-              type="button"
-              onClick={() => onChangePayment(opt.key)}
-              className={`w-full p-4 rounded-lg border text-left transition-colors relative ${
-                isActive
-                  ? 'border-emerald-500 bg-emerald-500/10'
-                  : 'border-border hover:bg-accent/40'
-              }`}
-            >
-              <span className="absolute top-2 right-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
-                −{opt.discountPercent}%
-              </span>
-              <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
-                <Send size={13} />
-                {opt.label}
-              </p>
-              <div className="flex items-baseline gap-3 flex-wrap">
-                <p className="text-3xl font-bold tabular-nums text-emerald-700">
-                  R$ {fmtBRL(calc.finalValue)}
+      {/* Onda 11.9 — PIX/dinheiro e Cartao de credito lado a lado em grid 2 cols.
+          Itens alinhados ao topo (cartao pode crescer quando dropdown abre). */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-start">
+        {/* Pagamento à vista — Onda 11.6: so PIX/dinheiro */}
+        <div>
+          <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+            À vista — com desconto
+          </p>
+          {options.avista.map((opt) => {
+            const isActive = activePaymentKey === opt.key;
+            const calc = applyPaymentOption(total, opt);
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onChangePayment(opt.key)}
+                className={`w-full p-4 rounded-lg border text-left transition-colors relative ${
+                  isActive
+                    ? 'border-emerald-500 bg-emerald-500/10'
+                    : 'border-border hover:bg-accent/40'
+                }`}
+              >
+                <span className="absolute top-2 right-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                  −{opt.discountPercent}%
+                </span>
+                <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+                  <Send size={13} />
+                  {opt.label}
                 </p>
-                <p className="text-base text-muted-foreground line-through tabular-nums">
-                  R$ {fmtBRL(total)}
+                <div className="flex items-baseline gap-3 flex-wrap">
+                  <p className="text-3xl font-bold tabular-nums text-emerald-700">
+                    R$ {fmtBRL(calc.finalValue)}
+                  </p>
+                  <p className="text-base text-muted-foreground line-through tabular-nums">
+                    R$ {fmtBRL(total)}
+                  </p>
+                </div>
+                <p className="text-xs text-emerald-700 mt-1 font-medium">
+                  economia de R$ {fmtBRL(calc.savedValue)}
                 </p>
-              </div>
-              <p className="text-xs text-emerald-700 mt-1 font-medium">
-                economia de R$ {fmtBRL(calc.savedValue)}
-              </p>
-            </button>
-          );
-        })}
-      </div>
+              </button>
+            );
+          })}
+        </div>
 
-      {/* Onda 11.5 — Cartao de credito vira card unico (estilo "Boleto a vista").
-          Click abre dropdown inline com 1x ate 12x pra escolher parcelas. */}
-      <CardCartao
-        options={options.cartao}
-        total={total}
-        activePaymentKey={activePaymentKey}
-        onChangePayment={onChangePayment}
-      />
+        {/* Onda 11.5 — Cartao de credito (card unico com dropdown inline) */}
+        <CardCartao
+          options={options.cartao}
+          total={total}
+          activePaymentKey={activePaymentKey}
+          onChangePayment={onChangePayment}
+        />
+      </div>
 
       {/* Onda 11.8 — Boleto parcelado vira card reclinavel (nao exposto por padrao).
           Operador abre so quando quer propor essa alternativa ao paciente. */}
@@ -1178,7 +1181,7 @@ function CardCartao({
   const isSelected = !!active;
 
   return (
-    <div className="mb-4">
+    <div>
       <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
         Cartão de crédito — 1x a 6x sem juros · 7x a 12x com juros PagBank
