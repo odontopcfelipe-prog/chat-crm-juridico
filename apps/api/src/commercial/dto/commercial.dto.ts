@@ -83,6 +83,26 @@ export class ApplyFinancingDto {
   @IsOptional() @IsString() source?: 'internal' | 'asaas_history' | 'serasa';
 }
 
+// Onda 13 — Bônus de fechamento (segura proposta + valida).
+// 6 tipos suportados; quando type=DESCONTO_EXTRA, applica discount_percent_delta
+// no quote (recalcula total_value). Demais tipos sao texto + validade.
+const BONUS_TYPES = [
+  'CORTESIA',
+  'DESCONTO_EXTRA',
+  'GARANTIA_ESTENDIDA',
+  'PROCEDIMENTO_ADICIONAL',
+  'CARENCIA',
+  'PERSONALIZADO',
+] as const;
+
+export class AddBonusDto {
+  @IsString() @IsIn(BONUS_TYPES as unknown as string[]) type!: string;
+  @IsString() description!: string;
+  @IsDateString() valid_until!: string;
+  /** Apenas pro type=DESCONTO_EXTRA — % a somar no discount_percent atual */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) discount_percent_delta?: number;
+}
+
 export class UpdateQuoteItemDto {
   @IsOptional() @IsString() tooth_fdi?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;

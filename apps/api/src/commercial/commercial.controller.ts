@@ -44,6 +44,7 @@ import {
   SaveCounterProposalDto,
   CreditCheckSimulateDto,
   ApplyFinancingDto,
+  AddBonusDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   ExecuteTreatmentPlanItemDto,
@@ -273,6 +274,28 @@ export class CommercialController {
       parcela_alvo: Number(dto.parcela_alvo),
       parcelas: dto.parcelas,
       valor_total: Number(dto.valor_total),
+    });
+  }
+
+  /**
+   * Onda 13 — Adiciona bônus de fechamento ao quote.
+   * Quando type=DESCONTO_EXTRA, aplica desconto adicional ao quote (recalcula
+   * total). Demais tipos ficam como texto no historico.
+   */
+  @Post('quotes/:id/bonus')
+  addBonus(
+    @Param('id') id: string,
+    @Body() dto: AddBonusDto,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.addBonus(id, user.tenant_id, {
+      type: dto.type,
+      description: dto.description,
+      valid_until: dto.valid_until,
+      discount_percent_delta:
+        dto.discount_percent_delta !== undefined
+          ? Number(dto.discount_percent_delta)
+          : undefined,
     });
   }
 

@@ -417,6 +417,86 @@ export class QuotesService {
   }
 
   /**
+   * Onda 13 — Adiciona bônus de fechamento ao quote.
+   *
+   * Registra linha estruturada em `notes` (parsing igual contraproposta).
+   * Quando type=DESCONTO_EXTRA, ADICIONA o delta ao discount_percent atual e
+   * recalcula total_value (descontos progressivos).
+   *
+   * Formato da linha:
+   *   [BONUS YYYY-MM-DD HH:mm type=X valido_ate=YYYY-MM-DDTHH:mm delta=N] descricao
+   */
+  async addBonus(
+    quoteId: string,
+    tenantId: string,
+    data: {
+      type: string;
+      description: string;
+      valid_until: string;
+      discount_percent_delta?: number;
+    },
+  ) {
+    const quote = await this.findOne(quoteId, tenantId);
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp =
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
+      `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    let metadataExtra = '';
+    let descriptionFinal = data.description;
+    let updateData: Prisma.QuoteUncheckedUpdateInput = {};
+
+    if (data.type === 'DESCONTO_EXTRA' && data.discount_percent_delta) {
+      const currentDiscount = Number(quote.discount_percent || 0);
+      const newDiscount = currentDiscount + data.discount_percent_delta;
+      if (newDiscount > 100) {
+        throw new BadRequestException('Desconto total nao pode ultrapassar 100%');
+      }
+      const subtotal = quote.items.reduce((acc, it) => acc + Number(it.total_price), 0);
+      const newDiscountValue = subtotal * (newDiscount / 100);
+      const newTotal = subtotal - newDiscountValue;
+
+      updateData = {
+        discount_percent: newDiscount,
+        discount_value: newDiscountValue,
+        total_value: newTotal,
+      };
+
+      metadataExtra = ` delta=${data.discount_percent_delta}`;
+      descriptionFinal +=
+        ` · valor: R$ ${Number(quote.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` +
+        ` → R$ ${newTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` +
+        ` (desconto ${currentDiscount}% → ${newDiscount}%)`;
+    }
+
+    const line =
+      `[BONUS ${timestamp} type=${data.type} valido_ate=${data.valid_until}${metadataExtra}] ${descriptionFinal}`;
+
+    const newNotes = quote.notes ? `${quote.notes}\n${line}` : line;
+
+    const updated = await this.prisma.quote.update({
+      where: { id: quoteId },
+      data: { ...updateData, notes: newNotes },
+      select: {
+        id: true,
+        notes: true,
+        discount_percent: true,
+        discount_value: true,
+        total_value: true,
+      },
+    });
+
+    this.logger.log(
+      `[BONUS] Quote ${quoteId}: type=${data.type}, valid_until=${data.valid_until}` +
+      (data.discount_percent_delta ? ` delta=${data.discount_percent_delta}%` : ''),
+    );
+
+    return updated;
+  }
+
+  /**
    * Onda 12.2 — Aplica financiamento aprovado pelo credit-check (Banco PASSOS).
    *
    * Orquestra o fluxo completo de fechamento:

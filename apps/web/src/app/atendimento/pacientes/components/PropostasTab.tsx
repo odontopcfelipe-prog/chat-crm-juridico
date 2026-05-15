@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown,
-  Building2, ShieldCheck, XCircle, Search, Trash2,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -128,6 +128,110 @@ function parseCounterProposals(notes: string | null): CounterProposalEntry[] {
       return m ? { timestamp: m[1], body: m[2].trim() } : null;
     })
     .filter((e): e is CounterProposalEntry => e !== null)
+    .reverse(); // mais recente primeiro
+}
+
+/** Onda 13 — tipos de bônus de fechamento */
+type BonusType =
+  | 'CORTESIA'
+  | 'DESCONTO_EXTRA'
+  | 'GARANTIA_ESTENDIDA'
+  | 'PROCEDIMENTO_ADICIONAL'
+  | 'CARENCIA'
+  | 'PERSONALIZADO';
+
+interface BonusTemplate {
+  type: BonusType;
+  icon: React.ReactNode;
+  label: string;
+  description: string;
+  placeholder: string;
+  /** se true, mostra input de % adicional */
+  hasDiscountInput?: boolean;
+}
+
+const BONUS_TEMPLATES: BonusTemplate[] = [
+  {
+    type: 'CORTESIA',
+    icon: <Gift size={16} />,
+    label: 'Cortesia clínica',
+    description: 'limpeza, clareamento, kit higiene oral...',
+    placeholder: 'Ex: Limpeza profissional + clareamento de bandeja inclusos',
+  },
+  {
+    type: 'DESCONTO_EXTRA',
+    icon: <DollarSign size={16} />,
+    label: 'Desconto extra',
+    description: 'aplica % adicional no orçamento (recalcula total)',
+    placeholder: 'Ex: 3% extra se fechar até sexta',
+    hasDiscountInput: true,
+  },
+  {
+    type: 'GARANTIA_ESTENDIDA',
+    icon: <ShieldCheck size={16} />,
+    label: 'Garantia estendida',
+    description: '12 meses em vez de 6, manutenção inclusa...',
+    placeholder: 'Ex: Garantia estendida pra 12 meses + 1 manutenção anual',
+  },
+  {
+    type: 'PROCEDIMENTO_ADICIONAL',
+    icon: <Plus size={16} />,
+    label: 'Procedimento adicional',
+    description: 'panorâmica, moldagem digital, consultas extras...',
+    placeholder: 'Ex: Radiografia panorâmica + moldagem digital inclusas',
+  },
+  {
+    type: 'CARENCIA',
+    icon: <Clock size={16} />,
+    label: 'Carência na entrada',
+    description: '30 dias pra pagar a 1ª parcela / entrada parcelada',
+    placeholder: 'Ex: 30 dias de carência pra primeira parcela',
+  },
+  {
+    type: 'PERSONALIZADO',
+    icon: <Pencil size={16} />,
+    label: 'Personalizado',
+    description: 'texto livre — escreva o bônus do jeito que quiser',
+    placeholder: 'Descreva o bônus oferecido ao paciente...',
+  },
+];
+
+interface BonusEntry {
+  timestamp: string;
+  type: BonusType;
+  validUntil: Date;
+  delta?: number;
+  body: string;
+  /** Onda 13 — true quando valid_until < agora */
+  expired: boolean;
+  /** Onda 13 — true quando faltar < 24h pra expirar */
+  expiringSoon: boolean;
+}
+
+/** Onda 13 — parser de linhas [BONUS ts type=X valido_ate=Y delta=Z] body */
+function parseBonuses(notes: string | null): BonusEntry[] {
+  if (!notes) return [];
+  const re =
+    /^\[BONUS (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) type=(\w+) valido_ate=([^\s\]]+)(?:\s+delta=([\d.]+))?\]\s*(.+)$/;
+  const now = new Date();
+  return notes
+    .split('\n')
+    .map((line) => {
+      const m = line.match(re);
+      if (!m) return null;
+      const validUntil = new Date(m[3]);
+      const msUntilExpiry = validUntil.getTime() - now.getTime();
+      return {
+        timestamp: m[1],
+        type: m[2] as BonusType,
+        validUntil,
+        delta: m[4] ? Number(m[4]) : undefined,
+        body: m[5].trim(),
+        expired: msUntilExpiry < 0,
+        expiringSoon: msUntilExpiry > 0 && msUntilExpiry < 24 * 60 * 60 * 1000,
+      } as BonusEntry;
+    })
+    .filter((e): e is BonusEntry => e !== null)
     .reverse(); // mais recente primeiro
 }
 
@@ -458,6 +562,39 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   // Onda 12 — Consulta de credito do Financiamento Banco PASSOS
   const [creditCheckOpen, setCreditCheckOpen] = useState(false);
 
+  // Onda 13 — Bônus de fechamento
+  const [bonusOpen, setBonusOpen] = useState(false);
+  const [savingBonus, setSavingBonus] = useState(false);
+
+  // Onda 13 — adiciona bônus de fechamento ao quote selecionado
+  const addBonus = useCallback(async (payload: {
+    type: BonusType;
+    description: string;
+    valid_until: string;
+    discount_percent_delta?: number;
+  }) => {
+    if (!selectedDetail) return;
+    setSavingBonus(true);
+    try {
+      const { data } = await api.post<{ notes: string; total_value: number }>(
+        `/quotes/${selectedDetail.id}/bonus`,
+        payload,
+      );
+      // Atualiza local — recarrega detail pra refletir mudancas (notes + total)
+      setSelectedDetail((prev) =>
+        prev ? { ...prev, notes: data.notes, total_value: data.total_value } : prev,
+      );
+      setBonusOpen(false);
+      showSuccess('Bônus adicionado à proposta');
+      load(); // refresh lista (total mudou no card)
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao adicionar bônus');
+    } finally {
+      setSavingBonus(false);
+    }
+  }, [selectedDetail, load]);
+
   // Onda 10 — Salvar contraproposta (registra oferta como linha em notes)
   const [counterPropOpen, setCounterPropOpen] = useState(false);
   const [savingCounter, setSavingCounter] = useState(false);
@@ -616,6 +753,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           sending={sending}
           onSaveCounter={() => setCounterPropOpen(true)}
           onOpenCreditCheck={() => setCreditCheckOpen(true)}
+          onAddBonus={() => setBonusOpen(true)}
         />
       )}
 
@@ -688,6 +826,15 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
       })()}
 
       {/* Onda 12 — Dialog "Financiamento Banco PASSOS" (consulta de credito) */}
+      {/* Onda 13 — Dialog "Adicionar bônus de fechamento" */}
+      {bonusOpen && selectedDetail && (
+        <BonusDialog
+          loading={savingBonus}
+          onCancel={() => setBonusOpen(false)}
+          onSave={addBonus}
+        />
+      )}
+
       {creditCheckOpen && selectedDetail && (() => {
         const totalForCheck = (() => {
           const approved = selectedDetail.items
@@ -950,6 +1097,7 @@ function PropostaPainel({
   sending,
   onSaveCounter,
   onOpenCreditCheck,
+  onAddBonus,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -966,6 +1114,8 @@ function PropostaPainel({
   onSaveCounter: () => void;
   /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
   onOpenCreditCheck: () => void;
+  /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
+  onAddBonus: () => void;
 }) {
   if (loading) {
     return (
@@ -1226,6 +1376,15 @@ function PropostaPainel({
         </button>
         <button
           type="button"
+          onClick={onAddBonus}
+          className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5"
+          title="Segurar a proposta com bônus de fechamento"
+        >
+          <Gift size={12} />
+          Adicionar bônus
+        </button>
+        <button
+          type="button"
           onClick={onSend}
           disabled={sending}
           className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ml-auto"
@@ -1234,6 +1393,9 @@ function PropostaPainel({
           Enviar pro paciente
         </button>
       </div>
+
+      {/* Onda 13 — Bônus de fechamento (ativos e expirados) */}
+      <BonusesHistory notes={detail.notes} />
 
       {/* Onda 10 — Histórico de contrapropostas (parseado de notes) */}
       <CounterProposalsHistory notes={detail.notes} />
@@ -2667,6 +2829,339 @@ function BoletoRow({
             {barcode.slice(0, 20)}...
           </button>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Onda 13 — Histórico de bônus de fechamento (ativos, expirando, expirados) */
+function BonusesHistory({ notes }: { notes: string | null }) {
+  const bonuses = useMemo(() => parseBonuses(notes), [notes]);
+  if (bonuses.length === 0) return null;
+  const active = bonuses.filter((b) => !b.expired);
+  const expired = bonuses.filter((b) => b.expired);
+  return (
+    <div className="mt-4 pt-3 border-t border-border space-y-3">
+      {/* Ativos (com destaque dourado) */}
+      {active.map((b, idx) => {
+        const tpl = BONUS_TEMPLATES.find((t) => t.type === b.type);
+        return (
+          <div
+            key={`act-${idx}`}
+            className={`border-2 rounded-md p-3 ${
+              b.expiringSoon
+                ? 'border-amber-500 bg-amber-500/10 ring-2 ring-amber-500/20'
+                : 'border-amber-500/50 bg-amber-500/5'
+            }`}
+          >
+            <p className="text-[10px] uppercase tracking-wide text-amber-700 font-bold mb-1 flex items-center gap-1.5">
+              <Gift size={11} />
+              {tpl?.label || b.type}
+              {b.expiringSoon && (
+                <span className="ml-auto text-[10px] font-bold text-amber-800 bg-amber-200/60 px-2 py-0.5 rounded-full animate-pulse">
+                  ⚠ expira em {formatTimeUntil(b.validUntil)}
+                </span>
+              )}
+              {!b.expiringSoon && (
+                <span className="ml-auto font-mono font-normal text-muted-foreground">
+                  válido até {b.validUntil.toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+              )}
+            </p>
+            <p className="text-xs text-foreground">{b.body}</p>
+          </div>
+        );
+      })}
+
+      {/* Expirados (tachados) */}
+      {expired.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-muted-foreground mb-1.5 flex items-center gap-1.5">
+            <Gift size={11} />
+            Bônus expirados ({expired.length})
+          </p>
+          <ul className="space-y-1">
+            {expired.map((b, idx) => {
+              const tpl = BONUS_TEMPLATES.find((t) => t.type === b.type);
+              return (
+                <li
+                  key={`exp-${idx}`}
+                  className="text-[11px] text-muted-foreground px-2 py-1.5 rounded bg-muted/30 border border-border/40 line-through opacity-70"
+                >
+                  <span className="font-mono text-[10px] text-foreground/60 mr-2">
+                    Expirou em {b.validUntil.toLocaleDateString('pt-BR')}
+                  </span>
+                  <strong className="not-italic">{tpl?.label}:</strong> {b.body}
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Formata "expira em Xh Ymin" pra contagem regressiva */
+function formatTimeUntil(date: Date): string {
+  const ms = date.getTime() - Date.now();
+  if (ms < 0) return 'expirado';
+  const totalMinutes = Math.floor(ms / 60000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}min`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}min`;
+}
+
+/** Onda 13 — Dialog pra adicionar bônus de fechamento */
+function BonusDialog({
+  loading,
+  onCancel,
+  onSave,
+}: {
+  loading: boolean;
+  onCancel: () => void;
+  onSave: (data: {
+    type: BonusType;
+    description: string;
+    valid_until: string;
+    discount_percent_delta?: number;
+  }) => void;
+}) {
+  const [type, setType] = useState<BonusType>('CORTESIA');
+  const [description, setDescription] = useState('');
+  const [validityChoice, setValidityChoice] = useState<'HOJE' | '48H' | '7D' | 'CUSTOM'>('48H');
+  const [customDate, setCustomDate] = useState('');
+  const [discountDelta, setDiscountDelta] = useState<string>('');
+
+  const tpl = BONUS_TEMPLATES.find((t) => t.type === type)!;
+  const needsDiscount = tpl.hasDiscountInput;
+
+  // Calcula valid_until ISO
+  const validUntilIso = (() => {
+    const now = new Date();
+    if (validityChoice === 'HOJE') {
+      const d = new Date();
+      d.setHours(23, 59, 0, 0);
+      return d.toISOString();
+    }
+    if (validityChoice === '48H') {
+      return new Date(now.getTime() + 48 * 60 * 60 * 1000).toISOString();
+    }
+    if (validityChoice === '7D') {
+      return new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
+    }
+    if (validityChoice === 'CUSTOM' && customDate) {
+      const d = new Date(customDate);
+      d.setHours(23, 59, 0, 0);
+      return d.toISOString();
+    }
+    return '';
+  })();
+
+  const canSubmit =
+    description.trim().length >= 3 &&
+    validUntilIso &&
+    (!needsDiscount || (Number(discountDelta) > 0 && Number(discountDelta) <= 100));
+
+  const handleSave = () => {
+    onSave({
+      type,
+      description: description.trim(),
+      valid_until: validUntilIso,
+      discount_percent_delta: needsDiscount ? Number(discountDelta) : undefined,
+    });
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-start justify-between p-4 border-b border-border bg-amber-500/5">
+          <div className="flex items-start gap-3">
+            <div className="w-10 h-10 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
+              <Gift size={18} className="text-amber-700" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold">Bônus de fechamento</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Segura a proposta com um incentivo extra e prazo limitado
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Step 1: tipo de bônus */}
+          <div>
+            <p className="text-xs font-semibold text-foreground mb-2">
+              1. Tipo de bônus
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {BONUS_TEMPLATES.map((t) => {
+                const isActive = type === t.type;
+                return (
+                  <button
+                    key={t.type}
+                    type="button"
+                    onClick={() => {
+                      setType(t.type);
+                      // Pré-preenche description com placeholder por tipo
+                      setDescription((prev) =>
+                        prev && prev !== BONUS_TEMPLATES.find((bt) => prev.includes(bt.placeholder.slice(0, 20)))?.placeholder
+                          ? prev
+                          : '',
+                      );
+                    }}
+                    className={`text-left p-2.5 rounded-lg border transition-colors flex items-start gap-2 ${
+                      isActive
+                        ? 'border-amber-500 bg-amber-500/10 ring-1 ring-amber-500/20'
+                        : 'border-border hover:bg-accent/40'
+                    }`}
+                  >
+                    <span className={isActive ? 'text-amber-700' : 'text-muted-foreground'}>
+                      {t.icon}
+                    </span>
+                    <div className="min-w-0">
+                      <p className={`text-xs font-semibold ${isActive ? 'text-amber-800' : 'text-foreground'}`}>
+                        {t.label}
+                      </p>
+                      <p className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                        {t.description}
+                      </p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Step 2: descrição + (opcional) % desconto */}
+          <div>
+            <p className="text-xs font-semibold text-foreground mb-2">
+              2. Descrição do bônus
+            </p>
+            {needsDiscount && (
+              <div className="mb-2">
+                <label className="text-[11px] font-semibold text-foreground block mb-1">
+                  % de desconto extra (somado ao desconto atual)
+                </label>
+                <input
+                  type="number"
+                  value={discountDelta}
+                  onChange={(e) => setDiscountDelta(e.target.value)}
+                  min={0.1}
+                  max={50}
+                  step={0.5}
+                  placeholder="Ex: 3"
+                  className="w-32 text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                />
+                <span className="text-xs text-muted-foreground ml-2">%</span>
+                <p className="text-[10px] text-amber-700 italic mt-1">
+                  ⚠ Esse valor será ADICIONADO ao desconto atual do orçamento e o total_value será recalculado
+                </p>
+              </div>
+            )}
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder={tpl.placeholder}
+              rows={3}
+              className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 resize-none"
+            />
+            <p className="text-[10px] text-muted-foreground italic mt-1">
+              Esse texto será registrado no histórico do orçamento
+            </p>
+          </div>
+
+          {/* Step 3: validade */}
+          <div>
+            <p className="text-xs font-semibold text-foreground mb-2">
+              3. Validade do bônus
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {([
+                { key: 'HOJE', label: 'Hoje 23:59' },
+                { key: '48H', label: '48 horas' },
+                { key: '7D', label: '7 dias' },
+                { key: 'CUSTOM', label: 'Data customizada' },
+              ] as const).map((c) => (
+                <button
+                  key={c.key}
+                  type="button"
+                  onClick={() => setValidityChoice(c.key)}
+                  className={`text-xs px-3 py-1.5 rounded-md border transition-colors ${
+                    validityChoice === c.key
+                      ? 'border-amber-500 bg-amber-500/15 text-amber-800 font-semibold'
+                      : 'border-border hover:bg-accent'
+                  }`}
+                >
+                  {c.label}
+                </button>
+              ))}
+            </div>
+            {validityChoice === 'CUSTOM' && (
+              <input
+                type="date"
+                value={customDate}
+                onChange={(e) => setCustomDate(e.target.value)}
+                min={new Date().toISOString().slice(0, 10)}
+                className="mt-2 text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+              />
+            )}
+            {validUntilIso && (
+              <p className="text-[11px] text-muted-foreground mt-2">
+                ⏰ Bônus válido até{' '}
+                <strong className="text-foreground">
+                  {new Date(validUntilIso).toLocaleString('pt-BR', {
+                    day: '2-digit',
+                    month: '2-digit',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
+                </strong>
+              </p>
+            )}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={!canSubmit || loading}
+            className="text-xs px-4 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 font-semibold"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Gift size={12} />}
+            Adicionar bônus
+          </button>
+        </div>
       </div>
     </div>
   );
