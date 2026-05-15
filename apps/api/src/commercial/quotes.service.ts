@@ -229,11 +229,16 @@ export class QuotesService {
         // Onda 3.7 — items minimo pra classificar a categoria de fechamento.
         // Onda 7.2 — incluido approved_at pra calcular contadores parciais
         // no frontend (badge "X/Y aprovados" nos cards da lista).
+        // Onda 9 — incluido quantity + procedure.duration_minutes pra somar
+        // "horas de cadeira" e mostrar no card da aba Propostas.
         items: {
           select: {
             total_price: true,
             approved_at: true,
-            procedure: { select: { name: true, category: true } },
+            quantity: true,
+            procedure: {
+              select: { name: true, category: true, duration_minutes: true },
+            },
           },
         },
       },
@@ -246,6 +251,12 @@ export class QuotesService {
       // ja foram aprovados; pending_count = total - approved_count.
       approved_count: q.items.filter((it) => it.approved_at !== null).length,
       pending_count: q.items.filter((it) => it.approved_at === null).length,
+      // Onda 9 — soma de duration_minutes × quantity de cada item. Usado na
+      // aba Propostas pra mostrar "−Xh cadeira" no card.
+      total_duration_minutes: q.items.reduce(
+        (acc, it) => acc + (it.procedure?.duration_minutes ?? 0) * (it.quantity ?? 1),
+        0,
+      ),
     }));
   }
 
