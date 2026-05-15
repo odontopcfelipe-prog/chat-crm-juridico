@@ -43,6 +43,7 @@ import {
   RejectQuoteDto,
   SaveCounterProposalDto,
   CreditCheckSimulateDto,
+  ApplyFinancingDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   ExecuteTreatmentPlanItemDto,
@@ -272,6 +273,28 @@ export class CommercialController {
       parcela_alvo: Number(dto.parcela_alvo),
       parcelas: dto.parcelas,
       valor_total: Number(dto.valor_total),
+    });
+  }
+
+  /**
+   * Onda 12.2 — Aplica financiamento aprovado (chamado pelo botao "Aplicar
+   * essa proposta" no modal Banco PASSOS apos credit-check approved).
+   *
+   * Cadeia: accept quote → cria TreatmentPlan → marca ACTIVE → gera boletos
+   * (entrada +3d, parcelas +33d) via Asaas. Retorna URLs dos boletos.
+   */
+  @Post('quotes/:id/apply-financing')
+  applyFinancing(
+    @Param('id') id: string,
+    @Body() dto: ApplyFinancingDto,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.applyFinancing(id, user.tenant_id, user.id, {
+      down_payment_value: Number(dto.down_payment_value),
+      installment_count: dto.installment_count,
+      installment_value: Number(dto.installment_value),
+      decision_id: dto.decision_id,
+      source: dto.source,
     });
   }
 

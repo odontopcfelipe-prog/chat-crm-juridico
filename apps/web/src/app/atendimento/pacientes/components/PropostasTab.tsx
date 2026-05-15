@@ -676,12 +676,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         })();
         return (
           <CreditCheckDialog
+            quoteId={selectedDetail.id}
             valorTotal={totalForCheck}
             onCancel={() => setCreditCheckOpen(false)}
-            onApprove={(parcelaKey) => {
+            onAppliedSuccess={(parcelaKey) => {
               setActivePaymentKey(parcelaKey);
-              setCreditCheckOpen(false);
-              showSuccess('Financiamento aprovado e proposta aplicada');
+              load(); // refresh lista pra refletir quote ACCEPTED
+              showSuccess('Boletos gerados e proposta aplicada');
             }}
           />
         );
@@ -1900,22 +1901,41 @@ function CounterProposalDialog({
 //   cadastro → consultando → resultado (approved/pending/denied)
 // Em producao, substituir o endpoint mock por integracao Serasa Crediscore.
 
-type CreditPhase = 'cadastro' | 'consultando' | 'resultado';
+type CreditPhase = 'cadastro' | 'consultando' | 'resultado' | 'gerando' | 'boletos';
+
+interface ApplyFinancingResult {
+  quote_id: string;
+  plan_id: string;
+  total_financed: number;
+  charges: Array<{
+    kind: 'entrada' | 'parcelado';
+    boleto_url: string | null;
+    barcode: string | null;
+    due_date: string;
+    amount: number;
+    installment_count?: number;
+    installment_value?: number;
+  }>;
+}
 
 function CreditCheckDialog({
+  quoteId,
   valorTotal,
   onCancel,
-  onApprove,
+  onAppliedSuccess,
 }: {
+  /** Onda 12.2 — id do quote pra fechar via POST /quotes/:id/apply-financing */
+  quoteId: string;
   valorTotal: number;
   onCancel: () => void;
-  /** Chamado quando user clica "Aplicar essa proposta" no resultado aprovado.
+  /** Onda 12.2 — chamado quando o fluxo completa (aceita + boletos gerados).
    *  parcelaKey: ex "parcelado-12x" — alimenta activePaymentKey no painel. */
-  onApprove: (parcelaKey: string) => void;
+  onAppliedSuccess: (parcelaKey: string) => void;
 }) {
   const [phase, setPhase] = useState<CreditPhase>('cadastro');
-  const [parcelas, setParcelas] = useState<12 | 18 | 24>(18); // padrao 18x
+  const [parcelas, setParcelas] = useState<12 | 18 | 24>(18);
   const [result, setResult] = useState<CreditCheckResult | null>(null);
+  const [applyResult, setApplyResult] = useState<ApplyFinancingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMsg, setLoadingMsg] = useState('Consultando Serasa...');
 
@@ -1943,12 +1963,20 @@ function CreditCheckDialog({
 
   // Mensagens dinamicas durante consultando
   useEffect(() => {
-    if (phase !== 'consultando') return;
-    const msgs = [
+    if (phase !== 'consultando' && phase !== 'gerando') return;
+    const msgsConsulta = [
       'Consultando Serasa...',
       'Avaliando histórico de crédito...',
       'Calculando condições...',
     ];
+    const msgsGerando = [
+      'Aceitando proposta...',
+      'Ativando plano de tratamento...',
+      'Gerando boleto de entrada...',
+      'Gerando boletos das parcelas...',
+    ];
+    const msgs = phase === 'consultando' ? msgsConsulta : msgsGerando;
+    setLoadingMsg(msgs[0]);
     let i = 0;
     const id = setInterval(() => {
       i = (i + 1) % msgs.length;
@@ -2000,6 +2028,34 @@ function CreditCheckDialog({
       const e = err as { response?: { data?: { message?: string } } };
       setError(e?.response?.data?.message || 'Erro ao consultar crédito');
       setPhase('cadastro');
+    }
+  };
+
+  // Onda 12.2 — aplica o financiamento: aceita quote + gera boletos Asaas
+  const apply = async () => {
+    if (!result || result.status !== 'approved') return;
+    setError(null);
+    setPhase('gerando');
+    try {
+      const { data } = await api.post<ApplyFinancingResult>(
+        `/quotes/${quoteId}/apply-financing`,
+        {
+          down_payment_value: calc.downPaymentValue,
+          installment_count: parcelas,
+          installment_value: calc.installmentValue,
+          decision_id: result.decision_id,
+          source: result.source,
+        },
+      );
+      setApplyResult(data);
+      setPhase('boletos');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      setError(
+        e?.response?.data?.message ||
+        'Erro ao gerar boletos. Verifique se o Asaas esta configurado.',
+      );
+      setPhase('resultado');
     }
   };
 
@@ -2146,27 +2202,47 @@ function CreditCheckDialog({
             </>
           )}
 
-          {phase === 'consultando' && (
+          {(phase === 'consultando' || phase === 'gerando') && (
             <div className="py-12 flex flex-col items-center justify-center text-center">
               <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
                 <Loader2 size={32} className="text-amber-600 animate-spin" />
               </div>
               <p className="text-sm font-semibold text-foreground mb-1">{loadingMsg}</p>
-              <p className="text-[11px] text-muted-foreground">isso leva poucos segundos</p>
+              <p className="text-[11px] text-muted-foreground">
+                {phase === 'consultando' ? 'isso leva poucos segundos' : 'criando boletos no Asaas...'}
+              </p>
             </div>
           )}
 
           {phase === 'resultado' && result && (
-            <ResultPanel
-              result={result}
+            <>
+              <ResultPanel
+                result={result}
+                parcelas={parcelas}
+                calc={calc}
+                onApply={apply}
+                onRetryWithMore={() => {
+                  const next = parcelas === 12 ? 18 : parcelas === 18 ? 24 : 24;
+                  setParcelas(next);
+                  setResult(null);
+                  setPhase('cadastro');
+                }}
+              />
+              {error && (
+                <p className="mt-3 text-[11px] text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-2.5 py-1.5">
+                  {error}
+                </p>
+              )}
+            </>
+          )}
+
+          {phase === 'boletos' && applyResult && (
+            <BoletosResultPanel
+              data={applyResult}
               parcelas={parcelas}
-              calc={calc}
-              onApply={() => onApprove(`parcelado-${parcelas}x`)}
-              onRetryWithMore={() => {
-                const next = parcelas === 12 ? 18 : parcelas === 18 ? 24 : 24;
-                setParcelas(next);
-                setResult(null);
-                setPhase('cadastro');
+              onClose={() => {
+                onAppliedSuccess(`parcelado-${parcelas}x`);
+                onCancel();
               }}
             />
           )}
@@ -2338,6 +2414,142 @@ function ResultPanel({
           Tentar com prazo maior
         </button>
       )}
+    </div>
+  );
+}
+
+/** Onda 12.2 — Painel mostrando os boletos gerados (entrada + parcelado).
+ *  Aparece apos o "Aplicar essa proposta" completar com sucesso. */
+function BoletosResultPanel({
+  data,
+  parcelas,
+  onClose,
+}: {
+  data: ApplyFinancingResult;
+  parcelas: number;
+  onClose: () => void;
+}) {
+  const entrada = data.charges.find((c) => c.kind === 'entrada');
+  const parcelado = data.charges.find((c) => c.kind === 'parcelado');
+  return (
+    <div className="text-center">
+      <div className="w-16 h-16 rounded-full bg-emerald-500/15 flex items-center justify-center mx-auto mb-3">
+        <ShieldCheck size={32} className="text-emerald-700" />
+      </div>
+      <p className="text-base font-bold text-emerald-700 mb-1">
+        Boletos gerados com sucesso!
+      </p>
+      <p className="text-[11px] text-muted-foreground mb-4">
+        plano ativado · total financiado R$ {fmtBRL(data.total_financed)}
+      </p>
+
+      <div className="space-y-2 text-left mb-4">
+        {entrada && (
+          <BoletoRow
+            label="Entrada"
+            sublabel={`1 boleto · vence ${new Date(entrada.due_date).toLocaleDateString('pt-BR')}`}
+            amount={entrada.amount}
+            url={entrada.boleto_url}
+            barcode={entrada.barcode}
+            tone="emerald"
+          />
+        )}
+        {parcelado && (
+          <BoletoRow
+            label={`${parcelas}x parceladas`}
+            sublabel={`${parcelas} boletos · primeiro vence ${new Date(parcelado.due_date).toLocaleDateString('pt-BR')}`}
+            amount={parcelado.amount}
+            url={parcelado.boleto_url}
+            barcode={parcelado.barcode}
+            tone="amber"
+            installmentInfo={
+              parcelado.installment_count && parcelado.installment_value
+                ? `${parcelado.installment_count}x R$ ${fmtBRL(parcelado.installment_value)}`
+                : undefined
+            }
+          />
+        )}
+      </div>
+
+      <p className="text-[11px] text-muted-foreground italic mb-3">
+        🔔 O Asaas vai enviar os boletos por email/WhatsApp pro paciente automaticamente.
+      </p>
+
+      <button
+        type="button"
+        onClick={onClose}
+        className="w-full text-sm font-semibold px-4 py-2.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center justify-center gap-2"
+      >
+        <Check size={14} />
+        Concluir
+      </button>
+    </div>
+  );
+}
+
+function BoletoRow({
+  label,
+  sublabel,
+  amount,
+  url,
+  barcode,
+  tone,
+  installmentInfo,
+}: {
+  label: string;
+  sublabel: string;
+  amount: number;
+  url: string | null;
+  barcode: string | null;
+  tone: 'emerald' | 'amber';
+  installmentInfo?: string;
+}) {
+  const borderCls = tone === 'emerald' ? 'border-emerald-500/30' : 'border-amber-500/30';
+  const bgCls = tone === 'emerald' ? 'bg-emerald-500/5' : 'bg-amber-500/5';
+  const textCls = tone === 'emerald' ? 'text-emerald-700' : 'text-amber-700';
+  return (
+    <div className={`p-3 rounded-md border ${borderCls} ${bgCls}`}>
+      <div className="flex items-start justify-between gap-2 mb-1">
+        <div className="min-w-0">
+          <p className={`text-xs font-bold ${textCls}`}>{label}</p>
+          <p className="text-[10px] text-muted-foreground">{sublabel}</p>
+        </div>
+        <p className="text-sm font-bold tabular-nums shrink-0">
+          R$ {fmtBRL(amount)}
+        </p>
+      </div>
+      {installmentInfo && (
+        <p className="text-[10px] text-muted-foreground mb-1">
+          {installmentInfo}
+        </p>
+      )}
+      <div className="flex items-center gap-2 mt-2">
+        {url ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={`text-[11px] font-semibold px-2.5 py-1 rounded-md border ${borderCls} ${textCls} hover:bg-white inline-flex items-center gap-1`}
+          >
+            <Send size={10} />
+            Abrir boleto
+          </a>
+        ) : (
+          <span className="text-[10px] text-muted-foreground italic">
+            URL do boleto será disponibilizada em alguns segundos
+          </span>
+        )}
+        {barcode && (
+          <button
+            type="button"
+            onClick={() => navigator.clipboard?.writeText(barcode)}
+            className="text-[10px] text-muted-foreground hover:text-foreground font-mono truncate"
+            title="Clique pra copiar"
+          >
+            {barcode.slice(0, 20)}...
+          </button>
+        )}
+      </div>
     </div>
   );
 }

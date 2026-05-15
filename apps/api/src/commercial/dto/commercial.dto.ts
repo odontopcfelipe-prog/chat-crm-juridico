@@ -73,6 +73,16 @@ export class CreditCheckSimulateDto {
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) valor_total!: number;
 }
 
+// Onda 12.2 — Aplica financiamento aprovado pelo credit-check.
+// Aceita o quote + cria TreatmentPlan ACTIVE + gera boletos no Asaas.
+export class ApplyFinancingDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) down_payment_value!: number;
+  @IsInt() @Min(1) @Max(36) installment_count!: number;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) installment_value!: number;
+  @IsOptional() @IsString() decision_id?: string;
+  @IsOptional() @IsString() source?: 'internal' | 'asaas_history' | 'serasa';
+}
+
 export class UpdateQuoteItemDto {
   @IsOptional() @IsString() tooth_fdi?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;

@@ -6,6 +6,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
+import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { LeadsService } from '../leads/leads.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
@@ -43,6 +44,9 @@ export class QuotesService {
     // ao aceitar orçamento. @Optional pra não quebrar boot caso esteja
     // ausente (ex: em testes unitários do QuotesService).
     @Optional() private contractService?: TreatmentPlanContractService,
+    // Onda 12.2: gera boletos Asaas (entrada + parcelas) ao aplicar
+    // proposta aprovada pelo credit-check do Banco PASSOS.
+    @Optional() private billingService?: TreatmentPlanBillingService,
   ) {}
 
   async create(
@@ -410,6 +414,85 @@ export class QuotesService {
       data: { notes: newNotes },
       select: { id: true, notes: true },
     });
+  }
+
+  /**
+   * Onda 12.2 — Aplica financiamento aprovado pelo credit-check (Banco PASSOS).
+   *
+   * Orquestra o fluxo completo de fechamento:
+   *   1. Aceita o quote (vira ACCEPTED + cria TreatmentPlan PENDING_SIGNATURE)
+   *   2. Marca o TreatmentPlan diretamente como ACTIVE (pula assinatura
+   *      pq o credit-check ja validou — flag `start_date` indica inicio)
+   *   3. Gera os boletos Asaas via TreatmentPlanBillingService:
+   *      - Entrada (1 boleto, vencimento +3 dias)
+   *      - Parcelado (N boletos iguais, primeiro +33 dias)
+   *   4. Persiste decision_id e source da consulta nas notes do plano
+   *
+   * Pre-condicoes:
+   *   - quote DRAFT ou SENT
+   *   - billingService injetado (CommercialModule)
+   *   - Paciente com CPF cadastrado (validado pelo Asaas client)
+   */
+  async applyFinancing(
+    quoteId: string,
+    tenantId: string,
+    userId: string,
+    data: {
+      down_payment_value: number;
+      installment_count: number;
+      installment_value: number;
+      decision_id?: string;
+      source?: 'internal' | 'asaas_history' | 'serasa';
+    },
+  ) {
+    if (!this.billingService) {
+      throw new BadRequestException(
+        'Servico de cobranca indisponivel. Tente novamente em alguns segundos.',
+      );
+    }
+
+    // 1. Aceita o quote (cria TreatmentPlan PENDING_SIGNATURE)
+    await this.accept(quoteId, tenantId, userId);
+
+    // 2. Busca o TreatmentPlan recem-criado e marca como ACTIVE
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { quote_id: quoteId },
+    });
+    if (!plan) {
+      throw new BadRequestException(
+        'Plano de tratamento nao foi criado — verifique se o orcamento tem items',
+      );
+    }
+
+    const decisionTag = data.decision_id
+      ? `\n[FINANCING ${new Date().toISOString().slice(0, 16).replace('T', ' ')}] Aprovado pelo Banco PASSOS (decision_id: ${data.decision_id}, source: ${data.source || 'internal'})`
+      : '';
+
+    await this.prisma.treatmentPlan.update({
+      where: { id: plan.id },
+      data: {
+        status: 'ACTIVE',
+        start_date: new Date(),
+        notes: (plan.notes || '') + decisionTag,
+      },
+    });
+
+    // 3. Gera os boletos
+    const result = await this.billingService.createFinancingCharges(plan.id, tenantId, {
+      downPaymentValue: data.down_payment_value,
+      installmentCount: data.installment_count,
+      installmentValue: data.installment_value,
+    });
+
+    this.logger.log(
+      `[APPLY-FINANCING] Quote ${quoteId} aplicado: plano ${plan.id} ACTIVE | ` +
+      `entrada R$ ${data.down_payment_value} + ${data.installment_count}x R$ ${data.installment_value}`,
+    );
+
+    return {
+      quote_id: quoteId,
+      ...result,
+    };
   }
 
   async send(id: string, tenantId: string, userId?: string) {
