@@ -50,6 +50,15 @@ export class RejectQuoteDto {
   @IsOptional() @IsString() rejection_reason?: string;
 }
 
+// Onda 10 — contraproposta registrada como linha estruturada em Quote.notes.
+// payment_label e final_value sao calculados no front (PIX, 6x, etc) e
+// salvos como historico textual pro operador acompanhar a negociacao.
+export class SaveCounterProposalDto {
+  @IsString() payment_label!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) final_value!: number;
+  @IsOptional() @IsString() note?: string;
+}
+
 export class UpdateQuoteItemDto {
   @IsOptional() @IsString() tooth_fdi?: string;
   @IsOptional() @IsInt() @Min(1) quantity?: number;

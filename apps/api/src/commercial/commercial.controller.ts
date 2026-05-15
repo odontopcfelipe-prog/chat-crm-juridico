@@ -41,6 +41,7 @@ import {
   CreateQuoteItemDto,
   UpdateQuoteItemDto,
   RejectQuoteDto,
+  SaveCounterProposalDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
   ExecuteTreatmentPlanItemDto,
@@ -231,6 +232,24 @@ export class CommercialController {
       user.tenant_id,
       body.item_ids,
     );
+  }
+
+  /**
+   * Onda 10 — Salva contraproposta como linha em Quote.notes.
+   * Frontend envia payment_label (ex: "PIX à vista", "6x no cartão") e
+   * final_value (ja com desconto/juros aplicados). Note e opcional.
+   */
+  @Post('quotes/:id/counter-proposal')
+  saveCounterProposal(
+    @Param('id') id: string,
+    @Body() dto: SaveCounterProposalDto,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.saveCounterProposal(id, user.tenant_id, {
+      payment_label: dto.payment_label,
+      final_value: Number(dto.final_value),
+      note: dto.note,
+    });
   }
 
   @Post('quotes/:id/reject')

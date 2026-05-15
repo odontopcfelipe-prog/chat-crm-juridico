@@ -347,6 +347,57 @@ export class QuotesService {
     });
   }
 
+  /**
+   * Onda 10 — Salva contraproposta como linha estruturada em Quote.notes.
+   *
+   * Formato:
+   *   [CONTRAPROPOSTA YYYY-MM-DD HH:mm] <priority> em <payment_label> = R$ <value>
+   *   [CONTRAPROPOSTA YYYY-MM-DD HH:mm] <...> = R$ <...> — <nota opcional>
+   *
+   * Anexa no final do campo `notes` (preserva historico). Funciona em qualquer
+   * status (DRAFT/SENT/ACCEPTED/REJECTED) — contraproposta e registro de
+   * negociacao, nao muda dados financeiros.
+   */
+  async saveCounterProposal(
+    quoteId: string,
+    tenantId: string,
+    data: { payment_label: string; final_value: number; note?: string },
+  ) {
+    const quote = await this.findOne(quoteId, tenantId);
+
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, '0');
+    const timestamp =
+      `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ` +
+      `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+
+    const priorityLabel =
+      quote.priority === 'COMPLETO' ? 'Completo'
+      : quote.priority === 'ESSENCIAL' ? 'Essencial'
+      : quote.priority === 'URGENTE' ? 'Urgente'
+      : 'Proposta';
+
+    const valueFormatted = Number(data.final_value).toLocaleString('pt-BR', {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+
+    let line = `[CONTRAPROPOSTA ${timestamp}] ${priorityLabel} em ${data.payment_label} = R$ ${valueFormatted}`;
+    if (data.note && data.note.trim().length > 0) {
+      line += ` — ${data.note.trim()}`;
+    }
+
+    const newNotes = quote.notes
+      ? `${quote.notes}\n${line}`
+      : line;
+
+    return this.prisma.quote.update({
+      where: { id: quoteId },
+      data: { notes: newNotes },
+      select: { id: true, notes: true },
+    });
+  }
+
   async send(id: string, tenantId: string, userId?: string) {
     const quote = await this.findOne(id, tenantId);
     if (quote.status !== 'DRAFT') {

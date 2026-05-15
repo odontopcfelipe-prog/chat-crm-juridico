@@ -59,7 +59,27 @@ interface QuoteDetailLite {
   status: QuoteListItem['status'];
   total_value: string | number;
   valid_until: string | null;
+  notes: string | null;
   items: QuoteItemDetail[];
+}
+
+/** Onda 10 — parseia linhas [CONTRAPROPOSTA YYYY-MM-DD HH:mm] do campo notes */
+interface CounterProposalEntry {
+  timestamp: string;
+  body: string; // texto apos o timestamp (ex: "Essencial em PIX à vista = R$ 15.675,00 — paciente vai pensar")
+}
+
+function parseCounterProposals(notes: string | null): CounterProposalEntry[] {
+  if (!notes) return [];
+  const re = /^\[CONTRAPROPOSTA (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*(.+)$/;
+  return notes
+    .split('\n')
+    .map((line) => {
+      const m = line.match(re);
+      return m ? { timestamp: m[1], body: m[2].trim() } : null;
+    })
+    .filter((e): e is CounterProposalEntry => e !== null)
+    .reverse(); // mais recente primeiro
 }
 
 type Priority = 'COMPLETO' | 'ESSENCIAL' | 'URGENTE';
@@ -290,6 +310,32 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     }
   }, [selectedDetail]);
 
+  // Onda 10 — Salvar contraproposta (registra oferta como linha em notes)
+  const [counterPropOpen, setCounterPropOpen] = useState(false);
+  const [savingCounter, setSavingCounter] = useState(false);
+  const saveCounterProposal = useCallback(
+    async (payload: { payment_label: string; final_value: number; note?: string }) => {
+      if (!selectedDetail) return;
+      setSavingCounter(true);
+      try {
+        const { data } = await api.post<{ id: string; notes: string }>(
+          `/quotes/${selectedDetail.id}/counter-proposal`,
+          payload,
+        );
+        // Atualiza apenas o campo notes do detail local (evita refetch)
+        setSelectedDetail((prev) => (prev ? { ...prev, notes: data.notes } : prev));
+        setCounterPropOpen(false);
+        showSuccess('Contraproposta salva no histórico');
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { message?: string } } };
+        showError(e?.response?.data?.message || 'Erro ao salvar contraproposta');
+      } finally {
+        setSavingCounter(false);
+      }
+    },
+    [selectedDetail],
+  );
+
   // Filtra so DRAFT/SENT (aceitos/rejeitados ja foram decididos, nao
   // sao "propostas em negociacao"). Agrupa por priority.
   const grouped = useMemo(() => {
@@ -411,6 +457,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           onAjustar={() => selectedDetail && onOpenQuoteDetail?.(selectedDetail.id)}
           onSend={sendToPatient}
           sending={sending}
+          onSaveCounter={() => setCounterPropOpen(true)}
         />
       )}
 
@@ -438,6 +485,39 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           onCreate={createNewVersion}
         />
       )}
+
+      {/* Onda 10 — Dialog "Salvar contraproposta" */}
+      {counterPropOpen && selectedDetail && (() => {
+        const total = Number(selectedDetail.total_value);
+        const opts = buildPaymentOptions(total);
+        const allOptions = [...opts.avista, ...opts.parcelado];
+        const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
+        const calc = applyPaymentOption(total, activeOption);
+        const priority = (quotes.find((q) => q.id === selectedId)?.priority as Priority | undefined) || null;
+        const priorityLabel = priority ? PRIORITY_CONFIG[priority].label : 'Proposta';
+        const paymentLabel =
+          activeOption.variant === 'avista'
+            ? `${activeOption.label} à vista`
+            : `${activeOption.installments}x no cartão`;
+        const finalValue =
+          activeOption.variant === 'avista' ? calc.finalValue : total;
+        return (
+          <CounterProposalDialog
+            priorityLabel={priorityLabel}
+            paymentLabel={paymentLabel}
+            finalValue={finalValue}
+            loading={savingCounter}
+            onCancel={() => setCounterPropOpen(false)}
+            onSave={(note) =>
+              saveCounterProposal({
+                payment_label: paymentLabel,
+                final_value: finalValue,
+                note,
+              })
+            }
+          />
+        );
+      })()}
 
       {/* Orcamentos sem priority — lista flat embaixo */}
       {noneItems.length > 0 && (
@@ -648,6 +728,7 @@ function PropostaPainel({
   onAjustar,
   onSend,
   sending,
+  onSaveCounter,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -660,6 +741,8 @@ function PropostaPainel({
   onAjustar: () => void;
   onSend: () => void;
   sending: boolean;
+  /** Onda 10 — abre dialog pra registrar a oferta atual como contraproposta */
+  onSaveCounter: () => void;
 }) {
   if (loading) {
     return (
@@ -857,9 +940,8 @@ function PropostaPainel({
         </button>
         <button
           type="button"
-          disabled
-          title="em breve — Onda 10"
-          className="text-xs px-3 py-2 rounded-lg border border-border opacity-50 cursor-not-allowed flex items-center gap-1.5"
+          onClick={onSaveCounter}
+          className="text-xs px-3 py-2 rounded-lg border border-border hover:bg-accent flex items-center gap-1.5"
         >
           <MessageSquare size={12} />
           Salvar contraproposta
@@ -874,6 +956,36 @@ function PropostaPainel({
           Enviar pro paciente
         </button>
       </div>
+
+      {/* Onda 10 — Histórico de contrapropostas (parseado de notes) */}
+      <CounterProposalsHistory notes={detail.notes} />
+    </div>
+  );
+}
+
+/** Onda 10 — renderiza historico de contrapropostas parseado de Quote.notes */
+function CounterProposalsHistory({ notes }: { notes: string | null }) {
+  const entries = useMemo(() => parseCounterProposals(notes), [notes]);
+  if (entries.length === 0) return null;
+  return (
+    <div className="mt-4 pt-3 border-t border-border">
+      <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <MessageSquare size={11} className="text-muted-foreground" />
+        Histórico de contrapropostas ({entries.length})
+      </p>
+      <ul className="space-y-1">
+        {entries.map((e, idx) => (
+          <li
+            key={`${e.timestamp}-${idx}`}
+            className="text-[11px] text-muted-foreground px-2 py-1.5 rounded bg-muted/30 border border-border/40"
+          >
+            <span className="font-mono text-[10px] text-foreground/70 mr-2">
+              {e.timestamp}
+            </span>
+            <span className="text-foreground">{e.body}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -1187,6 +1299,113 @@ function NewVersionDialog({
             className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-50"
           >
             Cancelar
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Dialog "Salvar contraproposta" ──────────────────────────
+// Onda 10 — registra a oferta atual (priority + forma de pagamento + valor
+// final) como linha em Quote.notes. Operador pode anexar nota livre.
+
+function CounterProposalDialog({
+  priorityLabel,
+  paymentLabel,
+  finalValue,
+  loading,
+  onCancel,
+  onSave,
+}: {
+  priorityLabel: string;
+  paymentLabel: string;
+  finalValue: number;
+  loading: boolean;
+  onCancel: () => void;
+  onSave: (note?: string) => void;
+}) {
+  const [note, setNote] = useState('');
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between p-4 border-b border-border">
+          <div>
+            <h3 className="text-sm font-bold flex items-center gap-2">
+              <MessageSquare size={14} className="text-primary" />
+              Salvar contraproposta
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-0.5">
+              registra a oferta atual no histórico do orçamento — útil pra
+              acompanhar negociações em andamento
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
+            aria-label="Fechar"
+          >
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {/* Resumo da oferta */}
+          <div className="bg-muted/30 border border-border/60 rounded-md p-3">
+            <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
+              oferta a registrar
+            </p>
+            <p className="text-sm font-bold text-foreground">
+              {priorityLabel} em {paymentLabel}
+            </p>
+            <p className="text-lg font-bold text-emerald-700 tabular-nums">
+              R$ {fmtBRL(finalValue)}
+            </p>
+          </div>
+
+          {/* Nota livre */}
+          <div>
+            <label className="text-[11px] font-semibold text-foreground block mb-1">
+              Nota (opcional)
+            </label>
+            <textarea
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="Ex: paciente vai pensar até sexta · pediu mais um desconto"
+              disabled={loading}
+              rows={3}
+              className="w-full text-xs px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30 resize-none disabled:opacity-50"
+            />
+            <p className="text-[10px] text-muted-foreground mt-1 italic">
+              fica salvo junto com a oferta no histórico do orçamento
+            </p>
+          </div>
+        </div>
+
+        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={loading}
+            className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={() => onSave(note.trim() || undefined)}
+            disabled={loading}
+            className="text-xs px-4 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5"
+          >
+            {loading ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+            Salvar
           </button>
         </div>
       </div>
