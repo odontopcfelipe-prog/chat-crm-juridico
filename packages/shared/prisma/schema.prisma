@@ -80,6 +80,9 @@ model Tenant {
   post_care_surveys         PostCareSurvey[]
   // Marketing — Influenciadores
   influencers               Influencer[]
+  influencer_msg_templates  InfluencerMessageTemplate[]
+  influencer_schedules      InfluencerSchedule[]
+  influencer_message_logs   InfluencerMessageLog[]
   // Programa de Afiliado (Onda 5e v34, Fase 25)
   affiliate_referrals       AffiliateReferral[]
   affiliate_withdrawals     AffiliateWithdrawal[]
@@ -1829,7 +1832,8 @@ model Influencer {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
-  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant       Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  message_logs InfluencerMessageLog[]
 
   @@unique([tenant_id, coupon_code]) // cupom único por tenant (quando preenchido)
   @@index([tenant_id, status])
@@ -1898,6 +1902,104 @@ model AffiliateWithdrawal {
 
   @@index([tenant_id, patient_id, status])
   @@index([status])
+}
+
+// ============================================================================
+// MARKETING — Mensagens automáticas pra influenciadores
+// ============================================================================
+//
+// Fluxo:
+//   1. Admin cria InfluencerMessageTemplate com texto + variáveis ({{nome}},
+//      {{handle}}, {{cupom}}).
+//   2. Admin cria InfluencerSchedule vinculando template a destinatários
+//      (filtro + manual) com tipo ONCE (data única) ou RECURRING.
+//   3. Worker cron (a cada minuto) acha schedules com next_run_at <= now()
+//      e dispara WhatsApp pra cada destinatário via Evolution API.
+//   4. Cada envio vira InfluencerMessageLog (idempotente por scheduled_for).
+// ============================================================================
+
+model InfluencerMessageTemplate {
+  id          String   @id @default(uuid())
+  tenant_id   String
+
+  name        String   // nome operacional ("Lembrete semanal de postagem")
+  body        String   @db.Text // texto com variáveis {{nome}} {{handle}} {{cupom}}
+
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
+
+  tenant    Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  schedules InfluencerSchedule[]
+
+  @@index([tenant_id])
+}
+
+model InfluencerSchedule {
+  id              String   @id @default(uuid())
+  tenant_id       String
+
+  name            String   // nome da campanha ("Lembrete sextou")
+  template_id     String
+  active          Boolean  @default(true)
+
+  // ONCE = envia 1 vez em run_at; RECURRING = usa recurrence + hora
+  schedule_type   String   // ONCE | RECURRING
+
+  // ONCE
+  run_at          DateTime?
+
+  // RECURRING (campos mutuamente exclusivos por tipo de recorrência)
+  recurrence      String?  // DAILY | WEEKLY | MONTHLY
+  weekdays        Int[]    @default([]) // 0=dom..6=sab — só WEEKLY
+  day_of_month    Int?     // 1-31 — só MONTHLY
+  hour            Int?     // 0-23 — RECURRING
+  minute          Int?     // 0-59 — RECURRING
+
+  // Destinatários (combinação aditiva: filtros + lista manual)
+  filter_status        String[] @default([]) // ATIVO | PAUSADO | INATIVO
+  filter_platform      String[] @default([]) // INSTAGRAM | TIKTOK | YOUTUBE | OUTRO
+  filter_niche         String?               // contém texto (case-insensitive)
+  manual_recipient_ids String[] @default([]) // IDs específicos
+
+  // Estado de execução
+  last_run_at     DateTime?
+  next_run_at     DateTime? // o cron usa esse campo pra escolher quem disparar
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant   Tenant                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  template InfluencerMessageTemplate  @relation(fields: [template_id], references: [id], onDelete: Restrict)
+  logs     InfluencerMessageLog[]
+
+  @@index([tenant_id, active, next_run_at])
+  @@index([template_id])
+}
+
+model InfluencerMessageLog {
+  id              String   @id @default(uuid())
+  tenant_id       String
+  schedule_id     String
+  influencer_id   String
+
+  // Idempotência: combinação única (schedule, destinatário, ocorrência planejada)
+  scheduled_for   DateTime // a hora pra qual estava planejado o disparo
+
+  status          String   // SENT | FAILED | SKIPPED
+  sent_at         DateTime?
+  sent_text       String?  @db.Text
+  external_id     String?  // id retornado pelo Evolution (auditoria)
+  error_message   String?
+
+  created_at      DateTime @default(now())
+
+  tenant     Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  schedule   InfluencerSchedule @relation(fields: [schedule_id], references: [id], onDelete: Cascade)
+  influencer Influencer         @relation(fields: [influencer_id], references: [id], onDelete: Cascade)
+
+  @@unique([schedule_id, influencer_id, scheduled_for])
+  @@index([tenant_id, sent_at])
+  @@index([schedule_id])
 }
 
 model PatientAllergy {

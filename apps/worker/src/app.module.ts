@@ -19,6 +19,7 @@ import { MemoryModule } from './memory/memory.module';
 import { AutomationModule } from './automation/automation.module';
 import { WorkerMaintenanceModule } from './maintenance/maintenance.module';
 import { PostCareModule } from './post-care/post-care.module';
+import { InfluencerMessagesModule } from './influencer-messages/influencer-messages.module';
 
 @Module({
   imports: [
@@ -52,6 +53,8 @@ import { PostCareModule } from './post-care/post-care.module';
     WorkerMaintenanceModule,
     // Fase 26 — pesquisa de satisfacao pos-atendimento
     PostCareModule,
+    // Marketing — mensagens automaticas pra influenciadores
+    InfluencerMessagesModule,
   ],
 })
 export class AppModule {}
