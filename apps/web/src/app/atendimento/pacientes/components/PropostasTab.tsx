@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown,
-  Building2, ShieldCheck, XCircle, Search,
+  Building2, ShieldCheck, XCircle, Search, Trash2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -401,6 +401,26 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     }
   }, [load]);
 
+  // Onda 12.5 — Remove o quote do slot (limpa priority, NAO exclui o quote).
+  // Orcamento continua existente na aba Orcamentos e volta pra "Sem prioridade
+  // definida" aqui — pode ser re-atribuido pelo picker depois.
+  const removeFromSlot = useCallback(async (quoteId: string, label: string) => {
+    const ok = window.confirm(
+      `Remover do slot "${label}"?\n\nO orçamento NÃO será excluído — ele volta pra "Sem prioridade definida" e pode ser atribuído de novo a qualquer momento.`,
+    );
+    if (!ok) return;
+    try {
+      await api.patch(`/quotes/${quoteId}`, { priority: null });
+      // Se o card removido estava selecionado, limpa selecao
+      setSelectedId((prev) => (prev === quoteId ? null : prev));
+      showSuccess(`Removido do slot ${label}`);
+      await load();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao remover do slot');
+    }
+  }, [load]);
+
   // Onda 9 — "+ nova versão": cria DRAFT vazio com priority escolhida,
   // navega pro detalhe na aba Orcamentos pra preencher items.
   const createNewVersion = useCallback(async (priority: Priority) => {
@@ -571,6 +591,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
                 setSelectedId(isSelected ? null : main.id);
               }}
               onPickEmpty={() => setPickerFor(priority)}
+              onRemoveFromSlot={() => {
+                if (!main) return;
+                removeFromSlot(main.id, cfg.label);
+              }}
             />
           );
         })}
@@ -744,6 +768,7 @@ function PropostaCard({
   selected,
   onToggleSelect,
   onPickEmpty,
+  onRemoveFromSlot,
 }: {
   priority: Priority;
   cfg: typeof PRIORITY_CONFIG[Priority];
@@ -756,6 +781,9 @@ function PropostaCard({
   onToggleSelect: () => void;
   /** Onda 8.1 — click no card vazio abre picker pra atribuir orcamento ao slot */
   onPickEmpty: () => void;
+  /** Onda 12.5 — Remove o orcamento deste slot (limpa priority, NAO exclui).
+   *  Slot vira vazio e o orcamento volta pra "Sem prioridade definida". */
+  onRemoveFromSlot: () => void;
 }) {
   // Quote nao existe → empty state clicavel: click abre picker pra escolher
   // qual orcamento (sem priority ou em outro slot) vai pra esse slot.
@@ -831,6 +859,28 @@ function PropostaCard({
           {quote.counter_proposals_count}
         </span>
       )}
+
+      {/* Onda 12.5 — Lixeirinha pra remover do slot (sem excluir o orçamento) */}
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemoveFromSlot();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            e.stopPropagation();
+            onRemoveFromSlot();
+          }
+        }}
+        className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
+        aria-label={`Remover do slot ${cfg.label}`}
+        title="Remover do slot (orçamento continua salvo)"
+      >
+        <Trash2 size={12} />
+      </span>
 
       {/* Header com priority */}
       <div className="flex items-center gap-2 mb-2">
