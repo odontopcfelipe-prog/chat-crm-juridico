@@ -1076,46 +1076,14 @@ function PropostaPainel({
         </div>
       </div>
 
-      {/* Onda 11.4 — Cartao de credito 1x ate 12x sem juros (clique pra escolher) */}
-      <div className="mb-3">
-        <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-          Cartão de crédito — sem juros · clique pra escolher as parcelas
-        </p>
-        <div className="grid grid-cols-6 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
-          {options.cartao.map((opt) => {
-            const isActive = activePaymentKey === opt.key;
-            const calc = applyPaymentOption(total, opt);
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => onChangePayment(opt.key)}
-                className={`p-1.5 rounded-lg border text-center transition-colors ${
-                  isActive
-                    ? 'border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/20'
-                    : 'border-border hover:bg-accent/40 hover:border-sky-300'
-                }`}
-                title={`${opt.installments}x de R$ ${fmtBRL(calc.installmentValue)}`}
-              >
-                <p className={`text-[11px] font-bold ${isActive ? 'text-sky-700' : 'text-foreground'}`}>
-                  {opt.label}
-                </p>
-                <p className="text-[10px] text-muted-foreground tabular-nums leading-tight mt-0.5">
-                  R$ {fmtBRL(calc.installmentValue)}
-                </p>
-              </button>
-            );
-          })}
-        </div>
-        {/* Detalhe da opcao ativa (quando cartao) */}
-        {activeOption.variant === 'cartao' && (
-          <p className="text-[11px] text-sky-700 mt-2 px-1">
-            <strong>{activeOption.installments}x</strong> de R$ {fmtBRL(activeCalc.installmentValue)} ·{' '}
-            <span className="text-muted-foreground">total R$ {fmtBRL(activeCalc.finalValue)}</span>
-          </p>
-        )}
-      </div>
+      {/* Onda 11.5 — Cartao de credito vira card unico (estilo "Boleto a vista").
+          Click abre dropdown inline com 1x ate 12x pra escolher parcelas. */}
+      <CardCartao
+        options={options.cartao}
+        total={total}
+        activePaymentKey={activePaymentKey}
+        onChangePayment={onChangePayment}
+      />
 
       {/* Onda 11.2 — Boleto parcelado com juros 1,5%/mes
           Onda 11.3 — entrada de 20% abate o valor financiado */}
@@ -1226,6 +1194,114 @@ function PropostaPainel({
 
       {/* Onda 10 — Histórico de contrapropostas (parseado de notes) */}
       <CounterProposalsHistory notes={detail.notes} />
+    </div>
+  );
+}
+
+/** Onda 11.5 — Card de cartao de credito com dropdown inline pra escolher
+ *  quantidade de parcelas (1x ate 12x). Estilo equivalente aos cards de
+ *  "a vista". Click no card alterna dropdown; click numa parcela marca
+ *  ativo + fecha dropdown. */
+function CardCartao({
+  options,
+  total,
+  activePaymentKey,
+  onChangePayment,
+}: {
+  options: PaymentOption[];
+  total: number;
+  activePaymentKey: string;
+  onChangePayment: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  // Detecta se ja ha cartao ativo. Senao, usa default 1x pra display.
+  const active = options.find((o) => o.key === activePaymentKey);
+  const display = active || options[0]; // 1x default pra preview
+  const calc = applyPaymentOption(total, display);
+  const isSelected = !!active;
+
+  return (
+    <div className="mb-4">
+      <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+        Cartão de crédito — sem juros
+      </p>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`w-full p-3 rounded-lg border text-left transition-colors relative ${
+          isSelected
+            ? 'border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/20'
+            : 'border-border hover:bg-accent/40 hover:border-sky-300'
+        }`}
+      >
+        <div className="flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <p className="text-xs font-semibold flex items-center gap-1.5 mb-1">
+              {/* icone de cartao via lucide nao foi importado; uso DollarSign */}
+              <DollarSign size={11} />
+              {isSelected ? `Cartão · ${display.installments}x` : 'Cartão de crédito'}
+            </p>
+            <p className="text-base font-bold tabular-nums">
+              {display.installments}x de R$ {fmtBRL(calc.installmentValue)}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              total R$ {fmtBRL(calc.finalValue)} · sem juros
+            </p>
+          </div>
+          <span
+            className={`text-muted-foreground transition-transform shrink-0 mt-0.5 ${
+              open ? 'rotate-180' : ''
+            }`}
+            aria-hidden="true"
+          >
+            <ChevronDown size={14} />
+          </span>
+        </div>
+        {!isSelected && (
+          <span className="absolute top-1.5 right-7 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">
+            clique pra escolher
+          </span>
+        )}
+      </button>
+
+      {/* Dropdown inline: grid de 1x ate 12x */}
+      {open && (
+        <div className="mt-2 p-2 border border-border rounded-lg bg-card shadow-sm">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-2 px-1">
+            Escolha em quantas parcelas
+          </p>
+          <div className="grid grid-cols-4 gap-1.5">
+            {options.map((opt) => {
+              const isActive = activePaymentKey === opt.key;
+              const c = applyPaymentOption(total, opt);
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => {
+                    onChangePayment(opt.key);
+                    setOpen(false);
+                  }}
+                  className={`p-2 rounded-md border text-center transition-colors ${
+                    isActive
+                      ? 'border-sky-500 bg-sky-500/10'
+                      : 'border-border hover:bg-accent/40 hover:border-sky-300'
+                  }`}
+                  title={`${opt.installments}x de R$ ${fmtBRL(c.installmentValue)}`}
+                >
+                  <p className={`text-[11px] font-bold ${isActive ? 'text-sky-700' : 'text-foreground'}`}>
+                    {opt.label}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                    R$ {fmtBRL(c.installmentValue)}
+                  </p>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
