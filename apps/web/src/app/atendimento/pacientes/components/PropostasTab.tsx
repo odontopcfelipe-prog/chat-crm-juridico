@@ -44,6 +44,8 @@ interface QuoteListItem {
   _count?: { items: number };
   /** Onda 9 — soma duration_minutes × qty de cada item (vem do backend) */
   total_duration_minutes?: number;
+  /** Onda 11 — contagem de contrapropostas registradas em notes */
+  counter_proposals_count?: number;
 }
 
 interface QuoteItemDetail {
@@ -202,6 +204,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   // Onda 9 — seleção atual (qual versão tô oferecendo agora). Persiste por
   // paciente via sessionStorage pra sobreviver navegacao entre abas.
   const selectionKey = `propostas-selected-${patientId}`;
+  const paymentKeyStorage = `propostas-payment-${patientId}`;
   const [selectedId, setSelectedId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
     try { return window.sessionStorage.getItem(selectionKey); } catch { return null; }
@@ -209,8 +212,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   // Detalhe do quote selecionado (items + preços), carregado sob demanda.
   const [selectedDetail, setSelectedDetail] = useState<QuoteDetailLite | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
-  // Forma de pagamento ativa no painel (local, sem persistencia backend)
-  const [activePaymentKey, setActivePaymentKey] = useState<string>('pix');
+  // Onda 11 — forma de pagamento persistida por paciente (sobrevive reload/aba)
+  const [activePaymentKey, setActivePaymentKey] = useState<string>(() => {
+    if (typeof window === 'undefined') return 'pix';
+    try { return window.sessionStorage.getItem(paymentKeyStorage) || 'pix'; } catch { return 'pix'; }
+  });
   // Expandir lista completa de items (padrao mostra top-4)
   const [itemsExpanded, setItemsExpanded] = useState(false);
   // Dialog "+ nova versao"
@@ -240,6 +246,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
       else window.sessionStorage.removeItem(selectionKey);
     } catch { /* ignora */ }
   }, [selectedId, selectionKey]);
+
+  // Onda 11 — persiste forma de pagamento
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try { window.sessionStorage.setItem(paymentKeyStorage, activePaymentKey); }
+    catch { /* ignora */ }
+  }, [activePaymentKey, paymentKeyStorage]);
 
   // Carrega detalhe quando muda a seleção (ou quote da lista atualiza)
   useEffect(() => {
@@ -326,6 +339,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         setSelectedDetail((prev) => (prev ? { ...prev, notes: data.notes } : prev));
         setCounterPropOpen(false);
         showSuccess('Contraproposta salva no histórico');
+        // Onda 11 — refresh da lista pra badge "N propostas" atualizar no card
+        load();
       } catch (err: unknown) {
         const e = err as { response?: { data?: { message?: string } } };
         showError(e?.response?.data?.message || 'Erro ao salvar contraproposta');
@@ -333,7 +348,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         setSavingCounter(false);
       }
     },
-    [selectedDetail],
+    [selectedDetail, load],
   );
 
   // Filtra so DRAFT/SENT (aceitos/rejeitados ja foram decididos, nao
@@ -639,6 +654,17 @@ function PropostaCard({
       {isSent && !selected && (
         <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm">
           atual
+        </span>
+      )}
+
+      {/* Onda 11 — Badge "N propostas" quando ha contrapropostas registradas */}
+      {(quote.counter_proposals_count ?? 0) > 0 && (
+        <span
+          className="absolute -top-2 -left-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary text-primary-foreground shadow-sm flex items-center gap-1"
+          title="contrapropostas registradas"
+        >
+          <MessageSquare size={9} />
+          {quote.counter_proposals_count}
         </span>
       )}
 
@@ -963,29 +989,48 @@ function PropostaPainel({
   );
 }
 
-/** Onda 10 — renderiza historico de contrapropostas parseado de Quote.notes */
+/** Onda 10 — renderiza historico de contrapropostas parseado de Quote.notes.
+ *  Onda 11 — destaca a "última oferta" em card separado acima do historico. */
 function CounterProposalsHistory({ notes }: { notes: string | null }) {
   const entries = useMemo(() => parseCounterProposals(notes), [notes]);
   if (entries.length === 0) return null;
+  const [latest, ...older] = entries;
   return (
-    <div className="mt-4 pt-3 border-t border-border">
-      <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-        <MessageSquare size={11} className="text-muted-foreground" />
-        Histórico de contrapropostas ({entries.length})
-      </p>
-      <ul className="space-y-1">
-        {entries.map((e, idx) => (
-          <li
-            key={`${e.timestamp}-${idx}`}
-            className="text-[11px] text-muted-foreground px-2 py-1.5 rounded bg-muted/30 border border-border/40"
-          >
-            <span className="font-mono text-[10px] text-foreground/70 mr-2">
-              {e.timestamp}
-            </span>
-            <span className="text-foreground">{e.body}</span>
-          </li>
-        ))}
-      </ul>
+    <div className="mt-4 pt-3 border-t border-border space-y-3">
+      {/* Onda 11 — Última oferta destacada */}
+      <div className="bg-primary/5 border border-primary/30 rounded-md p-2.5">
+        <p className="text-[10px] uppercase tracking-wide text-primary font-bold mb-1 flex items-center gap-1.5">
+          <MessageSquare size={10} />
+          última oferta registrada
+          <span className="font-mono text-muted-foreground font-normal ml-auto">
+            {latest.timestamp}
+          </span>
+        </p>
+        <p className="text-xs text-foreground">{latest.body}</p>
+      </div>
+
+      {/* Histórico anterior (se houver mais de 1) */}
+      {older.length > 0 && (
+        <div>
+          <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+            <MessageSquare size={11} className="text-muted-foreground" />
+            Anteriores ({older.length})
+          </p>
+          <ul className="space-y-1">
+            {older.map((e, idx) => (
+              <li
+                key={`${e.timestamp}-${idx}`}
+                className="text-[11px] text-muted-foreground px-2 py-1.5 rounded bg-muted/30 border border-border/40"
+              >
+                <span className="font-mono text-[10px] text-foreground/70 mr-2">
+                  {e.timestamp}
+                </span>
+                <span className="text-foreground">{e.body}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }

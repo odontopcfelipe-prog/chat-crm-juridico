@@ -257,6 +257,11 @@ export class QuotesService {
         (acc, it) => acc + (it.procedure?.duration_minutes ?? 0) * (it.quantity ?? 1),
         0,
       ),
+      // Onda 11 — conta linhas [CONTRAPROPOSTA ...] em notes pra exibir
+      // badge "N propostas" no card da aba Propostas.
+      counter_proposals_count: q.notes
+        ? (q.notes.match(/\[CONTRAPROPOSTA /g) || []).length
+        : 0,
     }));
   }
 
