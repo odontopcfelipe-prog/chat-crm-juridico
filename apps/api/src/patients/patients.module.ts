@@ -1,6 +1,7 @@
 import { Module, forwardRef } from '@nestjs/common';
 import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
+import { AffiliateService } from './affiliate.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { LeadsModule } from '../leads/leads.module';
@@ -13,7 +14,7 @@ import { LeadsModule } from '../leads/leads.module';
     LeadsModule,
   ],
   controllers: [PatientsController],
-  providers: [PatientsService, FileStorageService],
-  exports: [PatientsService],
+  providers: [PatientsService, FileStorageService, AffiliateService],
+  exports: [PatientsService, AffiliateService],
 })
 export class PatientsModule {}

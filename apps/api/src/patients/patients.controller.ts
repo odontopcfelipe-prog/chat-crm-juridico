@@ -20,6 +20,7 @@ import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
 import { LeadsService } from '../leads/leads.service';
+import { AffiliateService } from './affiliate.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
 import {
@@ -27,6 +28,7 @@ import {
   canEditPatientPersonalData,
   canArchivePatient,
 } from '../common/utils/permissions.util';
+import { isAdmin } from '../common/utils/permissions.util';
 
 @UseGuards(JwtAuthGuard)
 @Controller('patients')
@@ -34,6 +36,7 @@ export class PatientsController {
   constructor(
     private readonly patientsService: PatientsService,
     private readonly leadsService: LeadsService,
+    private readonly affiliateService: AffiliateService,
   ) {}
 
   @Post()
@@ -290,5 +293,63 @@ export class PatientsController {
       throw new ForbiddenException('Apenas ADMIN pode remover a foto do paciente');
     }
     return this.patientsService.removeAvatar(id, tenantId);
+  }
+
+  // ─── Programa de Afiliado (Onda 5e v34, Fase 25) ─────────────────────
+
+  /**
+   * Dashboard do afiliado: saldo (disponivel/acumulado/sacado/pendente)
+   * + indicacoes + historico de saques.
+   */
+  @Get(':id/affiliate')
+  async getAffiliateDashboard(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.affiliateService.getDashboard(id, tenantId);
+  }
+
+  /**
+   * Solicita saque do saldo disponivel. Cria AffiliateWithdrawal
+   * com status='solicitado'. Admin depois confirma com POST
+   * /patients/:id/affiliate/withdraw/:withdrawalId/pay
+   */
+  @Post(':id/affiliate/withdraw')
+  async requestAffiliateWithdrawal(
+    @Param('id') id: string,
+    @Body() body: { amount: number; method: 'PIX' | 'DINHEIRO' | 'CREDITO_TRATAMENTO'; pix_key?: string; notes?: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.affiliateService.requestWithdrawal(id, tenantId, body);
+  }
+
+  /** Admin confirma pagamento de saque solicitado. */
+  @Post(':id/affiliate/withdraw/:withdrawalId/pay')
+  async confirmAffiliateWithdrawalPaid(
+    @Param('withdrawalId') withdrawalId: string,
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode confirmar pagamento de saque');
+    }
+    return this.affiliateService.confirmWithdrawalPaid(withdrawalId, tenantId, req.user.id);
+  }
+
+  /** Admin recusa saque solicitado (libera saldo). */
+  @Post(':id/affiliate/withdraw/:withdrawalId/refuse')
+  async refuseAffiliateWithdrawal(
+    @Param('withdrawalId') withdrawalId: string,
+    @Body() body: { notes?: string },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode recusar saque');
+    }
+    return this.affiliateService.refuseWithdrawal(withdrawalId, tenantId, body?.notes);
   }
 }

@@ -15,7 +15,7 @@
  */
 import { useState, FormEvent, useEffect } from 'react';
 import {
-  X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield,
+  X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -48,7 +48,11 @@ const EMPTY_FORM = {
   bloodType: '', emergencyName: '', emergencyPhone: '',
   isMinor: false, guardianName: '', guardianCpf: '', guardianPhone: '',
   referredBy: '', referredById: '', notes: '',
+  // Programa de Afiliado — comissao fixa 3% (regra do programa)
+  isAffiliate: false, affiliateCode: '', affiliateNotes: '',
 };
+
+const AFFILIATE_COMMISSION_PCT = 3;
 
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [mode, setMode] = useState<'simple' | 'full'>('simple');
@@ -124,6 +128,14 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
       if (form.referredBy.trim()) base.referred_by = form.referredBy.trim();
       if (form.referredById) base.referred_by_id = form.referredById;
       if (form.notes.trim()) base.notes = form.notes.trim();
+
+      // Programa de Afiliado — 3% sobre tratamentos indicados/fechados
+      base.is_affiliate = form.isAffiliate;
+      if (form.isAffiliate) {
+        if (form.affiliateCode.trim()) base.affiliate_code = form.affiliateCode.trim();
+        base.affiliate_commission_pct = AFFILIATE_COMMISSION_PCT;
+        if (form.affiliateNotes.trim()) base.affiliate_notes = form.affiliateNotes.trim();
+      }
     }
     return base;
   };
@@ -465,6 +477,77 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   className={`${inputCls} resize-none`}
                 />
               </div>
+            </Section>
+          )}
+
+          {/* ─── Programa de Afiliado (modo completo) ─── */}
+          {mode === 'full' && (
+            <Section icon={<HandCoins size={14} />} title="Programa de Afiliado">
+              <div>
+                <label className="block text-xs font-medium mb-1">Tornar Afiliado</label>
+                <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={form.isAffiliate}
+                    onChange={(e) => set('isAffiliate', e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="relative w-11 h-6 bg-muted peer-focus:ring-2 peer-focus:ring-emerald-500/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-5"></div>
+                  <span className="text-sm text-foreground">
+                    {form.isAffiliate ? (
+                      <span className="inline-flex items-center gap-1.5">
+                        <span className="text-emerald-600 font-bold">Ativo</span>
+                        <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+                          Afiliado
+                        </span>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">Inativo — paciente regular</span>
+                    )}
+                  </span>
+                </label>
+              </div>
+
+              {/* Banner com a regra */}
+              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200 space-y-1.5">
+                <p className="font-bold flex items-center gap-1.5">
+                  <HandCoins size={13} /> Como funciona o programa
+                </p>
+                <p>
+                  Afiliado recebe <strong>3% do valor total</strong> de cada tratamento
+                  fechado por indicação dele.
+                </p>
+                <p>
+                  O saldo <strong>acumula</strong> a cada venda fechada — pode ser usado
+                  como crédito em tratamentos próprios ou <strong>sacado</strong> em
+                  dinheiro a qualquer momento.
+                </p>
+              </div>
+
+              {form.isAffiliate && (
+                <>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Código de Afiliado</label>
+                    <input
+                      value={form.affiliateCode}
+                      onChange={(e) => set('affiliateCode', e.target.value.toUpperCase().replace(/\s/g, ''))}
+                      placeholder="Ex: ANDRELUSTOSA"
+                      className={inputCls}
+                      maxLength={32}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium mb-1">Observações do afiliado</label>
+                    <textarea
+                      value={form.affiliateNotes}
+                      onChange={(e) => set('affiliateNotes', e.target.value)}
+                      rows={2}
+                      placeholder="Ex: pagar via PIX no CPF, prefere acumular trimestralmente, etc"
+                      className={`${inputCls} resize-none`}
+                    />
+                  </div>
+                </>
+              )}
             </Section>
           )}
 

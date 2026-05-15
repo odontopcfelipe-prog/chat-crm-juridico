@@ -80,6 +80,9 @@ model Tenant {
   post_care_surveys         PostCareSurvey[]
   // Marketing — Influenciadores
   influencers               Influencer[]
+  // Programa de Afiliado (Onda 5e v34, Fase 25)
+  affiliate_referrals       AffiliateReferral[]
+  affiliate_withdrawals     AffiliateWithdrawal[]
 }
 
 model User {
@@ -158,6 +161,8 @@ model User {
   waitlist_assigned             WaitlistEntry[]        @relation("WaitlistDentist")
   // Pos-atendimento (Fase 26)
   post_care_surveys_dentist     PostCareSurvey[]       @relation("PostCareSurveyDentist")
+  // Programa de Afiliado (Onda 5e v34) — user que confirmou pagamento de saque
+  affiliate_withdrawals_paid    AffiliateWithdrawal[]  @relation("AffiliateWithdrawalPaidBy")
 }
 
 model Lead {
@@ -1630,6 +1635,16 @@ model Patient {
 
   // Notas administrativas (nao clinicas — nao e prontuario)
   notes      String?
+
+  // Programa de Afiliado (Onda 5e v34, Fase 25)
+  // Paciente vira parceiro: recebe 3% de cada tratamento fechado por
+  // indicacao dele. Saldo acumula e pode ser sacado (PIX/dinheiro) ou
+  // usado como credito em tratamentos proprios.
+  is_affiliate             Boolean  @default(false)
+  affiliate_code           String?  // codigo unico de divulgacao (ex: "ANDRELUSTOSA")
+  affiliate_commission_pct Decimal  @default(3) @db.Decimal(5, 2)
+  affiliate_notes          String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -1673,12 +1688,18 @@ model Patient {
   referral_received     Referral?             @relation("ReferralReceived")
   // Pos-atendimento (Fase 26)
   post_care_surveys     PostCareSurvey[]
+  // Programa de Afiliado (Onda 5e v34, Fase 25)
+  affiliate_referrals_made AffiliateReferral[]    @relation("AffiliateReferrer")
+  affiliate_referrals_via  AffiliateReferral[]    @relation("AffiliateReferred")
+  affiliate_withdrawals    AffiliateWithdrawal[]
 
   @@unique([tenant_id, cpf])
+  @@unique([tenant_id, affiliate_code])
   @@index([tenant_id, name])
   @@index([tenant_id, phone])
   @@index([primary_dentist_id])
   @@index([referred_by_id])
+  @@index([tenant_id, is_affiliate])
 }
 
 // ============================================================================
@@ -1813,6 +1834,70 @@ model Influencer {
   @@unique([tenant_id, coupon_code]) // cupom único por tenant (quando preenchido)
   @@index([tenant_id, status])
   @@index([tenant_id, name])
+}
+
+// ============================================================================
+// ONDA 5E V34 — PROGRAMA DE AFILIADO (Fase 25)
+// ============================================================================
+// Diferente do `Referral` (indicação premiada com valor FIXO em R$), o
+// AffiliateReferral usa COMISSÃO PERCENTUAL (default 3%) sobre o valor do
+// tratamento fechado. O afiliado e um Patient com is_affiliate=true. O saldo
+// acumula a cada Quote ACCEPTED de um indicado, e pode ser sacado em
+// dinheiro/PIX ou usado como credito em tratamentos proprios.
+//
+// Triggered por: hook em QuotesService quando Quote.status vira ACCEPTED e o
+// paciente da Quote tem `referred_by_id` apontando pra um Patient afiliado.
+
+model AffiliateReferral {
+  id          String  @id @default(uuid())
+  tenant_id   String
+  referrer_id String  // Patient afiliado (recebe a comissao)
+  referred_id String  // Patient indicado (gerou a comissao)
+  quote_id    String? // Quote que gerou (rastreabilidade)
+
+  treatment_value  Decimal @db.Decimal(10, 2)  // valor total do tratamento fechado
+  commission_pct   Decimal @db.Decimal(5, 2)   // % aplicado (snapshot — default 3%)
+  commission_value Decimal @db.Decimal(10, 2)  // valor calculado da comissao
+
+  status     String   @default("creditado") // creditado | pendente | cancelado
+  closed_at  DateTime @default(now())       // quando o tratamento foi fechado
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant   Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  referrer Patient @relation("AffiliateReferrer", fields: [referrer_id], references: [id], onDelete: Cascade)
+  referred Patient @relation("AffiliateReferred", fields: [referred_id], references: [id], onDelete: Cascade)
+
+  @@index([tenant_id, referrer_id, status])
+  @@index([referred_id])
+  @@index([quote_id])
+}
+
+model AffiliateWithdrawal {
+  id              String   @id @default(uuid())
+  tenant_id       String
+  patient_id      String   // Patient afiliado solicitando saque
+
+  amount          Decimal  @db.Decimal(10, 2)
+  method          String   // PIX | DINHEIRO | CREDITO_TRATAMENTO
+  pix_key         String?  // chave PIX (quando method=PIX)
+  status          String   @default("solicitado") // solicitado | pago | recusado
+
+  requested_at    DateTime @default(now())
+  paid_at         DateTime?
+  paid_by_user_id String?  // user (admin/financeiro) que confirmou pagamento
+
+  notes           String?
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant  Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  paid_by User?   @relation("AffiliateWithdrawalPaidBy", fields: [paid_by_user_id], references: [id], onDelete: SetNull)
+
+  @@index([tenant_id, patient_id, status])
+  @@index([status])
 }
 
 model PatientAllergy {

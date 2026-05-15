@@ -508,6 +508,31 @@ export class QuotesService {
         });
     }
 
+    // ─── HOOK 5 (Onda 5e v34): Programa de Afiliado ─────────────────────
+    // Se o paciente desta quote tem referred_by_id apontando pra um Patient
+    // afiliado, cria AffiliateReferral creditando 3% (ou pct configurado)
+    // do valor total no saldo do afiliado. Idempotente (pula se ja existe
+    // referral pra essa quote_id) e best-effort (nao bloqueia o accept).
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { AffiliateService } = require('../patients/affiliate.service');
+      const affiliateService = this.moduleRef.get(AffiliateService, { strict: false });
+      if (affiliateService) {
+        affiliateService
+          .recordReferralFromAcceptedQuote({
+            quoteId: id,
+            patientId: quote.patient_id,
+            treatmentValue: Number(quote.total_value),
+            tenantId,
+          })
+          .catch((err: any) =>
+            this.logger.warn(`[ACCEPT→AFFILIATE] Hook falhou: ${err?.message}`),
+          );
+      }
+    } catch (e: any) {
+      this.logger.warn(`[ACCEPT→AFFILIATE] AffiliateService indisponivel: ${e?.message}`);
+    }
+
     return result;
   }
 

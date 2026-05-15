@@ -11,7 +11,7 @@
  * a recepção precisa preencher tudo (cadastro completo, atualização de dados).
  */
 import { useState, FormEvent, useEffect } from 'react';
-import { X, Loader2, Save, MapPin, User, Heart, Shield } from 'lucide-react';
+import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -43,6 +43,11 @@ interface PatientFull {
   referred_by?: string | null;
   referred_by_id?: string | null;
   notes?: string | null;
+  // Programa de Afiliado — paciente que indica e ganha comissao/beneficio
+  is_affiliate?: boolean | null;
+  affiliate_code?: string | null;
+  affiliate_commission_pct?: number | null;
+  affiliate_notes?: string | null;
 }
 
 interface Props {
@@ -96,6 +101,13 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   const [referredBy, setReferredBy] = useState(patient.referred_by || '');
   const [referredById, setReferredById] = useState(patient.referred_by_id || '');
   const [notes, setNotes] = useState(patient.notes || '');
+
+  // Programa de Afiliado — comissao fixa 3% (regra do programa, nao editavel
+  // por paciente). Saldo pode acumular ou ser sacado.
+  const [isAffiliate, setIsAffiliate] = useState(!!patient.is_affiliate);
+  const [affiliateCode, setAffiliateCode] = useState(patient.affiliate_code || '');
+  const [affiliateNotes, setAffiliateNotes] = useState(patient.affiliate_notes || '');
+  const AFFILIATE_COMMISSION_PCT = 3;
 
   // Picker de paciente indicador (lazy-loaded)
   const [patientsList, setPatientsList] = useState<Array<{ id: string; name: string | null; phone: string }>>([]);
@@ -175,6 +187,11 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
         referred_by: referredBy.trim() || null,
         referred_by_id: referredById || null,
         notes: notes.trim() || null,
+        // Programa de Afiliado — 3% sobre tratamentos fechados por indicacao
+        is_affiliate: isAffiliate,
+        affiliate_code: isAffiliate ? (affiliateCode.trim() || null) : null,
+        affiliate_commission_pct: isAffiliate ? AFFILIATE_COMMISSION_PCT : null,
+        affiliate_notes: isAffiliate ? (affiliateNotes.trim() || null) : null,
       };
 
       // Remove campos vazios pra evitar validação chata em strings vazias com @IsEmail/etc
@@ -409,6 +426,85 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                 className={`${inputCls} resize-none`}
               />
             </Field>
+          </Section>
+
+          {/* ─── Programa de Afiliado ───────────────────────────────
+              Paciente vira parceiro de indicacao — recebe % por cada
+              tratamento fechado de quem ele indicar. Campos extras so
+              aparecem se o toggle estiver ON. */}
+          <Section icon={<HandCoins size={14} />} title="Programa de Afiliado">
+            <Field label="Tornar Afiliado">
+              <label className="inline-flex items-center gap-3 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={isAffiliate}
+                  onChange={(e) => setIsAffiliate(e.target.checked)}
+                  className="sr-only peer"
+                />
+                <div className="relative w-11 h-6 bg-muted peer-focus:ring-2 peer-focus:ring-emerald-500/40 rounded-full peer peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-5"></div>
+                <span className="text-sm text-foreground">
+                  {isAffiliate ? (
+                    <span className="inline-flex items-center gap-1.5">
+                      <span className="text-emerald-600 font-bold">Ativo</span>
+                      <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 px-1.5 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900">
+                        Afiliado
+                      </span>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">Inativo — paciente regular</span>
+                  )}
+                </span>
+              </label>
+            </Field>
+
+            {/* Banner com a regra do programa — sempre visivel pra dar contexto */}
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200 space-y-1.5">
+              <p className="font-bold flex items-center gap-1.5">
+                <HandCoins size={13} /> Como funciona o programa
+              </p>
+              <p>
+                Afiliado recebe <strong>3% do valor total</strong> de cada tratamento fechado
+                por indicação dele.
+              </p>
+              <p>
+                O saldo <strong>acumula automaticamente</strong> a cada venda fechada. O
+                afiliado pode <strong>acumular</strong> pra usar como crédito em
+                tratamentos próprios, ou <strong>sacar</strong> em dinheiro a qualquer
+                momento.
+              </p>
+            </div>
+
+            {isAffiliate && (
+              <>
+                <Field label="Código de Afiliado">
+                  <input
+                    value={affiliateCode}
+                    onChange={(e) => setAffiliateCode(e.target.value.toUpperCase().replace(/\s/g, ''))}
+                    placeholder="Ex: ANDRELUSTOSA"
+                    className={inputCls}
+                    maxLength={32}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    Código que o afiliado divulga (link, post, panfleto). Indicações
+                    entram pela busca + esse código no cadastro do paciente novo.
+                  </p>
+                </Field>
+                <Field label="Observações do afiliado">
+                  <textarea
+                    value={affiliateNotes}
+                    onChange={(e) => setAffiliateNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Ex: pagar via PIX no CPF, prefere acumular trimestralmente, etc"
+                    className={`${inputCls} resize-none`}
+                  />
+                </Field>
+                <div className="text-[11px] text-muted-foreground bg-muted/40 rounded-lg p-2.5">
+                  💡 O saldo acumulado, histórico de indicações e botão de saque
+                  ficam na <strong>aba &quot;Afiliado&quot;</strong> da ficha do paciente
+                  (visível só quando este toggle está ativo).
+                </div>
+              </>
+            )}
           </Section>
 
           {/* Footer sticky */}

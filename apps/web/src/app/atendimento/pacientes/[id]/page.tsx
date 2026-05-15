@@ -20,7 +20,7 @@ import {
   FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
-  Layers,
+  Layers, HandCoins,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -35,6 +35,7 @@ import PropostasTab from '../components/PropostasTab';
 import EsteticaFacialTab from '../components/EsteticaFacialTab';
 import SmileDesignTab from '../components/SmileDesignTab';
 import RadiografiasTab from '../components/RadiografiasTab';
+import AfiliadoTab from '../components/AfiliadoTab';
 import EditPatientModal from '../components/EditPatientModal';
 import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedicationModals';
 import TimelineTab from '../components/TimelineTab';
@@ -75,6 +76,11 @@ interface Patient {
   referred_by: string | null;
   referred_by_id: string | null;
   referred_by_patient?: { id: string; name: string | null; phone: string } | null;
+  // Programa de Afiliado — paciente parceiro que indica e recebe 3%
+  is_affiliate?: boolean | null;
+  affiliate_code?: string | null;
+  affiliate_commission_pct?: number | null;
+  affiliate_notes?: string | null;
   tags?: AssignedTag[];
   allergies: Array<{ id: string; allergen: string; severity: string | null; notes: string | null }>;
   medications: Array<{ id: string; medication: string; dosage: string | null; frequency: string | null }>;
@@ -93,6 +99,8 @@ const TABS = [
   { id: 'quotes',         label: 'Orçamentos',      icon: DollarSign,  group: 'operational' as const },
   { id: 'proposals',      label: 'Propostas',       icon: Layers,      group: 'operational' as const },
   { id: 'financial',      label: 'Financeiro',      icon: DollarSign,  group: 'operational' as const },
+  // Afiliado — so aparece quando patient.is_affiliate = true (filtrado no render)
+  { id: 'affiliate',      label: 'Afiliado',        icon: HandCoins,   group: 'operational' as const },
   // Clinical (documentação/histórico)
   { id: 'timeline',       label: 'Histórico',       icon: Clock,       group: 'clinical'    as const },
   { id: 'anamnesis',      label: 'Anamnese',        icon: FileText,    group: 'clinical'    as const },
@@ -341,7 +349,11 @@ function PacienteFichaInner() {
           pra ganhar mais espaco horizontal. */}
       <div className="border-b border-border mb-4 -mx-6 px-6 overflow-x-auto">
         <div className="flex gap-0.5 items-end">
-          {TABS.filter((t) => t.group === 'operational').map((t) => {
+          {TABS.filter((t) => t.group === 'operational')
+            // Aba "Afiliado" so aparece quando o paciente esta no programa.
+            // Default off — toggle em Editar paciente > Programa de Afiliado.
+            .filter((t) => t.id !== 'affiliate' || patient.is_affiliate)
+            .map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
             return (
@@ -351,7 +363,7 @@ function PacienteFichaInner() {
                 onClick={() => setTab(t.id)}
                 className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-medium border-b-2 transition-colors whitespace-nowrap ${
                   active ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-                }`}
+                } ${t.id === 'affiliate' ? 'text-emerald-600 hover:text-emerald-700' : ''}`}
               >
                 <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
                 {t.label}
@@ -441,6 +453,13 @@ function PacienteFichaInner() {
         />
       )}
       {tab === 'financial' && <FinanceiroTab patientId={patient.id} />}
+      {tab === 'affiliate' && patient.is_affiliate && (
+        <AfiliadoTab
+          patientId={patient.id}
+          patientName={patient.name}
+          affiliateCode={patient.affiliate_code || null}
+        />
+      )}
 
       {/* Modais */}
       {editOpen && (

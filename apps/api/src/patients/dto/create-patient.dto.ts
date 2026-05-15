@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID, IsBoolean } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID, IsBoolean, IsNumber, Min, Max } from 'class-validator';
 
 const VALID_STATUS = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const VALID_GENDER = ['M', 'F', 'OTHER'] as const;
@@ -69,6 +69,12 @@ export class CreatePatientDto {
   lead_id?: string;
 
   @IsOptional() @IsString() notes?: string;
+
+  // Programa de Afiliado (Onda 5e v34, Fase 25)
+  @IsOptional() @IsBoolean() is_affiliate?: boolean;
+  @IsOptional() @IsString() affiliate_code?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
+  @IsOptional() @IsString() affiliate_notes?: string;
 }
 
 export class UpdatePatientDto {
@@ -105,4 +111,10 @@ export class UpdatePatientDto {
   @IsOptional() @IsString() guardian_cpf?: string;
   @IsOptional() @IsString() guardian_phone?: string;
   @IsOptional() @IsString() chief_complaint?: string;
+
+  // Programa de Afiliado (Onda 5e v34, Fase 25)
+  @IsOptional() @IsBoolean() is_affiliate?: boolean;
+  @IsOptional() @IsString() affiliate_code?: string;
+  @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
+  @IsOptional() @IsString() affiliate_notes?: string;
 }
