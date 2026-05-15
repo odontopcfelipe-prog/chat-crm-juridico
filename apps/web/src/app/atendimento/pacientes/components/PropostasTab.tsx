@@ -599,7 +599,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
             ? `${activeOption.label} à vista`
             : activeOption.variant === 'cartao'
             ? `${activeOption.installments}x no cartão (${(activeOption.interestRate ?? 0) === 0 ? 'sem juros' : `juros PagBank ${activeOption.interestRate}%/mês`})`
-            : `${activeOption.installments}x no boleto (entrada ${activeOption.downPaymentPercent ?? 0}% + ${activeOption.interestRate}%/mês)`;
+            : `${activeOption.installments}x no Financiamento Banco PASSOS (entrada ${activeOption.downPaymentPercent ?? 0}% + ${activeOption.interestRate}%/mês)`;
         // Onda 11.2 — finalValue agora reflete o que foi ofertado:
         // a vista = descontado / parcelado = total com juros
         const finalValue = calc.finalValue;
@@ -1099,7 +1099,7 @@ function PropostaPainel({
               ? `${activeOption.label} à vista`
               : activeOption.variant === 'cartao'
               ? `${activeOption.installments}x no cartão`
-              : `${activeOption.installments}x no boleto`}
+              : `${activeOption.installments}x no Financiamento Banco PASSOS`}
             {' = '}
             {activeOption.variant === 'avista' ? (
               <>R$ {fmtBRL(activeCalc.finalValue)}</>
@@ -1337,7 +1337,7 @@ function CardBoletoParcelado({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold flex items-center gap-1.5 mb-0.5">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-              Boleto parcelado
+              Financiamento Banco PASSOS
               {!isSelected && (
                 <span className="text-[10px] font-normal text-muted-foreground italic ml-1">
                   (outra proposta — prazo maior)
