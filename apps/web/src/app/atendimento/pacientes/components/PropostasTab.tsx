@@ -797,7 +797,7 @@ function PropostaCard({
       type="button"
       onClick={onToggleSelect}
       data-selected={selected ? '1' : '0'}
-      className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative ${
+      className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full ${
         selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
@@ -910,14 +910,15 @@ function PropostaCard({
         </p>
       )}
 
-      {/* Footer: estado de seleção */}
-      <div className={`mt-3 pt-3 border-t border-border/40 flex items-center justify-between text-[11px] ${
-        selected ? `font-semibold ${cfg.iconCls}` : 'text-muted-foreground group-hover:text-foreground'
+      {/* Footer: estado de seleção — Onda 12.7: mt-auto pra alinhar todos
+          os footers na mesma linha, "selecionado" maior+verde+bold */}
+      <div className={`mt-auto pt-3 border-t border-border/40 flex items-center justify-between ${
+        selected ? '' : 'text-[11px] text-muted-foreground group-hover:text-foreground'
       }`}>
         {selected ? (
-          <span className="flex items-center gap-1">
-            <Check size={12} />
-            selecionado
+          <span className="flex items-center gap-1.5 text-base font-bold text-emerald-700">
+            <Check size={18} strokeWidth={2.5} />
+            Selecionado
           </span>
         ) : (
           <>
