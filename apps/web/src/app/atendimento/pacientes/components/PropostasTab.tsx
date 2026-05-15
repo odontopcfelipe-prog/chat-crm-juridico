@@ -1096,10 +1096,10 @@ function PropostaPainel({
       </div>
 
       {/* Onda 11.9 — PIX/dinheiro e Cartao de credito lado a lado em grid 2 cols.
-          Itens alinhados ao topo (cartao pode crescer quando dropdown abre). */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-start">
+          Onda 12.3 — items-stretch + h-full nos botoes pra alinhar alturas. */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-stretch">
         {/* Pagamento à vista — Onda 11.6: so PIX/dinheiro */}
-        <div>
+        <div className="flex flex-col">
           <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
             <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
             À vista — com desconto
@@ -1112,7 +1112,7 @@ function PropostaPainel({
                 key={opt.key}
                 type="button"
                 onClick={() => onChangePayment(opt.key)}
-                className={`w-full p-4 rounded-lg border text-left transition-colors relative ${
+                className={`w-full flex-1 p-4 rounded-lg border text-left transition-colors relative ${
                   isActive
                     ? 'border-emerald-500 bg-emerald-500/10'
                     : 'border-border hover:bg-accent/40'
@@ -1252,7 +1252,7 @@ function CardCartao({
   const isSelected = !!active;
 
   return (
-    <div>
+    <div className="flex flex-col">
       <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
         Cartão de crédito — 1x a 6x sem juros · 7x a 12x com juros PagBank
@@ -1260,7 +1260,7 @@ function CardCartao({
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`w-full p-3 rounded-lg border text-left transition-colors relative ${
+        className={`w-full flex-1 p-4 rounded-lg border text-left transition-colors relative ${
           isSelected
             ? 'border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/20'
             : 'border-border hover:bg-accent/40 hover:border-sky-300'
@@ -1268,15 +1268,14 @@ function CardCartao({
       >
         <div className="flex items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-xs font-semibold flex items-center gap-1.5 mb-1">
-              {/* icone de cartao via lucide nao foi importado; uso DollarSign */}
-              <DollarSign size={11} />
+            <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+              <DollarSign size={13} />
               {isSelected ? `Cartão · ${display.installments}x` : 'Cartão de crédito'}
             </p>
-            <p className="text-base font-bold tabular-nums">
+            <p className="text-2xl font-bold tabular-nums text-sky-700">
               {display.installments}x de R$ {fmtBRL(calc.installmentValue)}
             </p>
-            <p className="text-[10px] text-muted-foreground">
+            <p className="text-xs text-muted-foreground mt-1">
               total R$ {fmtBRL(calc.finalValue)} ·{' '}
               {(display.interestRate ?? 0) === 0 ? (
                 <span className="text-emerald-700 font-semibold">sem juros</span>
@@ -1297,7 +1296,7 @@ function CardCartao({
           </span>
         </div>
         {!isSelected && (
-          <span className="absolute top-1.5 right-7 text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-sky-100 text-sky-700">
+          <span className="absolute top-2 right-8 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-100 text-sky-700">
             clique pra escolher
           </span>
         )}
