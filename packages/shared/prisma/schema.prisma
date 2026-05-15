@@ -1695,6 +1695,8 @@ model Patient {
   affiliate_referrals_made AffiliateReferral[]    @relation("AffiliateReferrer")
   affiliate_referrals_via  AffiliateReferral[]    @relation("AffiliateReferred")
   affiliate_withdrawals    AffiliateWithdrawal[]
+  // Influenciador (Onda 5e v35) — cadastro de marketing tambem e Patient
+  influencer_profile       Influencer?
 
   @@unique([tenant_id, cpf])
   @@unique([tenant_id, affiliate_code])
@@ -1829,10 +1831,17 @@ model Influencer {
   status          String   @default("ATIVO") // ATIVO | PAUSADO | INATIVO
   notes           String?
 
+  // Onda 5e v35 — influenciador tambem vira Patient (afiliado da clinica).
+  // patient_id e criado automaticamente no create() do InfluencersService.
+  // Permite ao influenciador ter ficha clinica, agendar, receber tratamentos
+  // e USAR o sistema de afiliado (saldo + saque) tudo unificado.
+  patient_id      String?  @unique
+
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
   tenant       Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient      Patient?                @relation(fields: [patient_id], references: [id], onDelete: SetNull)
   message_logs InfluencerMessageLog[]
 
   @@unique([tenant_id, coupon_code]) // cupom único por tenant (quando preenchido)

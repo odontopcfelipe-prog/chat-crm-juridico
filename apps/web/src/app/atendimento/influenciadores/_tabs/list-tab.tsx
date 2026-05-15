@@ -172,8 +172,14 @@ export function ListTab() {
         await api.patch(`/influencers/${editing.id}`, payload);
         showSuccess('Influenciador atualizado');
       } else {
-        await api.post('/influencers', payload);
-        showSuccess('Influenciador cadastrado');
+        const res = await api.post('/influencers', payload);
+        // v35: backend retorna { ...influencer, patient: { id, name } }
+        const patientId = res.data?.patient?.id;
+        if (patientId) {
+          showSuccess('Influenciador cadastrado e vinculado como paciente afiliado');
+        } else {
+          showSuccess('Influenciador cadastrado');
+        }
       }
       setModalOpen(false);
       setEditing(null);
@@ -369,6 +375,29 @@ export function ListTab() {
         }
       >
         <div className="space-y-4">
+          {/* Onda 5e v35: aviso de que influenciador vira Patient + Afiliado.
+              So aparece na criacao (editing == null) — na edicao o vinculo
+              ja existe e mexer nele tem regras proprias. */}
+          {!editing && (
+            <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200 flex items-start gap-2">
+              <span className="text-base leading-none mt-0.5">🤝</span>
+              <div>
+                <p className="font-bold mb-0.5">
+                  Influenciador também vira paciente da clínica
+                </p>
+                <p>
+                  Ao cadastrar, criamos automaticamente um <strong>Patient</strong>{' '}
+                  com o mesmo nome/telefone/email, marcado como{' '}
+                  <strong>Afiliado ativo</strong> (3% por indicação fechada). O
+                  cupom configurado abaixo vira o <em>código de afiliado</em>.
+                </p>
+                <p className="mt-1 opacity-80">
+                  Se já existe paciente com o mesmo telefone, ele é vinculado
+                  (não duplica).
+                </p>
+              </div>
+            </div>
+          )}
           <fieldset className="space-y-3">
             <legend className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Contato</legend>
             <Field label="Nome *">

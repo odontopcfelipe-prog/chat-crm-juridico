@@ -5,7 +5,7 @@
  * filtram por tenant_id. Coupon_code é único por tenant quando preenchido
  * (UX evita rastreamento duplicado de campanhas).
  */
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 export type Platform = 'INSTAGRAM' | 'TIKTOK' | 'YOUTUBE' | 'OUTRO';
@@ -35,6 +35,7 @@ const VALID_STATUS: InfluencerStatus[] = ['ATIVO', 'PAUSADO', 'INATIVO'];
 
 @Injectable()
 export class InfluencersService {
+  private readonly logger = new Logger(InfluencersService.name);
   constructor(private prisma: PrismaService) {}
 
   // Normaliza @handle (remove @ inicial e espaços) — UX permite digitar com ou sem
@@ -109,22 +110,85 @@ export class InfluencersService {
       if (dup) throw new BadRequestException(`Cupom "${coupon}" já está em uso`);
     }
 
-    return (this.prisma as any).influencer.create({
-      data: {
-        tenant_id: tenantId,
-        name: data.name.trim(),
-        handle: this.normalizeHandle(data.handle),
-        phone: data.phone?.trim() || null,
-        email: data.email?.trim() || null,
-        platform: data.platform || null,
-        followers: data.followers ?? null,
-        niche: data.niche?.trim() || null,
-        commission_type: data.commission_type || null,
-        commission_value: data.commission_value ?? null,
-        coupon_code: coupon,
-        status: data.status || 'ATIVO',
-        notes: data.notes?.trim() || null,
-      },
+    const name = data.name.trim();
+    const phone = data.phone?.trim() || null;
+    const email = data.email?.trim() || null;
+    const handle = this.normalizeHandle(data.handle);
+
+    // Onda 5e v35 — cria Influencer + Patient (afiliado da clinica) em UMA
+    // transacao. Influenciador parceiro automaticamente vira paciente:
+    //   - pode ser atendido (ficha clinica + agendamento)
+    //   - vira afiliado da clinica (is_affiliate=true)
+    //   - codigo de cupom do influencer = affiliate_code do paciente
+    //     (mesmo codigo serve pra dois fluxos: desconto pro indicado e
+    //     rastreio da comissao pro afiliado)
+    //
+    // Pre-checa duplicata por (tenant_id, phone) — se ja existe paciente
+    // com mesmo telefone, vincula em vez de criar duplicado. Phone vazio
+    // sempre cria paciente novo (sem chance de match).
+    return this.prisma.$transaction(async (tx) => {
+      let patient: any = null;
+      if (phone) {
+        patient = await (tx as any).patient.findFirst({
+          where: { tenant_id: tenantId, phone },
+          select: { id: true, name: true, is_affiliate: true },
+        });
+      }
+
+      if (patient) {
+        // Patient ja existe (mesmo telefone) — ativa afiliado e vincula
+        await (tx as any).patient.update({
+          where: { id: patient.id },
+          data: {
+            is_affiliate: true,
+            affiliate_code: coupon ?? undefined,
+            // Nao sobrescreve nome/email se ja preenchido — preserva ficha
+          },
+        });
+      } else {
+        // Cria Patient novo com dados minimos do influenciador
+        patient = await (tx as any).patient.create({
+          data: {
+            tenant_id: tenantId,
+            name,
+            phone,
+            email,
+            is_affiliate: true,
+            affiliate_code: coupon,
+            affiliate_commission_pct: 3, // default do programa
+            notes: handle
+              ? `Influenciador parceiro (@${handle})`
+              : 'Influenciador parceiro',
+            status: 'ACTIVE',
+          },
+          select: { id: true, name: true },
+        });
+      }
+
+      const influencer = await (tx as any).influencer.create({
+        data: {
+          tenant_id: tenantId,
+          name,
+          handle,
+          phone,
+          email,
+          platform: data.platform || null,
+          followers: data.followers ?? null,
+          niche: data.niche?.trim() || null,
+          commission_type: data.commission_type || null,
+          commission_value: data.commission_value ?? null,
+          coupon_code: coupon,
+          status: data.status || 'ATIVO',
+          notes: data.notes?.trim() || null,
+          patient_id: patient.id,
+        },
+      });
+
+      this.logger.log(
+        `[INFLUENCER+PATIENT] Influencer ${influencer.id} criado, vinculado a Patient ${patient.id} (${patient.name})`,
+      );
+
+      return { ...influencer, patient };
     });
   }
 
