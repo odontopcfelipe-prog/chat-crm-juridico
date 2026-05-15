@@ -152,14 +152,6 @@ function buildPaymentOptions(): {
         installments: 1,
         variant: 'avista',
       },
-      {
-        key: 'boleto-avista',
-        label: 'Boleto à vista',
-        sublabel: 'vence em 3 dias úteis',
-        discountPercent: 3,
-        installments: 1,
-        variant: 'avista',
-      },
     ],
     // Onda 11.4 — Cartao de credito 1x ate 12x sem juros
     cartao,
@@ -1030,46 +1022,47 @@ function PropostaPainel({
         )}
       </div>
 
-      {/* Pagamento à vista */}
+      {/* Pagamento à vista — Onda 11.6: so PIX/dinheiro, valor original e com desconto em destaque */}
       <div className="mb-4">
         <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
           À vista — com desconto
         </p>
-        <div className="grid grid-cols-2 gap-2">
-          {options.avista.map((opt) => {
-            const isActive = activePaymentKey === opt.key;
-            const calc = applyPaymentOption(total, opt);
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => onChangePayment(opt.key)}
-                className={`p-3 rounded-lg border text-left transition-colors relative ${
-                  isActive
-                    ? 'border-emerald-500 bg-emerald-500/10'
-                    : 'border-border hover:bg-accent/40'
-                }`}
-              >
-                <span className="absolute top-1.5 right-1.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-emerald-600 text-white">
-                  −{opt.discountPercent}%
-                </span>
-                <p className="text-xs font-semibold flex items-center gap-1.5 mb-1">
-                  {opt.key === 'pix' ? <Send size={11} /> : <DollarSign size={11} />}
-                  {opt.label}
-                </p>
-                <p className="text-base font-bold tabular-nums">
+        {options.avista.map((opt) => {
+          const isActive = activePaymentKey === opt.key;
+          const calc = applyPaymentOption(total, opt);
+          return (
+            <button
+              key={opt.key}
+              type="button"
+              onClick={() => onChangePayment(opt.key)}
+              className={`w-full p-4 rounded-lg border text-left transition-colors relative ${
+                isActive
+                  ? 'border-emerald-500 bg-emerald-500/10'
+                  : 'border-border hover:bg-accent/40'
+              }`}
+            >
+              <span className="absolute top-2 right-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
+                −{opt.discountPercent}%
+              </span>
+              <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
+                <Send size={13} />
+                {opt.label}
+              </p>
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <p className="text-3xl font-bold tabular-nums text-emerald-700">
                   R$ {fmtBRL(calc.finalValue)}
                 </p>
-                <p className="text-[10px] text-muted-foreground">
-                  {opt.key === 'pix'
-                    ? `economia de R$ ${fmtBRL(calc.savedValue)}`
-                    : opt.sublabel}
+                <p className="text-base text-muted-foreground line-through tabular-nums">
+                  R$ {fmtBRL(total)}
                 </p>
-              </button>
-            );
-          })}
-        </div>
+              </div>
+              <p className="text-xs text-emerald-700 mt-1 font-medium">
+                economia de R$ {fmtBRL(calc.savedValue)}
+              </p>
+            </button>
+          );
+        })}
       </div>
 
       {/* Onda 11.5 — Cartao de credito vira card unico (estilo "Boleto a vista").
