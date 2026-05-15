@@ -2160,212 +2160,231 @@ function CreditCheckDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-black/70 flex items-stretch justify-stretch"
       onClick={onCancel}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card w-full h-full overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header */}
-        <div className="flex items-start justify-between p-4 border-b border-border bg-amber-500/5">
-          <div>
-            <h3 className="text-sm font-bold flex items-center gap-2">
-              <Building2 size={14} className="text-amber-700" />
-              Financiamento Banco PASSOS
-            </h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              consulta de crédito em tempo real · aprovação imediata
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onCancel}
-            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
-            aria-label="Fechar"
-          >
-            <X size={16} />
-          </button>
-        </div>
-
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto p-4">
-          {phase === 'cadastro' && (
-            <>
-              {/* Resumo da proposta — Onda 12.1: parcela em destaque, total secundario */}
-              <div className="bg-muted/30 border border-border/60 rounded-md p-3 mb-4">
-                <div className="flex items-start justify-between gap-3 flex-wrap">
-                  <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-wide text-muted-foreground mb-1">
-                      proposta a financiar
-                    </p>
-                    <p className="text-2xl font-bold tabular-nums leading-tight">
-                      {parcelas}x de R$ {fmtBRL(calc.installmentValue)}
-                      <span className="text-xs font-normal text-muted-foreground"> /mês</span>
-                    </p>
-                    <p className="text-[11px] text-muted-foreground mt-0.5">
-                      entrada R$ {fmtBRL(calc.downPaymentValue)} ·{' '}
-                      <span className="opacity-75">total R$ {fmtBRL(valorTotal)}</span>
-                    </p>
-                  </div>
-                  <div className="flex gap-1.5 shrink-0">
-                    {([12, 18, 24] as const).map((n) => (
-                      <button
-                        key={n}
-                        type="button"
-                        onClick={() => setParcelas(n)}
-                        className={`text-[11px] px-2 py-1 rounded-md border transition-colors ${
-                          parcelas === n
-                            ? 'border-amber-500 bg-amber-500/15 text-amber-800 font-semibold'
-                            : 'border-border hover:bg-accent'
-                        }`}
-                      >
-                        {n}x
-                      </button>
-                    ))}
-                  </div>
-                </div>
+        {/* Header full-width estilo banco — Onda 12.8 */}
+        <div className="border-b border-border bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent">
+          <div className="max-w-5xl mx-auto px-6 md:px-10 py-5 flex items-start justify-between">
+            <div className="flex items-start gap-4">
+              <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
+                <Building2 size={24} className="text-amber-700" />
               </div>
-
-              {/* Form */}
-              <div className="space-y-3">
-                <Field label="CPF">
-                  <input
-                    type="text"
-                    value={cpf}
-                    onChange={(e) => setCpf(fmtCpf(e.target.value))}
-                    placeholder="000.000.000-00"
-                    inputMode="numeric"
-                    className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                  />
-                </Field>
-                <Field label="Nome completo">
-                  <input
-                    type="text"
-                    value={nome}
-                    onChange={(e) => setNome(e.target.value)}
-                    placeholder="Como consta no CPF"
-                    className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                  />
-                </Field>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Data de nascimento">
-                    <input
-                      type="date"
-                      value={dataNasc}
-                      onChange={(e) => setDataNasc(e.target.value)}
-                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    />
-                  </Field>
-                  <Field label="Renda mensal (R$)">
-                    <input
-                      type="text"
-                      value={renda ? `R$ ${(Number(renda) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
-                      onChange={(e) => setRenda(fmtCurrency(e.target.value))}
-                      placeholder="R$ 0,00"
-                      inputMode="numeric"
-                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    />
-                  </Field>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <Field label="Telefone">
-                    <input
-                      type="text"
-                      value={telefone}
-                      onChange={(e) => setTelefone(fmtTel(e.target.value))}
-                      placeholder="(00) 00000-0000"
-                      inputMode="numeric"
-                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    />
-                  </Field>
-                  <Field label="Profissão">
-                    <input
-                      type="text"
-                      value={profissao}
-                      onChange={(e) => setProfissao(e.target.value)}
-                      placeholder="Ex: professor"
-                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                    />
-                  </Field>
-                </div>
-                {error && (
-                  <p className="text-[11px] text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-2.5 py-1.5">
-                    {error}
-                  </p>
-                )}
-                <p className="text-[10px] text-muted-foreground italic">
-                  🔒 Os dados são enviados criptografados pra consulta na Serasa. Nada é salvo no sistema.
+              <div>
+                <h3 className="text-xl md:text-2xl font-bold text-foreground">
+                  Financiamento Banco PASSOS
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  Consulta de crédito em tempo real · Aprovação imediata
                 </p>
               </div>
-            </>
-          )}
-
-          {(phase === 'consultando' || phase === 'gerando') && (
-            <div className="py-12 flex flex-col items-center justify-center text-center">
-              <div className="w-16 h-16 rounded-full bg-amber-500/10 flex items-center justify-center mb-4">
-                <Loader2 size={32} className="text-amber-600 animate-spin" />
-              </div>
-              <p className="text-sm font-semibold text-foreground mb-1">{loadingMsg}</p>
-              <p className="text-[11px] text-muted-foreground">
-                {phase === 'consultando' ? 'isso leva poucos segundos' : 'criando boletos no Asaas...'}
-              </p>
             </div>
-          )}
-
-          {phase === 'resultado' && result && (
-            <>
-              <ResultPanel
-                result={result}
-                parcelas={parcelas}
-                calc={calc}
-                onApply={apply}
-                onRetryWithMore={() => {
-                  const next = parcelas === 12 ? 18 : parcelas === 18 ? 24 : 24;
-                  setParcelas(next);
-                  setResult(null);
-                  setPhase('cadastro');
-                }}
-              />
-              {error && (
-                <p className="mt-3 text-[11px] text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-2.5 py-1.5">
-                  {error}
-                </p>
-              )}
-            </>
-          )}
-
-          {phase === 'boletos' && applyResult && (
-            <BoletosResultPanel
-              data={applyResult}
-              parcelas={parcelas}
-              onClose={() => {
-                onAppliedSuccess(`parcelado-${parcelas}x`);
-                onCancel();
-              }}
-            />
-          )}
-        </div>
-
-        {/* Footer */}
-        {phase === 'cadastro' && (
-          <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
             <button
               type="button"
               onClick={onCancel}
-              className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent"
+              className="text-muted-foreground hover:text-foreground p-2 hover:bg-accent/50 rounded-md transition-colors"
+              aria-label="Fechar"
             >
-              Cancelar
+              <X size={20} />
             </button>
-            <button
-              type="button"
-              onClick={submit}
-              disabled={!canSubmit}
-              className="text-xs px-4 py-1.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
-            >
-              <Search size={12} />
-              Consultar aprovação
-            </button>
+          </div>
+        </div>
+
+        {/* Body — Onda 12.8: max-w-5xl centralizado, padding generoso */}
+        <div className="flex-1 overflow-y-auto">
+          <div className="max-w-5xl mx-auto px-6 md:px-10 py-6 md:py-8">
+            {phase === 'cadastro' && (
+              <>
+                {/* Resumo da proposta — destaque grande */}
+                <div className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-2 border-amber-500/30 rounded-xl p-5 md:p-6 mb-6">
+                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                    <div className="min-w-0">
+                      <p className="text-[11px] uppercase tracking-wider text-amber-700 font-bold mb-1.5">
+                        Proposta a financiar
+                      </p>
+                      <p className="text-3xl md:text-4xl font-bold tabular-nums leading-tight text-foreground">
+                        {parcelas}x de R$ {fmtBRL(calc.installmentValue)}
+                        <span className="text-base md:text-lg font-normal text-muted-foreground"> /mês</span>
+                      </p>
+                      <p className="text-sm text-muted-foreground mt-2">
+                        entrada <strong className="text-foreground">R$ {fmtBRL(calc.downPaymentValue)}</strong>
+                        {' · '}
+                        <span className="opacity-75">total R$ {fmtBRL(valorTotal)}</span>
+                      </p>
+                    </div>
+                    <div className="flex gap-2 shrink-0">
+                      {([12, 18, 24] as const).map((n) => (
+                        <button
+                          key={n}
+                          type="button"
+                          onClick={() => setParcelas(n)}
+                          className={`text-sm px-4 py-2 rounded-lg border-2 transition-colors font-semibold ${
+                            parcelas === n
+                              ? 'border-amber-600 bg-amber-500/15 text-amber-800'
+                              : 'border-border bg-card hover:bg-accent'
+                          }`}
+                        >
+                          {n}x
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Form em 2 colunas em desktop — Onda 12.8 */}
+                <div className="bg-card border border-border rounded-xl p-5 md:p-6">
+                  <p className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
+                    <ShieldCheck size={16} className="text-emerald-700" />
+                    Dados do paciente
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <Field label="CPF">
+                      <input
+                        type="text"
+                        value={cpf}
+                        onChange={(e) => setCpf(fmtCpf(e.target.value))}
+                        placeholder="000.000.000-00"
+                        inputMode="numeric"
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Nome completo">
+                      <input
+                        type="text"
+                        value={nome}
+                        onChange={(e) => setNome(e.target.value)}
+                        placeholder="Como consta no CPF"
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Data de nascimento">
+                      <input
+                        type="date"
+                        value={dataNasc}
+                        onChange={(e) => setDataNasc(e.target.value)}
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Renda mensal (R$)">
+                      <input
+                        type="text"
+                        value={renda ? `R$ ${(Number(renda) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                        onChange={(e) => setRenda(fmtCurrency(e.target.value))}
+                        placeholder="R$ 0,00"
+                        inputMode="numeric"
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Telefone">
+                      <input
+                        type="text"
+                        value={telefone}
+                        onChange={(e) => setTelefone(fmtTel(e.target.value))}
+                        placeholder="(00) 00000-0000"
+                        inputMode="numeric"
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Profissão">
+                      <input
+                        type="text"
+                        value={profissao}
+                        onChange={(e) => setProfissao(e.target.value)}
+                        placeholder="Ex: professor"
+                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                  </div>
+                  {error && (
+                    <p className="mt-4 text-sm text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                      {error}
+                    </p>
+                  )}
+                  <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1.5">
+                    <ShieldCheck size={12} className="text-emerald-700" />
+                    Dados enviados criptografados pra consulta na Serasa · Nada é salvo no sistema
+                  </p>
+                </div>
+              </>
+            )}
+
+            {(phase === 'consultando' || phase === 'gerando') && (
+              <div className="py-20 flex flex-col items-center justify-center text-center">
+                <div className="w-24 h-24 rounded-full bg-amber-500/10 flex items-center justify-center mb-6">
+                  <Loader2 size={48} className="text-amber-600 animate-spin" />
+                </div>
+                <p className="text-xl font-bold text-foreground mb-2">{loadingMsg}</p>
+                <p className="text-sm text-muted-foreground">
+                  {phase === 'consultando' ? 'Isso leva poucos segundos.' : 'Criando boletos no Asaas...'}
+                </p>
+              </div>
+            )}
+
+            {phase === 'resultado' && result && (
+              <>
+                <ResultPanel
+                  result={result}
+                  parcelas={parcelas}
+                  calc={calc}
+                  onApply={apply}
+                  onRetryWithMore={() => {
+                    const next = parcelas === 12 ? 18 : parcelas === 18 ? 24 : 24;
+                    setParcelas(next);
+                    setResult(null);
+                    setPhase('cadastro');
+                  }}
+                />
+                {error && (
+                  <p className="mt-4 max-w-md mx-auto text-sm text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                    {error}
+                  </p>
+                )}
+              </>
+            )}
+
+            {phase === 'boletos' && applyResult && (
+              <BoletosResultPanel
+                data={applyResult}
+                parcelas={parcelas}
+                onClose={() => {
+                  onAppliedSuccess(`parcelado-${parcelas}x`);
+                  onCancel();
+                }}
+              />
+            )}
+          </div>
+        </div>
+
+        {/* Footer fullwidth com botões grandes — Onda 12.8 */}
+        {phase === 'cadastro' && (
+          <div className="border-t border-border bg-muted/20">
+            <div className="max-w-5xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground hidden md:block">
+                🔒 Conexão segura · Processado pela Serasa Crediscore
+              </p>
+              <div className="flex items-center gap-3 ml-auto">
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  className="text-sm px-5 py-2.5 rounded-lg border border-border hover:bg-accent font-medium"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={submit}
+                  disabled={!canSubmit}
+                  className="text-sm px-6 py-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold shadow-sm"
+                >
+                  <Search size={14} />
+                  Consultar aprovação
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>
