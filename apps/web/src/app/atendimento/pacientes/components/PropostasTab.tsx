@@ -1254,41 +1254,62 @@ function CardCartao({
         )}
       </button>
 
-      {/* Dropdown inline: grid de 1x ate 12x */}
+      {/* Dropdown inline em tabela estilo Nuvem Shop / Mercado Pago */}
       {open && (
-        <div className="mt-2 p-2 border border-border rounded-lg bg-card shadow-sm">
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold mb-2 px-1">
-            Escolha em quantas parcelas
-          </p>
-          <div className="grid grid-cols-4 gap-1.5">
+        <div className="mt-2 border border-border rounded-lg bg-card shadow-sm overflow-hidden">
+          {/* Header com bandeiras */}
+          <div className="px-3 py-2 bg-muted/30 border-b border-border">
+            <p className="text-xs font-semibold text-foreground mb-1">
+              Cartões de crédito
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              Visa · Mastercard · Hipercard · American Express · Elo
+            </p>
+          </div>
+
+          {/* Cabecalho da tabela */}
+          <div className="grid grid-cols-[60px_1fr_auto] gap-3 px-3 py-1.5 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
+            <span>Parcelas</span>
+            <span></span>
+            <span className="text-right">Total</span>
+          </div>
+
+          {/* Linhas */}
+          <ul>
             {options.map((opt) => {
               const isActive = activePaymentKey === opt.key;
               const c = applyPaymentOption(total, opt);
               return (
-                <button
-                  key={opt.key}
-                  type="button"
-                  onClick={() => {
-                    onChangePayment(opt.key);
-                    setOpen(false);
-                  }}
-                  className={`p-2 rounded-md border text-center transition-colors ${
-                    isActive
-                      ? 'border-sky-500 bg-sky-500/10'
-                      : 'border-border hover:bg-accent/40 hover:border-sky-300'
-                  }`}
-                  title={`${opt.installments}x de R$ ${fmtBRL(c.installmentValue)}`}
-                >
-                  <p className={`text-[11px] font-bold ${isActive ? 'text-sky-700' : 'text-foreground'}`}>
-                    {opt.label}
-                  </p>
-                  <p className="text-[10px] text-muted-foreground tabular-nums leading-tight mt-0.5">
-                    R$ {fmtBRL(c.installmentValue)}
-                  </p>
-                </button>
+                <li key={opt.key}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onChangePayment(opt.key);
+                      setOpen(false);
+                    }}
+                    className={`w-full grid grid-cols-[60px_1fr_auto] gap-3 px-3 py-2 text-left transition-colors border-b border-border/40 last:border-0 ${
+                      isActive
+                        ? 'bg-sky-500/10 text-sky-700'
+                        : 'hover:bg-accent/40'
+                    }`}
+                  >
+                    <span className={`text-sm tabular-nums ${isActive ? 'font-bold' : 'font-medium text-foreground'}`}>
+                      {opt.installments}x
+                    </span>
+                    <span className="text-xs tabular-nums">
+                      de <strong className={isActive ? 'text-sky-700' : 'text-foreground'}>R$ {fmtBRL(c.installmentValue)}</strong>
+                      {opt.installments === 1 && (
+                        <span className="text-muted-foreground"> sem juros</span>
+                      )}
+                    </span>
+                    <span className="text-xs tabular-nums text-right text-muted-foreground">
+                      R$ {fmtBRL(c.finalValue)}
+                    </span>
+                  </button>
+                </li>
               );
             })}
-          </div>
+          </ul>
         </div>
       )}
     </div>
