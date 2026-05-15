@@ -10,6 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
+  Megaphone,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -603,6 +604,13 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/marketing'),
       show: perms.canViewAnalytics,
     },
+    influencers: {
+      label: 'Influenciadores',
+      href: '/atendimento/influenciadores',
+      icon: <Megaphone size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/influenciadores'),
+      show: perms.isAdmin,
+    },
     manual: {
       label: 'Manual',
       href: '/atendimento/manual',
@@ -664,6 +672,15 @@ export function Sidebar() {
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
         allItems.returnAlerts, // Retornos (movido pra COMERCIAL)
         allItems.followup,     // Follow-up IA (admin)
+      ].filter(i => i.show),
+    },
+    {
+      id: 'marketing',
+      label: 'Marketing',
+      defaultExpanded: false, // grupo novo — comeca colapsado pra nao poluir
+      icon: <Megaphone size={14} strokeWidth={2.5} />,
+      items: [
+        allItems.influencers,  // Cadastro de influenciadores (admin only)
       ].filter(i => i.show),
     },
     {

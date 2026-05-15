@@ -78,6 +78,8 @@ model Tenant {
   quote_coupons             QuoteCoupon[]
   // Pos-atendimento (Fase 26)
   post_care_surveys         PostCareSurvey[]
+  // Marketing — Influenciadores
+  influencers               Influencer[]
 }
 
 model User {
@@ -1771,6 +1773,46 @@ model ReferralRule {
   updated_at               DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+}
+
+// ============================================================================
+// MARKETING — Influenciadores (parcerias com criadores de conteúdo)
+// ============================================================================
+// Cadastro de influenciadores que divulgam a clínica. Isolado dos models
+// existentes (Patient/Lead/Referral) — relacionamentos com pacientes/leads
+// gerados podem ser adicionados depois sem migração destrutiva.
+model Influencer {
+  id              String   @id @default(uuid())
+  tenant_id       String
+
+  // Contato
+  name            String
+  handle          String?  // @ principal (instagram/tiktok), sem o @
+  phone           String?
+  email           String?
+
+  // Plataforma e audiência
+  platform        String?  // INSTAGRAM | TIKTOK | YOUTUBE | OUTRO
+  followers       Int?     // nº seguidores na plataforma principal
+  niche           String?  // odonto, lifestyle, fitness, beleza, etc.
+
+  // Modelo financeiro acordado
+  commission_type  String?  // PERCENTUAL | FIXO | PERMUTA
+  commission_value Decimal? @db.Decimal(10, 2) // % ou R$ (depende do tipo)
+  coupon_code      String?  // código de desconto associado (rastreio)
+
+  // Operacional
+  status          String   @default("ATIVO") // ATIVO | PAUSADO | INATIVO
+  notes           String?
+
+  created_at      DateTime @default(now())
+  updated_at      DateTime @updatedAt
+
+  tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, coupon_code]) // cupom único por tenant (quando preenchido)
+  @@index([tenant_id, status])
+  @@index([tenant_id, name])
 }
 
 model PatientAllergy {

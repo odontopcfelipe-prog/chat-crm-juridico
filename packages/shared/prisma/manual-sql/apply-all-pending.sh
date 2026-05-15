@@ -56,6 +56,7 @@ MIGRATIONS=(
   "2026-04-22-schema-radiografia.sql"
   "2026-04-22-schema-smile-design.sql"
   "2026-04-22-schema-installment-charges.sql"
+  "2026-05-15-influencers.sql"
 )
 
 SQL_DIR="$(dirname "$0")"

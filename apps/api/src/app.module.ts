@@ -60,6 +60,7 @@ import { SmileDesignModule } from './smile-design/smile-design.module';
 import { RadiographyModule } from './radiography/radiography.module';
 import { PatientTagsModule } from './patient-tags/patient-tags.module';
 import { ReferralsModule } from './referrals/referrals.module';
+import { InfluencersModule } from './influencers/influencers.module';
 
 import { HealthController } from './common/controllers/health.controller';
 import { PrismaExceptionFilter } from './common/filters/prisma-exception.filter';
@@ -157,6 +158,8 @@ import { RolesGuard } from './auth/guards/roles.guard';
     PatientTagsModule,
     // Fase 21 — Indicacao Premiada (cashback)
     ReferralsModule,
+    // Marketing — Influenciadores
+    InfluencersModule,
   ],
   controllers: [AppController, HealthController],
   providers: [
