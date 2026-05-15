@@ -1307,28 +1307,9 @@ function QuoteDetailView({
         <EngagementMetricsCard quote={quote} />
       )}
 
-      {/* Onda 2 — Sugestoes de pagamento (calculado on-the-fly).
-          Onda 7.4 — Total das sugestoes = APROVADOS + SELECIONADOS pendentes.
-          Logica:
-          - Items aprovados in-place (approved_at != null) ja entraram no
-            "compromisso financeiro" — sempre contam.
-          - Items selecionados (partialSelection) sao os que o paciente vai
-            fechar AGORA — somam ao aprovado pra recepcao ver "quanto vai
-            pagar no total se fechar isso aqui".
-          - Items pendentes nao selecionados NAO contam (paciente ainda nao
-            decidiu).
-          - Fallback pro total cheio quando 0 selec + 0 aprovado (orcamento
-            todo pendente). */}
-      {(() => {
-        const approvedTotal = quote.items
-          .filter((it) => !!it.approved_at)
-          .reduce((acc, it) => acc + Number(it.total_price), 0);
-        const baseTotal = (partialSelection.size > 0 || approvedTotal > 0)
-          ? approvedTotal + partialTotal
-          : Number(quote.total_value);
-        if (baseTotal <= 0) return null;
-        return <PaymentSuggestionsCard total={baseTotal} />;
-      })()}
+      {/* Onda 12.9 — Bloco "Sugestoes de pagamento" removido da aba Orcamentos.
+          As opcoes de pagamento agora ficam centralizadas na aba Propostas
+          (PIX/Cartao/Financiamento Banco PASSOS). */}
 
       {/* Ações */}
       <div className="flex flex-wrap gap-2 mb-4">
