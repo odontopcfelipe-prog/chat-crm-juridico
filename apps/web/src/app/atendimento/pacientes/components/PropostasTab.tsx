@@ -108,14 +108,15 @@ function formatCadeira(totalMinutes: number | undefined): string | null {
 
 /** Onda 9 — opcoes de pagamento renderizadas no painel inline.
  *  Onda 11.2 — adicionado interestRate (% a.m.) pra suportar boleto parcelado.
- *  Onda 11.3 — adicionado downPaymentPercent (entrada que abate as parcelas). */
+ *  Onda 11.3 — adicionado downPaymentPercent (entrada que abate as parcelas).
+ *  Onda 11.4 — adicionado variant 'cartao' (1x-12x sem juros). */
 interface PaymentOption {
   key: string;
   label: string;
   sublabel: string;
   discountPercent: number; // 0 = sem desconto
   installments: number;
-  variant: 'avista' | 'parcelado';
+  variant: 'avista' | 'cartao' | 'parcelado';
   /** Onda 11.2 — % de juros ao mes (default 0 = sem juros, Tabela Price quando > 0) */
   interestRate?: number;
   /** Onda 11.3 — % de entrada (default 0). Reduz valor financiado antes de
@@ -123,7 +124,24 @@ interface PaymentOption {
   downPaymentPercent?: number;
 }
 
-function buildPaymentOptions(): { avista: PaymentOption[]; parcelado: PaymentOption[] } {
+function buildPaymentOptions(): {
+  avista: PaymentOption[];
+  cartao: PaymentOption[];
+  parcelado: PaymentOption[];
+} {
+  // Onda 11.4 — gera 12 opcoes de cartao (1x ate 12x, sem juros)
+  const cartao: PaymentOption[] = Array.from({ length: 12 }, (_, idx) => {
+    const n = idx + 1;
+    return {
+      key: `cartao-${n}x`,
+      label: `${n}x`,
+      sublabel: '',
+      discountPercent: 0,
+      installments: n,
+      variant: 'cartao',
+    };
+  });
+
   return {
     avista: [
       {
@@ -143,6 +161,8 @@ function buildPaymentOptions(): { avista: PaymentOption[]; parcelado: PaymentOpt
         variant: 'avista',
       },
     ],
+    // Onda 11.4 — Cartao de credito 1x ate 12x sem juros
+    cartao,
     // Onda 11.2 — Boleto parcelado com juros 1,5%/mes
     // Onda 11.3 — entrada de 20% em todas as opcoes parceladas
     parcelado: [
@@ -574,7 +594,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         const hasApproved = selectedDetail.items.some((it) => !!it.approved_at);
         const total = hasApproved ? approvedValue : totalBruto;
         const opts = buildPaymentOptions();
-        const allOptions = [...opts.avista, ...opts.parcelado];
+        const allOptions = [...opts.avista, ...opts.cartao, ...opts.parcelado];
         const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
         const calc = applyPaymentOption(total, activeOption);
         const priority = (quotes.find((q) => q.id === selectedId)?.priority as Priority | undefined) || null;
@@ -582,6 +602,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         const paymentLabel =
           activeOption.variant === 'avista'
             ? `${activeOption.label} à vista`
+            : activeOption.variant === 'cartao'
+            ? `${activeOption.installments}x no cartão (sem juros)`
             : `${activeOption.installments}x no boleto (entrada ${activeOption.downPaymentPercent ?? 0}% + ${activeOption.interestRate}%/mês)`;
         // Onda 11.2 — finalValue agora reflete o que foi ofertado:
         // a vista = descontado / parcelado = total com juros
@@ -892,7 +914,7 @@ function PropostaPainel({
   const total = hasPartialApproval ? approvedValue : totalBruto;
 
   const options = buildPaymentOptions();
-  const allOptions = [...options.avista, ...options.parcelado];
+  const allOptions = [...options.avista, ...options.cartao, ...options.parcelado];
   const activeOption = allOptions.find((o) => o.key === activePaymentKey) || options.avista[0];
   const activeCalc = applyPaymentOption(total, activeOption);
 
@@ -1054,6 +1076,47 @@ function PropostaPainel({
         </div>
       </div>
 
+      {/* Onda 11.4 — Cartao de credito 1x ate 12x sem juros (clique pra escolher) */}
+      <div className="mb-3">
+        <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+          Cartão de crédito — sem juros · clique pra escolher as parcelas
+        </p>
+        <div className="grid grid-cols-6 sm:grid-cols-6 md:grid-cols-12 gap-1.5">
+          {options.cartao.map((opt) => {
+            const isActive = activePaymentKey === opt.key;
+            const calc = applyPaymentOption(total, opt);
+            return (
+              <button
+                key={opt.key}
+                type="button"
+                onClick={() => onChangePayment(opt.key)}
+                className={`p-1.5 rounded-lg border text-center transition-colors ${
+                  isActive
+                    ? 'border-sky-500 bg-sky-500/10 ring-2 ring-sky-500/20'
+                    : 'border-border hover:bg-accent/40 hover:border-sky-300'
+                }`}
+                title={`${opt.installments}x de R$ ${fmtBRL(calc.installmentValue)}`}
+              >
+                <p className={`text-[11px] font-bold ${isActive ? 'text-sky-700' : 'text-foreground'}`}>
+                  {opt.label}
+                </p>
+                <p className="text-[10px] text-muted-foreground tabular-nums leading-tight mt-0.5">
+                  R$ {fmtBRL(calc.installmentValue)}
+                </p>
+              </button>
+            );
+          })}
+        </div>
+        {/* Detalhe da opcao ativa (quando cartao) */}
+        {activeOption.variant === 'cartao' && (
+          <p className="text-[11px] text-sky-700 mt-2 px-1">
+            <strong>{activeOption.installments}x</strong> de R$ {fmtBRL(activeCalc.installmentValue)} ·{' '}
+            <span className="text-muted-foreground">total R$ {fmtBRL(activeCalc.finalValue)}</span>
+          </p>
+        )}
+      </div>
+
       {/* Onda 11.2 — Boleto parcelado com juros 1,5%/mes
           Onda 11.3 — entrada de 20% abate o valor financiado */}
       <div className="mb-3">
@@ -1106,10 +1169,19 @@ function PropostaPainel({
             {cfg?.label || 'Proposta'} em{' '}
             {activeOption.variant === 'avista'
               ? `${activeOption.label} à vista`
+              : activeOption.variant === 'cartao'
+              ? `${activeOption.installments}x no cartão`
               : `${activeOption.installments}x no boleto`}
             {' = '}
             {activeOption.variant === 'avista' ? (
               <>R$ {fmtBRL(activeCalc.finalValue)}</>
+            ) : activeOption.variant === 'cartao' ? (
+              <>
+                {activeOption.installments}x de R$ {fmtBRL(activeCalc.installmentValue)} ·{' '}
+                <span className="text-muted-foreground font-normal">
+                  total R$ {fmtBRL(activeCalc.finalValue)}
+                </span>
+              </>
             ) : (
               <>
                 entrada R$ {fmtBRL(activeCalc.downPaymentValue)} +{' '}
