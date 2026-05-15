@@ -427,13 +427,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   }, [quotes]);
 
   // Total da proposta COMPLETO (mais alta) — referencia pra calcular
-  // diferenca nas outras. Onda 11.1 — usa pending_value pra comparar
-  // "o que falta negociar" entre versoes (justo quando ha aprovacao parcial).
+  // diferenca nas outras. Onda 11.1 — usa approved_value quando ha aprovacao
+  // parcial (compara o que vai ser pago, nao o bruto).
   const completoTotal = useMemo(() => {
     const cs = grouped.get('COMPLETO');
     if (!cs || cs.length === 0) return null;
     const c = cs[0];
-    return Number(c.pending_value ?? c.total_value);
+    const ac = c.approved_count ?? 0;
+    return ac > 0
+      ? Number(c.approved_value ?? 0)
+      : Number(c.total_value);
   }, [grouped]);
 
   if (loading) {
@@ -562,15 +565,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
 
       {/* Onda 10 — Dialog "Salvar contraproposta" */}
       {counterPropOpen && selectedDetail && (() => {
-        // Onda 11.1 — usa pending_value (desconta items ja aprovados) pra que
-        // a oferta registrada reflita o que realmente esta sendo negociado.
+        // Onda 11.1 — usa approved_value quando ha aprovacao parcial (proposta
+        // de pagamento e sobre o que paciente ja topou).
         const totalBruto = Number(selectedDetail.total_value);
-        const pendingValue = selectedDetail.items
-          .filter((it) => !it.approved_at)
+        const approvedValue = selectedDetail.items
+          .filter((it) => !!it.approved_at)
           .reduce((acc, it) => acc + Number(it.total_price), 0);
-        const total = selectedDetail.items.some((it) => !!it.approved_at)
-          ? pendingValue
-          : totalBruto;
+        const hasApproved = selectedDetail.items.some((it) => !!it.approved_at);
+        const total = hasApproved ? approvedValue : totalBruto;
         const opts = buildPaymentOptions();
         const allOptions = [...opts.avista, ...opts.parcelado];
         const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
@@ -699,17 +701,19 @@ function PropostaCard({
   }
 
   const totalBruto = Number(quote.total_value);
-  // Onda 11.1 — se ha aprovacao parcial, exibe pending_value como base de
-  // negociacao (o que ainda falta o paciente decidir). Senao usa total_value.
+  // Onda 11.1 — se ha aprovacao parcial, exibe approved_value como base
+  // (o que paciente ja topou e vai pagar). Pendentes ficam de fora da proposta.
+  // Senao usa total_value.
   const approvedCount = quote.approved_count ?? 0;
   const approvedValue = Number(quote.approved_value ?? 0);
   const pendingValue = Number(quote.pending_value ?? totalBruto);
   const hasPartialApproval = approvedCount > 0;
-  const total = hasPartialApproval ? pendingValue : totalBruto;
+  const total = hasPartialApproval ? approvedValue : totalBruto;
   const isSent = quote.status === 'SENT';
   const cadeira = formatCadeira(quote.total_duration_minutes);
   // Diferenca vs Completo (so faz sentido pra Essencial/Urgente).
-  // Usa pending value de ambos os lados pra comparacao justa.
+  // Usa approved value de ambos os lados pra comparacao justa do que vai
+  // ser efetivamente pago.
   const diffVsCompleto =
     completoTotal !== null && priority !== 'COMPLETO'
       ? total - completoTotal
@@ -765,12 +769,11 @@ function PropostaCard({
             <Layers size={10} />
             {hasPartialApproval ? (
               <>
-                {quote.pending_count ?? 0} pendente
-                {(quote.pending_count ?? 0) === 1 ? '' : 's'}
-                {' · '}
                 <span className="text-emerald-700 font-semibold">
                   {approvedCount} aprovado{approvedCount === 1 ? '' : 's'}
                 </span>
+                {' · '}
+                {quote.pending_count ?? 0} em aberto
               </>
             ) : (
               <>
@@ -787,14 +790,14 @@ function PropostaCard({
         </div>
       </div>
 
-      {/* Total — quando ha aprovacao parcial, exibe pending_value como destaque
-          e o aprovado como info secundaria (matching comportamento aba Orcamentos) */}
+      {/* Total — quando ha aprovacao parcial, exibe approved_value como destaque
+          (o que paciente ja topou e vai pagar). Pendente vira info secundaria. */}
       <p className="text-xl font-bold text-foreground">
         R$ {fmtBRL(total)}
       </p>
       {hasPartialApproval ? (
         <p className="text-[11px] text-muted-foreground mt-0.5">
-          a negociar · <span className="text-emerald-700">+ R$ {fmtBRL(approvedValue)} já aprovado</span>
+          <span className="text-emerald-700">já aprovado</span> · + R$ {fmtBRL(pendingValue)} em aberto
         </p>
       ) : null}
 
@@ -877,23 +880,27 @@ function PropostaPainel({
 
   const cfg = priority ? PRIORITY_CONFIG[priority] : null;
   const totalBruto = Number(detail.total_value);
-  // Onda 11.1 — items aprovados in-place (approved_at != null) ja foram fechados.
-  // Negociacao acontece sobre o pending_value (items ainda pendentes).
+  // Onda 11.1 — items aprovados in-place (approved_at != null) sao o que o
+  // paciente ja topou e vai pagar. Proposta de pagamento e sobre esses items.
+  // Pendentes ficam de fora (paciente ainda nao topou).
   const approvedItems = detail.items.filter((it) => !!it.approved_at);
   const pendingItems = detail.items.filter((it) => !it.approved_at);
   const approvedValue = approvedItems.reduce((acc, it) => acc + Number(it.total_price), 0);
   const pendingValue = pendingItems.reduce((acc, it) => acc + Number(it.total_price), 0);
   const hasPartialApproval = approvedItems.length > 0;
-  // Base usada pra calcular formas de pagamento — desconta o ja aprovado.
-  const total = hasPartialApproval ? pendingValue : totalBruto;
+  // Base usada pra calcular formas de pagamento — usa o ja aprovado.
+  const total = hasPartialApproval ? approvedValue : totalBruto;
 
   const options = buildPaymentOptions();
   const allOptions = [...options.avista, ...options.parcelado];
   const activeOption = allOptions.find((o) => o.key === activePaymentKey) || options.avista[0];
   const activeCalc = applyPaymentOption(total, activeOption);
 
-  // Onda 11.1 — Ordena itens: pendentes primeiro (foco da negociacao), aprovados depois.
-  const itemsSorted = [...pendingItems, ...approvedItems];
+  // Onda 11.1 — Ordena itens: aprovados primeiro (incluidos nesta proposta de
+  // pagamento), pendentes depois (em aberto, nao incluidos).
+  const itemsSorted = hasPartialApproval
+    ? [...approvedItems, ...pendingItems]
+    : detail.items;
   const topItems = itemsSorted.slice(0, 4);
   const remainingItems = itemsSorted.slice(4);
   const hasMore = remainingItems.length > 0;
@@ -915,13 +922,13 @@ function PropostaPainel({
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {hasPartialApproval ? (
               <>
-                {pendingItems.length} pendente{pendingItems.length === 1 ? '' : 's'}
-                {' · '}
                 <span className="text-emerald-700 font-semibold">
                   {approvedItems.length} aprovado{approvedItems.length === 1 ? '' : 's'}
                 </span>
+                {' · '}
+                {pendingItems.length} em aberto
                 {' · '}base R$ {fmtBRL(total)}
-                {' '}<span className="text-muted-foreground">(a negociar)</span>
+                {' '}<span className="text-muted-foreground">(do que foi aprovado)</span>
               </>
             ) : (
               <>
@@ -931,11 +938,11 @@ function PropostaPainel({
             )}
             {daysValid !== null && ` · validade ${daysValid} dia${daysValid === 1 ? '' : 's'}`}
           </p>
-          {/* Banner amber quando ha aprovacao parcial */}
-          {hasPartialApproval && (
-            <p className="text-[10px] text-emerald-800 bg-emerald-500/10 border border-emerald-500/30 rounded-md px-2 py-1 mt-1.5 inline-flex items-center gap-1.5">
-              <Check size={10} />
-              <strong>R$ {fmtBRL(approvedValue)}</strong> já aprovado e fora da negociação
+          {/* Banner: items ainda em aberto (nao incluidos nesta proposta) */}
+          {hasPartialApproval && pendingItems.length > 0 && (
+            <p className="text-[10px] text-amber-800 bg-amber-500/10 border border-amber-500/30 rounded-md px-2 py-1 mt-1.5 inline-flex items-center gap-1.5">
+              <AlertTriangle size={10} />
+              <strong>R$ {fmtBRL(pendingValue)}</strong> em {pendingItems.length} item{pendingItems.length === 1 ? '' : 's'} ainda em aberto · fora desta proposta
             </p>
           )}
         </div>
@@ -958,22 +965,31 @@ function PropostaPainel({
         <ul className="space-y-1">
           {(itemsExpanded ? itemsSorted : topItems).map((it) => {
             const isApproved = !!it.approved_at;
+            // Onda 11.1 — quando ha aprovacao parcial, items pendentes ficam
+            // "fora da proposta" (opacity + line-through). Aprovados ficam
+            // normais com check verde. Sem aprovacao parcial, tudo normal.
+            const isOutOfProposal = hasPartialApproval && !isApproved;
             return (
               <li
                 key={it.id}
                 className={`flex items-baseline justify-between text-xs py-1 border-b border-border/30 last:border-0 ${
-                  isApproved ? 'opacity-60' : ''
+                  isOutOfProposal ? 'opacity-50' : ''
                 }`}
               >
                 <span className="text-foreground truncate pr-2 flex items-center gap-1.5">
-                  {isApproved && (
+                  {isApproved && hasPartialApproval && (
                     <Check size={11} className="text-emerald-600 shrink-0" aria-label="aprovado" />
                   )}
-                  <span className={isApproved ? 'line-through' : ''}>
+                  <span className={isOutOfProposal ? 'line-through' : ''}>
                     {it.procedure.name}
                   </span>
                   {it.notes && (
                     <span className="text-muted-foreground"> · {it.notes}</span>
+                  )}
+                  {isOutOfProposal && (
+                    <span className="text-[9px] text-amber-700 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0">
+                      em aberto
+                    </span>
                   )}
                 </span>
                 <span className="text-muted-foreground tabular-nums shrink-0">
