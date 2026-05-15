@@ -988,23 +988,19 @@ function PropostaPainel({
           {(itemsExpanded ? itemsSorted : topItems).map((it) => {
             const isApproved = !!it.approved_at;
             // Onda 11.1 — quando ha aprovacao parcial, items pendentes ficam
-            // "fora da proposta" (opacity + line-through). Aprovados ficam
-            // normais com check verde. Sem aprovacao parcial, tudo normal.
+            // sinalizados como "em aberto" (badge amber) mas totalmente legiveis.
+            // Aprovados recebem check verde. Sem aprovacao parcial, tudo normal.
             const isOutOfProposal = hasPartialApproval && !isApproved;
             return (
               <li
                 key={it.id}
-                className={`flex items-baseline justify-between text-xs py-1 border-b border-border/30 last:border-0 ${
-                  isOutOfProposal ? 'opacity-50' : ''
-                }`}
+                className="flex items-baseline justify-between text-xs py-1 border-b border-border/30 last:border-0"
               >
                 <span className="text-foreground truncate pr-2 flex items-center gap-1.5">
                   {isApproved && hasPartialApproval && (
                     <Check size={11} className="text-emerald-600 shrink-0" aria-label="aprovado" />
                   )}
-                  <span className={isOutOfProposal ? 'line-through' : ''}>
-                    {it.procedure.name}
-                  </span>
+                  <span>{it.procedure.name}</span>
                   {it.notes && (
                     <span className="text-muted-foreground"> · {it.notes}</span>
                   )}
