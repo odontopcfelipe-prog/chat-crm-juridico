@@ -151,7 +151,7 @@ function buildPaymentOptions(): {
         key: 'pix',
         label: 'PIX ou dinheiro',
         sublabel: 'à vista',
-        discountPercent: 5,
+        discountPercent: 10,
         installments: 1,
         variant: 'avista',
       },
