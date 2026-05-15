@@ -251,6 +251,15 @@ export class QuotesService {
       // ja foram aprovados; pending_count = total - approved_count.
       approved_count: q.items.filter((it) => it.approved_at !== null).length,
       pending_count: q.items.filter((it) => it.approved_at === null).length,
+      // Onda 11.1 — valor monetario aprovado vs pendente (BUG: aba Propostas
+      // estava usando total_value bruto, ignorando aprovacao parcial). Agora
+      // o front pode mostrar "R$ a negociar" descontando o que ja foi aprovado.
+      approved_value: q.items
+        .filter((it) => it.approved_at !== null)
+        .reduce((acc, it) => acc + Number(it.total_price), 0),
+      pending_value: q.items
+        .filter((it) => it.approved_at === null)
+        .reduce((acc, it) => acc + Number(it.total_price), 0),
       // Onda 9 — soma de duration_minutes × quantity de cada item. Usado na
       // aba Propostas pra mostrar "−Xh cadeira" no card.
       total_duration_minutes: q.items.reduce(
