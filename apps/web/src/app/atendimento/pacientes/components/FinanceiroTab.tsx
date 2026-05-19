@@ -157,17 +157,54 @@ export default function FinanceiroTab({ patientId }: Props) {
 
   useEffect(() => { load(); }, [load]);
 
-  // Resumo: agrega valores por status. Pago = soma dos amount_paid de PAGA +
-  // PARCIAL. Em aberto = ABERTA + PARCIAL (saldo restante). Atrasado = ATRASADA.
+  // Onda 14.15 — Polling a cada 30s pra atualizar status em tempo real
+  // (charges atualizadas pelo webhook do Asaas). Reload silencioso (sem
+  // mostrar spinner) pra nao incomodar o operador.
+  useEffect(() => {
+    const id = setInterval(() => {
+      // Reload silencioso: nao mexe em `loading` state
+      api.get<Charge[]>(`/payment-gateway/patients/${patientId}/charges`)
+        .then(({ data }) => setCharges(data || []))
+        .catch(() => { /* silencia */ });
+      api.get<{ data: Installment[] } | Installment[]>(
+        `/installments?patient_id=${patientId}&limit=200`,
+      )
+        .then(({ data }) => {
+          const list = Array.isArray(data) ? data : data?.data || [];
+          setInstallments(list);
+        })
+        .catch(() => { /* silencia */ });
+    }, 30_000);
+    return () => clearInterval(id);
+  }, [patientId]);
+
+  // Onda 14.15 — Resumo agrega installments + charges + accepted quotes.
+  //   Total contratado = soma dos quotes ACCEPTED (ou installments se nao ha quotes)
+  //   Já recebido     = installments PAGAS + charges RECEIVED/CONFIRMED
+  //   Em aberto       = installments ABERTA/PARCIAL + charges PENDING
+  //   Atrasado        = installments ATRASADA + charges OVERDUE
   const summary = useMemo(() => {
     let total = 0;
     let paid = 0;
     let pending = 0;
     let overdue = 0;
+
+    // 1. Total contratado: prioriza quotes ACCEPTED (visão de negocio).
+    //    Se nao ha quotes (orcamentos antigos via Installments), cai pra installments.
+    if (acceptedQuotes.length > 0) {
+      for (const q of acceptedQuotes) {
+        total += Number(q.total_value);
+      }
+    } else {
+      for (const it of installments) {
+        total += Number(it.amount);
+      }
+    }
+
+    // 2. Installments (fluxo antigo de parcelas odontologicas)
     for (const it of installments) {
       const amt = Number(it.amount);
       const amtPaid = Number(it.amount_paid);
-      total += amt;
       if (it.status === 'PAGA' || it.status === 'PARCIAL') {
         paid += amtPaid;
       }
@@ -178,8 +215,22 @@ export default function FinanceiroTab({ patientId }: Props) {
         overdue += Math.max(amt - amtPaid, 0);
       }
     }
+
+    // 3. Charges Asaas (fluxo novo via approveAndBill)
+    //    Status sincronizado pelo webhook (PaymentGatewayCharge.status)
+    for (const c of charges) {
+      const amt = Number(c.amount);
+      if (c.status === 'RECEIVED' || c.status === 'CONFIRMED') {
+        paid += amt;
+      } else if (c.status === 'OVERDUE') {
+        overdue += amt;
+      } else if (c.status === 'PENDING') {
+        pending += amt;
+      }
+      // DELETED/REFUNDED nao contam (canceladas/estornadas)
+    }
     return { total, paid, pending, overdue };
-  }, [installments]);
+  }, [installments, charges, acceptedQuotes]);
 
   const markPaid = async (id: string) => {
     if (!confirm('Marcar parcela como PAGA hoje?')) return;
@@ -224,6 +275,23 @@ export default function FinanceiroTab({ patientId }: Props) {
 
   return (
     <div className="space-y-4">
+      {/* Onda 14.15 — Header com indicador de sincronizacao */}
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-[10px] text-muted-foreground italic flex items-center gap-1.5">
+          <Clock size={10} />
+          Atualiza automaticamente a cada 30s · webhook Asaas em tempo real
+        </p>
+        <button
+          type="button"
+          onClick={load}
+          disabled={loading}
+          className="text-[10px] text-primary hover:underline disabled:opacity-50"
+          title="Atualizar agora"
+        >
+          {loading ? <Loader2 size={11} className="animate-spin inline" /> : '↻ Atualizar agora'}
+        </button>
+      </div>
+
       {/* Resumo financeiro do paciente */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <SummaryCard
