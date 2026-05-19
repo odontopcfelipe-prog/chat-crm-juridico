@@ -138,6 +138,9 @@ model User {
   clinical_notes_authored       ClinicalNote[]         @relation("ClinicalNoteAuthor")
   quotes_created                Quote[]                @relation("QuoteCreator")
   quotes_deleted                Quote[]                @relation("QuoteDeleter")
+  // Onda 14.24 — contratos criados e eventos de contrato disparados
+  contracts_created             Contract[]             @relation("ContractCreator")
+  contract_events_triggered     ContractEvent[]        @relation("ContractEventTrigger")
   treatment_plan_items_executed TreatmentPlanItem[]    @relation("TreatmentPlanItemExecutor")
   quote_items_assigned          QuoteItem[]            @relation("QuoteItemDentist")
   // Estetica facial + estoque (Fase 6)
@@ -2532,6 +2535,11 @@ model Quote {
   accepted_from        Quote?  @relation("QuotePartialAcceptance", fields: [accepted_from_id], references: [id], onDelete: SetNull)
   partial_acceptances  Quote[] @relation("QuotePartialAcceptance")
 
+  // Onda 14.24 — Contrato vinculado (1:1). Criado depois que o quote vai
+  // pra ACCEPTED, gate antes de gerar cobranca. Opcional (operador pode
+  // pular pra valores baixos). Detalhes no model Contract.
+  contract             Contract?
+
   @@index([patient_id, status])
   @@index([status, valid_until])
   @@index([coupon_id])
@@ -2728,6 +2736,105 @@ model QuoteItem {
 
   @@index([quote_id])
   @@index([dentist_id])
+}
+
+/// Onda 14.24 — Contrato vinculado a um Quote ACCEPTED. Gate entre
+/// aprovacao da proposta e geracao de cobranca: operador NAO pode cobrar
+/// se o contrato esta pendente (a nao ser que tenha sido pulado via
+/// skipped=true pra valores baixos). Fase 1: status atualizados manualmente
+/// pelo operador. Fase 2: integracao ClickSign + webhook.
+///
+/// Diferente do ContractSignature antigo (linha 1116) que era vinculado
+/// a Lead+Conversation pro sistema legado de advocacia. Este e simples,
+/// vinculado direto ao Quote pelo fluxo odontologico.
+model Contract {
+  id       String @id @default(uuid())
+  quote_id String @unique
+
+  /// Tipo de template aplicado, define o conteudo do contrato.
+  /// "ORTODONTIA" | "IMPLANTE" | "CLINICO_BASICO" | "LENTES"
+  template_type String
+
+  /// Status do contrato:
+  /// DRAFT — criado mas nao enviado ainda
+  /// SENT — enviado pro paciente (aguardando assinatura)
+  /// OPENED — paciente abriu o documento (sub-step antes de assinar)
+  /// PATIENT_SIGNED — paciente assinou, falta a clinica
+  /// SIGNED — totalmente assinado (paciente + clinica)
+  /// EXPIRED — passou do prazo sem assinar
+  /// CANCELLED — cancelado pelo operador
+  status String @default("DRAFT")
+
+  /// Onda 14.24 — Operador pode pular contrato pra valores baixos.
+  /// Quando true: cobranca liberada sem assinatura. Default false.
+  /// O valor do quote no momento da decisao fica em skipped_at_value pra audit.
+  skipped         Boolean   @default(false)
+  skipped_reason  String?
+  skipped_at      DateTime?
+
+  /// Onda 14.24 (Fase 2) — id do documento no ClickSign quando integrado.
+  /// Fase 1: null (gestao manual).
+  clicksign_document_id String?
+  /// URL pra assinar (paciente acessa via WhatsApp/email)
+  signing_url           String?
+  /// PDF gerado/assinado
+  pdf_url               String?
+
+  /// Timestamps das transicoes de status (audit + UI de sub-timeline)
+  sent_at           DateTime?
+  opened_at         DateTime?
+  patient_signed_at DateTime?
+  clinic_signed_at  DateTime?
+  signed_at         DateTime?
+  expires_at        DateTime?
+  cancelled_at      DateTime?
+  cancellation_reason String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  created_by_user_id String
+  quote      Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  created_by User  @relation("ContractCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
+
+  events ContractEvent[]
+
+  @@index([status])
+  @@index([clicksign_document_id])
+}
+
+/// Onda 14.24 — Eventos do contrato (sub-timeline mostrada no painel
+/// "Proximos passos" da aba Propostas). Cada transicao de status cria
+/// um evento. Permite mostrar historico granular ("documento gerado em
+/// X", "enviado em Y", "paciente abriu em Z", etc).
+model ContractEvent {
+  id          String @id @default(uuid())
+  contract_id String
+
+  /// Tipo do evento:
+  /// CREATED — documento gerado a partir do template
+  /// SENT — enviado pro paciente
+  /// OPENED — paciente abriu o documento
+  /// PATIENT_SIGNED — paciente assinou
+  /// CLINIC_SIGNED — clinica (dentista) assinou
+  /// EXPIRED — passou do prazo sem assinar
+  /// CANCELLED — operador cancelou
+  /// REMINDER_SENT — lembrete reenviado
+  /// SKIPPED — operador pulou o contrato
+  event_type String
+
+  /// Texto descritivo do evento (preenchido pelo handler).
+  description String?
+
+  /// Usuario que disparou (null se foi automatico/webhook)
+  triggered_by_user_id String?
+
+  occurred_at DateTime @default(now())
+
+  contract     Contract @relation(fields: [contract_id], references: [id], onDelete: Cascade)
+  triggered_by User?    @relation("ContractEventTrigger", fields: [triggered_by_user_id], references: [id], onDelete: SetNull)
+
+  @@index([contract_id, occurred_at])
 }
 
 model TreatmentPlan {

@@ -7,6 +7,7 @@ import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
+import { ContractsService } from './contracts.service';
 import { LeadsService } from '../leads/leads.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
@@ -47,6 +48,9 @@ export class QuotesService {
     // Onda 12.2: gera boletos Asaas (entrada + parcelas) ao aplicar
     // proposta aprovada pelo credit-check do Banco PASSOS.
     @Optional() private billingService?: TreatmentPlanBillingService,
+    // Onda 14.24: gate de contrato antes de gerar cobranca. Bloqueia
+    // approveAndBill se o quote tem contrato pendente nao assinado.
+    @Optional() private contractsService?: ContractsService,
   ) {}
 
   async create(
@@ -567,6 +571,20 @@ export class QuotesService {
 
       await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
       this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
+
+      // Onda 14.24 — Gate de contrato: bloqueia cobranca se o quote tem
+      // contrato pendente (DRAFT/SENT/OPENED/PATIENT_SIGNED). Libera se:
+      //  - Nao ha contrato (operador escolheu nao criar)
+      //  - Contrato SIGNED (assinado por ambos)
+      //  - Contrato SKIPPED (operador pulou pra valor baixo)
+      if (this.contractsService) {
+        const check = await this.contractsService.isBillingAllowed(quoteId);
+        if (!check.allowed) {
+          this.logger.warn(`[APPROVE-AND-BILL] [step:contract-gate] BLOCKED: ${check.reason}`);
+          throw new BadRequestException(check.reason || 'Contrato pendente bloqueia cobranca');
+        }
+        this.logger.log(`[APPROVE-AND-BILL] [step:contract-gate] OK`);
+      }
 
       // 1. Aceita SO se ainda DRAFT/SENT (idempotente)
       if (quote.status === 'DRAFT' || quote.status === 'SENT') {

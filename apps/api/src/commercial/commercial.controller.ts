@@ -51,6 +51,7 @@ import {
   ExecuteTreatmentPlanItemDto,
 } from './dto/commercial.dto';
 import { CreditCheckService } from './credit-check.service';
+import { ContractsService } from './contracts.service';
 
 /**
  * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
@@ -80,6 +81,7 @@ export class CommercialController {
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
     private readonly creditCheckService: CreditCheckService,
+    private readonly contractsService: ContractsService,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -801,5 +803,72 @@ export class CommercialController {
     const userId = req.user?.id;
     if (!tenantId || !userId) throw new BadRequestException('Contexto ausente');
     return this.plansService.executeItem(id, tenantId, userId, dto);
+  }
+
+  // ─── Contracts (Onda 14.24) ────────────────────────────────────
+  // Gate entre proposta aceita e geracao de cobranca. Fase 1: transicoes
+  // manuais via cliques do operador. Fase 2: trocar PATCH manuais por
+  // webhooks ClickSign (sem mudar API publica).
+
+  /** Pega o contrato de um quote (ou null se nao existe). */
+  @Get('quotes/:id/contract')
+  getQuoteContract(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.findByQuote(id, user.tenant_id);
+  }
+
+  /** Cria contrato DRAFT pra um Quote ACCEPTED. */
+  @Post('quotes/:id/contract')
+  createQuoteContract(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.createForQuote(id, user.tenant_id, user.id);
+  }
+
+  /** Detalhe do contrato + events. */
+  @Get('contracts/:id')
+  getContract(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.findOne(id, user.tenant_id);
+  }
+
+  /** Marca como enviado (Fase 1: manual). */
+  @Post('contracts/:id/send')
+  sendContract(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.markSent(id, user.tenant_id, user.id);
+  }
+
+  /** Marca que o paciente abriu o documento (Fase 1: manual). */
+  @Post('contracts/:id/mark-opened')
+  markContractOpened(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.markOpened(id, user.tenant_id, user.id);
+  }
+
+  /** Marca que o paciente assinou (falta a clinica). */
+  @Post('contracts/:id/sign-patient')
+  signContractPatient(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.markPatientSigned(id, user.tenant_id, user.id);
+  }
+
+  /** Marca que a clinica assinou — final. Libera geracao de cobranca. */
+  @Post('contracts/:id/sign-clinic')
+  signContractClinic(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.markClinicSigned(id, user.tenant_id, user.id);
+  }
+
+  /** Cancela o contrato (operador desiste e quer refazer). */
+  @Post('contracts/:id/cancel')
+  cancelContract(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.cancel(id, user.tenant_id, user.id, body?.reason);
+  }
+
+  /** Pula o contrato (operador assume risco — geralmente pra valores baixos). */
+  @Post('contracts/:id/skip')
+  skipContract(
+    @Param('id') id: string,
+    @Body() body: { reason?: string },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.skip(id, user.tenant_id, user.id, body?.reason);
   }
 }
