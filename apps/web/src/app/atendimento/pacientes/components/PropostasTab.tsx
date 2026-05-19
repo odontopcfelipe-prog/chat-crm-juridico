@@ -26,6 +26,8 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
+// Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita
+import ProximosPassosTimeline from './ProximosPassosTimeline';
 
 interface Props {
   patientId: string;
@@ -1599,6 +1601,24 @@ function PropostaPainel({
           <X size={16} />
         </button>
       </div>
+
+      {/* Onda 14.24 — Painel "Proximos passos" so aparece pra propostas ACEITAS.
+          Mostra timeline com etapas: plano criado → anamnese → contrato em
+          assinatura (com sub-timeline) → cobranca → agendar. Cobranca fica
+          bloqueada ate o contrato estar assinado (ou pulado pra valor baixo).
+          Substitui visualmente o antigo botao "Aprovar e cobrar" — o operador
+          aciona "Gerar cobranca" pela timeline (que reusa onApproveAndBill). */}
+      {detail.status === 'ACCEPTED' && (
+        <div className="mb-4">
+          <ProximosPassosTimeline
+            quoteId={detail.id}
+            quoteTitle={getQuoteDisplayName(detail)}
+            quoteTotal={Number(detail.total_value || 0)}
+            quoteNumberBadge={getQuoteNumberBadge(detail) || undefined}
+            onGenerateBilling={onApproveAndBill}
+          />
+        </div>
+      )}
 
       {/* Items list — Onda 11.1: items aprovados ficam com check verde + opacity */}
       <div className="mb-4">
