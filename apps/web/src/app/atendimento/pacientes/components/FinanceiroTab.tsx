@@ -584,8 +584,10 @@ function ProposalFinancialCard({
   const [planId, setPlanId] = useState<string | null>(null);
   const [loadingQuoteDetail, setLoadingQuoteDetail] = useState(false);
 
+  // Onda 14.17 — pré-carrega planId no mount (não só ao expandir) pra
+  // calcular a barra de progresso e o agregado no header colapsado.
   useEffect(() => {
-    if (!expanded || planId) return;
+    if (planId) return;
     setLoadingQuoteDetail(true);
     api.get<{ treatment_plan?: { id: string } | null }>(`/quotes/${quote.id}`)
       .then(({ data }) => {
@@ -593,7 +595,7 @@ function ProposalFinancialCard({
       })
       .catch(() => { /* silencia */ })
       .finally(() => setLoadingQuoteDetail(false));
-  }, [expanded, planId, quote.id]);
+  }, [planId, quote.id]);
 
   // Charges filtradas pelo planId real (depois de carregado)
   const relatedCharges = useMemo(() => {
@@ -603,9 +605,10 @@ function ProposalFinancialCard({
     );
   }, [allCharges, planId, initialRelatedCharges]);
 
-  // Carrega sub_installments de charges parceladas quando expande
+  // Onda 14.17 — pré-carrega sub_installments no mount (não só ao expandir)
+  // pra calcular barra de progresso + agregado no header colapsado.
   useEffect(() => {
-    if (!expanded || relatedCharges.length === 0) return;
+    if (relatedCharges.length === 0) return;
     setLoadingSubs(true);
     const fetchAll = async () => {
       const results: Record<string, SubInstallment[]> = {};
@@ -627,7 +630,7 @@ function ProposalFinancialCard({
       setLoadingSubs(false);
     };
     fetchAll();
-  }, [expanded, relatedCharges, subInstallmentsByCharge]);
+  }, [relatedCharges, subInstallmentsByCharge]);
 
   // Constrói lista de parcelas (combinando charges 1x + sub_installments de parcelas)
   const parcelas: ParcelaItem[] = useMemo(() => {
@@ -714,6 +717,12 @@ function ProposalFinancialCard({
     statusBadge = { label: 'Em pagamento', cls: 'bg-amber-500/15 text-amber-700' };
   }
 
+  // Onda 14.17 — proxima parcela pendente (pra mostrar "próx. vence DD/MM")
+  const nextParcela = useMemo(
+    () => parcelas.find((p) => p.isNext),
+    [parcelas],
+  );
+
   const subtitle = (() => {
     if (agg.totalCount === 0) return 'sem cobrança gerada ainda';
     if (agg.totalCount === 1) return `pagamento à vista (${agg.pagasCount === 1 ? 'pago' : 'pendente'})`;
@@ -722,7 +731,7 @@ function ProposalFinancialCard({
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
-      {/* Header — sempre visível */}
+      {/* Header — sempre visível. Onda 14.17: barra de progresso colapsada. */}
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
@@ -731,7 +740,7 @@ function ProposalFinancialCard({
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-start gap-3 min-w-0 flex-1">
             <span className="text-xs text-muted-foreground mt-0.5">#{index}</span>
-            <div className="min-w-0">
+            <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-foreground">
                   {quote.title || 'Plano de tratamento'}
@@ -740,8 +749,31 @@ function ProposalFinancialCard({
                   {statusBadge.label}
                 </span>
               </div>
-              <p className="text-[11px] text-muted-foreground mt-0.5">
-                Aceito em {fmtDate(quote.accepted_at || quote.created_at)} · {subtitle}
+              {/* Onda 14.17 — Barra de progresso compacta no header (sempre visível) */}
+              {agg.contratado > 0 && (
+                <div className="mt-2 mb-1 max-w-md">
+                  <div className="w-full bg-muted h-1.5 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                      style={{ width: `${Math.min(agg.pct, 100)}%` }}
+                    />
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">
+                {agg.totalCount === 0
+                  ? `Aceito em ${fmtDate(quote.accepted_at || quote.created_at)} · ${subtitle}`
+                  : (
+                    <>
+                      <span className="tabular-nums">
+                        {fmtBRL(agg.recebido)} / {fmtBRL(agg.contratado)}
+                      </span>
+                      {nextParcela && (
+                        <> · próx. vence {fmtDate(nextParcela.dueDate).slice(0, 5)}</>
+                      )}
+                      {agg.pct >= 100 && <> · ✓ quitado</>}
+                    </>
+                  )}
               </p>
             </div>
           </div>
