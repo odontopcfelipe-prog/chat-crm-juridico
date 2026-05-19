@@ -543,45 +543,86 @@ export class QuotesService {
       throw new BadRequestException('Servico de cobranca indisponivel');
     }
 
-    // 0. Onda 14.6 — Valida pre-condicoes (CPF + lead_id) ANTES de aceitar
-    //    pra nao deixar quote/plan em estado inconsistente.
-    const quote = await this.findOne(quoteId, tenantId);
-    await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
+    // Onda 14.8 — logs por etapa pra debug + catch global com mensagens claras
+    this.logger.log(`[APPROVE-AND-BILL] [step:start] Quote ${quoteId}`);
 
-    // 1. Onda 14.6 — Aceita SO se ainda DRAFT/SENT (idempotente)
-    if (quote.status === 'DRAFT' || quote.status === 'SENT') {
-      await this.accept(quoteId, tenantId, userId);
-    }
+    try {
+      // 0. Valida pre-condicoes (CPF + lead_id) ANTES de aceitar
+      const quote = await this.findOne(quoteId, tenantId);
+      this.logger.log(`[APPROVE-AND-BILL] [step:findOne] Quote ${quoteId} status=${quote.status}, items=${quote.items.length}`);
 
-    // 2. Busca o TreatmentPlan e ativa (idempotente)
-    const plan = await this.prisma.treatmentPlan.findFirst({
-      where: { quote_id: quoteId },
-    });
-    if (!plan) {
-      throw new BadRequestException(
-        'Plano de tratamento nao foi criado — verifique se o orcamento tem items',
-      );
-    }
-    if (plan.status !== 'ACTIVE') {
-      await this.prisma.treatmentPlan.update({
-        where: { id: plan.id },
-        data: { status: 'ACTIVE', start_date: new Date() },
+      await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
+      this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
+
+      // 1. Aceita SO se ainda DRAFT/SENT (idempotente)
+      if (quote.status === 'DRAFT' || quote.status === 'SENT') {
+        await this.accept(quoteId, tenantId, userId);
+        this.logger.log(`[APPROVE-AND-BILL] [step:accept] Quote aceito`);
+      } else {
+        this.logger.log(`[APPROVE-AND-BILL] [step:accept-skip] Quote ja ${quote.status}`);
+      }
+
+      // 2. Busca o TreatmentPlan e ativa (idempotente)
+      const plan = await this.prisma.treatmentPlan.findFirst({
+        where: { quote_id: quoteId },
       });
+      if (!plan) {
+        throw new BadRequestException(
+          'Plano de tratamento nao foi criado — verifique se o orcamento tem items',
+        );
+      }
+      this.logger.log(`[APPROVE-AND-BILL] [step:plan-found] Plan ${plan.id} status=${plan.status}`);
+
+      if (plan.status !== 'ACTIVE') {
+        await this.prisma.treatmentPlan.update({
+          where: { id: plan.id },
+          data: { status: 'ACTIVE', start_date: new Date() },
+        });
+        this.logger.log(`[APPROVE-AND-BILL] [step:plan-activated]`);
+      }
+
+      // 3. Cria cobranca
+      this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
+      const result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
+        billingType: data.billing_type,
+        value: data.value,
+        installmentCount: data.installment_count,
+      });
+
+      this.logger.log(
+        `[APPROVE-AND-BILL] [step:done] Quote ${quoteId}: ${data.billing_type} ` +
+        `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
+      );
+
+      return { quote_id: quoteId, ...result };
+    } catch (err: any) {
+      // Loga stack completo no servidor
+      this.logger.error(
+        `[APPROVE-AND-BILL] [FAILED] Quote ${quoteId} | err.name=${err?.name} | err.message=${err?.message}`,
+        err?.stack,
+      );
+
+      // Re-throw BadRequest com mensagem clara se for erro conhecido
+      if (err?.name === 'BadRequestException' || err?.status === 400) {
+        throw err;
+      }
+
+      // Erros do Asaas vem com 4xx do axios. Extrai mensagem util.
+      const asaasMsg = err?.message?.includes('[Asaas')
+        ? err.message
+        : null;
+      if (asaasMsg) {
+        throw new BadRequestException(`Erro Asaas: ${asaasMsg}`);
+      }
+
+      // Erro Prisma (constraint, etc)
+      if (err?.code?.startsWith('P')) {
+        throw new BadRequestException(`Erro de banco: ${err.code} — ${err.meta?.cause || err.message}`);
+      }
+
+      // Senao, propaga como 500 mesmo (caso desconhecido)
+      throw err;
     }
-
-    // 3. Cria cobranca
-    const result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
-      billingType: data.billing_type,
-      value: data.value,
-      installmentCount: data.installment_count,
-    });
-
-    this.logger.log(
-      `[APPROVE-AND-BILL] Quote ${quoteId}: ${data.billing_type} ` +
-      `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
-    );
-
-    return { quote_id: quoteId, ...result };
   }
 
   /**
