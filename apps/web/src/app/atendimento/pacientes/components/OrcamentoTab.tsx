@@ -1449,11 +1449,14 @@ function QuoteDetailView({
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
       {/* Onda 14.18 — Modal de renomear. Fica no fim do JSX pra evitar
-          conflito de z-index e nao re-renderizar a tela toda quando abre. */}
+          conflito de z-index e nao re-renderizar a tela toda quando abre.
+          Fix: clicar fora do modal SALVA (em vez de cancelar) — comportamento
+          mais natural pra acao reversivel como rename. Cancelar so via botao
+          ou Esc. */}
       {renameModalOpen && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-          onClick={() => !renaming && setRenameModalOpen(false)}
+          onClick={() => !renaming && submitRename()}
         >
           <div
             className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-5"
@@ -1463,6 +1466,7 @@ function QuoteDetailView({
             <p className="text-xs text-muted-foreground mb-3">
               Este nome aparece em todas as abas (Avaliacao, Orcamentos,
               Propostas, Financeiro). Identificador {getQuoteNumberBadge(quote) || 's/ numero'}.
+              {' '}<span className="text-foreground/80">Enter ou clicar fora salva.</span>
             </p>
             <input
               type="text"
@@ -1470,8 +1474,14 @@ function QuoteDetailView({
               value={renameDraft}
               onChange={(e) => setRenameDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === 'Enter') submitRename();
-                if (e.key === 'Escape' && !renaming) setRenameModalOpen(false);
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  submitRename();
+                }
+                if (e.key === 'Escape' && !renaming) {
+                  e.preventDefault();
+                  setRenameModalOpen(false);
+                }
               }}
               placeholder="Ex: Aparelho ortodontico superior"
               disabled={renaming}

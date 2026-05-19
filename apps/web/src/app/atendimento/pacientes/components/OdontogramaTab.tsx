@@ -294,13 +294,22 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     }
   }, [patientId, loadQuotesList]);
 
-  // Atualiza titulo do orcamento (edicao inline no card)
+  // Atualiza titulo do orcamento (edicao inline no card).
+  // Onda 14.18 (fix): optimistic update — atualiza a lista local IMEDIATAMENTE
+  // pra evitar a sensacao de "cancelou" enquanto o PATCH/refetch acontece.
+  // Toast de sucesso confirma visualmente. Em caso de erro, reverte via refetch.
   const updateQuoteTitle = useCallback(async (id: string, title: string) => {
+    // Optimistic — atualiza estado local na hora
+    setQuotesList((prev) => prev.map((q) => q.id === id ? { ...q, title: title || null } : q));
     try {
       await api.patch(`/quotes/${id}`, { title: title || null });
-      await loadQuotesList();
-      if (expandedQuoteId === id) await loadExpandedQuote(id);
+      showSuccess('Orcamento renomeado');
+      // Refetch em background pra garantir consistencia (categoria, contadores, etc)
+      loadQuotesList();
+      if (expandedQuoteId === id) loadExpandedQuote(id);
     } catch (err: unknown) {
+      // Reverte via refetch
+      await loadQuotesList();
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao renomear');
     }
@@ -715,8 +724,15 @@ function QuoteCard({
             onBlur={commitTitle}
             onKeyDown={(e) => {
               e.stopPropagation();
-              if (e.key === 'Enter') commitTitle();
-              if (e.key === 'Escape') setTitleDraft(null);
+              if (e.key === 'Enter') {
+                // preventDefault pra evitar submit/scroll/outros side-effects
+                e.preventDefault();
+                commitTitle();
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                setTitleDraft(null);
+              }
             }}
             placeholder="Nome do orcamento (ex: Reabilitacao superior)"
             className="text-sm font-bold tracking-wide px-2 py-0.5 rounded border border-primary bg-background min-w-[200px] focus:outline-none"
