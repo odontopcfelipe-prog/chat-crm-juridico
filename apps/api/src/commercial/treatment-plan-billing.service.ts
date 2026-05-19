@@ -312,12 +312,33 @@ export class TreatmentPlanBillingService {
       throw new BadRequestException('Valor deve ser maior que zero');
     }
 
-    // Idempotencia
+    // Idempotencia: se ja ha cobranca pro plano, retorna a existente
+    // (em vez de bloquear) — assim user que clicou 2x ve o boleto que ja
+    // foi criado em vez de ficar preso em "ja possui cobranca".
     const existing = await this.prisma.paymentGatewayCharge.findFirst({
       where: { description: { contains: `plan:${planId}` } },
+      orderBy: { created_at: 'desc' },
     });
     if (existing) {
-      throw new BadRequestException('Plano ja possui cobranca gerada');
+      this.logger.log(`[SIMPLE-CHARGE] Plan ${planId} ja tem cobranca ${existing.external_id} — retornando existente`);
+      return {
+        plan_id: planId,
+        charge: existing,
+        billing_type: existing.billing_type as 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+        installment_count: undefined,
+        pix: existing.pix_qr_code
+          ? {
+              qrCode: existing.pix_qr_code,
+              copyPaste: existing.pix_copy_paste || '',
+              expirationDate: existing.pix_expiration_date?.toISOString() || '',
+            }
+          : null,
+        boleto: existing.boleto_url
+          ? { url: existing.boleto_url, barcode: existing.boleto_barcode }
+          : null,
+        invoice_url: existing.invoice_url,
+        is_existing: true,
+      };
     }
 
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);

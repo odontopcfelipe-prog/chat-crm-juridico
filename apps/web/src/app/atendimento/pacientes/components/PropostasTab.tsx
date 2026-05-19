@@ -729,10 +729,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     [selectedDetail, load],
   );
 
-  // Filtra so DRAFT/SENT (aceitos/rejeitados ja foram decididos, nao
-  // sao "propostas em negociacao"). Agrupa por priority.
+  // Filtra DRAFT/SENT/ACCEPTED (aceitos continuam visiveis pra operador
+  // acompanhar status + gerar cobranca se faltou).
+  // Onda 14.7 — antes filtrava so DRAFT/SENT; ACCEPTED sumia da lista,
+  // confundindo o operador apos clicar "Aprovar e cobrar".
   const grouped = useMemo(() => {
-    const eligible = quotes.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
+    const eligible = quotes.filter(
+      (q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED',
+    );
     const m = new Map<Priority | 'NONE', QuoteListItem[]>();
     for (const q of eligible) {
       const key = (q.priority || 'NONE') as Priority | 'NONE';
@@ -1062,6 +1066,7 @@ function PropostaCard({
   const hasPartialApproval = approvedCount > 0;
   const total = hasPartialApproval ? approvedValue : totalBruto;
   const isSent = quote.status === 'SENT';
+  const isAccepted = quote.status === 'ACCEPTED';
   const cadeira = formatCadeira(quote.total_duration_minutes);
   // Diferenca vs Completo (so faz sentido pra Essencial/Urgente).
   // Usa approved value de ambos os lados pra comparacao justa do que vai
@@ -1086,6 +1091,14 @@ function PropostaCard({
       {isSent && !selected && (
         <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm">
           atual
+        </span>
+      )}
+
+      {/* Onda 14.7 — Badge "ACEITO" quando quote foi aprovado */}
+      {isAccepted && (
+        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm flex items-center gap-1">
+          <Check size={9} strokeWidth={3} />
+          ACEITO
         </span>
       )}
 
