@@ -247,6 +247,17 @@ type Priority = 'COMPLETO' | 'ESSENCIAL' | 'URGENTE';
 // Onda 9 — ordem na referencia: "do mais apertado pro mais completo"
 const PRIORITY_ORDER: Priority[] = ['URGENTE', 'ESSENCIAL', 'COMPLETO'];
 
+/**
+ * Onda 14.19 — Variantes visuais do card de proposta. Alem das 3 priorities
+ * canonicas (URGENTE/ESSENCIAL/COMPLETO) o sistema agora suporta versoes
+ * "LIVRE" — propostas extras sem priority pre-definida que aparecem em
+ * scroll lateral. Permite operador criar quantas variacoes quiser sem
+ * brigar pelo mesmo slot. q.priority no banco continua sendo Priority |
+ * null; "LIVRE" e SO um conceito de UI pra quotes com priority=null.
+ */
+type CardVariant = Priority | 'LIVRE';
+const CARD_VARIANTS: readonly CardVariant[] = ['URGENTE', 'ESSENCIAL', 'COMPLETO', 'LIVRE'] as const;
+
 /** Onda 9 — formata minutos como "−Xh cadeira" ou "Xmin cadeira" */
 function formatCadeira(totalMinutes: number | undefined): string | null {
   if (!totalMinutes || totalMinutes <= 0) return null;
@@ -387,7 +398,7 @@ function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-const PRIORITY_CONFIG: Record<Priority, {
+interface VariantConfig {
   label: string;
   description: string;
   icon: React.ReactNode;
@@ -396,7 +407,9 @@ const PRIORITY_CONFIG: Record<Priority, {
   iconCls: string;
   selectedBorderCls: string;
   selectedBgCls: string;
-}> = {
+}
+
+const PRIORITY_CONFIG: Record<Priority, VariantConfig> = {
   URGENTE: {
     label: 'Urgente',
     description: 'só o que dói ou bloqueia o resto',
@@ -428,6 +441,27 @@ const PRIORITY_CONFIG: Record<Priority, {
     selectedBgCls: 'bg-emerald-500/10',
   },
 };
+
+/**
+ * Onda 14.19 — Config visual pro card variante "LIVRE" (proposta extra sem
+ * priority canonica). Usa paleta neutra/azul pra diferenciar dos 3 slots
+ * fixos sem competir visualmente.
+ */
+const LIVRE_CONFIG: VariantConfig = {
+  label: 'Versão livre',
+  description: 'variação extra sem prioridade fixa',
+  icon: <Layers size={14} />,
+  borderCls: 'border-sky-500/30 hover:border-sky-500/60',
+  bgCls: 'bg-sky-500/5',
+  iconCls: 'text-sky-700',
+  selectedBorderCls: 'border-sky-500 ring-2 ring-sky-500/20',
+  selectedBgCls: 'bg-sky-500/10',
+};
+
+/** Resolve config pra qualquer CardVariant. */
+function getVariantConfig(variant: CardVariant): VariantConfig {
+  return variant === 'LIVRE' ? LIVRE_CONFIG : PRIORITY_CONFIG[variant];
+}
 
 export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
@@ -545,12 +579,17 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
 
   // Onda 9 — "+ nova versão": cria DRAFT vazio com priority escolhida,
   // navega pro detalhe na aba Orcamentos pra preencher items.
-  const createNewVersion = useCallback(async (priority: Priority) => {
+  // Onda 14.19 — agora aceita priority=null pra criar "Versao livre" (extra
+  // sem priority canonica). Aparece no scroll horizontal como card LIVRE.
+  const createNewVersion = useCallback(async (priority: Priority | null) => {
     setCreatingVersion(true);
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`, {});
-      await api.patch(`/quotes/${data.id}`, { priority });
-      showSuccess(`Nova versão ${PRIORITY_CONFIG[priority].label} criada — preencha os itens`);
+      if (priority) {
+        await api.patch(`/quotes/${data.id}`, { priority });
+      }
+      const label = priority ? PRIORITY_CONFIG[priority].label : 'Livre';
+      showSuccess(`Nova versão ${label} criada — preencha os itens`);
       setNewVersionOpen(false);
       onOpenQuoteDetail?.(data.id);
     } catch (err: unknown) {
@@ -835,33 +874,103 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         </button>
       </div>
 
-      {/* Cards lado a lado por prioridade — ordem URGENTE → ESSENCIAL → COMPLETO */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+      {/* Onda 14.19 — Scroll horizontal: 3 slots principais (URGENTE/ESSENCIAL
+          /COMPLETO) + versoes antigas como cards proprios + cards LIVRE pra
+          quotes extras sem priority. Antes era grid de 3 fixo — agora suporta
+          quantas variacoes o operador quiser sem brigar pelo mesmo slot.
+
+          Cada card: largura fixa, snap pra ficar alinhado, shrink-0 pra nao
+          espremer. `pb-3` da espaco pra scrollbar nao cortar shadow. `-mx-1
+          px-1` permite scrollar ate as bordas sem cortar visual. */}
+      <div className="flex flex-nowrap overflow-x-auto snap-x snap-mandatory gap-3 pb-3 -mx-1 px-1 scrollbar-thin scrollbar-thumb-border">
+        {/* 3 slots principais — cada um mostra o main (mais recente) ou placeholder */}
         {PRIORITY_ORDER.map((priority) => {
           const cfg = PRIORITY_CONFIG[priority];
           const items = grouped.get(priority) || [];
           const main = items[0]; // mais recente
-          const olderCount = items.length - 1;
           const isSelected = !!main && selectedId === main.id;
           return (
-            <PropostaCard
-              key={priority}
-              priority={priority}
-              cfg={cfg}
-              quote={main}
-              olderCount={olderCount}
-              completoTotal={completoTotal}
-              selected={isSelected}
-              onToggleSelect={() => {
-                if (!main) return;
-                setSelectedId(isSelected ? null : main.id);
-              }}
-              onPickEmpty={() => setPickerFor(priority)}
-              onRemoveFromSlot={() => {
-                if (!main) return;
-                removeFromSlot(main.id, cfg.label);
-              }}
-            />
+            <div
+              key={`slot-${priority}`}
+              className="snap-start shrink-0 w-[280px] md:w-[320px] flex"
+            >
+              <PropostaCard
+                variant={priority}
+                cfg={cfg}
+                quote={main}
+                // Onda 14.19 — versoes antigas agora viram cards proprios no
+                // scroll, entao olderCount sempre 0 aqui (sem texto duplicado).
+                olderCount={0}
+                completoTotal={completoTotal}
+                selected={isSelected}
+                onToggleSelect={() => {
+                  if (!main) return;
+                  setSelectedId(isSelected ? null : main.id);
+                }}
+                onPickEmpty={() => setPickerFor(priority)}
+                onRemoveFromSlot={() => {
+                  if (!main) return;
+                  removeFromSlot(main.id, cfg.label);
+                }}
+              />
+            </div>
+          );
+        })}
+
+        {/* Onda 14.19 — Versoes ANTIGAS de cada priority (items.slice(1)) viram
+            cards proprios no scroll. Mantem cor da priority pro operador saber
+            do que e versao, mas com badge "v2", "v3" pra distinguir do main. */}
+        {PRIORITY_ORDER.flatMap((priority) => {
+          const items = grouped.get(priority) || [];
+          const cfg = PRIORITY_CONFIG[priority];
+          return items.slice(1).map((q, idx) => {
+            const isSelected = selectedId === q.id;
+            return (
+              <div
+                key={`old-${q.id}`}
+                className="snap-start shrink-0 w-[280px] md:w-[320px] flex relative"
+              >
+                {/* Badge "v2", "v3" no canto pra distinguir do main */}
+                <span className="absolute -top-2 left-3 z-10 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-foreground shadow-sm border border-border">
+                  v{idx + 2}
+                </span>
+                <PropostaCard
+                  variant={priority}
+                  cfg={cfg}
+                  quote={q}
+                  olderCount={0}
+                  completoTotal={completoTotal}
+                  selected={isSelected}
+                  onToggleSelect={() => setSelectedId(isSelected ? null : q.id)}
+                  onPickEmpty={() => {}}
+                  onRemoveFromSlot={() => removeFromSlot(q.id, cfg.label)}
+                />
+              </div>
+            );
+          });
+        })}
+
+        {/* Onda 14.19 — Cards LIVRE (quotes sem priority). Aparecem por ultimo
+            no scroll, cor azul-clara pra diferenciar dos 3 slots fixos. */}
+        {(grouped.get('NONE') || []).map((q) => {
+          const isSelected = selectedId === q.id;
+          return (
+            <div
+              key={`livre-${q.id}`}
+              className="snap-start shrink-0 w-[280px] md:w-[320px] flex"
+            >
+              <PropostaCard
+                variant="LIVRE"
+                cfg={LIVRE_CONFIG}
+                quote={q}
+                olderCount={0}
+                completoTotal={completoTotal}
+                selected={isSelected}
+                onToggleSelect={() => setSelectedId(isSelected ? null : q.id)}
+                onPickEmpty={() => {}}
+                onRemoveFromSlot={() => {}}
+              />
+            </div>
           );
         })}
       </div>
@@ -1025,7 +1134,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
 // ─── Card individual da proposta ────────────────────────────────
 
 function PropostaCard({
-  priority,
+  variant,
   cfg,
   quote,
   olderCount,
@@ -1035,8 +1144,9 @@ function PropostaCard({
   onPickEmpty,
   onRemoveFromSlot,
 }: {
-  priority: Priority;
-  cfg: typeof PRIORITY_CONFIG[Priority];
+  /** Onda 14.19 — variante visual: 3 priorities canonicas OU 'LIVRE'. */
+  variant: CardVariant;
+  cfg: VariantConfig;
   quote: QuoteListItem | undefined;
   olderCount: number;
   completoTotal: number | null;
@@ -1044,12 +1154,16 @@ function PropostaCard({
   selected: boolean;
   /** Onda 9 — click no card preenchido alterna seleção (abre/fecha painel inline) */
   onToggleSelect: () => void;
-  /** Onda 8.1 — click no card vazio abre picker pra atribuir orcamento ao slot */
+  /** Onda 8.1 — click no card vazio abre picker pra atribuir orcamento ao slot.
+   *  Para variant=LIVRE este handler nao e usado (cards LIVRE so existem
+   *  quando ha quote — nao tem placeholder vazio). */
   onPickEmpty: () => void;
   /** Onda 12.5 — Remove o orcamento deste slot (limpa priority, NAO exclui).
-   *  Slot vira vazio e o orcamento volta pra "Sem prioridade definida". */
+   *  Slot vira vazio e o orcamento volta pra "Sem prioridade definida".
+   *  Para variant=LIVRE este botao some (nao ha priority pra limpar). */
   onRemoveFromSlot: () => void;
 }) {
+  const priority = variant === 'LIVRE' ? null : variant;
   // Quote nao existe → empty state clicavel: click abre picker pra escolher
   // qual orcamento (sem priority ou em outro slot) vai pra esse slot.
   if (!quote) {
@@ -1134,27 +1248,31 @@ function PropostaCard({
         </span>
       )}
 
-      {/* Onda 12.5 — Lixeirinha pra remover do slot (sem excluir o orçamento) */}
-      <span
-        role="button"
-        tabIndex={0}
-        onClick={(e) => {
-          e.stopPropagation();
-          onRemoveFromSlot();
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault();
+      {/* Onda 12.5 — Lixeirinha pra remover do slot (sem excluir o orçamento).
+          Onda 14.19 — Esconde quando variant=LIVRE: a quote ja nao tem priority,
+          nao ha o que "remover do slot". Pra excluir mesmo, usar a aba Orcamentos. */}
+      {variant !== 'LIVRE' && (
+        <span
+          role="button"
+          tabIndex={0}
+          onClick={(e) => {
             e.stopPropagation();
             onRemoveFromSlot();
-          }
-        }}
-        className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
-        aria-label={`Remover do slot ${cfg.label}`}
-        title="Remover do slot (orçamento continua salvo)"
-      >
-        <Trash2 size={12} />
-      </span>
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              e.stopPropagation();
+              onRemoveFromSlot();
+            }
+          }}
+          className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
+          aria-label={`Remover do slot ${cfg.label}`}
+          title="Remover do slot (orçamento continua salvo)"
+        >
+          <Trash2 size={12} />
+        </span>
+      )}
 
       {/* Header com priority */}
       <div className="flex items-center gap-2 mb-2">
@@ -1223,10 +1341,14 @@ function PropostaCard({
         </p>
       )}
 
-      {/* Older count — "+N anteriores" */}
+      {/* Older count — "+N anteriores".
+          Onda 14.19 — agora versoes antigas viram cards proprios no scroll
+          horizontal, mas mantemos esta linha como contagem secundaria caso
+          o callsite passe olderCount > 0 (por compatibilidade). */}
       {olderCount > 0 && (
         <p className="text-[10px] text-muted-foreground mt-2 italic">
-          + {olderCount} versão {olderCount === 1 ? 'anterior' : 'anteriores'} desta categoria
+          + {olderCount} versão {olderCount === 1 ? 'anterior' : 'anteriores'}
+          {variant !== 'LIVRE' ? ' desta categoria' : ''}
         </p>
       )}
 
@@ -2359,7 +2481,8 @@ function NewVersionDialog({
   existingPriorities: Set<Priority>;
   loading: boolean;
   onCancel: () => void;
-  onCreate: (priority: Priority) => void;
+  /** Onda 14.19 — null = criar versao Livre (sem priority canonica). */
+  onCreate: (priority: Priority | null) => void;
 }) {
   return (
     <div
@@ -2413,7 +2536,10 @@ function NewVersionDialog({
                     </div>
                   </div>
                   {exists && (
-                    <span className="text-[10px] font-semibold text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0">
+                    <span
+                      className="text-[10px] font-semibold text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0"
+                      title="Vai criar uma nova versão desta priority (aparece como card extra no scroll)"
+                    >
                       já existe
                     </span>
                   )}
@@ -2421,6 +2547,30 @@ function NewVersionDialog({
               </button>
             );
           })}
+
+          {/* Onda 14.19 — Versao Livre: extra sem priority canonica.
+              Util quando o operador quer testar variacoes adicionais alem
+              dos 3 slots fixos (ex: "v Black Friday", "v cortesia 20%"). */}
+          <button
+            type="button"
+            disabled={loading}
+            onClick={() => onCreate(null)}
+            className={`w-full text-left p-3 rounded-lg border-2 transition-colors disabled:opacity-50 disabled:cursor-wait ${LIVRE_CONFIG.borderCls} ${LIVRE_CONFIG.bgCls} hover:shadow-sm`}
+          >
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0">
+                <span className={LIVRE_CONFIG.iconCls}>{LIVRE_CONFIG.icon}</span>
+                <div className="min-w-0">
+                  <p className={`text-sm font-bold ${LIVRE_CONFIG.iconCls}`}>
+                    {LIVRE_CONFIG.label}
+                  </p>
+                  <p className="text-[11px] text-muted-foreground truncate">
+                    extra sem prioridade — pra variações adicionais (Black Friday, cortesia, etc)
+                  </p>
+                </div>
+              </div>
+            </div>
+          </button>
         </div>
 
         <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
