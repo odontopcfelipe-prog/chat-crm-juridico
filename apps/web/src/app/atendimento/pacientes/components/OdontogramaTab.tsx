@@ -735,13 +735,23 @@ function QuoteCard({
               }
             }}
             placeholder="Nome do orcamento (ex: Reabilitacao superior)"
-            className="text-sm font-bold tracking-wide px-2 py-0.5 rounded border border-primary bg-background min-w-[200px] focus:outline-none"
+            // Onda 14.22 — largura fixa de 35ch igual ao span, pro layout
+            // nao "saltar" quando entra/sai de edicao. Operador pode digitar
+            // mais que 35 chars (input scrolla horizontalmente dentro).
+            maxLength={120}
+            className="text-sm font-bold tracking-wide px-2 py-0.5 rounded border border-primary bg-background w-[35ch] focus:outline-none"
           />
         ) : (
           <span
             onClick={startEditTitle}
-            className="text-sm font-bold text-primary hover:underline tracking-wide cursor-text"
-            title="Clique pra editar nome"
+            // Onda 14.22 — largura fixa de 35 chars + truncate. Garante que
+            // os badges/info do lado direito ficam SEMPRE no mesmo lugar,
+            // independente do tamanho do nome. Tooltip mostra completo. Nome
+            // inteiro tambem fica visivel ao expandir o card.
+            className="text-sm font-bold text-primary hover:underline tracking-wide cursor-text inline-block w-[35ch] truncate align-middle"
+            title={quoteDisplayName.length > 35
+              ? `${quoteDisplayName} — clique pra editar`
+              : 'Clique pra editar nome'}
           >
             {quoteDisplayName}
           </span>
@@ -843,6 +853,15 @@ function QuoteCard({
             </div>
           ) : (
             <>
+              {/* Onda 14.22 — Nome completo do orcamento no topo do conteudo
+                  expandido. No card colapsado o nome fica truncado (35ch fixo
+                  pra nao desalinhar os badges), aqui aparece inteiro pro
+                  operador conferir/copiar quando precisar. */}
+              {quoteDisplayName.length > 35 && (
+                <div className="px-4 pt-3 pb-1 text-sm font-bold text-primary break-words">
+                  {quoteDisplayName}
+                </div>
+              )}
               {/* Onda 3.31 — Mini-odontograma de visualizacao do orcamento.
                   Mostra todos os dentes; os que ja estao no orcamento ficam
                   destacados com a cor da especialidade do procedimento.
