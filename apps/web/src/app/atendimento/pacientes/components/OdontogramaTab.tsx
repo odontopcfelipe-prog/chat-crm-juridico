@@ -670,11 +670,31 @@ function QuoteCard({
     <div className={`border rounded-xl overflow-hidden transition-colors ${
       expanded ? 'border-primary/40 shadow-sm bg-card' : cardBg
     }`}>
-      {/* HEADER — sempre visivel, click expande/colapsa */}
-      <button
-        type="button"
-        onClick={onToggleExpand}
-        className="w-full px-4 py-3 flex items-center gap-3 flex-wrap text-left"
+      {/* HEADER — sempre visivel, click expande/colapsa.
+          Onda 14.18 (fix): trocado <button> por <div role=button> pq input
+          dentro de button faz o navegador interpretar Space/Enter como
+          ativacao do button pai (bug "espaco apaga texto e expande card"
+          ao renomear). Div nao tem esse comportamento default — agora
+          controlamos teclado manualmente e bloqueamos toggle durante edicao. */}
+      <div
+        role="button"
+        tabIndex={titleDraft === null ? 0 : -1}
+        onClick={() => {
+          // Filhos interativos (input/botoes) ja chamam stopPropagation,
+          // entao aqui so checa se nao estamos no meio de uma edicao de titulo.
+          if (titleDraft !== null) return;
+          onToggleExpand();
+        }}
+        onKeyDown={(e) => {
+          // Espaco NAO toggla aqui — fica reservado pro input filho digitar
+          // espacos. So Enter expande/colapsa (e so quando nao esta editando).
+          if (titleDraft !== null) return;
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            onToggleExpand();
+          }
+        }}
+        className="w-full px-4 py-3 flex items-center gap-3 flex-wrap text-left cursor-pointer hover:bg-accent/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
       >
         {/* Onda 14.18 — numero global do orcamento (#001). Fallback pra
             #{index} (sequencial da lista renderizada) quando legado sem
@@ -795,7 +815,7 @@ function QuoteCard({
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </span>
         </div>
-      </button>
+      </div>
 
       {/* CONTEUDO EXPANSIVEL — Mini-odontograma + QuotePanel inline */}
       {expanded && (
