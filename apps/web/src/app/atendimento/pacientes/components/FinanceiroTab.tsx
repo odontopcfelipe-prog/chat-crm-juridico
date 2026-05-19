@@ -15,12 +15,32 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
+  Receipt, Send, Building2, Copy,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
 interface Props {
   patientId: string;
+}
+
+/** Onda 14.9 — cobrancas Asaas geradas pro paciente (PaymentGatewayCharge) */
+interface Charge {
+  id: string;
+  external_id: string;
+  billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | string;
+  amount: string | number;
+  net_value?: string | number | null;
+  due_date: string;
+  paid_at?: string | null;
+  status: string; // PENDING|RECEIVED|CONFIRMED|OVERDUE|REFUNDED|DELETED
+  description: string | null;
+  boleto_url?: string | null;
+  boleto_barcode?: string | null;
+  invoice_url?: string | null;
+  pix_qr_code?: string | null;
+  pix_copy_paste?: string | null;
+  created_at: string;
 }
 
 interface Installment {
@@ -76,21 +96,33 @@ const fmtDate = (iso: string | null) => {
 
 export default function FinanceiroTab({ patientId }: Props) {
   const [installments, setInstallments] = useState<Installment[]>([]);
+  // Onda 14.9 — cobrancas Asaas geradas pelo approveAndBill
+  const [charges, setCharges] = useState<Charge[]>([]);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<{ data: Installment[] } | Installment[]>(
-        `/installments?patient_id=${patientId}&limit=200`,
-      );
-      // API pode retornar array direto OU envelope { data, total }
-      const list = Array.isArray(data) ? data : data?.data || [];
-      setInstallments(list);
+      // Carrega parcelas e charges em paralelo
+      const [instResp, chargesResp] = await Promise.allSettled([
+        api.get<{ data: Installment[] } | Installment[]>(
+          `/installments?patient_id=${patientId}&limit=200`,
+        ),
+        api.get<Charge[]>(`/payment-gateway/patients/${patientId}/charges`),
+      ]);
+
+      if (instResp.status === 'fulfilled') {
+        const data = instResp.value.data;
+        const list = Array.isArray(data) ? data : data?.data || [];
+        setInstallments(list);
+      }
+      if (chargesResp.status === 'fulfilled') {
+        setCharges(chargesResp.value.data || []);
+      }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao carregar parcelas');
+      showError(e?.response?.data?.message || 'Erro ao carregar financeiro');
     } finally {
       setLoading(false);
     }
@@ -147,7 +179,7 @@ export default function FinanceiroTab({ patientId }: Props) {
     );
   }
 
-  if (installments.length === 0) {
+  if (installments.length === 0 && charges.length === 0) {
     return (
       <div className="bg-card border border-border border-dashed rounded-xl p-10 text-center">
         <DollarSign size={32} className="mx-auto text-muted-foreground/60 mb-3" />
@@ -155,9 +187,9 @@ export default function FinanceiroTab({ patientId }: Props) {
           Sem movimentação financeira
         </p>
         <p className="text-xs text-muted-foreground max-w-md mx-auto">
-          Quando um orçamento for aceito e gerar parcelas, elas aparecem aqui
-          com status de pagamento, datas de vencimento e ações rápidas (baixar
-          como pago, renegociar, etc).
+          Quando um orçamento for aceito ou uma cobrança for gerada (PIX, boleto,
+          cartão), as movimentações aparecem aqui com status de pagamento, datas
+          e ações rápidas.
         </p>
       </div>
     );
@@ -192,7 +224,15 @@ export default function FinanceiroTab({ patientId }: Props) {
         />
       </div>
 
-      {/* Lista de parcelas */}
+      {/* Onda 14.9 — Cobrancas geradas pelo approveAndBill (PIX/Boleto/Cartao).
+          Renderiza ANTES das parcelas. Status atualizado em tempo real pelo
+          webhook Asaas (PaymentGatewayCharge.status). */}
+      {charges.length > 0 && (
+        <ChargesSection charges={charges} />
+      )}
+
+      {/* Lista de parcelas — so renderiza se ha installments. Onda 14.9 */}
+      {installments.length > 0 && (
       <div className="bg-card border border-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-border flex items-center justify-between">
           <p className="text-sm font-semibold">Parcelas</p>
@@ -266,7 +306,172 @@ export default function FinanceiroTab({ patientId }: Props) {
           })}
         </ul>
       </div>
+      )}
     </div>
+  );
+}
+
+/** Onda 14.9 — Seção "Cobranças geradas" mostra PaymentGatewayCharges do
+ *  paciente. Atualizado em tempo real pelo webhook Asaas. */
+function ChargesSection({ charges }: { charges: Charge[] }) {
+  const summary = useMemo(() => {
+    let paid = 0;
+    let pending = 0;
+    let overdue = 0;
+    for (const c of charges) {
+      const amt = Number(c.amount);
+      if (c.status === 'RECEIVED' || c.status === 'CONFIRMED') paid += amt;
+      else if (c.status === 'PENDING') pending += amt;
+      else if (c.status === 'OVERDUE') overdue += amt;
+    }
+    return { paid, pending, overdue };
+  }, [charges]);
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <div className="px-4 py-3 border-b border-border flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Receipt size={14} className="text-amber-700" />
+          <p className="text-sm font-semibold">Cobranças geradas</p>
+          <span className="text-xs text-muted-foreground">
+            ({charges.length})
+          </span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px]">
+          {summary.paid > 0 && (
+            <span className="text-emerald-700 font-semibold">
+              ✓ {fmtBRL(summary.paid)} pago
+            </span>
+          )}
+          {summary.pending > 0 && (
+            <span className="text-blue-700">
+              {fmtBRL(summary.pending)} pendente
+            </span>
+          )}
+          {summary.overdue > 0 && (
+            <span className="text-red-700 font-semibold">
+              {fmtBRL(summary.overdue)} vencido
+            </span>
+          )}
+        </div>
+      </div>
+      <ul className="divide-y divide-border">
+        {charges.map((c) => (
+          <ChargeRow key={c.id} charge={c} />
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Onda 14.9 — Renderiza uma linha de cobranca com tipo, valor, status e ações */
+function ChargeRow({ charge: c }: { charge: Charge }) {
+  const isPix = c.billing_type === 'PIX';
+  const isBoleto = c.billing_type === 'BOLETO';
+  const isCartao = c.billing_type === 'CREDIT_CARD';
+  const isPaid = c.status === 'RECEIVED' || c.status === 'CONFIRMED';
+  const isPending = c.status === 'PENDING';
+  const isOverdue = c.status === 'OVERDUE';
+  const isCancelled = c.status === 'DELETED' || c.status === 'REFUNDED';
+
+  const statusLabel =
+    isPaid ? 'Pago' :
+    isOverdue ? 'Vencido' :
+    isPending ? 'Pendente' :
+    c.status === 'REFUNDED' ? 'Estornado' :
+    c.status === 'DELETED' ? 'Cancelado' :
+    c.status;
+
+  const statusCls =
+    isPaid ? 'bg-emerald-500/10 text-emerald-700 border-emerald-500/20' :
+    isOverdue ? 'bg-red-500/10 text-red-700 border-red-500/20' :
+    isPending ? 'bg-blue-500/10 text-blue-700 border-blue-500/20' :
+    'bg-muted text-muted-foreground border-border';
+
+  const typeLabel = isPix ? 'PIX' : isBoleto ? 'Boleto' : isCartao ? 'Cartão' : c.billing_type;
+  const TypeIcon = isPix ? Send : isBoleto ? Building2 : CreditCard;
+
+  const copyBarcode = () => {
+    if (c.boleto_barcode) {
+      navigator.clipboard?.writeText(c.boleto_barcode);
+      showSuccess('Código copiado');
+    }
+  };
+  const copyPix = () => {
+    if (c.pix_copy_paste) {
+      navigator.clipboard?.writeText(c.pix_copy_paste);
+      showSuccess('Código PIX copiado');
+    }
+  };
+
+  return (
+    <li className={`px-4 py-3 flex items-center gap-3 flex-wrap ${isCancelled ? 'opacity-50' : ''}`}>
+      <div className="flex-1 min-w-[220px]">
+        <div className="flex items-center gap-2 flex-wrap">
+          <TypeIcon size={12} className="text-amber-700" />
+          <span className="text-sm font-semibold">{typeLabel}</span>
+          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border ${statusCls}`}>
+            {statusLabel}
+          </span>
+        </div>
+        <p className="text-xs text-muted-foreground mt-0.5">
+          Vencimento: {fmtDate(c.due_date)}
+          {c.paid_at && ` · Pago em: ${fmtDate(c.paid_at)}`}
+          {c.description && ` · ${c.description.replace(/\[plan:[^\]]+\]/, '').trim()}`}
+        </p>
+      </div>
+      <div className="text-right min-w-[100px]">
+        <p className="text-sm font-bold">{fmtBRL(c.amount)}</p>
+      </div>
+      <div className="flex items-center gap-1">
+        {/* Ações específicas por tipo */}
+        {isBoleto && c.boleto_url && (
+          <a
+            href={c.boleto_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-amber-500/50 text-amber-800 hover:bg-amber-500/10"
+            title="Abrir PDF do boleto"
+          >
+            <ExternalLink size={11} />
+            Boleto
+          </a>
+        )}
+        {isBoleto && c.boleto_barcode && (
+          <button
+            type="button"
+            onClick={copyBarcode}
+            className="p-1.5 rounded text-muted-foreground hover:text-amber-700 hover:bg-amber-500/10"
+            title="Copiar código de barras"
+          >
+            <Copy size={12} />
+          </button>
+        )}
+        {isPix && c.pix_copy_paste && (
+          <button
+            type="button"
+            onClick={copyPix}
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-500/50 text-emerald-800 hover:bg-emerald-500/10"
+            title="Copiar código PIX"
+          >
+            <Copy size={11} />
+            PIX
+          </button>
+        )}
+        {isCartao && c.invoice_url && (
+          <a
+            href={c.invoice_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-sky-500/50 text-sky-800 hover:bg-sky-500/10"
+            title="Abrir link de pagamento do cartão"
+          >
+            <ExternalLink size={11} />
+            Cartão
+          </a>
+        )}
+      </div>
+    </li>
   );
 }
 

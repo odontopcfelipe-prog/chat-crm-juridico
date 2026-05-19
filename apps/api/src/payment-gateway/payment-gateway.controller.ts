@@ -166,6 +166,20 @@ export class PaymentGatewayController {
     return this.service.getInstallmentChargeDetails(installmentId, tenantId);
   }
 
+  /**
+   * Onda 14.9 — Lista todas as cobrancas Asaas de um paciente (resolve via lead_id).
+   * Usado pelo FinanceiroTab pra mostrar "Cobrancas geradas" na ficha do paciente.
+   */
+  @Get('patients/:patientId/charges')
+  async getPatientCharges(
+    @Param('patientId') patientId: string,
+    @Req() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    return this.service.getChargesByPatient(patientId, tenantId);
+  }
+
   // ─── ROTAS COM PARÂMETROS (depois das fixas) ──────────────
 
   /** Detalhes completos de uma cobrança no Asaas */

@@ -33,6 +33,41 @@ export class PaymentGatewayService {
     private chatGateway: ChatGateway,
   ) {}
 
+  /**
+   * Onda 14.9 — Lista TODAS as cobrancas Asaas vinculadas a um paciente.
+   *
+   * Liga via PaymentGatewayCustomer.lead_id → Patient.lead_id. Inclui:
+   *  - Charges do plano (description: 'plan:{planId}' via approveAndBill)
+   *  - Charges de Installment (parcelas)
+   *  - Charges de honorario do lead
+   *
+   * Usado pelo FinanceiroTab pra mostrar cobrancas geradas + status atualizado
+   * (atualizado em tempo real pelo webhook Asaas).
+   */
+  async getChargesByPatient(patientId: string, tenantId: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { lead_id: true, tenant_id: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    if (patient.tenant_id !== tenantId) throw new BadRequestException('Acesso negado');
+    if (!patient.lead_id) return [];
+
+    const customer = await this.prisma.paymentGatewayCustomer.findFirst({
+      where: { lead_id: patient.lead_id, gateway: 'ASAAS' },
+    });
+    if (!customer) return [];
+
+    return this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        tenant_id: tenantId,
+        customer_external_id: customer.external_id,
+      },
+      orderBy: { created_at: 'desc' },
+      take: 100,
+    });
+  }
+
   // ─── Customer sync ─────────────────────────────────────
 
   /** Variante para Patient (Fase 4 — odontologia). CPF vem do proprio Patient. */
