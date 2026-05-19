@@ -24,6 +24,21 @@ interface Props {
   patientId: string;
 }
 
+/** Onda 14.12 — proposta aceita do paciente (Quote.status=ACCEPTED) */
+interface AcceptedQuote {
+  id: string;
+  status: string;
+  title: string | null;
+  total_value: string | number;
+  created_at: string;
+  accepted_at: string | null;
+  closing_category?: string | null;
+  _count?: { items: number };
+  approved_count?: number;
+  pending_count?: number;
+  priority?: 'COMPLETO' | 'ESSENCIAL' | 'URGENTE' | null;
+}
+
 /** Onda 14.9 — cobrancas Asaas geradas pro paciente (PaymentGatewayCharge) */
 interface Charge {
   id: string;
@@ -98,18 +113,21 @@ export default function FinanceiroTab({ patientId }: Props) {
   const [installments, setInstallments] = useState<Installment[]>([]);
   // Onda 14.9 — cobrancas Asaas geradas pelo approveAndBill
   const [charges, setCharges] = useState<Charge[]>([]);
+  // Onda 14.12 — propostas aceitas (Quote.status=ACCEPTED)
+  const [acceptedQuotes, setAcceptedQuotes] = useState<AcceptedQuote[]>([]);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      // Carrega parcelas e charges em paralelo
-      const [instResp, chargesResp] = await Promise.allSettled([
+      // Carrega parcelas, charges e quotes aceitos em paralelo
+      const [instResp, chargesResp, quotesResp] = await Promise.allSettled([
         api.get<{ data: Installment[] } | Installment[]>(
           `/installments?patient_id=${patientId}&limit=200`,
         ),
         api.get<Charge[]>(`/payment-gateway/patients/${patientId}/charges`),
+        api.get<AcceptedQuote[]>(`/patients/${patientId}/quotes`),
       ]);
 
       if (instResp.status === 'fulfilled') {
@@ -119,6 +137,13 @@ export default function FinanceiroTab({ patientId }: Props) {
       }
       if (chargesResp.status === 'fulfilled') {
         setCharges(chargesResp.value.data || []);
+      }
+      if (quotesResp.status === 'fulfilled') {
+        // Filtra so ACCEPTED
+        const accepted = (quotesResp.value.data || []).filter(
+          (q) => q.status === 'ACCEPTED',
+        );
+        setAcceptedQuotes(accepted);
       }
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
@@ -179,7 +204,7 @@ export default function FinanceiroTab({ patientId }: Props) {
     );
   }
 
-  if (installments.length === 0 && charges.length === 0) {
+  if (installments.length === 0 && charges.length === 0 && acceptedQuotes.length === 0) {
     return (
       <div className="bg-card border border-border border-dashed rounded-xl p-10 text-center">
         <DollarSign size={32} className="mx-auto text-muted-foreground/60 mb-3" />
@@ -223,6 +248,15 @@ export default function FinanceiroTab({ patientId }: Props) {
           highlight={summary.overdue > 0 ? 'red' : undefined}
         />
       </div>
+
+      {/* Onda 14.12 — Propostas aprovadas (Quote.status=ACCEPTED).
+          Renderiza ANTES das cobranças, logo após o resumo. */}
+      {acceptedQuotes.length > 0 && (
+        <AcceptedQuotesSection
+          quotes={acceptedQuotes}
+          patientId={patientId}
+        />
+      )}
 
       {/* Onda 14.9 — Cobrancas geradas pelo approveAndBill (PIX/Boleto/Cartao).
           Renderiza ANTES das parcelas. Status atualizado em tempo real pelo
@@ -307,6 +341,76 @@ export default function FinanceiroTab({ patientId }: Props) {
         </ul>
       </div>
       )}
+    </div>
+  );
+}
+
+/** Onda 14.12 — Seção "APROVADOS" mostra Quote.status=ACCEPTED.
+ *  Card simples por proposta, click navega pra aba Orçamentos pra ver detalhe. */
+function AcceptedQuotesSection({
+  quotes,
+  patientId,
+}: {
+  quotes: AcceptedQuote[];
+  patientId: string;
+}) {
+  const CATEGORY_LABEL: Record<string, string> = {
+    OUTROS: 'OUTROS',
+    FACETAS: 'FACETAS',
+    LENTES: 'LENTES',
+    IMPLANTES: 'IMPLANTES',
+    ORTODONTIA: 'ORTODONTIA',
+    PROTESES: 'PRÓTESES',
+    HARMONIZACAO: 'HARMONIZAÇÃO',
+  };
+
+  return (
+    <div>
+      <p className="text-xs font-bold uppercase tracking-wide text-foreground mb-2">
+        Aprovados
+      </p>
+      <ul className="space-y-2">
+        {quotes.map((q, idx) => {
+          const category = q.closing_category || 'OUTROS';
+          const categoryLabel = CATEGORY_LABEL[category] || category;
+          const value = Number(q.total_value);
+          return (
+            <li key={q.id}>
+              <a
+                href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${q.id}`}
+                className="block w-full bg-emerald-500/5 border border-emerald-500/30 rounded-lg px-4 py-3 hover:bg-emerald-500/10 transition-colors"
+              >
+                <div className="flex items-center gap-3 flex-wrap">
+                  <span className="text-xs text-muted-foreground">#{idx + 1}</span>
+                  <span className="text-sm font-bold text-amber-700 uppercase">
+                    {categoryLabel}
+                  </span>
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 font-semibold inline-flex items-center gap-1">
+                    <Check size={9} strokeWidth={3} />
+                    ACEITO
+                  </span>
+                  {q.title && (
+                    <span className="text-xs text-muted-foreground truncate">
+                      · {q.title}
+                    </span>
+                  )}
+                  <span className="ml-auto flex items-center gap-3">
+                    <span className="text-sm font-bold text-foreground tabular-nums">
+                      {fmtBRL(value)}
+                    </span>
+                    {q.accepted_at && (
+                      <span className="text-[10px] text-muted-foreground">
+                        aceito em {fmtDate(q.accepted_at)}
+                      </span>
+                    )}
+                    <span className="text-muted-foreground">›</span>
+                  </span>
+                </div>
+              </a>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 }
