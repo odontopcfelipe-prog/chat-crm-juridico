@@ -1053,6 +1053,15 @@ export class QuotesService {
       const acceptedNotes = (quote.notes || '').startsWith('[Resto de aprovacao parcial')
         ? null
         : quote.notes;
+      // Onda 14.19 — aprovacao parcial cria um quote NOVO. Sem isso o quote
+      // sai com quote_number=0 (default da coluna) e fica sem identificador
+      // nas listas. MAX+1 dentro do tx — leitura ve o estado atual da tx.
+      const lastForTenant = await tx.quote.findFirst({
+        where: { patient: { tenant_id: tenantId } },
+        orderBy: { quote_number: 'desc' },
+        select: { quote_number: true },
+      });
+      const nextQuoteNumber = (lastForTenant?.quote_number || 0) + 1;
       const acceptedQuote = await tx.quote.create({
         data: {
           patient_id: quote.patient_id,
@@ -1061,6 +1070,7 @@ export class QuotesService {
           accepted_at: new Date(),
           accepted_from_id: id, // rastreio pro historico
           title: quote.title, // preserva nome do operador
+          quote_number: nextQuoteNumber,
           subtotal,
           discount_percent: discountPct,
           discount_value: discountValue,

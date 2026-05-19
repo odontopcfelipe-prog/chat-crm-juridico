@@ -331,7 +331,11 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                   </p>
                 </div>
                 {/* Onda 6.4 — badge da prioridade clinica (mesmo padrao da
-                    aba Avaliacao) — sempre visivel, 3 cores distintas */}
+                    aba Avaliacao) — sempre visivel, 3 cores distintas.
+                    Onda 14.19 — w-[96px] + justify-center: largura fixa pros 3
+                    labels (URGENTE/ESSENCIAL/COMPLETO) ocuparem a mesma coluna,
+                    deixando o badge de status (Aceito/Rascunho) alinhado
+                    verticalmente entre as linhas. */}
                 {(() => {
                   const p = q.priority || 'COMPLETO';
                   const cfg = {
@@ -341,14 +345,14 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                   }[p];
                   return (
                     <span
-                      className={`inline-flex items-center text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
+                      className={`inline-flex items-center justify-center w-[96px] shrink-0 text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
                       title={cfg.tip}
                     >
                       {cfg.label}
                     </span>
                   );
                 })()}
-                <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
+                <span className={`inline-flex items-center justify-center w-[78px] shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
                   {STATUS_LABEL[q.status]}
                 </span>
               </li>

@@ -59,6 +59,9 @@ MIGRATIONS=(
   "2026-05-15-influencers.sql"
   "2026-05-15-influencer-messages.sql"
   "2026-05-10-influencer-patient-link.sql"
+  # Onda 14.18 — quote_number sequencial global por tenant + backfill
+  # de quotes existentes (ROW_NUMBER por created_at). Idempotente.
+  "2026-05-19-quote-number.sql"
 )
 
 SQL_DIR="$(dirname "$0")"

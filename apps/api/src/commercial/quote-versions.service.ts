@@ -251,12 +251,22 @@ export class QuoteVersionsService {
         });
       }
 
-      // 3. Cria novo orcamento DRAFT com mesmos items
+      // 3. Cria novo orcamento DRAFT com mesmos items.
+      // Onda 14.19 — Renegociacao cria quote NOVO; sem setar quote_number ele
+      // sai com 0 (default) e some o identificador (#NNN) nas 4 abas. MAX+1
+      // dentro do tx — ve o estado atual da tx, evita conflito com este create.
+      const lastForTenant = await tx.quote.findFirst({
+        where: { patient: { tenant_id: tenantId } },
+        orderBy: { quote_number: 'desc' },
+        select: { quote_number: true },
+      });
+      const nextQuoteNumber = (lastForTenant?.quote_number || 0) + 1;
       const newQuote = await tx.quote.create({
         data: {
           patient_id: original.patient_id,
           created_by_user_id: actorUserId,
           status: 'DRAFT',
+          quote_number: nextQuoteNumber,
           // valid_until NAO copia — usa default 30d via service.create() normalmente,
           // mas como criamos direto, definimos aqui
           valid_until: (() => {
@@ -343,11 +353,20 @@ export class QuoteVersionsService {
       0,
     );
 
+    // Onda 14.19 — duplicateAsOption tambem cria quote NOVO; precisa de
+    // quote_number proprio pra aparecer com identificador (#NNN) nas listas.
+    const lastForTenant = await this.prisma.quote.findFirst({
+      where: { patient: { tenant_id: tenantId } },
+      orderBy: { quote_number: 'desc' },
+      select: { quote_number: true },
+    });
+    const nextQuoteNumber = (lastForTenant?.quote_number || 0) + 1;
     const newQuote = await this.prisma.quote.create({
       data: {
         patient_id: original.patient_id,
         created_by_user_id: actorUserId,
         status: 'DRAFT',
+        quote_number: nextQuoteNumber,
         valid_until: (() => {
           const d = new Date();
           d.setDate(d.getDate() + 30);
