@@ -644,6 +644,8 @@ interface QuoteDetail {
   status: string;
   accepted_at: string | null;
   notes: string | null;
+  /** Onda 14.14 — plan vinculado, usado pra filtrar charges pelo description */
+  treatment_plan?: { id: string; status: string } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -747,10 +749,17 @@ function ProposalDetailModal({
     return () => { cancelled = true; };
   }, [quoteId]);
 
-  // Cobranças relacionadas a esse quote (via title ou aproximação)
-  // Como charges não têm quote_id direto, filtramos pelo título OU mostramos todas
-  // do paciente. Pro MVP, mostramos todas e o user vê o link.
-  const relatedCharges = allCharges;
+  // Onda 14.14 — Filtra charges DESTA proposta pelo description.
+  // Backend cria charges com description: '...[plan:{planId}]'
+  // Se o quote tem treatment_plan, filtramos pelo plan.id. Se não tiver
+  // (caso raro), mostramos todas como fallback.
+  const planId = quote?.treatment_plan?.id;
+  const relatedCharges = useMemo(() => {
+    if (!planId) return [];
+    return allCharges.filter((c) =>
+      c.description?.includes(`plan:${planId}`),
+    );
+  }, [allCharges, planId]);
 
   const bonuses = useMemo(() => parseBonuses(quote?.notes || null), [quote?.notes]);
   const counterProps = useMemo(() => parseCounterProps(quote?.notes || null), [quote?.notes]);
@@ -842,8 +851,19 @@ function ProposalDetailModal({
                 </ul>
               </section>
 
-              {/* Cobranças vinculadas */}
-              {relatedCharges.length > 0 && (
+              {/* Cobranças vinculadas — Onda 14.14: filtra pelo plan_id */}
+              {relatedCharges.length === 0 ? (
+                <div className="bg-amber-500/5 border border-amber-500/30 rounded-md p-3 text-xs text-amber-800">
+                  ⚠ Nenhuma cobrança gerada ainda pra essa proposta.
+                  {' '}<a
+                    href={`/atendimento/pacientes/${patientId}?tab=proposals`}
+                    className="underline font-semibold"
+                  >
+                    Abrir aba Propostas
+                  </a>
+                  {' '}pra gerar.
+                </div>
+              ) : (
                 <section>
                   <p className="text-[11px] uppercase tracking-wide text-foreground font-bold mb-2">
                     🧾 Cobranças geradas ({relatedCharges.length})
@@ -877,24 +897,30 @@ function ProposalDetailModal({
                             <span className="text-sm font-bold tabular-nums">{fmtBRL(Number(c.amount))}</span>
                           </div>
 
-                          {/* Botão expandir parcelas */}
-                          <div className="px-3 py-2 border-t border-border/40 flex items-center gap-2 flex-wrap">
+                          {/* Botão expandir parcelas + atalhos. Onda 14.14:
+                              removido "Link Asaas" externo. Operador acessa
+                              boleto direto. */}
+                          <div className="px-3 py-2 border-t border-border/40 flex items-center gap-3 flex-wrap">
                             <button
                               type="button"
                               onClick={() => loadSubInstallments(c.id)}
-                              className="text-[11px] text-primary hover:underline"
+                              className="text-[11px] text-primary hover:underline font-medium"
                             >
                               {subs === undefined
-                                ? '▾ Ver parcelas'
+                                ? '▾ Ver parcelas e pagamentos'
                                 : subs.length === 0
-                                  ? '— Não é parcelado'
+                                  ? '— Pagamento único (sem parcelas)'
                                   : `▾ ${subs.length} parcelas`}
                             </button>
                             {c.boleto_url && (
-                              <a href={c.boleto_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-700 hover:underline">Abrir boleto</a>
-                            )}
-                            {c.invoice_url && (
-                              <a href={c.invoice_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-sky-700 hover:underline">Link Asaas</a>
+                              <a
+                                href={c.boleto_url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-[11px] text-amber-700 hover:underline"
+                              >
+                                Abrir boleto PDF ↗
+                              </a>
                             )}
                           </div>
 
