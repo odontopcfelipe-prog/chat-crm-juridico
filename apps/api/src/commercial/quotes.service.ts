@@ -543,10 +543,17 @@ export class QuotesService {
       throw new BadRequestException('Servico de cobranca indisponivel');
     }
 
-    // 1. Aceita o quote
-    await this.accept(quoteId, tenantId, userId);
+    // 0. Onda 14.6 — Valida pre-condicoes (CPF + lead_id) ANTES de aceitar
+    //    pra nao deixar quote/plan em estado inconsistente.
+    const quote = await this.findOne(quoteId, tenantId);
+    await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
 
-    // 2. Busca o TreatmentPlan e ativa
+    // 1. Onda 14.6 — Aceita SO se ainda DRAFT/SENT (idempotente)
+    if (quote.status === 'DRAFT' || quote.status === 'SENT') {
+      await this.accept(quoteId, tenantId, userId);
+    }
+
+    // 2. Busca o TreatmentPlan e ativa (idempotente)
     const plan = await this.prisma.treatmentPlan.findFirst({
       where: { quote_id: quoteId },
     });
@@ -555,10 +562,12 @@ export class QuotesService {
         'Plano de tratamento nao foi criado — verifique se o orcamento tem items',
       );
     }
-    await this.prisma.treatmentPlan.update({
-      where: { id: plan.id },
-      data: { status: 'ACTIVE', start_date: new Date() },
-    });
+    if (plan.status !== 'ACTIVE') {
+      await this.prisma.treatmentPlan.update({
+        where: { id: plan.id },
+        data: { status: 'ACTIVE', start_date: new Date() },
+      });
+    }
 
     // 3. Cria cobranca
     const result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
@@ -573,6 +582,66 @@ export class QuotesService {
     );
 
     return { quote_id: quoteId, ...result };
+  }
+
+  /**
+   * Onda 14.6 — Garante que paciente esta pronto pra cobranca:
+   *  - tem CPF (Asaas exige pra criar customer)
+   *  - tem lead_id (PaymentGatewayCustomer.lead_id e obrigatorio)
+   *
+   * Se faltar lead_id, tenta vincular um lead existente pelo telefone,
+   * ou cria um lead "fantasma" minimo so pra associar (sem stage especifico).
+   */
+  private async ensurePatientReadyForBilling(patientId: string, tenantId: string) {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, name: true, phone: true, cpf: true, lead_id: true },
+    });
+    if (!patient) throw new BadRequestException('Paciente nao encontrado');
+    if (!patient.cpf) {
+      throw new BadRequestException(
+        'Paciente sem CPF cadastrado. Edite o paciente e adicione o CPF antes de gerar cobranca.',
+      );
+    }
+
+    if (patient.lead_id) return; // ja tem lead, OK
+
+    // Tenta vincular lead existente pelo telefone
+    if (patient.phone) {
+      const existingLead = await this.prisma.lead.findUnique({
+        where: { phone: patient.phone },
+      });
+      if (existingLead) {
+        await this.prisma.patient.update({
+          where: { id: patientId },
+          data: { lead_id: existingLead.id },
+        });
+        this.logger.log(`[APPROVE-AND-BILL] Vinculou lead existente ${existingLead.id} ao paciente ${patientId}`);
+        return;
+      }
+    }
+
+    // Cria lead minimo (fantasma) so pra ter um lead_id pro Asaas customer
+    if (!patient.phone) {
+      throw new BadRequestException(
+        'Paciente sem telefone. Edite o paciente e adicione o telefone antes de gerar cobranca.',
+      );
+    }
+    const newLead = await this.prisma.lead.create({
+      data: {
+        tenant_id: tenantId,
+        name: patient.name,
+        phone: patient.phone,
+        origin: 'AUTO_CREATED_FROM_PATIENT',
+        is_client: true,
+        became_client_at: new Date(),
+      },
+    });
+    await this.prisma.patient.update({
+      where: { id: patientId },
+      data: { lead_id: newLead.id },
+    });
+    this.logger.log(`[APPROVE-AND-BILL] Criou lead fantasma ${newLead.id} pra paciente ${patientId}`);
   }
 
   async applyFinancing(
@@ -593,8 +662,14 @@ export class QuotesService {
       );
     }
 
-    // 1. Aceita o quote (cria TreatmentPlan PENDING_SIGNATURE)
-    await this.accept(quoteId, tenantId, userId);
+    // Onda 14.6 — Valida pre-condicoes ANTES de aceitar
+    const quoteCheck = await this.findOne(quoteId, tenantId);
+    await this.ensurePatientReadyForBilling(quoteCheck.patient_id, tenantId);
+
+    // 1. Aceita o quote SO se ainda DRAFT/SENT (idempotente)
+    if (quoteCheck.status === 'DRAFT' || quoteCheck.status === 'SENT') {
+      await this.accept(quoteId, tenantId, userId);
+    }
 
     // 2. Busca o TreatmentPlan recem-criado e marca como ACTIVE
     const plan = await this.prisma.treatmentPlan.findFirst({
