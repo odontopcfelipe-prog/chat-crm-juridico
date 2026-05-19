@@ -513,6 +513,68 @@ export class QuotesService {
    *   - billingService injetado (CommercialModule)
    *   - Paciente com CPF cadastrado (validado pelo Asaas client)
    */
+
+  /**
+   * Onda 14.5 — Aprovar proposta e gerar cobranca conforme forma de pagamento.
+   *
+   * Orquestra:
+   *   1. Aceita quote (vira ACCEPTED + cria TreatmentPlan)
+   *   2. Marca plano como ACTIVE
+   *   3. Gera cobranca Asaas:
+   *      - PIX → 1 charge PIX (com QR code)
+   *      - CREDIT_CARD → 1 charge parcelado (link Asaas hosted)
+   *      - BOLETO (a vista) → 1 boleto
+   *   4. Envia link pro paciente via WhatsApp (best effort, nao bloqueia)
+   *   5. Retorna dados da cobranca pra UI exibir
+   *
+   * Boleto parcelado (Banco PASSOS) deve usar applyFinancing, nao este.
+   */
+  async approveAndBill(
+    quoteId: string,
+    tenantId: string,
+    userId: string,
+    data: {
+      billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+      value: number;
+      installment_count?: number; // so CREDIT_CARD
+    },
+  ) {
+    if (!this.billingService) {
+      throw new BadRequestException('Servico de cobranca indisponivel');
+    }
+
+    // 1. Aceita o quote
+    await this.accept(quoteId, tenantId, userId);
+
+    // 2. Busca o TreatmentPlan e ativa
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { quote_id: quoteId },
+    });
+    if (!plan) {
+      throw new BadRequestException(
+        'Plano de tratamento nao foi criado — verifique se o orcamento tem items',
+      );
+    }
+    await this.prisma.treatmentPlan.update({
+      where: { id: plan.id },
+      data: { status: 'ACTIVE', start_date: new Date() },
+    });
+
+    // 3. Cria cobranca
+    const result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
+      billingType: data.billing_type,
+      value: data.value,
+      installmentCount: data.installment_count,
+    });
+
+    this.logger.log(
+      `[APPROVE-AND-BILL] Quote ${quoteId}: ${data.billing_type} ` +
+      `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
+    );
+
+    return { quote_id: quoteId, ...result };
+  }
+
   async applyFinancing(
     quoteId: string,
     tenantId: string,

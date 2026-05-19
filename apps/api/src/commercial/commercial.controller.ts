@@ -44,6 +44,7 @@ import {
   SaveCounterProposalDto,
   CreditCheckSimulateDto,
   ApplyFinancingDto,
+  ApproveAndBillDto,
   AddBonusDto,
   UpdateTreatmentPlanDto,
   UpdateTreatmentPlanItemDto,
@@ -296,6 +297,23 @@ export class CommercialController {
         dto.discount_percent_delta !== undefined
           ? Number(dto.discount_percent_delta)
           : undefined,
+    });
+  }
+
+  /**
+   * Onda 14.5 — Aprova proposta + gera cobranca direta (PIX/Cartao/Boleto a vista).
+   * Pra Boleto parcelado com entrada, usar /apply-financing.
+   */
+  @Post('quotes/:id/approve-and-bill')
+  approveAndBill(
+    @Param('id') id: string,
+    @Body() dto: ApproveAndBillDto,
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.approveAndBill(id, user.tenant_id, user.id, {
+      billing_type: dto.billing_type as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
+      value: Number(dto.value),
+      installment_count: dto.installment_count,
     });
   }
 

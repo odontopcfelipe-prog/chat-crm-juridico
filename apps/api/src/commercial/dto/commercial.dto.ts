@@ -83,6 +83,14 @@ export class ApplyFinancingDto {
   @IsOptional() @IsString() source?: 'internal' | 'asaas_history' | 'serasa';
 }
 
+// Onda 14.5 — Aprova proposta e gera cobranca (PIX/Cartao/Boleto a vista).
+// Pra Boleto parcelado com entrada, usar ApplyFinancingDto.
+export class ApproveAndBillDto {
+  @IsString() @IsIn(['PIX', 'CREDIT_CARD', 'BOLETO']) billing_type!: string;
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) value!: number;
+  @IsOptional() @IsInt() @Min(1) @Max(24) installment_count?: number;
+}
+
 // Onda 13 — Bônus de fechamento (segura proposta + valida).
 // 6 tipos suportados; quando type=DESCONTO_EXTRA, applica discount_percent_delta
 // no quote (recalcula total_value). Demais tipos sao texto + validade.

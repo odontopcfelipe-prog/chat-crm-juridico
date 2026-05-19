@@ -278,6 +278,129 @@ export class TreatmentPlanBillingService {
     };
   }
 
+  /**
+   * Onda 14.5 — Cria cobranca simples (1 charge) pro plano.
+   *
+   * Usado pelo fluxo "Aprovar e cobrar" do painel de Propostas. Cobre:
+   *  - PIX (1x, gera QR code)
+   *  - CREDIT_CARD (1x ou parcelado, link Asaas hosted)
+   *  - BOLETO (1x a vista)
+   *
+   * Pra boleto parcelado COM entrada (Banco PASSOS), usar
+   * createFinancingCharges em vez deste.
+   */
+  async createSimpleCharge(
+    planId: string,
+    tenantId: string,
+    options: {
+      billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+      value: number;
+      installmentCount?: number; // so pra CREDIT_CARD
+      firstDueDate?: string;
+    },
+  ) {
+    const plan = await this.prisma.treatmentPlan.findUnique({
+      where: { id: planId },
+      include: { patient: true },
+    });
+    if (!plan) throw new NotFoundException('Plano nao encontrado');
+    if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (plan.status !== 'ACTIVE') {
+      throw new BadRequestException(`Plano deve estar ACTIVE (atual: ${plan.status})`);
+    }
+    if (options.value <= 0) {
+      throw new BadRequestException('Valor deve ser maior que zero');
+    }
+
+    // Idempotencia
+    const existing = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { description: { contains: `plan:${planId}` } },
+    });
+    if (existing) {
+      throw new BadRequestException('Plano ja possui cobranca gerada');
+    }
+
+    const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
+
+    const dueDate = options.firstDueDate
+      ? new Date(options.firstDueDate)
+      : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
+
+    const installmentCount = options.installmentCount && options.installmentCount > 1
+      ? options.installmentCount
+      : undefined;
+    const installmentValue = installmentCount
+      ? +(options.value / installmentCount).toFixed(2)
+      : undefined;
+
+    const descriptionParts = [
+      `Plano de tratamento — ${plan.patient.name}`,
+      installmentCount ? `(${installmentCount}x)` : '(à vista)',
+      `[plan:${planId}]`,
+    ];
+    const description = descriptionParts.join(' ');
+
+    const asaasCharge = await this.asaas.createCharge({
+      customer: customer.external_id,
+      billingType: options.billingType,
+      value: options.value,
+      dueDate: dueDate.toISOString().slice(0, 10),
+      description,
+      externalReference: planId,
+      ...(installmentCount ? { installmentCount, installmentValue } : {}),
+    });
+
+    this.logger.log(
+      `[SIMPLE-CHARGE] Plan ${planId}: ${options.billingType} ` +
+      `${installmentCount ? `${installmentCount}x` : '1x'} R$ ${options.value}`,
+    );
+
+    // PIX QR code
+    let pixData: any = null;
+    if (options.billingType === 'PIX' && asaasCharge.id) {
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      catch (e: any) { this.logger.warn(`[SIMPLE-CHARGE] Falha QR PIX: ${e.message}`); }
+    }
+
+    const charge = await this.prisma.paymentGatewayCharge.create({
+      data: {
+        tenant_id: tenantId,
+        gateway: 'ASAAS',
+        external_id: asaasCharge.id,
+        customer_external_id: customer.external_id,
+        billing_type: options.billingType,
+        amount: options.value,
+        due_date: dueDate,
+        status: asaasCharge.status || 'PENDING',
+        description,
+        pix_qr_code: pixData?.encodedImage || null,
+        pix_copy_paste: pixData?.payload || null,
+        pix_expiration_date: pixData?.expirationDate ? new Date(pixData.expirationDate) : null,
+        boleto_url: asaasCharge.bankSlipUrl || null,
+        boleto_barcode: asaasCharge.nossoNumero || null,
+        invoice_url: asaasCharge.invoiceUrl || null,
+      },
+    });
+
+    return {
+      plan_id: planId,
+      charge,
+      billing_type: options.billingType,
+      installment_count: installmentCount,
+      pix: pixData ? {
+        qrCode: pixData.encodedImage,
+        copyPaste: pixData.payload,
+        expirationDate: pixData.expirationDate,
+      } : null,
+      boleto: asaasCharge.bankSlipUrl ? {
+        url: asaasCharge.bankSlipUrl,
+        barcode: asaasCharge.nossoNumero,
+      } : null,
+      // Pra cartao: link hospedado pelo Asaas onde paciente preenche dados
+      invoice_url: asaasCharge.invoiceUrl || null,
+    };
+  }
+
   /** Lista as charges geradas pra um plano. */
   async listCharges(planId: string, tenantId: string) {
     const plan = await this.prisma.treatmentPlan.findUnique({

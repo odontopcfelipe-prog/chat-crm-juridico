@@ -579,6 +579,99 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   const [bonusOpen, setBonusOpen] = useState(false);
   const [savingBonus, setSavingBonus] = useState(false);
 
+  // Onda 14.5 — Aprovar e cobrar (gera cobranca direta no Asaas)
+  interface ApproveAndBillResult {
+    quote_id: string;
+    plan_id: string;
+    charge: { id: string; status: string };
+    billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+    installment_count?: number;
+    pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
+    boleto?: { url: string; barcode: string | null } | null;
+    invoice_url?: string | null;
+  }
+  const [approveBillOpen, setApproveBillOpen] = useState(false);
+  const [approveBillResult, setApproveBillResult] = useState<ApproveAndBillResult | null>(null);
+  const [approvingBill, setApprovingBill] = useState(false);
+
+  // Onda 14.5 — Aprovar proposta + gerar cobranca direta
+  const approveAndBill = useCallback(async () => {
+    if (!selectedDetail) return;
+    // Mapeia activePaymentKey pra payment_method + installments
+    const opts = buildPaymentOptions();
+    const allOpts = [...opts.avista, ...opts.cartao, ...opts.parcelado];
+    const activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
+
+    // Calcula valor final conforme a forma de pagamento
+    // Usa pending_value se ha aprovacao parcial
+    const approvedValue = selectedDetail.items
+      .filter((it) => !!it.approved_at)
+      .reduce((acc, it) => acc + Number(it.total_price), 0);
+    const totalBruto = Number(selectedDetail.total_value);
+    const hasPartial = selectedDetail.items.some((it) => !!it.approved_at);
+    const baseTotal = hasPartial ? approvedValue : totalBruto;
+    const calc = applyPaymentOption(baseTotal, activeOpt);
+
+    // Determina billing_type
+    let billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+    let installmentCount: number | undefined;
+    let valueToCharge: number;
+
+    if (activeOpt.variant === 'avista') {
+      // PIX/dinheiro à vista — usa billingType PIX (Asaas suporta dinheiro via baixa manual)
+      billingType = 'PIX';
+      valueToCharge = calc.finalValue; // com desconto
+    } else if (activeOpt.variant === 'cartao') {
+      billingType = 'CREDIT_CARD';
+      installmentCount = activeOpt.installments;
+      valueToCharge = calc.finalValue; // com juros se houver
+    } else {
+      // parcelado: 1x boleto à vista, 2x+ deveria ir pra credit-check
+      if (activeOpt.installments === 1) {
+        billingType = 'BOLETO';
+        valueToCharge = calc.finalValue;
+      } else {
+        showError(
+          'Pra boleto parcelado, use o fluxo de Financiamento Banco PASSOS ' +
+          '(consulta de crédito).',
+        );
+        return;
+      }
+    }
+
+    const confirmMsg =
+      `Aprovar proposta?\n\n` +
+      `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
+      `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+      `Isso vai:\n` +
+      `• Aceitar o orçamento (vira ACCEPTED)\n` +
+      `• Ativar o plano de tratamento\n` +
+      `• Gerar cobrança no Asaas\n` +
+      `• Enviar pro paciente`;
+    if (!window.confirm(confirmMsg)) return;
+
+    setApprovingBill(true);
+    try {
+      const { data } = await api.post<ApproveAndBillResult>(
+        `/quotes/${selectedDetail.id}/approve-and-bill`,
+        {
+          billing_type: billingType,
+          value: valueToCharge,
+          installment_count: installmentCount,
+        },
+      );
+      setApproveBillResult(data);
+      setApproveBillOpen(true);
+      showSuccess('Proposta aprovada e cobrança gerada!');
+      load(); // refresh lista
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao aprovar e gerar cobrança');
+    } finally {
+      setApprovingBill(false);
+    }
+  }, [selectedDetail, activePaymentKey, load]);
+
   // Onda 13 — adiciona bônus de fechamento ao quote selecionado
   const addBonus = useCallback(async (payload: {
     type: BonusType;
@@ -771,6 +864,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
             setCreditCheckOpen(true);
           }}
           onAddBonus={() => setBonusOpen(true)}
+          onApproveAndBill={approveAndBill}
         />
       )}
 
@@ -850,6 +944,26 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           onCancel={() => setBonusOpen(false)}
           onSave={addBonus}
         />
+      )}
+
+      {/* Onda 14.5 — Modal de resultado "Aprovar e cobrar" */}
+      {approveBillOpen && approveBillResult && (
+        <ApproveBillResultDialog
+          result={approveBillResult}
+          onClose={() => {
+            setApproveBillOpen(false);
+            setApproveBillResult(null);
+            setSelectedId(null); // fecha o painel (quote ja foi aceito)
+          }}
+        />
+      )}
+      {approvingBill && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="bg-card border border-border rounded-xl p-6 flex items-center gap-3 shadow-2xl">
+            <Loader2 size={20} className="animate-spin text-emerald-700" />
+            <span className="text-sm font-semibold">Aprovando proposta + gerando cobrança...</span>
+          </div>
+        </div>
       )}
 
       {creditCheckOpen && selectedDetail && (() => {
@@ -1117,6 +1231,7 @@ function PropostaPainel({
   onOpenCreditCheck,
   onOpenCreditCheckForParcelas,
   onAddBonus,
+  onApproveAndBill,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -1137,6 +1252,8 @@ function PropostaPainel({
   onOpenCreditCheckForParcelas: (installments: number) => void;
   /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
   onAddBonus: () => void;
+  /** Onda 14.5 — abre confirm + chama POST /quotes/:id/approve-and-bill */
+  onApproveAndBill: () => void;
 }) {
   if (loading) {
     return (
@@ -1408,10 +1525,21 @@ function PropostaPainel({
           type="button"
           onClick={onSend}
           disabled={sending}
-          className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ml-auto"
+          className="text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ml-auto"
+          title="Envia link da proposta pro paciente abrir e decidir"
         >
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
+        </button>
+        {/* Onda 14.5 — Aprovar proposta + gerar cobranca real */}
+        <button
+          type="button"
+          onClick={onApproveAndBill}
+          className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 font-semibold shadow-sm"
+          title="Fecha o orçamento e gera cobrança PIX/Cartão/Boleto no Asaas"
+        >
+          <Check size={12} />
+          Aprovar e cobrar
         </button>
       </div>
 
@@ -3374,6 +3502,191 @@ function BonusDialog({
           >
             {loading ? <Loader2 size={12} className="animate-spin" /> : <Gift size={12} />}
             Adicionar bônus
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Onda 14.5 — Modal de resultado de "Aprovar e cobrar". */
+function ApproveBillResultDialog({
+  result,
+  onClose,
+}: {
+  result: {
+    quote_id: string;
+    plan_id: string;
+    billing_type: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
+    installment_count?: number;
+    pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
+    boleto?: { url: string; barcode: string | null } | null;
+    invoice_url?: string | null;
+  };
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copyPasteCode = result.pix?.copyPaste || '';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="p-5 border-b border-border bg-emerald-500/10">
+          <div className="flex items-start gap-3">
+            <div className="w-12 h-12 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+              <ShieldCheck size={24} className="text-emerald-700" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-emerald-800">
+                Proposta aprovada e cobrança gerada!
+              </h3>
+              <p className="text-xs text-emerald-700 mt-1">
+                {result.billing_type === 'PIX' && 'Pagamento via PIX'}
+                {result.billing_type === 'CREDIT_CARD' &&
+                  `Cartão de crédito · ${result.installment_count}x`}
+                {result.billing_type === 'BOLETO' && 'Boleto bancário à vista'}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {result.billing_type === 'PIX' && result.pix && (
+            <>
+              <div className="bg-muted/20 border border-border rounded-lg p-4 text-center">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold mb-2">
+                  Escaneie o QR Code
+                </p>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`data:image/png;base64,${result.pix.qrCode}`}
+                  alt="QR Code PIX"
+                  className="w-48 h-48 mx-auto rounded-md"
+                />
+                <p className="text-[10px] text-muted-foreground mt-2">
+                  Válido até {new Date(result.pix.expirationDate).toLocaleString('pt-BR')}
+                </p>
+              </div>
+              <div>
+                <label className="text-[11px] font-semibold text-foreground block mb-1">
+                  Ou cole o código PIX no app do banco:
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={copyPasteCode}
+                    readOnly
+                    className="flex-1 text-xs px-3 py-2 rounded-md border border-border bg-muted/30 font-mono"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard?.writeText(copyPasteCode);
+                      setCopied(true);
+                      setTimeout(() => setCopied(false), 2000);
+                    }}
+                    className="text-xs px-3 py-2 rounded-md bg-emerald-600 text-white hover:bg-emerald-700 font-semibold"
+                  >
+                    {copied ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+
+          {result.billing_type === 'CREDIT_CARD' && result.invoice_url && (
+            <div className="bg-sky-500/10 border border-sky-500/30 rounded-md p-4">
+              <p className="text-xs font-semibold text-sky-800 mb-2">
+                💳 Link de pagamento pro paciente
+              </p>
+              <p className="text-[11px] text-muted-foreground mb-3">
+                Compartilhe esse link com o paciente. Ele vai preencher os dados
+                do cartão em página segura do Asaas.
+              </p>
+              <a
+                href={result.invoice_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center text-sm font-semibold px-4 py-3 rounded-lg bg-sky-600 text-white hover:bg-sky-700"
+              >
+                Abrir link de pagamento ↗
+              </a>
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard?.writeText(result.invoice_url!);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="block w-full text-center text-xs mt-2 px-3 py-2 rounded-md border border-sky-500/40 hover:bg-sky-500/10 font-medium"
+              >
+                {copied ? '✓ Link copiado' : 'Copiar link'}
+              </button>
+            </div>
+          )}
+
+          {result.billing_type === 'BOLETO' && result.boleto && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-4">
+              <p className="text-xs font-semibold text-amber-800 mb-2">
+                🧾 Boleto bancário gerado
+              </p>
+              <a
+                href={result.boleto.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block w-full text-center text-sm font-semibold px-4 py-3 rounded-lg bg-amber-600 text-white hover:bg-amber-700"
+              >
+                Abrir boleto (PDF) ↗
+              </a>
+              {result.boleto.barcode && (
+                <div className="mt-3">
+                  <label className="text-[11px] font-semibold text-foreground block mb-1">
+                    Código de barras:
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={result.boleto.barcode}
+                      readOnly
+                      className="flex-1 text-xs px-3 py-2 rounded-md border border-border bg-muted/30 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(result.boleto!.barcode!);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      }}
+                      className="text-xs px-3 py-2 rounded-md bg-amber-600 text-white hover:bg-amber-700 font-semibold"
+                    >
+                      {copied ? '✓ Copiado' : 'Copiar'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="bg-muted/20 border border-border rounded-md p-3 text-[11px] text-muted-foreground">
+            🔔 O Asaas envia automaticamente por email/WhatsApp pro paciente.
+            Você acompanha o status na aba <strong>Financeiro</strong> do paciente.
+          </div>
+        </div>
+
+        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-sm px-5 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold flex items-center gap-1.5"
+          >
+            <Check size={14} />
+            Concluir
           </button>
         </div>
       </div>
