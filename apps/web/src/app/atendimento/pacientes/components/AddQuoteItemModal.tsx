@@ -53,6 +53,8 @@ interface QuoteData {
   id: string;
   title: string | null;
   priority: string | null;
+  /** Onda 14.2 — status pra bloquear edicao quando quote ja foi aceito/enviado */
+  status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
   items: ExistingQuoteItem[];
 }
 
@@ -98,6 +100,8 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
   const [removedIds, setRemovedIds] = useState<Set<string>>(new Set());
   const [loadingExisting, setLoadingExisting] = useState(true);
   const [originalTitle, setOriginalTitle] = useState<string>(initialTitle || '');
+  // Onda 14.2 — Status do quote pra bloquear edicao quando nao for DRAFT
+  const [quoteStatus, setQuoteStatus] = useState<QuoteData['status']>('DRAFT');
   // Onda 6.2 — Snapshot dos tooth_fdis originais por item.id pra detectar
   // mudanca nos dentes de items existentes (operador toggla no odontograma).
   // Sem isso, mudancas em items ja salvos nao habilitam o botao "Adicionar".
@@ -136,6 +140,8 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       try {
         const { data } = await api.get<QuoteData>(`/quotes/${quoteId}`);
         if (cancelled) return;
+        // Onda 14.2 — guarda status pra UI mostrar warning + desabilitar submit
+        setQuoteStatus(data.status);
         const t = data.title || '';
         setTitleDraft(t);
         setOriginalTitle(t);
@@ -310,6 +316,14 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
     || itemsWithChangedTeeth.length > 0;
 
   const submit = async (keepOpen: boolean) => {
+    // Onda 14.2 — bloqueia se quote nao for DRAFT (backend tambem valida)
+    if (quoteStatus !== 'DRAFT') {
+      showError(
+        `Este orçamento está ${quoteStatus} e não pode mais ser editado. ` +
+        `Crie uma nova versão na aba Propostas → "+ nova versão".`,
+      );
+      return;
+    }
     if (!hasChanges) {
       showError('Nada pra salvar — adicione, remova procedimentos ou edite o nome');
       return;
@@ -383,7 +397,15 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         onClose();
       }
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao adicionar');
+      // Onda 14.2 — log no console pra debug + mensagem detalhada pro user
+      const msg = err?.response?.data?.message;
+      const status = err?.response?.status;
+      console.error('[AddQuoteItemModal] Erro ao salvar:', { status, msg, err });
+      showError(
+        msg
+          ? `Erro ao adicionar (${status || 'rede'}): ${msg}`
+          : `Erro ao adicionar — verifique o status do orçamento`,
+      );
     } finally {
       setSaving(false);
     }
@@ -412,6 +434,33 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             <X size={18} />
           </button>
         </div>
+
+        {/* Onda 14.2 — Banner quando quote ja foi aceito/enviado/rejeitado.
+            Impede edicao e explica o que fazer. */}
+        {quoteStatus !== 'DRAFT' && !loadingExisting && (
+          <div className={`px-5 py-3 border-b border-border ${
+            quoteStatus === 'ACCEPTED' ? 'bg-emerald-500/10' :
+            quoteStatus === 'REJECTED' ? 'bg-red-500/10' :
+            'bg-amber-500/10'
+          }`}>
+            <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+              {quoteStatus === 'ACCEPTED' && '✓ Orçamento ACEITO'}
+              {quoteStatus === 'SENT' && '📤 Orçamento ENVIADO'}
+              {quoteStatus === 'REJECTED' && '✕ Orçamento REJEITADO'}
+              {quoteStatus === 'EXPIRED' && '⏰ Orçamento EXPIRADO'}
+              <span className="text-xs font-normal text-muted-foreground ml-2">
+                — não pode mais ser editado
+              </span>
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {quoteStatus === 'ACCEPTED'
+                ? 'Pra mudar procedimentos, crie uma nova versão do plano na aba Propostas.'
+                : quoteStatus === 'SENT'
+                ? 'O orçamento já foi enviado ao paciente. Pra editar, primeiro retorne pra DRAFT na aba Orçamentos.'
+                : 'Crie uma nova versão ou duplique este orçamento.'}
+            </p>
+          </div>
+        )}
 
         {/* ─── NOME DO ORÇAMENTO ────────────────────────────── */}
         <div className="px-5 py-3 flex items-center gap-3">
@@ -760,9 +809,13 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             <button
               type="button"
               onClick={() => submit(true)}
-              disabled={saving || !hasChanges}
+              disabled={saving || !hasChanges || quoteStatus !== 'DRAFT'}
               className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1.5"
-              title="Salva e mantém o modal aberto pra continuar editando"
+              title={
+                quoteStatus !== 'DRAFT'
+                  ? `Orçamento ${quoteStatus} — não pode ser editado`
+                  : 'Salva e mantém o modal aberto pra continuar editando'
+              }
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               Salvar e continuar
@@ -770,8 +823,13 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             <button
               type="button"
               onClick={() => submit(false)}
-              disabled={saving || !hasChanges}
+              disabled={saving || !hasChanges || quoteStatus !== 'DRAFT'}
               className="px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 disabled:opacity-50 inline-flex items-center gap-1.5 shadow-sm"
+              title={
+                quoteStatus !== 'DRAFT'
+                  ? `Orçamento ${quoteStatus} — não pode ser editado`
+                  : undefined
+              }
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
               Adicionar ao orçamento
