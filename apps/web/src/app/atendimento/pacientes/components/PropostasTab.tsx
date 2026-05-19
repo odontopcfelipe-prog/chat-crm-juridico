@@ -841,11 +841,19 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         <p className="text-sm font-medium text-foreground mb-1">
           Nenhuma proposta pra comparar
         </p>
-        <p className="text-xs text-muted-foreground max-w-md mx-auto">
-          Crie orçamentos com prioridades diferentes (Completo, Essencial,
-          Urgente) na aba <strong>Avaliação</strong>, e eles aparecerão aqui
-          lado a lado pro paciente escolher.
+        <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
+          Crie variações de orçamento (Urgente, Essencial, Completo ou
+          Livre) clicando em <strong>“+ nova versão”</strong> aqui em cima,
+          ou marque prioridade nos cards da aba <strong>Avaliação</strong>.
         </p>
+        <button
+          type="button"
+          onClick={() => setNewVersionOpen(true)}
+          className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
+        >
+          <Plus size={14} />
+          nova versão
+        </button>
       </div>
     );
   }
@@ -874,105 +882,93 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         </button>
       </div>
 
-      {/* Onda 14.19 — Scroll horizontal: 3 slots principais (URGENTE/ESSENCIAL
-          /COMPLETO) + versoes antigas como cards proprios + cards LIVRE pra
-          quotes extras sem priority. Antes era grid de 3 fixo — agora suporta
-          quantas variacoes o operador quiser sem brigar pelo mesmo slot.
+      {/* Onda 14.19 — Scroll horizontal proporcional.
+          Onda 14.20 — Slots vazios sumem: so renderiza cards de propostas
+          que existem (mais botao "+ nova versao" no header pra adicionar).
+          Cards usam flex-1 com min/max-width: ocupam o espaco disponivel
+          igualmente quando ha poucos (1 card = 100%, 2 cards = 50% cada,
+          etc), e quando o total excede o viewport, vira scroll horizontal
+          mantendo o min-width de 260px.
 
-          Cada card: largura fixa, snap pra ficar alinhado, shrink-0 pra nao
-          espremer. `pb-3` da espaco pra scrollbar nao cortar shadow. `-mx-1
-          px-1` permite scrollar ate as bordas sem cortar visual. */}
-      <div className="flex flex-nowrap overflow-x-auto snap-x snap-mandatory gap-3 pb-3 -mx-1 px-1 scrollbar-thin scrollbar-thumb-border">
-        {/* 3 slots principais — cada um mostra o main (mais recente) ou placeholder */}
-        {PRIORITY_ORDER.map((priority) => {
-          const cfg = PRIORITY_CONFIG[priority];
-          const items = grouped.get(priority) || [];
-          const main = items[0]; // mais recente
-          const isSelected = !!main && selectedId === main.id;
-          return (
-            <div
-              key={`slot-${priority}`}
-              className="snap-start shrink-0 w-[280px] md:w-[320px] flex"
-            >
-              <PropostaCard
-                variant={priority}
-                cfg={cfg}
-                quote={main}
-                // Onda 14.19 — versoes antigas agora viram cards proprios no
-                // scroll, entao olderCount sempre 0 aqui (sem texto duplicado).
-                olderCount={0}
-                completoTotal={completoTotal}
-                selected={isSelected}
-                onToggleSelect={() => {
-                  if (!main) return;
-                  setSelectedId(isSelected ? null : main.id);
-                }}
-                onPickEmpty={() => setPickerFor(priority)}
-                onRemoveFromSlot={() => {
-                  if (!main) return;
-                  removeFromSlot(main.id, cfg.label);
-                }}
-              />
-            </div>
-          );
-        })}
+          `pb-3` da espaco pra scrollbar nao cortar shadow. `-mx-1 px-1`
+          permite scrollar ate as bordas sem cortar visual. */}
+      <div className="flex flex-nowrap overflow-x-auto snap-x gap-3 pb-3 -mx-1 px-1 scrollbar-thin scrollbar-thumb-border">
+        {(() => {
+          // Onda 14.20 — monta lista linear de cards a renderizar (apenas
+          // propostas reais — placeholders vazios foram removidos). Ordem:
+          //   1. URGENTE (mais recente primeiro, depois v2, v3...)
+          //   2. ESSENCIAL idem
+          //   3. COMPLETO idem
+          //   4. LIVRE (quotes sem priority)
+          type CardEntry = {
+            key: string;
+            variant: CardVariant;
+            quote: QuoteListItem;
+            versionTag: string | null; // "v2", "v3" pras antigas; null pra main e LIVRE
+            cfg: VariantConfig;
+          };
+          const entries: CardEntry[] = [];
+          for (const priority of PRIORITY_ORDER) {
+            const items = grouped.get(priority) || [];
+            const cfg = PRIORITY_CONFIG[priority];
+            items.forEach((q, idx) => {
+              entries.push({
+                key: `q-${q.id}`,
+                variant: priority,
+                quote: q,
+                versionTag: idx === 0 ? null : `v${idx + 1}`,
+                cfg,
+              });
+            });
+          }
+          for (const q of grouped.get('NONE') || []) {
+            entries.push({
+              key: `livre-${q.id}`,
+              variant: 'LIVRE',
+              quote: q,
+              versionTag: null,
+              cfg: LIVRE_CONFIG,
+            });
+          }
 
-        {/* Onda 14.19 — Versoes ANTIGAS de cada priority (items.slice(1)) viram
-            cards proprios no scroll. Mantem cor da priority pro operador saber
-            do que e versao, mas com badge "v2", "v3" pra distinguir do main. */}
-        {PRIORITY_ORDER.flatMap((priority) => {
-          const items = grouped.get(priority) || [];
-          const cfg = PRIORITY_CONFIG[priority];
-          return items.slice(1).map((q, idx) => {
-            const isSelected = selectedId === q.id;
+          return entries.map((entry) => {
+            const isSelected = selectedId === entry.quote.id;
             return (
               <div
-                key={`old-${q.id}`}
-                className="snap-start shrink-0 w-[280px] md:w-[320px] flex relative"
+                key={entry.key}
+                // Onda 14.20 — flex-1 proporcional, min-w garante legibilidade
+                // e dispara scroll quando total > viewport, max-w impede card
+                // unico ocupar 100% horrivel em telas largas.
+                className="snap-start flex-1 basis-[280px] min-w-[260px] max-w-[400px] flex relative"
               >
-                {/* Badge "v2", "v3" no canto pra distinguir do main */}
-                <span className="absolute -top-2 left-3 z-10 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-foreground shadow-sm border border-border">
-                  v{idx + 2}
-                </span>
+                {entry.versionTag && (
+                  <span
+                    className="absolute -top-2 left-3 z-10 text-[10px] font-bold px-2 py-0.5 rounded-full bg-muted text-foreground shadow-sm border border-border"
+                    title="Versão extra da mesma prioridade"
+                  >
+                    {entry.versionTag}
+                  </span>
+                )}
                 <PropostaCard
-                  variant={priority}
-                  cfg={cfg}
-                  quote={q}
+                  variant={entry.variant}
+                  cfg={entry.cfg}
+                  quote={entry.quote}
                   olderCount={0}
                   completoTotal={completoTotal}
                   selected={isSelected}
-                  onToggleSelect={() => setSelectedId(isSelected ? null : q.id)}
-                  onPickEmpty={() => {}}
-                  onRemoveFromSlot={() => removeFromSlot(q.id, cfg.label)}
+                  onToggleSelect={() => setSelectedId(isSelected ? null : entry.quote.id)}
+                  onPickEmpty={() => {
+                    if (entry.variant !== 'LIVRE') setPickerFor(entry.variant);
+                  }}
+                  onRemoveFromSlot={() => {
+                    if (entry.variant === 'LIVRE') return;
+                    removeFromSlot(entry.quote.id, entry.cfg.label);
+                  }}
                 />
               </div>
             );
           });
-        })}
-
-        {/* Onda 14.19 — Cards LIVRE (quotes sem priority). Aparecem por ultimo
-            no scroll, cor azul-clara pra diferenciar dos 3 slots fixos. */}
-        {(grouped.get('NONE') || []).map((q) => {
-          const isSelected = selectedId === q.id;
-          return (
-            <div
-              key={`livre-${q.id}`}
-              className="snap-start shrink-0 w-[280px] md:w-[320px] flex"
-            >
-              <PropostaCard
-                variant="LIVRE"
-                cfg={LIVRE_CONFIG}
-                quote={q}
-                olderCount={0}
-                completoTotal={completoTotal}
-                selected={isSelected}
-                onToggleSelect={() => setSelectedId(isSelected ? null : q.id)}
-                onPickEmpty={() => {}}
-                onRemoveFromSlot={() => {}}
-              />
-            </div>
-          );
-        })}
+        })()}
       </div>
 
       {/* Onda 9 — Painel inline da proposta selecionada (negociacao ao vivo) */}
