@@ -2434,6 +2434,12 @@ model Quote {
   patient_id         String
   created_by_user_id String
 
+  /// Onda 14.18 — Numero sequencial GLOBAL por tenant. Auto-incrementado
+  /// no create via MAX(quote_number)+1 do tenant. Imutavel apos criacao.
+  /// Usado como identificador unificado entre as abas Avaliacao/Orcamentos/
+  /// Propostas/Financeiro pra operador ter facilidade de localizar.
+  quote_number Int @default(0)
+
   /// Onda 3.9 — Nome customizavel pelo operador (ex: "Reabilitacao superior",
   /// "Canal + coroa 36"). Independente da closing_category derivada por
   /// procedimento. Frontend mostra como titulo do card no Odontograma.
@@ -2526,6 +2532,8 @@ model Quote {
   @@index([accepted_from_id])
   // Onda 25.6 — query rapida de "orcamentos deletados nos ultimos 30 dias"
   @@index([deleted_at])
+  // Onda 14.18 — index pra calcular MAX(quote_number) por tenant rapidamente
+  @@index([quote_number])
 }
 
 /// Onda 3b (Fase 24) — Snapshot imutavel do estado do orcamento em momentos

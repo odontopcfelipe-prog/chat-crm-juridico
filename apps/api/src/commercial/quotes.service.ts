@@ -82,11 +82,22 @@ export class QuotesService {
     // explicitamente passar uma data.
     const validUntil = data.valid_until ? new Date(data.valid_until) : null;
 
+    // Onda 14.18 — calcula quote_number sequencial GLOBAL por tenant.
+    // MAX(quote_number) atual + 1. Race condition possivel em criacoes
+    // simultaneas, mas baixa probabilidade em contexto odontologico.
+    const lastQuote = await this.prisma.quote.findFirst({
+      where: { patient: { tenant_id: tenantId } },
+      orderBy: { quote_number: 'desc' },
+      select: { quote_number: true },
+    });
+    const nextQuoteNumber = (lastQuote?.quote_number || 0) + 1;
+
     try {
       const quote = await this.prisma.quote.create({
         data: {
           patient_id: patientId,
           created_by_user_id: userId,
+          quote_number: nextQuoteNumber,
           valid_until: validUntil,
           discount_percent: data.discount_percent || 0,
           discount_value: totals.discount_value,
