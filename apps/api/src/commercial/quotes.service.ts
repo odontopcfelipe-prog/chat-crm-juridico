@@ -345,11 +345,14 @@ export class QuotesService {
     const quote = await this.findOne(id, tenantId);
     // Onda 8.3 — `priority` e metadado de classificacao (aba Propostas) e nao
     // muda dados financeiros/itens. Pode ser alterado em qualquer status.
+    // Onda 14.21 — `visible_in_proposals` segue o mesmo padrao: metadata de
+    // UI (esconde da aba Propostas) sem afetar dados do orcamento.
     // Demais campos continuam bloqueados apos envio.
-    const onlyPriorityChange =
+    const META_FIELDS = new Set(['priority', 'visible_in_proposals']);
+    const onlyMetaChange =
       Object.keys(data).length > 0 &&
-      Object.keys(data).every((k) => k === 'priority');
-    if (!onlyPriorityChange && quote.status !== 'DRAFT') {
+      Object.keys(data).every((k) => META_FIELDS.has(k));
+    if (!onlyMetaChange && quote.status !== 'DRAFT') {
       throw new BadRequestException('Orcamento nao pode ser editado apos envio');
     }
 

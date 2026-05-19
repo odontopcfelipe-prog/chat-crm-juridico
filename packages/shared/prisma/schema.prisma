@@ -2453,6 +2453,13 @@ model Quote {
   /// "URGENTE" (urgencia). Recepcao usa pra priorizar fechamento.
   priority    String?
 
+  /// Onda 14.21 — Visibilidade na aba Propostas. Quando false, o quote
+  /// some do scroll horizontal da aba Propostas mas continua intacto em
+  /// Avaliacao/Orcamentos/Financeiro. Permite operador "limpar" a aba
+  /// sem perder o orcamento. Default true (visivel). Botao de lixeira
+  /// nos cards da aba Propostas seta este campo pra false.
+  visible_in_proposals Boolean @default(true)
+
   subtotal         Decimal @default(0) @db.Decimal(10, 2)
   discount_percent Decimal @default(0) @db.Decimal(5, 2)
   discount_value   Decimal @default(0) @db.Decimal(10, 2)

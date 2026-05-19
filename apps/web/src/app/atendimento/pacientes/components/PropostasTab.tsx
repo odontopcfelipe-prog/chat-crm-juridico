@@ -43,6 +43,8 @@ interface QuoteListItem {
   /** Onda 14.18 — numero sequencial global por tenant. Identificador unificado
    *  entre as 4 abas. Auto-incrementado no backend. */
   quote_number?: number;
+  /** Onda 14.21 — false esconde da aba Propostas (mantem nas demais abas). */
+  visible_in_proposals?: boolean;
   total_value: string | number;
   created_at: string;
   valid_until?: string | null;
@@ -577,6 +579,31 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     }
   }, [load]);
 
+  // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
+  // Seta visible_in_proposals=false: a quote some daqui mas continua intacta
+  // nas abas Avaliacao, Orcamentos e Financeiro. Optimistic update pra resposta
+  // imediata. Confirm avisa o operador que e so esta aba.
+  const hideFromProposals = useCallback(async (quoteId: string) => {
+    const ok = window.confirm(
+      'Remover este card da aba Propostas?\n\nO orçamento NÃO será excluído — continua disponível nas abas Avaliação e Orçamentos. Pra trazer de volta, recrie a partir de lá.',
+    );
+    if (!ok) return;
+    // Optimistic — esconde imediatamente
+    setQuotes((prev) => prev.map((q) =>
+      q.id === quoteId ? { ...q, visible_in_proposals: false } : q,
+    ));
+    setSelectedId((prev) => (prev === quoteId ? null : prev));
+    try {
+      await api.patch(`/quotes/${quoteId}`, { visible_in_proposals: false });
+      showSuccess('Removido da aba Propostas');
+    } catch (err: unknown) {
+      // Reverte
+      await load();
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao remover da aba');
+    }
+  }, [load]);
+
   // Onda 9 — "+ nova versão": cria DRAFT vazio com priority escolhida,
   // navega pro detalhe na aba Orcamentos pra preencher items.
   // Onda 14.19 — agora aceita priority=null pra criar "Versao livre" (extra
@@ -795,7 +822,12 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   // confundindo o operador apos clicar "Aprovar e cobrar".
   const grouped = useMemo(() => {
     const eligible = quotes.filter(
-      (q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED',
+      (q) =>
+        (q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED') &&
+        // Onda 14.21 — esconde quotes que o operador clicou "remover" da aba
+        // Propostas. Continuam intactas em Avaliacao/Orcamentos/Financeiro.
+        // visible_in_proposals === false explicitamente. undefined/true = visivel.
+        q.visible_in_proposals !== false,
     );
     const m = new Map<Priority | 'NONE', QuoteListItem[]>();
     for (const q of eligible) {
@@ -891,8 +923,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           mantendo o min-width de 260px.
 
           `pb-3` da espaco pra scrollbar nao cortar shadow. `-mx-1 px-1`
-          permite scrollar ate as bordas sem cortar visual. */}
-      <div className="flex flex-nowrap overflow-x-auto snap-x gap-3 pb-3 -mx-1 px-1 scrollbar-thin scrollbar-thumb-border">
+          permite scrollar ate as bordas sem cortar visual.
+          Onda 14.21 — items-stretch garante que TODOS os cards tenham a
+          mesma altura (do maior conteudo). Antes alguns ficavam menores
+          se tinham menos info (ex: LIVRE com 0 itens). */}
+      <div className="flex flex-nowrap items-stretch overflow-x-auto snap-x gap-3 pb-3 -mx-1 px-1 scrollbar-thin scrollbar-thumb-border">
         {(() => {
           // Onda 14.20 — monta lista linear de cards a renderizar (apenas
           // propostas reais — placeholders vazios foram removidos). Ordem:
@@ -939,7 +974,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
                 // Onda 14.20 — flex-1 proporcional, min-w garante legibilidade
                 // e dispara scroll quando total > viewport, max-w impede card
                 // unico ocupar 100% horrivel em telas largas.
-                className="snap-start flex-1 basis-[280px] min-w-[260px] max-w-[400px] flex relative"
+                // Onda 14.21 — h-auto + child com h-full + parent items-stretch
+                // = todos os cards com mesma altura visual.
+                className="snap-start flex-1 basis-[280px] min-w-[260px] max-w-[400px] flex relative h-auto"
               >
                 {entry.versionTag && (
                   <span
@@ -960,10 +997,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
                   onPickEmpty={() => {
                     if (entry.variant !== 'LIVRE') setPickerFor(entry.variant);
                   }}
-                  onRemoveFromSlot={() => {
-                    if (entry.variant === 'LIVRE') return;
-                    removeFromSlot(entry.quote.id, entry.cfg.label);
-                  }}
+                  // Onda 14.21 — lixeira agora "remove desta aba" em TODOS
+                  // os cards (incluindo LIVRE). Seta visible_in_proposals=false.
+                  // A quote continua em Avaliacao/Orcamentos/Financeiro.
+                  onRemoveFromSlot={() => hideFromProposals(entry.quote.id)}
                 />
               </div>
             );
@@ -1212,7 +1249,7 @@ function PropostaCard({
       type="button"
       onClick={onToggleSelect}
       data-selected={selected ? '1' : '0'}
-      className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full ${
+      className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full w-full ${
         selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
@@ -1244,31 +1281,30 @@ function PropostaCard({
         </span>
       )}
 
-      {/* Onda 12.5 — Lixeirinha pra remover do slot (sem excluir o orçamento).
-          Onda 14.19 — Esconde quando variant=LIVRE: a quote ja nao tem priority,
-          nao ha o que "remover do slot". Pra excluir mesmo, usar a aba Orcamentos. */}
-      {variant !== 'LIVRE' && (
-        <span
-          role="button"
-          tabIndex={0}
-          onClick={(e) => {
+      {/* Onda 12.5 / 14.21 — Lixeirinha "Remover desta aba". Visivel em TODOS
+          os cards (URGENTE/ESSENCIAL/COMPLETO/LIVRE) pra consistencia visual.
+          Acao: seta visible_in_proposals=false (so esconde da aba Propostas).
+          O orcamento continua intacto em Avaliacao/Orcamentos/Financeiro. */}
+      <span
+        role="button"
+        tabIndex={0}
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemoveFromSlot();
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
             e.stopPropagation();
             onRemoveFromSlot();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault();
-              e.stopPropagation();
-              onRemoveFromSlot();
-            }
-          }}
-          className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
-          aria-label={`Remover do slot ${cfg.label}`}
-          title="Remover do slot (orçamento continua salvo)"
-        >
-          <Trash2 size={12} />
-        </span>
-      )}
+          }
+        }}
+        className="absolute top-2 right-2 p-1 rounded-md text-muted-foreground hover:text-red-700 hover:bg-red-500/10 transition-colors cursor-pointer"
+        aria-label="Remover desta aba"
+        title="Remover desta aba (continua em Avaliação e Orçamentos)"
+      >
+        <Trash2 size={12} />
+      </span>
 
       {/* Header com priority */}
       <div className="flex items-center gap-2 mb-2">

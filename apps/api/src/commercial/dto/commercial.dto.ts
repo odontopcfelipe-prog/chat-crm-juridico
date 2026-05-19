@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested } from 'class-validator';
+import { IsString, IsOptional, IsInt, IsNumber, IsUUID, IsIn, IsDateString, Min, Max, IsArray, ValidateNested, IsBoolean } from 'class-validator';
 import { Type } from 'class-transformer';
 
 // ─── Quote ─────────────────────────────────────────────────────
@@ -44,6 +44,9 @@ export class UpdateQuoteDto {
   @IsOptional() @IsString() title?: string;
   /// Onda 6 — prioridade clinica: COMPLETO | ESSENCIAL | URGENTE | null
   @IsOptional() @IsString() priority?: string | null;
+  /// Onda 14.21 — Visibilidade na aba Propostas. false esconde da aba
+  /// Propostas mas mantem em Avaliacao/Orcamentos/Financeiro. Default true.
+  @IsOptional() @IsBoolean() visible_in_proposals?: boolean;
 }
 
 export class RejectQuoteDto {
