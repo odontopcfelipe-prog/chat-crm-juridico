@@ -1,10 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus, Copy } from 'lucide-react';
+import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus, Copy, Pencil } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
+// Onda 14.18 — identificador unificado entre as 4 abas
+import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 import QuotePanel from './QuotePanel';
 import AddQuoteItemModal from './AddQuoteItemModal';
 
@@ -80,6 +82,10 @@ interface QuoteListItem {
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
   // Onda 3.9 — nome customizavel pelo operador (ex: "Reabilitacao superior")
   title: string | null;
+  /// Onda 14.18 — numero sequencial global por tenant. Usado pra identificar
+  /// o orcamento de forma consistente entre as 4 abas. Auto-incrementado
+  /// no backend. Legados podem vir como 0 ate a migration rodar.
+  quote_number?: number;
   total_value: string | number;
   created_at: string;
   valid_until: string | null;
@@ -629,6 +635,10 @@ function QuoteCard({
   const itemsCount = quote._count?.items ?? 0;
   const createdDate = new Date(quote.created_at).toLocaleDateString('pt-BR');
   const categoryLabel = CLOSING_CATEGORY_LABEL[quote.closing_category] || 'OUTROS';
+  // Onda 14.18 — identificador unificado: #001 (quote_number) e nome (title
+  // ou fallback "Orcamento"). Usado igual nas 4 abas.
+  const quoteNumberBadge = getQuoteNumberBadge(quote);
+  const quoteDisplayName = getQuoteDisplayName(quote);
 
   // Edicao inline do titulo: state local enquanto edita, commit no blur/Enter
   const [titleDraft, setTitleDraft] = useState<string | null>(null);
@@ -666,7 +676,15 @@ function QuoteCard({
         onClick={onToggleExpand}
         className="w-full px-4 py-3 flex items-center gap-3 flex-wrap text-left"
       >
-        <span className="text-xs text-muted-foreground font-mono">#{index}</span>
+        {/* Onda 14.18 — numero global do orcamento (#001). Fallback pra
+            #{index} (sequencial da lista renderizada) quando legado sem
+            quote_number ainda nao migrado. */}
+        <span
+          className="text-xs text-primary font-mono font-semibold"
+          title="Numero do orcamento (global da clinica)"
+        >
+          {quoteNumberBadge || `#${index}`}
+        </span>
         {titleDraft !== null ? (
           <input
             autoFocus
@@ -689,8 +707,21 @@ function QuoteCard({
             className="text-sm font-bold text-primary hover:underline tracking-wide cursor-text"
             title="Clique pra editar nome"
           >
-            {quote.title || categoryLabel}
+            {quoteDisplayName}
           </span>
+        )}
+        {/* Onda 14.18 — botao Renomear explicito (alem do click no titulo).
+            Foi pedido especificamente em Avaliacao e Orcamentos pra discoverability.
+            Apenas dispara o mesmo fluxo de inline edit. */}
+        {titleDraft === null && (
+          <button
+            type="button"
+            onClick={startEditTitle}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:bg-accent inline-flex items-center gap-1 text-muted-foreground hover:text-foreground"
+            title="Renomear orcamento (propaga pra todas as abas)"
+          >
+            <Pencil size={10} /> Renomear
+          </button>
         )}
         {/* Quando tem titulo customizado, mostra a categoria como badge secundaria */}
         {quote.title && (

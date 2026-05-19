@@ -11,6 +11,8 @@ import AddQuoteItemModal from './AddQuoteItemModal';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { colorForSpecialty } from '@/lib/specialty-colors';
+// Onda 14.18 — identificador unificado entre as 4 abas
+import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
 interface Props {
   patientId: string;
@@ -81,6 +83,9 @@ interface QuoteListItem {
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
   /// Onda 3.9 — nome customizavel pelo operador. Pode ser editado livremente.
   title: string | null;
+  /// Onda 14.18 — numero sequencial global por tenant. Identificador unificado
+  /// entre as 4 abas. Auto-incrementado no backend, imutavel apos criacao.
+  quote_number?: number;
   /// Onda 5 — usado pra detectar "resto de aprovacao parcial" via prefix
   /// "[Resto de aprovacao parcial em X]" automatico nas notes — preserva
   /// o title customizado do operador.
@@ -297,16 +302,20 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
               >
                 <DollarSign size={18} className={`shrink-0 ${iconCls}`} />
                 <div className="flex-1 min-w-0">
-                  {q.title && (
-                    <p className={`text-sm font-semibold flex items-center gap-2 ${titleCls}`}>
-                      {q.title}
-                      {isRemainder && (
-                        <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800 font-medium">
-                          ↩ resto de aprovação parcial
-                        </span>
-                      )}
-                    </p>
-                  )}
+                  {/* Onda 14.18 — sempre mostra o identificador unificado
+                      (#NNN · Nome) pra operador localizar o mesmo orcamento
+                      em qualquer aba. Antes so renderizava se q.title existia. */}
+                  <p className={`text-sm font-semibold flex items-center gap-2 ${titleCls}`}>
+                    <span className="text-xs font-mono text-primary">
+                      {getQuoteNumberBadge(q) || '·'}
+                    </span>
+                    <span>{getQuoteDisplayName(q)}</span>
+                    {isRemainder && (
+                      <span className="inline-flex items-center text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-300 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800 font-medium">
+                        ↩ resto de aprovação parcial
+                      </span>
+                    )}
+                  </p>
                   <p className={`text-sm font-medium ${isAccepted ? 'text-emerald-900 dark:text-emerald-100 font-bold' : 'text-foreground'}`}>
                     R$ {Number(q.total_value).toFixed(2)}
                     {q._count && <span className="text-xs text-muted-foreground ml-2">({q._count.items} itens)</span>}
@@ -406,6 +415,36 @@ function QuoteDetailView({
   // (so recebe e valida). Mas o state addingItem permanece pra suportar o
   // fluxo da Avaliacao que abre o modal automaticamente via autoOpenAddItem.
   const [addingItem, setAddingItem] = useState(!!autoOpenAddItem);
+
+  // Onda 14.18 — modal de renomear o orcamento. State + handler centralizados
+  // aqui pra renderizar o modal no fim do JSX. PATCH /quotes/:id { title }
+  // propaga pra todas as abas (mesma source of truth).
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renaming, setRenaming] = useState(false);
+
+  const openRenameModal = () => {
+    setRenameDraft(quote.title || '');
+    setRenameModalOpen(true);
+  };
+  const submitRename = async () => {
+    const newTitle = renameDraft.trim();
+    if (newTitle === (quote.title || '')) {
+      setRenameModalOpen(false);
+      return;
+    }
+    setRenaming(true);
+    try {
+      await api.patch(`/quotes/${quote.id}`, { title: newTitle || null });
+      showSuccess('Orcamento renomeado');
+      setRenameModalOpen(false);
+      await onReload();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao renomear');
+    } finally {
+      setRenaming(false);
+    }
+  };
 
   // Cupom (Onda 2)
   const [couponCode, setCouponCode] = useState('');
@@ -797,6 +836,27 @@ function QuoteDetailView({
         <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[quote.status]}`}>
           {STATUS_LABEL[quote.status]}
         </span>
+      </div>
+
+      {/* Onda 14.18 — Header com identificador unificado (#NNN · Nome) +
+          botao Renomear. Renderiza o mesmo nome que aparece nas abas
+          Avaliacao, Propostas e Financeiro pra operador navegar com
+          confianca. Botao Renomear so existe em Avaliacao e Orcamentos. */}
+      <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <span className="text-sm font-mono text-primary">
+            {getQuoteNumberBadge(quote) || '·'}
+          </span>
+          <span>{getQuoteDisplayName(quote)}</span>
+        </h2>
+        <button
+          type="button"
+          onClick={openRenameModal}
+          className="text-xs px-2.5 py-1 rounded border border-border hover:bg-accent flex items-center gap-1.5"
+          title="Renomear orcamento (propaga pra todas as abas)"
+        >
+          <Pencil size={12} /> Renomear
+        </button>
       </div>
 
       {/* Onda 3b — Banner se este orcamento veio de uma renegociacao */}
@@ -1388,6 +1448,57 @@ function QuoteDetailView({
       {/* Onda 3 — Anexos (fotos antes/depois, exames, TCLE, etc) — movido pro fim por ser secundário */}
       <QuoteAttachments quoteId={quote.id} quoteStatus={quote.status} />
 
+      {/* Onda 14.18 — Modal de renomear. Fica no fim do JSX pra evitar
+          conflito de z-index e nao re-renderizar a tela toda quando abre. */}
+      {renameModalOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !renaming && setRenameModalOpen(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-xl w-full max-w-md p-5"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-base font-bold mb-1">Renomear orcamento</h3>
+            <p className="text-xs text-muted-foreground mb-3">
+              Este nome aparece em todas as abas (Avaliacao, Orcamentos,
+              Propostas, Financeiro). Identificador {getQuoteNumberBadge(quote) || 's/ numero'}.
+            </p>
+            <input
+              type="text"
+              autoFocus
+              value={renameDraft}
+              onChange={(e) => setRenameDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') submitRename();
+                if (e.key === 'Escape' && !renaming) setRenameModalOpen(false);
+              }}
+              placeholder="Ex: Aparelho ortodontico superior"
+              disabled={renaming}
+              className="w-full text-sm px-3 py-2 rounded border border-border bg-background focus:outline-none focus:border-primary"
+            />
+            <div className="flex items-center justify-end gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setRenameModalOpen(false)}
+                disabled={renaming}
+                className="text-xs px-3 py-1.5 rounded border border-border hover:bg-accent disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={submitRename}
+                disabled={renaming}
+                className="text-xs px-3 py-1.5 rounded bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1"
+              >
+                {renaming && <Loader2 size={12} className="animate-spin" />}
+                Salvar
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

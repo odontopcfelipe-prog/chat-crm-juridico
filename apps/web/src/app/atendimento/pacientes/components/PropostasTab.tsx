@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+// Onda 14.18 — identificador unificado entre as 4 abas
+import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
 interface Props {
   patientId: string;
@@ -38,6 +40,9 @@ interface QuoteListItem {
   id: string;
   status: 'DRAFT' | 'SENT' | 'ACCEPTED' | 'REJECTED' | 'EXPIRED';
   title: string | null;
+  /** Onda 14.18 — numero sequencial global por tenant. Identificador unificado
+   *  entre as 4 abas. Auto-incrementado no backend. */
+  quote_number?: number;
   total_value: string | number;
   created_at: string;
   valid_until?: string | null;
@@ -66,6 +71,8 @@ interface QuoteItemDetail {
 interface QuoteDetailLite {
   id: string;
   title: string | null;
+  /** Onda 14.18 — numero sequencial global por tenant (igual ao do QuoteListItem). */
+  quote_number?: number;
   status: QuoteListItem['status'];
   total_value: string | number;
   valid_until: string | null;
@@ -1160,11 +1167,18 @@ function PropostaCard({
 
       {/* Titulo custom + contagem + horas cadeira */}
       <div className="mb-2">
-        {quote.title && (
-          <p className="text-xs font-semibold text-foreground truncate mb-1" title={quote.title}>
-            {quote.title}
-          </p>
-        )}
+        {/* Onda 14.18 — identificador unificado: #NNN · Nome. Sempre visivel
+            (mesmo sem title customizado) pra operador localizar a proposta
+            nas outras abas. Usa o mesmo helper de Avaliacao/Orcamentos/Financeiro. */}
+        <p
+          className="text-xs font-semibold text-foreground truncate mb-1 flex items-center gap-1.5"
+          title={`${getQuoteNumberBadge(quote)} ${getQuoteDisplayName(quote)}`}
+        >
+          <span className="font-mono text-primary shrink-0">
+            {getQuoteNumberBadge(quote) || '·'}
+          </span>
+          <span className="truncate">{getQuoteDisplayName(quote)}</span>
+        </p>
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground flex-wrap">
           <span className="flex items-center gap-1">
             <Layers size={10} />
@@ -1331,8 +1345,21 @@ function PropostaPainel({
         <div className="min-w-0 flex-1">
           <h3 className={`text-sm font-bold flex items-center gap-2 ${cfg?.iconCls || ''}`}>
             {cfg?.icon}
-            Proposta — {cfg?.label || detail.title || 'sem prioridade'}
+            {/* Onda 14.18 — adiciona o identificador unificado (#NNN) na frente
+                do titulo da proposta pra operador localizar o mesmo orcamento
+                nas outras abas. Antes mostrava so a priority. */}
+            <span className="font-mono text-xs text-primary">
+              {getQuoteNumberBadge(detail) || ''}
+            </span>
+            <span>
+              Proposta — {cfg?.label || getQuoteDisplayName(detail) || 'sem prioridade'}
+            </span>
           </h3>
+          {/* Onda 14.18 — sub-titulo com o nome do orcamento (title) sempre
+              visivel, abaixo do label de priority. */}
+          <p className="text-[11px] text-foreground/80 mt-0.5 truncate" title={getQuoteDisplayName(detail)}>
+            {getQuoteDisplayName(detail)}
+          </p>
           <p className="text-[11px] text-muted-foreground mt-0.5">
             {hasPartialApproval ? (
               <>

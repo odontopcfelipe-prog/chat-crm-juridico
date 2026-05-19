@@ -19,6 +19,8 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+// Onda 14.18 — identificador unificado entre as 4 abas
+import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
 interface Props {
   patientId: string;
@@ -29,6 +31,9 @@ interface AcceptedQuote {
   id: string;
   status: string;
   title: string | null;
+  /** Onda 14.18 — numero sequencial global por tenant. Identificador unificado
+   *  entre as 4 abas (Avaliacao/Orcamentos/Propostas/Financeiro). */
+  quote_number?: number;
   total_value: string | number;
   created_at: string;
   accepted_at: string | null;
@@ -486,19 +491,25 @@ function AcceptedQuotesSection({
                 className="block w-full bg-emerald-500/5 border border-emerald-500/30 rounded-lg px-4 py-3 hover:bg-emerald-500/10 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 flex-wrap">
-                  <span className="text-xs text-muted-foreground">#{idx + 1}</span>
-                  <span className="text-sm font-bold text-amber-700 uppercase">
-                    {categoryLabel}
+                  {/* Onda 14.18 — numero global do orcamento (#NNN) substitui o
+                      indice local da lista. Identifica o mesmo orcamento em
+                      todas as abas (Avaliacao/Orcamentos/Propostas/Financeiro). */}
+                  <span
+                    className="text-xs font-mono font-semibold text-primary"
+                    title="Numero do orcamento (global da clinica)"
+                  >
+                    {getQuoteNumberBadge(q) || `#${idx + 1}`}
+                  </span>
+                  <span className="text-sm font-bold text-foreground truncate">
+                    {getQuoteDisplayName(q)}
                   </span>
                   <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 font-semibold inline-flex items-center gap-1">
                     <Check size={9} strokeWidth={3} />
                     ACEITO
                   </span>
-                  {q.title && (
-                    <span className="text-xs text-muted-foreground truncate">
-                      · {q.title}
-                    </span>
-                  )}
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground uppercase font-medium">
+                    {categoryLabel}
+                  </span>
                   {relatedChargesCount > 0 && (
                     <span className="text-[10px] text-muted-foreground">
                       ({relatedChargesCount} cobr.)
@@ -739,11 +750,18 @@ function ProposalFinancialCard({
       >
         <div className="flex items-start justify-between gap-3 flex-wrap">
           <div className="flex items-start gap-3 min-w-0 flex-1">
-            <span className="text-xs text-muted-foreground mt-0.5">#{index}</span>
+            {/* Onda 14.18 — identificador unificado (#NNN). Fallback pra
+                indice local quando legado sem quote_number. */}
+            <span
+              className="text-xs font-mono font-semibold text-primary mt-0.5"
+              title="Numero do orcamento (global da clinica)"
+            >
+              {getQuoteNumberBadge(quote) || `#${index}`}
+            </span>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="text-sm font-bold text-foreground">
-                  {quote.title || 'Plano de tratamento'}
+                  {getQuoteDisplayName(quote)}
                 </span>
                 <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusBadge.cls}`}>
                   {statusBadge.label}
@@ -1131,6 +1149,9 @@ function SummaryCard({
 interface QuoteDetail {
   id: string;
   title: string | null;
+  /** Onda 14.18 — numero sequencial global por tenant. Identificador unificado
+   *  entre as 4 abas (Avaliacao/Orcamentos/Propostas/Financeiro). */
+  quote_number?: number;
   total_value: string | number;
   status: string;
   accepted_at: string | null;
@@ -1287,9 +1308,17 @@ function ProposalDetailModal({
                 <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
                   Proposta aceita
                 </span>
+                {/* Onda 14.18 — numero global do orcamento no header do modal,
+                    pra confirmar visualmente que e a mesma proposta vista
+                    nas outras abas. */}
+                {quote && getQuoteNumberBadge(quote) && (
+                  <span className="text-[10px] font-mono font-semibold text-primary">
+                    {getQuoteNumberBadge(quote)}
+                  </span>
+                )}
               </div>
               <h3 className="text-base font-bold text-foreground">
-                {quote?.title || 'Plano de tratamento'}
+                {quote ? getQuoteDisplayName(quote) : 'Plano de tratamento'}
               </h3>
               <p className="text-xs text-muted-foreground mt-0.5">
                 Total: <strong className="text-foreground">{quote ? fmtBRL(Number(quote.total_value)) : '...'}</strong>
