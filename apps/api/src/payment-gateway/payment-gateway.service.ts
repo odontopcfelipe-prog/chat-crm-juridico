@@ -34,6 +34,65 @@ export class PaymentGatewayService {
   ) {}
 
   /**
+   * Onda 14.13 — Busca parcelas filhas de uma charge parcelada no Asaas.
+   *
+   * Quando criamos charge com installmentCount > 1, o Asaas gera N cobrancas
+   * filhas com um mesmo `installment` ID. Esse metodo busca:
+   *  1. Status atualizado da charge mae (refresh do Asaas)
+   *  2. Se charge eh parcelada (tem field `installment`), lista as filhas
+   *
+   * Retorna array vazio se charge nao for parcelada.
+   */
+  async getChargeSubInstallments(chargeId: string, tenantId: string) {
+    const charge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { id: chargeId, tenant_id: tenantId },
+    });
+    if (!charge) throw new NotFoundException('Cobranca nao encontrada');
+
+    // Refresh do status no Asaas
+    let asaasCharge: any;
+    try {
+      asaasCharge = await this.asaas.getCharge(charge.external_id);
+    } catch (err: any) {
+      this.logger.warn(`[SUB-INSTALLMENTS] Falha refresh charge ${charge.external_id}: ${err.message}`);
+      return { parent_status: charge.status, sub_installments: [] };
+    }
+
+    if (!asaasCharge.installment) {
+      // Nao parcelada — sem filhas
+      return { parent_status: asaasCharge.status, sub_installments: [] };
+    }
+
+    // Busca todas as parcelas filhas via Asaas
+    try {
+      const list = await this.asaas.listCharges({
+        installment: asaasCharge.installment,
+        limit: 50,
+      });
+      const items = (list?.data || []).map((c: any) => ({
+        external_id: c.id,
+        installment_number: c.installmentNumber,
+        value: c.value,
+        net_value: c.netValue,
+        due_date: c.dueDate,
+        status: c.status,
+        boleto_url: c.bankSlipUrl,
+        invoice_url: c.invoiceUrl,
+        payment_date: c.paymentDate,
+      }));
+      // Ordena por installmentNumber asc
+      items.sort((a: any, b: any) => (a.installment_number || 0) - (b.installment_number || 0));
+      return {
+        parent_status: asaasCharge.status,
+        sub_installments: items,
+      };
+    } catch (err: any) {
+      this.logger.warn(`[SUB-INSTALLMENTS] Falha listar filhas: ${err.message}`);
+      return { parent_status: asaasCharge.status, sub_installments: [] };
+    }
+  }
+
+  /**
    * Onda 14.9 — Lista TODAS as cobrancas Asaas vinculadas a um paciente.
    *
    * Liga via PaymentGatewayCustomer.lead_id → Patient.lead_id. Inclui:

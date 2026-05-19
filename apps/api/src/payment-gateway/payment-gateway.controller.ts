@@ -180,6 +180,21 @@ export class PaymentGatewayController {
     return this.service.getChargesByPatient(patientId, tenantId);
   }
 
+  /**
+   * Onda 14.13 — Lista parcelas filhas de uma charge parcelada.
+   * Usado pelo modal de detalhe da proposta aceita pra mostrar cada parcela
+   * (1/12, 2/12, etc) com status atualizado do Asaas.
+   */
+  @Get('charges/:chargeId/sub-installments')
+  async getChargeSubInstallments(
+    @Param('chargeId') chargeId: string,
+    @Req() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    return this.service.getChargeSubInstallments(chargeId, tenantId);
+  }
+
   // ─── ROTAS COM PARÂMETROS (depois das fixas) ──────────────
 
   /** Detalhes completos de uma cobrança no Asaas */

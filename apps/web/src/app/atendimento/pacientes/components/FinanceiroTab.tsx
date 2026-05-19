@@ -115,6 +115,8 @@ export default function FinanceiroTab({ patientId }: Props) {
   const [charges, setCharges] = useState<Charge[]>([]);
   // Onda 14.12 — propostas aceitas (Quote.status=ACCEPTED)
   const [acceptedQuotes, setAcceptedQuotes] = useState<AcceptedQuote[]>([]);
+  // Onda 14.13 — quote aberto no modal de detalhe
+  const [detailQuoteId, setDetailQuoteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<string | null>(null);
 
@@ -250,11 +252,24 @@ export default function FinanceiroTab({ patientId }: Props) {
       </div>
 
       {/* Onda 14.12 — Propostas aprovadas (Quote.status=ACCEPTED).
-          Renderiza ANTES das cobranças, logo após o resumo. */}
+          Renderiza ANTES das cobranças, logo após o resumo.
+          Onda 14.13 — click abre modal com detalhe da proposta + parcelas */}
       {acceptedQuotes.length > 0 && (
         <AcceptedQuotesSection
           quotes={acceptedQuotes}
           patientId={patientId}
+          allCharges={charges}
+          onOpenDetail={(quoteId) => setDetailQuoteId(quoteId)}
+        />
+      )}
+
+      {/* Onda 14.13 — Modal de detalhe da proposta aceita */}
+      {detailQuoteId && (
+        <ProposalDetailModal
+          quoteId={detailQuoteId}
+          patientId={patientId}
+          allCharges={charges}
+          onClose={() => setDetailQuoteId(null)}
         />
       )}
 
@@ -346,13 +361,17 @@ export default function FinanceiroTab({ patientId }: Props) {
 }
 
 /** Onda 14.12 — Seção "APROVADOS" mostra Quote.status=ACCEPTED.
- *  Card simples por proposta, click navega pra aba Orçamentos pra ver detalhe. */
+ *  Onda 14.13 — Click no card abre modal de detalhe (não navega mais). */
 function AcceptedQuotesSection({
   quotes,
-  patientId,
+  patientId: _patientId,
+  allCharges,
+  onOpenDetail,
 }: {
   quotes: AcceptedQuote[];
   patientId: string;
+  allCharges: Charge[];
+  onOpenDetail: (quoteId: string) => void;
 }) {
   const CATEGORY_LABEL: Record<string, string> = {
     OUTROS: 'OUTROS',
@@ -374,11 +393,17 @@ function AcceptedQuotesSection({
           const category = q.closing_category || 'OUTROS';
           const categoryLabel = CATEGORY_LABEL[category] || category;
           const value = Number(q.total_value);
+          // Onda 14.13 — quantas cobrancas vinculadas a esse quote (via description)
+          const relatedChargesCount = allCharges.filter((c) =>
+            c.description?.includes(`quote:${q.id}`) ||
+            c.description?.toLowerCase().includes(q.title?.toLowerCase() || '__nomatch__')
+          ).length;
           return (
             <li key={q.id}>
-              <a
-                href={`/atendimento/pacientes/${patientId}?tab=quotes&quote=${q.id}`}
-                className="block w-full bg-emerald-500/5 border border-emerald-500/30 rounded-lg px-4 py-3 hover:bg-emerald-500/10 transition-colors"
+              <button
+                type="button"
+                onClick={() => onOpenDetail(q.id)}
+                className="block w-full bg-emerald-500/5 border border-emerald-500/30 rounded-lg px-4 py-3 hover:bg-emerald-500/10 transition-colors text-left"
               >
                 <div className="flex items-center gap-3 flex-wrap">
                   <span className="text-xs text-muted-foreground">#{idx + 1}</span>
@@ -394,6 +419,11 @@ function AcceptedQuotesSection({
                       · {q.title}
                     </span>
                   )}
+                  {relatedChargesCount > 0 && (
+                    <span className="text-[10px] text-muted-foreground">
+                      ({relatedChargesCount} cobr.)
+                    </span>
+                  )}
                   <span className="ml-auto flex items-center gap-3">
                     <span className="text-sm font-bold text-foreground tabular-nums">
                       {fmtBRL(value)}
@@ -406,7 +436,7 @@ function AcceptedQuotesSection({
                     <span className="text-muted-foreground">›</span>
                   </span>
                 </div>
-              </a>
+              </button>
             </li>
           );
         })}
@@ -601,6 +631,371 @@ function SummaryCard({
         </p>
       </div>
       <p className="text-base font-bold text-foreground">{value}</p>
+    </div>
+  );
+}
+
+// ─── Onda 14.13 — Modal de Detalhe da Proposta Aceita ──────────────
+
+interface QuoteDetail {
+  id: string;
+  title: string | null;
+  total_value: string | number;
+  status: string;
+  accepted_at: string | null;
+  notes: string | null;
+  items: Array<{
+    id: string;
+    quantity: number;
+    unit_price: string | number;
+    total_price: string | number;
+    tooth_fdi: string | null;
+    notes: string | null;
+    approved_at: string | null;
+    procedure: { name: string };
+  }>;
+}
+
+interface SubInstallment {
+  external_id: string;
+  installment_number: number;
+  value: number;
+  due_date: string;
+  status: string;
+  boleto_url: string | null;
+  invoice_url: string | null;
+  payment_date: string | null;
+}
+
+interface BonusEntry {
+  timestamp: string;
+  type: string;
+  validUntil: Date;
+  body: string;
+  expired: boolean;
+}
+
+interface CounterPropEntry {
+  timestamp: string;
+  body: string;
+}
+
+function parseBonuses(notes: string | null): BonusEntry[] {
+  if (!notes) return [];
+  const re = /^\[BONUS (\d{4}-\d{2}-\d{2} \d{2}:\d{2}) type=(\w+) valido_ate=([^\s\]]+)(?:\s+delta=[\d.]+)?\]\s*(.+)$/;
+  const now = new Date();
+  return notes
+    .split('\n')
+    .map((line) => {
+      const m = line.match(re);
+      if (!m) return null;
+      const validUntil = new Date(m[3]);
+      return {
+        timestamp: m[1],
+        type: m[2],
+        validUntil,
+        body: m[4].trim(),
+        expired: validUntil.getTime() < now.getTime(),
+      };
+    })
+    .filter((e): e is BonusEntry => e !== null)
+    .reverse();
+}
+
+function parseCounterProps(notes: string | null): CounterPropEntry[] {
+  if (!notes) return [];
+  const re = /^\[CONTRAPROPOSTA (\d{4}-\d{2}-\d{2} \d{2}:\d{2})\]\s*(.+)$/;
+  return notes
+    .split('\n')
+    .map((line) => {
+      const m = line.match(re);
+      return m ? { timestamp: m[1], body: m[2].trim() } : null;
+    })
+    .filter((e): e is CounterPropEntry => e !== null)
+    .reverse();
+}
+
+function ProposalDetailModal({
+  quoteId,
+  patientId,
+  allCharges,
+  onClose,
+}: {
+  quoteId: string;
+  patientId: string;
+  allCharges: Charge[];
+  onClose: () => void;
+}) {
+  const [quote, setQuote] = useState<QuoteDetail | null>(null);
+  const [loadingQuote, setLoadingQuote] = useState(true);
+  const [subInstallments, setSubInstallments] = useState<Record<string, SubInstallment[]>>({});
+  const [loadingSubs, setLoadingSubs] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadingQuote(true);
+    api.get<QuoteDetail>(`/quotes/${quoteId}`)
+      .then(({ data }) => {
+        if (!cancelled) setQuote(data);
+      })
+      .catch(() => {
+        if (!cancelled) showError('Erro ao carregar detalhe da proposta');
+      })
+      .finally(() => {
+        if (!cancelled) setLoadingQuote(false);
+      });
+    return () => { cancelled = true; };
+  }, [quoteId]);
+
+  // Cobranças relacionadas a esse quote (via title ou aproximação)
+  // Como charges não têm quote_id direto, filtramos pelo título OU mostramos todas
+  // do paciente. Pro MVP, mostramos todas e o user vê o link.
+  const relatedCharges = allCharges;
+
+  const bonuses = useMemo(() => parseBonuses(quote?.notes || null), [quote?.notes]);
+  const counterProps = useMemo(() => parseCounterProps(quote?.notes || null), [quote?.notes]);
+
+  const loadSubInstallments = useCallback(async (chargeId: string) => {
+    if (subInstallments[chargeId] !== undefined) return; // já carregou
+    setLoadingSubs((p) => ({ ...p, [chargeId]: true }));
+    try {
+      const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
+        `/payment-gateway/charges/${chargeId}/sub-installments`,
+      );
+      setSubInstallments((p) => ({ ...p, [chargeId]: data.sub_installments || [] }));
+    } catch (err) {
+      setSubInstallments((p) => ({ ...p, [chargeId]: [] }));
+    } finally {
+      setLoadingSubs((p) => ({ ...p, [chargeId]: false }));
+    }
+  }, [subInstallments]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[92vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="px-6 py-4 border-b border-border bg-emerald-500/10">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-[10px] font-bold uppercase tracking-wide text-emerald-700">
+                  Proposta aceita
+                </span>
+              </div>
+              <h3 className="text-base font-bold text-foreground">
+                {quote?.title || 'Plano de tratamento'}
+              </h3>
+              <p className="text-xs text-muted-foreground mt-0.5">
+                Total: <strong className="text-foreground">{quote ? fmtBRL(Number(quote.total_value)) : '...'}</strong>
+                {quote?.accepted_at && ` · Aceito em ${fmtDate(quote.accepted_at)}`}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md"
+              aria-label="Fechar"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto p-5 space-y-5">
+          {loadingQuote && (
+            <div className="py-8 flex items-center justify-center text-muted-foreground">
+              <Loader2 size={16} className="animate-spin mr-2" />
+              Carregando detalhes...
+            </div>
+          )}
+
+          {!loadingQuote && quote && (
+            <>
+              {/* Items */}
+              <section>
+                <p className="text-[11px] uppercase tracking-wide text-foreground font-bold mb-2">
+                  📋 Itens aprovados ({quote.items.length})
+                </p>
+                <ul className="space-y-1 bg-muted/20 rounded-md p-3">
+                  {quote.items.map((it) => {
+                    const isApproved = !!it.approved_at;
+                    return (
+                      <li key={it.id} className="flex items-baseline justify-between text-xs py-1 border-b border-border/30 last:border-0">
+                        <span className="text-foreground flex items-center gap-1.5">
+                          {isApproved && <Check size={11} className="text-emerald-600" />}
+                          {it.procedure.name}
+                          {it.tooth_fdi && <span className="text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                        </span>
+                        <span className="text-muted-foreground tabular-nums">
+                          {fmtBRL(Number(it.total_price))}
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </section>
+
+              {/* Cobranças vinculadas */}
+              {relatedCharges.length > 0 && (
+                <section>
+                  <p className="text-[11px] uppercase tracking-wide text-foreground font-bold mb-2">
+                    🧾 Cobranças geradas ({relatedCharges.length})
+                  </p>
+                  <ul className="space-y-2">
+                    {relatedCharges.map((c) => {
+                      const isPaid = c.status === 'RECEIVED' || c.status === 'CONFIRMED';
+                      const subs = subInstallments[c.id];
+                      const isLoadingSubs = loadingSubs[c.id];
+                      return (
+                        <li key={c.id} className="border border-border rounded-md overflow-hidden">
+                          <div className="px-3 py-2 bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="text-xs font-bold">
+                                {c.billing_type === 'PIX' ? '⇗ PIX' :
+                                 c.billing_type === 'BOLETO' ? '🏛 Boleto' :
+                                 c.billing_type === 'CREDIT_CARD' ? '💳 Cartão' :
+                                 c.billing_type}
+                              </span>
+                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${
+                                isPaid ? 'bg-emerald-500/15 text-emerald-700' :
+                                c.status === 'OVERDUE' ? 'bg-red-500/15 text-red-700' :
+                                'bg-blue-500/15 text-blue-700'
+                              }`}>
+                                {isPaid ? 'Pago' : c.status === 'OVERDUE' ? 'Vencido' : 'Pendente'}
+                              </span>
+                              <span className="text-[10px] text-muted-foreground">
+                                Vence {fmtDate(c.due_date)}
+                              </span>
+                            </div>
+                            <span className="text-sm font-bold tabular-nums">{fmtBRL(Number(c.amount))}</span>
+                          </div>
+
+                          {/* Botão expandir parcelas */}
+                          <div className="px-3 py-2 border-t border-border/40 flex items-center gap-2 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => loadSubInstallments(c.id)}
+                              className="text-[11px] text-primary hover:underline"
+                            >
+                              {subs === undefined
+                                ? '▾ Ver parcelas'
+                                : subs.length === 0
+                                  ? '— Não é parcelado'
+                                  : `▾ ${subs.length} parcelas`}
+                            </button>
+                            {c.boleto_url && (
+                              <a href={c.boleto_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-amber-700 hover:underline">Abrir boleto</a>
+                            )}
+                            {c.invoice_url && (
+                              <a href={c.invoice_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-sky-700 hover:underline">Link Asaas</a>
+                            )}
+                          </div>
+
+                          {/* Lista de parcelas filhas */}
+                          {isLoadingSubs && (
+                            <div className="px-3 py-2 text-[11px] text-muted-foreground flex items-center gap-2">
+                              <Loader2 size={11} className="animate-spin" />
+                              Carregando parcelas...
+                            </div>
+                          )}
+                          {subs && subs.length > 0 && (
+                            <ul className="divide-y divide-border/40">
+                              {subs.map((s) => {
+                                const subPaid = s.status === 'RECEIVED' || s.status === 'CONFIRMED';
+                                const subOverdue = s.status === 'OVERDUE';
+                                return (
+                                  <li key={s.external_id} className="px-3 py-2 flex items-center justify-between gap-2 flex-wrap text-[11px]">
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-mono font-bold text-foreground">
+                                        {s.installment_number}x
+                                      </span>
+                                      <span className={`px-1.5 py-0.5 rounded-full font-semibold ${
+                                        subPaid ? 'bg-emerald-500/15 text-emerald-700' :
+                                        subOverdue ? 'bg-red-500/15 text-red-700' :
+                                        'bg-blue-500/15 text-blue-700'
+                                      }`}>
+                                        {subPaid ? 'Pago' : subOverdue ? 'Vencido' : 'Pendente'}
+                                      </span>
+                                      <span className="text-muted-foreground">
+                                        Vence {fmtDate(s.due_date)}
+                                        {s.payment_date && ` · Pago em ${fmtDate(s.payment_date)}`}
+                                      </span>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                      <span className="font-bold tabular-nums">{fmtBRL(s.value)}</span>
+                                      {s.boleto_url && (
+                                        <a href={s.boleto_url} target="_blank" rel="noopener noreferrer" className="text-amber-700 hover:underline">Boleto</a>
+                                      )}
+                                    </div>
+                                  </li>
+                                );
+                              })}
+                            </ul>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+
+              {/* Histórico de negociação */}
+              {(bonuses.length > 0 || counterProps.length > 0) && (
+                <section>
+                  <p className="text-[11px] uppercase tracking-wide text-foreground font-bold mb-2">
+                    📜 Histórico de negociação
+                  </p>
+                  <ul className="space-y-1.5">
+                    {bonuses.map((b, idx) => (
+                      <li key={`b-${idx}`} className={`text-[11px] px-3 py-2 rounded-md border ${
+                        b.expired ? 'bg-muted/30 opacity-60 line-through' : 'bg-amber-500/10 border-amber-500/30'
+                      }`}>
+                        <span className="font-bold">🎁 Bônus</span> · {b.body}
+                        {!b.expired && (
+                          <span className="text-[10px] text-amber-700 ml-1">
+                            (válido até {b.validUntil.toLocaleDateString('pt-BR')})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                    {counterProps.map((cp, idx) => (
+                      <li key={`cp-${idx}`} className="text-[11px] px-3 py-2 rounded-md bg-muted/30 border border-border">
+                        <span className="font-bold">💬 Contraproposta</span> · {cp.body}
+                        <span className="font-mono text-[10px] text-muted-foreground ml-2">{cp.timestamp}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="px-6 py-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+          <a
+            href={`/atendimento/pacientes/${patientId}?tab=proposals`}
+            className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent inline-flex items-center gap-1.5"
+          >
+            <ExternalLink size={12} />
+            Abrir na aba Propostas
+          </a>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-xs px-4 py-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 font-semibold"
+          >
+            Concluir
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
