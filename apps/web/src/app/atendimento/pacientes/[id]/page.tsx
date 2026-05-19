@@ -213,6 +213,25 @@ function PacienteFichaInner() {
     }
   };
 
+  // Onda 14 — Exclusao permanente (hard delete). Modal pede digitacao do nome.
+  const [deletePermanentOpen, setDeletePermanentOpen] = useState(false);
+  const [deleteConfirmName, setDeleteConfirmName] = useState('');
+  const [deletingPermanent, setDeletingPermanent] = useState(false);
+
+  const handleDeletePermanent = async () => {
+    if (!patient) return;
+    setDeletingPermanent(true);
+    try {
+      await api.delete(`/patients/${patient.id}/permanent`);
+      showSuccess('Paciente excluído permanentemente');
+      router.push('/atendimento/pacientes');
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao excluir paciente');
+    } finally {
+      setDeletingPermanent(false);
+    }
+  };
+
   // Onda 3.30 — Avaliação restaurado no header (antigo "Atender", renomeado).
   // Marca que o paciente compareceu (gradua lead pra "Avaliacao Feita") + abre
   // o Odontograma. Permite contabilizar quem efetivamente veio na clínica.
@@ -353,12 +372,100 @@ function PacienteFichaInner() {
             <button
               onClick={handleArchive}
               className="text-xs text-destructive hover:bg-destructive/10 px-3 py-2 rounded-lg flex items-center gap-1"
+              title="Arquiva o paciente (preserva histórico, reversível)"
             >
               <Trash2 size={14} /> Arquivar
             </button>
           )}
+          {/* Onda 14 — Excluir permanentemente (hard delete). Mais restritivo
+              que Arquivar. Backend valida ADMIN + bloqueia se ha dependencias. */}
+          {role.canArchivePatient && (
+            <button
+              onClick={() => {
+                setDeleteConfirmName('');
+                setDeletePermanentOpen(true);
+              }}
+              className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
+              title="Exclui o paciente permanentemente do banco (irreversível)"
+            >
+              <Trash2 size={14} /> Excluir
+            </button>
+          )}
         </div>
       </div>
+
+      {/* Onda 14 — Modal de confirmacao pra exclusao permanente */}
+      {deletePermanentOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          onClick={() => !deletingPermanent && setDeletePermanentOpen(false)}
+        >
+          <div
+            className="bg-card border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-5 border-b border-border bg-red-500/10">
+              <div className="flex items-start gap-3">
+                <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center shrink-0">
+                  <Trash2 size={18} className="text-red-700" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-red-800">
+                    Excluir paciente permanentemente?
+                  </h3>
+                  <p className="text-xs text-red-700 mt-1">
+                    Esta ação é <strong>irreversível</strong>. Todos os dados pessoais,
+                    alergias, medicações e anamnese serão apagados do banco.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-5 space-y-3">
+              <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3">
+                <p className="text-xs text-amber-800">
+                  💡 <strong>Recomendação:</strong> se o paciente tiver histórico clínico
+                  ou financeiro, use <strong>Arquivar</strong> em vez. Excluir só funciona
+                  pra cadastros vazios (sem consultas, orçamentos, parcelas pagas).
+                </p>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-foreground block mb-1">
+                  Pra confirmar, digite o nome do paciente:
+                  <br />
+                  <span className="text-red-700 font-mono">{patient.name}</span>
+                </label>
+                <input
+                  type="text"
+                  value={deleteConfirmName}
+                  onChange={(e) => setDeleteConfirmName(e.target.value)}
+                  placeholder="Digite o nome exato"
+                  disabled={deletingPermanent}
+                  className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
+                />
+              </div>
+            </div>
+            <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+              <button
+                type="button"
+                onClick={() => setDeletePermanentOpen(false)}
+                disabled={deletingPermanent}
+                className="text-xs px-3 py-1.5 rounded-lg border border-border hover:bg-accent disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleDeletePermanent}
+                disabled={deleteConfirmName.trim() !== patient.name.trim() || deletingPermanent}
+                className="text-xs px-4 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 font-semibold"
+              >
+                {deletingPermanent ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                Excluir permanentemente
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tabs ULTRA-COMPACTAS (Fase 25 5b v3).
           Reducao maxima sem comprometer legibilidade:

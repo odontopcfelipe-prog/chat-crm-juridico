@@ -177,6 +177,21 @@ export class PatientsController {
     return this.patientsService.archive(id, tenantId);
   }
 
+  /**
+   * Onda 14 — Exclusao permanente (HARD DELETE).
+   * So ADMIN. Bloqueia se paciente tem consultas/orcamentos/parcelas pagas
+   * (operador deve arquivar nesse caso).
+   */
+  @Delete(':id/permanent')
+  permanentlyDelete(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!canArchivePatient(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode excluir paciente permanentemente');
+    }
+    return this.patientsService.permanentlyDelete(id, tenantId);
+  }
+
   /** Converte Lead em Patient. Se ja existe, retorna o Patient vinculado. */
   @Post('convert/:leadId')
   convertFromLead(@Param('leadId') leadId: string, @Body() extra: Partial<CreatePatientDto>, @Request() req: any) {

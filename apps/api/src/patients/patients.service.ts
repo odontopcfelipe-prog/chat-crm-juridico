@@ -322,6 +322,56 @@ export class PatientsService {
     return this.prisma.patient.update({ where: { id }, data: { status: 'ARCHIVED' } });
   }
 
+  /**
+   * Onda 14 — Exclusao permanente do paciente (HARD DELETE).
+   *
+   * Apaga o paciente do banco se ele nao tiver historico relevante.
+   * Verifica antes:
+   *  - consultas (appointments)
+   *  - orcamentos (quotes nao soft-deletados)
+   *  - parcelas pagas (installments PAGA)
+   *  - prontuario clinico com sessoes (clinical_records)
+   *
+   * Se tiver alguma dessas → bloqueia com mensagem clara (operador deve
+   * arquivar via "Arquivar" em vez).
+   * Se estiver limpo → prisma.patient.delete (cascade via schema).
+   */
+  async permanentlyDelete(id: string, tenantId: string) {
+    await this.assertBelongsToTenant(id, tenantId);
+
+    // Conta dependencias bloqueantes (modelos onde patient_id eh FK)
+    const [appointmentsCount, quotesCount, paidInstallmentsCount, medicalRecordsCount] =
+      await Promise.all([
+        this.prisma.calendarEvent.count({ where: { patient_id: id } }),
+        this.prisma.quote.count({ where: { patient_id: id, deleted_at: null } }),
+        this.prisma.installment.count({
+          where: { patient_id: id, status: 'PAGA' },
+        }),
+        this.prisma.medicalRecord.count({ where: { patient_id: id } }),
+      ]);
+
+    const blocks: string[] = [];
+    if (appointmentsCount > 0)
+      blocks.push(`${appointmentsCount} consulta${appointmentsCount === 1 ? '' : 's'} agendada${appointmentsCount === 1 ? '' : 's'}`);
+    if (quotesCount > 0)
+      blocks.push(`${quotesCount} orçamento${quotesCount === 1 ? '' : 's'}`);
+    if (paidInstallmentsCount > 0)
+      blocks.push(`${paidInstallmentsCount} parcela${paidInstallmentsCount === 1 ? '' : 's'} paga${paidInstallmentsCount === 1 ? '' : 's'}`);
+    if (medicalRecordsCount > 0)
+      blocks.push(`${medicalRecordsCount} registro${medicalRecordsCount === 1 ? '' : 's'} clínico${medicalRecordsCount === 1 ? '' : 's'}`);
+
+    if (blocks.length > 0) {
+      throw new BadRequestException(
+        `Não é possível excluir permanentemente: paciente tem ${blocks.join(', ')}. ` +
+        `Use "Arquivar" pra preservar o histórico ou exclua as dependências antes.`,
+      );
+    }
+
+    // Sem dependencias relevantes → hard delete (cascade via @relation)
+    await this.prisma.patient.delete({ where: { id } });
+    return { ok: true, deleted_at: new Date().toISOString() };
+  }
+
   /** Converte um Lead em Patient. Se o paciente ja existe (lead_id ja vinculado), retorna o existente. */
   async convertFromLead(leadId: string, tenantId: string, extraData: Partial<Prisma.PatientUncheckedCreateInput> = {}) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });
