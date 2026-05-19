@@ -788,6 +788,12 @@ function PacienteFichaInner() {
             setTab('quotes');
             router.push(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
           }}
+          // Onda 14.23 — dialog "Nova proposta" tem empty state que precisa
+          // mandar o operador pra aba Avaliacao quando nao ha orcamentos.
+          onGoToEvaluation={() => {
+            setTab('odontogram');
+            router.push(`/atendimento/pacientes/${patient.id}?tab=odontogram`);
+          }}
         />
       )}
       {tab === 'financial' && <FinanceiroTab patientId={patient.id} />}

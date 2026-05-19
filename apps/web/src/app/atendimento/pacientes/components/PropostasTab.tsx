@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
-  Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown,
+  Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ArrowLeft,
   Building2, ShieldCheck, XCircle, Search, Trash2, Gift,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -34,6 +34,12 @@ interface Props {
    * cuida da navegacao (router + setTab).
    */
   onOpenQuoteDetail?: (quoteId: string) => void;
+  /**
+   * Onda 14.23 — vai pra aba Avaliacao pra criar um orcamento. Usado pelo
+   * dialog "Nova proposta" no empty state (quando paciente nao tem nenhum
+   * orcamento ainda) e no atalho "Criar novo orcamento".
+   */
+  onGoToEvaluation?: () => void;
 }
 
 interface QuoteListItem {
@@ -465,7 +471,7 @@ function getVariantConfig(variant: CardVariant): VariantConfig {
   return variant === 'LIVRE' ? LIVRE_CONFIG : PRIORITY_CONFIG[variant];
 }
 
-export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
+export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Onda 8.1 — picker pra atribuir orcamento a slot vazio (Completo/Essencial/Urgente).
@@ -604,28 +610,38 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     }
   }, [load]);
 
-  // Onda 9 — "+ nova versão": cria DRAFT vazio com priority escolhida,
-  // navega pro detalhe na aba Orcamentos pra preencher items.
-  // Onda 14.19 — agora aceita priority=null pra criar "Versao livre" (extra
-  // sem priority canonica). Aparece no scroll horizontal como card LIVRE.
-  const createNewVersion = useCallback(async (priority: Priority | null) => {
+  // Onda 9 — "+ nova versão" original: criava DRAFT vazio + atribuia priority
+  // + redirecionava pra preencher. Problema: gerava orcamentos fantasma vazios
+  // no banco e duplicava trabalho do operador.
+  //
+  // Onda 14.23 — "Nova proposta" agora ATRIBUI priority a um orcamento ja
+  // existente (criado na aba Avaliacao). Nao cria DRAFT vazio. Tambem ja
+  // garante visible_in_proposals=true pra trazer de volta orcamentos que
+  // o operador removeu antes.
+  const attachQuoteToPriority = useCallback(async (quoteId: string, priority: Priority | null) => {
     setCreatingVersion(true);
+    // Optimistic — atualiza estado local antes do PATCH
+    setQuotes((prev) => prev.map((q) =>
+      q.id === quoteId ? { ...q, priority: priority || null, visible_in_proposals: true } : q,
+    ));
     try {
-      const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`, {});
-      if (priority) {
-        await api.patch(`/quotes/${data.id}`, { priority });
-      }
+      await api.patch(`/quotes/${quoteId}`, {
+        priority,
+        visible_in_proposals: true,
+      });
       const label = priority ? PRIORITY_CONFIG[priority].label : 'Livre';
-      showSuccess(`Nova proposta ${label} criada — preencha os itens`);
+      showSuccess(`Orçamento atribuído como ${label}`);
       setNewVersionOpen(false);
-      onOpenQuoteDetail?.(data.id);
+      // Refetch pra garantir consistencia (categoria/contadores/etc)
+      load();
     } catch (err: unknown) {
+      await load(); // reverte
       const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao criar versão');
+      showError(e?.response?.data?.message || 'Erro ao atribuir');
     } finally {
       setCreatingVersion(false);
     }
-  }, [patientId, onOpenQuoteDetail]);
+  }, [load]);
 
   // Onda 9 — envia oferta atual pro paciente via WhatsApp
   const [sending, setSending] = useState(false);
@@ -867,6 +883,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
   const eligibleCount = Array.from(grouped.values()).reduce((acc, arr) => acc + arr.length, 0);
 
   if (eligibleCount === 0) {
+    // Onda 14.23 — empty state da aba inteira:
+    // - Se ja ha orcamentos no paciente (mas nenhum visivel aqui), oferece
+    //   atribuir priority via dialog "+ Nova proposta"
+    // - Se nao ha orcamento nenhum, oferece criar na aba Avaliacao primeiro
+    const hasAnyQuotes = quotes.some(
+      (q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED',
+    );
     return (
       <div className="bg-card border border-border border-dashed rounded-xl p-10 text-center">
         <Layers size={32} className="mx-auto text-muted-foreground/60 mb-3" />
@@ -874,18 +897,30 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           Nenhuma proposta pra comparar
         </p>
         <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
-          Crie variações de orçamento (Urgente, Essencial, Completo ou
-          Livre) clicando em <strong>“+ Nova proposta”</strong> aqui em cima,
-          ou marque prioridade nos cards da aba <strong>Avaliação</strong>.
+          {hasAnyQuotes
+            ? <>Você já tem orçamentos criados. Clique em <strong>“+ Nova proposta”</strong> pra atribuir prioridade (Urgente, Essencial, Completo ou Livre).</>
+            : <>Pra criar uma proposta, primeiro crie um orçamento na aba <strong>Avaliação</strong>. Depois venha aqui pra atribuir prioridade.</>
+          }
         </p>
-        <button
-          type="button"
-          onClick={() => setNewVersionOpen(true)}
-          className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
-        >
-          <Plus size={14} />
-          Nova proposta
-        </button>
+        {hasAnyQuotes ? (
+          <button
+            type="button"
+            onClick={() => setNewVersionOpen(true)}
+            className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
+          >
+            <Plus size={14} />
+            Nova proposta
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => onGoToEvaluation?.()}
+            disabled={!onGoToEvaluation}
+            className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1 disabled:opacity-50"
+          >
+            Ir para Avaliação
+          </button>
+        )}
       </div>
     );
   }
@@ -1046,7 +1081,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         />
       )}
 
-      {/* Onda 9 — Dialog "+ nova versão" */}
+      {/* Onda 14.23 — Dialog "Nova proposta" (2 steps):
+          1. Escolhe priority (so as restantes — ocupadas sao filtradas)
+          2. Escolhe qual orcamento existente atribuir
+          Em vez de criar DRAFT vazio, reusa um orcamento ja criado. */}
       {newVersionOpen && (
         <NewVersionDialog
           existingPriorities={
@@ -1054,9 +1092,20 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
               Array.from(grouped.keys()).filter((k): k is Priority => k !== 'NONE'),
             )
           }
+          // Onda 14.23 — lista de orcamentos elegiveis (DRAFT/SENT/ACCEPTED).
+          // Inclui ocultos (visible_in_proposals=false) pra operador conseguir
+          // "trazer de volta" um orcamento que ele removeu antes. PATCH ja
+          // re-seta visible=true.
+          availableQuotes={quotes.filter((q) =>
+            q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED'
+          )}
           loading={creatingVersion}
           onCancel={() => setNewVersionOpen(false)}
-          onCreate={createNewVersion}
+          onAttach={attachQuoteToPriority}
+          onGoToAvaliacao={() => {
+            setNewVersionOpen(false);
+            onGoToEvaluation?.();
+          }}
         />
       )}
 
@@ -2500,112 +2549,281 @@ function QuotePickerRow({
   );
 }
 
-// ─── Dialog "+ nova versão" ──────────────────────────────────
-// Onda 9 — cria novo Quote DRAFT com priority escolhida e navega
-// pra Orcamentos detalhe pra preencher items.
+// ─── Dialog "+ Nova proposta" ──────────────────────────────────
+// Onda 9 (original) — criava Quote DRAFT vazio + atribuia priority.
+//
+// Onda 14.23 — REESCRITO. Agora 2 steps:
+//   Step 1: escolhe priority (so as RESTANTES — ocupadas filtradas)
+//   Step 2: escolhe qual orcamento EXISTENTE atribuir essa priority
+//
+// Nao cria DRAFT vazio mais. Reusa orcamentos da aba Avaliacao. Versao
+// Livre sempre aparece (ilimitada). Se nao ha orcamentos no paciente,
+// mostra empty state com atalho pra aba Avaliacao.
 
 function NewVersionDialog({
   existingPriorities,
+  availableQuotes,
   loading,
   onCancel,
-  onCreate,
+  onAttach,
+  onGoToAvaliacao,
 }: {
   existingPriorities: Set<Priority>;
+  /** Onda 14.23 — orcamentos elegiveis pra atribuicao (DRAFT/SENT/ACCEPTED) */
+  availableQuotes: QuoteListItem[];
   loading: boolean;
   onCancel: () => void;
-  /** Onda 14.19 — null = criar versao Livre (sem priority canonica). */
-  onCreate: (priority: Priority | null) => void;
+  /** Onda 14.23 — atribui priority a um orcamento existente (PATCH). */
+  onAttach: (quoteId: string, priority: Priority | null) => void;
+  /** Onda 14.23 — atalho pra criar orcamento na aba Avaliacao. */
+  onGoToAvaliacao: () => void;
 }) {
+  // Onda 14.23 — 2-step state. 'priority' = escolher categoria; 'quote' =
+  // escolher orcamento dentro da categoria escolhida.
+  const [step, setStep] = useState<'priority' | 'quote'>('priority');
+  const [selectedPriority, setSelectedPriority] = useState<Priority | null>(null);
+
+  // Onda 14.23 — priorities canonicas RESTANTES (sem orcamento atribuido).
+  // Versao livre sempre aparece (aceita variacoes ilimitadas).
+  const remainingPriorities = PRIORITY_ORDER.filter((p) => !existingPriorities.has(p));
+  const hasNoCanonicalLeft = remainingPriorities.length === 0;
+
+  // Onda 14.23 — Atalho: se nao ha priority canonica restante, pula step 1
+  // e ja vai pro picker com Livre selecionada (unica opcao disponivel).
+  useEffect(() => {
+    if (hasNoCanonicalLeft && step === 'priority') {
+      setSelectedPriority(null);
+      setStep('quote');
+    }
+  }, [hasNoCanonicalLeft, step]);
+
+  const goToQuoteStep = (priority: Priority | null) => {
+    setSelectedPriority(priority);
+    setStep('quote');
+  };
+  const backToPriorityStep = () => {
+    setSelectedPriority(null);
+    setStep('priority');
+  };
+
+  // Onda 14.23 — quando ja chegou no step 2 com priority alvo selecionada,
+  // monta lista ordenada de orcamentos pra atribuir:
+  // 1. Quotes sem priority (priority=null) — candidatos mais naturais
+  // 2. Quotes com OUTRA priority — pode override (com aviso visual)
+  // 3. Quotes com a MESMA priority alvo — desabilitadas (ja estao la)
+  const sortedQuotes = step === 'quote'
+    ? [...availableQuotes].sort((a, b) => {
+        // helper: 0 = sem priority, 1 = outra priority, 2 = mesma priority alvo (ja la)
+        const rank = (q: QuoteListItem) => {
+          if (!q.priority) return 0;
+          if (q.priority === selectedPriority) return 2;
+          return 1;
+        };
+        const ra = rank(a);
+        const rb = rank(b);
+        if (ra !== rb) return ra - rb;
+        // dentro do mesmo rank, mais recente primeiro
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      })
+    : [];
+
+  const cfgForSelected = selectedPriority
+    ? PRIORITY_CONFIG[selectedPriority]
+    : LIVRE_CONFIG;
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
       onClick={onCancel}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full overflow-hidden"
+        className="bg-card border border-border rounded-xl shadow-xl max-w-md w-full overflow-hidden flex flex-col max-h-[85vh]"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between p-4 border-b border-border">
-          <div>
-            <h3 className="text-sm font-bold">Nova proposta</h3>
-            <p className="text-[11px] text-muted-foreground mt-0.5">
-              escolha a prioridade — você será levado pro detalhe pra
-              preencher os procedimentos
-            </p>
+        {/* Header — adapta conforme step */}
+        <div className="flex items-start justify-between p-4 border-b border-border shrink-0">
+          <div className="flex items-start gap-2 min-w-0">
+            {step === 'quote' && !hasNoCanonicalLeft && (
+              <button
+                type="button"
+                onClick={backToPriorityStep}
+                className="text-muted-foreground hover:text-foreground p-1 -ml-1 -mt-1 shrink-0"
+                aria-label="Voltar"
+                title="Voltar pra escolher a prioridade"
+              >
+                <ArrowLeft size={14} />
+              </button>
+            )}
+            <div className="min-w-0">
+              <h3 className="text-sm font-bold">Nova proposta</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                {step === 'priority'
+                  ? 'escolha a prioridade — só as que ainda não foram criadas aparecem'
+                  : <>atribuir <span className={`font-semibold ${cfgForSelected.iconCls}`}>{cfgForSelected.label}</span> a qual orçamento?</>
+                }
+              </p>
+            </div>
           </div>
           <button
             type="button"
             onClick={onCancel}
-            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1"
+            className="text-muted-foreground hover:text-foreground p-1 -mr-1 -mt-1 shrink-0"
             aria-label="Fechar"
           >
             <X size={16} />
           </button>
         </div>
 
-        <div className="p-3 space-y-2">
-          {PRIORITY_ORDER.map((p) => {
-            const cfg = PRIORITY_CONFIG[p];
-            const exists = existingPriorities.has(p);
-            return (
+        {/* Body — conteudo do step atual */}
+        <div className="flex-1 overflow-y-auto">
+          {step === 'priority' ? (
+            <div className="p-3 space-y-2">
+              {remainingPriorities.map((p) => {
+                const cfg = PRIORITY_CONFIG[p];
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    disabled={loading}
+                    onClick={() => goToQuoteStep(p)}
+                    className={`w-full text-left p-3 rounded-lg border-2 transition-colors disabled:opacity-50 disabled:cursor-wait ${cfg.borderCls} ${cfg.bgCls} hover:shadow-sm`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={cfg.iconCls}>{cfg.icon}</span>
+                      <div className="min-w-0">
+                        <p className={`text-sm font-bold ${cfg.iconCls}`}>{cfg.label}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{cfg.description}</p>
+                      </div>
+                    </div>
+                  </button>
+                );
+              })}
+
+              {/* Versao Livre — sempre disponivel (aceita variacoes ilimitadas) */}
               <button
-                key={p}
                 type="button"
                 disabled={loading}
-                onClick={() => onCreate(p)}
-                className={`w-full text-left p-3 rounded-lg border-2 transition-colors disabled:opacity-50 disabled:cursor-wait ${cfg.borderCls} ${cfg.bgCls} hover:shadow-sm`}
+                onClick={() => goToQuoteStep(null)}
+                className={`w-full text-left p-3 rounded-lg border-2 transition-colors disabled:opacity-50 disabled:cursor-wait ${LIVRE_CONFIG.borderCls} ${LIVRE_CONFIG.bgCls} hover:shadow-sm`}
               >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className={cfg.iconCls}>{cfg.icon}</span>
-                    <div className="min-w-0">
-                      <p className={`text-sm font-bold ${cfg.iconCls}`}>
-                        {cfg.label}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground truncate">
-                        {cfg.description}
-                      </p>
-                    </div>
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className={LIVRE_CONFIG.iconCls}>{LIVRE_CONFIG.icon}</span>
+                  <div className="min-w-0">
+                    <p className={`text-sm font-bold ${LIVRE_CONFIG.iconCls}`}>{LIVRE_CONFIG.label}</p>
+                    <p className="text-[11px] text-muted-foreground truncate">
+                      extra sem prioridade — pra variações adicionais (Black Friday, cortesia, etc)
+                    </p>
                   </div>
-                  {exists && (
-                    <span
-                      className="text-[10px] font-semibold text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0"
-                      title="Vai criar uma nova proposta desta priority (aparece como card extra no scroll)"
-                    >
-                      já existe
-                    </span>
-                  )}
                 </div>
               </button>
-            );
-          })}
 
-          {/* Onda 14.19 — Versao Livre: extra sem priority canonica.
-              Util quando o operador quer testar variacoes adicionais alem
-              dos 3 slots fixos (ex: "v Black Friday", "v cortesia 20%"). */}
-          <button
-            type="button"
-            disabled={loading}
-            onClick={() => onCreate(null)}
-            className={`w-full text-left p-3 rounded-lg border-2 transition-colors disabled:opacity-50 disabled:cursor-wait ${LIVRE_CONFIG.borderCls} ${LIVRE_CONFIG.bgCls} hover:shadow-sm`}
-          >
-            <div className="flex items-center justify-between gap-2">
-              <div className="flex items-center gap-2 min-w-0">
-                <span className={LIVRE_CONFIG.iconCls}>{LIVRE_CONFIG.icon}</span>
-                <div className="min-w-0">
-                  <p className={`text-sm font-bold ${LIVRE_CONFIG.iconCls}`}>
-                    {LIVRE_CONFIG.label}
-                  </p>
-                  <p className="text-[11px] text-muted-foreground truncate">
-                    extra sem prioridade — pra variações adicionais (Black Friday, cortesia, etc)
-                  </p>
-                </div>
-              </div>
+              {/* Hint quando todas priorities canonicas estao ocupadas */}
+              {hasNoCanonicalLeft && (
+                <p className="text-[11px] text-muted-foreground italic px-1 pt-1">
+                  Urgente, Essencial e Completo já têm proposta. Pra criar mais variações, use Versão livre.
+                </p>
+              )}
             </div>
-          </button>
+          ) : (
+            // Step 2 — picker de orcamento
+            <div className="p-3 space-y-2">
+              {availableQuotes.length === 0 ? (
+                // Empty state — sem orcamentos no paciente
+                <div className="p-6 text-center">
+                  <Layers size={28} className="mx-auto text-muted-foreground/60 mb-2" />
+                  <p className="text-sm font-semibold mb-1">Nenhum orçamento criado ainda</p>
+                  <p className="text-xs text-muted-foreground mb-4">
+                    Pra atribuir uma proposta, crie um orçamento primeiro na aba <strong>Avaliação</strong>.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onGoToAvaliacao}
+                    className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
+                  >
+                    <ArrowLeft size={12} className="rotate-180" />
+                    Ir para Avaliação
+                  </button>
+                </div>
+              ) : (
+                <>
+                  {sortedQuotes.map((q) => {
+                    const itemsCount = q._count?.items ?? 0;
+                    const isAlreadyTarget =
+                      (q.priority || null) === selectedPriority &&
+                      q.visible_in_proposals !== false;
+                    const currentPriorityLabel = q.priority
+                      ? PRIORITY_CONFIG[q.priority as Priority]?.label
+                      : (q.visible_in_proposals === false ? 'oculto' : 'sem prioridade');
+                    const totalValue = Number(q.total_value || 0);
+
+                    return (
+                      <button
+                        key={q.id}
+                        type="button"
+                        disabled={loading || isAlreadyTarget}
+                        onClick={() => onAttach(q.id, selectedPriority)}
+                        className={`w-full text-left p-3 rounded-lg border-2 transition-colors hover:shadow-sm ${
+                          isAlreadyTarget
+                            ? 'border-border bg-muted/30 opacity-60 cursor-not-allowed'
+                            : `${cfgForSelected.borderCls} ${cfgForSelected.bgCls} hover:opacity-100`
+                        } disabled:cursor-not-allowed`}
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="text-[10px] font-mono font-semibold text-primary">
+                                {getQuoteNumberBadge(q) || '·'}
+                              </span>
+                              <span className="text-sm font-bold text-foreground truncate">
+                                {getQuoteDisplayName(q)}
+                              </span>
+                              <span className="text-[9px] uppercase font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                {q.status}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                              {itemsCount} {itemsCount === 1 ? 'item' : 'itens'}
+                              {totalValue > 0 && ` · R$ ${fmtBRL(totalValue)}`}
+                              {' · '}
+                              <span className="italic">{currentPriorityLabel}</span>
+                            </p>
+                          </div>
+                          {isAlreadyTarget ? (
+                            <span className="text-[10px] font-semibold text-muted-foreground bg-muted px-2 py-0.5 rounded-full shrink-0">
+                              já é {cfgForSelected.label.toLowerCase()}
+                            </span>
+                          ) : q.priority && q.priority !== selectedPriority ? (
+                            <span
+                              className="text-[10px] font-semibold text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0"
+                              title="Vai trocar a priority atual"
+                            >
+                              trocar
+                            </span>
+                          ) : null}
+                        </div>
+                      </button>
+                    );
+                  })}
+
+                  {/* Atalho pra criar novo orcamento direto, caso operador
+                      queira criar um do zero (em vez de reusar existente). */}
+                  <button
+                    type="button"
+                    onClick={onGoToAvaliacao}
+                    disabled={loading}
+                    className="w-full text-center p-2 rounded-lg border border-dashed border-border text-xs text-muted-foreground hover:bg-accent/30 hover:text-foreground inline-flex items-center justify-center gap-1"
+                  >
+                    <Plus size={12} />
+                    Criar novo orçamento na Avaliação
+                  </button>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
-        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+        {/* Footer */}
+        <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20 shrink-0">
           <button
             type="button"
             onClick={onCancel}
