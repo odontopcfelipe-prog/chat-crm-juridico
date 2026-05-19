@@ -292,6 +292,17 @@ export default function ProximosPassosTimeline({
         meta: `paciente assinou ${formatDateTime(contract.patient_signed_at)} · clínica assinou ${formatDateTime(contract.clinic_signed_at)}`,
         status: 'done',
         badge: { label: 'finalizado', variant: 'done' },
+        // Onda 14.24 Fase 1.5 — botao baixar PDF do contrato assinado
+        action: (
+          <button
+            type="button"
+            onClick={() => previewContractPdf(contract.id)}
+            className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent inline-flex items-center gap-1"
+            title="Baixar PDF do contrato"
+          >
+            <Eye size={10} /> PDF
+          </button>
+        ),
       });
     } else {
       // DRAFT/SENT/OPENED/PATIENT_SIGNED — etapa ativa com sub-timeline
@@ -599,6 +610,19 @@ function ContractSubTimeline({
 
       {/* Ações secundárias */}
       <div className="mt-3 pt-3 border-t border-border/60 flex items-center gap-2 flex-wrap">
+        {/* Onda 14.24 Fase 1.5 — Visualizar PDF gerado a partir do template
+            apropriado (por especialidade). Abre PDF em nova aba pro operador
+            conferir antes de enviar. Fase 2 vai usar este mesmo PDF no ClickSign. */}
+        <button
+          type="button"
+          onClick={() => previewContractPdf(contract.id)}
+          disabled={busy}
+          className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
+          title="Pré-visualizar o contrato em PDF"
+        >
+          <Eye size={10} />
+          Pré-visualizar PDF
+        </button>
         {showSkipShortcut && (
           <button
             type="button"
@@ -623,6 +647,27 @@ function ContractSubTimeline({
       </div>
     </div>
   );
+}
+
+/**
+ * Onda 14.24 Fase 1.5 — Abre o PDF do contrato em nova aba. Usa auth via
+ * api.get pra incluir o token JWT (preview-pdf retorna stream PDF direto).
+ * Converte pra blob URL pra abrir sem download forcado.
+ */
+async function previewContractPdf(contractId: string): Promise<void> {
+  try {
+    const res = await api.get(`/contracts/${contractId}/preview-pdf`, {
+      responseType: 'blob',
+    });
+    const blob = new Blob([res.data], { type: 'application/pdf' });
+    const url = URL.createObjectURL(blob);
+    window.open(url, '_blank', 'noopener,noreferrer');
+    // Libera memoria depois de um tempo razoavel pro browser carregar
+    setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+  } catch (err: unknown) {
+    const e = err as { response?: { data?: { message?: string } } };
+    showError(e?.response?.data?.message || 'Erro ao gerar PDF');
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────

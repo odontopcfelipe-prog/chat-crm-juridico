@@ -10,6 +10,7 @@ import { TreatmentPlanContractService } from './treatment-plan-contract.service'
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
+import { ContractPdfService } from './contract-pdf.service';
 import { CommercialController } from './commercial.controller';
 import { ClicksignModule } from '../clicksign/clicksign.module';
 import { PaymentGatewayModule } from '../payment-gateway/payment-gateway.module';
@@ -47,6 +48,7 @@ import { FileStorageService } from '../media/filesystem.service';
     TreatmentPlanBillingService,
     CreditCheckService,
     ContractsService,
+    ContractPdfService,
     FileStorageService,
   ],
   exports: [
@@ -61,6 +63,7 @@ import { FileStorageService } from '../media/filesystem.service';
     TreatmentPlanBillingService,
     CreditCheckService,
     ContractsService,
+    ContractPdfService,
   ],
 })
 export class CommercialModule {}

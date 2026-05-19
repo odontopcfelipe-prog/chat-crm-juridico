@@ -52,6 +52,7 @@ import {
 } from './dto/commercial.dto';
 import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
+import { ContractPdfService } from './contract-pdf.service';
 
 /**
  * Onda 2.1 — Migracao progressiva @Request() req: any -> @Authenticated() user.
@@ -82,6 +83,7 @@ export class CommercialController {
     private readonly billingService: TreatmentPlanBillingService,
     private readonly creditCheckService: CreditCheckService,
     private readonly contractsService: ContractsService,
+    private readonly contractPdfService: ContractPdfService,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -870,5 +872,23 @@ export class CommercialController {
     @Authenticated() user: AuthUser,
   ) {
     return this.contractsService.skip(id, user.tenant_id, user.id, body?.reason);
+  }
+
+  /**
+   * Onda 14.24 Fase 1.5 — Preview PDF do contrato. Stream do PDF gerado
+   * a partir do template apropriado (por especialidade). Permite operador
+   * conferir conteudo antes de enviar pro paciente. Fase 2 vai reusar
+   * mesmo PDF pra subir no ClickSign.
+   */
+  @Get('contracts/:id/preview-pdf')
+  async previewContractPdf(
+    @Param('id') id: string,
+    @Authenticated() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.contractPdfService.generatePdf(id, user.tenant_id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="contrato-${id.substring(0, 8)}.pdf"`);
+    res.send(buffer);
   }
 }
