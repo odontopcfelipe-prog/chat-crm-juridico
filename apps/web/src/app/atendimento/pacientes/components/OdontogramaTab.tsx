@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { Loader2, Activity, X, Trash2, Save, Printer, ChevronDown, ChevronUp, DollarSign, Plus, Copy } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -196,6 +196,11 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   // nada eh deletado no close.
   const [justCreatedQuoteId, setJustCreatedQuoteId] = useState<string | null>(null);
   const [wasAddedInModal, setWasAddedInModal] = useState(false);
+  // Onda 14.3 — useRef pra "wasAddedInModal" (sempre atual, sem closure stale).
+  // Bug fix: o submit do modal chamava onClose() apos onAdded(), mas a closure
+  // do onClose lia wasAddedInModal=false (do render anterior), deletando o quote
+  // recem-criado erroneamente quando user clicava "Adicionar ao orcamento".
+  const wasAddedInModalRef = useRef(false);
   // Onda 3.36 — quote id pro qual o modal AddQuoteItemModal deve abrir.
   // Quando "Iniciar nova avaliação" eh clicado, cria-se o DRAFT e seta isso —
   // modal abre POR CIMA da aba Avaliação (sem navegar pra Orcamentos).
@@ -553,13 +558,17 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
             // Onda 6 — Cleanup de DRAFT vazio: se este modal foi aberto via
             // "Adicionar procedimento" (criou DRAFT vazio antes), e o operador
             // fechou SEM adicionar nada, deleta o DRAFT pra nao poluir a aba.
+            // Onda 14.3 — usa wasAddedInModalRef.current (sempre atual) em vez
+            // do state wasAddedInModal (closure desatualizada quando onClose e
+            // chamado logo apos onAdded pelo submit do modal).
             const shouldCleanup =
               justCreatedQuoteId === addingItemForQuoteId
-              && !wasAddedInModal;
+              && !wasAddedInModalRef.current;
             const idToCleanup = addingItemForQuoteId;
             setAddingItemForQuoteId(null);
             setJustCreatedQuoteId(null);
             setWasAddedInModal(false);
+            wasAddedInModalRef.current = false;
             if (shouldCleanup) {
               try {
                 await api.delete(`/quotes/${idToCleanup}`);
@@ -571,11 +580,17 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
           }}
           onAdded={async () => {
             // Onda 6 — Marca que houve adicao real → close NAO deleta o quote.
+            // Onda 14.3 — seta tambem a ref (sempre atual) pra que o onClose
+            // chamado logo depois pelo submit do modal leia o valor correto.
+            wasAddedInModalRef.current = true;
             setWasAddedInModal(true);
             await refreshQuotes();
             setAddingItemForQuoteId(null);
             setJustCreatedQuoteId(null);
             setWasAddedInModal(false);
+            // NAO resetar wasAddedInModalRef.current aqui — o onClose pode ser
+            // chamado em seguida pelo submit(false) do modal e precisa ver true.
+            // Reset acontece no proximo open ou dentro do onClose.
           }}
         />
       )}
