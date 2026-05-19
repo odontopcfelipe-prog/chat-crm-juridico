@@ -639,6 +639,18 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
       }
     }
 
+    // Onda 14.10 — Asaas exige valor minimo de R$ 5,00 por cobranca.
+    // Bloqueia ANTES de enviar (em vez de receber 400 generico).
+    const ASAAS_MIN_VALUE = 5.0;
+    if (valueToCharge < ASAAS_MIN_VALUE) {
+      showError(
+        `Asaas exige valor mínimo de R$ 5,00 por cobrança. ` +
+        `Valor atual: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. ` +
+        `Aumente o valor do orçamento ou aplique outra forma de pagamento.`,
+      );
+      return;
+    }
+
     const confirmMsg =
       `Aprovar proposta?\n\n` +
       `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
