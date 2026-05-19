@@ -260,7 +260,7 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
           {/* Onda 7.7 — Ordem crescente: mais antigo no topo (mesmo padrao
               da aba Avaliacao). API retorna desc por created_at, fazemos
               reverse aqui pra exibir asc. */}
-          {[...list].reverse().map((q) => {
+          {[...list].reverse().map((q, idx) => {
             const expiry = expiryStatus(q.valid_until, q.status);
             // Onda 5 — detecta "resto de aprovacao parcial" pelo prefixo
             // automatico nas notes (preserva titulo customizado do operador).
@@ -304,10 +304,14 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                 <div className="flex-1 min-w-0">
                   {/* Onda 14.18 — sempre mostra o identificador unificado
                       (#NNN · Nome) pra operador localizar o mesmo orcamento
-                      em qualquer aba. Antes so renderizava se q.title existia. */}
+                      em qualquer aba. Antes so renderizava se q.title existia.
+                      Onda 14.19 — fallback `#${idx+1}` (indice local) pra quotes
+                      legados com quote_number=0 antes do backfill SQL rodar.
+                      Mesmo padrao do FinanceiroTab. Badge ganhou bg pra ficar
+                      visualmente forte e ajudar o operador a achar o quote. */}
                   <p className={`text-sm font-semibold flex items-center gap-2 ${titleCls}`}>
-                    <span className="text-xs font-mono text-primary">
-                      {getQuoteNumberBadge(q) || '·'}
+                    <span className="text-[11px] font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded">
+                      {getQuoteNumberBadge(q) || `#${idx + 1}`}
                     </span>
                     <span>{getQuoteDisplayName(q)}</span>
                     {isRemainder && (
@@ -848,9 +852,17 @@ function QuoteDetailView({
           confianca. Botao Renomear so existe em Avaliacao e Orcamentos. */}
       <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
         <h2 className="text-lg font-bold flex items-center gap-2">
-          <span className="text-sm font-mono text-primary">
-            {getQuoteNumberBadge(quote) || '·'}
-          </span>
+          {/* Onda 14.19 — badge com bg pro #NNN ficar destacado no header.
+              Legados (quote_number=0) caem pro `·` aqui — nao temos idx no
+              detail view, e mostrar `#1` artificial seria enganoso fora da
+              lista. Backfill SQL resolve apos rodar na VPS. */}
+          {getQuoteNumberBadge(quote) ? (
+            <span className="text-sm font-mono font-bold text-primary bg-primary/10 border border-primary/20 px-2 py-0.5 rounded">
+              {getQuoteNumberBadge(quote)}
+            </span>
+          ) : (
+            <span className="text-sm font-mono text-muted-foreground">·</span>
+          )}
           <span>{getQuoteDisplayName(quote)}</span>
         </h2>
         <button
