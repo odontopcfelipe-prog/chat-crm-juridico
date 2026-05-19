@@ -214,16 +214,54 @@ function PacienteFichaInner() {
   };
 
   // Onda 14 — Exclusao permanente (hard delete). Modal pede digitacao do nome.
+  // Onda 14.1 — Modal expandido com preview de dependencias + opção cascade.
+  interface DeletionPreview {
+    can_delete_safely: boolean;
+    appointments: Array<{ id: string; title: string; type: string; status: string; start_at: string }>;
+    quotes: Array<{ id: string; title: string | null; status: string; total_value: number | string; created_at: string }>;
+    paid_installments: Array<{ id: string; amount: number | string; paid_at: string; sequence: number; total_count: number }>;
+    medical_records_count: number;
+  }
   const [deletePermanentOpen, setDeletePermanentOpen] = useState(false);
   const [deleteConfirmName, setDeleteConfirmName] = useState('');
   const [deletingPermanent, setDeletingPermanent] = useState(false);
+  const [deletionPreview, setDeletionPreview] = useState<DeletionPreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  const [forceCheckbox, setForceCheckbox] = useState(false);
+
+  const openDeleteModal = async () => {
+    if (!patient) return;
+    setDeleteConfirmName('');
+    setForceCheckbox(false);
+    setDeletionPreview(null);
+    setDeletePermanentOpen(true);
+    setLoadingPreview(true);
+    try {
+      const { data } = await api.get<DeletionPreview>(`/patients/${patient.id}/deletion-preview`);
+      setDeletionPreview(data);
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Erro ao carregar dependências');
+      setDeletePermanentOpen(false);
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
 
   const handleDeletePermanent = async () => {
-    if (!patient) return;
+    if (!patient || !deletionPreview) return;
     setDeletingPermanent(true);
     try {
-      await api.delete(`/patients/${patient.id}/permanent`);
-      showSuccess('Paciente excluído permanentemente');
+      // Se pode deletar safely (sem deps) → endpoint normal
+      // Senão → endpoint /force que apaga cascade
+      const url = deletionPreview.can_delete_safely
+        ? `/patients/${patient.id}/permanent`
+        : `/patients/${patient.id}/permanent/force`;
+      await api.delete(url);
+      showSuccess(
+        deletionPreview.can_delete_safely
+          ? 'Paciente excluído permanentemente'
+          : 'Paciente e todas as dependências excluídos',
+      );
       router.push('/atendimento/pacientes');
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao excluir paciente');
@@ -231,6 +269,21 @@ function PacienteFichaInner() {
       setDeletingPermanent(false);
     }
   };
+
+  const fmtDateBR = (iso: string) =>
+    new Date(iso).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+    });
+  const fmtDateTimeBR = (iso: string) =>
+    new Date(iso).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+    });
 
   // Onda 3.30 — Avaliação restaurado no header (antigo "Atender", renomeado).
   // Marca que o paciente compareceu (gradua lead pra "Avaliacao Feita") + abre
@@ -377,74 +430,214 @@ function PacienteFichaInner() {
               <Trash2 size={14} /> Arquivar
             </button>
           )}
-          {/* Onda 14 — Excluir permanentemente (hard delete). Mais restritivo
-              que Arquivar. Backend valida ADMIN + bloqueia se ha dependencias. */}
+          {/* Onda 14 — Excluir permanentemente (hard delete).
+              Onda 14.1 — Mostra preview das dependencias + badge "ADMIN". */}
           {role.canArchivePatient && (
             <button
-              onClick={() => {
-                setDeleteConfirmName('');
-                setDeletePermanentOpen(true);
-              }}
-              className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
-              title="Exclui o paciente permanentemente do banco (irreversível)"
+              onClick={openDeleteModal}
+              className="text-xs text-white bg-red-600 hover:bg-red-700 px-3 py-2 rounded-lg flex items-center gap-1.5 font-semibold shadow-sm"
+              title="Exclui o paciente permanentemente do banco (irreversível) — apenas ADMIN"
             >
               <Trash2 size={14} /> Excluir
+              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-white/20 text-white border border-white/30">
+                🔒 ADMIN
+              </span>
             </button>
           )}
         </div>
       </div>
 
-      {/* Onda 14 — Modal de confirmacao pra exclusao permanente */}
+      {/* Onda 14.1 — Modal de exclusao com preview detalhado das dependencias */}
       {deletePermanentOpen && (
         <div
           className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
           onClick={() => !deletingPermanent && setDeletePermanentOpen(false)}
         >
           <div
-            className="bg-card border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden"
+            className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-5 border-b border-border bg-red-500/10">
+            <div className="p-5 border-b border-border bg-red-500/10 shrink-0">
               <div className="flex items-start gap-3">
                 <div className="w-10 h-10 rounded-lg bg-red-500/20 flex items-center justify-center shrink-0">
                   <Trash2 size={18} className="text-red-700" />
                 </div>
-                <div>
-                  <h3 className="text-base font-bold text-red-800">
+                <div className="flex-1">
+                  <h3 className="text-base font-bold text-red-800 flex items-center gap-2">
                     Excluir paciente permanentemente?
+                    <span className="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-red-500/20 text-red-700 border border-red-500/30">
+                      🔒 ADMIN ONLY
+                    </span>
                   </h3>
                   <p className="text-xs text-red-700 mt-1">
-                    Esta ação é <strong>irreversível</strong>. Todos os dados pessoais,
-                    alergias, medicações e anamnese serão apagados do banco.
+                    Paciente: <strong>{patient.name}</strong> · esta ação é <strong>irreversível</strong>
                   </p>
                 </div>
               </div>
             </div>
-            <div className="p-5 space-y-3">
-              <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3">
-                <p className="text-xs text-amber-800">
-                  💡 <strong>Recomendação:</strong> se o paciente tiver histórico clínico
-                  ou financeiro, use <strong>Arquivar</strong> em vez. Excluir só funciona
-                  pra cadastros vazios (sem consultas, orçamentos, parcelas pagas).
-                </p>
-              </div>
-              <div>
-                <label className="text-xs font-semibold text-foreground block mb-1">
-                  Pra confirmar, digite o nome do paciente:
-                  <br />
-                  <span className="text-red-700 font-mono">{patient.name}</span>
-                </label>
-                <input
-                  type="text"
-                  value={deleteConfirmName}
-                  onChange={(e) => setDeleteConfirmName(e.target.value)}
-                  placeholder="Digite o nome exato"
-                  disabled={deletingPermanent}
-                  className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
-                />
-              </div>
+
+            <div className="flex-1 overflow-y-auto p-5 space-y-3">
+              {loadingPreview && (
+                <div className="py-8 flex items-center justify-center text-muted-foreground">
+                  <Loader2 size={16} className="animate-spin mr-2" /> Carregando dependências...
+                </div>
+              )}
+
+              {!loadingPreview && deletionPreview && (
+                <>
+                  {deletionPreview.can_delete_safely ? (
+                    /* Cenário 1: cadastro vazio — pode excluir sem cascade */
+                    <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-md p-3">
+                      <p className="text-xs text-emerald-800">
+                        ✓ Cadastro vazio (sem consultas, orçamentos, parcelas ou prontuário).
+                        Pode excluir com segurança.
+                      </p>
+                    </div>
+                  ) : (
+                    /* Cenário 2: tem dependências — mostra lista + opção cascade */
+                    <>
+                      <div className="bg-amber-500/10 border border-amber-500/30 rounded-md p-3">
+                        <p className="text-xs text-amber-800 mb-1">
+                          ⚠ Este paciente tem histórico no sistema. Se excluir,
+                          <strong> todos esses dados serão apagados em cascade</strong>.
+                        </p>
+                        <p className="text-[11px] text-amber-700">
+                          💡 <strong>Recomendado:</strong> usar <strong>Arquivar</strong> em vez,
+                          pra preservar histórico.
+                        </p>
+                      </div>
+
+                      {/* Lista de consultas */}
+                      {deletionPreview.appointments.length > 0 && (
+                        <div className="border border-border rounded-md overflow-hidden">
+                          <div className="bg-muted/30 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-foreground border-b border-border">
+                            📅 Consultas ({deletionPreview.appointments.length})
+                          </div>
+                          <ul className="divide-y divide-border/40 max-h-48 overflow-y-auto">
+                            {deletionPreview.appointments.map((a) => (
+                              <li key={a.id} className="px-3 py-2 text-xs flex items-center gap-2">
+                                <span className="text-foreground font-medium truncate flex-1">
+                                  {a.title || a.type}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                                  {fmtDateTimeBR(a.start_at)}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${
+                                  a.status === 'CONCLUIDO' ? 'bg-emerald-500/15 text-emerald-700'
+                                  : a.status === 'CANCELADO' ? 'bg-red-500/15 text-red-700'
+                                  : 'bg-sky-500/15 text-sky-700'
+                                }`}>
+                                  {a.status}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Lista de orçamentos */}
+                      {deletionPreview.quotes.length > 0 && (
+                        <div className="border border-border rounded-md overflow-hidden">
+                          <div className="bg-muted/30 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-foreground border-b border-border">
+                            💰 Orçamentos ({deletionPreview.quotes.length})
+                          </div>
+                          <ul className="divide-y divide-border/40 max-h-48 overflow-y-auto">
+                            {deletionPreview.quotes.map((q) => (
+                              <li key={q.id} className="px-3 py-2 text-xs flex items-center gap-2">
+                                <span className="text-foreground font-medium truncate flex-1">
+                                  {q.title || 'Orçamento sem nome'}
+                                </span>
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                                  {fmtDateBR(q.created_at)}
+                                </span>
+                                <span className="text-[11px] font-bold tabular-nums shrink-0">
+                                  R$ {Number(q.total_value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold shrink-0 ${
+                                  q.status === 'ACCEPTED' ? 'bg-emerald-500/15 text-emerald-700'
+                                  : q.status === 'REJECTED' ? 'bg-red-500/15 text-red-700'
+                                  : 'bg-sky-500/15 text-sky-700'
+                                }`}>
+                                  {q.status}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Lista de parcelas pagas */}
+                      {deletionPreview.paid_installments.length > 0 && (
+                        <div className="border border-red-500/30 rounded-md overflow-hidden">
+                          <div className="bg-red-500/15 px-3 py-2 text-[11px] font-bold uppercase tracking-wide text-red-800 border-b border-red-500/30">
+                            🚨 Parcelas pagas ({deletionPreview.paid_installments.length}) — perda de histórico financeiro!
+                          </div>
+                          <ul className="divide-y divide-border/40 max-h-48 overflow-y-auto">
+                            {deletionPreview.paid_installments.map((i) => (
+                              <li key={i.id} className="px-3 py-2 text-xs flex items-center gap-2">
+                                <span className="text-foreground font-medium shrink-0">
+                                  Parcela {i.sequence}/{i.total_count}
+                                </span>
+                                <span className="flex-1" />
+                                <span className="text-[10px] text-muted-foreground font-mono shrink-0">
+                                  pago em {fmtDateBR(i.paid_at)}
+                                </span>
+                                <span className="text-[11px] font-bold text-emerald-700 tabular-nums shrink-0">
+                                  R$ {Number(i.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                                </span>
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Prontuário */}
+                      {deletionPreview.medical_records_count > 0 && (
+                        <div className="border border-border rounded-md px-3 py-2 text-xs text-foreground">
+                          📋 <strong>{deletionPreview.medical_records_count}</strong> registro
+                          {deletionPreview.medical_records_count === 1 ? '' : 's'} de prontuário clínico será
+                          {deletionPreview.medical_records_count === 1 ? '' : 'm'} apagado
+                          {deletionPreview.medical_records_count === 1 ? '' : 's'}.
+                        </div>
+                      )}
+
+                      {/* Checkbox de ciência */}
+                      <label className="flex items-start gap-2 cursor-pointer p-3 border-2 border-red-500/30 rounded-md bg-red-500/5 mt-3">
+                        <input
+                          type="checkbox"
+                          checked={forceCheckbox}
+                          onChange={(e) => setForceCheckbox(e.target.checked)}
+                          disabled={deletingPermanent}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <span className="text-xs text-red-800">
+                          Eu entendo que <strong>todos esses dados serão apagados em cascade</strong> e
+                          esta ação <strong>não pode ser desfeita</strong>.
+                        </span>
+                      </label>
+                    </>
+                  )}
+
+                  {/* Confirmação por nome (sempre exigida) */}
+                  <div className="pt-2">
+                    <label className="text-xs font-semibold text-foreground block mb-1">
+                      Pra confirmar, digite o nome do paciente:{' '}
+                      <span className="text-red-700 font-mono">{patient.name}</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={deleteConfirmName}
+                      onChange={(e) => setDeleteConfirmName(e.target.value)}
+                      placeholder="Digite o nome exato"
+                      disabled={deletingPermanent}
+                      className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-red-500/30 focus:border-red-500"
+                    />
+                  </div>
+                </>
+              )}
             </div>
-            <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20">
+
+            <div className="p-3 border-t border-border flex items-center justify-end gap-2 bg-muted/20 shrink-0">
               <button
                 type="button"
                 onClick={() => setDeletePermanentOpen(false)}
@@ -453,14 +646,34 @@ function PacienteFichaInner() {
               >
                 Cancelar
               </button>
+              {deletionPreview && !deletionPreview.can_delete_safely && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDeletePermanentOpen(false);
+                    handleArchive();
+                  }}
+                  disabled={deletingPermanent}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-amber-500/50 bg-amber-500/10 text-amber-800 hover:bg-amber-500/20 disabled:opacity-50 font-semibold"
+                >
+                  Arquivar em vez (recomendado)
+                </button>
+              )}
               <button
                 type="button"
                 onClick={handleDeletePermanent}
-                disabled={deleteConfirmName.trim() !== patient.name.trim() || deletingPermanent}
+                disabled={
+                  !deletionPreview ||
+                  deleteConfirmName.trim() !== patient.name.trim() ||
+                  (!deletionPreview.can_delete_safely && !forceCheckbox) ||
+                  deletingPermanent
+                }
                 className="text-xs px-4 py-1.5 rounded-lg bg-red-600 text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 font-semibold"
               >
                 {deletingPermanent ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
-                Excluir permanentemente
+                {deletionPreview?.can_delete_safely
+                  ? 'Excluir permanentemente'
+                  : 'Excluir tudo em cascade'}
               </button>
             </div>
           </div>

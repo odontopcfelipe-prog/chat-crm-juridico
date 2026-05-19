@@ -323,6 +323,94 @@ export class PatientsService {
   }
 
   /**
+   * Onda 14.1 — Preview das dependencias antes de excluir.
+   * Retorna lista detalhada (datas, valores, status) pra UI mostrar pro
+   * operador exatamente o que sera apagado se ele forcar a exclusao.
+   */
+  async getDeletionPreview(id: string, tenantId: string) {
+    await this.assertBelongsToTenant(id, tenantId);
+
+    const [appointments, quotes, paidInstallments, medicalRecordsCount] =
+      await Promise.all([
+        this.prisma.calendarEvent.findMany({
+          where: { patient_id: id },
+          orderBy: { start_at: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            title: true,
+            type: true,
+            status: true,
+            start_at: true,
+          },
+        }),
+        this.prisma.quote.findMany({
+          where: { patient_id: id, deleted_at: null },
+          orderBy: { created_at: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            title: true,
+            status: true,
+            total_value: true,
+            created_at: true,
+          },
+        }),
+        this.prisma.installment.findMany({
+          where: { patient_id: id, status: 'PAGA' },
+          orderBy: { paid_at: 'desc' },
+          take: 50,
+          select: {
+            id: true,
+            amount: true,
+            paid_at: true,
+            sequence: true,
+            total_count: true,
+          },
+        }),
+        this.prisma.medicalRecord.count({ where: { patient_id: id } }),
+      ]);
+
+    const canDeleteSafely =
+      appointments.length === 0 &&
+      quotes.length === 0 &&
+      paidInstallments.length === 0 &&
+      medicalRecordsCount === 0;
+
+    return {
+      can_delete_safely: canDeleteSafely,
+      appointments,
+      quotes,
+      paid_installments: paidInstallments,
+      medical_records_count: medicalRecordsCount,
+    };
+  }
+
+  /**
+   * Onda 14.1 — Exclusao forcada com cascade manual.
+   * Usado quando operador VIU as dependencias e mesmo assim quer apagar tudo.
+   * Apaga em transacao:
+   *  - calendarEvent (relacao SetNull → ficaria orfa, apaga manual)
+   *  - patient (cascade automatico do resto via schema)
+   *
+   * Demais relacoes (quote, installment, medicalRecord, anamnese, odontogram,
+   * etc) tem onDelete: Cascade no schema, entao caem junto com o patient.
+   */
+  async forceDelete(id: string, tenantId: string) {
+    await this.assertBelongsToTenant(id, tenantId);
+
+    await this.prisma.$transaction(async (tx) => {
+      // Apaga manualmente o que tem SetNull (pra nao deixar orfaos)
+      await tx.calendarEvent.deleteMany({ where: { patient_id: id } });
+      // Apaga o patient — cascade automatico do resto via schema
+      await tx.patient.delete({ where: { id } });
+    });
+
+    this.logger.log(`[FORCE-DELETE] Patient ${id} apagado em cascade (tenant=${tenantId})`);
+    return { ok: true, deleted_at: new Date().toISOString(), cascade: true };
+  }
+
+  /**
    * Onda 14 — Exclusao permanente do paciente (HARD DELETE).
    *
    * Apaga o paciente do banco se ele nao tiver historico relevante.

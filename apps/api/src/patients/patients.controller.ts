@@ -192,6 +192,34 @@ export class PatientsController {
     return this.patientsService.permanentlyDelete(id, tenantId);
   }
 
+  /**
+   * Onda 14.1 — Preview detalhado das dependencias antes de excluir.
+   * Frontend chama isso pra mostrar o que sera apagado se forcar exclusao.
+   */
+  @Get(':id/deletion-preview')
+  getDeletionPreview(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!canArchivePatient(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN');
+    }
+    return this.patientsService.getDeletionPreview(id, tenantId);
+  }
+
+  /**
+   * Onda 14.1 — Exclusao forcada em cascade (apaga paciente + tudo).
+   * So ADMIN. Frontend deve mostrar preview + confirmacao dupla antes.
+   */
+  @Delete(':id/permanent/force')
+  forceDelete(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!canArchivePatient(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode forçar exclusao em cascade');
+    }
+    return this.patientsService.forceDelete(id, tenantId);
+  }
+
   /** Converte Lead em Patient. Se ja existe, retorna o Patient vinculado. */
   @Post('convert/:leadId')
   convertFromLead(@Param('leadId') leadId: string, @Body() extra: Partial<CreatePatientDto>, @Request() req: any) {
