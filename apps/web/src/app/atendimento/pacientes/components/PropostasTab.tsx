@@ -589,6 +589,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
     pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
     boleto?: { url: string; barcode: string | null } | null;
     invoice_url?: string | null;
+    /** Onda 14.11 — true quando backend retornou cobranca ja existente */
+    is_existing?: boolean;
   }
   const [approveBillOpen, setApproveBillOpen] = useState(false);
   const [approveBillResult, setApproveBillResult] = useState<ApproveAndBillResult | null>(null);
@@ -3547,6 +3549,7 @@ function ApproveBillResultDialog({
     pix?: { qrCode: string; copyPaste: string; expirationDate: string } | null;
     boleto?: { url: string; barcode: string | null } | null;
     invoice_url?: string | null;
+    is_existing?: boolean;
   };
   onClose: () => void;
 }) {
@@ -3569,7 +3572,9 @@ function ApproveBillResultDialog({
             </div>
             <div>
               <h3 className="text-base font-bold text-emerald-800">
-                Proposta aprovada e cobrança gerada!
+                {result.is_existing
+                  ? 'Cobrança existente (não foi criada nova)'
+                  : 'Proposta aprovada e cobrança gerada!'}
               </h3>
               <p className="text-xs text-emerald-700 mt-1">
                 {result.billing_type === 'PIX' && 'Pagamento via PIX'}
@@ -3582,6 +3587,19 @@ function ApproveBillResultDialog({
         </div>
 
         <div className="flex-1 overflow-y-auto p-5 space-y-4">
+          {/* Onda 14.11 — Aviso quando cobranca retornada e a JA EXISTENTE */}
+          {result.is_existing && (
+            <div className="bg-amber-500/10 border-2 border-amber-500/40 rounded-md p-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1">
+                ⚠ Esta cobrança já existia pra este plano
+              </p>
+              <p className="text-[11px] text-amber-700">
+                Em vez de criar uma cobrança duplicada, o sistema retornou a
+                existente. Se quer gerar uma nova com forma de pagamento
+                diferente, primeiro cancele esta no painel Asaas.
+              </p>
+            </div>
+          )}
           {result.billing_type === 'PIX' && result.pix && (
             <>
               <div className="bg-muted/20 border border-border rounded-lg p-4 text-center">

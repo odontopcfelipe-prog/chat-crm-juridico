@@ -312,33 +312,58 @@ export class TreatmentPlanBillingService {
       throw new BadRequestException('Valor deve ser maior que zero');
     }
 
-    // Idempotencia: se ja ha cobranca pro plano, retorna a existente
-    // (em vez de bloquear) — assim user que clicou 2x ve o boleto que ja
-    // foi criado em vez de ficar preso em "ja possui cobranca".
-    const existing = await this.prisma.paymentGatewayCharge.findFirst({
-      where: { description: { contains: `plan:${planId}` } },
+    // Onda 14.11 — Idempotencia melhorada:
+    //  1) Ignora charges DELETED/REFUNDED (foram canceladas no Asaas e usuario
+    //     quer gerar nova)
+    //  2) Se ja existe charge ATIVA do MESMO billing_type → retorna existente
+    //  3) Se ja existe charge ATIVA de OUTRO billing_type → erro claro
+    //     (operador precisa cancelar a antiga no Asaas antes)
+    const existingActive = await this.prisma.paymentGatewayCharge.findFirst({
+      where: {
+        description: { contains: `plan:${planId}` },
+        status: { notIn: ['DELETED', 'REFUNDED', 'CANCELLED'] },
+      },
       orderBy: { created_at: 'desc' },
     });
-    if (existing) {
-      this.logger.log(`[SIMPLE-CHARGE] Plan ${planId} ja tem cobranca ${existing.external_id} — retornando existente`);
-      return {
-        plan_id: planId,
-        charge: existing,
-        billing_type: existing.billing_type as 'PIX' | 'BOLETO' | 'CREDIT_CARD',
-        installment_count: undefined,
-        pix: existing.pix_qr_code
-          ? {
-              qrCode: existing.pix_qr_code,
-              copyPaste: existing.pix_copy_paste || '',
-              expirationDate: existing.pix_expiration_date?.toISOString() || '',
-            }
-          : null,
-        boleto: existing.boleto_url
-          ? { url: existing.boleto_url, barcode: existing.boleto_barcode }
-          : null,
-        invoice_url: existing.invoice_url,
-        is_existing: true,
-      };
+    if (existingActive) {
+      const existingType = existingActive.billing_type;
+      if (existingType === options.billingType) {
+        this.logger.log(
+          `[SIMPLE-CHARGE] Plan ${planId} ja tem cobranca ATIVA do mesmo tipo ` +
+          `(${existingType}, ${existingActive.external_id}) — retornando existente`,
+        );
+        return {
+          plan_id: planId,
+          charge: existingActive,
+          billing_type: existingActive.billing_type as 'PIX' | 'BOLETO' | 'CREDIT_CARD',
+          installment_count: undefined,
+          pix: existingActive.pix_qr_code
+            ? {
+                qrCode: existingActive.pix_qr_code,
+                copyPaste: existingActive.pix_copy_paste || '',
+                expirationDate: existingActive.pix_expiration_date?.toISOString() || '',
+              }
+            : null,
+          boleto: existingActive.boleto_url
+            ? { url: existingActive.boleto_url, barcode: existingActive.boleto_barcode }
+            : null,
+          invoice_url: existingActive.invoice_url,
+          is_existing: true,
+        };
+      } else {
+        // Tipo diferente — bloqueia com mensagem clara
+        const typeLabels: Record<string, string> = {
+          PIX: 'PIX',
+          BOLETO: 'Boleto',
+          CREDIT_CARD: 'Cartão',
+        };
+        throw new BadRequestException(
+          `Já existe uma cobrança ${typeLabels[existingType] || existingType} ` +
+          `ATIVA pra esse plano (status ${existingActive.status}). ` +
+          `Pra gerar uma cobrança ${typeLabels[options.billingType]}, ` +
+          `primeiro cancele a anterior no painel Asaas.`,
+        );
+      }
     }
 
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
