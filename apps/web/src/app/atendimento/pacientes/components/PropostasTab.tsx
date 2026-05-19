@@ -302,13 +302,24 @@ function buildPaymentOptions(): {
     ],
     // Onda 11.4 — Cartao de credito 1x ate 12x sem juros
     cartao,
-    // Onda 11.2 — Boleto parcelado com juros 1,5%/mes
-    // Onda 11.3 — entrada de 20% em todas as opcoes parceladas
-    parcelado: [
-      { key: '12x', label: '12x', sublabel: '', discountPercent: 0, installments: 12, variant: 'parcelado', interestRate: 1.5, downPaymentPercent: 20 },
-      { key: '18x', label: '18x', sublabel: '', discountPercent: 0, installments: 18, variant: 'parcelado', interestRate: 1.5, downPaymentPercent: 20 },
-      { key: '24x', label: '24x', sublabel: '', discountPercent: 0, installments: 24, variant: 'parcelado', interestRate: 1.5, downPaymentPercent: 20 },
-    ],
+    // Onda 14.4 — Boleto/Financiamento Banco PASSOS: 1x ate 24x
+    //   1x: a vista, sem juros, sem entrada
+    //   2x ate 24x: com juros 1.5%/mes, com entrada 20% (a partir de 12x)
+    parcelado: Array.from({ length: 24 }, (_, idx) => {
+      const n = idx + 1;
+      const hasInterest = n >= 2;
+      const hasDownPayment = n >= 12; // entrada so pra prazos longos
+      return {
+        key: `parcelado-${n}x`,
+        label: `${n}x`,
+        sublabel: '',
+        discountPercent: 0,
+        installments: n,
+        variant: 'parcelado' as const,
+        interestRate: hasInterest ? 1.5 : 0,
+        downPaymentPercent: hasDownPayment ? 20 : 0,
+      };
+    }),
   };
 }
 
@@ -561,6 +572,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
 
   // Onda 12 — Consulta de credito do Financiamento Banco PASSOS
   const [creditCheckOpen, setCreditCheckOpen] = useState(false);
+  // Onda 14.4 — parcelas pre-selecionadas no credit-check (12, 18, 24, etc)
+  const [creditCheckInitialInstallments, setCreditCheckInitialInstallments] = useState<number>(18);
 
   // Onda 13 — Bônus de fechamento
   const [bonusOpen, setBonusOpen] = useState(false);
@@ -753,6 +766,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           sending={sending}
           onSaveCounter={() => setCounterPropOpen(true)}
           onOpenCreditCheck={() => setCreditCheckOpen(true)}
+          onOpenCreditCheckForParcelas={(n) => {
+            setCreditCheckInitialInstallments(n);
+            setCreditCheckOpen(true);
+          }}
           onAddBonus={() => setBonusOpen(true)}
         />
       )}
@@ -847,6 +864,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           <CreditCheckDialog
             quoteId={selectedDetail.id}
             valorTotal={totalForCheck}
+            initialInstallments={creditCheckInitialInstallments}
             onCancel={() => setCreditCheckOpen(false)}
             onAppliedSuccess={(parcelaKey) => {
               setActivePaymentKey(parcelaKey);
@@ -1097,6 +1115,7 @@ function PropostaPainel({
   sending,
   onSaveCounter,
   onOpenCreditCheck,
+  onOpenCreditCheckForParcelas,
   onAddBonus,
 }: {
   loading: boolean;
@@ -1114,6 +1133,8 @@ function PropostaPainel({
   onSaveCounter: () => void;
   /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
   onOpenCreditCheck: () => void;
+  /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas */
+  onOpenCreditCheckForParcelas: (installments: number) => void;
   /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
   onAddBonus: () => void;
 }) {
@@ -1319,7 +1340,7 @@ function PropostaPainel({
         total={total}
         activePaymentKey={activePaymentKey}
         onChangePayment={onChangePayment}
-        onOpenCreditCheck={onOpenCreditCheck}
+        onOpenCreditCheckForParcelas={onOpenCreditCheckForParcelas}
       />
 
       {/* Resumo "voce esta oferecendo" */}
@@ -1642,25 +1663,37 @@ function CardBoletoParcelado({
   total,
   activePaymentKey,
   onChangePayment,
-  onOpenCreditCheck,
+  onOpenCreditCheckForParcelas,
 }: {
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
   onChangePayment: (key: string) => void;
-  /** Onda 12 — abre dialog de consulta de credito (Banco PASSOS) */
-  onOpenCreditCheck: () => void;
+  /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas (>= 2x) */
+  onOpenCreditCheckForParcelas: (installments: number) => void;
 }) {
+  const [open, setOpen] = useState(false);
   const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
   const isSelected = activeIdx >= 0;
   const active = isSelected ? options[activeIdx] : null;
   const activeCalc = active ? applyPaymentOption(total, active) : null;
 
+  const handleSelectInstallment = (n: number) => {
+    setOpen(false);
+    if (n === 1) {
+      // Boleto a vista — aplica direto (sem credit-check)
+      onChangePayment(`parcelado-1x`);
+    } else {
+      // Parcelado >= 2x — vai pra consulta de credito
+      onOpenCreditCheckForParcelas(n);
+    }
+  };
+
   return (
     <div className="mb-3">
       <button
         type="button"
-        onClick={onOpenCreditCheck}
+        onClick={() => setOpen(true)}
         className={`w-full p-3 rounded-lg border text-left transition-colors relative ${
           isSelected
             ? 'border-amber-500 bg-amber-500/10'
@@ -1671,34 +1704,207 @@ function CardBoletoParcelado({
           <div className="min-w-0 flex-1">
             <p className="text-xs font-semibold flex items-center gap-1.5 mb-0.5">
               <Building2 size={11} className="text-amber-700" />
-              Financiamento Banco PASSOS
+              Boleto · Financiamento Banco PASSOS
               {!isSelected && (
                 <span className="text-[10px] font-normal text-muted-foreground italic ml-1">
-                  (consulta de crédito · aprovação imediata)
+                  (1x à vista sem juros · 2x-24x com juros)
                 </span>
               )}
             </p>
             {isSelected && active && activeCalc ? (
               <>
                 <p className="text-sm font-bold tabular-nums">
-                  {active.installments}x · entrada R$ {fmtBRL(activeCalc.downPaymentValue)} +
-                  {' '}R$ {fmtBRL(activeCalc.installmentValue)}/mês
+                  {active.installments}x{' '}
+                  {activeCalc.downPaymentValue > 0
+                    ? `· entrada R$ ${fmtBRL(activeCalc.downPaymentValue)} + R$ ${fmtBRL(activeCalc.installmentValue)}/mês`
+                    : active.installments === 1
+                    ? `· R$ ${fmtBRL(activeCalc.finalValue)} à vista`
+                    : `· R$ ${fmtBRL(activeCalc.installmentValue)}/mês`}
                 </p>
                 <p className="text-[10px] text-muted-foreground">
-                  total R$ {fmtBRL(activeCalc.finalValue)} · +R$ {fmtBRL(activeCalc.extraInterest)} juros
+                  total R$ {fmtBRL(activeCalc.finalValue)}
+                  {activeCalc.extraInterest > 0 && (
+                    <> · +R$ {fmtBRL(activeCalc.extraInterest)} juros</>
+                  )}
+                  {active.installments === 1 && ' · sem juros'}
                 </p>
               </>
             ) : (
               <p className="text-[11px] text-muted-foreground">
-                entrada de 20% + juros 1,5%/mês · 12x, 18x ou 24x · clique para iniciar a consulta
+                clique para ver opções de 1x até 24x · 2x+ exige aprovação de crédito
               </p>
             )}
           </div>
-          <span className="text-amber-700 shrink-0 mt-0.5 text-[10px] font-bold uppercase tracking-wide">
-            <Search size={14} className="inline-block" />
+          <span className="text-amber-700 shrink-0 mt-0.5">
+            <ChevronDown size={14} />
           </span>
         </div>
       </button>
+
+      {/* Onda 14.4 — Modal de tabela com 1x ate 24x, igual ao do cartao */}
+      {open && (
+        <BoletoInstallmentsModal
+          options={options}
+          total={total}
+          activePaymentKey={activePaymentKey}
+          onSelect={handleSelectInstallment}
+          onClose={() => setOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Onda 14.4 — Modal premium pra escolher parcelas do Boleto.
+ *  Estilo igual ao CartaoInstallmentsModal. Click numa linha >= 2x dispara
+ *  consulta de credito (Banco PASSOS). */
+function BoletoInstallmentsModal({
+  options,
+  total,
+  activePaymentKey,
+  onSelect,
+  onClose,
+}: {
+  options: PaymentOption[];
+  total: number;
+  activePaymentKey: string;
+  onSelect: (installments: number) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header destacado com gradient amber */}
+        <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-amber-500/10 to-amber-500/5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2 mb-1">
+                <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
+                  <Building2 size={18} className="text-amber-700" />
+                </div>
+                <h3 className="text-base font-bold text-foreground">
+                  Boleto · Financiamento Banco PASSOS
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground ml-11">
+                Escolha em quantas parcelas deseja pagar
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md transition-colors"
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="flex items-center gap-2 mt-3 ml-11 flex-wrap">
+            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+              Aceitamos:
+            </span>
+            {['Banco do Brasil', 'Bradesco', 'Itaú', 'Caixa', 'Santander'].map((b) => (
+              <span
+                key={b}
+                className="text-[10px] px-2 py-0.5 rounded border border-border bg-card text-foreground font-medium"
+              >
+                {b}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Resumo do valor */}
+        <div className="px-6 py-3 bg-muted/20 border-b border-border flex items-baseline justify-between gap-3">
+          <span className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
+            Valor total
+          </span>
+          <span className="text-lg font-bold tabular-nums text-foreground">
+            R$ {fmtBRL(total)}
+          </span>
+        </div>
+
+        {/* Cabeçalho da tabela */}
+        <div className="grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-2 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
+          <span>Parcelas</span>
+          <span>Valor de cada parcela</span>
+          <span className="text-right">Total</span>
+        </div>
+
+        {/* Linhas */}
+        <ul className="flex-1 overflow-y-auto">
+          {options.map((opt) => {
+            const isActive = activePaymentKey === opt.key;
+            const c = applyPaymentOption(total, opt);
+            const hasInterest = (opt.interestRate ?? 0) > 0;
+            const isAVista = opt.installments === 1;
+            return (
+              <li key={opt.key}>
+                <button
+                  type="button"
+                  onClick={() => onSelect(opt.installments)}
+                  className={`w-full grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-3 text-left transition-colors border-b border-border/40 last:border-0 ${
+                    isActive
+                      ? 'bg-amber-500/10 hover:bg-amber-500/15'
+                      : 'hover:bg-accent/40'
+                  }`}
+                >
+                  <span className={`text-base tabular-nums ${isActive ? 'font-bold text-amber-800' : 'font-medium text-foreground'}`}>
+                    {opt.installments}x
+                    {isAVista && (
+                      <span className="block text-[9px] text-emerald-700 font-semibold uppercase tracking-wide">
+                        à vista
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-sm tabular-nums">
+                    {c.downPaymentValue > 0 && (
+                      <span className="text-[10px] text-muted-foreground block leading-tight">
+                        entrada R$ {fmtBRL(c.downPaymentValue)} +
+                      </span>
+                    )}
+                    de{' '}
+                    <strong className={isActive ? 'text-amber-800' : 'text-foreground'}>
+                      R$ {fmtBRL(c.installmentValue)}
+                    </strong>{' '}
+                    {!hasInterest ? (
+                      <span className="text-emerald-700 text-xs font-medium">sem juros</span>
+                    ) : (
+                      <span className="text-amber-700 text-xs font-medium">com juros</span>
+                    )}
+                    {!isAVista && (
+                      <span className="block text-[10px] text-amber-700 italic mt-0.5">
+                        exige consulta de crédito ⓘ
+                      </span>
+                    )}
+                  </span>
+                  <span className="text-sm tabular-nums text-right text-muted-foreground">
+                    R$ {fmtBRL(c.finalValue)}
+                  </span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+
+        {/* Rodapé */}
+        <div className="px-6 py-3 bg-muted/20 border-t border-border space-y-1">
+          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+            <ShieldCheck size={11} className="text-emerald-700" />
+            Boletos emitidos via Asaas · Análise de crédito via Serasa Crediscore
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            1x à vista sem juros · 2x-24x com juros 1,5%/mês · entrada de 20% a partir de 12x
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -2182,19 +2388,23 @@ interface ApplyFinancingResult {
 function CreditCheckDialog({
   quoteId,
   valorTotal,
+  initialInstallments,
   onCancel,
   onAppliedSuccess,
 }: {
   /** Onda 12.2 — id do quote pra fechar via POST /quotes/:id/apply-financing */
   quoteId: string;
   valorTotal: number;
+  /** Onda 14.4 — parcelas pre-selecionadas (vem da tabela de boleto) */
+  initialInstallments?: number;
   onCancel: () => void;
   /** Onda 12.2 — chamado quando o fluxo completa (aceita + boletos gerados).
    *  parcelaKey: ex "parcelado-12x" — alimenta activePaymentKey no painel. */
   onAppliedSuccess: (parcelaKey: string) => void;
 }) {
   const [phase, setPhase] = useState<CreditPhase>('cadastro');
-  const [parcelas, setParcelas] = useState<12 | 18 | 24>(18);
+  // Onda 14.4 — tipo relaxado pra number (era 12|18|24 hardcoded)
+  const [parcelas, setParcelas] = useState<number>(initialInstallments ?? 18);
   const [result, setResult] = useState<CreditCheckResult | null>(null);
   const [applyResult, setApplyResult] = useState<ApplyFinancingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -2208,8 +2418,8 @@ function CreditCheckDialog({
   const [telefone, setTelefone] = useState('');
   const [profissao, setProfissao] = useState('');
 
-  // Calcula a parcela alvo baseado no prazo escolhido (sem entrada pra
-  // simulacao de credito — o credit-check avalia o comprometimento total).
+  // Calcula a parcela alvo baseado no prazo escolhido.
+  // Onda 14.4 — entrada 20% so a partir de 12x (alinhado com buildPaymentOptions).
   const opt: PaymentOption = useMemo(() => ({
     key: `parcelado-${parcelas}x`,
     label: `${parcelas}x`,
@@ -2218,7 +2428,7 @@ function CreditCheckDialog({
     installments: parcelas,
     variant: 'parcelado',
     interestRate: 1.5,
-    downPaymentPercent: 20,
+    downPaymentPercent: parcelas >= 12 ? 20 : 0,
   }), [parcelas]);
   const calc = applyPaymentOption(valorTotal, opt);
 
@@ -2378,8 +2588,12 @@ function CreditCheckDialog({
                         <span className="opacity-75">total R$ {fmtBRL(valorTotal)}</span>
                       </p>
                     </div>
-                    <div className="flex gap-2 shrink-0">
-                      {([12, 18, 24] as const).map((n) => (
+                    <div className="flex gap-2 shrink-0 flex-wrap">
+                      {/* Onda 14.4 — inclui dinamicamente a parcela escolhida na
+                          tabela de boleto se diferente dos padroes 12/18/24 */}
+                      {Array.from(new Set([parcelas, 12, 18, 24]))
+                        .sort((a, b) => a - b)
+                        .map((n) => (
                         <button
                           key={n}
                           type="button"
