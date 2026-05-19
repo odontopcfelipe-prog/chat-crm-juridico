@@ -319,19 +319,32 @@ export default function FinanceiroTab({ patientId }: Props) {
         />
       </div>
 
-      {/* Onda 14.12 — Propostas aprovadas (Quote.status=ACCEPTED).
-          Renderiza ANTES das cobranças, logo após o resumo.
-          Onda 14.13 — click abre modal com detalhe da proposta + parcelas */}
+      {/* Onda 14.16 — Cards expansíveis por proposta aceita.
+          Substitui as 2 seções separadas (Aprovados + Cobranças geradas)
+          por 1 card rico por proposta com tudo dentro (mini-cards de
+          status, barra de progresso, lista de parcelas com pagamentos).
+          Status atualizado em tempo real pelo webhook Asaas + polling 30s. */}
       {acceptedQuotes.length > 0 && (
-        <AcceptedQuotesSection
-          quotes={acceptedQuotes}
-          patientId={patientId}
-          allCharges={charges}
-          onOpenDetail={(quoteId) => setDetailQuoteId(quoteId)}
-        />
+        <div>
+          <p className="text-xs font-bold uppercase tracking-wide text-foreground mb-2">
+            Propostas aceitas
+          </p>
+          <div className="space-y-3">
+            {acceptedQuotes.map((q, idx) => (
+              <ProposalFinancialCard
+                key={q.id}
+                index={idx + 1}
+                quote={q}
+                allCharges={charges}
+                patientId={patientId}
+                onOpenDetail={() => setDetailQuoteId(q.id)}
+              />
+            ))}
+          </div>
+        </div>
       )}
 
-      {/* Onda 14.13 — Modal de detalhe da proposta aceita */}
+      {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
       {detailQuoteId && (
         <ProposalDetailModal
           quoteId={detailQuoteId}
@@ -341,10 +354,9 @@ export default function FinanceiroTab({ patientId }: Props) {
         />
       )}
 
-      {/* Onda 14.9 — Cobrancas geradas pelo approveAndBill (PIX/Boleto/Cartao).
-          Renderiza ANTES das parcelas. Status atualizado em tempo real pelo
-          webhook Asaas (PaymentGatewayCharge.status). */}
-      {charges.length > 0 && (
+      {/* Onda 14.9 — Cobranças "órfãs" (sem quote aceito vinculado).
+          Caso raro mas mantém — ex: charges legadas via Installment. */}
+      {charges.length > 0 && acceptedQuotes.length === 0 && (
         <ChargesSection charges={charges} />
       )}
 
@@ -515,6 +527,385 @@ function AcceptedQuotesSection({
 
 /** Onda 14.9 — Seção "Cobranças geradas" mostra PaymentGatewayCharges do
  *  paciente. Atualizado em tempo real pelo webhook Asaas. */
+// ─── Onda 14.16 — Card rico por proposta aceita ───────────────────
+//
+// Header colapsado: titulo + badge status + valor + % pago + chevron
+// Expandido: 4 mini-cards de resumo + barra de progresso + lista de
+// parcelas (combina charges 1x + sub_installments de charges parceladas).
+// Status atualizado em tempo real (charges vem do banco, atualizado
+// pelo webhook Asaas; sub_installments puxado do Asaas sob demanda).
+
+interface ParcelaItem {
+  number: number;
+  totalCount: number;
+  method: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | string;
+  status: string; // RECEIVED|CONFIRMED|PENDING|OVERDUE|DELETED|REFUNDED
+  value: number;
+  dueDate: string;
+  paymentDate: string | null;
+  boletoUrl: string | null;
+  invoiceUrl: string | null;
+  isNext: boolean; // primeira não-paga
+}
+
+function ProposalFinancialCard({
+  index,
+  quote,
+  allCharges,
+  patientId,
+  onOpenDetail,
+}: {
+  index: number;
+  quote: AcceptedQuote;
+  allCharges: Charge[];
+  patientId: string;
+  onOpenDetail: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const [subInstallmentsByCharge, setSubInstallmentsByCharge] = useState<
+    Record<string, SubInstallment[]>
+  >({});
+  const [loadingSubs, setLoadingSubs] = useState(false);
+
+  // Charges DESTA proposta (filtra via description: 'plan:{planId}').
+  // Como `acceptedQuotes` não retorna treatment_plan direto, uso heurística:
+  // 1. Tenta match exato pelo título do quote
+  // 2. Fallback: charges sem dono claro
+  // Esse filtro real será feito quando expandir (busca quote completo + plan_id).
+  const initialRelatedCharges = useMemo(() => {
+    // Mostra apenas charges que mencionem o titulo OU sem associação clara
+    if (!quote.title) return allCharges;
+    return allCharges.filter((c) =>
+      c.description?.toLowerCase().includes(quote.title?.toLowerCase() || ''),
+    );
+  }, [allCharges, quote.title]);
+
+  // Quando expande, carrega quote completo (pra ter plan_id) e sub_installments
+  const [planId, setPlanId] = useState<string | null>(null);
+  const [loadingQuoteDetail, setLoadingQuoteDetail] = useState(false);
+
+  useEffect(() => {
+    if (!expanded || planId) return;
+    setLoadingQuoteDetail(true);
+    api.get<{ treatment_plan?: { id: string } | null }>(`/quotes/${quote.id}`)
+      .then(({ data }) => {
+        setPlanId(data.treatment_plan?.id || null);
+      })
+      .catch(() => { /* silencia */ })
+      .finally(() => setLoadingQuoteDetail(false));
+  }, [expanded, planId, quote.id]);
+
+  // Charges filtradas pelo planId real (depois de carregado)
+  const relatedCharges = useMemo(() => {
+    if (!planId) return initialRelatedCharges;
+    return allCharges.filter((c) =>
+      c.description?.includes(`plan:${planId}`),
+    );
+  }, [allCharges, planId, initialRelatedCharges]);
+
+  // Carrega sub_installments de charges parceladas quando expande
+  useEffect(() => {
+    if (!expanded || relatedCharges.length === 0) return;
+    setLoadingSubs(true);
+    const fetchAll = async () => {
+      const results: Record<string, SubInstallment[]> = {};
+      for (const c of relatedCharges) {
+        if (subInstallmentsByCharge[c.id] !== undefined) {
+          results[c.id] = subInstallmentsByCharge[c.id];
+          continue;
+        }
+        try {
+          const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
+            `/payment-gateway/charges/${c.id}/sub-installments`,
+          );
+          results[c.id] = data.sub_installments || [];
+        } catch {
+          results[c.id] = [];
+        }
+      }
+      setSubInstallmentsByCharge((prev) => ({ ...prev, ...results }));
+      setLoadingSubs(false);
+    };
+    fetchAll();
+  }, [expanded, relatedCharges, subInstallmentsByCharge]);
+
+  // Constrói lista de parcelas (combinando charges 1x + sub_installments de parcelas)
+  const parcelas: ParcelaItem[] = useMemo(() => {
+    const list: ParcelaItem[] = [];
+    for (const c of relatedCharges) {
+      const subs = subInstallmentsByCharge[c.id];
+      if (subs && subs.length > 0) {
+        // Parcelada: usa as filhas
+        for (const s of subs) {
+          list.push({
+            number: s.installment_number,
+            totalCount: subs.length,
+            method: c.billing_type,
+            status: s.status,
+            value: s.value,
+            dueDate: s.due_date,
+            paymentDate: s.payment_date,
+            boletoUrl: s.boleto_url,
+            invoiceUrl: s.invoice_url,
+            isNext: false,
+          });
+        }
+      } else {
+        // 1x (cobrança única)
+        list.push({
+          number: 1,
+          totalCount: 1,
+          method: c.billing_type,
+          status: c.status,
+          value: Number(c.amount),
+          dueDate: c.due_date,
+          paymentDate: c.paid_at || null,
+          boletoUrl: c.boleto_url || null,
+          invoiceUrl: c.invoice_url || null,
+          isNext: false,
+        });
+      }
+    }
+    // Marca a primeira não-paga como "próxima"
+    const firstUnpaidIdx = list.findIndex(
+      (p) => p.status !== 'RECEIVED' && p.status !== 'CONFIRMED'
+        && p.status !== 'DELETED' && p.status !== 'REFUNDED',
+    );
+    if (firstUnpaidIdx >= 0) list[firstUnpaidIdx].isNext = true;
+    return list;
+  }, [relatedCharges, subInstallmentsByCharge]);
+
+  // Agrega valores
+  const agg = useMemo(() => {
+    const contratado = Number(quote.total_value);
+    let recebido = 0;
+    let emAberto = 0;
+    let aVencer = 0;
+    const now = Date.now();
+    for (const p of parcelas) {
+      const paid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
+      const cancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
+      if (cancelled) continue;
+      if (paid) {
+        recebido += p.value;
+      } else {
+        const dueMs = p.dueDate ? new Date(p.dueDate).getTime() : 0;
+        if (dueMs && dueMs <= now + 7 * 86400000) {
+          emAberto += p.value; // vencendo nos próximos 7 dias ou vencida
+        } else {
+          aVencer += p.value;
+        }
+      }
+    }
+    const pagasCount = parcelas.filter(
+      (p) => p.status === 'RECEIVED' || p.status === 'CONFIRMED',
+    ).length;
+    const pct = contratado > 0 ? Math.round((recebido / contratado) * 100) : 0;
+    return { contratado, recebido, emAberto, aVencer, pagasCount, totalCount: parcelas.length, pct };
+  }, [parcelas, quote.total_value]);
+
+  // Status badge no header
+  let statusBadge = { label: 'Aguardando pagamento', cls: 'bg-blue-500/15 text-blue-700' };
+  if (agg.totalCount === 0) {
+    statusBadge = { label: 'Sem cobrança gerada', cls: 'bg-amber-500/15 text-amber-700' };
+  } else if (agg.recebido >= agg.contratado && agg.contratado > 0) {
+    statusBadge = { label: 'Pago integral', cls: 'bg-emerald-500/15 text-emerald-700' };
+  } else if (agg.recebido > 0) {
+    statusBadge = { label: 'Em pagamento', cls: 'bg-amber-500/15 text-amber-700' };
+  }
+
+  const subtitle = (() => {
+    if (agg.totalCount === 0) return 'sem cobrança gerada ainda';
+    if (agg.totalCount === 1) return `pagamento à vista (${agg.pagasCount === 1 ? 'pago' : 'pendente'})`;
+    return `parcelado em ${agg.totalCount}× · ${agg.pagasCount} de ${agg.totalCount} pagas`;
+  })();
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* Header — sempre visível */}
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full px-4 py-3 hover:bg-accent/30 transition-colors text-left"
+      >
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
+            <span className="text-xs text-muted-foreground mt-0.5">#{index}</span>
+            <div className="min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-sm font-bold text-foreground">
+                  {quote.title || 'Plano de tratamento'}
+                </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusBadge.cls}`}>
+                  {statusBadge.label}
+                </span>
+              </div>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Aceito em {fmtDate(quote.accepted_at || quote.created_at)} · {subtitle}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <p className="text-sm font-bold tabular-nums">
+              {fmtBRL(agg.contratado)}
+            </p>
+            {agg.pct > 0 && (
+              <p className="text-[10px] text-emerald-700 font-semibold">
+                {agg.pct}% pago
+              </p>
+            )}
+          </div>
+          <span className="text-muted-foreground self-center">
+            {expanded ? '▴' : '▾'}
+          </span>
+        </div>
+      </button>
+
+      {/* Body expansível */}
+      {expanded && (
+        <div className="border-t border-border p-4 space-y-4 bg-muted/10">
+          {/* Mini-cards de resumo */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+            <MiniSummary label="Contratado" value={fmtBRL(agg.contratado)} />
+            <MiniSummary label="Recebido" value={fmtBRL(agg.recebido)} tone="emerald" />
+            <MiniSummary label="Em aberto" value={fmtBRL(agg.emAberto)} tone="blue" />
+            <MiniSummary label="A vencer" value={fmtBRL(agg.aVencer)} />
+          </div>
+
+          {/* Barra de progresso */}
+          {agg.contratado > 0 && (
+            <div>
+              <div className="flex items-center justify-between text-[11px] mb-1">
+                <span className="text-muted-foreground">Recebimento</span>
+                <span className="text-foreground font-semibold tabular-nums">
+                  {fmtBRL(agg.recebido)} / {fmtBRL(agg.contratado)}
+                </span>
+              </div>
+              <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
+                  style={{ width: `${Math.min(agg.pct, 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Lista de parcelas */}
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <p className="text-[11px] font-semibold text-foreground">
+                Parcelas ({agg.totalCount})
+              </p>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenDetail();
+                }}
+                className="text-[10px] text-primary hover:underline"
+              >
+                Ver detalhe completo →
+              </button>
+            </div>
+
+            {loadingSubs || loadingQuoteDetail ? (
+              <div className="py-4 flex items-center justify-center text-[11px] text-muted-foreground">
+                <Loader2 size={12} className="animate-spin mr-1.5" />
+                Carregando parcelas...
+              </div>
+            ) : parcelas.length === 0 ? (
+              <div className="bg-amber-500/5 border border-amber-500/30 rounded-md px-3 py-2 text-[11px] text-amber-800">
+                ⚠ Sem cobrança gerada ainda — aprove a proposta na aba Propostas pra gerar.
+              </div>
+            ) : (
+              <ul className="border border-border rounded-md overflow-hidden divide-y divide-border/40">
+                {parcelas.map((p, idx) => (
+                  <ParcelaRow key={idx} parcela={p} />
+                ))}
+              </ul>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+
+  // Helper interno
+  function MiniSummary({
+    label,
+    value,
+    tone,
+  }: {
+    label: string;
+    value: string;
+    tone?: 'emerald' | 'blue';
+  }) {
+    const cls =
+      tone === 'emerald' ? 'text-emerald-700' :
+      tone === 'blue' ? 'text-blue-700' :
+      'text-foreground';
+    return (
+      <div className="bg-card border border-border rounded-md p-2.5">
+        <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">{label}</p>
+        <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
+      </div>
+    );
+  }
+}
+
+function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
+  const paid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
+  const overdue = p.status === 'OVERDUE';
+  const cancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
+  const statusLabel =
+    paid ? 'Pago' :
+    overdue ? 'Vencido' :
+    cancelled ? 'Cancelado' :
+    'Pendente';
+  const statusCls =
+    paid ? 'bg-emerald-500/15 text-emerald-700' :
+    overdue ? 'bg-red-500/15 text-red-700' :
+    cancelled ? 'bg-muted text-muted-foreground' :
+    'bg-blue-500/15 text-blue-700';
+
+  const methodLabel = p.method === 'PIX' ? '⇗ PIX' :
+    p.method === 'BOLETO' ? '🏛 Boleto' :
+    p.method === 'CREDIT_CARD' ? '💳 Cartão' :
+    p.method;
+
+  const dueText = paid
+    ? `Pago em ${fmtDate(p.paymentDate)}`
+    : `Vence ${fmtDate(p.dueDate)}${p.isNext ? ' · próxima' : ''}`;
+
+  return (
+    <li className={`px-3 py-2 flex items-center gap-2 flex-wrap text-xs ${
+      p.isNext ? 'bg-blue-500/5 border-l-2 border-blue-500' : ''
+    } ${cancelled ? 'opacity-60' : ''}`}>
+      <span className="font-mono font-bold text-foreground text-[11px] min-w-[44px]">
+        {p.number}/{p.totalCount}
+      </span>
+      <span className="text-foreground">{methodLabel}</span>
+      <span className="text-muted-foreground text-[11px]">{dueText}</span>
+      <span className="ml-auto flex items-center gap-2">
+        <span className="font-bold tabular-nums">{fmtBRL(p.value)}</span>
+        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${statusCls}`}>
+          {statusLabel}
+        </span>
+        {(p.boletoUrl || p.invoiceUrl) && (
+          <a
+            href={p.boletoUrl || p.invoiceUrl!}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] text-amber-700 hover:underline"
+          >
+            ↗
+          </a>
+        )}
+      </span>
+    </li>
+  );
+}
+
 function ChargesSection({ charges }: { charges: Charge[] }) {
   const summary = useMemo(() => {
     let paid = 0;
