@@ -836,6 +836,17 @@ export class CommercialController {
     return this.contractsService.markSent(id, user.tenant_id, user.id);
   }
 
+  /**
+   * Onda 14.24 Fase 2 — Envia contrato via ClickSign:
+   *   - Gera PDF + sobe no ClickSign + envia WhatsApp
+   *   - Persiste clicksign_document_id + signing_url
+   *   - Webhook auto_close vai marcar como SIGNED quando paciente + clinica assinarem
+   */
+  @Post('contracts/:id/send-clicksign')
+  sendContractViaClickSign(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.contractsService.sendToClickSign(id, user.tenant_id, user.id);
+  }
+
   /** Marca que o paciente abriu o documento (Fase 1: manual). */
   @Post('contracts/:id/mark-opened')
   markContractOpened(@Param('id') id: string, @Authenticated() user: AuthUser) {

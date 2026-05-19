@@ -286,6 +286,73 @@ export class ClicksignService {
     return requestKey;
   }
 
+  /**
+   * Onda 14.24 Fase 2 — Sobe documento + cria signer + envia (WhatsApp/email)
+   * SEM criar ContractSignature legado. Usado pelo Contract novo (Quote)
+   * — o caller eh responsavel por persistir os keys retornados.
+   *
+   * Diferente de createGenericSignature: nao toca em Lead/Conversation/
+   * ContractSignature. Retorna so os IDs do ClickSign + signing URL pra
+   * o caller decidir o que salvar.
+   */
+  async sendDocumentForSignature(params: {
+    buffer: Buffer;
+    filename: string;
+    signerName: string;
+    signerEmail: string;
+    signerPhone: string;
+    /** Mensagem na pagina de assinatura ClickSign. */
+    signerMessage?: string;
+    /** Texto do WhatsApp com o link. Se omitido, nao envia WhatsApp (caller
+     *  pode mandar via seu proprio canal). */
+    whatsappMessage?: string;
+    whatsappInstance?: string;
+  }): Promise<{ documentKey: string; signerKey: string; requestSignatureKey: string; signingUrl: string }> {
+    const { baseUrl, token } = await this.getCfg();
+    if (!token) {
+      throw new BadRequestException(
+        'ClickSign nao configurado — acesse Configuracoes › Contratos & Assinatura',
+      );
+    }
+
+    const documentKey = await this.uploadDocument(params.buffer, params.filename);
+    const signerKey = await this.createSigner(
+      params.signerName,
+      params.signerEmail,
+      params.signerPhone,
+    );
+    const requestSignatureKey = params.signerMessage
+      ? await this.addSignerToDocumentCustom(documentKey, signerKey, params.signerMessage)
+      : await this.addSignerToDocument(documentKey, signerKey);
+
+    const signingUrl = `${baseUrl}/sign/${requestSignatureKey}`;
+
+    // WhatsApp opcional (caller pode preferir mandar pela sua via)
+    if (params.whatsappMessage && params.signerPhone) {
+      try {
+        await this.whatsapp.sendText(
+          params.signerPhone,
+          params.whatsappMessage,
+          params.whatsappInstance,
+        );
+        this.logger.log(`[Clicksign] Link enviado via WhatsApp pra ${params.signerPhone}`);
+      } catch (e: any) {
+        this.logger.warn(`[Clicksign] Falha ao enviar WhatsApp: ${e.message}`);
+      }
+    }
+
+    return { documentKey, signerKey, requestSignatureKey, signingUrl };
+  }
+
+  /**
+   * Onda 14.24 Fase 2 — Baixa PDF assinado de um documento ClickSign.
+   * Wrapper publico pra reuso pelo ContractsService quando processa webhook
+   * `auto_close` do Contract novo (Quote).
+   */
+  async downloadSignedPdfPublic(documentKey: string): Promise<Buffer> {
+    return this.downloadSignedPdfFromClicksign(documentKey);
+  }
+
   // ── Método principal: solicitar assinatura ─────────────────────────────────
 
   async requestSignature(params: {
@@ -513,6 +580,72 @@ export class ClicksignService {
     return buf;
   }
 
+  // ── Onda 14.24 Fase 2 — Webhook handler para Contract novo (Quote) ──────
+  // Quando o documento e do Contract novo (vinculado a Quote, NAO ao
+  // ContractSignature legado), atualiza Contract direto: marca SIGNED,
+  // baixa PDF assinado, cria ContractEvent CLINIC_SIGNED. Caller chama
+  // este metodo apenas quando ja confirmou que clicksign_document_id bate
+  // com algum Contract no banco.
+
+  private async handleNewContractWebhook(contractId: string, documentKey: string): Promise<void> {
+    this.logger.log(`[Clicksign] [Contract:${contractId}] Processando webhook auto_close`);
+
+    const contract = await this.prisma.contract.findUnique({
+      where: { id: contractId },
+      include: { quote: { include: { patient: { select: { tenant_id: true } } } } },
+    });
+    if (!contract) {
+      this.logger.warn(`[Clicksign] Contract ${contractId} sumiu antes do webhook`);
+      return;
+    }
+    if (contract.status === 'SIGNED') {
+      this.logger.debug(`[Clicksign] Contract ${contractId} ja esta SIGNED, ignorando webhook duplicado`);
+      return;
+    }
+
+    // Baixa o PDF assinado e sobe pro S3
+    let pdfS3Key: string | undefined;
+    try {
+      const pdfBuf = await this.downloadSignedPdfFromClicksign(documentKey);
+      pdfS3Key = `contracts-signed/quote-${contractId}.pdf`;
+      await this.s3.uploadBuffer(pdfS3Key, pdfBuf, 'application/pdf');
+      this.logger.log(`[Clicksign] PDF assinado salvo no S3: ${pdfS3Key}`);
+    } catch (e: any) {
+      this.logger.warn(`[Clicksign] Falha ao baixar PDF assinado: ${e.message}`);
+    }
+
+    const now = new Date();
+    await this.prisma.contract.update({
+      where: { id: contractId },
+      data: {
+        status: 'SIGNED',
+        clinic_signed_at: now,
+        signed_at: now,
+        // Onda 14.24 — pdf_url aqui guarda a chave S3; URL publica e gerada
+        // sob demanda no preview. Pode evoluir pra signed url + expiry.
+        ...(pdfS3Key ? { pdf_url: pdfS3Key } : {}),
+        events: {
+          create: [
+            // Se o paciente ainda nao tinha sido marcado, infere assinatura
+            // dele tambem (ClickSign so dispara auto_close quando ambos assinaram)
+            ...(!contract.patient_signed_at ? [{
+              event_type: 'PATIENT_SIGNED',
+              description: 'Paciente assinou via ClickSign (inferido pelo auto_close)',
+              occurred_at: now,
+            }] : []),
+            {
+              event_type: 'CLINIC_SIGNED',
+              description: 'Contrato finalizado via ClickSign (auto_close)',
+              occurred_at: now,
+            },
+          ],
+        },
+      },
+    });
+
+    this.logger.log(`[Clicksign] [Contract:${contractId}] Marcado como SIGNED`);
+  }
+
   // ── Processar evento do webhook ───────────────────────────────────────────
 
   async handleWebhookEvent(payload: any): Promise<void> {
@@ -538,6 +671,17 @@ export class ClicksignService {
     // Só processar quando o documento foi totalmente assinado (status "closed")
     if (documentStatus !== 'closed') {
       this.logger.debug(`[Clicksign] Status ${documentStatus} ignorado`);
+      return;
+    }
+
+    // Onda 14.24 Fase 2 — Dispatch: checa primeiro se eh Contract novo
+    // (vinculado a Quote). Se nao for, cai no fluxo legado (ContractSignature
+    // do sistema antigo de advocacia / TCLE de TreatmentPlan).
+    const newContract = await this.prisma.contract.findFirst({
+      where: { clicksign_document_id: documentKey },
+    });
+    if (newContract) {
+      await this.handleNewContractWebhook(newContract.id, documentKey);
       return;
     }
 

@@ -147,7 +147,7 @@ export default function ProximosPassosTimeline({
   }, [quoteId, onChange]);
 
   const transitionContract = useCallback(async (
-    action: 'send' | 'mark-opened' | 'sign-patient' | 'sign-clinic' | 'cancel' | 'skip',
+    action: 'send' | 'send-clicksign' | 'mark-opened' | 'sign-patient' | 'sign-clinic' | 'cancel' | 'skip',
     body?: Record<string, unknown>,
   ) => {
     if (!contract) return;
@@ -157,6 +157,8 @@ export default function ProximosPassosTimeline({
       setContract(data);
       const labels: Record<string, string> = {
         'send': 'Marcado como enviado',
+        // Onda 14.24 Fase 2 — envio via ClickSign
+        'send-clicksign': 'Contrato enviado via ClickSign — link de assinatura mandado pro paciente',
         'mark-opened': 'Marcado como aberto',
         'sign-patient': 'Paciente marcado como assinado',
         'sign-clinic': 'Clínica marcada como assinada — contrato finalizado',
@@ -489,7 +491,7 @@ function ContractSubTimeline({
 }: {
   contract: Contract;
   busy: boolean;
-  onAction: (action: 'send' | 'mark-opened' | 'sign-patient' | 'sign-clinic' | 'cancel' | 'skip') => void;
+  onAction: (action: 'send' | 'send-clicksign' | 'mark-opened' | 'sign-patient' | 'sign-clinic' | 'cancel' | 'skip') => void;
   onCancel: () => void;
   onSkip: () => void;
   quoteTotal: number;
@@ -517,16 +519,30 @@ function ContractSubTimeline({
     {
       label: 'Enviado ao paciente',
       state: contract.sent_at ? 'done' : (contract.status === 'DRAFT' ? 'active' : 'pending'),
+      // Onda 14.24 Fase 2 — quando enviado via ClickSign, mostra label "via ClickSign"
       when: contract.sent_at,
       action: !contract.sent_at && contract.status === 'DRAFT' ? (
-        <button
-          type="button"
-          onClick={() => onAction('send')}
-          disabled={busy}
-          className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
-        >
-          <Send size={10} /> Marcar enviado
-        </button>
+        // Onda 14.24 Fase 2 — dois botoes: ClickSign primario, manual fallback
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => onAction('send-clicksign')}
+            disabled={busy}
+            className="text-[11px] px-2 py-1 rounded bg-sky-600 text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1 font-medium"
+            title="Sobe o PDF pro ClickSign e manda link via WhatsApp pro paciente assinar digital"
+          >
+            <Send size={10} /> ClickSign
+          </button>
+          <button
+            type="button"
+            onClick={() => onAction('send')}
+            disabled={busy}
+            className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
+            title="Marcar como enviado manualmente (sem usar ClickSign — operador enviou por outro canal)"
+          >
+            Manual
+          </button>
+        </div>
       ) : undefined,
     },
     {
@@ -582,6 +598,36 @@ function ContractSubTimeline({
 
   return (
     <div className="mt-3 p-3 bg-card border border-border rounded-md">
+      {/* Onda 14.24 Fase 2 — Quando ha integracao ClickSign (clicksign_document_id
+          presente), mostra o link de assinatura pra operador copiar/reenviar
+          pro paciente manualmente. Em DRAFT (ainda nao enviado) este bloco
+          nao aparece. */}
+      {contract.clicksign_document_id && contract.signing_url && (
+        <div className="mb-3 p-2 bg-sky-50 dark:bg-sky-950/20 border border-sky-200 dark:border-sky-900 rounded text-[11px] flex items-center gap-2">
+          <Send size={11} className="text-sky-700 shrink-0" />
+          <span className="text-sky-900 dark:text-sky-200 font-medium shrink-0">ClickSign:</span>
+          <a
+            href={contract.signing_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sky-700 hover:underline truncate flex-1"
+            title={contract.signing_url}
+          >
+            {contract.signing_url}
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(contract.signing_url || '');
+              showSuccess('Link copiado');
+            }}
+            className="text-[10px] px-1.5 py-0.5 rounded border border-sky-300 dark:border-sky-700 hover:bg-sky-100 dark:hover:bg-sky-900 shrink-0"
+          >
+            copiar
+          </button>
+        </div>
+      )}
+
       <div className="text-[11px] text-muted-foreground mb-2 font-medium">
         Etapas da assinatura
       </div>

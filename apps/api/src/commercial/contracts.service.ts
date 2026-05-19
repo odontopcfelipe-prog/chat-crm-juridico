@@ -4,8 +4,11 @@ import {
   NotFoundException,
   BadRequestException,
   ForbiddenException,
+  Optional,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { ContractPdfService } from './contract-pdf.service';
+import { ClicksignService } from '../clicksign/clicksign.service';
 
 /**
  * Onda 14.24 — Servico de gestao de contratos vinculados a Quote.
@@ -34,7 +37,14 @@ import { PrismaService } from '../prisma/prisma.service';
 export class ContractsService {
   private readonly logger = new Logger(ContractsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private pdfService: ContractPdfService,
+    // Onda 14.24 Fase 2 — ClickSign opcional. Quando configurado, permite
+    // sendToClickSign() subir doc + enviar via WhatsApp. Sem ClickSign,
+    // contratos sao gerenciados manualmente (Fase 1).
+    @Optional() private clicksign?: ClicksignService,
+  ) {}
 
   /**
    * Onda 14.24 — Limiar (em centavos? nao — em reais) abaixo do qual o
@@ -188,7 +198,7 @@ export class ContractsService {
     return updated;
   }
 
-  /** Marca como enviado (operador clica "Enviar contrato"). Fase 2: chamada via ClickSign API. */
+  /** Marca como enviado (operador clica "Marcar enviado" manualmente). */
   async markSent(contractId: string, tenantId: string, userId: string) {
     return this.transitionStatus(
       contractId,
@@ -199,6 +209,98 @@ export class ContractsService {
       'Enviado ao paciente (manual)',
       { sent_at: new Date() },
     );
+  }
+
+  /**
+   * Onda 14.24 Fase 2 — Envia contrato via ClickSign:
+   *   1. Gera PDF via ContractPdfService (template por especialidade)
+   *   2. Sobe pro ClickSign + cria signer (paciente) com phone + selfie
+   *   3. Persiste clicksign_document_id, signing_url, sent_at, status=SENT
+   *   4. Cria ContractEvent SENT
+   *   5. Tenta enviar link via WhatsApp pro paciente
+   *
+   * Quando paciente assina, webhook ClickSign chega em
+   * ClicksignService.handleNewContractWebhook → marca SIGNED automaticamente.
+   *
+   * Pre-condicoes:
+   *   - Contract status DRAFT (nao reenviar SENT/OPENED/etc — usar cancel + criar novo)
+   *   - Paciente com phone valido (ClickSign exige whatsapp auth)
+   *   - ClickSign configurado no tenant (apiToken setado)
+   */
+  async sendToClickSign(contractId: string, tenantId: string, userId: string) {
+    if (!this.clicksign) {
+      throw new BadRequestException('ClickSign nao esta disponivel neste ambiente');
+    }
+    const contract = await this.assertContractAndGet(contractId, tenantId);
+    if (contract.status !== 'DRAFT') {
+      throw new BadRequestException(
+        `Contrato ja foi enviado (status: ${contract.status}). Cancele e crie um novo se precisar reenviar.`,
+      );
+    }
+    if (contract.skipped) {
+      throw new BadRequestException('Contrato foi pulado — nao precisa enviar');
+    }
+
+    // Le paciente pra obter dados do signer
+    const quote = await this.prisma.quote.findUnique({
+      where: { id: contract.quote_id },
+      include: {
+        patient: { select: { id: true, name: true, email: true, phone: true } },
+      },
+    });
+    if (!quote) throw new NotFoundException('Orcamento do contrato sumiu');
+    if (!quote.patient.phone) {
+      throw new BadRequestException(
+        'Paciente sem telefone cadastrado — ClickSign exige WhatsApp pra assinatura',
+      );
+    }
+    const signerEmail = quote.patient.email || `paciente-${quote.patient.id}@noemail.local`;
+
+    // Gera o PDF do contrato
+    const pdfBuffer = await this.pdfService.generatePdf(contractId, tenantId);
+    const filename = `contrato-${contractId.substring(0, 8)}.pdf`;
+
+    // Sobe no ClickSign + cria signer + envia WhatsApp
+    const csResult = await this.clicksign.sendDocumentForSignature({
+      buffer: pdfBuffer,
+      filename,
+      signerName: quote.patient.name || 'Paciente',
+      signerEmail,
+      signerPhone: quote.patient.phone,
+      signerMessage:
+        'Por favor, leia e assine o contrato de prestacao de servicos odontologicos.',
+      whatsappMessage:
+        `📝 *Contrato de tratamento*\n\nOlá ${(quote.patient.name || 'paciente').split(' ')[0]}!\n\n` +
+        `Seu contrato está pronto para assinatura digital.\n\n` +
+        `🔒 Assinatura segura e válida juridicamente (Lei 14.063/2020).\n\n` +
+        `✍️ *Clique aqui para assinar:*\n{{signingUrl}}`.replace('{{signingUrl}}', ''), // signingUrl preenchido pelo metodo abaixo
+    });
+
+    // Persiste os keys ClickSign + marca como SENT (atomico)
+    const now = new Date();
+    const updated = await this.prisma.contract.update({
+      where: { id: contractId },
+      data: {
+        status: 'SENT',
+        sent_at: now,
+        clicksign_document_id: csResult.documentKey,
+        signing_url: csResult.signingUrl,
+        events: {
+          create: {
+            event_type: 'SENT',
+            description: `Enviado via ClickSign (doc: ${csResult.documentKey.substring(0, 8)})`,
+            triggered_by_user_id: userId,
+            occurred_at: now,
+          },
+        },
+      },
+      include: { events: { orderBy: { occurred_at: 'asc' } } },
+    });
+
+    this.logger.log(
+      `[Contract] ${contractId} enviado via ClickSign (doc=${csResult.documentKey})`,
+    );
+    return updated;
   }
 
   /** Marca que o paciente abriu o documento. Fase 2: webhook ClickSign. */
