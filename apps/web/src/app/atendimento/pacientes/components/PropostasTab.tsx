@@ -589,7 +589,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         await api.patch(`/quotes/${data.id}`, { priority });
       }
       const label = priority ? PRIORITY_CONFIG[priority].label : 'Livre';
-      showSuccess(`Nova versão ${label} criada — preencha os itens`);
+      showSuccess(`Nova proposta ${label} criada — preencha os itens`);
       setNewVersionOpen(false);
       onOpenQuoteDetail?.(data.id);
     } catch (err: unknown) {
@@ -843,7 +843,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
         </p>
         <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
           Crie variações de orçamento (Urgente, Essencial, Completo ou
-          Livre) clicando em <strong>“+ nova versão”</strong> aqui em cima,
+          Livre) clicando em <strong>“+ Nova proposta”</strong> aqui em cima,
           ou marque prioridade nos cards da aba <strong>Avaliação</strong>.
         </p>
         <button
@@ -852,7 +852,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
         >
           <Plus size={14} />
-          nova versão
+          Nova proposta
         </button>
       </div>
     );
@@ -878,7 +878,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail }: Props) {
           className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
         >
           <Plus size={14} />
-          nova versão
+          Nova proposta
         </button>
       </div>
 
@@ -2491,7 +2491,7 @@ function NewVersionDialog({
       >
         <div className="flex items-start justify-between p-4 border-b border-border">
           <div>
-            <h3 className="text-sm font-bold">Nova versão do plano</h3>
+            <h3 className="text-sm font-bold">Nova proposta</h3>
             <p className="text-[11px] text-muted-foreground mt-0.5">
               escolha a prioridade — você será levado pro detalhe pra
               preencher os procedimentos
@@ -2534,7 +2534,7 @@ function NewVersionDialog({
                   {exists && (
                     <span
                       className="text-[10px] font-semibold text-amber-700 bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0"
-                      title="Vai criar uma nova versão desta priority (aparece como card extra no scroll)"
+                      title="Vai criar uma nova proposta desta priority (aparece como card extra no scroll)"
                     >
                       já existe
                     </span>
