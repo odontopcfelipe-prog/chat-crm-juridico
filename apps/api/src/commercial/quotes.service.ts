@@ -8,6 +8,7 @@ import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { ContractsService } from './contracts.service';
+import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma } from '@crm/shared';
@@ -51,6 +52,9 @@ export class QuotesService {
     // Onda 14.24: gate de contrato antes de gerar cobranca. Bloqueia
     // approveAndBill se o quote tem contrato pendente nao assinado.
     @Optional() private contractsService?: ContractsService,
+    // Onda 14.38: gera PDF do orcamento pra anexar no WhatsApp ao enviar
+    // pro paciente (com secao "Proposta de pagamento" se chosen).
+    @Optional() private pdfService?: QuotePdfService,
   ) {}
 
   async create(
@@ -391,12 +395,31 @@ export class QuotesService {
    * vira false antes desta virar true. Faz tudo numa transacao pra evitar
    * race condition (2 cliques rapidos do operador).
    *
+   * Onda 14.38 — agora aceita opcionalmente a forma de pagamento + entrada
+   * configuradas pelo operador no painel. Persiste pra que o PDF do
+   * orcamento mostre a oferta exata apresentada ao paciente.
+   *
    * Nao muda o status do Quote — e so um marcador visual de "aguardando
    * decisao do paciente sobre esta variacao". Na UI, esmaece as outras
    * propostas do paciente pra reduzir confusao visual.
    */
-  async markAsChosenProposal(quoteId: string, tenantId: string) {
+  async markAsChosenProposal(
+    quoteId: string,
+    tenantId: string,
+    opts?: { payment_key?: string | null; down_payment?: number | null },
+  ) {
     const quote = await this.findOne(quoteId, tenantId);
+
+    // Onda 14.38 — sanitiza inputs. payment_key vazio/invalido vira null
+    // (operador ainda nao escolheu forma de pagamento). down_payment >= 0
+    // limitado pelo total do quote pra evitar negativo / overflow.
+    const totalNum = Number(quote.total_value) || 0;
+    const cleanPaymentKey = (typeof opts?.payment_key === 'string' && opts.payment_key.trim())
+      ? opts.payment_key.trim().slice(0, 50)
+      : null;
+    const cleanDownPayment = typeof opts?.down_payment === 'number' && opts.down_payment > 0
+      ? Math.min(opts.down_payment, totalNum)
+      : 0;
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Desmarca quaisquer outras chosen do mesmo paciente (so 1 por vez)
@@ -408,14 +431,21 @@ export class QuotesService {
         },
         data: { is_chosen_proposal: false },
       });
-      // 2. Marca esta como chosen
+      // 2. Marca esta como chosen + salva forma de pagamento congelada
       await tx.quote.update({
         where: { id: quoteId },
-        data: { is_chosen_proposal: true },
+        data: {
+          is_chosen_proposal: true,
+          chosen_payment_key: cleanPaymentKey,
+          chosen_down_payment: cleanDownPayment,
+        },
       });
     });
 
-    this.logger.log(`[Quote ${quoteId}] marcada como CHOSEN proposal pra paciente ${quote.patient_id}`);
+    this.logger.log(
+      `[Quote ${quoteId}] marcada como CHOSEN proposal pra paciente ${quote.patient_id}` +
+      (cleanPaymentKey ? ` (payment=${cleanPaymentKey}, down=${cleanDownPayment})` : ''),
+    );
     return this.findOne(quoteId, tenantId);
   }
 
@@ -1974,8 +2004,35 @@ export class QuotesService {
     let dispatchOk = false;
     let dispatchReason = '';
     let whatsappMessageId: string | null = null;
+
+    // Onda 14.38 — Gera PDF do orcamento pra anexar. Inclui seçao "Proposta
+    // de pagamento" quando is_chosen_proposal=true. Se geracao do PDF falhar,
+    // cai no fluxo legado (so texto + link).
+    let pdfBase64: string | null = null;
     try {
-      const result: any = await this.whatsapp.sendText(quote.patient.phone, msg);
+      if (this.pdfService) {
+        const pdfBuffer = await this.pdfService.generatePdf(quoteId, tenantId);
+        pdfBase64 = pdfBuffer.toString('base64');
+        this.logger.log(`[QUOTES] PDF gerado pra anexar (${pdfBuffer.length} bytes)`);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[QUOTES] Falha ao gerar PDF, segue sem anexo: ${e?.message}`);
+    }
+
+    try {
+      // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
+      // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
+      // Se nao tem PDF, fallback no sendText legado.
+      const result: any = pdfBase64
+        ? await this.whatsapp.sendMedia(
+            quote.patient.phone,
+            'document',
+            `data:application/pdf;base64,${pdfBase64}`,
+            msg,
+            undefined,
+            `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
+          )
+        : await this.whatsapp.sendText(quote.patient.phone, msg);
       dispatchOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
       if (!dispatchOk) {
         dispatchReason = result?.error || `HTTP ${result?.statusCode || '?'}`;

@@ -683,7 +683,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // Onda 14.33 — Marca proposta como "escolhida" (aguardando decisao do
   // paciente). Card destacado + demais esmaecidos. So uma por paciente.
   // Optimistic update local + refetch em background.
-  const chooseAsProposal = useCallback(async (quoteId: string) => {
+  //
+  // Onda 14.38 — agora aceita payment_key + down_payment pra persistir a
+  // forma de pagamento + entrada apresentada pelo operador. PDF do
+  // orcamento usa esses dados pra mostrar "Proposta de pagamento".
+  const chooseAsProposal = useCallback(async (
+    quoteId: string,
+    opts?: { payment_key?: string | null; down_payment?: number | null },
+  ) => {
     // Optimistic — atualiza estado local antes do PATCH
     setQuotes((prev) =>
       prev.map((q) => ({
@@ -695,7 +702,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       prev && prev.id === quoteId ? { ...prev, is_chosen_proposal: true } : prev,
     );
     try {
-      await api.post(`/quotes/${quoteId}/choose-as-proposal`, {});
+      await api.post(`/quotes/${quoteId}/choose-as-proposal`, {
+        payment_key: opts?.payment_key || null,
+        down_payment: opts?.down_payment || 0,
+      });
       showSuccess('Proposta salva — aguardando decisão do paciente');
       load(); // refetch em background pra garantir consistencia
     } catch (err: unknown) {
@@ -1218,8 +1228,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           onApproveAndBill={approveAndBill}
           // Onda 14.26 — toggle "exige consulta de credito" no card boleto
           onToggleRequiresCreditCheck={(value) => toggleRequiresCreditCheck(selectedId!, value)}
-          // Onda 14.33 — salvar proposta como "aguardando decisão do paciente"
-          onChooseAsProposal={() => selectedId && chooseAsProposal(selectedId)}
+          // Onda 14.33 / 14.38 — salvar proposta como "aguardando decisão do
+          // paciente" + persistir forma de pagamento e entrada que o operador
+          // configurou no painel (pra PDF/whatsapp mostrarem a oferta).
+          onChooseAsProposal={(opts) => selectedId && chooseAsProposal(selectedId, opts)}
           onUnchooseAsProposal={() => selectedId && unchooseAsProposal(selectedId)}
         />
       )}
@@ -2223,8 +2235,10 @@ function PropostaPainel({
    *  Quando false, parcelados aplicam direto sem credit-check. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
   /** Onda 14.33 — Marca esta proposta como "escolhida" pra aguardar
-   *  decisao do paciente. So uma por paciente. */
-  onChooseAsProposal?: () => void;
+   *  decisao do paciente. So uma por paciente.
+   *  Onda 14.38 — recebe payment_key + down_payment pra persistir a forma
+   *  de pagamento + entrada apresentada (vai pro PDF do orcamento). */
+  onChooseAsProposal?: (opts?: { payment_key?: string | null; down_payment?: number | null }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
   onUnchooseAsProposal?: () => void;
 }) {
@@ -2530,13 +2544,18 @@ function PropostaPainel({
         </button>
 
         {/* Onda 14.33 — Salvar proposta (aguardando decisão do paciente).
-            Destaca esta proposta + esmaece as outras na lista de cards. */}
+            Destaca esta proposta + esmaece as outras na lista de cards.
+            Onda 14.38 — Persiste forma de pagamento ativa + entrada pra
+            que o PDF mostre a oferta exata apresentada ao paciente. */}
         {!detail.is_chosen_proposal ? (
           <button
             type="button"
-            onClick={onChooseAsProposal}
+            onClick={() => onChooseAsProposal?.({
+              payment_key: activePaymentKey || null,
+              down_payment: customDownPayment > 0 ? customDownPayment : 0,
+            })}
             className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
-            title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Útil enquanto paciente decide."
+            title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Forma de pagamento e entrada atuais ficam salvos."
           >
             <Clock size={12} />
             Salvar proposta

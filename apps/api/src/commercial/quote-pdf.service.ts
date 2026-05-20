@@ -207,6 +207,50 @@ export class QuotePdfService {
         doc.moveDown(1);
       }
 
+      // ── Onda 14.38 — "Proposta de pagamento apresentada"
+      // Quando o operador salva uma proposta (is_chosen_proposal=true) e
+      // configura forma de pagamento (chosen_payment_key) + entrada opcional
+      // (chosen_down_payment), o PDF mostra essa oferta em destaque.
+      if (quote.chosen_payment_key) {
+        const offer = this.buildPaymentOfferText(
+          total,
+          quote.chosen_payment_key,
+          Number(quote.chosen_down_payment) || 0,
+        );
+        if (offer) {
+          // Caixa destacada amarela
+          const boxY = doc.y;
+          const boxH = 65 + (offer.lines.length * 14);
+          doc.save();
+          doc.rect(doc.page.margins.left, boxY, W, boxH)
+            .lineWidth(1.5)
+            .strokeColor('#D97706') // amber-600
+            .fillColor('#FFFBEB')   // amber-50
+            .fillAndStroke();
+          doc.restore();
+
+          // Conteudo dentro da caixa
+          doc.fillColor('#000');
+          doc.font('Helvetica-Bold').fontSize(10).fillColor('#92400E') // amber-800
+            .text(
+              'PROPOSTA DE PAGAMENTO APRESENTADA',
+              doc.page.margins.left + 12,
+              boxY + 10,
+              { width: W - 24 },
+            );
+          doc.font('Helvetica-Bold').fontSize(13).fillColor('#000')
+            .text(offer.headline, doc.page.margins.left + 12, doc.y + 4);
+          doc.moveDown(0.3);
+          doc.font('Helvetica').fontSize(10);
+          for (const line of offer.lines) {
+            doc.text(line, doc.page.margins.left + 12, doc.y, { width: W - 24 });
+          }
+          // Posiciona o cursor logo apos a caixa
+          doc.y = boxY + boxH + 12;
+          doc.fillColor('#000');
+        }
+      }
+
       // ── Notas
       if (quote.notes) {
         doc.font('Helvetica-Bold').fontSize(10).text('OBSERVAÇÕES');
@@ -260,5 +304,110 @@ export class QuotePdfService {
 
       doc.end();
     });
+  }
+
+  /**
+   * Onda 14.38 — Constroi headline + linhas descritivas pra secao "Proposta
+   * de pagamento" do PDF. Recebe payment_key (ex: "pix", "cartao-6x",
+   * "parcelado-12x", "boleto-avista") + down_payment opcional (R$).
+   *
+   * Replica a logica do front (applyPaymentOption + buildPaymentOptions)
+   * em versao simplificada — calcula desconto/juros/entrada e gera texto
+   * pronto pra renderizar.
+   */
+  private buildPaymentOfferText(
+    total: number,
+    paymentKey: string,
+    downPayment: number,
+  ): { headline: string; lines: string[] } | null {
+    const formatBRL = (n: number) =>
+      n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+
+    // ── PIX à vista (10% desconto) ──
+    if (paymentKey === 'pix') {
+      const discount = total * 0.10;
+      const finalValue = total - discount;
+      return {
+        headline: `PIX ou dinheiro à vista · ${formatBRL(finalValue)}`,
+        lines: [
+          `Desconto de 10% (${formatBRL(discount)}) aplicado pra pagamento imediato.`,
+          `Valor original: ${formatBRL(total)}.`,
+        ],
+      };
+    }
+
+    // ── Boleto à vista (10% desconto, sem juros, sem consulta) ──
+    if (paymentKey === 'boleto-avista') {
+      const discount = total * 0.10;
+      const finalValue = total - discount;
+      return {
+        headline: `Boleto à vista · ${formatBRL(finalValue)}`,
+        lines: [
+          `Desconto de 10% (${formatBRL(discount)}) pra pagamento imediato em boleto.`,
+          `Sem consulta de crédito · Valor original: ${formatBRL(total)}.`,
+        ],
+      };
+    }
+
+    // ── Cartão de crédito (1x..12x; 1-6x sem juros, 7-12x com PagBank 3.59%) ──
+    const cartaoMatch = paymentKey.match(/^cartao-(\d+)x$/);
+    if (cartaoMatch) {
+      const n = Number(cartaoMatch[1]);
+      const PAGBANK = 3.59 / 100;
+      const hasInterest = n > 6;
+      const downValue = Math.min(downPayment, total - 0.01);
+      const financed = total - downValue;
+      let installmentValue: number;
+      let extraInterest = 0;
+      if (hasInterest) {
+        installmentValue = financed * PAGBANK / (1 - Math.pow(1 + PAGBANK, -n));
+        extraInterest = installmentValue * n - financed;
+      } else {
+        installmentValue = financed / n;
+      }
+      const finalValue = downValue + installmentValue * n;
+      const lines: string[] = [];
+      if (downValue > 0) {
+        lines.push(`Entrada: ${formatBRL(downValue)} (à vista)`);
+      }
+      lines.push(`${n}x de ${formatBRL(installmentValue)} no cartão` + (hasInterest ? ' (juros PagBank 3,59% a.m.)' : ' sem juros'));
+      lines.push(`Total parcelado: ${formatBRL(installmentValue * n)}` + (hasInterest ? ` (juros somam ${formatBRL(extraInterest)})` : ''));
+      lines.push(`Valor final: ${formatBRL(finalValue)}` + (downValue > 0 ? ` (entrada + parcelas)` : ''));
+      return {
+        headline: `Cartão de crédito ${n}x · ${formatBRL(installmentValue)}/mês`,
+        lines,
+      };
+    }
+
+    // ── Boleto parcelado (1x..24x com juros 1.5%/mês; entrada 20% a partir de 12x) ──
+    const parceladoMatch = paymentKey.match(/^parcelado-(\d+)x$/);
+    if (parceladoMatch) {
+      const n = Number(parceladoMatch[1]);
+      const PASSOS_RATE = 1.5 / 100; // 1.5% ao mes
+      const defaultDownPercent = n >= 12 ? 0.20 : 0;
+      const defaultDown = total * defaultDownPercent;
+      // Custom down sobrescreve o default da opcao
+      const downValue = downPayment > 0
+        ? Math.min(downPayment, total - 0.01)
+        : defaultDown;
+      const financed = total - downValue;
+      const installmentValue = financed * PASSOS_RATE / (1 - Math.pow(1 + PASSOS_RATE, -n));
+      const extraInterest = installmentValue * n - financed;
+      const finalValue = downValue + installmentValue * n;
+      const lines: string[] = [];
+      if (downValue > 0) {
+        lines.push(`Entrada: ${formatBRL(downValue)}`);
+      }
+      lines.push(`${n}x de ${formatBRL(installmentValue)} no boleto (Banco PASSOS · 1,5% a.m.)`);
+      lines.push(`Total das parcelas: ${formatBRL(installmentValue * n)} (juros somam ${formatBRL(extraInterest)})`);
+      lines.push(`Valor final: ${formatBRL(finalValue)}`);
+      lines.push('Exige consulta de crédito (Serasa Crediscore).');
+      return {
+        headline: `Boleto · ${n}x de ${formatBRL(installmentValue)}/mês`,
+        lines,
+      };
+    }
+
+    return null;
   }
 }

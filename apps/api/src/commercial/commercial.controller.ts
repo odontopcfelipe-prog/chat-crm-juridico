@@ -363,10 +363,22 @@ export class CommercialController {
    * Onda 14.33 — Marca proposta como "escolhida pra aguardar decisao do
    * paciente". Exclusiva por paciente: ao marcar uma, qualquer outra do
    * mesmo paciente que estivesse marcada e desmarcada. UI destaca a chosen
-   * e esmaece as demais. */
+   * e esmaece as demais.
+   *
+   * Onda 14.38 — Body opcional aceita { payment_key, down_payment } pra
+   * persistir a forma de pagamento + entrada apresentada pelo operador.
+   * Esses dados aparecem na secao "Proposta de pagamento" do PDF gerado
+   * (que e anexado ao WhatsApp em /send-whatsapp). */
   @Post('quotes/:id/choose-as-proposal')
-  chooseQuoteAsProposal(@Param('id') id: string, @Authenticated() user: AuthUser) {
-    return this.quotesService.markAsChosenProposal(id, user.tenant_id);
+  chooseQuoteAsProposal(
+    @Param('id') id: string,
+    @Body() body: { payment_key?: string | null; down_payment?: number | null },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.quotesService.markAsChosenProposal(id, user.tenant_id, {
+      payment_key: body?.payment_key,
+      down_payment: body?.down_payment,
+    });
   }
 
   /** Onda 14.33 — Desmarca proposta escolhida (volta ao estado neutro). */
