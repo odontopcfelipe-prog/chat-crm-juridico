@@ -1486,12 +1486,16 @@ function PropostaCard({
     >
       {/* Onda 14.33 — Badge "AGUARDANDO PACIENTE" — proposta escolhida.
           Tem precedencia sobre "atual" / "ACEITO" (raro mas pra clarificar).
-          Onda 14.37 — amarelo solido (antes era azul). */}
+          Onda 14.37 — amarelo solido (antes era azul).
+          Onda 14.39 — Movido pra dentro do card (banner no topo) em vez de
+          absolute. Estava sendo cortado pelo overflow-x-auto do container
+          parent (scroll horizontal cortava o `-right-2`). Banner ocupa
+          width total do card e sempre cabe. */}
       {isChosen && (
-        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-amber-950 shadow-sm flex items-center gap-1">
-          <Clock size={9} strokeWidth={3} />
+        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-amber-500 text-amber-950 text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+          <Clock size={10} strokeWidth={3} />
           AGUARDANDO PACIENTE
-        </span>
+        </div>
       )}
 
       {/* Badge "atual" — quote enviada esta em negociacao */}
