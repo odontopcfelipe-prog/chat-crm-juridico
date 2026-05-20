@@ -337,11 +337,21 @@ export class ContractPdfService {
     ];
   }
 
-  /** Onda 14.30 — Conteudo dos documentos extras opcionais. Retornados como
-   *  secoes adicionais no PDF quando o operador marca o checkbox no card
-   *  "Contrato de tratamento" antes de criar o contrato. */
+  /** Onda 14.30/14.31 — Conteudo dos documentos extras opcionais. Retornados
+   *  como secoes adicionais no PDF quando o operador marca o checkbox no card
+   *  "Contrato de tratamento" antes de criar o contrato.
+   *
+   *  Onda 14.31 — Adicionados 10 termos por procedimento da clinica (clareamento,
+   *  facetas, lentes, protese, endo, exo, implante, restauracao). Textos
+   *  contratuais sao TEMPLATES BASE — devem ser substituidos pelo conteudo
+   *  oficial dos PDFs da clinica (clareamento.pdf, termo-implante.pdf, etc).
+   *  Pra fazer essa substituicao, o operador/dev edita o texto desta funcao
+   *  preservando os mesmos IDs. Fase futura (14.32+): ler de templates
+   *  configurados via admin em vez de hardcoded aqui.
+   */
   private extraDocumentContent(docId: string): { title: string; body: string } | null {
     const map: Record<string, { title: string; body: string }> = {
+      // ── Termos gerais (Onda 14.30) ──
       USO_IMAGEM: {
         title: 'Termo de autorização de uso de imagem',
         body:
@@ -391,6 +401,140 @@ export class ContractPdfService {
           'executados, conforme tabela vigente, abatendo-se eventuais valores já pagos. Em ' +
           'caso de rescisão por iniciativa da CONTRATADA por inadimplência, aplicam-se as ' +
           'mesmas regras.',
+      },
+
+      // ── Onda 14.31 — Termos por procedimento (templates base; substituir
+      //    pelo conteudo oficial dos PDFs da clinica) ──
+
+      CLAREAMENTO: {
+        title: 'Termo de Clareamento Dental',
+        body:
+          'Declaro estar ciente de que o clareamento dental é um procedimento estético que pode ' +
+          'apresentar resultados variáveis conforme a cor inicial dos dentes, idade e hábitos do ' +
+          'CONTRATANTE. Os principais efeitos colaterais possíveis são: sensibilidade dentária ' +
+          'temporária, irritação gengival e variação na cor final entre dentes adjacentes. O ' +
+          'resultado não é permanente — depende dos hábitos alimentares (café, vinho tinto, ' +
+          'tabaco) e da higiene oral. Sessões de manutenção a cada 12-18 meses são recomendadas. ' +
+          'Comprometo-me a seguir as orientações pós-clareamento, incluindo dieta clara nas ' +
+          '48h seguintes a cada sessão.',
+      },
+      FACETAS_RESINA: {
+        title: 'Termo de Facetas de Resina',
+        body:
+          'As facetas de resina composta são uma alternativa estética e funcional para correção ' +
+          'de cor, forma e pequenos desalinhamentos dentários. Declaro estar ciente de que: (i) ' +
+          'a durabilidade média é de 3 a 7 anos, dependendo dos hábitos; (ii) podem sofrer ' +
+          'manchamento gradual e necessitar polimento periódico; (iii) fraturas podem ocorrer ' +
+          'em casos de bruxismo, hábitos parafuncionais ou trauma; (iv) o resultado estético ' +
+          'final é definido em conjunto com o profissional após análise do sorriso e cor base. ' +
+          'Manutenções semestrais são recomendadas. A garantia técnica de execução é de 6 meses.',
+      },
+      LAMINADOS_CERAMICOS: {
+        title: 'Termo de Laminados Cerâmicos / Lentes de Contato Dental',
+        body:
+          'Os laminados cerâmicos (lentes de contato dental) são restaurações estéticas ' +
+          'definitivas executadas em cerâmica de alta resistência. Declaro estar ciente de que: ' +
+          '(i) o procedimento envolve desgaste mínimo do esmalte dental, irreversível; (ii) o ' +
+          'resultado final (cor, formato) é aprovado em fase de mock-up antes da cimentação ' +
+          'definitiva; (iii) após cimentação, ajustes maiores não são possíveis sem refazer a ' +
+          'peça; (iv) a garantia da CONTRATADA é de 12 meses para fraturas decorrentes de ' +
+          'defeito de material ou execução, desde que respeitados os cuidados orientados; (v) ' +
+          'devo evitar morder objetos duros, roer unhas e abrir embalagens com os dentes — ' +
+          'tais hábitos podem fraturar as peças e não são cobertos por garantia.',
+      },
+      PROTESE: {
+        title: 'Termo de Prótese Dentária',
+        body:
+          'A reabilitação protética envolve etapas de moldagem, prova, ajustes e instalação ' +
+          'definitiva. Declaro estar ciente de que: (i) próteses removíveis (parciais ou totais) ' +
+          'exigem período de adaptação que pode levar dias ou semanas; (ii) ajustes pós-instalação ' +
+          'são comuns e estão inclusos no valor; (iii) próteses fixas (coroas, pontes) podem ' +
+          'apresentar sensibilidade temporária após instalação; (iv) a higiene rigorosa é ' +
+          'fundamental — uso de fio dental ou passa-fio diário previne cárie nos dentes pilares; ' +
+          '(v) revisões semestrais são obrigatórias para verificar oclusão, ajustes e saúde dos ' +
+          'tecidos de suporte. A garantia técnica do trabalho é de 12 meses.',
+      },
+      ENDODONTIA_ADULTO: {
+        title: 'Termo de Endodontia (Tratamento de Canal) — Adulto',
+        body:
+          'O tratamento endodôntico (canal) é indicado quando a polpa dentária está irreversivelmente ' +
+          'comprometida por cárie profunda, trauma ou inflamação. Declaro estar ciente de que: (i) ' +
+          'o tratamento pode exigir 1 a 4 sessões dependendo da complexidade; (ii) há possibilidade ' +
+          'de sensibilidade pós-operatória que pode durar dias; (iii) a taxa de sucesso é alta ' +
+          '(>90%) mas há risco de re-tratamento ou perda do dente em casos complexos; (iv) o dente ' +
+          'tratado endodonticamente fica mais frágil e geralmente necessita de coroa protética após ' +
+          'o procedimento; (v) seguirei rigorosamente as orientações pós-operatórias e retornarei ' +
+          'para acompanhamento radiográfico em 6 meses.',
+      },
+      ENDODONTIA_MENOR: {
+        title: 'Termo de Endodontia (Tratamento de Canal) — Paciente Menor',
+        body:
+          'Considerando que o CONTRATANTE é menor de 18 anos, o responsável legal autoriza a ' +
+          'execução do tratamento endodôntico (canal) descrito neste contrato. O tratamento ' +
+          'pode envolver técnicas adaptadas à idade do paciente (apexificação, pulpotomia ' +
+          'parcial, etc) dependendo do desenvolvimento radicular. Declaro estar ciente dos ' +
+          'mesmos riscos descritos no termo de endodontia adulto, com a particularidade de ' +
+          'que o acompanhamento clínico e radiográfico pode se estender por anos até o ' +
+          'completo desenvolvimento da raiz. Comprometo-me a comparecer às consultas de ' +
+          'controle agendadas.\n\n' +
+          'Nome do responsável legal: _____________________________________________\n' +
+          'CPF: __________________________ · Grau de parentesco: ______________________',
+      },
+      EXTRACAO_ADULTO: {
+        title: 'Termo de Extração Dental — Adulto',
+        body:
+          'A exodontia (extração dentária) é indicada quando o dente não pode ser tratado ' +
+          'conservadoramente ou compromete os demais. Declaro estar ciente de que: (i) podem ' +
+          'ocorrer sangramento, edema, dor e equimose nos dias seguintes ao procedimento; (ii) ' +
+          'há risco — embora baixo — de complicações como alveolite, comunicação bucossinusal ' +
+          '(dentes superiores) e parestesia (dentes inferiores próximos ao nervo); (iii) devo ' +
+          'seguir rigorosamente as orientações pós-operatórias: dieta fria/pastosa nas 24h, ' +
+          'evitar bochechos vigorosos, não fumar e tomar a medicação prescrita; (iv) a ausência ' +
+          'do dente pode comprometer função mastigatória e estética — a reabilitação (implante, ' +
+          'prótese) deve ser planejada o quanto antes para evitar movimentação dos vizinhos.',
+      },
+      EXTRACAO_MENOR: {
+        title: 'Termo de Extração Dental — Paciente Menor',
+        body:
+          'Considerando que o CONTRATANTE é menor de 18 anos, o responsável legal autoriza ' +
+          'a execução da exodontia descrita neste contrato. Declaro estar ciente de que: (i) ' +
+          'a indicação de extração em pacientes menores pode estar relacionada a dentes ' +
+          'decíduos persistentes, supranumerários, ortodontia ou impactação; (ii) o protocolo ' +
+          'pós-operatório deve ser rigorosamente acompanhado por adulto; (iii) há risco de ' +
+          'alterações no desenvolvimento da arcada se o caso não for adequadamente acompanhado; ' +
+          '(iv) ortodontia preventiva ou interceptiva pode ser indicada após a extração.\n\n' +
+          'Nome do responsável legal: _____________________________________________\n' +
+          'CPF: __________________________ · Grau de parentesco: ______________________',
+      },
+      IMPLANTE: {
+        title: 'Termo de Implante Dentário',
+        body:
+          'A reabilitação com implante dentário envolve etapas cirúrgicas e protéticas. Declaro ' +
+          'estar ciente de que: (i) o prazo médio entre o implante e a colocação da prótese ' +
+          'definitiva é de 3 a 8 meses, dependendo da osseointegração; (ii) a taxa de sucesso ' +
+          'é alta (>95%), mas há risco de rejeição ou perda do implante por fatores biológicos ' +
+          'individuais; (iii) tabagismo, diabetes descompensado, bruxismo e má higiene aumentam ' +
+          'o risco de complicações — devo informar essas condições à equipe; (iv) o pós-operatório ' +
+          'imediato (edema, dor leve, hematoma) é esperado e controlável com medicação prescrita; ' +
+          '(v) a higiene em torno do implante é crítica — peri-implantite por má higiene NÃO está ' +
+          'coberta pela garantia; (vi) seguirei rigorosamente as orientações pós-cirúrgicas e ' +
+          'comparecerei às consultas de controle agendadas; (vii) a garantia técnica do implante ' +
+          'é de 5 anos contra falhas de osseointegração; a garantia da prótese sobre o implante ' +
+          'é de 12 meses.',
+      },
+      RESTAURACAO: {
+        title: 'Termo de Restauração Dental',
+        body:
+          'As restaurações diretas (em resina composta) ou indiretas (inlays/onlays/coroas) ' +
+          'reestabelecem a forma e função de dentes comprometidos por cárie ou trauma. Declaro ' +
+          'estar ciente de que: (i) a longevidade média das restaurações em resina é de 5 a 10 ' +
+          'anos, dependendo do tamanho da cavidade, oclusão e hábitos; (ii) pode haver ' +
+          'sensibilidade temporária após o procedimento, especialmente em restaurações profundas; ' +
+          '(iii) restaurações extensas podem evoluir para necessidade de coroa protética ou ' +
+          'tratamento endodôntico no futuro; (iv) a higiene oral e uso de fio dental são ' +
+          'essenciais para evitar cárie recorrente nas bordas da restauração; (v) revisões ' +
+          'semestrais permitem detectar e tratar precocemente falhas. A garantia técnica de ' +
+          'execução é de 12 meses contra fraturas ou desadaptação.',
       },
     };
     return map[docId] || null;

@@ -1686,17 +1686,34 @@ interface ContractDocument {
   description: string;
   /** Core (sempre incluido) ou opcional (operador escolhe) */
   core?: boolean;
+  /** Onda 14.31 — agrupamento visual: GERAL | PROCEDIMENTO */
+  category?: 'GERAL' | 'PROCEDIMENTO';
 }
 
 const CONTRACT_DOCUMENTS: ContractDocument[] = [
+  // ── Core (sempre incluídos) ──
   { id: 'CONTRATO_PRINCIPAL', label: 'Contrato principal', description: 'qualificação, objeto, valor e cláusulas específicas', core: true },
   { id: 'TCLE', label: 'TCLE — Termo de Consentimento', description: 'consentimento livre e esclarecido sobre o tratamento', core: true },
   { id: 'LGPD', label: 'Termo LGPD', description: 'tratamento de dados pessoais e clínicos', core: true },
-  { id: 'USO_IMAGEM', label: 'Autorização de uso de imagem', description: 'fotos antes/depois, redes sociais, portfólio' },
-  { id: 'GARANTIA', label: 'Garantia estendida (24 meses)', description: 'cobertura ampliada de defeitos técnicos' },
-  { id: 'RESPONSAVEL_LEGAL', label: 'Responsável legal', description: 'paciente menor de idade ou incapaz' },
-  { id: 'AGENDAMENTO', label: 'Cláusula de agendamento e faltas', description: 'política de cancelamento e remarcação' },
-  { id: 'RESCISAO', label: 'Cláusula de rescisão antecipada', description: 'condições pra encerrar contrato antes do fim' },
+
+  // ── Termos gerais (opcionais) ──
+  { id: 'USO_IMAGEM', label: 'Autorização de uso de imagem', description: 'fotos antes/depois, redes sociais, portfólio', category: 'GERAL' },
+  { id: 'GARANTIA', label: 'Garantia estendida (24 meses)', description: 'cobertura ampliada de defeitos técnicos', category: 'GERAL' },
+  { id: 'RESPONSAVEL_LEGAL', label: 'Responsável legal', description: 'paciente menor de idade ou incapaz', category: 'GERAL' },
+  { id: 'AGENDAMENTO', label: 'Cláusula de agendamento e faltas', description: 'política de cancelamento e remarcação', category: 'GERAL' },
+  { id: 'RESCISAO', label: 'Cláusula de rescisão antecipada', description: 'condições pra encerrar contrato antes do fim', category: 'GERAL' },
+
+  // ── Termos por procedimento (Onda 14.31 — modelos da clínica) ──
+  { id: 'CLAREAMENTO', label: 'Termo de Clareamento Dental', description: 'sensibilidade, sessões, manutenção do clareamento', category: 'PROCEDIMENTO' },
+  { id: 'FACETAS_RESINA', label: 'Termo de Facetas de Resina', description: 'estética, longevidade, manutenção das facetas', category: 'PROCEDIMENTO' },
+  { id: 'LAMINADOS_CERAMICOS', label: 'Termo de Laminados Cerâmicos / Lentes', description: 'desgaste mínimo, mock-up, garantia da cerâmica', category: 'PROCEDIMENTO' },
+  { id: 'PROTESE', label: 'Termo de Prótese', description: 'adaptação, manutenção, ajustes pós-instalação', category: 'PROCEDIMENTO' },
+  { id: 'ENDODONTIA_ADULTO', label: 'Termo de Endodontia (Canal) — Adulto', description: 'tratamento de canal e suas etapas', category: 'PROCEDIMENTO' },
+  { id: 'ENDODONTIA_MENOR', label: 'Termo de Endodontia (Canal) — Paciente menor', description: 'tratamento de canal em paciente menor de idade', category: 'PROCEDIMENTO' },
+  { id: 'EXTRACAO_ADULTO', label: 'Termo de Extração — Adulto', description: 'exodontia, riscos e cuidados pós-operatórios', category: 'PROCEDIMENTO' },
+  { id: 'EXTRACAO_MENOR', label: 'Termo de Extração — Paciente menor', description: 'exodontia em paciente menor de idade', category: 'PROCEDIMENTO' },
+  { id: 'IMPLANTE', label: 'Termo de Implante Dentário', description: 'etapas cirúrgicas, osseointegração, prótese definitiva', category: 'PROCEDIMENTO' },
+  { id: 'RESTAURACAO', label: 'Termo de Restauração', description: 'restaurações estéticas e funcionais', category: 'PROCEDIMENTO' },
 ];
 
 interface ContractMinimal {
@@ -1832,43 +1849,63 @@ function ContratoCard({ quoteId }: { quoteId: string }) {
           </span>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-3">
-          {CONTRACT_DOCUMENTS.map((doc) => {
-            const isChecked = selectedDocs.has(doc.id);
-            const isCore = !!doc.core;
-            return (
-              <label
-                key={doc.id}
-                className={`flex items-start gap-2 p-2 rounded border text-[11px] cursor-pointer transition-colors ${
-                  isChecked
-                    ? isCore
-                      ? 'bg-muted/40 border-border opacity-80'
-                      : 'bg-amber-500/5 border-amber-500/40'
-                    : 'border-border bg-card hover:bg-accent/30'
-                } ${isCore ? 'cursor-not-allowed' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={isChecked}
-                  disabled={isCore || busy}
-                  onChange={() => toggleDoc(doc.id)}
-                  className="w-3.5 h-3.5 mt-0.5 rounded border-border accent-amber-600 shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
-                    {doc.label}
-                    {isCore && (
-                      <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 uppercase tracking-wide">
-                        sempre incluso
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-muted-foreground leading-tight text-[10px]">{doc.description}</p>
-                </div>
-              </label>
-            );
-          })}
-        </div>
+        {/* Onda 14.31 — Agrupado em 3 secoes: core (sempre incluso), termos
+            gerais (opcionais) e termos por procedimento (modelos da clinica). */}
+        {(['CORE', 'GERAL', 'PROCEDIMENTO'] as const).map((section) => {
+          const docs = CONTRACT_DOCUMENTS.filter((d) =>
+            section === 'CORE' ? d.core : d.category === section,
+          );
+          if (docs.length === 0) return null;
+          const sectionLabel = {
+            CORE: 'Sempre incluídos',
+            GERAL: 'Termos gerais',
+            PROCEDIMENTO: 'Termos por procedimento',
+          }[section];
+          return (
+            <div key={section} className="mb-3">
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">
+                {sectionLabel}
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                {docs.map((doc) => {
+                  const isChecked = selectedDocs.has(doc.id);
+                  const isCore = !!doc.core;
+                  return (
+                    <label
+                      key={doc.id}
+                      className={`flex items-start gap-2 p-2 rounded border text-[11px] cursor-pointer transition-colors ${
+                        isChecked
+                          ? isCore
+                            ? 'bg-muted/40 border-border opacity-80'
+                            : 'bg-amber-500/5 border-amber-500/40'
+                          : 'border-border bg-card hover:bg-accent/30'
+                      } ${isCore ? 'cursor-not-allowed' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isChecked}
+                        disabled={isCore || busy}
+                        onChange={() => toggleDoc(doc.id)}
+                        className="w-3.5 h-3.5 mt-0.5 rounded border-border accent-amber-600 shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                          {doc.label}
+                          {isCore && (
+                            <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 uppercase tracking-wide">
+                              sempre incluso
+                            </span>
+                          )}
+                        </p>
+                        <p className="text-muted-foreground leading-tight text-[10px]">{doc.description}</p>
+                      </div>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
 
         <div className="flex items-center justify-end gap-2">
           <button
