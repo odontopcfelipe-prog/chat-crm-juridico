@@ -1818,6 +1818,10 @@ function ContratoCard({ quoteId }: { quoteId: string }) {
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(
     () => new Set(CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id)),
   );
+  // Onda 14.35 — Card colapsavel. Comeca recolhido pra nao poluir o painel
+  // (operador pode passar bastante tempo configurando pagamento antes de
+  // pensar em contrato). Clica no header pra expandir.
+  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -1917,20 +1921,36 @@ function ContratoCard({ quoteId }: { quoteId: string }) {
     const extrasSelected = Array.from(selectedDocs).filter(
       (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
     ).length;
+    const totalSelected = CONTRACT_DOCUMENTS.filter((d) => d.core).length + extrasSelected;
     return (
-      <div className="mb-3 p-3 rounded-lg border border-border bg-card">
-        <div className="flex items-center justify-between gap-2 mb-2">
+      <div className="mb-3 rounded-lg border border-border bg-card overflow-hidden">
+        {/* Onda 14.35 — Header clicavel pra expandir/colapsar */}
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-accent/30 transition-colors text-left"
+        >
           <p className="text-xs font-semibold flex items-center gap-1.5">
             <FileText size={13} className="text-amber-700" />
             Contrato de tratamento
             <span className="text-[10px] font-normal text-muted-foreground italic">
-              · escolha os documentos pra assinatura
+              · {expanded ? 'escolha os documentos pra assinatura' : 'clique pra escolher os documentos'}
             </span>
           </p>
-          <span className="text-[10px] text-muted-foreground">
-            {CONTRACT_DOCUMENTS.filter((d) => d.core).length + extrasSelected} documentos selecionados
-          </span>
-        </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[10px] text-muted-foreground">
+              {totalSelected} documentos selecionados
+            </span>
+            <ChevronDown
+              size={14}
+              className={`text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`}
+            />
+          </div>
+        </button>
+
+        {/* Onda 14.35 — Conteudo so visivel quando expandido */}
+        {!expanded ? null : (
+        <div className="px-3 pb-3 pt-1 border-t border-border/40">
 
         {/* Onda 14.31 — Agrupado em 3 secoes: core (sempre incluso), termos
             gerais (opcionais) e termos por procedimento (modelos da clinica). */}
@@ -2001,6 +2021,8 @@ function ContratoCard({ quoteId }: { quoteId: string }) {
             Criar contrato
           </button>
         </div>
+        </div>
+        )}
       </div>
     );
   }
