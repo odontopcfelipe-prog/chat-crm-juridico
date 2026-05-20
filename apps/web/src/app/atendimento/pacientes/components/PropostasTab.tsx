@@ -1795,58 +1795,13 @@ function PropostaPainel({
         onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
       />
 
-      {/* Resumo "voce esta oferecendo" */}
-      <div className="mt-4 pt-3 border-t border-border">
-        <p className="text-xs text-muted-foreground">
-          você está oferecendo:{' '}
-          <strong className="text-foreground">
-            {cfg?.label || 'Proposta'} em{' '}
-            {activeOption.variant === 'avista'
-              ? `${activeOption.label} à vista`
-              : activeOption.variant === 'cartao'
-              ? `${activeOption.installments}x no cartão`
-              : `${activeOption.installments}x no Financiamento Banco PASSOS`}
-            {' = '}
-            {activeOption.variant === 'avista' ? (
-              <>R$ {fmtBRL(activeCalc.finalValue)}</>
-            ) : activeOption.variant === 'cartao' ? (
-              <>
-                {activeOption.installments}x de R$ {fmtBRL(activeCalc.installmentValue)} ·{' '}
-                <span className="text-muted-foreground font-normal">
-                  total R$ {fmtBRL(activeCalc.finalValue)}
-                </span>
-              </>
-            ) : (
-              <>
-                entrada R$ {fmtBRL(activeCalc.downPaymentValue)} +{' '}
-                R$ {fmtBRL(activeCalc.installmentValue)}/mês ·{' '}
-                <span className="text-muted-foreground font-normal">
-                  total R$ {fmtBRL(activeCalc.finalValue)}
-                </span>
-              </>
-            )}
-          </strong>
-        </p>
-      </div>
+      {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
+          "Ajustar" / "Salvar contraproposta" (pedido do operador).
+          Handlers onAjustar/onSaveCounter continuam disponiveis como props
+          pra reativacao futura, mas sem botoes visiveis na UI. */}
 
       {/* Ações */}
-      <div className="mt-3 flex items-center gap-2 flex-wrap">
-        <button
-          type="button"
-          onClick={onAjustar}
-          className="text-xs px-3 py-2 rounded-lg border border-border hover:bg-accent flex items-center gap-1.5"
-        >
-          <Pencil size={12} />
-          Ajustar
-        </button>
-        <button
-          type="button"
-          onClick={onSaveCounter}
-          className="text-xs px-3 py-2 rounded-lg border border-border hover:bg-accent flex items-center gap-1.5"
-        >
-          <MessageSquare size={12} />
-          Salvar contraproposta
-        </button>
+      <div className="mt-4 pt-3 border-t border-border flex items-center gap-2 flex-wrap">
         <button
           type="button"
           onClick={onAddBonus}
