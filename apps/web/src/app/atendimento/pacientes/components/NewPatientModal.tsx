@@ -16,7 +16,7 @@
 import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
-  Camera, Trash2,
+  Camera, Trash2, Upload, RefreshCw, Check,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -70,6 +70,9 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const photoInputRef = useRef<HTMLInputElement>(null);
+
+  // Captura por câmera (getUserMedia) — overlay independente do file picker
+  const [cameraOpen, setCameraOpen] = useState(false);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -310,20 +313,47 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               <p className="text-xs font-semibold text-foreground mb-0.5">
                 {photoPreview ? 'Foto selecionada' : 'Foto do paciente'}
               </p>
-              <p className="text-[11px] text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground mb-1.5">
                 Opcional · JPG, PNG ou WebP · máx 2 MB
               </p>
-              {photoPreview && (
+              <div className="flex flex-wrap items-center gap-1.5">
                 <button
                   type="button"
-                  onClick={handleRemovePhoto}
-                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-destructive hover:underline font-medium"
+                  onClick={() => setCameraOpen(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-primary/10 hover:bg-primary/20 text-primary text-[11px] font-medium"
                 >
-                  <Trash2 size={11} /> Remover
+                  <Camera size={11} /> Tirar agora
                 </button>
-              )}
+                <button
+                  type="button"
+                  onClick={() => photoInputRef.current?.click()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md bg-accent hover:bg-accent/80 text-accent-foreground text-[11px] font-medium"
+                >
+                  <Upload size={11} /> Da galeria
+                </button>
+                {photoPreview && (
+                  <button
+                    type="button"
+                    onClick={handleRemovePhoto}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md text-destructive hover:bg-destructive/10 text-[11px] font-medium"
+                  >
+                    <Trash2 size={11} /> Remover
+                  </button>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Overlay de câmera ao vivo (getUserMedia) */}
+          {cameraOpen && (
+            <CameraCaptureOverlay
+              onCapture={(file) => {
+                handlePickPhoto(file);
+                setCameraOpen(false);
+              }}
+              onCancel={() => setCameraOpen(false)}
+            />
+          )}
 
           {/* ── Identificação (sempre visível) ── */}
           <Section icon={<User size={14} />} title="Identificação">
@@ -701,6 +731,207 @@ function Section({ icon, title, children }: { icon: React.ReactNode; title: stri
         {icon} {title}
       </h3>
       <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+// ─── Captura por câmera (live preview via getUserMedia) ───────────────
+//
+// Funciona em qualquer dispositivo com câmera + HTTPS:
+//   - Mobile: usa câmera traseira por default (facingMode: 'environment'),
+//     mas dá pra alternar pra frontal com o botão de virar.
+//   - Desktop: usa webcam padrão; botão de virar fica desabilitado quando
+//     só existe uma câmera.
+//
+// O frame capturado vira File JPEG (qualidade 0.92), entra no fluxo normal
+// de photoFile do modal pai e segue pra POST /patients/:id/avatar no submit.
+//
+// Cleanup: para todos os tracks ao desmontar/cancelar — sem isso a câmera
+// fica "acesa" (LED do laptop / indicador no mobile).
+function CameraCaptureOverlay({
+  onCapture,
+  onCancel,
+}: {
+  onCapture: (file: File) => void;
+  onCancel: () => void;
+}) {
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const [facing, setFacing] = useState<'user' | 'environment'>('environment');
+  const [error, setError] = useState<string | null>(null);
+  const [starting, setStarting] = useState(true);
+  const [hasMultipleCameras, setHasMultipleCameras] = useState(false);
+
+  // Pega/troca o stream da câmera. Se permissão negada ou sem câmera, seta erro.
+  useEffect(() => {
+    let cancelled = false;
+    setStarting(true);
+    setError(null);
+
+    const start = async () => {
+      try {
+        if (!navigator.mediaDevices?.getUserMedia) {
+          throw new Error('Câmera não suportada neste navegador');
+        }
+        // Para tracks antigos antes de pegar novo stream (evita LED ligado em paralelo)
+        if (streamRef.current) {
+          streamRef.current.getTracks().forEach((t) => t.stop());
+          streamRef.current = null;
+        }
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+          audio: false,
+        });
+        if (cancelled) {
+          stream.getTracks().forEach((t) => t.stop());
+          return;
+        }
+        streamRef.current = stream;
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+        }
+        // Detecta se vale a pena mostrar botão "Virar câmera" (só se houver 2+)
+        try {
+          const devices = await navigator.mediaDevices.enumerateDevices();
+          const cams = devices.filter((d) => d.kind === 'videoinput');
+          if (!cancelled) setHasMultipleCameras(cams.length > 1);
+        } catch {
+          /* enumerate pode falhar sem permissão prévia — ignora */
+        }
+      } catch (e: any) {
+        if (cancelled) return;
+        const msg = e?.name === 'NotAllowedError'
+          ? 'Permissão de câmera negada. Libere o acesso e tente de novo.'
+          : e?.name === 'NotFoundError'
+          ? 'Nenhuma câmera encontrada neste dispositivo.'
+          : e?.message || 'Não foi possível acessar a câmera';
+        setError(msg);
+      } finally {
+        if (!cancelled) setStarting(false);
+      }
+    };
+    start();
+
+    return () => {
+      cancelled = true;
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach((t) => t.stop());
+        streamRef.current = null;
+      }
+    };
+  }, [facing]);
+
+  const capture = () => {
+    const video = videoRef.current;
+    if (!video || video.readyState < 2) {
+      showError('Câmera ainda carregando — aguarde um instante');
+      return;
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 1280;
+    canvas.height = video.videoHeight || 720;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) {
+      showError('Não foi possível capturar o frame');
+      return;
+    }
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          showError('Falha ao gerar a imagem');
+          return;
+        }
+        const file = new File([blob], `foto-${Date.now()}.jpg`, { type: 'image/jpeg' });
+        onCapture(file);
+      },
+      'image/jpeg',
+      0.92,
+    );
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4"
+      onClick={onCancel}
+    >
+      <div
+        className="bg-card border border-border rounded-xl w-full max-w-2xl shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between p-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Camera size={18} className="text-primary" />
+            <h3 className="text-sm font-semibold">Tirar foto</h3>
+          </div>
+          <button onClick={onCancel} className="p-1 hover:bg-accent rounded">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="relative bg-black aspect-video flex items-center justify-center">
+          {error ? (
+            <div className="p-6 text-center text-sm text-white max-w-md">
+              <p className="mb-3">⚠️ {error}</p>
+              <button
+                type="button"
+                onClick={onCancel}
+                className="px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm font-medium"
+              >
+                Voltar
+              </button>
+            </div>
+          ) : (
+            <>
+              {starting && (
+                <div className="absolute inset-0 flex items-center justify-center text-white text-xs">
+                  <Loader2 size={20} className="animate-spin mr-2" /> Iniciando câmera...
+                </div>
+              )}
+              <video
+                ref={videoRef}
+                autoPlay
+                playsInline
+                muted
+                // facingMode user (frontal) é espelhado pra parecer espelho real;
+                // environment (traseira) fica normal porque é "ver pro outro lado".
+                className={`w-full h-full object-contain ${facing === 'user' ? 'scale-x-[-1]' : ''}`}
+              />
+            </>
+          )}
+        </div>
+
+        {!error && (
+          <div className="flex items-center justify-between gap-2 p-3 border-t border-border">
+            <button
+              type="button"
+              onClick={onCancel}
+              className="px-3 py-2 rounded-lg border border-border text-sm font-medium hover:bg-accent"
+            >
+              Cancelar
+            </button>
+
+            <button
+              type="button"
+              onClick={capture}
+              disabled={starting}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-sm font-semibold disabled:opacity-50"
+            >
+              <Check size={16} /> Capturar foto
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setFacing((f) => (f === 'user' ? 'environment' : 'user'))}
+              disabled={starting || !hasMultipleCameras}
+              title={hasMultipleCameras ? 'Trocar câmera' : 'Só uma câmera disponível'}
+              className="p-2 rounded-lg border border-border hover:bg-accent disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <RefreshCw size={16} />
+            </button>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
