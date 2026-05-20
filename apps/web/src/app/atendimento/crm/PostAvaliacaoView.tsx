@@ -67,10 +67,11 @@ interface Props {
 const BUCKETS = [
   {
     id: 'aguardando' as const,
-    // Onda 14.47 — labels alinhados com ClosingKanban: paciente ainda nao
-    // recebeu o orcamento (sem quote OU quote em DRAFT/rascunho interno).
+    // Onda 14.48 — Trajetoria validada do lead: foi atendido + dentista
+    // validou clinicamente + operador gerou orcamento em DRAFT. Lead segue
+    // pra "Orcamento Enviado" quando alguem clicar enviar pro paciente.
     label: 'Avaliação Concluída',
-    description: 'Paciente ainda não recebeu o orçamento (sem proposta ou rascunho interno).',
+    description: 'Atendimento validado pelo dentista + orçamento em rascunho. Aguardando envio.',
     icon: AlertCircle,
     color: 'text-amber-600',
     bg: 'bg-amber-50 dark:bg-amber-950/20',

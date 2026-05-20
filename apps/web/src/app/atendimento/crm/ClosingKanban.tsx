@@ -80,9 +80,10 @@ const COLUMNS = [
   {
     id: 'aguardando' as const,
     label: 'Avaliação Concluída',
-    // Onda 14.46 — Lead fica aqui ate quote ser ENVIADA ao paciente (SENT).
-    // Inclui leads sem quote ainda + leads com quote DRAFT (rascunho interno).
-    sub: 'Aguardando envio do orçamento',
+    // Onda 14.48 — Trajetoria validada: dentista validou o atendimento +
+    // operador ja gerou o orcamento em DRAFT. Lead segue daqui pra
+    // "Orcamento Enviado" quando alguem clicar "Enviar pro paciente".
+    sub: 'Validado pelo dentista · orçamento em rascunho',
     icon: AlertCircle,
     color: 'text-amber-700 dark:text-amber-400',
     headerBg: 'bg-amber-100/70 dark:bg-amber-950/40',

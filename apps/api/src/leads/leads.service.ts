@@ -290,15 +290,22 @@ export class LeadsService {
     });
 
     // Anota cada lead com um "post_avaliacao_status" calculado pra o
-    // frontend agrupar facilmente. 4 buckets:
-    //   - 'em-tratamento'  : virou Patient + tem evento futuro
-    //   - 'com-orcamento'  : tem quote SENT (enviada efetivamente ao paciente)
-    //   - 'aguardando'     : sem quote OU quote ainda em DRAFT (rascunho
-    //                        interno, nao enviada). Onda 14.46: lead so migra
-    //                        pra "Orcamento Enviado" quando o status virar
-    //                        SENT — DRAFT continua em "Avaliacao Concluida"
-    //                        pq paciente ainda nao recebeu a proposta.
+    // frontend agrupar facilmente. 4 buckets (Onda 14.48 — refinado):
+    //   - 'em-tratamento'  : virou Patient + tem evento futuro AGENDADO/CONFIRMADO
+    //   - 'com-orcamento'  : tem quote SENT (paciente recebeu a proposta)
+    //   - 'aguardando'     : "Avaliação Concluída" — TRAJETORIA validada do lead:
+    //                        ja foi validado pelo dentista (calendar_event com
+    //                        validated_at != null) E ja tem orcamento gerado
+    //                        em DRAFT (operador criou mas ainda nao enviou).
+    //                        Sem essas 2 condicoes o lead nao entra no funil
+    //                        de fechamento — fica no Kanban tradicional na
+    //                        coluna "Avaliação Feita" ate alguem validar +
+    //                        gerar orcamento.
     //   - 'perdido'        : stage com is_lost=true
+    //
+    // Leads que nao se encaixam em nenhum bucket sao FILTRADOS FORA do
+    // retorno (bucket = null) — evita poluir o funil de fechamento com
+    // leads que ainda nao tem trajetoria comercial definida.
     const leadIds = leads.map((l) => l.id);
 
     // Carrega Patients vinculados aos leads (Quote pertence a Patient, nao Lead direto)
@@ -351,21 +358,44 @@ export class LeadsService {
     const eventByLead = new Map<string, any>();
     for (const e of futureEvents) if (e.lead_id && !eventByLead.has(e.lead_id)) eventByLead.set(e.lead_id, e);
 
-    const enriched = leads.map((l) => {
+    const enriched = leads.flatMap((l) => {
       const quote = quotesByLead.get(l.id) ?? null;
       const upcoming = eventByLead.get(l.id) ?? null;
       const patient = patientByLead.get(l.id) ?? null;
-      let bucket: 'em-tratamento' | 'com-orcamento' | 'aguardando' | 'perdido';
+      // Onda 14.48 — Lead so conta como "validado pelo dentista" se o
+      // CalendarEvent clinico mais recente (CONSULTA/PROCEDIMENTO/RETORNO)
+      // tem validated_at preenchido — flag setada quando o dentista valida
+      // o atendimento via aba de Avaliacao/Prontuario. Status CONCLUIDO
+      // sozinho nao basta (pode ser secretaria marcando, nao tem peso
+      // clinico). Como a query ja inclui calendar_events com take:1
+      // ordenados por start_at desc, basta checar o primeiro.
+      const wasValidatedByDentist = (l.calendar_events ?? [])
+        .some((e: any) => e.validated_at !== null);
+
+      let bucket: 'em-tratamento' | 'com-orcamento' | 'aguardando' | 'perdido' | null = null;
       if (l.current_stage?.is_lost) bucket = 'perdido';
       else if (patient && upcoming) bucket = 'em-tratamento';
       // Onda 14.46 — SO conta como "com-orcamento" quando a quote ja foi
       // efetivamente enviada (SENT). DRAFT eh rascunho interno do operador,
-      // paciente ainda nao recebeu a proposta — o lead fica em "aguardando"
-      // ate o operador clicar "Enviar pro paciente".
+      // paciente ainda nao recebeu a proposta.
       else if (quote?.status === 'SENT') bucket = 'com-orcamento';
-      else bucket = 'aguardando';
+      // Onda 14.48 — "Avaliação Concluída" agora exige a TRAJETORIA completa:
+      //   1. Foi VALIDADO pelo dentista (validated_at != null) — comprova que
+      //      o atendimento clinico teve peso, nao foi so "compareceu"
+      //   2. Operador JA gerou orcamento (quote DRAFT) — comprova intencao
+      //      comercial real, lead ja foi processado pos-consulta
+      //   3. Ainda nao virou paciente em tratamento (cai aqui pq nao bateu
+      //      em-tratamento acima)
+      // Sem esses 2 marcos confirmados, o lead nao tem trajetoria comercial
+      // suficiente pra ocupar espaco visual no funil de fechamento.
+      else if (quote?.status === 'DRAFT' && wasValidatedByDentist) {
+        bucket = 'aguardando';
+      }
+      // bucket === null → lead filtrado fora (volta abaixo)
 
-      return {
+      if (!bucket) return [];
+
+      return [{
         ...l,
         post_avaliacao: {
           bucket,
@@ -373,7 +403,7 @@ export class LeadsService {
           upcoming_event: upcoming,
           patient,
         },
-      };
+      }];
     });
 
     return enriched;
