@@ -1737,10 +1737,25 @@ export default function CrmPage() {
             </p>
           </div>
 
-          {/* Onda 14.41 — Botao Propostas centralizado e destacado. Reaproveita
-              o viewMode='fechamento' (ClosingKanban) que antes era acessivel so
-              via icone $ minusculo. Click toggle: ja ativo -> volta pro kanban. */}
-          <div className="flex-1 flex justify-center">
+          {/* Onda 14.41 — Botoes Pos-Avaliacao + Propostas centralizados e
+              destacados. Ordem cronologica do funil: lead pos-consulta -> com
+              orcamento em negociacao. Reaproveitam viewModes 'pos-avaliacao'
+              e 'fechamento' (ClosingKanban) que antes eram so icones minusculos.
+              Click toggle: ja ativo -> volta pro kanban. Cores distintas (sky
+              vs emerald) pra diferenciar as 2 fases do funil pos-captacao. */}
+          <div className="flex-1 flex justify-center items-center gap-2">
+            <button
+              onClick={() => setViewMode(viewMode === 'pos-avaliacao' ? 'kanban' : 'pos-avaliacao')}
+              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
+                viewMode === 'pos-avaliacao'
+                  ? 'bg-sky-500 text-white border-sky-600 shadow-sky-500/30'
+                  : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:shadow-md dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+              }`}
+              title="Pos-Avaliacao — leads que ja fizeram a consulta"
+            >
+              <Stethoscope size={16} strokeWidth={2.5} />
+              <span>Pós-Avaliação</span>
+            </button>
             <button
               onClick={() => setViewMode(viewMode === 'fechamento' ? 'kanban' : 'fechamento')}
               className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
@@ -1873,15 +1888,10 @@ export default function CrmPage() {
               >
                 <LayoutList size={14} />
               </button>
-              <button
-                onClick={() => setViewMode('pos-avaliacao')}
-                className={`p-1.5 transition-all ${viewMode === 'pos-avaliacao' ? 'bg-emerald-500/10 text-emerald-600' : 'text-muted-foreground hover:bg-accent'}`}
-                title="Pós-Avaliação — leads que ja fizeram a consulta"
-              >
-                <Stethoscope size={14} />
-              </button>
-              {/* Onda 14.41 — 4o toggle (DollarSign 'fechamento') foi promovido
-                  pra botao destacado "Propostas" centralizado no header. */}
+              {/* Onda 14.41 — Toggles "Pós-Avaliação" (Stethoscope) e
+                  "Propostas" (DollarSign) foram promovidos pra botoes
+                  destacados com texto centralizados no header. Grupo agora
+                  so tem Kanban + Lista (modos visuais do funil de leads). */}
             </div>
 
             {/* Exportar CSV */}
