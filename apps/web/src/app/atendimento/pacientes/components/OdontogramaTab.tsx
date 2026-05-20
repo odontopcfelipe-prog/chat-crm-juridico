@@ -769,45 +769,65 @@ function QuoteCard({
             <Pencil size={10} /> Renomear
           </button>
         )}
-        {/* Quando tem titulo customizado, mostra a categoria como badge secundaria */}
-        {quote.title && (
-          <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-            {categoryLabel}
-          </span>
-        )}
-        <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
-          {STATUS_LABEL[quote.status]}
-        </span>
-        {/* Onda 7.8 — Badge de aprovacao: aparece quando ao menos 1 item
-            aprovado in-place. Mostra X/Y aprovados (X=Y quando totalmente
-            aprovado). Badge em verde (mesmo padrao do fundo do card). */}
-        {hasAnyApproved && (
-          <span
-            className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 inline-flex items-center gap-1"
-            title="Procedimentos aprovados"
-          >
-            ✓ {quote.approved_count}/{quote._count?.items ?? 0} aprovados
-          </span>
-        )}
-        {/* Onda 6.4 — badge da prioridade clinica (sempre visivel, mesmo
-            quando "Completo" — equipe distingue de relance qual eh urgente) */}
-        {(() => {
-          const p = quote.priority || 'COMPLETO';
-          const cfg = {
-            URGENTE:   { label: '🔥 URGENTE',   cls: 'bg-red-500/15 text-red-700 border-red-500/30',         tip: 'Urgência clínica' },
-            ESSENCIAL: { label: '⚠ ESSENCIAL', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30',   tip: 'Procedimento essencial' },
-            COMPLETO:  { label: '✓ COMPLETO',  cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', tip: 'Tratamento completo (sem urgência)' },
-          }[p];
-          return (
-            <span
-              className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
-              title={cfg.tip}
-            >
-              {cfg.label}
+        {/* Onda 14.44 — Slots com largura fixa pra cada badge condicional.
+            Quando o badge nao aparece, o slot mantem o espaco reservado
+            pra preservar alinhamento das colunas em todas as linhas.
+
+            Slot 1: OUTROS (categoria) — 80px — so aparece quando quote.title
+            Slot 2: RASCUNHO/ENVIADO (status) — 88px — sempre presente
+            Slot 3: aprovados X/Y — 140px — so aparece se hasAnyApproved
+            Slot 4: priority badge — 120px — sempre presente */}
+
+        {/* SLOT 1: Categoria (so se ha title custom) */}
+        <span className="w-[80px] shrink-0 flex items-center justify-start">
+          {quote.title && (
+            <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+              {categoryLabel}
             </span>
-          );
-        })()}
-        <div className="flex flex-col text-xs text-muted-foreground">
+          )}
+        </span>
+
+        {/* SLOT 2: Status (DRAFT/SENT/ACCEPTED/REJECTED/EXPIRED) */}
+        <span className="w-[88px] shrink-0 flex items-center justify-start">
+          <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
+            {STATUS_LABEL[quote.status]}
+          </span>
+        </span>
+
+        {/* SLOT 3: Aprovacao parcial — Onda 7.8 */}
+        <span className="w-[140px] shrink-0 flex items-center justify-start">
+          {hasAnyApproved && (
+            <span
+              className="text-[10px] font-semibold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 inline-flex items-center gap-1"
+              title="Procedimentos aprovados"
+            >
+              ✓ {quote.approved_count}/{quote._count?.items ?? 0} aprovados
+            </span>
+          )}
+        </span>
+
+        {/* SLOT 4: Priority — Onda 6.4 */}
+        <span className="w-[120px] shrink-0 flex items-center justify-start">
+          {(() => {
+            const p = quote.priority || 'COMPLETO';
+            const cfg = {
+              URGENTE:   { label: '🔥 URGENTE',   cls: 'bg-red-500/15 text-red-700 border-red-500/30',         tip: 'Urgência clínica' },
+              ESSENCIAL: { label: '⚠ ESSENCIAL', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30',   tip: 'Procedimento essencial' },
+              COMPLETO:  { label: '✓ COMPLETO',  cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', tip: 'Tratamento completo (sem urgência)' },
+            }[p];
+            return (
+              <span
+                className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded border ${cfg.cls}`}
+                title={cfg.tip}
+              >
+                {cfg.label}
+              </span>
+            );
+          })()}
+        </span>
+
+        {/* INFO: "X itens · Criado em ..." — width fixo pra alinhar */}
+        <div className="flex flex-col text-xs text-muted-foreground min-w-[240px] shrink-0">
           <span>
             {itemsCount === 0 ? 'sem procedimentos' : `${itemsCount} ${itemsCount === 1 ? 'item' : 'itens'}`}
             {' · '}
