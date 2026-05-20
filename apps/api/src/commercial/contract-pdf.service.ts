@@ -18,11 +18,36 @@
  */
 import { Injectable, Logger, NotFoundException, ForbiddenException } from '@nestjs/common';
 import PDFDocument from 'pdfkit';
+import { PDFDocument as PDFLibDocument } from 'pdf-lib';
+import * as fs from 'fs/promises';
+import * as path from 'path';
 import { PrismaService } from '../prisma/prisma.service';
+
+/**
+ * Onda 14.32 — Mapeamento docId → nome do PDF anexo em contract-templates/.
+ * Se o arquivo existir, e mesclado ao final do contrato principal. Se nao
+ * existir, fallback no texto base via pdfkit (extraDocumentContent).
+ */
+const EXTRA_DOCUMENT_PDF_MAP: Record<string, string> = {
+  USO_IMAGEM: 'uso-de-imagem.pdf',
+  CLAREAMENTO: 'clareamento.pdf',
+  FACETAS_RESINA: 'facetas-de-resina.pdf',
+  LAMINADOS_CERAMICOS: 'laminados-ceramicos.pdf',
+  PROTESE: 'protese-pronto.pdf',
+  ENDODONTIA_ADULTO: 'termo-endo.pdf',
+  ENDODONTIA_MENOR: 'termo-endo-menor.pdf',
+  EXTRACAO_ADULTO: 'termo-extracao-adulto.pdf',
+  EXTRACAO_MENOR: 'termo-exo-menor-certo.pdf',
+  IMPLANTE: 'termo-implante.pdf',
+  RESTAURACAO: 'termo-pronto-restauracao.pdf',
+};
 
 @Injectable()
 export class ContractPdfService {
   private readonly logger = new Logger(ContractPdfService.name);
+  /** Onda 14.32 — Caminho dos PDFs anexos. Resolvido via __dirname pra
+   *  funcionar tanto em dev (src/) quanto em producao (dist/). */
+  private readonly templatesDir = path.join(__dirname, 'contract-templates');
 
   constructor(private prisma: PrismaService) {}
 
@@ -84,12 +109,105 @@ export class ContractPdfService {
       email: (officeInfo.email as string | undefined) || null,
     };
 
-    return this.renderPdf(contract, tenantInfo);
+    // Onda 14.32 — Identifica quais docs extras tem PDF anexo. Esses sao
+    // mesclados ao final via pdf-lib. Docs SEM PDF anexo continuam sendo
+    // renderizados como secoes textuais via pdfkit dentro do renderPdf.
+    const selectedDocs = Array.isArray(contract.selected_documents)
+      ? (contract.selected_documents as string[])
+      : [];
+    const docsWithAttachment: string[] = [];
+    const docsWithoutAttachment: string[] = [];
+    for (const docId of selectedDocs) {
+      if (['TCLE', 'LGPD', 'CONTRATO_PRINCIPAL'].includes(docId)) continue;
+      const pdfPath = await this.resolveExtraDocPath(docId);
+      if (pdfPath) docsWithAttachment.push(docId);
+      else docsWithoutAttachment.push(docId);
+    }
+
+    // 1. Renderiza o contrato principal via pdfkit (com secoes textuais dos
+    //    docs que NAO tem PDF anexo).
+    const mainPdfBuffer = await this.renderPdf(contract, tenantInfo, docsWithoutAttachment);
+
+    // 2. Se nao ha PDFs anexos, retorna direto o buffer do principal.
+    if (docsWithAttachment.length === 0) {
+      return mainPdfBuffer;
+    }
+
+    // 3. Mescla via pdf-lib: principal + cada PDF anexo na ordem dos
+    //    selected_documents.
+    return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment);
+  }
+
+  /**
+   * Onda 14.32 — Resolve caminho do PDF anexo pro docId. Retorna null se
+   * arquivo nao existir. Verifica acesso via fs.access pra distinguir "nao
+   * configurado" de "erro de permissao".
+   */
+  private async resolveExtraDocPath(docId: string): Promise<string | null> {
+    const filename = EXTRA_DOCUMENT_PDF_MAP[docId];
+    if (!filename) return null;
+    const fullPath = path.join(this.templatesDir, filename);
+    try {
+      await fs.access(fullPath);
+      return fullPath;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Onda 14.32 — Mescla o contrato principal (buffer pdfkit) com os PDFs
+   * anexos correspondentes aos docIds passados. Usa pdf-lib pra copiar
+   * paginas. Mantem ordem do array docIds.
+   */
+  private async mergeWithAttachments(
+    mainPdfBuffer: Buffer,
+    docIds: string[],
+  ): Promise<Buffer> {
+    try {
+      const merged = await PDFLibDocument.load(mainPdfBuffer);
+      for (const docId of docIds) {
+        const pdfPath = await this.resolveExtraDocPath(docId);
+        if (!pdfPath) continue;
+        try {
+          const pdfBytes = await fs.readFile(pdfPath);
+          const attachedDoc = await PDFLibDocument.load(pdfBytes);
+          const copiedPages = await merged.copyPages(
+            attachedDoc,
+            attachedDoc.getPageIndices(),
+          );
+          for (const page of copiedPages) {
+            merged.addPage(page);
+          }
+          this.logger.log(`[Contract PDF] Mesclado ${docId} (${pdfPath})`);
+        } catch (e: unknown) {
+          // Se falhar a mesclagem de um anexo especifico, loga e segue.
+          // Operador pode tentar pre-visualizar de novo apos corrigir o
+          // arquivo. Comportamento defensivo.
+          const err = e as Error;
+          this.logger.warn(
+            `[Contract PDF] Falha ao mesclar ${docId}: ${err.message}. Pulando.`,
+          );
+        }
+      }
+      const finalBytes = await merged.save();
+      return Buffer.from(finalBytes);
+    } catch (e: unknown) {
+      // Se algo catastrofico falhar na mesclagem (ex: pdf-lib quebrou),
+      // retorna so o principal pra nao quebrar o fluxo.
+      const err = e as Error;
+      this.logger.error(`[Contract PDF] Erro fatal na mesclagem: ${err.message}`);
+      return mainPdfBuffer;
+    }
   }
 
   private renderPdf(
     contract: any,
     tenant: { name: string | null; cnpj: string | null; address: string | null; phone: string | null; email: string | null },
+    /** Onda 14.32 — IDs dos docs extras que devem ser renderizados como
+     *  secoes textuais (porque NAO tem PDF anexo). Docs com PDF anexo
+     *  NAO entram aqui — sao mesclados depois via pdf-lib. */
+    textualExtraDocs: string[] = [],
   ): Promise<Buffer> {
     return new Promise((resolve, reject) => {
       const doc = new PDFDocument({ size: 'A4', margin: 50, info: {
@@ -243,14 +361,10 @@ export class ContractPdfService {
       // Onda 14.30 — Documentos extras selecionados pelo operador. Cada um
       // vira uma secao numerada apos a LGPD. TCLE/LGPD/CONTRATO_PRINCIPAL
       // sao filtrados pq ja sao incluidos nas secoes base 5/6/objeto.
-      const selectedDocs = Array.isArray(contract.selected_documents)
-        ? (contract.selected_documents as string[])
-        : [];
-      const extraDocs = selectedDocs.filter(
-        (d) => !['TCLE', 'LGPD', 'CONTRATO_PRINCIPAL'].includes(d),
-      );
+      // Onda 14.32 — Apenas docs SEM PDF anexo entram aqui (textualExtraDocs).
+      // Docs COM PDF anexo sao mesclados depois via pdf-lib no generatePdf.
       let sectionNumber = 7;
-      for (const docId of extraDocs) {
+      for (const docId of textualExtraDocs) {
         const docContent = this.extraDocumentContent(docId);
         if (!docContent) continue;
         doc.moveDown(0.8);
