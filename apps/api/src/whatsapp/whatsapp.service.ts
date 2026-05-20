@@ -101,6 +101,10 @@ export class WhatsappService {
     caption?: string,
     instanceName?: string,
     fileName?: string,
+    /** Onda 14.42 — mimetype opcional, necessario quando mediaUrl e base64
+     *  puro (sem prefixo data:...). Evolution precisa saber o tipo MIME
+     *  pra processar o arquivo. Default: deduz por mediaType. */
+    mimetype?: string,
   ) {
     const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
 
@@ -111,12 +115,23 @@ export class WhatsappService {
       });
     }
 
+    // Onda 14.42 — Auto-detecta mimetype baseado em mediaType + extensao
+    // do fileName, se nao fornecido explicitamente.
+    const resolvedMimetype = mimetype || (
+      mediaType === 'image' ? 'image/jpeg' :
+      mediaType === 'video' ? 'video/mp4' :
+      mediaType === 'document' && fileName?.endsWith('.pdf') ? 'application/pdf' :
+      mediaType === 'document' ? 'application/octet-stream' :
+      undefined
+    );
+
     return this.request('POST', `message/sendMedia/${targetInstance}`, {
       number,
       mediatype: mediaType,
       media: mediaUrl,
       caption: caption || '',
       ...(fileName ? { fileName } : {}),
+      ...(resolvedMimetype ? { mimetype: resolvedMimetype } : {}),
     });
   }
 

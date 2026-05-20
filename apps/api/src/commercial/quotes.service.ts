@@ -2051,11 +2051,13 @@ export class QuotesService {
         // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
         // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
         // Se nao tem PDF, fallback no sendText legado.
+        // Onda 14.42 — Evolution rejeita data URI (`data:application/pdf;base64,...`)
+        // com "Owned media must be a url or base64". Mandar base64 PURO.
         const result: any = pdfBase64
           ? await this.whatsapp.sendMedia(
               quote.patient.phone,
               'document',
-              `data:application/pdf;base64,${pdfBase64}`,
+              pdfBase64,
               msg,
               inst.name,
               `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
