@@ -167,6 +167,41 @@ export class PatientsController {
     });
   }
 
+  /**
+   * Onda 14.27 — Atualiza dados pra consulta de credito (CPF/RG/telefone/
+   * endereco/etc). Diferente do PATCH /patients/:id (apenas ADMIN), este
+   * endpoint e acessivel pra qualquer role autenticada — operador esta
+   * coletando dados durante fluxo de venda, faz sentido salvar no cadastro
+   * sem precisar admin.
+   *
+   * Aceita subset restrito de campos: CPF, RG, nome, birth_date, phone,
+   * endereco completo (address/number/neighborhood/city/state/zip_code).
+   * Campos clinicos / status / tags NAO sao alteraveis aqui.
+   */
+  @Patch(':id/credit-check-data')
+  updateCreditCheckData(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+
+    // Restringe a um subset de campos seguros pra fluxo de credit-check
+    const allowedFields = [
+      'name', 'cpf', 'rg', 'birth_date', 'phone', 'email',
+      'address', 'address_number', 'address_complement', 'neighborhood',
+      'city', 'state', 'zip_code',
+    ] as const;
+    const sanitized: Record<string, unknown> = {};
+    for (const field of allowedFields) {
+      if (dto[field] !== undefined) sanitized[field] = dto[field];
+    }
+
+    return this.patientsService.update(id, tenantId, {
+      ...sanitized,
+      birth_date: sanitized.birth_date
+        ? new Date(sanitized.birth_date as string)
+        : undefined,
+    } as Parameters<typeof this.patientsService.update>[2]);
+  }
+
   @Delete(':id')
   archive(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

@@ -1242,6 +1242,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         return (
           <CreditCheckDialog
             quoteId={selectedDetail.id}
+            // Onda 14.27 — patientId pra pre-preencher dados + salvar no cadastro
+            patientId={patientId}
             valorTotal={totalForCheck}
             initialInstallments={creditCheckInitialInstallments}
             onCancel={() => setCreditCheckOpen(false)}
@@ -3167,8 +3169,31 @@ interface ApplyFinancingResult {
   }>;
 }
 
+// Onda 14.27 — Formatters reutilizados pelo CreditCheckDialog. Movidos pra
+// fora do componente pra serem usaveis no useEffect de pre-preenchimento
+// (nao depende de state).
+function fmtCpf(v: string): string {
+  const c = v.replace(/\D/g, '').slice(0, 11);
+  return c
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d)/, '$1.$2')
+    .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+}
+
+function fmtTel(v: string): string {
+  const c = v.replace(/\D/g, '').slice(0, 11);
+  if (c.length <= 10) return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
+  return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
+}
+
+function fmtCep(v: string): string {
+  const c = v.replace(/\D/g, '').slice(0, 8);
+  return c.replace(/(\d{5})(\d)/, '$1-$2');
+}
+
 function CreditCheckDialog({
   quoteId,
+  patientId,
   valorTotal,
   initialInstallments,
   onCancel,
@@ -3176,6 +3201,8 @@ function CreditCheckDialog({
 }: {
   /** Onda 12.2 — id do quote pra fechar via POST /quotes/:id/apply-financing */
   quoteId: string;
+  /** Onda 14.27 — patient pra pre-preencher + salvar dados no cadastro */
+  patientId: string;
   valorTotal: number;
   /** Onda 14.4 — parcelas pre-selecionadas (vem da tabela de boleto) */
   initialInstallments?: number;
@@ -3191,14 +3218,57 @@ function CreditCheckDialog({
   const [applyResult, setApplyResult] = useState<ApplyFinancingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMsg, setLoadingMsg] = useState('Consultando Serasa...');
+  // Onda 14.27 — loading do pre-preenchimento
+  const [loadingPatient, setLoadingPatient] = useState(true);
 
-  // Form fields
+  // Form fields — Onda 14.27 expandido pra incluir RG + endereco completo
   const [cpf, setCpf] = useState('');
+  const [rg, setRg] = useState('');
   const [nome, setNome] = useState('');
   const [dataNasc, setDataNasc] = useState('');
   const [renda, setRenda] = useState('');
   const [telefone, setTelefone] = useState('');
   const [profissao, setProfissao] = useState('');
+  const [cep, setCep] = useState('');
+  const [endereco, setEndereco] = useState('');
+  const [numeroEndereco, setNumeroEndereco] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [cidade, setCidade] = useState('');
+  const [estado, setEstado] = useState('');
+
+  // Onda 14.27 — Pre-preencher form com dados do paciente. Profissao e renda
+  // nao vem do Patient (campos exclusivos do credit-check), entao ficam vazios
+  // pra operador preencher na hora.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const { data } = await api.get<{
+          name?: string; cpf?: string; rg?: string; birth_date?: string;
+          phone?: string; email?: string;
+          address?: string; address_number?: string; neighborhood?: string;
+          city?: string; state?: string; zip_code?: string;
+        }>(`/patients/${patientId}`);
+        if (cancelled) return;
+        if (data.name) setNome(data.name);
+        if (data.cpf) setCpf(fmtCpf(data.cpf));
+        if (data.rg) setRg(data.rg);
+        if (data.birth_date) setDataNasc(data.birth_date.substring(0, 10));
+        if (data.phone) setTelefone(fmtTel(data.phone));
+        if (data.address) setEndereco(data.address);
+        if (data.address_number) setNumeroEndereco(data.address_number);
+        if (data.neighborhood) setBairro(data.neighborhood);
+        if (data.city) setCidade(data.city);
+        if (data.state) setEstado(data.state);
+        if (data.zip_code) setCep(fmtCep(data.zip_code));
+      } catch {
+        // Sem dados — operador preenche tudo manualmente
+      } finally {
+        if (!cancelled) setLoadingPatient(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [patientId]);
 
   // Calcula a parcela alvo baseado no prazo escolhido.
   // Onda 14.4 — entrada 20% so a partir de 12x (alinhado com buildPaymentOptions).
@@ -3238,21 +3308,31 @@ function CreditCheckDialog({
     return () => clearInterval(id);
   }, [phase]);
 
-  const fmtCpf = (v: string) => {
-    const c = v.replace(/\D/g, '').slice(0, 11);
-    return c
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d)/, '$1.$2')
-      .replace(/(\d{3})(\d{1,2})$/, '$1-$2');
+  // Onda 14.27 — Auto-preenche endereco via API ViaCEP quando operador digita CEP completo
+  const handleCepBlur = async () => {
+    const cleanCep = cep.replace(/\D/g, '');
+    if (cleanCep.length !== 8) return;
+    // So preenche se nao tinha endereco antes — nao sobrescreve o que ja foi digitado
+    if (endereco && cidade && estado) return;
+    try {
+      const res = await fetch(`https://viacep.com.br/ws/${cleanCep}/json/`);
+      const data = await res.json();
+      if (data.erro) return;
+      if (!endereco && data.logradouro) setEndereco(data.logradouro);
+      if (!bairro && data.bairro) setBairro(data.bairro);
+      if (!cidade && data.localidade) setCidade(data.localidade);
+      if (!estado && data.uf) setEstado(data.uf);
+    } catch {
+      // Silencioso — operador preenche manual
+    }
   };
-  const fmtTel = (v: string) => {
-    const c = v.replace(/\D/g, '').slice(0, 11);
-    if (c.length <= 10) return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{4})(\d)/, '$1-$2');
-    return c.replace(/(\d{2})(\d)/, '($1) $2').replace(/(\d{5})(\d)/, '$1-$2');
-  };
+
   const fmtCurrency = (v: string) => v.replace(/\D/g, '');
   const rendaNum = Number(renda) / 100;
 
+  // Onda 14.27 — campos minimos obrigatorios pra credit-check. Endereco e
+  // RG ficam opcionais (a Serasa nao exige mas operador pode preencher
+  // pra atualizar cadastro do paciente).
   const canSubmit = cpf.replace(/\D/g, '').length === 11
     && nome.trim().length >= 3
     && dataNasc.length === 10
@@ -3264,6 +3344,28 @@ function CreditCheckDialog({
     setError(null);
     setPhase('consultando');
     try {
+      // Onda 14.27 — Antes da consulta, atualiza cadastro do paciente.
+      // Usa endpoint /credit-check-data (nao exige role ADMIN — fluxo de
+      // venda normal). Best-effort: se falhar, prossegue com a consulta
+      // (dados salvos sao bonus, nao bloqueiam o fluxo principal).
+      try {
+        await api.patch(`/patients/${patientId}/credit-check-data`, {
+          name: nome.trim(),
+          cpf: cpf.replace(/\D/g, ''),
+          rg: rg.trim() || null,
+          birth_date: dataNasc,
+          phone: telefone.replace(/\D/g, ''),
+          address: endereco.trim() || null,
+          address_number: numeroEndereco.trim() || null,
+          neighborhood: bairro.trim() || null,
+          city: cidade.trim() || null,
+          state: estado.trim() || null,
+          zip_code: cep.replace(/\D/g, '') || null,
+        });
+      } catch {
+        // Silencioso — consulta segue mesmo se update do paciente falhar
+      }
+
       const { data } = await api.post<CreditCheckResult>('/credit-check/simulate', {
         cpf: cpf.replace(/\D/g, ''),
         nome: nome.trim(),
@@ -3314,25 +3416,27 @@ function CreditCheckDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/70 flex items-stretch justify-stretch"
+      className="fixed inset-0 z-50 bg-black/70 flex items-center justify-center p-4"
       onClick={onCancel}
     >
+      {/* Onda 14.27 — Modal centralizado (max-w-3xl, max-h-[90vh]) em vez
+          de full-screen. Mais compacto, scroll interno se conteudo extenso. */}
       <div
-        className="bg-card w-full h-full overflow-hidden flex flex-col"
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header full-width estilo banco — Onda 12.8 */}
-        <div className="border-b border-border bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent">
-          <div className="max-w-5xl mx-auto px-6 md:px-10 py-5 flex items-start justify-between">
-            <div className="flex items-start gap-4">
-              <div className="w-12 h-12 rounded-xl bg-amber-500/15 flex items-center justify-center shrink-0">
-                <Building2 size={24} className="text-amber-700" />
+        {/* Header compacto */}
+        <div className="border-b border-border bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent shrink-0">
+          <div className="px-5 py-3.5 flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-amber-500/15 flex items-center justify-center shrink-0">
+                <Building2 size={18} className="text-amber-700" />
               </div>
-              <div>
-                <h3 className="text-xl md:text-2xl font-bold text-foreground">
+              <div className="min-w-0">
+                <h3 className="text-base font-bold text-foreground">
                   Financiamento Banco PASSOS
                 </h3>
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs text-muted-foreground mt-0.5">
                   Consulta de crédito em tempo real · Aprovação imediata
                 </p>
               </div>
@@ -3340,39 +3444,37 @@ function CreditCheckDialog({
             <button
               type="button"
               onClick={onCancel}
-              className="text-muted-foreground hover:text-foreground p-2 hover:bg-accent/50 rounded-md transition-colors"
+              className="text-muted-foreground hover:text-foreground p-1.5 hover:bg-accent/50 rounded-md transition-colors shrink-0"
               aria-label="Fechar"
             >
-              <X size={20} />
+              <X size={16} />
             </button>
           </div>
         </div>
 
-        {/* Body — Onda 12.8: max-w-5xl centralizado, padding generoso */}
+        {/* Body — Onda 14.27: modal compacto, padding ajustado */}
         <div className="flex-1 overflow-y-auto">
-          <div className="max-w-5xl mx-auto px-6 md:px-10 py-6 md:py-8">
+          <div className="px-5 py-4">
             {phase === 'cadastro' && (
               <>
-                {/* Resumo da proposta — destaque grande */}
-                <div className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border-2 border-amber-500/30 rounded-xl p-5 md:p-6 mb-6">
-                  <div className="flex items-start justify-between gap-4 flex-wrap">
+                {/* Resumo da proposta — Onda 14.27: compacto */}
+                <div className="bg-gradient-to-br from-amber-500/10 to-amber-500/5 border border-amber-500/30 rounded-lg p-3 mb-3">
+                  <div className="flex items-center justify-between gap-3 flex-wrap">
                     <div className="min-w-0">
-                      <p className="text-[11px] uppercase tracking-wider text-amber-700 font-bold mb-1.5">
+                      <p className="text-[10px] uppercase tracking-wider text-amber-700 font-bold mb-0.5">
                         Proposta a financiar
                       </p>
-                      <p className="text-3xl md:text-4xl font-bold tabular-nums leading-tight text-foreground">
+                      <p className="text-xl font-bold tabular-nums leading-tight text-foreground">
                         {parcelas}x de R$ {fmtBRL(calc.installmentValue)}
-                        <span className="text-base md:text-lg font-normal text-muted-foreground"> /mês</span>
+                        <span className="text-xs font-normal text-muted-foreground"> /mês</span>
                       </p>
-                      <p className="text-sm text-muted-foreground mt-2">
+                      <p className="text-[11px] text-muted-foreground mt-0.5">
                         entrada <strong className="text-foreground">R$ {fmtBRL(calc.downPaymentValue)}</strong>
                         {' · '}
                         <span className="opacity-75">total R$ {fmtBRL(valorTotal)}</span>
                       </p>
                     </div>
-                    <div className="flex gap-2 shrink-0 flex-wrap">
-                      {/* Onda 14.4 — inclui dinamicamente a parcela escolhida na
-                          tabela de boleto se diferente dos padroes 12/18/24 */}
+                    <div className="flex gap-1 shrink-0 flex-wrap">
                       {Array.from(new Set([parcelas, 12, 18, 24]))
                         .sort((a, b) => a - b)
                         .map((n) => (
@@ -3380,7 +3482,7 @@ function CreditCheckDialog({
                           key={n}
                           type="button"
                           onClick={() => setParcelas(n)}
-                          className={`text-sm px-4 py-2 rounded-lg border-2 transition-colors font-semibold ${
+                          className={`text-xs px-2.5 py-1 rounded-md border transition-colors font-semibold ${
                             parcelas === n
                               ? 'border-amber-600 bg-amber-500/15 text-amber-800'
                               : 'border-border bg-card hover:bg-accent'
@@ -3393,13 +3495,20 @@ function CreditCheckDialog({
                   </div>
                 </div>
 
-                {/* Form em 2 colunas em desktop — Onda 12.8 */}
-                <div className="bg-card border border-border rounded-xl p-5 md:p-6">
-                  <p className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
-                    <ShieldCheck size={16} className="text-emerald-700" />
-                    Dados do paciente
+                {/* Form — Onda 14.27 expandido: identificacao + endereco completo */}
+                <div className="bg-card border border-border rounded-lg p-4">
+                  {loadingPatient ? (
+                    <div className="py-8 flex items-center justify-center text-muted-foreground">
+                      <Loader2 size={14} className="animate-spin mr-2" />
+                      <span className="text-xs">Carregando dados do paciente...</span>
+                    </div>
+                  ) : (
+                  <>
+                  <p className="text-xs font-bold text-foreground mb-3 flex items-center gap-1.5">
+                    <ShieldCheck size={13} className="text-emerald-700" />
+                    Identificação
                   </p>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                     <Field label="CPF">
                       <input
                         type="text"
@@ -3407,7 +3516,16 @@ function CreditCheckDialog({
                         onChange={(e) => setCpf(fmtCpf(e.target.value))}
                         placeholder="000.000.000-00"
                         inputMode="numeric"
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="RG">
+                      <input
+                        type="text"
+                        value={rg}
+                        onChange={(e) => setRg(e.target.value)}
+                        placeholder="00.000.000-0"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
                       />
                     </Field>
                     <Field label="Nome completo">
@@ -3416,7 +3534,7 @@ function CreditCheckDialog({
                         value={nome}
                         onChange={(e) => setNome(e.target.value)}
                         placeholder="Como consta no CPF"
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
                       />
                     </Field>
                     <Field label="Data de nascimento">
@@ -3424,17 +3542,7 @@ function CreditCheckDialog({
                         type="date"
                         value={dataNasc}
                         onChange={(e) => setDataNasc(e.target.value)}
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
-                      />
-                    </Field>
-                    <Field label="Renda mensal (R$)">
-                      <input
-                        type="text"
-                        value={renda ? `R$ ${(Number(renda) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
-                        onChange={(e) => setRenda(fmtCurrency(e.target.value))}
-                        placeholder="R$ 0,00"
-                        inputMode="numeric"
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
                       />
                     </Field>
                     <Field label="Telefone">
@@ -3444,7 +3552,7 @@ function CreditCheckDialog({
                         onChange={(e) => setTelefone(fmtTel(e.target.value))}
                         placeholder="(00) 00000-0000"
                         inputMode="numeric"
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
                       />
                     </Field>
                     <Field label="Profissão">
@@ -3453,19 +3561,113 @@ function CreditCheckDialog({
                         value={profissao}
                         onChange={(e) => setProfissao(e.target.value)}
                         placeholder="Ex: professor"
-                        className="w-full text-base px-4 py-2.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                      />
+                    </Field>
+                    <Field label="Renda mensal (R$)">
+                      <input
+                        type="text"
+                        value={renda ? `R$ ${(Number(renda) / 100).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}` : ''}
+                        onChange={(e) => setRenda(fmtCurrency(e.target.value))}
+                        placeholder="R$ 0,00"
+                        inputMode="numeric"
+                        className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
                       />
                     </Field>
                   </div>
+
+                  {/* Onda 14.27 — Endereco completo. Auto-preenche via ViaCEP
+                      ao digitar CEP completo (se campos estiverem vazios). */}
+                  <p className="text-xs font-bold text-foreground mb-3 flex items-center gap-1.5">
+                    <Building2 size={13} className="text-amber-700" />
+                    Endereço
+                    <span className="text-[10px] font-normal text-muted-foreground italic">
+                      · CEP completo auto-preenche os demais campos
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-1 md:grid-cols-6 gap-3">
+                    <div className="md:col-span-2">
+                      <Field label="CEP">
+                        <input
+                          type="text"
+                          value={cep}
+                          onChange={(e) => setCep(fmtCep(e.target.value))}
+                          onBlur={handleCepBlur}
+                          placeholder="00000-000"
+                          inputMode="numeric"
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        />
+                      </Field>
+                    </div>
+                    <div className="md:col-span-4">
+                      <Field label="Endereço">
+                        <input
+                          type="text"
+                          value={endereco}
+                          onChange={(e) => setEndereco(e.target.value)}
+                          placeholder="Rua, avenida..."
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        />
+                      </Field>
+                    </div>
+                    <div className="md:col-span-1">
+                      <Field label="Número">
+                        <input
+                          type="text"
+                          value={numeroEndereco}
+                          onChange={(e) => setNumeroEndereco(e.target.value)}
+                          placeholder="123"
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        />
+                      </Field>
+                    </div>
+                    <div className="md:col-span-3">
+                      <Field label="Bairro">
+                        <input
+                          type="text"
+                          value={bairro}
+                          onChange={(e) => setBairro(e.target.value)}
+                          placeholder="Bairro"
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        />
+                      </Field>
+                    </div>
+                    <div className="md:col-span-2">
+                      <Field label="Cidade">
+                        <input
+                          type="text"
+                          value={cidade}
+                          onChange={(e) => setCidade(e.target.value)}
+                          placeholder="Cidade"
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500"
+                        />
+                      </Field>
+                    </div>
+                    <div className="md:col-span-6 md:max-w-[100px]">
+                      <Field label="UF">
+                        <input
+                          type="text"
+                          value={estado}
+                          onChange={(e) => setEstado(e.target.value.toUpperCase().slice(0, 2))}
+                          placeholder="UF"
+                          maxLength={2}
+                          className="w-full text-sm px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-amber-500/30 focus:border-amber-500 uppercase"
+                        />
+                      </Field>
+                    </div>
+                  </div>
+
                   {error && (
-                    <p className="mt-4 text-sm text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
+                    <p className="mt-3 text-xs text-red-700 bg-red-500/10 border border-red-500/30 rounded-md px-3 py-2">
                       {error}
                     </p>
                   )}
-                  <p className="mt-4 text-xs text-muted-foreground flex items-center gap-1.5">
-                    <ShieldCheck size={12} className="text-emerald-700" />
-                    Dados enviados criptografados pra consulta na Serasa · Nada é salvo no sistema
+                  <p className="mt-3 text-[11px] text-muted-foreground flex items-center gap-1.5">
+                    <ShieldCheck size={11} className="text-emerald-700" />
+                    Dados criptografados pra Serasa · Atualizam o cadastro do paciente automaticamente
                   </p>
+                  </>
+                  )}
                 </div>
               </>
             )}
@@ -3517,18 +3719,19 @@ function CreditCheckDialog({
           </div>
         </div>
 
-        {/* Footer fullwidth com botões grandes — Onda 12.8 */}
+        {/* Footer compacto — Onda 14.27 */}
         {phase === 'cadastro' && (
-          <div className="border-t border-border bg-muted/20">
-            <div className="max-w-5xl mx-auto px-6 md:px-10 py-4 flex items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground hidden md:block">
-                🔒 Conexão segura · Processado pela Serasa Crediscore
+          <div className="border-t border-border bg-muted/20 shrink-0">
+            <div className="px-5 py-3 flex items-center justify-between gap-3 flex-wrap">
+              <p className="text-[10px] text-muted-foreground hidden md:flex items-center gap-1">
+                <ShieldCheck size={11} className="text-emerald-700" />
+                Conexão segura · Serasa Crediscore
               </p>
-              <div className="flex items-center gap-3 ml-auto">
+              <div className="flex items-center gap-2 ml-auto">
                 <button
                   type="button"
                   onClick={onCancel}
-                  className="text-sm px-5 py-2.5 rounded-lg border border-border hover:bg-accent font-medium"
+                  className="text-xs px-3 py-1.5 rounded-md border border-border hover:bg-accent font-medium"
                 >
                   Cancelar
                 </button>
@@ -3536,9 +3739,9 @@ function CreditCheckDialog({
                   type="button"
                   onClick={submit}
                   disabled={!canSubmit}
-                  className="text-sm px-6 py-2.5 rounded-lg bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 font-semibold shadow-sm"
+                  className="text-xs px-4 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5 font-semibold shadow-sm"
                 >
-                  <Search size={14} />
+                  <Search size={12} />
                   Consultar aprovação
                 </button>
               </div>
