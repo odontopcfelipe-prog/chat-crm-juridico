@@ -13,9 +13,10 @@
  * Botão "Salvar e cadastrar novo" mantém o modal aberto e zera o form pra
  * cadastro em lote (ex: feirão de avaliação, pós-evento de marketing).
  */
-import { useState, FormEvent, useEffect } from 'react';
+import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
+  Camera, Trash2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -64,8 +65,46 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [patientsList, setPatientsList] = useState<PatientLite[]>([]);
   const [referredSearch, setReferredSearch] = useState('');
 
+  // Foto de perfil — escolhida agora, upload acontece DEPOIS do POST /patients
+  // (precisamos do id do paciente recém-criado pra acertar /patients/:id/avatar)
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
+  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const photoInputRef = useRef<HTMLInputElement>(null);
+
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  // Cria/limpa preview da foto. Revoga blob URL antiga pra não vazar memória.
+  const handlePickPhoto = (file: File) => {
+    if (!file.type.startsWith('image/')) {
+      showError('Apenas imagens (JPG, PNG, WebP)');
+      return;
+    }
+    if (file.size > 2 * 1024 * 1024) {
+      showError('Máximo 2 MB');
+      return;
+    }
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(file);
+    setPhotoPreview(URL.createObjectURL(file));
+  };
+
+  const handleRemovePhoto = () => {
+    if (photoPreview) URL.revokeObjectURL(photoPreview);
+    setPhotoFile(null);
+    setPhotoPreview(null);
+    if (photoInputRef.current) photoInputRef.current.value = '';
+  };
+
+  // Cleanup do blob URL ao desmontar
+  useEffect(() => {
+    return () => {
+      if (photoPreview) URL.revokeObjectURL(photoPreview);
+    };
+    // photoPreview muda quando trocamos foto — revogar a anterior já foi feito
+    // no handler. Aqui só pegamos o desmonte do modal.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Carrega lista de pacientes quando opera no modo completo
   useEffect(() => {
@@ -148,11 +187,29 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
     setLoading(true);
     try {
       const { data } = await api.post('/patients', buildPayload());
+
+      // Foto: upload best-effort após criar o paciente. Se falhar, o paciente
+      // já foi criado — avisamos o admin mas não desfazemos.
+      if (photoFile && data?.id) {
+        try {
+          const fd = new FormData();
+          fd.append('file', photoFile);
+          await api.post(`/patients/${data.id}/avatar`, fd, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (err: any) {
+          showError(
+            `Paciente cadastrado, mas a foto falhou: ${err?.response?.data?.message || 'tente reenviar pela ficha do paciente'}`,
+          );
+        }
+      }
+
       showSuccess('Paciente cadastrado');
       if (andCreateNext) {
-        // mantém modo, zera form, mantém modal aberto
+        // mantém modo, zera form + foto, mantém modal aberto
         setForm({ ...EMPTY_FORM });
         setReferredSearch('');
+        handleRemovePhoto();
       } else {
         onCreated(data);
       }
@@ -218,6 +275,56 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         </div>
 
         <form onSubmit={submit} className="p-4 space-y-4">
+          {/* ── Foto de perfil (opcional, sempre visível) ── */}
+          <div className="flex items-center gap-4">
+            <input
+              ref={photoInputRef}
+              type="file"
+              accept="image/jpeg,image/jpg,image/png,image/webp"
+              className="hidden"
+              onChange={(e) => {
+                const f = e.target.files?.[0];
+                if (f) handlePickPhoto(f);
+                e.target.value = ''; // permite re-selecionar mesmo arquivo
+              }}
+            />
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              className="relative w-20 h-20 rounded-full bg-primary/10 hover:bg-primary/15 flex items-center justify-center overflow-hidden group shrink-0 border-2 border-dashed border-primary/30"
+              title={photoPreview ? 'Trocar foto' : 'Adicionar foto'}
+            >
+              {photoPreview ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={photoPreview} alt="Foto do paciente" className="w-full h-full object-cover" />
+                  <span className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                    <Camera size={20} className="text-white" />
+                  </span>
+                </>
+              ) : (
+                <Camera size={22} className="text-primary/70" />
+              )}
+            </button>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-foreground mb-0.5">
+                {photoPreview ? 'Foto selecionada' : 'Foto do paciente'}
+              </p>
+              <p className="text-[11px] text-muted-foreground">
+                Opcional · JPG, PNG ou WebP · máx 2 MB
+              </p>
+              {photoPreview && (
+                <button
+                  type="button"
+                  onClick={handleRemovePhoto}
+                  className="mt-1.5 inline-flex items-center gap-1 text-[11px] text-destructive hover:underline font-medium"
+                >
+                  <Trash2 size={11} /> Remover
+                </button>
+              )}
+            </div>
+          </div>
+
           {/* ── Identificação (sempre visível) ── */}
           <Section icon={<User size={14} />} title="Identificação">
             <div>
