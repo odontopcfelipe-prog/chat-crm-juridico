@@ -2463,6 +2463,13 @@ model Quote {
   /// nos cards da aba Propostas seta este campo pra false.
   visible_in_proposals Boolean @default(true)
 
+  /// Onda 14.26 — Define se parcelados desta venda exigem consulta de
+  /// credito (Banco PASSOS / Serasa). Default true (rigoroso). Operador
+  /// pode setar false pra clientes VIP / conhecidos / valores baixos —
+  /// nesses casos parcelados aplicam direto sem credit-check, operador
+  /// assume risco. Metadata de UI, nao bloqueia logica de cobranca.
+  requires_credit_check Boolean @default(true)
+
   subtotal         Decimal @default(0) @db.Decimal(10, 2)
   discount_percent Decimal @default(0) @db.Decimal(5, 2)
   discount_value   Decimal @default(0) @db.Decimal(10, 2)

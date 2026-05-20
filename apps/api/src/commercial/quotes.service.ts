@@ -351,8 +351,10 @@ export class QuotesService {
     // muda dados financeiros/itens. Pode ser alterado em qualquer status.
     // Onda 14.21 — `visible_in_proposals` segue o mesmo padrao: metadata de
     // UI (esconde da aba Propostas) sem afetar dados do orcamento.
+    // Onda 14.26 — `requires_credit_check` idem: metadata de UI que decide
+    // se parcelados desta venda exigem credit-check (toggle no painel).
     // Demais campos continuam bloqueados apos envio.
-    const META_FIELDS = new Set(['priority', 'visible_in_proposals']);
+    const META_FIELDS = new Set(['priority', 'visible_in_proposals', 'requires_credit_check']);
     const onlyMetaChange =
       Object.keys(data).length > 0 &&
       Object.keys(data).every((k) => META_FIELDS.has(k));

@@ -47,6 +47,10 @@ export class UpdateQuoteDto {
   /// Onda 14.21 — Visibilidade na aba Propostas. false esconde da aba
   /// Propostas mas mantem em Avaliacao/Orcamentos/Financeiro. Default true.
   @IsOptional() @IsBoolean() visible_in_proposals?: boolean;
+  /// Onda 14.26 — Se parcelados desta venda exigem credit-check. Default
+  /// true. Operador seta false pra dispensar consulta em vendas VIP / valor
+  /// baixo. Metadata de UI, igual visible_in_proposals.
+  @IsOptional() @IsBoolean() requires_credit_check?: boolean;
 }
 
 export class RejectQuoteDto {

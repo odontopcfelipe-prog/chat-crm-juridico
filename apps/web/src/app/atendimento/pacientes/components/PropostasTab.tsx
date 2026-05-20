@@ -91,6 +91,8 @@ interface QuoteDetailLite {
   valid_until: string | null;
   notes: string | null;
   items: QuoteItemDetail[];
+  /** Onda 14.26 — toggle "exigir credit-check" desta venda. Default true. */
+  requires_credit_check?: boolean;
 }
 
 /** Onda 10 — parseia linhas [CONTRAPROPOSTA YYYY-MM-DD HH:mm] do campo notes */
@@ -611,6 +613,25 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     }
   }, [load]);
 
+  // Onda 14.26 — Toggle "Exige consulta de credito" no card boleto da proposta.
+  // PATCH /quotes/:id { requires_credit_check }. Optimistic update no
+  // selectedDetail pra resposta imediata.
+  const toggleRequiresCreditCheck = useCallback(async (quoteId: string, value: boolean) => {
+    // Optimistic local
+    setSelectedDetail((prev) => prev && prev.id === quoteId ? { ...prev, requires_credit_check: value } : prev);
+    try {
+      await api.patch(`/quotes/${quoteId}`, { requires_credit_check: value });
+      showSuccess(value ? 'Consulta de crédito obrigatória ativada' : 'Consulta de crédito dispensada');
+      // Refetch em background pra garantir consistencia
+      load();
+    } catch (err: unknown) {
+      // Reverte
+      await load();
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao atualizar');
+    }
+  }, [load]);
+
   // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
   // Seta visible_in_proposals=false: a quote some daqui mas continua intacta
   // nas abas Avaliacao, Orcamentos e Financeiro. Optimistic update pra resposta
@@ -1093,6 +1114,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           }}
           onAddBonus={() => setBonusOpen(true)}
           onApproveAndBill={approveAndBill}
+          // Onda 14.26 — toggle "exige consulta de credito" no card boleto
+          onToggleRequiresCreditCheck={(value) => toggleRequiresCreditCheck(selectedId!, value)}
         />
       )}
 
@@ -1502,6 +1525,7 @@ function PropostaPainel({
   onOpenCreditCheckForParcelas,
   onAddBonus,
   onApproveAndBill,
+  onToggleRequiresCreditCheck,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -1524,6 +1548,9 @@ function PropostaPainel({
   onAddBonus: () => void;
   /** Onda 14.5 — abre confirm + chama POST /quotes/:id/approve-and-bill */
   onApproveAndBill: () => void;
+  /** Onda 14.26 — toggle "exige consulta de credito" no card de boleto.
+   *  Quando false, parcelados aplicam direto sem credit-check. */
+  onToggleRequiresCreditCheck?: (value: boolean) => void;
 }) {
   if (loading) {
     return (
@@ -1753,13 +1780,17 @@ function PropostaPainel({
       </div>
 
       {/* Onda 11.8 — Boleto parcelado vira card reclinavel (nao exposto por padrao).
-          Operador abre so quando quer propor essa alternativa ao paciente. */}
+          Operador abre so quando quer propor essa alternativa ao paciente.
+          Onda 14.26 — agora respeita requires_credit_check da venda: quando
+          false, parcelados aplicam direto sem credit-check. */}
       <CardBoletoParcelado
         options={options.parcelado}
         total={total}
         activePaymentKey={activePaymentKey}
         onChangePayment={onChangePayment}
         onOpenCreditCheckForParcelas={onOpenCreditCheckForParcelas}
+        requiresCreditCheck={detail.requires_credit_check !== false}
+        onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
       />
 
       {/* Resumo "voce esta oferecendo" */}
@@ -2094,6 +2125,8 @@ function CardBoletoParcelado({
   activePaymentKey,
   onChangePayment,
   onOpenCreditCheckForParcelas,
+  requiresCreditCheck,
+  onToggleRequiresCreditCheck,
 }: {
   options: PaymentOption[];
   total: number;
@@ -2101,6 +2134,11 @@ function CardBoletoParcelado({
   onChangePayment: (key: string) => void;
   /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas (>= 2x) */
   onOpenCreditCheckForParcelas: (installments: number) => void;
+  /** Onda 14.26 — quando true (default), parcelados >= 1x abrem credit-check.
+   *  Quando false (cliente VIP / valor baixo), aplicam direto sem consulta. */
+  requiresCreditCheck: boolean;
+  /** Onda 14.26 — toggle persiste via PATCH /quotes/:id no parent. */
+  onToggleRequiresCreditCheck?: (value: boolean) => void;
 }) {
   const [open, setOpen] = useState(false);
   const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
@@ -2112,8 +2150,10 @@ function CardBoletoParcelado({
     setOpen(false);
     // Onda 14.25 — Boleto à vista (key=boleto-avista): aplica direto sem
     // credit-check (pagamento imediato, 10% desconto, sem risco).
-    // Demais opcoes (parcelado-Nx): exige consulta de credito.
-    if (opt.key === 'boleto-avista') {
+    // Onda 14.26 — Quando requiresCreditCheck=false (toggle off pelo
+    // operador), TODAS as opcoes aplicam direto sem consulta. Util pra
+    // clientes VIP / valor baixo. Operador assume o risco.
+    if (opt.key === 'boleto-avista' || !requiresCreditCheck) {
       onChangePayment(opt.key);
     } else {
       onOpenCreditCheckForParcelas(opt.installments);
@@ -2122,6 +2162,32 @@ function CardBoletoParcelado({
 
   return (
     <div className="mb-3">
+      {/* Onda 14.26 — Toggle "Exigir consulta de credito ao parcelar".
+          Quando off, parcelados aplicam direto sem credit-check (operador
+          assume risco — util pra cliente VIP / valor baixo). */}
+      {onToggleRequiresCreditCheck && (
+        <div className="mb-1.5 flex items-center justify-between gap-2 px-1">
+          <label className="text-[11px] font-medium text-muted-foreground flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={requiresCreditCheck}
+              onChange={(e) => onToggleRequiresCreditCheck(e.target.checked)}
+              className="w-3.5 h-3.5 rounded border-border accent-amber-600 cursor-pointer"
+            />
+            <span>
+              Exigir consulta de crédito ao parcelar
+              {!requiresCreditCheck && (
+                <span className="text-amber-700 italic"> · operador assume risco</span>
+              )}
+            </span>
+          </label>
+          {!requiresCreditCheck && (
+            <span className="text-[10px] text-amber-700 font-semibold px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 shrink-0">
+              consulta dispensada
+            </span>
+          )}
+        </div>
+      )}
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -2180,6 +2246,7 @@ function CardBoletoParcelado({
           activePaymentKey={activePaymentKey}
           onSelect={handleSelectInstallment}
           onClose={() => setOpen(false)}
+          requiresCreditCheck={requiresCreditCheck}
         />
       )}
     </div>
@@ -2195,6 +2262,7 @@ function BoletoInstallmentsModal({
   activePaymentKey,
   onSelect,
   onClose,
+  requiresCreditCheck,
 }: {
   options: PaymentOption[];
   total: number;
@@ -2203,6 +2271,10 @@ function BoletoInstallmentsModal({
    *  (key especifica, sem credit-check) das demais. */
   onSelect: (opt: PaymentOption) => void;
   onClose: () => void;
+  /** Onda 14.26 — quando false, exibe "consulta dispensada" em vez de
+   *  "exige consulta" nas linhas parcelados. UI apenas — logica de
+   *  application esta no handleSelectInstallment do CardBoletoParcelado. */
+  requiresCreditCheck: boolean;
 }) {
   // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais
   // (1x..24x parcelado). A primeira fica num bloco verde grande acima da
@@ -2385,9 +2457,18 @@ function BoletoInstallmentsModal({
                     ) : (
                       <span className="text-emerald-700 text-xs font-medium">sem juros</span>
                     )}
-                    <span className="block text-[10px] text-amber-700 italic mt-0.5">
-                      exige consulta de crédito ⓘ
-                    </span>
+                    {/* Onda 14.26 — texto adapta conforme requires_credit_check
+                        da venda: padrao mostra "exige consulta", quando dispensado
+                        mostra "consulta dispensada" em verde. */}
+                    {requiresCreditCheck ? (
+                      <span className="block text-[10px] text-amber-700 italic mt-0.5">
+                        exige consulta de crédito ⓘ
+                      </span>
+                    ) : (
+                      <span className="block text-[10px] text-emerald-700 italic mt-0.5">
+                        consulta dispensada · aplica direto
+                      </span>
+                    )}
                   </span>
                   <span className="text-sm tabular-nums text-right text-muted-foreground">
                     R$ {fmtBRL(c.finalValue)}
