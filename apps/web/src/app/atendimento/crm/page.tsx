@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, Stethoscope, DollarSign } from 'lucide-react';
+import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, DollarSign } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
@@ -1737,25 +1737,14 @@ export default function CrmPage() {
             </p>
           </div>
 
-          {/* Onda 14.41 — Botoes Pos-Avaliacao + Propostas centralizados e
-              destacados. Ordem cronologica do funil: lead pos-consulta -> com
-              orcamento em negociacao. Reaproveitam viewModes 'pos-avaliacao'
-              e 'fechamento' (ClosingKanban) que antes eram so icones minusculos.
-              Click toggle: ja ativo -> volta pro kanban. Cores distintas (sky
-              vs emerald) pra diferenciar as 2 fases do funil pos-captacao. */}
+          {/* Onda 14.41 — Botao "CRM Fechamentos" centralizado no header.
+              Onda 14.49 — Botao "Pos-Avaliacao" (sky) foi removido do header
+              a pedido do operador (redundante com a coluna "Avaliacao
+              Concluida" do CRM Fechamentos que agora cobre o mesmo escopo).
+              ViewMode 'pos-avaliacao' e o componente PostAvaliacaoView
+              continuam existindo no codigo — sem acesso pelo UI, mas
+              preservados pra retrocompat de deep-links. */}
           <div className="flex-1 flex justify-center items-center gap-2">
-            <button
-              onClick={() => setViewMode(viewMode === 'pos-avaliacao' ? 'kanban' : 'pos-avaliacao')}
-              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
-                viewMode === 'pos-avaliacao'
-                  ? 'bg-sky-500 text-white border-sky-600 shadow-sky-500/30'
-                  : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:shadow-md dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
-              }`}
-              title="Pos-Avaliacao — leads que ja fizeram a consulta"
-            >
-              <Stethoscope size={16} strokeWidth={2.5} />
-              <span>Pós-Avaliação</span>
-            </button>
             <button
               onClick={() => setViewMode(viewMode === 'fechamento' ? 'kanban' : 'fechamento')}
               className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
