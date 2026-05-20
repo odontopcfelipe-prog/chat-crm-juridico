@@ -210,9 +210,18 @@ export class EvolutionService implements OnApplicationBootstrap {
       }
       // ── Fim Admin Command Bot ──────────────────────────────────────────────
       const externalMessageId = key.id as string;
+      // Onda 14.43 — Extrai texto/caption de TODOS os tipos de mensagem.
+      // Antes ignorava captions de documentMessage/imageMessage/videoMessage,
+      // entao mensagens com PDF anexo + texto perdiam o texto no CRM (so o
+      // anexo aparecia, sem o caption). Agora preserva o caption pra ficar
+      // igual ao que o paciente ve no WhatsApp.
       const messageContent =
         (data.message?.conversation as string) ||
         (data.message?.extendedTextMessage?.text as string) ||
+        (data.message?.documentMessage?.caption as string) ||
+        (data.message?.imageMessage?.caption as string) ||
+        (data.message?.videoMessage?.caption as string) ||
+        (data.message?.audioMessage?.caption as string) ||
         (data.message?.listResponseMessage?.singleSelectReply?.selectedRowId as string) ||
         (data.message?.listResponseMessage?.title as string) ||
         (data.message?.buttonsResponseMessage?.selectedDisplayText as string) ||
