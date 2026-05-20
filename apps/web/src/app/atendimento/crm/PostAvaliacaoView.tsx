@@ -10,9 +10,10 @@
  * Diferente do Kanban (funil pre-consulta), esse e um "pos-funil" focado
  * em decisao: paciente veio, foi avaliado, e agora?
  *
- * 4 buckets visuais:
- *   - 🟡 Aguardando decisao  (sem orcamento + sem proximo agendamento)
- *   - 🟠 Com orcamento aberto (DRAFT / SENT)
+ * 4 buckets visuais (Onda 14.47 — alinhados com ClosingKanban):
+ *   - 🟡 Avaliação Concluída  (sem quote OU quote em DRAFT — paciente
+ *                              ainda nao recebeu a proposta)
+ *   - 🟠 Orçamento Enviado    (quote SENT — paciente recebeu, aguarda aceite)
  *   - 🟢 Em tratamento        (Patient + tem evento futuro AGENDADO/CONFIRMADO)
  *   - ❌ Perdido              (stage com is_lost = true)
  *
@@ -66,8 +67,10 @@ interface Props {
 const BUCKETS = [
   {
     id: 'aguardando' as const,
-    label: 'Aguardando decisão',
-    description: 'Veio, foi avaliado, ainda sem orçamento ou próximo agendamento.',
+    // Onda 14.47 — labels alinhados com ClosingKanban: paciente ainda nao
+    // recebeu o orcamento (sem quote OU quote em DRAFT/rascunho interno).
+    label: 'Avaliação Concluída',
+    description: 'Paciente ainda não recebeu o orçamento (sem proposta ou rascunho interno).',
     icon: AlertCircle,
     color: 'text-amber-600',
     bg: 'bg-amber-50 dark:bg-amber-950/20',
@@ -76,8 +79,11 @@ const BUCKETS = [
   },
   {
     id: 'com-orcamento' as const,
-    label: 'Com orçamento aberto',
-    description: 'Já tem proposta enviada / em rascunho. Aguarda aceite.',
+    // Onda 14.47 — Quote SENT: paciente recebeu a proposta (via WhatsApp /
+    // portal). Aguarda aceite. DRAFT NAO entra aqui — esse fica em
+    // "Avaliação Concluída" ate o operador clicar "Enviar pro paciente".
+    label: 'Orçamento Enviado',
+    description: 'Paciente já recebeu a proposta. Aguarda aceite.',
     icon: FileText,
     color: 'text-orange-600',
     bg: 'bg-orange-50 dark:bg-orange-950/20',
