@@ -178,7 +178,7 @@ export function PacientesClinicaKanban() {
           <div>
             <h2 className="text-base font-bold text-foreground">Pacientes Clínica</h2>
             <p className="text-[11px] text-muted-foreground">
-              Funil por procedimento — pacientes em tratamento ativo
+              Funil por procedimento — pacientes com primeiro pagamento confirmado
             </p>
           </div>
         </div>
@@ -208,9 +208,9 @@ export function PacientesClinicaKanban() {
       {totalPacientes === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12 text-muted-foreground text-sm">
           <Users size={32} className="mb-3 opacity-40" />
-          <p>Nenhum paciente em tratamento ativo.</p>
+          <p>Nenhum paciente com pagamento confirmado.</p>
           <p className="text-xs mt-1 opacity-70">
-            Quando uma proposta for aceita e virar plano de tratamento, o paciente aparece aqui.
+            Paciente aparece aqui assim que a primeira parcela cair em conta (status PAGA ou PARCIAL).
           </p>
         </div>
       ) : (

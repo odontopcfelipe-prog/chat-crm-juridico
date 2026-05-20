@@ -681,14 +681,26 @@ export class PatientsService {
   /**
    * Onda 14.50 — Funil de Pacientes da Clínica.
    *
-   * Retorna pacientes que ja entraram em tratamento (TreatmentPlan ACTIVE ou
-   * PENDING_SIGNATURE) anotados com:
+   * REGRA DE ENTRADA (Onda 14.51): paciente so entra no funil quando o
+   * PRIMEIRO PAGAMENTO cai em conta. Critério: pelo menos 1 Installment
+   * com status 'PAGA' OU 'PARCIAL' (parcial = dinheiro real entrou,
+   * mesmo que o valor total da parcela ainda nao tenha sido coberto).
+   * Antes de pagar a primeira parcela o paciente ainda eh um "Lead/quote
+   * aceita" sem compromisso financeiro consumado — fica no CRM Fechamentos.
+   * Apos o pagamento, ele formalmente "vira paciente da clinica".
+   *
+   * Tambem exige TreatmentPlan ACTIVE ou PENDING_SIGNATURE pra descartar
+   * planos cancelados (paciente pagou parcela, plano foi cancelado depois,
+   * nao faz sentido aparecer no funil).
+   *
+   * Retorna patients anotados com:
    *  - aguardandoInicio: true quando nenhum item esta SCHEDULED/IN_PROGRESS
-   *    (paciente assinou mas ainda nao tem proximo procedimento agendado)
-   *  - procedures[]: lista deduplicada de procedimentos ativos (SCHEDULED ou
-   *    IN_PROGRESS). Frontend usa essa lista pra renderizar o card 1x em
-   *    cada coluna de procedimento.
-   *  - nextAppointment: data do proximo agendamento (entre os items ativos)
+   *    (paciente pagou + assinou mas ainda nao tem proximo procedimento
+   *    agendado — operador precisa marcar primeiro procedimento)
+   *  - procedures[]: lista deduplicada de procedimentos ativos (SCHEDULED
+   *    ou IN_PROGRESS). Frontend usa essa lista pra renderizar o card 1x
+   *    em cada coluna de procedimento.
+   *  - nextAppointment: data do proximo agendamento (entre items ativos)
    *
    * Front filtra:
    *   coluna "Aguardando Inicio" → patients.filter(p => p.funil.aguardandoInicio)
@@ -703,6 +715,13 @@ export class PatientsService {
       where: {
         tenant_id: tenantId,
         status: 'ACTIVE',
+        // Onda 14.51 — Gate financeiro: primeira parcela DEVE ter caido em conta.
+        // PAGA = parcela 100% quitada; PARCIAL = parte do valor recebida (ainda
+        // sinaliza dinheiro real entrou). ABERTA/ATRASADA/CANCELADA nao entram.
+        installments: {
+          some: { status: { in: ['PAGA', 'PARCIAL'] } },
+        },
+        // Plano ainda ativo (paciente nao cancelou tudo depois de pagar)
         treatment_plans: {
           some: { status: { in: ['ACTIVE', 'PENDING_SIGNATURE'] } },
         },
