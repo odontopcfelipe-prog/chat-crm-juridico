@@ -1700,9 +1700,12 @@ export default function CrmPage() {
     <div className="flex h-screen bg-background font-sans antialiased text-foreground overflow-hidden">
       <main className="flex-1 flex flex-col overflow-hidden">
 
-        {/* Header */}
+        {/* Header — Onda 14.41: layout 3 colunas (esquerda titulo / centro
+            botao Propostas destacado / direita filtros) pra dar destaque ao
+            funil de Fechamento (ClosingKanban) que antes ficava enfiado como
+            icone $ minusculo no grupo de view-toggles. */}
         <header className="px-6 py-5 border-b border-border shrink-0 flex items-center gap-4">
-          <div className="flex-1">
+          <div className="shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-xl font-bold text-foreground tracking-tight">CRM Pipeline</h1>
               {pipelines.length > 0 && (
@@ -1732,6 +1735,24 @@ export default function CrmPage() {
                 </button>
               )}
             </p>
+          </div>
+
+          {/* Onda 14.41 — Botao Propostas centralizado e destacado. Reaproveita
+              o viewMode='fechamento' (ClosingKanban) que antes era acessivel so
+              via icone $ minusculo. Click toggle: ja ativo -> volta pro kanban. */}
+          <div className="flex-1 flex justify-center">
+            <button
+              onClick={() => setViewMode(viewMode === 'fechamento' ? 'kanban' : 'fechamento')}
+              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
+                viewMode === 'fechamento'
+                  ? 'bg-emerald-500 text-white border-emerald-600 shadow-emerald-500/30'
+                  : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
+              }`}
+              title="Funil de propostas — orcamentos pos-avaliacao aguardando fechamento"
+            >
+              <DollarSign size={16} strokeWidth={2.5} />
+              <span>Propostas</span>
+            </button>
           </div>
 
           {/* Filtros */}
@@ -1859,13 +1880,8 @@ export default function CrmPage() {
               >
                 <Stethoscope size={14} />
               </button>
-              <button
-                onClick={() => setViewMode('fechamento')}
-                className={`p-1.5 transition-all ${viewMode === 'fechamento' ? 'bg-emerald-500/10 text-emerald-600' : 'text-muted-foreground hover:bg-accent'}`}
-                title="CRM de Fechamento — Kanban pós-consulta, auto-populado ao concluir avaliação"
-              >
-                <DollarSign size={14} />
-              </button>
+              {/* Onda 14.41 — 4o toggle (DollarSign 'fechamento') foi promovido
+                  pra botao destacado "Propostas" centralizado no header. */}
             </div>
 
             {/* Exportar CSV */}
