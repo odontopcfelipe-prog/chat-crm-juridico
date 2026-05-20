@@ -1498,19 +1498,23 @@ function PropostaCard({
         </div>
       )}
 
-      {/* Badge "atual" — quote enviada esta em negociacao */}
+      {/* Onda 14.50 — Badge "atual" virou banner no topo do card.
+          Antes era pill em -top-2 -right-2 (metade pra fora, era cortado).
+          Agora segue o mesmo padrao do banner "AGUARDANDO PACIENTE" (chosen). */}
       {isSent && !selected && !isChosen && (
-        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm">
-          atual
-        </span>
+        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-orange-500 text-white text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+          ATUAL
+        </div>
       )}
 
-      {/* Onda 14.7 — Badge "ACEITO" quando quote foi aprovado */}
+      {/* Onda 14.7 — Badge "ACEITO" quando quote foi aprovado.
+          Onda 14.50 — Virou banner no topo do card (mesmo padrao de chosen).
+          Antes era pill em -top-2 -right-2 (metade pra fora, era cortado). */}
       {isAccepted && !isChosen && (
-        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm flex items-center gap-1">
-          <Check size={9} strokeWidth={3} />
+        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-emerald-600 text-white text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+          <Check size={10} strokeWidth={3} />
           ACEITO
-        </span>
+        </div>
       )}
 
       {/* Onda 11 — Badge "N propostas" quando ha contrapropostas registradas */}
