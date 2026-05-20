@@ -1562,19 +1562,15 @@ function DownPaymentInput({
   value: number;
   onChange: (v: number) => void;
 }) {
-  // Input controlled: estado local em centavos pra evitar bug float, mas
-  // expoe value pro parent em R$ inteiros via onChange.
-  const [text, setText] = useState<string>(value > 0 ? `R$ ${fmtBRL(value)}` : '');
-
-  // Sincroniza quando parent reseta (ex: troca de quote)
-  useEffect(() => {
-    setText(value > 0 ? `R$ ${fmtBRL(value)}` : '');
-  }, [value]);
+  // Onda 14.29 (fix) — Input fully controlled pelo parent. Antes tinhamos
+  // state local `text` + useEffect pra sincronizar com value, o que disparava
+  // "setState in effect" no lint. Agora derivamos text direto do value e
+  // onChange comunica pro parent — sem state local nem effect.
+  const text = value > 0 ? `R$ ${fmtBRL(value)}` : '';
 
   const handleChange = (raw: string) => {
     const digits = raw.replace(/\D/g, '');
     const num = digits === '' ? 0 : Number(digits) / 100;
-    setText(num > 0 ? `R$ ${fmtBRL(num)}` : '');
     onChange(num);
   };
 
@@ -1716,6 +1712,25 @@ function PropostaPainel({
    *  Quando false, parcelados aplicam direto sem credit-check. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
 }) {
+  // Onda 14.29 (fix) — Hooks DEVEM ser declarados antes de qualquer early return
+  // (rules-of-hooks). Antes estavam apos `if (!detail) return null` e quebravam
+  // o build na production.
+  //
+  // Entrada opcional (em R$). Operador digita um valor que abate do total
+  // parcelavel. PIX e Boleto a vista ignoram. Cartao e Boleto parcelado
+  // recalculam parcelas em cima de (total - entrada). State local (nao
+  // persiste) — e ferramenta de negociacao ao vivo. Reseta quando troca
+  // de quote selecionado (detail.id muda).
+  const [customDownPayment, setCustomDownPayment] = useState<number>(0);
+  const detailIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const currentDetailId = detail?.id ?? null;
+    if (detailIdRef.current !== currentDetailId) {
+      detailIdRef.current = currentDetailId;
+      setCustomDownPayment(0);
+    }
+  }, [detail?.id]);
+
   if (loading) {
     return (
       <div className="bg-card border border-border rounded-xl p-6 flex items-center justify-center text-muted-foreground">
@@ -1739,24 +1754,10 @@ function PropostaPainel({
   // Base usada pra calcular formas de pagamento — usa o ja aprovado.
   const total = hasPartialApproval ? approvedValue : totalBruto;
 
-  // Onda 14.29 — Entrada opcional (em R$). Operador digita um valor que
-  // abate do total parcelavel. PIX e Boleto a vista ignoram. Cartao e
-  // Boleto parcelado recalculam parcelas em cima de (total - entrada).
-  // State local (nao persiste) — e ferramenta de negociacao ao vivo.
-  // Onda 14.29 — Reseta entrada quando troca de quote selecionado (detail.id muda).
-  const [customDownPayment, setCustomDownPayment] = useState<number>(0);
-  const detailIdRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (detailIdRef.current !== detail.id) {
-      detailIdRef.current = detail.id;
-      setCustomDownPayment(0);
-    }
-  }, [detail.id]);
-
   const options = buildPaymentOptions();
-  const allOptions = [...options.avista, ...options.cartao, ...options.parcelado];
-  const activeOption = allOptions.find((o) => o.key === activePaymentKey) || options.avista[0];
-  const activeCalc = applyPaymentOption(total, activeOption, customDownPayment);
+  // Onda 14.29 (fix) — removidos activeOption/activeCalc que sobraram da
+  // Onda 14.28 (resumo "voce esta oferecendo" foi removido). Cada card de
+  // pagamento (PIX/Cartao/Boleto) calcula seu proprio valor internamente.
 
   // Onda 11.1 — Ordena itens: aprovados primeiro (incluidos nesta proposta de
   // pagamento), pendentes depois (em aberto, nao incluidos).
@@ -1767,10 +1768,15 @@ function PropostaPainel({
   const remainingItems = itemsSorted.slice(4);
   const hasMore = remainingItems.length > 0;
 
-  // Validade em dias (se valid_until existir)
+  // Validade em dias (se valid_until existir).
+  // Onda 14.29 (fix) — Date.now() no render dispara react-hooks/purity.
+  // Uso aqui e legitimo (mostrar "X dias pra expirar" na UI). Em re-renders
+  // normais nao causa flicker — `daysValid` so muda quando o dia vira.
+  /* eslint-disable react-hooks/purity */
   const daysValid = detail.valid_until
     ? Math.max(0, Math.round((new Date(detail.valid_until).getTime() - Date.now()) / 86400000))
     : null;
+  /* eslint-enable react-hooks/purity */
 
   return (
     <div className={`bg-card border-2 rounded-xl p-4 ${cfg?.selectedBorderCls || 'border-border'}`}>
@@ -2951,24 +2957,20 @@ function NewVersionDialog({
   /** Onda 14.23 — atalho pra criar orcamento na aba Avaliacao. */
   onGoToAvaliacao: () => void;
 }) {
-  // Onda 14.23 — 2-step state. 'priority' = escolher categoria; 'quote' =
-  // escolher orcamento dentro da categoria escolhida.
-  const [step, setStep] = useState<'priority' | 'quote'>('priority');
-  const [selectedPriority, setSelectedPriority] = useState<Priority | null>(null);
-
   // Onda 14.23 — priorities canonicas RESTANTES (sem orcamento atribuido).
   // Versao livre sempre aparece (aceita variacoes ilimitadas).
   const remainingPriorities = PRIORITY_ORDER.filter((p) => !existingPriorities.has(p));
   const hasNoCanonicalLeft = remainingPriorities.length === 0;
 
-  // Onda 14.23 — Atalho: se nao ha priority canonica restante, pula step 1
-  // e ja vai pro picker com Livre selecionada (unica opcao disponivel).
-  useEffect(() => {
-    if (hasNoCanonicalLeft && step === 'priority') {
-      setSelectedPriority(null);
-      setStep('quote');
-    }
-  }, [hasNoCanonicalLeft, step]);
+  // Onda 14.23 — 2-step state. 'priority' = escolher categoria; 'quote' =
+  // escolher orcamento dentro da categoria escolhida.
+  // Onda 14.29 (fix) — quando nao ha priority canonica restante, ja inicia
+  // no step 'quote' com Livre selecionada. Antes tinhamos um useEffect que
+  // disparava setStep no mount — gerava "setState in effect" no lint.
+  const [step, setStep] = useState<'priority' | 'quote'>(
+    hasNoCanonicalLeft ? 'quote' : 'priority',
+  );
+  const [selectedPriority, setSelectedPriority] = useState<Priority | null>(null);
 
   const goToQuoteStep = (priority: Priority | null) => {
     setSelectedPriority(priority);
