@@ -1466,16 +1466,17 @@ function PropostaCard({
       data-dimmed={dimmed ? '1' : '0'}
       className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full w-full ${
         isChosen
-          ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/30'
+          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30'
           : selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
       } ${dimmed ? 'opacity-50 grayscale hover:opacity-100 hover:grayscale-0' : ''}`}
     >
       {/* Onda 14.33 — Badge "AGUARDANDO PACIENTE" — proposta escolhida.
-          Tem precedencia sobre "atual" / "ACEITO" (raro mas pra clarificar). */}
+          Tem precedencia sobre "atual" / "ACEITO" (raro mas pra clarificar).
+          Onda 14.37 — amarelo solido (antes era azul). */}
       {isChosen && (
-        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-600 text-white shadow-sm flex items-center gap-1">
+        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500 text-amber-950 shadow-sm flex items-center gap-1">
           <Clock size={9} strokeWidth={3} />
           AGUARDANDO PACIENTE
         </span>
@@ -2534,7 +2535,7 @@ function PropostaPainel({
           <button
             type="button"
             onClick={onChooseAsProposal}
-            className="text-xs px-3 py-2 rounded-lg border border-sky-500/50 bg-sky-500/5 text-sky-800 hover:bg-sky-500/15 flex items-center gap-1.5 ml-auto"
+            className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
             title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Útil enquanto paciente decide."
           >
             <Clock size={12} />
@@ -2544,7 +2545,7 @@ function PropostaPainel({
           <button
             type="button"
             onClick={onUnchooseAsProposal}
-            className="text-xs px-3 py-2 rounded-lg border border-sky-600 bg-sky-100 text-sky-900 hover:bg-sky-200 flex items-center gap-1.5 ml-auto font-medium"
+            className="text-xs px-3 py-2 rounded-lg border border-amber-600 bg-amber-500 text-amber-950 hover:bg-amber-600 flex items-center gap-1.5 ml-auto font-semibold"
             title="Desmarcar como escolhida (volta ao estado neutro)"
           >
             <Check size={12} />
