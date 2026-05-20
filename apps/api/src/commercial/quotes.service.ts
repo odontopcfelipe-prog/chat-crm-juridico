@@ -1736,7 +1736,7 @@ export class QuotesService {
           status: 'SENT',
         },
         include: {
-          patient: { select: { id: true, name: true, phone: true } },
+          patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
           items: {
             select: {
               id: true,

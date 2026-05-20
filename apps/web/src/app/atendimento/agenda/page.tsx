@@ -26,6 +26,7 @@ import {
   ExternalLink, Ban, Loader2,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { useSocket } from '@/lib/SocketProvider';
 import { showError, showSuccess } from '@/lib/toast';
 import { swallow } from '@/lib/errors';
@@ -2234,7 +2235,12 @@ export default function AgendaPage() {
                     title="Abrir ficha do paciente"
                     className="inline-flex items-center gap-2 text-lg font-bold text-emerald-600 hover:text-emerald-700 hover:underline group min-w-0 max-w-full"
                   >
-                    <User size={16} className="shrink-0" />
+                    <PatientAvatar
+                      patientId={editingEvent.patient.id}
+                      patientName={editingEvent.patient.name || 'Sem nome'}
+                      avatarUrl={(editingEvent.patient as any).avatar_url ?? null}
+                      size={28}
+                    />
                     <span className="truncate">{editingEvent.patient.name || 'Paciente sem nome'}</span>
                     <ExternalLink size={14} className="shrink-0 opacity-60 group-hover:opacity-100" />
                   </button>

@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface WaitlistEntry {
   id: string;
@@ -184,6 +185,13 @@ export default function WaitlistPage() {
                 onClick={() => setOpenEntryId(e.id)}
               >
                 <div className="flex items-start justify-between gap-4">
+                  <PatientAvatar
+                    patientId={e.lead?.id ?? e.id}
+                    patientName={e.lead?.name ?? 'Sem nome'}
+                    avatarUrl={null /* Lead nao tem avatar cadastrado — mostra iniciais coloridas */}
+                    size={36}
+                    className="mt-0.5"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       {e.status === 'AGUARDANDO' && (

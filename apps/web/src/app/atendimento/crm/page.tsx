@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { User, Users, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, DollarSign } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { formatPhone } from '@/lib/utils';
 import { CRM_STAGES, normalizeStage, findStage } from '@/lib/crmStages';
 import { STAGE_TEMPLATES } from '@/lib/crmTemplates';
@@ -304,13 +305,20 @@ function LeadCard({
           }
         </button>
 
-        <div className="w-8 h-8 rounded-full bg-accent border border-border flex items-center justify-center overflow-hidden shrink-0 shadow-sm mt-0.5">
-          {lead.profile_picture_url ? (
+        {lead.profile_picture_url ? (
+          <div className="w-8 h-8 rounded-full bg-accent border border-border flex items-center justify-center overflow-hidden shrink-0 shadow-sm mt-0.5">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={lead.profile_picture_url} alt={lead.name || ''} className="w-full h-full object-cover" loading="lazy" />
-          ) : (
-            <User size={13} className="text-muted-foreground opacity-60" />
-          )}
-        </div>
+          </div>
+        ) : (
+          <PatientAvatar
+            patientId={lead.id}
+            patientName={lead.name || 'Sem nome'}
+            avatarUrl={null}
+            size={32}
+            className="mt-0.5 border border-border shadow-sm"
+          />
+        )}
 
         <div className="flex-1 min-w-0">
           <h4 className="text-[13px] font-semibold text-foreground leading-tight truncate">

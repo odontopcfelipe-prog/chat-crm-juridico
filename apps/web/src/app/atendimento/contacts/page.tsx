@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { formatPhone } from '@/lib/utils';
 import { showError, showSuccess } from '@/lib/toast';
 import NewContactModal from './components/NewContactModal';
@@ -664,16 +665,23 @@ export default function ContactsPage() {
                         </td>
                         <td className="px-4 py-5">
                           <div className="flex items-center gap-4">
-                            <div
-                              className={`w-9 h-9 rounded-full bg-primary/10 border border-border flex items-center justify-center overflow-hidden shrink-0 shadow-sm ${contact.profile_picture_url ? 'cursor-pointer hover:opacity-80 transition-opacity' : ''}`}
-                              onClick={contact.profile_picture_url ? (e) => { e.stopPropagation(); setLightbox(contact.profile_picture_url!); } : undefined}
-                            >
-                              {contact.profile_picture_url ? (
+                            {contact.profile_picture_url ? (
+                              <div
+                                className="w-9 h-9 rounded-full bg-primary/10 border border-border flex items-center justify-center overflow-hidden shrink-0 shadow-sm cursor-pointer hover:opacity-80 transition-opacity"
+                                onClick={(e) => { e.stopPropagation(); setLightbox(contact.profile_picture_url!); }}
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img src={contact.profile_picture_url} alt={contact.name} className="w-full h-full object-cover" loading="lazy" />
-                              ) : (
-                                <span className="text-primary font-bold text-xs">{contact.name.charAt(0).toUpperCase()}</span>
-                              )}
-                            </div>
+                              </div>
+                            ) : (
+                              <PatientAvatar
+                                patientId={contact.id}
+                                patientName={contact.name}
+                                avatarUrl={null}
+                                size={36}
+                                className="border border-border shadow-sm"
+                              />
+                            )}
                             <div className="flex flex-col gap-1">
                               <span
                                 className="text-[14px] font-semibold text-foreground tracking-tight cursor-pointer hover:text-primary transition-colors"

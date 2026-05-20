@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface QuoteCard {
   id: string;
@@ -45,7 +46,7 @@ interface QuoteCard {
   whatsapp_read_at: string | null;
   portal_view_count: number;
   portal_last_viewed_at: string | null;
-  patient: { id: string; name: string | null; phone: string | null };
+  patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
   created_by: { id: string; name: string } | null;
   main_procedure: string;
   items_count: number;
@@ -360,16 +361,24 @@ function QuoteCardItem({
 
   return (
     <div className="border rounded-md p-2.5 bg-card hover:shadow-sm transition-shadow space-y-2">
-      {/* Linha 1: Nome + valor */}
+      {/* Linha 1: Avatar + Nome + valor */}
       <div className="flex items-start justify-between gap-2">
         <button
           onClick={onView}
-          className="font-medium text-sm text-left hover:text-blue-600 truncate flex-1 min-w-0"
+          className="flex items-center gap-2 hover:text-blue-600 flex-1 min-w-0 text-left"
           title={q.patient.name || 'Sem nome'}
         >
-          {q.patient.name || 'Sem nome'}
+          <PatientAvatar
+            patientId={q.patient.id}
+            patientName={q.patient.name || 'Sem nome'}
+            avatarUrl={q.patient.avatar_url}
+            size={28}
+          />
+          <span className="font-medium text-sm truncate min-w-0">
+            {q.patient.name || 'Sem nome'}
+          </span>
         </button>
-        <span className="text-sm font-bold text-emerald-700 whitespace-nowrap">
+        <span className="text-sm font-bold text-emerald-700 whitespace-nowrap shrink-0">
           {formatBRL(q.total_value)}
         </span>
       </div>
