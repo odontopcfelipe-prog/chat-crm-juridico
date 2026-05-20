@@ -1971,6 +1971,23 @@ export class QuotesService {
       );
     }
 
+    // Onda 14.40 — Resolve a instancia WhatsApp do tenant. Antes usavamos
+    // o fallback hardcoded EVOLUTION_INSTANCE_NAME || 'whatsapp', mas se a
+    // instancia da clinica tiver outro nome no Evolution, dava 404 "instance
+    // does not exist". Agora buscamos a Instance do tenant no banco.
+    const instance = await this.prisma.instance.findFirst({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      orderBy: { created_at: 'desc' },
+      select: { name: true },
+    });
+    if (!instance) {
+      throw new BadRequestException(
+        'Nenhuma instância WhatsApp configurada pra esta clínica. Configure em Configurações › WhatsApp.',
+      );
+    }
+    const instanceName = instance.name;
+    this.logger.log(`[QUOTES] Enviando via instancia WhatsApp "${instanceName}" (tenant ${tenantId})`);
+
     // Gera magic link sem disparar mensagem automatica do portal
     // (vamos enviar uma mensagem custom com dados do orcamento)
     const magic = await this.portalAuth.createMagicLink(
@@ -2023,16 +2040,18 @@ export class QuotesService {
       // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
       // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
       // Se nao tem PDF, fallback no sendText legado.
+      // Onda 14.40 — passa instanceName resolvido do tenant em vez de
+      // deixar o WhatsappService cair no fallback hardcoded "whatsapp".
       const result: any = pdfBase64
         ? await this.whatsapp.sendMedia(
             quote.patient.phone,
             'document',
             `data:application/pdf;base64,${pdfBase64}`,
             msg,
-            undefined,
+            instanceName,
             `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
           )
-        : await this.whatsapp.sendText(quote.patient.phone, msg);
+        : await this.whatsapp.sendText(quote.patient.phone, msg, instanceName);
       dispatchOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
       if (!dispatchOk) {
         dispatchReason = result?.error || `HTTP ${result?.statusCode || '?'}`;
