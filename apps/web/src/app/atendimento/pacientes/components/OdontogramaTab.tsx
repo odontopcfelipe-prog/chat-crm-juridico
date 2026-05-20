@@ -773,25 +773,28 @@ function QuoteCard({
             Quando o badge nao aparece, o slot mantem o espaco reservado
             pra preservar alinhamento das colunas em todas as linhas.
 
-            Slot 1: OUTROS (categoria) — 80px — so aparece quando quote.title
-            Slot 2: RASCUNHO/ENVIADO (status) — 88px — sempre presente
-            Slot 3: aprovados X/Y — 140px — so aparece se hasAnyApproved
-            Slot 4: priority badge — 120px — sempre presente */}
+            Onda 14.45 — Ocultar OUTROS (categoria padrao) e RASCUNHO
+            (status DRAFT) — pedido do operador. Slots continuam reservados
+            pra alinhar, mas badges so renderizam quando agregam info:
+            - Categoria: so se NAO for OUTROS (mostra LENTES/IMPLANTE/etc)
+            - Status: so se NAO for DRAFT (mostra ENVIADO/ACEITO/etc) */}
 
-        {/* SLOT 1: Categoria (so se ha title custom) */}
+        {/* SLOT 1: Categoria (oculta OUTROS) */}
         <span className="w-[80px] shrink-0 flex items-center justify-start">
-          {quote.title && (
+          {quote.title && quote.closing_category !== 'OUTROS' && (
             <span className="text-[10px] uppercase font-medium px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
               {categoryLabel}
             </span>
           )}
         </span>
 
-        {/* SLOT 2: Status (DRAFT/SENT/ACCEPTED/REJECTED/EXPIRED) */}
+        {/* SLOT 2: Status (oculta DRAFT/RASCUNHO) */}
         <span className="w-[88px] shrink-0 flex items-center justify-start">
-          <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
-            {STATUS_LABEL[quote.status]}
-          </span>
+          {quote.status !== 'DRAFT' && (
+            <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
+              {STATUS_LABEL[quote.status]}
+            </span>
+          )}
         </span>
 
         {/* SLOT 3: Aprovacao parcial — Onda 7.8 */}
