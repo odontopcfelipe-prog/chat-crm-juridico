@@ -495,7 +495,12 @@ const PRIORITY_CONFIG: Record<Priority, VariantConfig> = {
     borderCls: 'border-red-500/30 hover:border-red-500/60',
     bgCls: 'bg-red-500/5',
     iconCls: 'text-red-700',
-    selectedBorderCls: 'border-red-500 ring-2 ring-red-500/20',
+    // Onda 14.36 — Removido ring-2 dos selected pra evitar desproporcao
+    // visual entre cards. Antes o card selected ficava com halo externo
+    // (ring) que dava sensacao de ser "maior" que os outros. Agora todos
+    // usam mesmo sistema: border-2 + bg-color. Destaque vem de bg + cor
+    // de borda mais opaca.
+    selectedBorderCls: 'border-red-500',
     selectedBgCls: 'bg-red-500/10',
   },
   ESSENCIAL: {
@@ -505,7 +510,7 @@ const PRIORITY_CONFIG: Record<Priority, VariantConfig> = {
     borderCls: 'border-amber-500/30 hover:border-amber-500/60',
     bgCls: 'bg-amber-500/5',
     iconCls: 'text-amber-700',
-    selectedBorderCls: 'border-amber-500 ring-2 ring-amber-500/20',
+    selectedBorderCls: 'border-amber-500',
     selectedBgCls: 'bg-amber-500/10',
   },
   COMPLETO: {
@@ -515,7 +520,7 @@ const PRIORITY_CONFIG: Record<Priority, VariantConfig> = {
     borderCls: 'border-emerald-500/30 hover:border-emerald-500/60',
     bgCls: 'bg-emerald-500/5',
     iconCls: 'text-emerald-700',
-    selectedBorderCls: 'border-emerald-500 ring-2 ring-emerald-500/20',
+    selectedBorderCls: 'border-emerald-500',
     selectedBgCls: 'bg-emerald-500/10',
   },
 };
@@ -532,7 +537,8 @@ const LIVRE_CONFIG: VariantConfig = {
   borderCls: 'border-sky-500/30 hover:border-sky-500/60',
   bgCls: 'bg-sky-500/5',
   iconCls: 'text-sky-700',
-  selectedBorderCls: 'border-sky-500 ring-2 ring-sky-500/20',
+  // Onda 14.36 — sem ring (vide comentario em PRIORITY_CONFIG)
+  selectedBorderCls: 'border-sky-500',
   selectedBgCls: 'bg-sky-500/10',
 };
 
@@ -1460,7 +1466,7 @@ function PropostaCard({
       data-dimmed={dimmed ? '1' : '0'}
       className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full w-full ${
         isChosen
-          ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/30 ring-2 ring-sky-500/30 shadow-md'
+          ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/30'
           : selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
