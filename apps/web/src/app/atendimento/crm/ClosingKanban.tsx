@@ -80,9 +80,9 @@ const COLUMNS = [
   {
     id: 'aguardando' as const,
     label: 'Avaliação Concluída',
-    // Onda 14.45 — coluna virou agregado: todos que fizeram avaliacao e
-    // ainda nao fecharam (com OU sem orcamento em aberto).
-    sub: 'Pós-avaliação · negociação em aberto',
+    // Onda 14.46 — Lead fica aqui ate quote ser ENVIADA ao paciente (SENT).
+    // Inclui leads sem quote ainda + leads com quote DRAFT (rascunho interno).
+    sub: 'Aguardando envio do orçamento',
     icon: AlertCircle,
     color: 'text-amber-700 dark:text-amber-400',
     headerBg: 'bg-amber-100/70 dark:bg-amber-950/40',
@@ -272,16 +272,14 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
         <div className="flex-1 overflow-x-auto overflow-y-hidden p-3">
           <div className="flex gap-3 h-full min-w-max md:min-w-0">
             {COLUMNS.map((col) => {
-              // Onda 14.45 — "Avaliação Concluída" agora engloba TODOS os
-              // pos-avaliacao ainda ativos: tanto leads sem quote ainda
-              // (bucket 'aguardando') quanto com quote em aberto DRAFT/SENT
-              // (bucket 'com-orcamento'). Operador queria visao unica de
-              // "quem fez avaliacao e ainda nao fechou". Lead com quote
-              // continua tambem na coluna "Orcamento Enviado" — esta e
-              // sub-categoria, "Avaliação Concluída" e o agregado.
-              const items = col.id === 'aguardando'
-                ? [...(grouped.aguardando || []), ...(grouped['com-orcamento'] || [])]
-                : (grouped[col.id] || []);
+              // Onda 14.46 — Separacao agora e feita no backend:
+              //   bucket 'aguardando'   = sem quote OU quote DRAFT (ainda nao
+              //                            enviada ao paciente)
+              //   bucket 'com-orcamento' = quote SENT (efetivamente enviada)
+              // Lead com quote DRAFT continua em "Avaliacao Concluida"; quando
+              // operador envia (DRAFT -> SENT), automaticamente migra pra
+              // "Orcamento Enviado" na proxima atualizacao (auto-refresh 60s).
+              const items = grouped[col.id] || [];
               const Icon = col.icon;
 
               return (

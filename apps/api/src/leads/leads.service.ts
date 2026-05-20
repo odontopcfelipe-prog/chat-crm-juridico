@@ -292,8 +292,12 @@ export class LeadsService {
     // Anota cada lead com um "post_avaliacao_status" calculado pra o
     // frontend agrupar facilmente. 4 buckets:
     //   - 'em-tratamento'  : virou Patient + tem evento futuro
-    //   - 'com-orcamento'  : tem quote ativa (DRAFT/SENT)
-    //   - 'aguardando'     : sem orcamento, sem proximo evento (decisao em aberto)
+    //   - 'com-orcamento'  : tem quote SENT (enviada efetivamente ao paciente)
+    //   - 'aguardando'     : sem quote OU quote ainda em DRAFT (rascunho
+    //                        interno, nao enviada). Onda 14.46: lead so migra
+    //                        pra "Orcamento Enviado" quando o status virar
+    //                        SENT — DRAFT continua em "Avaliacao Concluida"
+    //                        pq paciente ainda nao recebeu a proposta.
     //   - 'perdido'        : stage com is_lost=true
     const leadIds = leads.map((l) => l.id);
 
@@ -331,10 +335,18 @@ export class LeadsService {
     // Quote pertence a Patient — encadeia patient_id -> lead_id pra agrupar por lead
     const patientToLead = new Map<string, string>();
     for (const p of patients) if (p.lead_id) patientToLead.set(p.id, p.lead_id);
+    // Onda 14.46 — Se o lead tem 2+ quotes ativas (raro mas possivel: 1 DRAFT
+    // + 1 SENT), prefere SENT no map. Sem isso o bucket dependia da ordem do
+    // retorno do Prisma — instavel. SENT tem prioridade porque eh o estado
+    // "mais avancado" no funil de fechamento.
     const quotesByLead = new Map<string, any>();
     for (const q of activeQuotes) {
       const leadId = patientToLead.get(q.patient_id);
-      if (leadId) quotesByLead.set(leadId, q);
+      if (!leadId) continue;
+      const existing = quotesByLead.get(leadId);
+      if (!existing || (existing.status === 'DRAFT' && q.status === 'SENT')) {
+        quotesByLead.set(leadId, q);
+      }
     }
     const eventByLead = new Map<string, any>();
     for (const e of futureEvents) if (e.lead_id && !eventByLead.has(e.lead_id)) eventByLead.set(e.lead_id, e);
@@ -346,7 +358,11 @@ export class LeadsService {
       let bucket: 'em-tratamento' | 'com-orcamento' | 'aguardando' | 'perdido';
       if (l.current_stage?.is_lost) bucket = 'perdido';
       else if (patient && upcoming) bucket = 'em-tratamento';
-      else if (quote) bucket = 'com-orcamento';
+      // Onda 14.46 — SO conta como "com-orcamento" quando a quote ja foi
+      // efetivamente enviada (SENT). DRAFT eh rascunho interno do operador,
+      // paciente ainda nao recebeu a proposta — o lead fica em "aguardando"
+      // ate o operador clicar "Enviar pro paciente".
+      else if (quote?.status === 'SENT') bucket = 'com-orcamento';
       else bucket = 'aguardando';
 
       return {
