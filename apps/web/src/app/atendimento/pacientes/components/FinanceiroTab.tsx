@@ -559,6 +559,89 @@ interface ParcelaItem {
   isNext: boolean; // primeira não-paga
 }
 
+/** Onda 14.51 — detalhe expandido do quote (procedimentos + negociacao escolhida) */
+interface QuoteFullDetail {
+  id: string;
+  title: string | null;
+  total_value: string | number;
+  status: string;
+  accepted_at: string | null;
+  chosen_payment_key?: string | null;
+  chosen_down_payment?: string | number | null;
+  is_chosen_proposal?: boolean;
+  treatment_plan?: { id: string; status: string } | null;
+  items: Array<{
+    id: string;
+    quantity: number;
+    total_price: string | number;
+    tooth_fdi: string | null;
+    approved_at: string | null;
+    procedure: {
+      name: string;
+      specialty?: { name: string } | null;
+    };
+    dentist?: { id: string; name: string } | null;
+  }>;
+}
+
+/** Onda 14.51 — info do contrato vinculado ao quote (pode ser null) */
+interface ContractInfo {
+  id: string;
+  status: string;
+  template_type: string;
+  skipped: boolean;
+  signed_at: string | null;
+  sent_at: string | null;
+  patient_signed_at: string | null;
+  clinic_signed_at: string | null;
+  signing_url: string | null;
+  pdf_url: string | null;
+}
+
+/** Onda 14.51 — converte payment_key salvo no quote em label humano */
+function formatPaymentKey(key: string | null | undefined): string {
+  if (!key) return 'Sem forma escolhida';
+  if (key === 'pix') return 'PIX à vista (10% desc.)';
+  if (key === 'boleto-avista') return 'Boleto à vista (10% desc.)';
+  const cartaoMatch = key.match(/^cartao-(\d+)x$/);
+  if (cartaoMatch) {
+    const n = parseInt(cartaoMatch[1], 10);
+    return `${n}x no cartão${n <= 6 ? ' (sem juros)' : ' (com juros PagBank)'}`;
+  }
+  const parcMatch = key.match(/^parcelado-(\d+)x$/);
+  if (parcMatch) {
+    const n = parseInt(parcMatch[1], 10);
+    return `${n}x no boleto${n >= 12 ? ' (com entrada 20%)' : ''}`;
+  }
+  return key;
+}
+
+/** Onda 14.51 — label + classe Tailwind pro status do contrato */
+function formatContractStatus(
+  status: string,
+  skipped: boolean,
+): { label: string; cls: string } {
+  if (skipped) return { label: 'Pulado', cls: 'bg-muted text-muted-foreground' };
+  switch (status) {
+    case 'SIGNED':
+      return { label: '✓ Assinado', cls: 'bg-emerald-500/15 text-emerald-700' };
+    case 'PATIENT_SIGNED':
+      return { label: 'Paciente assinou', cls: 'bg-amber-500/15 text-amber-700' };
+    case 'OPENED':
+      return { label: 'Paciente abriu', cls: 'bg-blue-500/15 text-blue-700' };
+    case 'SENT':
+      return { label: 'Enviado', cls: 'bg-blue-500/15 text-blue-700' };
+    case 'DRAFT':
+      return { label: 'Rascunho', cls: 'bg-muted text-muted-foreground' };
+    case 'EXPIRED':
+      return { label: 'Expirou', cls: 'bg-red-500/15 text-red-700' };
+    case 'CANCELLED':
+      return { label: 'Cancelado', cls: 'bg-muted text-muted-foreground' };
+    default:
+      return { label: status, cls: 'bg-muted text-muted-foreground' };
+  }
+}
+
 function ProposalFinancialCard({
   index,
   quote,
@@ -594,19 +677,37 @@ function ProposalFinancialCard({
   // Quando expande, carrega quote completo (pra ter plan_id) e sub_installments
   const [planId, setPlanId] = useState<string | null>(null);
   const [loadingQuoteDetail, setLoadingQuoteDetail] = useState(false);
+  // Onda 14.51 — quote completo (procedimentos + negociacao aceita) + contrato
+  const [quoteDetail, setQuoteDetail] = useState<QuoteFullDetail | null>(null);
+  const [contract, setContract] = useState<ContractInfo | null>(null);
+  const [loadingContract, setLoadingContract] = useState(false);
 
   // Onda 14.17 — pré-carrega planId no mount (não só ao expandir) pra
   // calcular a barra de progresso e o agregado no header colapsado.
+  // Onda 14.51 — Captura quote completo (items + chosen_payment_key) e
+  // contrato vinculado em paralelo. Tudo cacheado no estado pra reuso.
   useEffect(() => {
-    if (planId) return;
+    if (quoteDetail) return;
     setLoadingQuoteDetail(true);
-    api.get<{ treatment_plan?: { id: string } | null }>(`/quotes/${quote.id}`)
-      .then(({ data }) => {
-        setPlanId(data.treatment_plan?.id || null);
+    setLoadingContract(true);
+    Promise.allSettled([
+      api.get<QuoteFullDetail>(`/quotes/${quote.id}`),
+      api.get<ContractInfo | null>(`/quotes/${quote.id}/contract`),
+    ])
+      .then(([qResp, cResp]) => {
+        if (qResp.status === 'fulfilled') {
+          setQuoteDetail(qResp.value.data);
+          setPlanId(qResp.value.data.treatment_plan?.id || null);
+        }
+        if (cResp.status === 'fulfilled') {
+          setContract(cResp.value.data || null);
+        }
       })
-      .catch(() => { /* silencia */ })
-      .finally(() => setLoadingQuoteDetail(false));
-  }, [planId, quote.id]);
+      .finally(() => {
+        setLoadingQuoteDetail(false);
+        setLoadingContract(false);
+      });
+  }, [quoteDetail, quote.id]);
 
   // Charges filtradas pelo planId real (depois de carregado)
   const relatedCharges = useMemo(() => {
@@ -840,11 +941,179 @@ function ProposalFinancialCard({
             </div>
           )}
 
-          {/* Lista de parcelas */}
+          {/* Onda 14.51 — Procedimentos (items do quote).
+              Listagem completa pro operador conferir o que foi acordado
+              sem precisar abrir o modal. */}
+          {quoteDetail && quoteDetail.items.length > 0 && (
+            <div>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground mb-1.5 flex items-center gap-1.5">
+                <Receipt size={11} className="text-muted-foreground" />
+                Procedimentos ({quoteDetail.items.length})
+              </p>
+              <ul className="border border-border rounded-md overflow-hidden divide-y divide-border/40 bg-card">
+                {quoteDetail.items.map((it) => {
+                  const isApproved = !!it.approved_at;
+                  return (
+                    <li
+                      key={it.id}
+                      className="px-3 py-1.5 flex items-center gap-2 flex-wrap text-[11px]"
+                    >
+                      {isApproved && (
+                        <Check size={11} className="text-emerald-600 shrink-0" />
+                      )}
+                      <span className="text-foreground flex-1 min-w-0 truncate">
+                        {it.procedure.name}
+                        {it.tooth_fdi && (
+                          <span className="text-muted-foreground">
+                            {' '}· Dente {it.tooth_fdi}
+                          </span>
+                        )}
+                        {it.quantity > 1 && (
+                          <span className="text-muted-foreground"> · {it.quantity}x</span>
+                        )}
+                      </span>
+                      {it.dentist?.name && (
+                        <span className="text-[10px] text-muted-foreground hidden sm:inline">
+                          {it.dentist.name}
+                        </span>
+                      )}
+                      <span className="font-bold tabular-nums">
+                        {fmtBRL(Number(it.total_price))}
+                      </span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          )}
+
+          {/* Onda 14.51 — Negociacao aceita (chosen_payment_key + entrada).
+              Mostra a forma de pagamento que o paciente escolheu/aceitou.
+              Esse e o "contrato comercial" mesmo (separado da assinatura). */}
+          {quoteDetail && (quoteDetail.chosen_payment_key || Number(quoteDetail.chosen_down_payment) > 0) && (
+            <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1.5 flex items-center gap-1.5">
+                <Check size={11} />
+                Negociação aceita
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                <div>
+                  <p className="text-[10px] text-muted-foreground">Forma de pagamento</p>
+                  <p className="font-semibold text-foreground">
+                    {formatPaymentKey(quoteDetail.chosen_payment_key)}
+                  </p>
+                </div>
+                {Number(quoteDetail.chosen_down_payment) > 0 && (
+                  <div>
+                    <p className="text-[10px] text-muted-foreground">Entrada</p>
+                    <p className="font-semibold text-foreground tabular-nums">
+                      {fmtBRL(Number(quoteDetail.chosen_down_payment))}
+                    </p>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Onda 14.51 — Contrato assinado (ClickSign / manual).
+              Estados: nao criado / DRAFT / SENT / OPENED / PATIENT_SIGNED /
+              SIGNED / SKIPPED / EXPIRED / CANCELLED. */}
+          <div>
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground mb-1.5 flex items-center gap-1.5">
+              <Building2 size={11} className="text-muted-foreground" />
+              Contrato
+            </p>
+            {loadingContract ? (
+              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 py-1">
+                <Loader2 size={11} className="animate-spin" />
+                Carregando contrato...
+              </div>
+            ) : contract ? (
+              <div className="border border-border rounded-md p-3 bg-card space-y-2">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span
+                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
+                        formatContractStatus(contract.status, contract.skipped).cls
+                      }`}
+                    >
+                      {formatContractStatus(contract.status, contract.skipped).label}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">
+                      {contract.template_type.replace(/_/g, ' ').toLowerCase()}
+                    </span>
+                  </div>
+                  {contract.signed_at && (
+                    <span className="text-[11px] text-emerald-700 font-semibold">
+                      Assinado em {fmtDate(contract.signed_at)}
+                    </span>
+                  )}
+                </div>
+                {/* Mini-timeline de eventos do contrato */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
+                  <ContractStep
+                    label="Enviado"
+                    done={!!contract.sent_at}
+                    date={contract.sent_at}
+                  />
+                  <ContractStep
+                    label="Paciente assinou"
+                    done={!!contract.patient_signed_at}
+                    date={contract.patient_signed_at}
+                  />
+                  <ContractStep
+                    label="Clínica assinou"
+                    done={!!contract.clinic_signed_at}
+                    date={contract.clinic_signed_at}
+                  />
+                  <ContractStep
+                    label="Finalizado"
+                    done={!!contract.signed_at || contract.skipped}
+                    date={contract.signed_at}
+                  />
+                </div>
+                {/* Ações rápidas: link de assinatura + PDF */}
+                {(contract.signing_url || contract.pdf_url) && (
+                  <div className="flex items-center gap-3 pt-1 border-t border-border/40 text-[11px]">
+                    {contract.signing_url && contract.status !== 'SIGNED' && !contract.skipped && (
+                      <a
+                        href={contract.signing_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline font-medium inline-flex items-center gap-1"
+                      >
+                        <ExternalLink size={10} />
+                        Abrir link de assinatura
+                      </a>
+                    )}
+                    {contract.pdf_url && (
+                      <a
+                        href={contract.pdf_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-primary hover:underline font-medium inline-flex items-center gap-1"
+                      >
+                        <ExternalLink size={10} />
+                        PDF do contrato
+                      </a>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="text-[11px] text-muted-foreground italic px-3 py-2 border border-dashed border-border rounded-md">
+                Nenhum contrato criado pra essa proposta. Operador pode gerar
+                pela aba Propostas (botão "Criar contrato").
+              </div>
+            )}
+          </div>
+
+          {/* Lista de parcelas — atualizacao em tempo real via webhook Asaas */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[11px] font-semibold text-foreground">
-                Parcelas ({agg.totalCount})
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
+                <CreditCard size={11} className="text-muted-foreground" />
+                Pagamentos ({agg.totalCount})
               </p>
               <button
                 type="button"
@@ -901,6 +1170,34 @@ function ProposalFinancialCard({
       </div>
     );
   }
+}
+
+/** Onda 14.51 — Mini-step da timeline do contrato.
+ *  Marca cada etapa como done/pending com data abaixo (se houver). */
+function ContractStep({
+  label,
+  done,
+  date,
+}: {
+  label: string;
+  done: boolean;
+  date: string | null;
+}) {
+  return (
+    <div
+      className={`flex flex-col gap-0.5 px-2 py-1.5 rounded border ${
+        done
+          ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-800'
+          : 'bg-muted/30 border-border text-muted-foreground'
+      }`}
+    >
+      <span className="flex items-center gap-1 font-semibold">
+        {done ? <Check size={9} strokeWidth={3} /> : <Clock size={9} />}
+        {label}
+      </span>
+      {date && <span className="text-[9px] opacity-80">{fmtDate(date)}</span>}
+    </div>
+  );
 }
 
 function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
