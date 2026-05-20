@@ -1,441 +1,400 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
-import { Loader2, ClipboardList, ArrowLeft, Check, CheckCircle2, Circle, XCircle, Play, FileSignature, CreditCard, ExternalLink } from 'lucide-react';
+/**
+ * TratamentoTab — aba "Tratamento" da ficha do paciente.
+ * Onda 5e v38 (Fase 25).
+ *
+ * Lista todos os procedimentos fechados (de quotes ACCEPTED -> TreatmentPlan)
+ * com opcao de "Validar" item-a-item conforme dentista responsavel realiza.
+ *
+ * Validar marca:
+ *   - status = DONE
+ *   - executed_at = now
+ *   - executed_by_user_id = user logado (precisa ser dentista/admin)
+ *
+ * Endpoints:
+ *   GET  /patients/:id/treatment-items     (lista + KPIs achatados)
+ *   POST /treatment-plan-items/:id/execute (valida item)
+ *
+ * Substitui versao antiga (Fase 4) que era lista de planos + drill-down.
+ * Esta versao mostra tudo achatado, agrupado por plano, com botao Validar
+ * em cada linha — UX mais direta pro fluxo clinico dia-a-dia.
+ */
+
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import {
+  CheckCircle2, FileText, Stethoscope, Loader2,
+  RefreshCw, Calendar, AlertCircle, Activity,
+} from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
+
+interface ItemRow {
+  plan_id: string;
+  plan_status: string;
+  plan_total: number;
+  quote_id: string | null;
+  quote_title: string | null;
+  quote_accepted_at: string | null;
+  item: {
+    id: string;
+    procedure_id: string;
+    procedure_name: string;
+    procedure_code: string | null;
+    tooth_fdi: string | null;
+    quantity: number;
+    unit_price: number;
+    total_price: number;
+    status: string;
+    scheduled_at: string | null;
+    scheduled_appointment_id: string | null;
+    scheduled_appointment_title: string | null;
+    executed_at: string | null;
+    executed_by: { id: string; name: string } | null;
+    notes: string | null;
+  };
+}
+
+interface Data {
+  kpis: {
+    total: number;
+    feitos: number;
+    pendentes: number;
+    valorTotal: number;
+    valorFeito: number;
+  };
+  items: ItemRow[];
+}
+
+function brl(v: number) {
+  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+const STATUS_STYLE: Record<string, { label: string; color: string; bg: string; border: string }> = {
+  PENDING:     { label: 'Pendente',     color: 'text-amber-700 dark:text-amber-400',     bg: 'bg-amber-50 dark:bg-amber-950/30',     border: 'border-amber-200 dark:border-amber-900' },
+  SCHEDULED:   { label: 'Agendado',     color: 'text-sky-700 dark:text-sky-400',         bg: 'bg-sky-50 dark:bg-sky-950/30',         border: 'border-sky-200 dark:border-sky-900' },
+  IN_PROGRESS: { label: 'Em andamento', color: 'text-blue-700 dark:text-blue-400',       bg: 'bg-blue-50 dark:bg-blue-950/30',       border: 'border-blue-200 dark:border-blue-900' },
+  DONE:        { label: 'Concluído',    color: 'text-emerald-700 dark:text-emerald-400', bg: 'bg-emerald-50 dark:bg-emerald-950/30', border: 'border-emerald-200 dark:border-emerald-900' },
+  CANCELLED:   { label: 'Cancelado',    color: 'text-rose-700 dark:text-rose-400',       bg: 'bg-rose-50 dark:bg-rose-950/30',       border: 'border-rose-200 dark:border-rose-900' },
+};
 
 interface Props {
   patientId: string;
 }
 
-type PlanStatus = 'PENDING_SIGNATURE' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | 'CANCELLED';
-type ItemStatus = 'PENDING' | 'SCHEDULED' | 'IN_PROGRESS' | 'DONE' | 'CANCELLED';
-
-interface PlanItem {
-  id: string;
-  procedure_id: string;
-  tooth_fdi: string | null;
-  quantity: number;
-  unit_price: string | number;
-  total_price: string | number;
-  status: ItemStatus;
-  scheduled_at: string | null;
-  executed_at: string | null;
-  notes: string | null;
-  procedure?: { id: string; name: string };
-  executed_by?: { id: string; name: string } | null;
-}
-
-interface PlanListItem {
-  id: string;
-  status: PlanStatus;
-  total_value: string | number;
-  created_at: string;
-  start_date: string | null;
-  end_date: string | null;
-  _count?: { items: number };
-}
-
-interface PlanDetail extends PlanListItem {
-  estimated_sessions: number | null;
-  notes: string | null;
-  contract_signature_id: string | null;
-  contract_signature?: {
-    id: string;
-    status: string;
-    signing_url: string | null;
-    signed_at: string | null;
-  } | null;
-  items: PlanItem[];
-  quote: { id: string; created_at: string } | null;
-}
-
-const PLAN_BADGE: Record<PlanStatus, string> = {
-  PENDING_SIGNATURE: 'bg-amber-500/10 text-amber-600 border-amber-500/20',
-  ACTIVE: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20',
-  PAUSED: 'bg-muted text-muted-foreground border-border',
-  COMPLETED: 'bg-blue-500/10 text-blue-600 border-blue-500/20',
-  CANCELLED: 'bg-destructive/10 text-destructive border-destructive/20',
-};
-
-const PLAN_LABEL: Record<PlanStatus, string> = {
-  PENDING_SIGNATURE: 'Aguardando assinatura',
-  ACTIVE: 'Ativo',
-  PAUSED: 'Pausado',
-  COMPLETED: 'Concluído',
-  CANCELLED: 'Cancelado',
-};
-
-const ITEM_ICON: Record<ItemStatus, { icon: React.ElementType; cls: string }> = {
-  PENDING: { icon: Circle, cls: 'text-muted-foreground' },
-  SCHEDULED: { icon: Circle, cls: 'text-blue-500' },
-  IN_PROGRESS: { icon: Play, cls: 'text-amber-500' },
-  DONE: { icon: CheckCircle2, cls: 'text-emerald-500' },
-  CANCELLED: { icon: XCircle, cls: 'text-destructive' },
-};
-
 export default function TratamentoTab({ patientId }: Props) {
-  const [list, setList] = useState<PlanListItem[]>([]);
-  const [current, setCurrent] = useState<PlanDetail | null>(null);
-  const [mode, setMode] = useState<'list' | 'detail'>('list');
+  const router = useRouter();
+  const role = useRole();
   const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<Data | null>(null);
+  const [validatingId, setValidatingId] = useState<string | null>(null);
+  const [hideDone, setHideDone] = useState(false);
 
-  const loadList = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<PlanListItem[]>(`/patients/${patientId}/treatment-plans`);
-      setList(data);
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar planos');
+      const res = await api.get(`/patients/${patientId}/treatment-items`);
+      setData(res.data);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao carregar plano de tratamento');
     } finally {
       setLoading(false);
     }
   }, [patientId]);
 
-  useEffect(() => { loadList(); }, [loadList]);
+  useEffect(() => {
+    fetchData();
+  }, [fetchData]);
 
-  const openDetail = async (id: string) => {
+  const validateItem = async (row: ItemRow) => {
+    const procedureLabel = row.item.tooth_fdi
+      ? `${row.item.procedure_name} (dente ${row.item.tooth_fdi})`
+      : row.item.procedure_name;
+    if (!confirm(
+      `Validar "${procedureLabel}" como concluído?\n\n` +
+      `• Marca status = DONE\n` +
+      `• Registra você como dentista executante\n` +
+      `• Data de execução = agora`,
+    )) return;
+    setValidatingId(row.item.id);
     try {
-      const { data } = await api.get<PlanDetail>(`/treatment-plans/${id}`);
-      setCurrent(data);
-      setMode('detail');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao carregar plano');
+      await api.post(`/treatment-plan-items/${row.item.id}/execute`, {});
+      showSuccess('Procedimento validado');
+      await fetchData();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao validar');
+    } finally {
+      setValidatingId(null);
     }
   };
 
-  if (loading) {
+  const grouped = useMemo(() => {
+    if (!data) return [] as { plan_id: string; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; items: ItemRow[] }[];
+    const map = new Map<string, ItemRow[]>();
+    for (const row of data.items) {
+      if (!map.has(row.plan_id)) map.set(row.plan_id, []);
+      map.get(row.plan_id)!.push(row);
+    }
+    return Array.from(map.entries()).map(([plan_id, items]) => ({
+      plan_id,
+      quote_title: items[0].quote_title,
+      quote_accepted_at: items[0].quote_accepted_at,
+      plan_status: items[0].plan_status,
+      plan_total: items[0].plan_total,
+      items: hideDone ? items.filter((i) => i.item.status !== 'DONE') : items,
+    })).filter((g) => g.items.length > 0);
+  }, [data, hideDone]);
+
+  if (loading && !data) {
     return (
-      <div className="py-12 flex items-center justify-center text-muted-foreground">
-        <Loader2 size={18} className="animate-spin mr-2" /> Carregando...
+      <div className="flex items-center justify-center py-16 text-muted-foreground">
+        <Loader2 size={20} className="animate-spin mr-2" />
+        Carregando plano de tratamento…
       </div>
     );
   }
 
-  if (mode === 'detail' && current) {
-    return (
-      <PlanDetailView
-        plan={current}
-        onBack={() => { setMode('list'); setCurrent(null); loadList(); }}
-        onReload={async () => {
-          const { data } = await api.get<PlanDetail>(`/treatment-plans/${current.id}`);
-          setCurrent(data);
-        }}
-      />
-    );
-  }
+  const kpis = data?.kpis ?? { total: 0, feitos: 0, pendentes: 0, valorTotal: 0, valorFeito: 0 };
+  const progressPct = kpis.total > 0 ? Math.round((kpis.feitos / kpis.total) * 100) : 0;
+  const canValidate = role.isDentist || role.isAdmin;
 
   return (
-    <div>
-      <p className="text-sm text-muted-foreground mb-3">{list.length} plano(s) de tratamento</p>
+    <div className="space-y-5 p-1">
+      {/* Header */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h2 className="text-lg font-bold text-foreground flex items-center gap-2">
+            <Activity size={18} className="text-emerald-600" />
+            Plano de Tratamento
+          </h2>
+          <p className="text-xs text-muted-foreground mt-0.5">
+            Procedimentos fechados — dentista responsável valida cada um quando realizado.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={hideDone}
+              onChange={(e) => setHideDone(e.target.checked)}
+              className="accent-emerald-600"
+            />
+            Esconder feitos
+          </label>
+          <button
+            onClick={fetchData}
+            disabled={loading}
+            className="p-2 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent"
+            title="Atualizar"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
+      </div>
 
-      {list.length === 0 ? (
-        <div className="bg-card border border-border border-dashed rounded-xl p-8 text-center">
-          <ClipboardList size={32} className="mx-auto text-muted-foreground mb-2" />
-          <p className="text-muted-foreground text-sm">Nenhum plano de tratamento ainda.</p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Planos são criados automaticamente ao aceitar um orçamento.
+      {/* KPIs + barra de progresso */}
+      {kpis.total > 0 && (
+        <div className="rounded-xl border border-border bg-card p-4">
+          <div className="flex items-center justify-between gap-3 mb-2">
+            <span className="text-xs font-bold text-foreground">
+              Progresso do tratamento
+            </span>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {kpis.feitos} de {kpis.total} ({progressPct}%)
+            </span>
+          </div>
+          <div className="h-2 rounded-full bg-muted overflow-hidden">
+            <div
+              className="h-full bg-emerald-500 transition-all"
+              style={{ width: `${progressPct}%` }}
+            />
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs">
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Pendentes</p>
+              <p className="text-lg font-bold text-amber-700 dark:text-amber-400 tabular-nums">{kpis.pendentes}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Concluídos</p>
+              <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{kpis.feitos}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Valor realizado</p>
+              <p className="text-lg font-bold text-foreground tabular-nums">{brl(kpis.valorFeito)}</p>
+            </div>
+            <div>
+              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Valor total</p>
+              <p className="text-lg font-bold text-foreground tabular-nums">{brl(kpis.valorTotal)}</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sem procedimentos */}
+      {kpis.total === 0 ? (
+        <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
+          <FileText size={32} className="mx-auto mb-2 opacity-40" />
+          <p className="text-sm font-medium">Nenhum procedimento fechado ainda</p>
+          <p className="text-xs mt-1">
+            Quando um orçamento for aceito pelo paciente, os procedimentos aparecem aqui.
           </p>
         </div>
       ) : (
-        <ul className="bg-card border border-border rounded-xl divide-y divide-border">
-          {list.map((p) => (
-            <li
-              key={p.id}
-              onClick={() => openDetail(p.id)}
-              className="px-4 py-3 hover:bg-accent/40 cursor-pointer flex items-center gap-3"
-            >
-              <ClipboardList size={18} className="text-primary shrink-0" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-medium text-foreground">
-                  R$ {Number(p.total_value).toFixed(2)}
-                  {p._count && <span className="text-xs text-muted-foreground ml-2">({p._count.items} procedimentos)</span>}
-                </p>
-                <p className="text-xs text-muted-foreground">
-                  Criado em {new Date(p.created_at).toLocaleDateString('pt-BR')}
-                  {p.start_date && ` · Iniciado em ${new Date(p.start_date).toLocaleDateString('pt-BR')}`}
-                </p>
+        grouped.map((plan) => (
+          <section key={plan.plan_id} className="rounded-xl border border-border bg-card overflow-hidden">
+            <header className="flex items-center justify-between gap-3 px-4 py-3 bg-muted/30 border-b border-border">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <FileText size={14} className="text-emerald-600" />
+                  <h3 className="text-sm font-bold text-foreground truncate">
+                    {plan.quote_title || 'Plano de tratamento'}
+                  </h3>
+                  <PlanStatusBadge status={plan.plan_status} />
+                </div>
+                {plan.quote_accepted_at && (
+                  <p className="text-[11px] text-muted-foreground mt-0.5">
+                    Aceito em {formatDate(plan.quote_accepted_at)} · Total {brl(plan.plan_total)}
+                  </p>
+                )}
               </div>
-              <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${PLAN_BADGE[p.status]}`}>
-                {PLAN_LABEL[p.status]}
-              </span>
-            </li>
-          ))}
-        </ul>
+            </header>
+
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/20 text-[10px] uppercase tracking-wider text-muted-foreground">
+                  <tr>
+                    <th className="px-4 py-2 text-left font-bold">Procedimento</th>
+                    <th className="px-4 py-2 text-center font-bold">Dente</th>
+                    <th className="px-4 py-2 text-right font-bold">Valor</th>
+                    <th className="px-4 py-2 text-center font-bold">Status</th>
+                    <th className="px-4 py-2 text-left font-bold">Executado por</th>
+                    <th className="px-4 py-2 text-center font-bold">Ação</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {plan.items.map((row) => {
+                    const it = row.item;
+                    const done = it.status === 'DONE';
+                    const cancelled = it.status === 'CANCELLED';
+                    const style = STATUS_STYLE[it.status] || STATUS_STYLE.PENDING;
+                    return (
+                      <tr
+                        key={it.id}
+                        className={`border-t border-border ${done ? 'opacity-70' : ''} ${cancelled ? 'opacity-40 line-through' : ''} hover:bg-accent/30`}
+                      >
+                        <td className="px-4 py-2.5">
+                          <div className="font-semibold text-foreground">{it.procedure_name}</div>
+                          {it.procedure_code && (
+                            <div className="text-[10px] text-muted-foreground font-mono">{it.procedure_code}</div>
+                          )}
+                          {it.notes && (
+                            <div className="text-[11px] text-muted-foreground mt-0.5 italic">{it.notes}</div>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-center font-mono text-xs">
+                          {it.tooth_fdi || '—'}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">
+                          {brl(it.total_price)}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${style.color} ${style.bg} ${style.border}`}>
+                            {style.label}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2.5 text-xs">
+                          {it.executed_by ? (
+                            <div>
+                              <div className="text-foreground font-semibold inline-flex items-center gap-1">
+                                <Stethoscope size={11} /> {it.executed_by.name}
+                              </div>
+                              {it.executed_at && (
+                                <div className="text-[10px] text-muted-foreground">
+                                  {formatDate(it.executed_at)}
+                                </div>
+                              )}
+                            </div>
+                          ) : it.scheduled_appointment_id ? (
+                            <button
+                              onClick={() => router.push(`/atendimento/agenda`)}
+                              className="inline-flex items-center gap-1 text-[11px] text-sky-700 dark:text-sky-400 hover:underline"
+                              title="Ver na agenda"
+                            >
+                              <Calendar size={11} />
+                              {it.scheduled_appointment_title || 'Agendado'}
+                            </button>
+                          ) : (
+                            <span className="text-muted-foreground italic text-[11px]">—</span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {!done && !cancelled && (
+                            <button
+                              onClick={() => validateItem(row)}
+                              disabled={validatingId === it.id || !canValidate}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
+                              title={
+                                canValidate
+                                  ? 'Validar — marca este procedimento como feito'
+                                  : 'Apenas dentistas/admin podem validar'
+                              }
+                            >
+                              {validatingId === it.id ? (
+                                <Loader2 size={11} className="animate-spin" />
+                              ) : (
+                                <CheckCircle2 size={11} />
+                              )}
+                              Validar
+                            </button>
+                          )}
+                          {done && (
+                            <span className="inline-flex items-center gap-1 text-[11px] text-emerald-700 dark:text-emerald-400 font-bold">
+                              <CheckCircle2 size={12} /> Validado
+                            </span>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        ))
+      )}
+
+      {/* Aviso permissao */}
+      {kpis.total > 0 && !canValidate && (
+        <div className="rounded-lg border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 p-3 text-xs text-blue-900 dark:text-blue-300 flex items-start gap-2">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <div>
+            Apenas <strong>dentistas</strong> e <strong>admin</strong> podem validar procedimentos como feitos.
+            Sua visão é somente leitura.
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function PlanDetailView({
-  plan, onBack, onReload,
-}: {
-  plan: PlanDetail;
-  onBack: () => void;
-  onReload: () => Promise<void>;
-}) {
-  const [saving, setSaving] = useState(false);
-
-  const isPending = plan.status === 'PENDING_SIGNATURE';
-  const isActive = plan.status === 'ACTIVE';
-
-  const activate = async () => {
-    if (!confirm('Ativar plano? Isso marca como ACTIVE e registra a data de início.')) return;
-    setSaving(true);
-    try {
-      await api.post(`/treatment-plans/${plan.id}/activate`);
-      showSuccess('Plano ativado');
-      await onReload();
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao ativar');
-    } finally {
-      setSaving(false);
-    }
+function PlanStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    PENDING_SIGNATURE: { label: 'Aguardando assinatura', cls: 'text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900' },
+    ACTIVE:            { label: 'Ativo',                 cls: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900' },
+    PAUSED:            { label: 'Pausado',               cls: 'text-slate-700 dark:text-slate-400 bg-slate-50 dark:bg-slate-950/40 border-slate-200 dark:border-slate-800' },
+    COMPLETED:         { label: 'Concluído',             cls: 'text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900' },
+    CANCELLED:         { label: 'Cancelado',             cls: 'text-rose-700 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-900' },
   };
-
-  const completePlan = async () => {
-    if (!confirm('Marcar plano como concluído? Todos os itens devem estar DONE ou CANCELLED.')) return;
-    setSaving(true);
-    try {
-      await api.post(`/treatment-plans/${plan.id}/complete`);
-      showSuccess('Plano concluído');
-      await onReload();
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao concluir');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const executeItem = async (itemId: string) => {
-    if (!confirm('Marcar procedimento como executado?')) return;
-    try {
-      await api.post(`/treatment-plan-items/${itemId}/execute`);
-      showSuccess('Procedimento executado');
-      await onReload();
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao executar');
-    }
-  };
-
-  const sendForSignature = async () => {
-    if (!confirm('Gerar TCLE e enviar para assinatura digital via WhatsApp?')) return;
-    setSaving(true);
-    try {
-      const { data } = await api.post(`/treatment-plans/${plan.id}/send-for-signature`);
-      showSuccess('TCLE enviado — paciente recebe link via WhatsApp');
-      await onReload();
-      // Abrir link em nova aba pra dentista poder visualizar
-      if (data?.signingUrl) window.open(data.signingUrl, '_blank');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao enviar TCLE');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const createCharges = async () => {
-    const billingType = prompt('Forma de pagamento (PIX, BOLETO ou CREDIT_CARD):', 'PIX');
-    if (!billingType) return;
-    if (!['PIX', 'BOLETO', 'CREDIT_CARD'].includes(billingType.toUpperCase())) {
-      showError('Forma inválida. Use PIX, BOLETO ou CREDIT_CARD');
-      return;
-    }
-    const installments = prompt('Quantas parcelas? (1-24)', '6');
-    if (!installments) return;
-    const installmentCount = parseInt(installments, 10);
-    if (!installmentCount || installmentCount < 1 || installmentCount > 24) {
-      showError('Número de parcelas inválido (1-24)');
-      return;
-    }
-    setSaving(true);
-    try {
-      const { data } = await api.post(`/treatment-plans/${plan.id}/create-charges`, {
-        billingType: billingType.toUpperCase(),
-        installmentCount,
-      });
-      showSuccess(`${installmentCount}x cobranças geradas no Asaas`);
-      if (data?.boleto?.url) window.open(data.boleto.url, '_blank');
-      else if (data?.charge?.invoice_url) window.open(data.charge.invoice_url, '_blank');
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao criar cobranças');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const updateItemStatus = async (itemId: string, status: ItemStatus) => {
-    try {
-      await api.patch(`/treatment-plan-items/${itemId}`, { status });
-      await onReload();
-    } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao atualizar');
-    }
-  };
-
-  const doneItems = plan.items.filter((i) => i.status === 'DONE').length;
-  const totalItems = plan.items.length;
-  const progress = totalItems === 0 ? 0 : Math.round((doneItems / totalItems) * 100);
-
+  const m = map[status] || { label: status, cls: 'text-muted-foreground bg-muted border-border' };
   return (
-    <div>
-      <div className="flex items-center justify-between mb-3">
-        <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
-          <ArrowLeft size={14} /> Voltar à lista
-        </button>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${PLAN_BADGE[plan.status]}`}>
-          {PLAN_LABEL[plan.status]}
-        </span>
-      </div>
-
-      {/* Resumo */}
-      <div className="bg-card border border-border rounded-xl p-4 mb-4">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-3">
-          <div>
-            <p className="text-xs text-muted-foreground">Total</p>
-            <p className="text-xl font-bold text-primary">R$ {Number(plan.total_value).toFixed(2)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Início</p>
-            <p>{plan.start_date ? new Date(plan.start_date).toLocaleDateString('pt-BR') : '—'}</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Progresso</p>
-            <p className="font-semibold">{doneItems}/{totalItems} ({progress}%)</p>
-          </div>
-          <div>
-            <p className="text-xs text-muted-foreground">Sessões estimadas</p>
-            <p>{plan.estimated_sessions || '—'}</p>
-          </div>
-        </div>
-        {totalItems > 0 && (
-          <div className="w-full h-2 rounded-full bg-muted overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-        )}
-      </div>
-
-      {/* Status assinatura digital */}
-      {plan.contract_signature && (
-        <div className="bg-card border border-border rounded-xl p-3 mb-4 flex items-center gap-3">
-          <FileSignature size={18} className="text-primary shrink-0" />
-          <div className="flex-1 text-sm">
-            <p className="font-medium">
-              TCLE digital — {plan.contract_signature.status === 'ASSINADO' ? '✅ Assinado' : '⏳ Aguardando assinatura'}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {plan.contract_signature.signed_at
-                ? `Assinado em ${new Date(plan.contract_signature.signed_at).toLocaleString('pt-BR')}`
-                : 'Paciente recebeu o link via WhatsApp'}
-            </p>
-          </div>
-          {plan.contract_signature.signing_url && (
-            <a
-              href={plan.contract_signature.signing_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-primary hover:bg-primary/10 px-2 py-1 rounded flex items-center gap-1"
-            >
-              <ExternalLink size={12} /> Abrir link
-            </a>
-          )}
-        </div>
-      )}
-
-      {/* Ações */}
-      <div className="flex flex-wrap gap-2 mb-4">
-        {isPending && !plan.contract_signature_id && (
-          <button
-            onClick={sendForSignature}
-            disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-sm hover:bg-primary/90 disabled:opacity-50"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <FileSignature size={14} />}
-            Enviar TCLE para assinatura
-          </button>
-        )}
-        {isPending && (
-          <button
-            onClick={activate}
-            disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm hover:bg-emerald-600 disabled:opacity-50"
-            title="Ativa manualmente sem ClickSign (uso administrativo)"
-          >
-            {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
-            Ativar manualmente
-          </button>
-        )}
-        {isActive && (
-          <button
-            onClick={createCharges}
-            disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-amber-500 text-white text-sm hover:bg-amber-600 disabled:opacity-50"
-          >
-            <CreditCard size={14} /> Gerar cobrança Asaas
-          </button>
-        )}
-        {isActive && doneItems === totalItems && totalItems > 0 && (
-          <button
-            onClick={completePlan}
-            disabled={saving}
-            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-blue-500 text-white text-sm hover:bg-blue-600 disabled:opacity-50"
-          >
-            <CheckCircle2 size={14} /> Concluir plano
-          </button>
-        )}
-      </div>
-
-      {/* Items */}
-      <div className="bg-card border border-border rounded-xl overflow-hidden">
-        <div className="px-4 py-2 border-b border-border">
-          <p className="text-sm font-semibold">Procedimentos do plano</p>
-        </div>
-        {plan.items.length === 0 ? (
-          <div className="py-6 text-center text-muted-foreground text-sm">Nenhum item.</div>
-        ) : (
-          <ul className="divide-y divide-border">
-            {plan.items.map((it) => {
-              const Icon = ITEM_ICON[it.status].icon;
-              return (
-                <li key={it.id} className="px-4 py-3 flex items-center gap-3 text-sm">
-                  <Icon size={18} className={`shrink-0 ${ITEM_ICON[it.status].cls}`} />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-medium">{it.procedure?.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {it.tooth_fdi && `Dente ${it.tooth_fdi} · `}
-                      {it.quantity}x R$ {Number(it.unit_price).toFixed(2)}
-                      {it.executed_at && ` · Executado em ${new Date(it.executed_at).toLocaleDateString('pt-BR')}`}
-                      {it.executed_by && ` por ${it.executed_by.name}`}
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isActive && it.status !== 'DONE' && it.status !== 'CANCELLED' && (
-                      <button
-                        onClick={() => executeItem(it.id)}
-                        className="text-xs px-2 py-1 rounded bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20"
-                      >
-                        Executar
-                      </button>
-                    )}
-                    {isActive && it.status !== 'DONE' && it.status !== 'CANCELLED' && (
-                      <button
-                        onClick={() => updateItemStatus(it.id, 'CANCELLED')}
-                        className="text-xs px-2 py-1 rounded text-destructive hover:bg-destructive/10"
-                      >
-                        Cancelar
-                      </button>
-                    )}
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
-    </div>
+    <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${m.cls}`}>
+      {m.label}
+    </span>
   );
 }

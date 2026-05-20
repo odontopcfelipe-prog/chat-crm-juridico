@@ -741,6 +741,18 @@ export class CommercialController {
     return this.plansService.findByPatient(patientId, tenantId);
   }
 
+  /**
+   * Onda 5e v38 — items achatados de todos os planos do paciente, usado
+   * pela aba "Tratamento" da ficha. Retorna { kpis, items[] } com cada
+   * item ja resolvido (procedure name, plano vinculado, executor).
+   */
+  @Get('patients/:patientId/treatment-items')
+  listPatientTreatmentItems(@Param('patientId') patientId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.plansService.findItemsByPatient(patientId, tenantId);
+  }
+
   @Get('treatment-plans/:id')
   findPlan(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

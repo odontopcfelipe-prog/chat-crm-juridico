@@ -31,6 +31,111 @@ export class TreatmentPlansService {
     });
   }
 
+  /**
+   * Onda 5e v38 — aba "Tratamento" da ficha do paciente.
+   *
+   * Lista TODOS os items de TODOS os planos do paciente (planos ACTIVE +
+   * COMPLETED, ignora CANCELLED/PENDING_SIGNATURE/PAUSED). Cada item vem
+   * com info do plano (id, status, quote_id, created_at), procedure
+   * (nome), executor (dentista que validou), e appointment vinculado.
+   *
+   * Usado pra dentista responsavel marcar "feito" item a item conforme
+   * realiza os procedimentos. Order: items pendentes primeiro, depois
+   * executados no final (por executed_at desc).
+   */
+  async findItemsByPatient(patientId: string, tenantId: string) {
+    await this.assertPatientBelongsToTenant(patientId, tenantId);
+    const plans = await this.prisma.treatmentPlan.findMany({
+      where: {
+        patient_id: patientId,
+        status: { in: ['ACTIVE', 'COMPLETED', 'PENDING_SIGNATURE'] },
+      },
+      orderBy: { created_at: 'desc' },
+      include: {
+        quote: { select: { id: true, title: true, total_value: true, accepted_at: true } },
+        items: {
+          orderBy: [{ order_index: 'asc' }, { created_at: 'asc' }],
+          include: {
+            procedure: { select: { id: true, name: true, code_tuss: true } },
+            executed_by: { select: { id: true, name: true } },
+            scheduled_appointment: { select: { id: true, start_at: true, title: true } },
+          },
+        },
+      },
+    });
+
+    // Achatado: 1 item por linha, com info do plano embutida
+    type FlatItem = {
+      plan_id: string;
+      plan_status: string;
+      plan_total: number;
+      quote_id: string | null;
+      quote_title: string | null;
+      quote_accepted_at: string | null;
+      item: {
+        id: string;
+        procedure_id: string;
+        procedure_name: string;
+        procedure_code: string | null;
+        tooth_fdi: string | null;
+        quantity: number;
+        unit_price: number;
+        total_price: number;
+        status: string;
+        scheduled_at: string | null;
+        scheduled_appointment_id: string | null;
+        scheduled_appointment_title: string | null;
+        executed_at: string | null;
+        executed_by: { id: string; name: string } | null;
+        notes: string | null;
+      };
+    };
+
+    const flat: FlatItem[] = [];
+    for (const p of plans) {
+      for (const it of p.items) {
+        flat.push({
+          plan_id: p.id,
+          plan_status: p.status,
+          plan_total: Number(p.total_value),
+          quote_id: p.quote?.id ?? null,
+          quote_title: p.quote?.title ?? null,
+          quote_accepted_at: p.quote?.accepted_at?.toISOString() ?? null,
+          item: {
+            id: it.id,
+            procedure_id: it.procedure_id,
+            procedure_name: it.procedure?.name ?? 'Procedimento',
+            procedure_code: it.procedure?.code_tuss ?? null,
+            tooth_fdi: it.tooth_fdi,
+            quantity: it.quantity,
+            unit_price: Number(it.unit_price),
+            total_price: Number(it.total_price),
+            status: it.status,
+            scheduled_at: it.scheduled_at?.toISOString() ?? null,
+            scheduled_appointment_id: it.scheduled_appointment_id,
+            scheduled_appointment_title: it.scheduled_appointment?.title ?? null,
+            executed_at: it.executed_at?.toISOString() ?? null,
+            executed_by: it.executed_by,
+            notes: it.notes,
+          },
+        });
+      }
+    }
+
+    // KPIs
+    const total = flat.length;
+    const feitos = flat.filter((f) => f.item.status === 'DONE').length;
+    const valorTotal = flat.reduce((a, f) => a + f.item.total_price, 0);
+    const valorFeito = flat
+      .filter((f) => f.item.status === 'DONE')
+      .reduce((a, f) => a + f.item.total_price, 0);
+
+    return {
+      kpis: { total, feitos, pendentes: total - feitos, valorTotal, valorFeito },
+      items: flat,
+    };
+  }
+
   async findOne(id: string, tenantId: string) {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id },
