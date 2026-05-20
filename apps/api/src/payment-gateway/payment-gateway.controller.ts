@@ -181,6 +181,22 @@ export class PaymentGatewayController {
   }
 
   /**
+   * Onda 14.52 — Reenvia link de pagamento (PIX/boleto/cartao) pro paciente
+   * via WhatsApp. Endpoint chamado pelo botao "Reenviar" no card de proposta
+   * aceita dentro da aba Financeiro.
+   */
+  @Post('charges/:chargeId/resend-whatsapp')
+  async resendChargeWhatsapp(
+    @Param('chargeId') chargeId: string,
+    @Req() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    this.logger.log(`[POST /charges/${chargeId}/resend-whatsapp]`);
+    return this.service.resendChargeWhatsapp(chargeId, tenantId);
+  }
+
+  /**
    * Onda 14.13 — Lista parcelas filhas de uma charge parcelada.
    * Usado pelo modal de detalhe da proposta aceita pra mostrar cada parcela
    * (1/12, 2/12, etc) com status atualizado do Asaas.

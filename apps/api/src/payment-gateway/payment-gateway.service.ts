@@ -103,6 +103,181 @@ export class PaymentGatewayService {
    * Usado pelo FinanceiroTab pra mostrar cobrancas geradas + status atualizado
    * (atualizado em tempo real pelo webhook Asaas).
    */
+  /**
+   * Onda 14.52 — Reenvia o link de pagamento (PIX/boleto/cartao) pro paciente
+   * via WhatsApp. Usado pelo botao "Reenviar" no card de proposta aceita
+   * dentro da aba Financeiro.
+   *
+   * Fluxo:
+   *  1. Busca charge no banco
+   *  2. Resolve customer → lead → patient
+   *  3. Resolve Instance WhatsApp do tenant (com fallback automatico se 404)
+   *  4. Monta mensagem com link/QR/codigo barras conforme billing_type
+   *  5. Envia via Evolution API
+   *  6. Salva mensagem na conversa pra ficar no historico do chat
+   */
+  async resendChargeWhatsapp(chargeId: string, tenantId: string) {
+    // 1. Charge
+    const charge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { id: chargeId, tenant_id: tenantId },
+    });
+    if (!charge) throw new NotFoundException('Cobranca nao encontrada');
+
+    // 2. Customer → Lead → Patient
+    const customer = await this.prisma.paymentGatewayCustomer.findFirst({
+      where: { external_id: charge.customer_external_id, gateway: 'ASAAS' },
+      include: {
+        lead: {
+          select: { id: true, name: true, phone: true },
+        },
+      },
+    });
+    if (!customer?.lead) {
+      throw new BadRequestException('Cliente nao vinculado a lead — atualize o cadastro');
+    }
+    const lead = customer.lead;
+    // Patient (preferencial) — tem nome melhor que lead
+    const patient = await this.prisma.patient.findFirst({
+      where: { lead_id: lead.id, tenant_id: tenantId },
+      select: { id: true, name: true, phone: true },
+    });
+    const phone = patient?.phone || lead.phone;
+    const displayName = patient?.name || lead.name || 'Olá';
+    if (!phone) {
+      throw new BadRequestException('Paciente sem telefone cadastrado');
+    }
+
+    // 3. Instances do tenant
+    const instances = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId, type: 'whatsapp' },
+      orderBy: { created_at: 'desc' },
+      select: { name: true },
+    });
+    if (instances.length === 0) {
+      throw new BadRequestException(
+        'Nenhuma instancia WhatsApp configurada pra esta clinica. Configure em Configuracoes › WhatsApp.',
+      );
+    }
+
+    // 4. Monta mensagem por tipo
+    const valor = Number(charge.amount).toLocaleString('pt-BR', {
+      style: 'currency',
+      currency: 'BRL',
+    });
+    const due = new Date(charge.due_date).toLocaleDateString('pt-BR');
+    const firstName = displayName.split(' ')[0];
+
+    let msg: string;
+    if (charge.billing_type === 'PIX') {
+      msg =
+        `Oi ${firstName}! 👋\n\n` +
+        `Lembrando do seu pagamento via *PIX* de *${valor}*.\n` +
+        `📅 Vencimento: ${due}\n\n`;
+      if (charge.invoice_url) {
+        msg += `🔗 Link de pagamento:\n${charge.invoice_url}\n\n`;
+      }
+      if (charge.pix_copy_paste) {
+        msg += `📋 PIX Copia e Cola:\n\`\`\`${charge.pix_copy_paste}\`\`\`\n\n`;
+      }
+      msg += `Qualquer dúvida, é só responder por aqui. 😊`;
+    } else if (charge.billing_type === 'BOLETO') {
+      msg =
+        `Oi ${firstName}! 👋\n\n` +
+        `Lembrando do seu *boleto* de *${valor}*.\n` +
+        `📅 Vencimento: ${due}\n\n`;
+      if (charge.boleto_url || charge.invoice_url) {
+        msg += `🔗 Acesse o boleto:\n${charge.boleto_url || charge.invoice_url}\n\n`;
+      }
+      if (charge.boleto_barcode) {
+        msg += `📋 Código de barras:\n\`\`\`${charge.boleto_barcode}\`\`\`\n\n`;
+      }
+      msg += `Qualquer dúvida, é só responder. 😊`;
+    } else if (charge.billing_type === 'CREDIT_CARD') {
+      msg =
+        `Oi ${firstName}! 👋\n\n` +
+        `Lembrando do pagamento de *${valor}* no *cartão*.\n` +
+        `📅 Vencimento: ${due}\n\n`;
+      if (charge.invoice_url) {
+        msg += `💳 Link pra pagar:\n${charge.invoice_url}\n\n`;
+      }
+      msg += `Qualquer dúvida, estamos por aqui. 😊`;
+    } else {
+      msg =
+        `Oi ${firstName}! 👋\n\n` +
+        `Lembrando do seu pagamento de *${valor}*.\n` +
+        `📅 Vencimento: ${due}\n\n`;
+      if (charge.invoice_url) {
+        msg += `🔗 Link:\n${charge.invoice_url}\n\n`;
+      }
+    }
+
+    // 5. Envia com fallback entre instances
+    const sendErrors: string[] = [];
+    let usedInstance: string | null = null;
+    let sendResult: any = null;
+    for (const inst of instances) {
+      try {
+        const result: any = await this.whatsapp.sendText(phone, msg, inst.name);
+        const httpStatus = result?.statusCode ?? 0;
+        const isOk =
+          result && (!result.statusCode || result.statusCode < 400) && !result.error;
+        if (isOk) {
+          usedInstance = inst.name;
+          sendResult = result;
+          break;
+        }
+        if (httpStatus === 404) {
+          sendErrors.push(`"${inst.name}": 404`);
+          continue;
+        }
+        sendErrors.push(`"${inst.name}": ${result?.error || `HTTP ${httpStatus}`}`);
+        break; // erro nao-404 — para
+      } catch (e: any) {
+        sendErrors.push(`"${inst.name}": ${e.message}`);
+      }
+    }
+
+    if (!usedInstance) {
+      throw new BadRequestException(
+        `Falha ao reenviar pelo WhatsApp: ${sendErrors.join('; ')}`,
+      );
+    }
+    this.logger.log(
+      `[RESEND] Cobranca ${chargeId} (${charge.billing_type}) reenviada via "${usedInstance}" pra ${phone}`,
+    );
+
+    // 6. Salva mensagem na conversa (historico do chat) — best-effort
+    try {
+      const convo = await this.prisma.conversation.findFirst({
+        where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true },
+      });
+      if (convo) {
+        const evolutionMsgId =
+          sendResult?.data?.key?.id || sendResult?.key?.id || `sys_resend_${Date.now()}`;
+        await this.prisma.message.create({
+          data: {
+            conversation_id: convo.id,
+            direction: 'out',
+            type: 'text',
+            text: msg,
+            external_message_id: evolutionMsgId,
+            status: 'enviado',
+          },
+        });
+        await this.prisma.conversation.update({
+          where: { id: convo.id },
+          data: { last_message_at: new Date() },
+        });
+      }
+    } catch (e: any) {
+      this.logger.warn(`[RESEND] Falha ao salvar mensagem no historico: ${e.message}`);
+    }
+
+    return { ok: true, instance: usedInstance, billing_type: charge.billing_type };
+  }
+
   async getChargesByPatient(patientId: string, tenantId: string) {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },

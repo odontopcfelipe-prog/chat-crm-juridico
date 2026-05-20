@@ -547,6 +547,8 @@ function AcceptedQuotesSection({
 // pelo webhook Asaas; sub_installments puxado do Asaas sob demanda).
 
 interface ParcelaItem {
+  /** Onda 14.52 — id da charge mae (PaymentGatewayCharge) pra resend via WhatsApp */
+  chargeId: string;
   number: number;
   totalCount: number;
   method: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | string;
@@ -750,9 +752,10 @@ function ProposalFinancialCard({
     for (const c of relatedCharges) {
       const subs = subInstallmentsByCharge[c.id];
       if (subs && subs.length > 0) {
-        // Parcelada: usa as filhas
+        // Parcelada: usa as filhas. chargeId = id da mae (resend reenvia a mae).
         for (const s of subs) {
           list.push({
+            chargeId: c.id,
             number: s.installment_number,
             totalCount: subs.length,
             method: c.billing_type,
@@ -768,6 +771,7 @@ function ProposalFinancialCard({
       } else {
         // 1x (cobrança única)
         list.push({
+          chargeId: c.id,
           number: 1,
           totalCount: 1,
           method: c.billing_type,
@@ -1204,6 +1208,10 @@ function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
   const paid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
   const overdue = p.status === 'OVERDUE';
   const cancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
+  // Onda 14.52 — botao "Reenviar" so faz sentido em parcelas nao pagas/canceladas
+  const canResend = !paid && !cancelled;
+  const [resending, setResending] = useState(false);
+
   const statusLabel =
     paid ? 'Pago' :
     overdue ? 'Vencido' :
@@ -1223,6 +1231,23 @@ function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
   const dueText = paid
     ? `Pago em ${fmtDate(p.paymentDate)}`
     : `Vence ${fmtDate(p.dueDate)}${p.isNext ? ' · próxima' : ''}`;
+
+  // Onda 14.52 — Reenvia cobranca via WhatsApp pro paciente
+  const handleResend = async () => {
+    if (resending) return;
+    setResending(true);
+    try {
+      const { data } = await api.post<{ ok: boolean; instance: string }>(
+        `/payment-gateway/charges/${p.chargeId}/resend-whatsapp`,
+      );
+      showSuccess(`Cobrança reenviada via WhatsApp (${data.instance})`);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao reenviar cobrança');
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <li className={`px-3 py-2 flex items-center gap-2 flex-wrap text-xs ${
@@ -1244,9 +1269,33 @@ function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
             target="_blank"
             rel="noopener noreferrer"
             className="text-[10px] text-amber-700 hover:underline"
+            title="Abrir link da cobrança"
           >
             ↗
           </a>
+        )}
+        {/* Onda 14.52 — Reenviar via WhatsApp.
+            So aparece em parcelas nao pagas/canceladas. */}
+        {canResend && (
+          <button
+            type="button"
+            onClick={handleResend}
+            disabled={resending}
+            className="text-[10px] px-2 py-0.5 rounded-md font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors inline-flex items-center gap-1"
+            title="Reenviar link de pagamento via WhatsApp"
+          >
+            {resending ? (
+              <>
+                <Loader2 size={9} className="animate-spin" />
+                Enviando...
+              </>
+            ) : (
+              <>
+                <Send size={9} />
+                Reenviar
+              </>
+            )}
+          </button>
         )}
       </span>
     </li>
