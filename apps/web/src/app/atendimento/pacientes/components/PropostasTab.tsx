@@ -16,7 +16,7 @@
  * Sem schema novo, sem endpoint novo — usa GET /patients/:id/quotes que ja
  * existe. Filtra DRAFT/SENT (aceitos/rejeitados ja foram decididos).
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ArrowLeft,
@@ -384,8 +384,17 @@ function buildPaymentOptions(): {
  *    2. Valor financiado = total − entrada
  *    3. Aplica Price sobre o valor financiado
  *    4. Total final = entrada + (parcelas × n)
+ *  Onda 14.29 — customDownPayment (R$) SOBRESCREVE o downPaymentPercent
+ *    da opcao. Operador digita valor manual (ex: R$ 5.000) e isso vira a
+ *    entrada efetiva pra TODAS as opcoes parceladas (cartao + boleto).
+ *    Opcoes a vista (variant=avista E key=boleto-avista) ignoram entrada
+ *    custom — sao pagamentos imediatos, nao fazem sentido com entrada.
  */
-function applyPaymentOption(total: number, opt: PaymentOption): {
+function applyPaymentOption(
+  total: number,
+  opt: PaymentOption,
+  customDownPayment?: number,
+): {
   /** total final pago (descontos aplicados ou juros somados) */
   finalValue: number;
   /** valor de cada parcela mensal (ou finalValue/installments se 1x) */
@@ -399,8 +408,21 @@ function applyPaymentOption(total: number, opt: PaymentOption): {
   /** Onda 11.3 — valor que sera financiado (total - entrada) */
   financedAmount: number;
 } {
+  // Onda 14.29 — opcoes a vista (PIX e Boleto a vista) ignoram entrada custom
+  const isAvistaTotal = opt.variant === 'avista' || opt.key === 'boleto-avista';
+  // Entrada efetiva: custom (se > 0 e nao for avista) sobrescreve o default
+  // do opt.downPaymentPercent. Sempre limitada a total - 1 centavo pra nao
+  // gerar parcelas em valor 0.
+  const customClamped = (customDownPayment ?? 0) > 0
+    ? Math.min(Math.max(0, customDownPayment as number), total - 0.01)
+    : 0;
+
   if (opt.interestRate && opt.interestRate > 0) {
-    const downPaymentValue = (opt.downPaymentPercent ?? 0) > 0
+    const downPaymentValue = isAvistaTotal
+      ? 0
+      : customClamped > 0
+      ? customClamped
+      : (opt.downPaymentPercent ?? 0) > 0
       ? total * ((opt.downPaymentPercent ?? 0) / 100)
       : 0;
     const financedAmount = total - downPaymentValue;
@@ -414,6 +436,21 @@ function applyPaymentOption(total: number, opt: PaymentOption): {
       installmentValue: pmt,
       savedValue: 0,
       extraInterest: finalValue - total,
+      downPaymentValue,
+      financedAmount,
+    };
+  }
+  // Onda 14.29 — opcao sem juros mas com entrada custom (ex: cartao 6x sem
+  // juros + entrada 5k): entrada abate do total, parcelas dividem o resto.
+  // Aplicada so se nao for avista (PIX/Boleto a vista preservam comportamento).
+  if (!isAvistaTotal && customClamped > 0) {
+    const downPaymentValue = customClamped;
+    const financedAmount = total - downPaymentValue;
+    return {
+      finalValue: total,
+      installmentValue: financedAmount / opt.installments,
+      savedValue: 0,
+      extraInterest: 0,
       downPaymentValue,
       financedAmount,
     };
@@ -1505,6 +1542,131 @@ function PropostaCard({
   );
 }
 
+// ─── Onda 14.29 — Input de Entrada Opcional ────────────────────────
+//
+// Mini-card acima dos cards de pagamento. Operador digita valor (R$) que
+// abate do total parcelavel. Cartao e Boleto parcelado recalculam parcelas
+// sobre (total - entrada). PIX e Boleto a vista ignoram (sao pagamentos
+// imediatos).
+//
+// Presets de % rapidos (10/20/30/50) facilitam negociacao. Slider opcional
+// pra ajuste fino. Tudo local — nao persiste no banco, ferramenta de
+// simulacao ao vivo.
+
+function DownPaymentInput({
+  total,
+  value,
+  onChange,
+}: {
+  total: number;
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  // Input controlled: estado local em centavos pra evitar bug float, mas
+  // expoe value pro parent em R$ inteiros via onChange.
+  const [text, setText] = useState<string>(value > 0 ? `R$ ${fmtBRL(value)}` : '');
+
+  // Sincroniza quando parent reseta (ex: troca de quote)
+  useEffect(() => {
+    setText(value > 0 ? `R$ ${fmtBRL(value)}` : '');
+  }, [value]);
+
+  const handleChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const num = digits === '' ? 0 : Number(digits) / 100;
+    setText(num > 0 ? `R$ ${fmtBRL(num)}` : '');
+    onChange(num);
+  };
+
+  const applyPercent = (pct: number) => {
+    const v = Math.round(total * (pct / 100));
+    onChange(v);
+  };
+
+  const clear = () => {
+    onChange(0);
+  };
+
+  const hasEntry = value > 0;
+  const remaining = Math.max(0, total - value);
+  const pctOfTotal = hasEntry ? Math.round((value / total) * 100) : 0;
+
+  return (
+    <div className={`mb-3 p-3 rounded-lg border transition-colors ${
+      hasEntry
+        ? 'border-amber-500/50 bg-amber-500/5'
+        : 'border-border border-dashed bg-muted/10'
+    }`}>
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0 flex-1">
+          <DollarSign size={14} className={hasEntry ? 'text-amber-700' : 'text-muted-foreground'} />
+          <div className="min-w-0">
+            <p className="text-xs font-semibold text-foreground">
+              Entrada opcional
+              {hasEntry && (
+                <span className="ml-2 text-[10px] font-normal text-amber-700">
+                  ({pctOfTotal}% do total)
+                </span>
+              )}
+            </p>
+            <p className="text-[10px] text-muted-foreground">
+              {hasEntry
+                ? <>
+                    a parcelar: <strong className="text-foreground tabular-nums">R$ {fmtBRL(remaining)}</strong>
+                    <span className="opacity-60"> · só afeta cartão e boleto parcelado</span>
+                  </>
+                : 'abate do total — cartão e boleto parcelado recalculam parcelas'}
+            </p>
+          </div>
+        </div>
+
+        <input
+          type="text"
+          value={text}
+          onChange={(e) => handleChange(e.target.value)}
+          placeholder="R$ 0,00"
+          inputMode="numeric"
+          className={`w-32 text-sm font-semibold tabular-nums px-3 py-1.5 rounded-md border bg-background text-right focus:outline-none focus:ring-2 ${
+            hasEntry
+              ? 'border-amber-500 focus:ring-amber-500/30'
+              : 'border-border focus:ring-amber-500/30 focus:border-amber-500'
+          }`}
+        />
+
+        <div className="flex items-center gap-1 shrink-0">
+          {[10, 20, 30, 50].map((pct) => {
+            const isActive = pctOfTotal === pct;
+            return (
+              <button
+                key={pct}
+                type="button"
+                onClick={() => applyPercent(pct)}
+                className={`text-[10px] font-semibold px-2 py-1 rounded border transition-colors ${
+                  isActive
+                    ? 'border-amber-600 bg-amber-500/15 text-amber-800'
+                    : 'border-border bg-card hover:bg-accent'
+                }`}
+              >
+                {pct}%
+              </button>
+            );
+          })}
+          {hasEntry && (
+            <button
+              type="button"
+              onClick={clear}
+              className="text-[10px] font-semibold px-2 py-1 rounded border border-border bg-card hover:bg-destructive/10 hover:text-destructive hover:border-destructive/30 transition-colors"
+              title="Remover entrada"
+            >
+              <X size={10} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Painel inline: proposta selecionada com pagamento + acoes ──────
 // Onda 9 — renderiza abaixo dos cards quando alguma versao esta selecionada.
 // Reune items (top-4 + expand), opcoes de pagamento, resumo da oferta e acoes
@@ -1577,10 +1739,24 @@ function PropostaPainel({
   // Base usada pra calcular formas de pagamento — usa o ja aprovado.
   const total = hasPartialApproval ? approvedValue : totalBruto;
 
+  // Onda 14.29 — Entrada opcional (em R$). Operador digita um valor que
+  // abate do total parcelavel. PIX e Boleto a vista ignoram. Cartao e
+  // Boleto parcelado recalculam parcelas em cima de (total - entrada).
+  // State local (nao persiste) — e ferramenta de negociacao ao vivo.
+  // Onda 14.29 — Reseta entrada quando troca de quote selecionado (detail.id muda).
+  const [customDownPayment, setCustomDownPayment] = useState<number>(0);
+  const detailIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (detailIdRef.current !== detail.id) {
+      detailIdRef.current = detail.id;
+      setCustomDownPayment(0);
+    }
+  }, [detail.id]);
+
   const options = buildPaymentOptions();
   const allOptions = [...options.avista, ...options.cartao, ...options.parcelado];
   const activeOption = allOptions.find((o) => o.key === activePaymentKey) || options.avista[0];
-  const activeCalc = applyPaymentOption(total, activeOption);
+  const activeCalc = applyPaymentOption(total, activeOption, customDownPayment);
 
   // Onda 11.1 — Ordena itens: aprovados primeiro (incluidos nesta proposta de
   // pagamento), pendentes depois (em aberto, nao incluidos).
@@ -1726,6 +1902,15 @@ function PropostaPainel({
         )}
       </div>
 
+      {/* Onda 14.29 — Entrada opcional. Operador digita valor que abate
+          do total parcelavel. Cartao e Boleto parcelado recalculam parcelas
+          sobre (total - entrada). PIX e Boleto a vista ignoram. */}
+      <DownPaymentInput
+        total={total}
+        value={customDownPayment}
+        onChange={setCustomDownPayment}
+      />
+
       {/* Onda 11.9 — PIX/dinheiro e Cartao de credito lado a lado em grid 2 cols.
           Onda 12.3 — items-stretch + h-full nos botoes pra alinhar alturas. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-stretch">
@@ -1778,6 +1963,7 @@ function PropostaPainel({
           total={total}
           activePaymentKey={activePaymentKey}
           onChangePayment={onChangePayment}
+          customDownPayment={customDownPayment}
         />
       </div>
 
@@ -1793,6 +1979,7 @@ function PropostaPainel({
         onOpenCreditCheckForParcelas={onOpenCreditCheckForParcelas}
         requiresCreditCheck={detail.requires_credit_check !== false}
         onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
+        customDownPayment={customDownPayment}
       />
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
@@ -1851,17 +2038,21 @@ function CardCartao({
   total,
   activePaymentKey,
   onChangePayment,
+  customDownPayment = 0,
 }: {
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
   onChangePayment: (key: string) => void;
+  /** Onda 14.29 — entrada opcional digitada pelo operador. Recalcula
+   *  parcelas em cima de (total - entrada). Default 0 = sem entrada. */
+  customDownPayment?: number;
 }) {
   const [open, setOpen] = useState(false);
   // Detecta se ja ha cartao ativo. Senao, usa default 1x pra display.
   const active = options.find((o) => o.key === activePaymentKey);
   const display = active || options[0]; // 1x default pra preview
-  const calc = applyPaymentOption(total, display);
+  const calc = applyPaymentOption(total, display, customDownPayment);
   const isSelected = !!active;
 
   return (
@@ -1885,6 +2076,12 @@ function CardCartao({
               <DollarSign size={13} />
               {isSelected ? `Cartão · ${display.installments}x` : 'Cartão de crédito'}
             </p>
+            {/* Onda 14.29 — quando ha entrada custom, mostra "entrada R$ X +" acima */}
+            {calc.downPaymentValue > 0 && (
+              <p className="text-[10px] text-muted-foreground mb-0.5">
+                entrada R$ {fmtBRL(calc.downPaymentValue)} +
+              </p>
+            )}
             <p className="text-2xl font-bold tabular-nums text-sky-700">
               {display.installments}x de R$ {fmtBRL(calc.installmentValue)}
             </p>
@@ -1927,6 +2124,7 @@ function CardCartao({
             setOpen(false);
           }}
           onClose={() => setOpen(false)}
+          customDownPayment={customDownPayment}
         />
       )}
     </div>
@@ -1942,12 +2140,15 @@ function CartaoInstallmentsModal({
   activePaymentKey,
   onSelect,
   onClose,
+  customDownPayment = 0,
 }: {
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
   onSelect: (key: string) => void;
   onClose: () => void;
+  /** Onda 14.29 — entrada opcional pra recalcular parcelas em cada linha */
+  customDownPayment?: number;
 }) {
   return (
     <div
@@ -2021,7 +2222,8 @@ function CartaoInstallmentsModal({
         <ul className="flex-1 overflow-y-auto">
           {options.map((opt) => {
             const isActive = activePaymentKey === opt.key;
-            const c = applyPaymentOption(total, opt);
+            // Onda 14.29 — aplica entrada custom no calculo de cada linha
+            const c = applyPaymentOption(total, opt, customDownPayment);
             const hasInterest = (opt.interestRate ?? 0) > 0;
             return (
               <li key={opt.key}>
@@ -2038,6 +2240,11 @@ function CartaoInstallmentsModal({
                     {opt.installments}x
                   </span>
                   <span className="text-sm tabular-nums">
+                    {c.downPaymentValue > 0 && (
+                      <span className="text-[10px] text-muted-foreground block leading-tight">
+                        entrada R$ {fmtBRL(c.downPaymentValue)} +
+                      </span>
+                    )}
                     de{' '}
                     <strong className={isActive ? 'text-sky-700' : 'text-foreground'}>
                       R$ {fmtBRL(c.installmentValue)}
@@ -2084,6 +2291,7 @@ function CardBoletoParcelado({
   onOpenCreditCheckForParcelas,
   requiresCreditCheck,
   onToggleRequiresCreditCheck,
+  customDownPayment = 0,
 }: {
   options: PaymentOption[];
   total: number;
@@ -2096,12 +2304,14 @@ function CardBoletoParcelado({
   requiresCreditCheck: boolean;
   /** Onda 14.26 — toggle persiste via PATCH /quotes/:id no parent. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
+  /** Onda 14.29 — entrada opcional pra recalcular parcelas */
+  customDownPayment?: number;
 }) {
   const [open, setOpen] = useState(false);
   const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
   const isSelected = activeIdx >= 0;
   const active = isSelected ? options[activeIdx] : null;
-  const activeCalc = active ? applyPaymentOption(total, active) : null;
+  const activeCalc = active ? applyPaymentOption(total, active, customDownPayment) : null;
 
   const handleSelectInstallment = (opt: PaymentOption) => {
     setOpen(false);
@@ -2204,6 +2414,7 @@ function CardBoletoParcelado({
           onSelect={handleSelectInstallment}
           onClose={() => setOpen(false)}
           requiresCreditCheck={requiresCreditCheck}
+          customDownPayment={customDownPayment}
         />
       )}
     </div>
@@ -2220,6 +2431,7 @@ function BoletoInstallmentsModal({
   onSelect,
   onClose,
   requiresCreditCheck,
+  customDownPayment = 0,
 }: {
   options: PaymentOption[];
   total: number;
@@ -2232,13 +2444,16 @@ function BoletoInstallmentsModal({
    *  "exige consulta" nas linhas parcelados. UI apenas — logica de
    *  application esta no handleSelectInstallment do CardBoletoParcelado. */
   requiresCreditCheck: boolean;
+  /** Onda 14.29 — entrada opcional pra recalcular parcelas em cada linha */
+  customDownPayment?: number;
 }) {
   // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais
   // (1x..24x parcelado). A primeira fica num bloco verde grande acima da
   // tabela, as outras seguem na lista normal com badge "exige consulta".
   const highlightOption = options.find((o) => o.isAVistaHighlight);
   const tableOptions = options.filter((o) => !o.isAVistaHighlight);
-  const highlightCalc = highlightOption ? applyPaymentOption(total, highlightOption) : null;
+  // Onda 14.29 — Boleto a vista IGNORA entrada custom (pagamento imediato).
+  const highlightCalc = highlightOption ? applyPaymentOption(total, highlightOption, 0) : null;
   const isHighlightActive = !!highlightOption && activePaymentKey === highlightOption.key;
   return (
     <div
@@ -2378,7 +2593,8 @@ function BoletoInstallmentsModal({
         <ul className="flex-1 overflow-y-auto">
           {tableOptions.map((opt) => {
             const isActive = activePaymentKey === opt.key;
-            const c = applyPaymentOption(total, opt);
+            // Onda 14.29 — entrada custom sobrescreve downPaymentPercent default
+            const c = applyPaymentOption(total, opt, customDownPayment);
             const hasInterest = (opt.interestRate ?? 0) > 0;
             return (
               <li key={opt.key}>
