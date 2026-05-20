@@ -297,6 +297,9 @@ interface PaymentOption {
   /** Onda 11.3 — % de entrada (default 0). Reduz valor financiado antes de
    *  aplicar Price → parcelas menores. Entrada paga a vista no fechamento. */
   downPaymentPercent?: number;
+  /** Onda 14.25 — flag visual: opcao destacada em verde, separada do resto.
+   *  Usada pelo "Boleto a vista" (10% desconto, sem juros, sem consulta). */
+  isAVistaHighlight?: boolean;
 }
 
 function buildPaymentOptions(): {
@@ -333,24 +336,42 @@ function buildPaymentOptions(): {
     ],
     // Onda 11.4 — Cartao de credito 1x ate 12x sem juros
     cartao,
-    // Onda 14.4 — Boleto/Financiamento Banco PASSOS: 1x ate 24x
-    //   1x: a vista, sem juros, sem entrada
-    //   2x ate 24x: com juros 1.5%/mes, com entrada 20% (a partir de 12x)
-    parcelado: Array.from({ length: 24 }, (_, idx) => {
-      const n = idx + 1;
-      const hasInterest = n >= 2;
-      const hasDownPayment = n >= 12; // entrada so pra prazos longos
-      return {
-        key: `parcelado-${n}x`,
-        label: `${n}x`,
-        sublabel: '',
-        discountPercent: 0,
-        installments: n,
+    // Onda 14.4 — Boleto/Financiamento Banco PASSOS.
+    // Onda 14.25 — reestruturado:
+    //   - boleto-avista (PRIMEIRA, destacada em verde): 10% desconto, sem
+    //     juros, sem consulta de credito. Pagamento imediato no boleto.
+    //   - 1x: pagamento em 30 dias COM juros 1.5%/mes (exige consulta)
+    //   - 2x..24x: parcelado com juros 1.5%/mes, entrada 20% a partir de 12x
+    //     (todas exigem consulta de credito).
+    parcelado: [
+      // Opcao destacada — separada visualmente do resto na UI
+      {
+        key: 'boleto-avista',
+        label: 'À vista',
+        sublabel: 'boleto à vista',
+        discountPercent: 10,
+        installments: 1,
         variant: 'parcelado' as const,
-        interestRate: hasInterest ? 1.5 : 0,
-        downPaymentPercent: hasDownPayment ? 20 : 0,
-      };
-    }),
+        interestRate: 0,
+        downPaymentPercent: 0,
+        isAVistaHighlight: true,
+      },
+      // 1x..24x com juros (parcela 1 = 30 dias). Entrada 20% a partir de 12x.
+      ...Array.from({ length: 24 }, (_, idx) => {
+        const n = idx + 1;
+        const hasDownPayment = n >= 12;
+        return {
+          key: `parcelado-${n}x`,
+          label: `${n}x`,
+          sublabel: n === 1 ? '30 dias' : '',
+          discountPercent: 0,
+          installments: n,
+          variant: 'parcelado' as const,
+          interestRate: 1.5,
+          downPaymentPercent: hasDownPayment ? 20 : 0,
+        };
+      }),
+    ],
   };
 }
 
@@ -2087,14 +2108,15 @@ function CardBoletoParcelado({
   const active = isSelected ? options[activeIdx] : null;
   const activeCalc = active ? applyPaymentOption(total, active) : null;
 
-  const handleSelectInstallment = (n: number) => {
+  const handleSelectInstallment = (opt: PaymentOption) => {
     setOpen(false);
-    if (n === 1) {
-      // Boleto a vista — aplica direto (sem credit-check)
-      onChangePayment(`parcelado-1x`);
+    // Onda 14.25 — Boleto à vista (key=boleto-avista): aplica direto sem
+    // credit-check (pagamento imediato, 10% desconto, sem risco).
+    // Demais opcoes (parcelado-Nx): exige consulta de credito.
+    if (opt.key === 'boleto-avista') {
+      onChangePayment(opt.key);
     } else {
-      // Parcelado >= 2x — vai pra consulta de credito
-      onOpenCreditCheckForParcelas(n);
+      onOpenCreditCheckForParcelas(opt.installments);
     }
   };
 
@@ -2177,9 +2199,18 @@ function BoletoInstallmentsModal({
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
-  onSelect: (installments: number) => void;
+  /** Onda 14.25 — agora recebe a opcao inteira pra distinguir boleto-avista
+   *  (key especifica, sem credit-check) das demais. */
+  onSelect: (opt: PaymentOption) => void;
   onClose: () => void;
 }) {
+  // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais
+  // (1x..24x parcelado). A primeira fica num bloco verde grande acima da
+  // tabela, as outras seguem na lista normal com badge "exige consulta".
+  const highlightOption = options.find((o) => o.isAVistaHighlight);
+  const tableOptions = options.filter((o) => !o.isAVistaHighlight);
+  const highlightCalc = highlightOption ? applyPaymentOption(total, highlightOption) : null;
+  const isHighlightActive = !!highlightOption && activePaymentKey === highlightOption.key;
   return (
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
@@ -2240,6 +2271,73 @@ function BoletoInstallmentsModal({
           </span>
         </div>
 
+        {/* Onda 14.25 — Boleto à vista destacado (verde, grande, separado).
+            10% desconto, sem juros, sem consulta de credito — pagamento
+            imediato. Aplicacao direta sem credit-check. */}
+        {highlightOption && highlightCalc && (
+          <button
+            type="button"
+            onClick={() => onSelect(highlightOption)}
+            className={`m-4 p-4 rounded-lg border-2 text-left transition-all hover:shadow-md ${
+              isHighlightActive
+                ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20'
+                : 'border-emerald-500/50 bg-emerald-500/5 hover:bg-emerald-500/10'
+            }`}
+          >
+            <div className="flex items-center justify-between gap-3 flex-wrap">
+              <div className="flex items-start gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                  <Check size={18} className="text-emerald-700" strokeWidth={2.5} />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-lg font-bold text-emerald-800 dark:text-emerald-300">
+                      Boleto à vista
+                    </span>
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wide">
+                      −{highlightOption.discountPercent}%
+                    </span>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/30">
+                      sem consulta
+                    </span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Pagamento imediato · sem juros · economia de R$ {fmtBRL(highlightCalc.savedValue)}
+                  </p>
+                </div>
+              </div>
+              <div className="text-right shrink-0">
+                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5">
+                  Total a pagar
+                </div>
+                <div className="text-2xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                  R$ {fmtBRL(highlightCalc.finalValue)}
+                </div>
+                <div className="text-[11px] text-muted-foreground line-through tabular-nums">
+                  R$ {fmtBRL(total)}
+                </div>
+              </div>
+            </div>
+            {isHighlightActive && (
+              <div className="mt-2 pt-2 border-t border-emerald-500/30 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
+                <Check size={11} strokeWidth={3} />
+                Selecionado
+              </div>
+            )}
+          </button>
+        )}
+
+        {/* Separador "ou parcele" */}
+        {highlightOption && (
+          <div className="px-6 -mt-2 mb-2 flex items-center gap-3">
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+              ou parcele com juros
+            </span>
+            <div className="flex-1 h-px bg-border" />
+          </div>
+        )}
+
         {/* Cabeçalho da tabela */}
         <div className="grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-2 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
           <span>Parcelas</span>
@@ -2247,18 +2345,17 @@ function BoletoInstallmentsModal({
           <span className="text-right">Total</span>
         </div>
 
-        {/* Linhas */}
+        {/* Linhas — Onda 14.25: filtradas, sem boleto-avista (renderizado acima destacado) */}
         <ul className="flex-1 overflow-y-auto">
-          {options.map((opt) => {
+          {tableOptions.map((opt) => {
             const isActive = activePaymentKey === opt.key;
             const c = applyPaymentOption(total, opt);
             const hasInterest = (opt.interestRate ?? 0) > 0;
-            const isAVista = opt.installments === 1;
             return (
               <li key={opt.key}>
                 <button
                   type="button"
-                  onClick={() => onSelect(opt.installments)}
+                  onClick={() => onSelect(opt)}
                   className={`w-full grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-3 text-left transition-colors border-b border-border/40 last:border-0 ${
                     isActive
                       ? 'bg-amber-500/10 hover:bg-amber-500/15'
@@ -2267,9 +2364,9 @@ function BoletoInstallmentsModal({
                 >
                   <span className={`text-base tabular-nums ${isActive ? 'font-bold text-amber-800' : 'font-medium text-foreground'}`}>
                     {opt.installments}x
-                    {isAVista && (
-                      <span className="block text-[9px] text-emerald-700 font-semibold uppercase tracking-wide">
-                        à vista
+                    {opt.sublabel && (
+                      <span className="block text-[9px] text-muted-foreground font-medium uppercase tracking-wide">
+                        {opt.sublabel}
                       </span>
                     )}
                   </span>
@@ -2283,16 +2380,14 @@ function BoletoInstallmentsModal({
                     <strong className={isActive ? 'text-amber-800' : 'text-foreground'}>
                       R$ {fmtBRL(c.installmentValue)}
                     </strong>{' '}
-                    {!hasInterest ? (
-                      <span className="text-emerald-700 text-xs font-medium">sem juros</span>
-                    ) : (
+                    {hasInterest ? (
                       <span className="text-amber-700 text-xs font-medium">com juros</span>
+                    ) : (
+                      <span className="text-emerald-700 text-xs font-medium">sem juros</span>
                     )}
-                    {!isAVista && (
-                      <span className="block text-[10px] text-amber-700 italic mt-0.5">
-                        exige consulta de crédito ⓘ
-                      </span>
-                    )}
+                    <span className="block text-[10px] text-amber-700 italic mt-0.5">
+                      exige consulta de crédito ⓘ
+                    </span>
                   </span>
                   <span className="text-sm tabular-nums text-right text-muted-foreground">
                     R$ {fmtBRL(c.finalValue)}
@@ -2310,7 +2405,7 @@ function BoletoInstallmentsModal({
             Boletos emitidos via Asaas · Análise de crédito via Serasa Crediscore
           </p>
           <p className="text-[10px] text-muted-foreground">
-            1x à vista sem juros · 2x-24x com juros 1,5%/mês · entrada de 20% a partir de 12x
+            Boleto à vista: 10% de desconto, sem consulta · 1x (30 dias) a 24x: juros 1,5%/mês, exige consulta · entrada de 20% a partir de 12x
           </p>
         </div>
       </div>
