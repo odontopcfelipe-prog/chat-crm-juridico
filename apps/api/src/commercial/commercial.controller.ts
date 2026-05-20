@@ -359,6 +359,22 @@ export class CommercialController {
     );
   }
 
+  /**
+   * Onda 14.33 — Marca proposta como "escolhida pra aguardar decisao do
+   * paciente". Exclusiva por paciente: ao marcar uma, qualquer outra do
+   * mesmo paciente que estivesse marcada e desmarcada. UI destaca a chosen
+   * e esmaece as demais. */
+  @Post('quotes/:id/choose-as-proposal')
+  chooseQuoteAsProposal(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.markAsChosenProposal(id, user.tenant_id);
+  }
+
+  /** Onda 14.33 — Desmarca proposta escolhida (volta ao estado neutro). */
+  @Post('quotes/:id/unchoose-as-proposal')
+  unchooseQuoteAsProposal(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.unmarkChosenProposal(id, user.tenant_id);
+  }
+
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
 
   /** Lista TODOS os orcamentos do tenant (pagina /atendimento/orcamentos) */

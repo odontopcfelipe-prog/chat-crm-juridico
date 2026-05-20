@@ -56,6 +56,9 @@ interface QuoteListItem {
   quote_number?: number;
   /** Onda 14.21 — false esconde da aba Propostas (mantem nas demais abas). */
   visible_in_proposals?: boolean;
+  /** Onda 14.33 — marca a proposta "escolhida pra apresentar ao paciente".
+   *  So uma por paciente por vez. Card destacado, demais esmaecidos. */
+  is_chosen_proposal?: boolean;
   total_value: string | number;
   created_at: string;
   valid_until?: string | null;
@@ -93,6 +96,8 @@ interface QuoteDetailLite {
   items: QuoteItemDetail[];
   /** Onda 14.26 — toggle "exigir credit-check" desta venda. Default true. */
   requires_credit_check?: boolean;
+  /** Onda 14.33 — proposta escolhida pra aguardar decisao do paciente */
+  is_chosen_proposal?: boolean;
 }
 
 /** Onda 10 — parseia linhas [CONTRAPROPOSTA YYYY-MM-DD HH:mm] do campo notes */
@@ -669,6 +674,52 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     }
   }, [load]);
 
+  // Onda 14.33 — Marca proposta como "escolhida" (aguardando decisao do
+  // paciente). Card destacado + demais esmaecidos. So uma por paciente.
+  // Optimistic update local + refetch em background.
+  const chooseAsProposal = useCallback(async (quoteId: string) => {
+    // Optimistic — atualiza estado local antes do PATCH
+    setQuotes((prev) =>
+      prev.map((q) => ({
+        ...q,
+        is_chosen_proposal: q.id === quoteId,
+      })),
+    );
+    setSelectedDetail((prev) =>
+      prev && prev.id === quoteId ? { ...prev, is_chosen_proposal: true } : prev,
+    );
+    try {
+      await api.post(`/quotes/${quoteId}/choose-as-proposal`, {});
+      showSuccess('Proposta salva — aguardando decisão do paciente');
+      load(); // refetch em background pra garantir consistencia
+    } catch (err: unknown) {
+      await load(); // reverte
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao salvar proposta');
+    }
+  }, [load]);
+
+  // Onda 14.33 — Desmarca a proposta escolhida (volta ao estado neutro).
+  const unchooseAsProposal = useCallback(async (quoteId: string) => {
+    setQuotes((prev) =>
+      prev.map((q) =>
+        q.id === quoteId ? { ...q, is_chosen_proposal: false } : q,
+      ),
+    );
+    setSelectedDetail((prev) =>
+      prev && prev.id === quoteId ? { ...prev, is_chosen_proposal: false } : prev,
+    );
+    try {
+      await api.post(`/quotes/${quoteId}/unchoose-as-proposal`, {});
+      showSuccess('Proposta desmarcada');
+      load();
+    } catch (err: unknown) {
+      await load();
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao desmarcar');
+    }
+  }, [load]);
+
   // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
   // Seta visible_in_proposals=false: a quote some daqui mas continua intacta
   // nas abas Avaliacao, Orcamentos e Financeiro. Optimistic update pra resposta
@@ -1085,8 +1136,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             });
           }
 
+          // Onda 14.33 — Detecta se ha alguma proposta "chosen" no paciente.
+          // Se sim, dim todas as outras (exceto a chosen propriamente).
+          const chosenEntryId = entries.find((e) => e.quote.is_chosen_proposal)?.quote.id ?? null;
+
           return entries.map((entry) => {
             const isSelected = selectedId === entry.quote.id;
+            const isChosen = entry.quote.is_chosen_proposal === true;
+            const dimmed = chosenEntryId !== null && entry.quote.id !== chosenEntryId;
             return (
               <div
                 key={entry.key}
@@ -1112,6 +1169,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
                   olderCount={0}
                   completoTotal={completoTotal}
                   selected={isSelected}
+                  isChosen={isChosen}
+                  dimmed={dimmed}
                   onToggleSelect={() => setSelectedId(isSelected ? null : entry.quote.id)}
                   onPickEmpty={() => {
                     if (entry.variant !== 'LIVRE') setPickerFor(entry.variant);
@@ -1153,6 +1212,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           onApproveAndBill={approveAndBill}
           // Onda 14.26 — toggle "exige consulta de credito" no card boleto
           onToggleRequiresCreditCheck={(value) => toggleRequiresCreditCheck(selectedId!, value)}
+          // Onda 14.33 — salvar proposta como "aguardando decisão do paciente"
+          onChooseAsProposal={() => selectedId && chooseAsProposal(selectedId)}
+          onUnchooseAsProposal={() => selectedId && unchooseAsProposal(selectedId)}
         />
       )}
 
@@ -1310,6 +1372,8 @@ function PropostaCard({
   olderCount,
   completoTotal,
   selected,
+  isChosen = false,
+  dimmed = false,
   onToggleSelect,
   onPickEmpty,
   onRemoveFromSlot,
@@ -1322,6 +1386,12 @@ function PropostaCard({
   completoTotal: number | null;
   /** Onda 9 — card destacado quando e a versao "selecionada" pra negociar */
   selected: boolean;
+  /** Onda 14.33 — quote.is_chosen_proposal=true (proposta escolhida pra
+   *  aguardar paciente). Mostra ring colorido + badge AGUARDANDO PACIENTE. */
+  isChosen?: boolean;
+  /** Onda 14.33 — alguma OUTRA proposta do paciente esta chosen. Este card
+   *  fica esmaecido (opacity-50) pra reduzir confusao visual. */
+  dimmed?: boolean;
   /** Onda 9 — click no card preenchido alterna seleção (abre/fecha painel inline) */
   onToggleSelect: () => void;
   /** Onda 8.1 — click no card vazio abre picker pra atribuir orcamento ao slot.
@@ -1386,21 +1456,34 @@ function PropostaCard({
       type="button"
       onClick={onToggleSelect}
       data-selected={selected ? '1' : '0'}
+      data-chosen={isChosen ? '1' : '0'}
+      data-dimmed={dimmed ? '1' : '0'}
       className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full w-full ${
-        selected
+        isChosen
+          ? 'border-sky-500 bg-sky-50 dark:bg-sky-950/30 ring-2 ring-sky-500/30 shadow-md'
+          : selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
-      }`}
+      } ${dimmed ? 'opacity-50 grayscale hover:opacity-100 hover:grayscale-0' : ''}`}
     >
+      {/* Onda 14.33 — Badge "AGUARDANDO PACIENTE" — proposta escolhida.
+          Tem precedencia sobre "atual" / "ACEITO" (raro mas pra clarificar). */}
+      {isChosen && (
+        <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-600 text-white shadow-sm flex items-center gap-1">
+          <Clock size={9} strokeWidth={3} />
+          AGUARDANDO PACIENTE
+        </span>
+      )}
+
       {/* Badge "atual" — quote enviada esta em negociacao */}
-      {isSent && !selected && (
+      {isSent && !selected && !isChosen && (
         <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-orange-500 text-white shadow-sm">
           atual
         </span>
       )}
 
       {/* Onda 14.7 — Badge "ACEITO" quando quote foi aprovado */}
-      {isAccepted && (
+      {isAccepted && !isChosen && (
         <span className="absolute -top-2 -right-2 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white shadow-sm flex items-center gap-1">
           <Check size={9} strokeWidth={3} />
           ACEITO
@@ -2083,6 +2166,8 @@ function PropostaPainel({
   onAddBonus,
   onApproveAndBill,
   onToggleRequiresCreditCheck,
+  onChooseAsProposal,
+  onUnchooseAsProposal,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -2108,6 +2193,11 @@ function PropostaPainel({
   /** Onda 14.26 — toggle "exige consulta de credito" no card de boleto.
    *  Quando false, parcelados aplicam direto sem credit-check. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
+  /** Onda 14.33 — Marca esta proposta como "escolhida" pra aguardar
+   *  decisao do paciente. So uma por paciente. */
+  onChooseAsProposal?: () => void;
+  /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
+  onUnchooseAsProposal?: () => void;
 }) {
   // Onda 14.29 (fix) — Hooks DEVEM ser declarados antes de qualquer early return
   // (rules-of-hooks). Antes estavam apos `if (!detail) return null` e quebravam
@@ -2409,11 +2499,36 @@ function PropostaPainel({
           <Gift size={12} />
           Adicionar bônus
         </button>
+
+        {/* Onda 14.33 — Salvar proposta (aguardando decisão do paciente).
+            Destaca esta proposta + esmaece as outras na lista de cards. */}
+        {!detail.is_chosen_proposal ? (
+          <button
+            type="button"
+            onClick={onChooseAsProposal}
+            className="text-xs px-3 py-2 rounded-lg border border-sky-500/50 bg-sky-500/5 text-sky-800 hover:bg-sky-500/15 flex items-center gap-1.5 ml-auto"
+            title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Útil enquanto paciente decide."
+          >
+            <Clock size={12} />
+            Salvar proposta
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={onUnchooseAsProposal}
+            className="text-xs px-3 py-2 rounded-lg border border-sky-600 bg-sky-100 text-sky-900 hover:bg-sky-200 flex items-center gap-1.5 ml-auto font-medium"
+            title="Desmarcar como escolhida (volta ao estado neutro)"
+          >
+            <Check size={12} />
+            Aguardando paciente · desmarcar
+          </button>
+        )}
+
         <button
           type="button"
           onClick={onSend}
           disabled={sending}
-          className="text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ml-auto"
+          className="text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5"
           title="Envia link da proposta pro paciente abrir e decidir"
         >
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}

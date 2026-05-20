@@ -2470,6 +2470,15 @@ model Quote {
   /// assume risco. Metadata de UI, nao bloqueia logica de cobranca.
   requires_credit_check Boolean @default(true)
 
+  /// Onda 14.33 — Marca esta proposta como "ESCOLHIDA pra apresentar ao paciente".
+  /// Quando true, a aba Propostas destaca este card e esmaece os demais
+  /// (visual de "estamos esperando o paciente decidir SOBRE ESTA"). So uma
+  /// proposta por paciente pode estar marcada por vez — o backend garante
+  /// exclusividade quando alguem chama choose-as-proposal. Nao muda o
+  /// status do Quote (continua DRAFT/SENT/ACCEPTED), e so um marcador
+  /// de "destaque visual" pro fluxo de negociacao.
+  is_chosen_proposal Boolean @default(false)
+
   subtotal         Decimal @default(0) @db.Decimal(10, 2)
   discount_percent Decimal @default(0) @db.Decimal(5, 2)
   discount_value   Decimal @default(0) @db.Decimal(10, 2)

@@ -386,6 +386,51 @@ export class QuotesService {
   }
 
   /**
+   * Onda 14.33 — Marca proposta como "ESCOLHIDA pra apresentar ao paciente".
+   * Exclusiva por paciente: se ja existe outra chosen do mesmo paciente, ela
+   * vira false antes desta virar true. Faz tudo numa transacao pra evitar
+   * race condition (2 cliques rapidos do operador).
+   *
+   * Nao muda o status do Quote — e so um marcador visual de "aguardando
+   * decisao do paciente sobre esta variacao". Na UI, esmaece as outras
+   * propostas do paciente pra reduzir confusao visual.
+   */
+  async markAsChosenProposal(quoteId: string, tenantId: string) {
+    const quote = await this.findOne(quoteId, tenantId);
+
+    await this.prisma.$transaction(async (tx) => {
+      // 1. Desmarca quaisquer outras chosen do mesmo paciente (so 1 por vez)
+      await tx.quote.updateMany({
+        where: {
+          patient_id: quote.patient_id,
+          is_chosen_proposal: true,
+          NOT: { id: quoteId },
+        },
+        data: { is_chosen_proposal: false },
+      });
+      // 2. Marca esta como chosen
+      await tx.quote.update({
+        where: { id: quoteId },
+        data: { is_chosen_proposal: true },
+      });
+    });
+
+    this.logger.log(`[Quote ${quoteId}] marcada como CHOSEN proposal pra paciente ${quote.patient_id}`);
+    return this.findOne(quoteId, tenantId);
+  }
+
+  /** Onda 14.33 — Desmarca a proposta escolhida (volta ao estado neutro). */
+  async unmarkChosenProposal(quoteId: string, tenantId: string) {
+    await this.findOne(quoteId, tenantId); // valida tenant ownership
+    await this.prisma.quote.update({
+      where: { id: quoteId },
+      data: { is_chosen_proposal: false },
+    });
+    this.logger.log(`[Quote ${quoteId}] desmarcada como CHOSEN proposal`);
+    return this.findOne(quoteId, tenantId);
+  }
+
+  /**
    * Onda 10 — Salva contraproposta como linha estruturada em Quote.notes.
    *
    * Formato:
