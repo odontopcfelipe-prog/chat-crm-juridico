@@ -927,27 +927,39 @@ export class LeadsService {
 
   /**
    * Onda 14.53 — Promove Lead a Cliente apos primeiro pagamento.
+   * Onda 14.54 — Tambem migra stage do Lead pra FINALIZADO ("deixa de ser
+   * lead totalmente"): sumir de qualquer filtro/view de lead, religar IA com
+   * skill POS_VENDA, gravar historico de stage.
    *
    * Idempotente: se ja eh cliente (is_client=true), retorna alreadyClient:true
    * sem efeito colateral. Best-effort: exceções logam mas nao falham o caller
    * (webhook de pagamento — nao pode quebrar o fluxo financeiro).
    *
-   * Disparado pelo PaymentGatewayService quando Installment vira PAGA/PARCIAL
-   * via webhook Asaas. Efeitos cascateados (automaticos via flags existentes):
-   *   - WhatsApp: conversa do lead some da aba "Leads", aparece em "Clientes"
-   *     (InboxSidebar filtra por Lead.is_client via clientMode toggle)
-   *   - IA: ai.processor.ts detecta is_client=true e força skill 'Acompanhamento'
-   *     (pos-venda) em vez da skill comercial padrao
-   *   - Memory: memory-prompts.ts injeta { is_client: true } no contexto da IA
+   * Disparado pelo PaymentGatewayService quando Installment vira PAGA via
+   * webhook Asaas. Estrategia em 2 passos:
    *
-   * NAO mexe em stage do pipeline — isso fica a cargo de graduateLeadToEmFechamento
-   * (que ja roda ao criar quote). O is_client e uma flag PARALELA pro WhatsApp/IA.
+   *   PASSO 1 (sempre, garantido):
+   *     SET Lead.is_client = true, became_client_at = now()
+   *     -> WhatsApp: conversa do lead some da aba "Leads", aparece em "Clientes"
+   *        (InboxSidebar filtra por Lead.is_client via clientMode toggle)
+   *     -> IA: ai.processor.ts detecta is_client=true e força skill
+   *        'Acompanhamento' (pos-venda) em vez da skill comercial padrao
+   *     -> Memory: memory-prompts.ts injeta { is_client: true } no contexto
+   *
+   *   PASSO 2 (best-effort, pode falhar):
+   *     updateStatus(stage='FINALIZADO') que ALEM de re-setar is_client (idem),
+   *     muda stage do lead pra FINALIZADO -> lead some de QUALQUER view de
+   *     lead (Kanban tradicional ja oculta FINALIZADO/PERDIDO), cria
+   *     LeadStageHistory, religa IA com ai_mode_source='POS_VENDA'.
+   *     Pode falhar se Conversation nao tem specialty (gate existente em
+   *     updateStatus linha ~688). Nesse caso, lead fica is_client=true mas
+   *     stage continua o que era — operador pode finalizar manualmente depois.
    */
   async graduateLeadToClient(
     patientId: string,
     tenantId: string,
     userId?: string,
-  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean }> {
+  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean; stageFinalized?: boolean }> {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
       select: { id: true, tenant_id: true, lead_id: true },
@@ -958,7 +970,7 @@ export class LeadsService {
 
     const lead = await this.prisma.lead.findUnique({
       where: { id: patient.lead_id },
-      select: { id: true, is_client: true },
+      select: { id: true, is_client: true, stage: true },
     });
     if (!lead) return { ok: false };
     if (lead.is_client) {
@@ -966,23 +978,49 @@ export class LeadsService {
       return { ok: true, leadId: lead.id, alreadyClient: true };
     }
 
+    // PASSO 1: Sempre seta is_client=true imediatamente (garantido).
+    // Mesmo se PASSO 2 falhar, o paciente ja eh tratado como cliente nas
+    // demais visualizacoes (WhatsApp, IA).
     await this.prisma.lead.update({
       where: { id: lead.id },
       data: {
         is_client: true,
         became_client_at: new Date(),
-        // Onda 14.53 — cs_user_id so atualiza se foi fornecido (operador
-        // manual). Webhook nao passa userId, fica null. Sem regredir cs_user_id
-        // ja existente.
+        // cs_user_id so atualiza se foi fornecido (operador manual). Webhook
+        // nao passa userId, fica null. Sem regredir cs_user_id ja existente.
         ...(userId ? { cs_user_id: userId } : {}),
       },
     });
-
     this.logger.log(
-      `[LEAD→CLIENT] Lead ${lead.id} (patient ${patientId}) promovido a cliente`,
+      `[LEAD→CLIENT] Lead ${lead.id} (patient ${patientId}) promovido a cliente (is_client=true)`,
     );
 
-    return { ok: true, leadId: lead.id };
+    // PASSO 2: Tenta tambem mover stage pra FINALIZADO (best-effort).
+    // Se ja esta em FINALIZADO/PERDIDO, skip. Se falhar (ex: gate de
+    // specialty), apenas loga — is_client ja garantiu o essencial.
+    let stageFinalized = false;
+    if (lead.stage !== 'FINALIZADO' && lead.stage !== 'PERDIDO') {
+      try {
+        await this.updateStatus(
+          lead.id,
+          'FINALIZADO',     // stage legado
+          tenantId,
+          undefined,        // lossReason — nao aplica
+          userId,           // actorId opcional
+          undefined,        // stageIdArg — resolvido via dual-write do updateStatus
+        );
+        stageFinalized = true;
+        this.logger.log(
+          `[LEAD→CLIENT] Lead ${lead.id} tambem migrado pro stage FINALIZADO`,
+        );
+      } catch (err: any) {
+        this.logger.warn(
+          `[LEAD→CLIENT] Stage transition pra FINALIZADO falhou (lead.is_client=true permanece): ${err?.message}`,
+        );
+      }
+    }
+
+    return { ok: true, leadId: lead.id, stageFinalized };
   }
 
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {
