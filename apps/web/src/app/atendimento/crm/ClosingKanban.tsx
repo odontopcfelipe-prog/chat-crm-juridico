@@ -12,24 +12,28 @@
  * que JA fizeram a avaliacao clinica e estao no processo de decisao /
  * fechamento de tratamento.
  *
- * Colunas (ordem visual):
- *   1. 🟡 Avaliacao Concluida    — bucket 'aguardando'
- *      Lead foi avaliado, sem orcamento e sem proximo evento.
- *      Acao tipica: dentista/secretaria criar orcamento.
+ * Colunas (ordem visual) — Onda 14.44: removida "Avaliacao Concluida" pra
+ * separar funil de captacao (Kanban tradicional) do funil de fechamento
+ * (orcamento + tratamento). Leads pos-consulta sem orcamento ficam na
+ * coluna "Avaliação Feita" do Kanban tradicional ate alguem criar o quote.
  *
- *   2. 🟠 Orcamento Enviado      — bucket 'com-orcamento'
+ *   1. 🟠 Orcamento Enviado      — bucket 'com-orcamento'
  *      Quote em DRAFT ou SENT. Aguardando aceite.
  *
- *   3. 🟢 Em Tratamento          — bucket 'em-tratamento'
+ *   2. 🟢 Em Tratamento          — bucket 'em-tratamento'
  *      Patient + tem evento futuro AGENDADO/CONFIRMADO.
  *      Lead virou paciente da clinica oficialmente.
  *
- *   4. ❌ Perdido                 — bucket 'perdido'
+ *   3. ❌ Perdido                 — bucket 'perdido'
  *      Stage com is_lost=true.
  *
- * Auto-popula: assim que dentista valida atendimento OU evento clinico
- * vira CONCLUIDO, o lead aparece na coluna 1 automaticamente. Hook
- * implementado em calendar.service.ts (Onda 5e v32).
+ * Auto-popula: quando uma quote DRAFT/SENT e criada, o hook
+ * graduateLeadToEmFechamento (quotes.service.ts) move o lead pro stage
+ * em-fechamento (oculto do Kanban tradicional). Daí o lead aparece na
+ * coluna "Orcamento Enviado" deste funil.
+ *
+ * Backend (Onda 14.43) ainda retorna leads bucket='aguardando' no
+ * endpoint /leads/post-avaliacao — frontend simplesmente ignora.
  *
  * Endpoint: GET /leads/post-avaliacao?days=N (mesmo do PostAvaliacaoView)
  */
@@ -37,7 +41,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  DollarSign, MessageSquare, ExternalLink, AlertCircle, FileText,
+  DollarSign, MessageSquare, ExternalLink, FileText,
   Calendar, CheckCircle2, XCircle, Loader2, RefreshCw, HeartPulse,
   Stethoscope,
 } from 'lucide-react';
@@ -76,16 +80,14 @@ interface Props {
   onOpenChat: (lead: any) => void;
 }
 
+// Onda 14.44 — Coluna "Avaliação Concluída" (bucket 'aguardando') removida do
+// ClosingKanban. Leads pos-consulta SEM orcamento ficam no Kanban tradicional
+// (coluna "Avaliação Feita" / stage avaliacao-feita) — controle mais limpo,
+// 1 lugar so pra leads ainda sem decisao comercial. O ClosingKanban passa a
+// representar APENAS leads com proposta efetiva: enviada, em tratamento ou
+// perdida. Lead "graduates" pro ClosingKanban quando uma quote DRAFT/SENT
+// e criada (hook graduateLeadToEmFechamento ja existente).
 const COLUMNS = [
-  {
-    id: 'aguardando' as const,
-    label: 'Avaliação Concluída',
-    sub: 'Aguardando orçamento',
-    icon: AlertCircle,
-    color: 'text-amber-700 dark:text-amber-400',
-    headerBg: 'bg-amber-100/70 dark:bg-amber-950/40',
-    border: 'border-amber-300 dark:border-amber-800',
-  },
   {
     id: 'com-orcamento' as const,
     label: 'Orçamento Enviado',
@@ -168,7 +170,10 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
     return g;
   }, [leads]);
 
-  const totalAtivos = grouped.aguardando.length + grouped['com-orcamento'].length + grouped['em-tratamento'].length;
+  // Onda 14.44 — Sem coluna "Avaliação Concluída", o total "em jogo" agora e
+  // so quem tem orcamento enviado + em tratamento. Leads aguardando orcamento
+  // ficam no Kanban tradicional na coluna "Avaliação Feita".
+  const totalAtivos = grouped['com-orcamento'].length + grouped['em-tratamento'].length;
 
   // Pipeline value somatorio dos orcamentos abertos
   const pipelineValue = useMemo(() => {
@@ -219,7 +224,7 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
           <div>
             <h2 className="text-base font-bold text-foreground">CRM de Fechamento</h2>
             <p className="text-[11px] text-muted-foreground">
-              Pacientes que fizeram avaliação — auto-populado quando consulta vira CONCLUÍDA
+              Propostas em andamento — lead entra aqui quando um orçamento é criado
             </p>
           </div>
         </div>
@@ -259,10 +264,10 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
 
       {totalAtivos === 0 && grouped.perdido.length === 0 ? (
         <div className="flex-1 flex flex-col items-center justify-center text-center py-12 text-muted-foreground text-sm">
-          <Stethoscope size={32} className="mb-3 opacity-40" />
-          <p>Nenhum paciente realizou avaliação nos últimos {days} dias.</p>
+          <DollarSign size={32} className="mb-3 opacity-40" />
+          <p>Nenhuma proposta em andamento nos últimos {days} dias.</p>
           <p className="text-xs mt-1 opacity-70">
-            Quando uma consulta for marcada como CONCLUÍDA, o lead aparece aqui automaticamente.
+            Quando um orçamento for criado pra um lead, ele aparece aqui automaticamente.
           </p>
         </div>
       ) : (
