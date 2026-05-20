@@ -123,9 +123,14 @@ export class ContractsService {
     opts?: { selected_documents?: string[] },
   ) {
     const quote = await this.assertQuoteAndGet(quoteId, tenantId);
-    if (quote.status !== 'ACCEPTED') {
+    // Onda 14.34 — Permite criar contrato em DRAFT/SENT/ACCEPTED. Antes
+    // restringia a ACCEPTED, mas operador pode querer ja deixar contrato
+    // pronto pra assinatura DURANTE a fase de negociacao (antes mesmo do
+    // paciente aceitar). Aprovar/cobrar nao depende mais de contrato assinado.
+    const allowedStatuses = ['DRAFT', 'SENT', 'ACCEPTED'];
+    if (!allowedStatuses.includes(quote.status)) {
       throw new BadRequestException(
-        `Contrato so pode ser criado pra orcamento ACEITO (status atual: ${quote.status})`,
+        `Contrato so pode ser criado pra orcamento DRAFT/SENT/ACEITO (status atual: ${quote.status})`,
       );
     }
     if (quote.contract) {

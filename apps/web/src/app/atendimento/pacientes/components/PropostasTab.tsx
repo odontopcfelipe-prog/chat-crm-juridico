@@ -2477,11 +2477,11 @@ function PropostaPainel({
 
       {/* Onda 14.30 — Card de Contrato (abaixo do boleto). Operador escolhe
           quais documentos vao ser incluidos pra assinatura (TCLE/USO_IMAGEM/
-          LGPD/GARANTIA/RESPONSAVEL_LEGAL/etc) e cria o contrato. Aparece
-          apenas pra propostas ACEITAS — em SENT/DRAFT nao faz sentido ainda. */}
-      {detail.status === 'ACCEPTED' && (
-        <ContratoCard quoteId={detail.id} />
-      )}
+          LGPD/GARANTIA/RESPONSAVEL_LEGAL/etc) e cria o contrato.
+          Onda 14.34 — Agora aparece em DRAFT/SENT tambem (nao so ACCEPTED).
+          Operador pode preparar o contrato durante a negociacao — assinatura
+          NAO e mais obrigatoria pra aprovar/cobrar (gate desativado em 14.34). */}
+      <ContratoCard quoteId={detail.id} />
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
           "Ajustar" / "Salvar contraproposta" (pedido do operador).

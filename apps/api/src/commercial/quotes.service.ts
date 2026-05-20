@@ -619,18 +619,19 @@ export class QuotesService {
       await this.ensurePatientReadyForBilling(quote.patient_id, tenantId);
       this.logger.log(`[APPROVE-AND-BILL] [step:patient-ready] OK`);
 
-      // Onda 14.24 — Gate de contrato: bloqueia cobranca se o quote tem
-      // contrato pendente (DRAFT/SENT/OPENED/PATIENT_SIGNED). Libera se:
-      //  - Nao ha contrato (operador escolheu nao criar)
-      //  - Contrato SIGNED (assinado por ambos)
-      //  - Contrato SKIPPED (operador pulou pra valor baixo)
+      // Onda 14.24 — Gate de contrato.
+      // Onda 14.34 — DESATIVADO (operador pediu pra nao ser obrigatorio
+      // assinar contrato antes de aprovar/cobrar). Helper isBillingAllowed
+      // continua disponivel pra reativacao futura — basta descomentar este
+      // bloco. Por enquanto so loga warning se ha contrato pendente, sem
+      // bloquear o fluxo de aprovacao.
       if (this.contractsService) {
         const check = await this.contractsService.isBillingAllowed(quoteId);
         if (!check.allowed) {
-          this.logger.warn(`[APPROVE-AND-BILL] [step:contract-gate] BLOCKED: ${check.reason}`);
-          throw new BadRequestException(check.reason || 'Contrato pendente bloqueia cobranca');
+          this.logger.warn(
+            `[APPROVE-AND-BILL] [step:contract-gate] Contrato pendente (${check.reason}) — segue sem bloquear (Onda 14.34)`,
+          );
         }
-        this.logger.log(`[APPROVE-AND-BILL] [step:contract-gate] OK`);
       }
 
       // 1. Aceita SO se ainda DRAFT/SENT (idempotente)
