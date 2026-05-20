@@ -1763,10 +1763,10 @@ export default function CrmPage() {
                   ? 'bg-emerald-500 text-white border-emerald-600 shadow-emerald-500/30'
                   : 'bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-100 hover:shadow-md dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800'
               }`}
-              title="Funil de propostas — orcamentos pos-avaliacao aguardando fechamento"
+              title="CRM Fechamentos — orcamentos pos-avaliacao aguardando fechamento"
             >
               <DollarSign size={16} strokeWidth={2.5} />
-              <span>Propostas</span>
+              <span>CRM Fechamentos</span>
             </button>
           </div>
 
