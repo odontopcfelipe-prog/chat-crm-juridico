@@ -217,19 +217,35 @@ export class LeadsService {
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
     const now = new Date();
 
+    // Onda 14.42 — Operador relatou que leads no stage "avaliacao-feita"
+    // (movidos manualmente no Kanban tradicional, sem ter um evento de
+    // calendario CONCLUIDO/validado) nao caiam na coluna "Avaliacao
+    // Concluida" do funil de Propostas. Agora a query aceita QUALQUER um
+    // dos 2 criterios:
+    //   A) calendar_event clinico CONCLUIDO/validado na janela de N dias OU
+    //   B) lead.current_stage.slug = 'avaliacao-feita' (movido manualmente)
+    // Assim o operador pode marcar a avaliacao como feita de qualquer um
+    // dos 2 fluxos sem o lead sumir do funil de fechamento.
     const leads = await this.prisma.lead.findMany({
       where: {
         ...(tenantId ? { tenant_id: tenantId } : {}),
-        calendar_events: {
-          some: {
-            type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
-            start_at: { gte: since, lte: now },
-            OR: [
-              { status: 'CONCLUIDO' },
-              { validated_at: { not: null } },
-            ],
+        OR: [
+          {
+            calendar_events: {
+              some: {
+                type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+                start_at: { gte: since, lte: now },
+                OR: [
+                  { status: 'CONCLUIDO' },
+                  { validated_at: { not: null } },
+                ],
+              },
+            },
           },
-        },
+          {
+            current_stage: { slug: 'avaliacao-feita' },
+          },
+        ],
       },
       include: {
         current_stage: {
