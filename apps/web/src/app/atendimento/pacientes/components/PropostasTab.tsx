@@ -26,8 +26,11 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
-// Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita
-import ProximosPassosTimeline from './ProximosPassosTimeline';
+// Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
+// Onda 14.24.1 — Painel desativado (operador pediu pra remover). Componente
+// + backend continuam no repo. Pra reativar: descomentar este import + bloco
+// no JSX (busque "Onda 14.24 — Painel" abaixo).
+// import ProximosPassosTimeline from './ProximosPassosTimeline';
 
 interface Props {
   patientId: string;
@@ -1602,12 +1605,12 @@ function PropostaPainel({
         </button>
       </div>
 
-      {/* Onda 14.24 — Painel "Proximos passos" so aparece pra propostas ACEITAS.
-          Mostra timeline com etapas: plano criado → anamnese → contrato em
-          assinatura (com sub-timeline) → cobranca → agendar. Cobranca fica
-          bloqueada ate o contrato estar assinado (ou pulado pra valor baixo).
-          Substitui visualmente o antigo botao "Aprovar e cobrar" — o operador
-          aciona "Gerar cobranca" pela timeline (que reusa onApproveAndBill). */}
+      {/* Onda 14.24 — Painel "Proximos passos" foi DESATIVADO em 14.24.1 (operador
+          pediu pra remover do painel da proposta). Componente + backend continuam
+          intactos pra reativar fácil: descomentar o bloco abaixo. Schema Contract
+          + endpoints + ContractsService permanecem no projeto pra outros consumos
+          futuros (Fase 3+). */}
+      {/*
       {detail.status === 'ACCEPTED' && (
         <div className="mb-4">
           <ProximosPassosTimeline
@@ -1619,6 +1622,7 @@ function PropostaPainel({
           />
         </div>
       )}
+      */}
 
       {/* Items list — Onda 11.1: items aprovados ficam com check verde + opacity */}
       <div className="mb-4">
