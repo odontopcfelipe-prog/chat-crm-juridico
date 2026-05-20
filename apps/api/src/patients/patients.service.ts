@@ -678,6 +678,105 @@ export class PatientsService {
     return { total, active, inactive, archived, with_active_plan: withActivePlan };
   }
 
+  /**
+   * Onda 14.50 — Funil de Pacientes da Clínica.
+   *
+   * Retorna pacientes que ja entraram em tratamento (TreatmentPlan ACTIVE ou
+   * PENDING_SIGNATURE) anotados com:
+   *  - aguardandoInicio: true quando nenhum item esta SCHEDULED/IN_PROGRESS
+   *    (paciente assinou mas ainda nao tem proximo procedimento agendado)
+   *  - procedures[]: lista deduplicada de procedimentos ativos (SCHEDULED ou
+   *    IN_PROGRESS). Frontend usa essa lista pra renderizar o card 1x em
+   *    cada coluna de procedimento.
+   *  - nextAppointment: data do proximo agendamento (entre os items ativos)
+   *
+   * Front filtra:
+   *   coluna "Aguardando Inicio" → patients.filter(p => p.funil.aguardandoInicio)
+   *   coluna <procedureId>       → patients.filter(p => p.funil.procedures.some(...))
+   *
+   * Endpoint: GET /patients/funil-clinica
+   */
+  async findFunilClinica(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
+
+    const patients = await this.prisma.patient.findMany({
+      where: {
+        tenant_id: tenantId,
+        status: 'ACTIVE',
+        treatment_plans: {
+          some: { status: { in: ['ACTIVE', 'PENDING_SIGNATURE'] } },
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        phone: true,
+        status: true,
+        last_visit_at: true,
+        primary_dentist: { select: { id: true, name: true } },
+        treatment_plans: {
+          where: { status: { in: ['ACTIVE', 'PENDING_SIGNATURE'] } },
+          select: {
+            id: true,
+            status: true,
+            total_value: true,
+            items: {
+              where: { status: { in: ['SCHEDULED', 'IN_PROGRESS'] } },
+              select: {
+                id: true,
+                status: true,
+                scheduled_at: true,
+                executed_at: true,
+                procedure: { select: { id: true, name: true, category: true } },
+                scheduled_appointment: { select: { id: true, start_at: true } },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { updated_at: 'desc' },
+    });
+
+    return patients.map((p) => {
+      const activeItems = p.treatment_plans.flatMap((tp) => tp.items);
+
+      // Dedupe procedures: paciente pode ter o mesmo procedimento em multiplos
+      // items (ex: 4 facetas separadas). Aparece 1x na coluna mesmo assim.
+      const procMap = new Map<string, { id: string; name: string; category: string | null }>();
+      for (const it of activeItems) {
+        if (!procMap.has(it.procedure.id)) procMap.set(it.procedure.id, it.procedure);
+      }
+
+      // Proximo agendamento (entre os scheduled_appointment.start_at). Ignora
+      // items sem CalendarEvent vinculado.
+      const upcomingDates = activeItems
+        .map((it) => it.scheduled_appointment?.start_at)
+        .filter((d): d is Date => d != null && d instanceof Date)
+        .sort((a, b) => a.getTime() - b.getTime());
+
+      // Soma total dos tratamentos ativos (pra exibir no card)
+      const totalValue = p.treatment_plans.reduce(
+        (acc, tp) => acc + Number(tp.total_value || 0),
+        0,
+      );
+
+      return {
+        id: p.id,
+        name: p.name,
+        phone: p.phone,
+        status: p.status,
+        last_visit_at: p.last_visit_at,
+        primary_dentist: p.primary_dentist,
+        treatment_plans_total_value: totalValue,
+        funil: {
+          aguardandoInicio: activeItems.length === 0,
+          procedures: Array.from(procMap.values()),
+          nextAppointment: upcomingDates[0] ?? null,
+        },
+      };
+    });
+  }
+
   // ─── Allergies ────────────────────────────────────────────────
 
   async addAllergy(

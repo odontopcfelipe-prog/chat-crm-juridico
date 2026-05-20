@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { User, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, DollarSign } from 'lucide-react';
+import { User, Users, Search, RefreshCw, MessageSquare, MoreVertical, ChevronDown, Calendar, Scale, UserCheck, Download, CheckSquare, Square, X as XIcon, LayoutList, Columns, Phone, Mail, Tag, Clock, ChevronRight, Copy, Send, BarChart2, TrendingUp, AlertCircle, Briefcase, Loader2, DollarSign } from 'lucide-react';
 import { useSocket } from '@/lib/SocketProvider';
 import api, { API_BASE_URL } from '@/lib/api';
 import { formatPhone } from '@/lib/utils';
@@ -13,6 +13,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { PostAvaliacaoView } from './PostAvaliacaoView';
 // Onda 5e v33 (Fase 25) — CRM de Fechamento (Kanban pos-consulta)
 import { ClosingKanban } from './ClosingKanban';
+import { PacientesClinicaKanban } from './PacientesClinicaKanban';
 
 interface CrmLead {
   id: string;
@@ -1195,7 +1196,7 @@ export default function CrmPage() {
   // - Onda 5e v33 (Fase 25): fechamento = Kanban pos-consulta com 4
   //   colunas (Avaliacao Concluida -> Orcamento -> Em Tratamento -> Perdido).
   //   Auto-popula quando consulta vira CONCLUIDO (hook calendar.service)
-  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pos-avaliacao' | 'fechamento'>('kanban');
+  const [viewMode, setViewMode] = useState<'kanban' | 'list' | 'pos-avaliacao' | 'fechamento' | 'pacientes-clinica'>('kanban');
 
   // Analytics panel
   const [showAnalytics, setShowAnalytics] = useState(false);
@@ -1738,13 +1739,25 @@ export default function CrmPage() {
           </div>
 
           {/* Onda 14.41 — Botao "CRM Fechamentos" centralizado no header.
-              Onda 14.49 — Botao "Pos-Avaliacao" (sky) foi removido do header
-              a pedido do operador (redundante com a coluna "Avaliacao
-              Concluida" do CRM Fechamentos que agora cobre o mesmo escopo).
-              ViewMode 'pos-avaliacao' e o componente PostAvaliacaoView
-              continuam existindo no codigo — sem acesso pelo UI, mas
-              preservados pra retrocompat de deep-links. */}
+              Onda 14.49 — Botao "Pos-Avaliacao" foi removido do header.
+              Onda 14.50 — Adicionado botao "Pacientes Clinica" (azul/sky)
+              ao lado de "CRM Fechamentos", abrindo o PacientesClinicaKanban
+              (funil por procedimento pos-fechamento).
+              ViewMode 'pos-avaliacao' + componente PostAvaliacaoView
+              continuam no codigo sem acesso pelo UI (retrocompat). */}
           <div className="flex-1 flex justify-center items-center gap-2">
+            <button
+              onClick={() => setViewMode(viewMode === 'pacientes-clinica' ? 'kanban' : 'pacientes-clinica')}
+              className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
+                viewMode === 'pacientes-clinica'
+                  ? 'bg-sky-500 text-white border-sky-600 shadow-sky-500/30'
+                  : 'bg-sky-50 text-sky-700 border-sky-300 hover:bg-sky-100 hover:shadow-md dark:bg-sky-950/40 dark:text-sky-300 dark:border-sky-800'
+              }`}
+              title="Pacientes Clinica — funil por procedimento (pos-fechamento)"
+            >
+              <Users size={16} strokeWidth={2.5} />
+              <span>Pacientes Clínica</span>
+            </button>
             <button
               onClick={() => setViewMode(viewMode === 'fechamento' ? 'kanban' : 'fechamento')}
               className={`shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl border-2 font-semibold text-sm transition-all shadow-sm ${
@@ -1951,6 +1964,8 @@ export default function CrmPage() {
             onOpenDetail={openDetail}
             onOpenChat={openInChat}
           />
+        ) : viewMode === 'pacientes-clinica' ? (
+          <PacientesClinicaKanban />
         ) : viewMode === 'list' ? (
           <LeadListView
             leads={filteredLeads}

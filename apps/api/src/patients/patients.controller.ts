@@ -92,6 +92,19 @@ export class PatientsController {
   }
 
   /**
+   * Onda 14.50 — Funil "Pacientes Clínica": pacientes em tratamento anotados
+   * com lista de procedimentos ativos. Usado pelo PacientesClinicaKanban
+   * (3o botao centralizado no header do CRM) pra renderizar cards 1x em
+   * cada coluna de procedimento agendado/em-progresso.
+   */
+  @Get('funil-clinica')
+  findFunilClinica(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.findFunilClinica(tenantId);
+  }
+
+  /**
    * Admin: backfill de dados antigos. Vincula CalendarEvents que tem
    * lead_id mas patient_id null, e recalcula first/last_visit_at de
    * todos os pacientes. Idempotente — pode chamar várias vezes.
