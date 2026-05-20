@@ -1971,22 +1971,23 @@ export class QuotesService {
       );
     }
 
-    // Onda 14.40 — Resolve a instancia WhatsApp do tenant. Antes usavamos
-    // o fallback hardcoded EVOLUTION_INSTANCE_NAME || 'whatsapp', mas se a
-    // instancia da clinica tiver outro nome no Evolution, dava 404 "instance
-    // does not exist". Agora buscamos a Instance do tenant no banco.
-    const instance = await this.prisma.instance.findFirst({
+    // Onda 14.40/14.41 — Resolve instancia(s) WhatsApp do tenant. Tenants
+    // podem ter multiplas instances cadastradas (algumas obsoletas que
+    // ainda nao foram limpas do banco). Buscamos todas e tentamos enviar
+    // por uma ordem: mais recente primeiro, fallback automatico se 404.
+    const instances = await this.prisma.instance.findMany({
       where: { tenant_id: tenantId, type: 'whatsapp' },
       orderBy: { created_at: 'desc' },
       select: { name: true },
     });
-    if (!instance) {
+    if (instances.length === 0) {
       throw new BadRequestException(
         'Nenhuma instância WhatsApp configurada pra esta clínica. Configure em Configurações › WhatsApp.',
       );
     }
-    const instanceName = instance.name;
-    this.logger.log(`[QUOTES] Enviando via instancia WhatsApp "${instanceName}" (tenant ${tenantId})`);
+    this.logger.log(
+      `[QUOTES] ${instances.length} instancia(s) WhatsApp disponivel(eis) pra tenant ${tenantId}: ${instances.map((i) => i.name).join(', ')}`,
+    );
 
     // Gera magic link sem disparar mensagem automatica do portal
     // (vamos enviar uma mensagem custom com dados do orcamento)
@@ -2036,31 +2037,68 @@ export class QuotesService {
       this.logger.warn(`[QUOTES] Falha ao gerar PDF, segue sem anexo: ${e?.message}`);
     }
 
-    try {
-      // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
-      // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
-      // Se nao tem PDF, fallback no sendText legado.
-      // Onda 14.40 — passa instanceName resolvido do tenant em vez de
-      // deixar o WhatsappService cair no fallback hardcoded "whatsapp".
-      const result: any = pdfBase64
-        ? await this.whatsapp.sendMedia(
-            quote.patient.phone,
-            'document',
-            `data:application/pdf;base64,${pdfBase64}`,
-            msg,
-            instanceName,
-            `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
-          )
-        : await this.whatsapp.sendText(quote.patient.phone, msg, instanceName);
-      dispatchOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
-      if (!dispatchOk) {
-        dispatchReason = result?.error || `HTTP ${result?.statusCode || '?'}`;
+    // Onda 14.41 — Loop com fallback automatico. Tenta cada instance ate
+    // alguma responder com sucesso. Se uma da 404 (instance obsoleta no
+    // banco mas removida do Evolution), pula pra proxima. 404 e seguro pra
+    // retry porque a mensagem nem chegou a sair.
+    //
+    // IMPORTANTE: outros erros (timeout, 5xx, etc) NAO disparam retry —
+    // poderiam duplicar mensagem se a primeira saiu mas resposta deu errado.
+    const sendErrors: string[] = [];
+    let usedInstance: string | null = null;
+    for (const inst of instances) {
+      try {
+        // Onda 14.38 — Se conseguimos gerar o PDF, envia como documento.
+        // Caption = mensagem text. fileName = "orcamento-XXX.pdf".
+        // Se nao tem PDF, fallback no sendText legado.
+        const result: any = pdfBase64
+          ? await this.whatsapp.sendMedia(
+              quote.patient.phone,
+              'document',
+              `data:application/pdf;base64,${pdfBase64}`,
+              msg,
+              inst.name,
+              `orcamento-${(quote as any).quote_number || quoteId.slice(0, 8)}.pdf`,
+            )
+          : await this.whatsapp.sendText(quote.patient.phone, msg, inst.name);
+
+        const httpStatus = result?.statusCode ?? 0;
+        const isOk = result && (!result.statusCode || result.statusCode < 400) && !result.error;
+
+        if (isOk) {
+          dispatchOk = true;
+          usedInstance = inst.name;
+          // Onda 4.3 — captura messageId pra cruzar com webhook messages.update
+          whatsappMessageId = result?.key?.id || result?.messageId || null;
+          this.logger.log(`[QUOTES] Envio bem-sucedido via instancia "${inst.name}"`);
+          break;
+        }
+
+        // 404 = instance nao existe no Evolution. Retry com a proxima.
+        if (httpStatus === 404) {
+          sendErrors.push(`"${inst.name}": 404 (instance obsoleta no banco?)`);
+          this.logger.warn(
+            `[QUOTES] Instance "${inst.name}" retornou 404 — provavelmente obsoleta. Tentando proxima.`,
+          );
+          continue;
+        }
+
+        // Outros erros — NAO retry (mensagem pode ter saido). Captura e para.
+        dispatchReason = result?.error || `HTTP ${httpStatus || '?'}`;
+        sendErrors.push(`"${inst.name}": ${dispatchReason}`);
+        break;
+      } catch (e: any) {
+        sendErrors.push(`"${inst.name}": ${e?.message || 'erro desconhecido'}`);
+        // Excecao na chamada — NAO retry (rede pode ter falhado mas Evolution
+        // pode ter recebido). Sai do loop.
+        dispatchReason = e?.message || 'erro desconhecido';
+        break;
       }
-      // Onda 4.3 — captura messageId pra crusar com webhook messages.update
-      // (formato Evolution: { key: { id, fromMe, remoteJid }, ... })
-      whatsappMessageId = result?.key?.id || result?.messageId || null;
-    } catch (e: any) {
-      dispatchReason = e?.message || 'erro desconhecido';
+    }
+
+    if (!dispatchOk && !dispatchReason) {
+      // Todas as instancias deram 404 — montar mensagem com todos os erros
+      dispatchReason = `Nenhuma instância respondeu. Erros: ${sendErrors.join(' | ')}`;
     }
 
     if (!dispatchOk) {
