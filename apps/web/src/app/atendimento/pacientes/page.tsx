@@ -8,6 +8,7 @@ import { showError } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import BirthdaysCard from './components/BirthdaysCard';
 
 interface Patient {
@@ -16,6 +17,7 @@ interface Patient {
   cpf: string | null;
   phone: string | null;
   email: string | null;
+  avatar_url: string | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   primary_dentist?: { id: string; name: string } | null;
   last_visit_at?: string | null;
@@ -342,9 +344,12 @@ function PacientesPageInner() {
                   onClick={() => router.push(`/atendimento/pacientes/${p.id}`)}
                   className="px-4 py-3 hover:bg-accent/40 transition-colors cursor-pointer flex items-center gap-4"
                 >
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                    <User size={20} className="text-primary" />
-                  </div>
+                  <PatientAvatar
+                    patientId={p.id}
+                    patientName={p.name}
+                    avatarUrl={p.avatar_url}
+                    size={40}
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-medium text-foreground truncate">{p.name}</p>
