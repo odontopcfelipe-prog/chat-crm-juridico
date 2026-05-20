@@ -20,7 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ArrowLeft,
-  Building2, ShieldCheck, XCircle, Search, Trash2, Gift,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -1663,6 +1663,366 @@ function DownPaymentInput({
   );
 }
 
+// ─── Onda 14.30 — Card "Contrato" no painel da proposta ─────────────
+//
+// Renderizado abaixo do Boleto. Permite o operador:
+//   1. Escolher documentos extras pra incluir no contrato (TCLE/LGPD ja sao
+//      core, sempre incluidos). Opcionais: USO_IMAGEM, GARANTIA, RESPONSAVEL_LEGAL,
+//      AGENDAMENTO, RESCISAO
+//   2. Pre-visualizar PDF do contrato (com os docs selecionados)
+//   3. Criar contrato (vira DRAFT com selected_documents persistido)
+//   4. Apos criado: mostra status atual + acoes (enviar via ClickSign,
+//      marcar manualmente, cancelar)
+//
+// Estado:
+//   - SEM CONTRATO: lista de checkboxes + botao "Criar contrato"
+//   - COM CONTRATO DRAFT/SENT/etc: mini-status + botoes de acao
+//   - COM CONTRATO SIGNED: confirmado, mostra timestamps
+//   - COM CONTRATO SKIPPED/CANCELLED: estado terminal, opcao de criar novo
+
+interface ContractDocument {
+  id: string;
+  label: string;
+  description: string;
+  /** Core (sempre incluido) ou opcional (operador escolhe) */
+  core?: boolean;
+}
+
+const CONTRACT_DOCUMENTS: ContractDocument[] = [
+  { id: 'CONTRATO_PRINCIPAL', label: 'Contrato principal', description: 'qualificação, objeto, valor e cláusulas específicas', core: true },
+  { id: 'TCLE', label: 'TCLE — Termo de Consentimento', description: 'consentimento livre e esclarecido sobre o tratamento', core: true },
+  { id: 'LGPD', label: 'Termo LGPD', description: 'tratamento de dados pessoais e clínicos', core: true },
+  { id: 'USO_IMAGEM', label: 'Autorização de uso de imagem', description: 'fotos antes/depois, redes sociais, portfólio' },
+  { id: 'GARANTIA', label: 'Garantia estendida (24 meses)', description: 'cobertura ampliada de defeitos técnicos' },
+  { id: 'RESPONSAVEL_LEGAL', label: 'Responsável legal', description: 'paciente menor de idade ou incapaz' },
+  { id: 'AGENDAMENTO', label: 'Cláusula de agendamento e faltas', description: 'política de cancelamento e remarcação' },
+  { id: 'RESCISAO', label: 'Cláusula de rescisão antecipada', description: 'condições pra encerrar contrato antes do fim' },
+];
+
+interface ContractMinimal {
+  id: string;
+  status: 'DRAFT' | 'SENT' | 'OPENED' | 'PATIENT_SIGNED' | 'SIGNED' | 'EXPIRED' | 'CANCELLED';
+  skipped: boolean;
+  template_type: string;
+  selected_documents: string[];
+  signing_url: string | null;
+  sent_at: string | null;
+  signed_at: string | null;
+  cancelled_at: string | null;
+}
+
+function ContratoCard({ quoteId }: { quoteId: string }) {
+  const [contract, setContract] = useState<ContractMinimal | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [selectedDocs, setSelectedDocs] = useState<Set<string>>(
+    () => new Set(CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id)),
+  );
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const { data } = await api.get<ContractMinimal | null>(`/quotes/${quoteId}/contract`);
+      if (data) {
+        setContract(data);
+        // Sincroniza checkboxes com docs ja persistidos
+        const persisted = Array.isArray(data.selected_documents) ? data.selected_documents : [];
+        const coreIds = CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id);
+        setSelectedDocs(new Set([...coreIds, ...persisted]));
+      } else {
+        setContract(null);
+      }
+    } catch {
+      // Sem contrato e estado valido (operador ainda nao criou)
+      setContract(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [quoteId]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const toggleDoc = (id: string) => {
+    const doc = CONTRACT_DOCUMENTS.find((d) => d.id === id);
+    if (doc?.core) return; // core nao pode ser desmarcado
+    setSelectedDocs((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const createContract = async () => {
+    setBusy(true);
+    try {
+      // Envia apenas os extras (TCLE/LGPD/CONTRATO_PRINCIPAL ja sao incluidos
+      // automaticamente no PDF — backend ignora se vierem aqui).
+      const extras = Array.from(selectedDocs).filter(
+        (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
+      );
+      const { data } = await api.post<ContractMinimal>(
+        `/quotes/${quoteId}/contract`,
+        { selected_documents: extras },
+      );
+      setContract(data);
+      showSuccess('Contrato criado — pronto pra enviar');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao criar contrato');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const previewPdf = async (id: string) => {
+    try {
+      const res = await api.get(`/contracts/${id}/preview-pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao gerar PDF');
+    }
+  };
+
+  const action = async (path: string) => {
+    if (!contract) return;
+    setBusy(true);
+    try {
+      const { data } = await api.post<ContractMinimal>(`/contracts/${contract.id}/${path}`, {});
+      setContract(data);
+      showSuccess('Contrato atualizado');
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao atualizar contrato');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="mb-3 p-3 rounded-lg border border-border bg-muted/10 flex items-center text-xs text-muted-foreground">
+        <Loader2 size={12} className="animate-spin mr-2" />
+        Carregando contrato...
+      </div>
+    );
+  }
+
+  // ── ESTADO: SEM CONTRATO — picker de documentos + criar ─────────
+  if (!contract) {
+    const extrasSelected = Array.from(selectedDocs).filter(
+      (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
+    ).length;
+    return (
+      <div className="mb-3 p-3 rounded-lg border border-border bg-card">
+        <div className="flex items-center justify-between gap-2 mb-2">
+          <p className="text-xs font-semibold flex items-center gap-1.5">
+            <FileText size={13} className="text-amber-700" />
+            Contrato de tratamento
+            <span className="text-[10px] font-normal text-muted-foreground italic">
+              · escolha os documentos pra assinatura
+            </span>
+          </p>
+          <span className="text-[10px] text-muted-foreground">
+            {CONTRACT_DOCUMENTS.filter((d) => d.core).length + extrasSelected} documentos selecionados
+          </span>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5 mb-3">
+          {CONTRACT_DOCUMENTS.map((doc) => {
+            const isChecked = selectedDocs.has(doc.id);
+            const isCore = !!doc.core;
+            return (
+              <label
+                key={doc.id}
+                className={`flex items-start gap-2 p-2 rounded border text-[11px] cursor-pointer transition-colors ${
+                  isChecked
+                    ? isCore
+                      ? 'bg-muted/40 border-border opacity-80'
+                      : 'bg-amber-500/5 border-amber-500/40'
+                    : 'border-border bg-card hover:bg-accent/30'
+                } ${isCore ? 'cursor-not-allowed' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  checked={isChecked}
+                  disabled={isCore || busy}
+                  onChange={() => toggleDoc(doc.id)}
+                  className="w-3.5 h-3.5 mt-0.5 rounded border-border accent-amber-600 shrink-0"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                    {doc.label}
+                    {isCore && (
+                      <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 uppercase tracking-wide">
+                        sempre incluso
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-muted-foreground leading-tight text-[10px]">{doc.description}</p>
+                </div>
+              </label>
+            );
+          })}
+        </div>
+
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={createContract}
+            disabled={busy}
+            className="text-xs px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 inline-flex items-center gap-1.5 font-semibold"
+          >
+            {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+            Criar contrato
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // ── ESTADO: COM CONTRATO — mostra status + acoes ────────────────
+  const statusLabel: Record<ContractMinimal['status'], { label: string; cls: string }> = {
+    DRAFT: { label: 'Pronto pra enviar', cls: 'bg-muted text-muted-foreground' },
+    SENT: { label: 'Aguardando paciente', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300' },
+    OPENED: { label: 'Paciente abriu', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-300' },
+    PATIENT_SIGNED: { label: 'Paciente assinou', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-300' },
+    SIGNED: { label: 'Assinado por ambos', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' },
+    EXPIRED: { label: 'Expirado', cls: 'bg-muted text-muted-foreground' },
+    CANCELLED: { label: 'Cancelado', cls: 'bg-destructive/10 text-destructive' },
+  };
+  const status = contract.skipped
+    ? { label: 'Pulado (operador dispensou)', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300' }
+    : statusLabel[contract.status];
+  const docsCount = (contract.selected_documents?.length ?? 0)
+    + CONTRACT_DOCUMENTS.filter((d) => d.core).length;
+  const isTerminal = contract.skipped || contract.status === 'SIGNED' || contract.status === 'CANCELLED' || contract.status === 'EXPIRED';
+
+  return (
+    <div className={`mb-3 p-3 rounded-lg border ${
+      contract.status === 'SIGNED'
+        ? 'border-emerald-500/40 bg-emerald-500/5'
+        : contract.status === 'CANCELLED' || contract.status === 'EXPIRED'
+        ? 'border-border bg-muted/20'
+        : 'border-amber-500/40 bg-amber-500/5'
+    }`}>
+      <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
+        <p className="text-xs font-semibold flex items-center gap-1.5">
+          <FileText size={13} className="text-amber-700" />
+          Contrato de tratamento
+          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.cls}`}>
+            {status.label}
+          </span>
+        </p>
+        <span className="text-[10px] text-muted-foreground">
+          {docsCount} documentos
+          {contract.sent_at && (
+            <> · enviado {new Date(contract.sent_at).toLocaleDateString('pt-BR')}</>
+          )}
+        </span>
+      </div>
+
+      {/* Link do ClickSign se disponivel */}
+      {contract.signing_url && (
+        <div className="mb-2 p-1.5 bg-sky-500/5 border border-sky-500/30 rounded text-[10px] flex items-center gap-2">
+          <Send size={10} className="text-sky-700 shrink-0" />
+          <a
+            href={contract.signing_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sky-700 hover:underline truncate flex-1"
+            title={contract.signing_url}
+          >
+            {contract.signing_url}
+          </a>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(contract.signing_url || '');
+              showSuccess('Link copiado');
+            }}
+            className="px-1.5 py-0.5 rounded border border-sky-300 hover:bg-sky-100 shrink-0"
+          >
+            copiar
+          </button>
+        </div>
+      )}
+
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <button
+          type="button"
+          onClick={() => previewPdf(contract.id)}
+          className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent inline-flex items-center gap-1"
+        >
+          <Eye size={10} /> Pré-visualizar PDF
+        </button>
+
+        {!isTerminal && contract.status === 'DRAFT' && (
+          <>
+            <button
+              type="button"
+              onClick={() => action('send-clicksign')}
+              disabled={busy}
+              className="text-[11px] px-2 py-1 rounded bg-sky-600 text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1 font-medium"
+            >
+              <Send size={10} /> Enviar via ClickSign
+            </button>
+            <button
+              type="button"
+              onClick={() => action('send')}
+              disabled={busy}
+              className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
+            >
+              Manual
+            </button>
+          </>
+        )}
+
+        {!isTerminal && contract.status === 'PATIENT_SIGNED' && (
+          <button
+            type="button"
+            onClick={() => action('sign-clinic')}
+            disabled={busy}
+            className="text-[11px] px-2 py-1 rounded bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1 font-medium"
+          >
+            <Check size={10} /> Clínica assinar
+          </button>
+        )}
+
+        {!isTerminal && contract.status !== 'DRAFT' && contract.status !== 'PATIENT_SIGNED' && (
+          <button
+            type="button"
+            onClick={() => action('sign-patient')}
+            disabled={busy}
+            className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
+          >
+            Marcar paciente assinou
+          </button>
+        )}
+
+        {!isTerminal && (
+          <button
+            type="button"
+            onClick={() => {
+              if (window.confirm('Cancelar contrato atual? Você pode criar um novo depois.')) {
+                action('cancel');
+              }
+            }}
+            disabled={busy}
+            className="ml-auto text-[11px] px-2 py-1 rounded border border-border hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 inline-flex items-center gap-1"
+          >
+            <X size={10} /> Cancelar
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ─── Painel inline: proposta selecionada com pagamento + acoes ──────
 // Onda 9 — renderiza abaixo dos cards quando alguma versao esta selecionada.
 // Reune items (top-4 + expand), opcoes de pagamento, resumo da oferta e acoes
@@ -1987,6 +2347,14 @@ function PropostaPainel({
         onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
         customDownPayment={customDownPayment}
       />
+
+      {/* Onda 14.30 — Card de Contrato (abaixo do boleto). Operador escolhe
+          quais documentos vao ser incluidos pra assinatura (TCLE/USO_IMAGEM/
+          LGPD/GARANTIA/RESPONSAVEL_LEGAL/etc) e cria o contrato. Aparece
+          apenas pra propostas ACEITAS — em SENT/DRAFT nao faz sentido ainda. */}
+      {detail.status === 'ACCEPTED' && (
+        <ContratoCard quoteId={detail.id} />
+      )}
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
           "Ajustar" / "Salvar contraproposta" (pedido do operador).

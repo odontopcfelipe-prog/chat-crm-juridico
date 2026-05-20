@@ -2762,6 +2762,15 @@ model Contract {
   /// "ORTODONTIA" | "IMPLANTE" | "CLINICO_BASICO" | "LENTES"
   template_type String
 
+  /// Onda 14.30 — Documentos adicionais selecionados pra assinatura.
+  /// Array JSON de strings. Cada string e um ID de documento extra que
+  /// vai ser incluido no PDF junto com o contrato principal. Ex:
+  /// ["TCLE", "USO_IMAGEM", "LGPD", "GARANTIA", "RESPONSAVEL_LEGAL"].
+  /// Default empty — operador marca os checkboxes desejados antes de
+  /// criar o contrato. Contrato principal (template_type) e sempre
+  /// incluido independente desta lista.
+  selected_documents Json @default("[]")
+
   /// Status do contrato:
   /// DRAFT — criado mas nao enviado ainda
   /// SENT — enviado pro paciente (aguardando assinatura)

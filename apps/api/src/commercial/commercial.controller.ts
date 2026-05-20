@@ -818,10 +818,18 @@ export class CommercialController {
     return this.contractsService.findByQuote(id, user.tenant_id);
   }
 
-  /** Cria contrato DRAFT pra um Quote ACCEPTED. */
+  /** Cria contrato DRAFT pra um Quote ACCEPTED.
+   *  Onda 14.30 — aceita body { selected_documents: string[] } com docs
+   *  extras pra incluir junto com o contrato principal (TCLE, LGPD, etc). */
   @Post('quotes/:id/contract')
-  createQuoteContract(@Param('id') id: string, @Authenticated() user: AuthUser) {
-    return this.contractsService.createForQuote(id, user.tenant_id, user.id);
+  createQuoteContract(
+    @Param('id') id: string,
+    @Body() body: { selected_documents?: string[] },
+    @Authenticated() user: AuthUser,
+  ) {
+    return this.contractsService.createForQuote(id, user.tenant_id, user.id, {
+      selected_documents: body?.selected_documents,
+    });
   }
 
   /** Detalhe do contrato + events. */

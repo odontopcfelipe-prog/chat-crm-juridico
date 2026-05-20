@@ -240,6 +240,26 @@ export class ContractPdfService {
         { align: 'justify' },
       );
 
+      // Onda 14.30 — Documentos extras selecionados pelo operador. Cada um
+      // vira uma secao numerada apos a LGPD. TCLE/LGPD/CONTRATO_PRINCIPAL
+      // sao filtrados pq ja sao incluidos nas secoes base 5/6/objeto.
+      const selectedDocs = Array.isArray(contract.selected_documents)
+        ? (contract.selected_documents as string[])
+        : [];
+      const extraDocs = selectedDocs.filter(
+        (d) => !['TCLE', 'LGPD', 'CONTRATO_PRINCIPAL'].includes(d),
+      );
+      let sectionNumber = 7;
+      for (const docId of extraDocs) {
+        const docContent = this.extraDocumentContent(docId);
+        if (!docContent) continue;
+        doc.moveDown(0.8);
+        doc.fontSize(11).font('Helvetica-Bold').text(`${sectionNumber}. ${docContent.title}`);
+        doc.moveDown(0.4);
+        doc.fontSize(10).font('Helvetica').text(docContent.body, { align: 'justify' });
+        sectionNumber++;
+      }
+
       doc.moveDown(1);
 
       // ── Assinaturas ──────────────────────────────────────────
@@ -315,5 +335,64 @@ export class ContractPdfService {
       'A CONTRATADA garante a qualidade técnica do trabalho executado. Garantias específicas (próteses, restaurações) seguem prazos da legislação aplicável.',
       'Eventuais retornos para ajustes em até 30 dias após o procedimento estão inclusos no valor contratado.',
     ];
+  }
+
+  /** Onda 14.30 — Conteudo dos documentos extras opcionais. Retornados como
+   *  secoes adicionais no PDF quando o operador marca o checkbox no card
+   *  "Contrato de tratamento" antes de criar o contrato. */
+  private extraDocumentContent(docId: string): { title: string; body: string } | null {
+    const map: Record<string, { title: string; body: string }> = {
+      USO_IMAGEM: {
+        title: 'Termo de autorização de uso de imagem',
+        body:
+          'Autorizo a CONTRATADA a captar e utilizar minha imagem (fotos pré e pós-tratamento, ' +
+          'radiografias e modelos) exclusivamente para fins de documentação clínica, divulgação ' +
+          'profissional em materiais educativos, redes sociais e portfólio da clínica, sem qualquer ' +
+          'ônus financeiro. As imagens não serão utilizadas para fins comerciais sem autorização ' +
+          'expressa adicional. Posso revogar esta autorização a qualquer momento por escrito.',
+      },
+      GARANTIA: {
+        title: 'Termo de garantia estendida',
+        body:
+          'A CONTRATADA oferece garantia ESTENDIDA de 24 (vinte e quatro) meses para os ' +
+          'procedimentos executados, contados a partir da conclusão do tratamento. A garantia ' +
+          'cobre defeitos de execução técnica e materiais empregados. NÃO estão cobertos por ' +
+          'esta garantia: danos por trauma, má higiene, uso inadequado, alterações biológicas ' +
+          'individuais e desgaste natural. Manutenções preventivas semestrais são obrigatórias ' +
+          'para manter a validade da garantia.',
+      },
+      RESPONSAVEL_LEGAL: {
+        title: 'Responsável legal (paciente menor de idade ou incapaz)',
+        body:
+          'Considerando que o CONTRATANTE é menor de 18 anos ou legalmente incapaz, este ' +
+          'contrato é assinado pelo seu responsável legal, que declara ter plena capacidade ' +
+          'civil para celebrar este instrumento em nome do CONTRATANTE, autorizando a ' +
+          'execução do tratamento aqui descrito e assumindo a responsabilidade pelo pagamento ' +
+          'integral dos valores acordados.\n\n' +
+          'Nome do responsável legal: _____________________________________________\n' +
+          'CPF: __________________________ · RG: __________________________________\n' +
+          'Grau de parentesco: ____________________________________________________',
+      },
+      AGENDAMENTO: {
+        title: 'Cláusula de agendamento e faltas',
+        body:
+          'O CONTRATANTE compromete-se a comparecer às consultas agendadas no horário marcado. ' +
+          'Cancelamentos devem ser comunicados com antecedência mínima de 24 horas. Faltas ' +
+          'consecutivas (3 ou mais) sem justificativa podem implicar suspensão temporária do ' +
+          'tratamento. Em caso de atraso superior a 20 minutos, a consulta poderá ser ' +
+          'remarcada conforme disponibilidade da agenda.',
+      },
+      RESCISAO: {
+        title: 'Cláusula de rescisão antecipada',
+        body:
+          'Qualquer das partes poderá rescindir este contrato mediante comunicação formal por ' +
+          'escrito com antecedência mínima de 15 dias. Em caso de rescisão por iniciativa do ' +
+          'CONTRATANTE, serão devidos os valores correspondentes aos procedimentos já ' +
+          'executados, conforme tabela vigente, abatendo-se eventuais valores já pagos. Em ' +
+          'caso de rescisão por iniciativa da CONTRATADA por inadimplência, aplicam-se as ' +
+          'mesmas regras.',
+      },
+    };
+    return map[docId] || null;
   }
 }

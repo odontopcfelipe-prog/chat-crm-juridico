@@ -112,8 +112,16 @@ export class ContractsService {
     return contract;
   }
 
-  /** Cria contrato DRAFT pra um Quote ACCEPTED. Falha se ja tem contrato. */
-  async createForQuote(quoteId: string, tenantId: string, userId: string) {
+  /** Cria contrato DRAFT pra um Quote ACCEPTED. Falha se ja tem contrato.
+   *  Onda 14.30 — aceita opcoes adicionais: selected_documents (extras como
+   *  TCLE/USO_IMAGEM/LGPD/GARANTIA/RESPONSAVEL_LEGAL). Contrato principal
+   *  (template_type inferido) e sempre incluido. */
+  async createForQuote(
+    quoteId: string,
+    tenantId: string,
+    userId: string,
+    opts?: { selected_documents?: string[] },
+  ) {
     const quote = await this.assertQuoteAndGet(quoteId, tenantId);
     if (quote.status !== 'ACCEPTED') {
       throw new BadRequestException(
@@ -125,17 +133,27 @@ export class ContractsService {
     }
 
     const templateType = this.inferTemplateType(quote.items);
+    // Onda 14.30 — sanitiza array: aceita so strings, dedup, max 20 itens
+    // pra evitar payload abusivo.
+    const docs = Array.isArray(opts?.selected_documents)
+      ? Array.from(new Set(
+          opts!.selected_documents.filter((d): d is string => typeof d === 'string').slice(0, 20),
+        ))
+      : [];
 
     const contract = await this.prisma.contract.create({
       data: {
         quote_id: quoteId,
         template_type: templateType,
+        selected_documents: docs,
         status: 'DRAFT',
         created_by_user_id: userId,
         events: {
           create: {
             event_type: 'CREATED',
-            description: `Documento gerado a partir do template ${templateType}`,
+            description: docs.length > 0
+              ? `Documento gerado: ${templateType} + ${docs.length} extras (${docs.join(', ')})`
+              : `Documento gerado a partir do template ${templateType}`,
             triggered_by_user_id: userId,
           },
         },
@@ -143,7 +161,7 @@ export class ContractsService {
       include: { events: { orderBy: { occurred_at: 'asc' } } },
     });
 
-    this.logger.log(`[Contract] created ${contract.id} pra quote ${quoteId} (template=${templateType})`);
+    this.logger.log(`[Contract] created ${contract.id} pra quote ${quoteId} (template=${templateType}, docs=[${docs.join(',')}])`);
     return contract;
   }
 
