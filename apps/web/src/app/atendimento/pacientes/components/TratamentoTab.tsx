@@ -68,10 +68,6 @@ interface Data {
   items: ItemRow[];
 }
 
-function brl(v: number) {
-  return v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-}
-
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
 }
@@ -215,7 +211,8 @@ export default function TratamentoTab({ patientId }: Props) {
               style={{ width: `${progressPct}%` }}
             />
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4 text-xs">
+          {/* v39 — KPIs sem valores financeiros (visao clinica pura). */}
+          <div className="grid grid-cols-2 gap-3 mt-4 text-xs">
             <div>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Pendentes</p>
               <p className="text-lg font-bold text-amber-700 dark:text-amber-400 tabular-nums">{kpis.pendentes}</p>
@@ -223,14 +220,6 @@ export default function TratamentoTab({ patientId }: Props) {
             <div>
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Concluídos</p>
               <p className="text-lg font-bold text-emerald-700 dark:text-emerald-400 tabular-nums">{kpis.feitos}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Valor realizado</p>
-              <p className="text-lg font-bold text-foreground tabular-nums">{brl(kpis.valorFeito)}</p>
-            </div>
-            <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Valor total</p>
-              <p className="text-lg font-bold text-foreground tabular-nums">{brl(kpis.valorTotal)}</p>
             </div>
           </div>
         </div>
@@ -259,7 +248,7 @@ export default function TratamentoTab({ patientId }: Props) {
                 </div>
                 {plan.quote_accepted_at && (
                   <p className="text-[11px] text-muted-foreground mt-0.5">
-                    Aceito em {formatDate(plan.quote_accepted_at)} · Total {brl(plan.plan_total)}
+                    Aceito em {formatDate(plan.quote_accepted_at)}
                   </p>
                 )}
               </div>
@@ -271,7 +260,6 @@ export default function TratamentoTab({ patientId }: Props) {
                   <tr>
                     <th className="px-4 py-2 text-left font-bold">Procedimento</th>
                     <th className="px-4 py-2 text-center font-bold">Dente</th>
-                    <th className="px-4 py-2 text-right font-bold">Valor</th>
                     <th className="px-4 py-2 text-center font-bold">Status</th>
                     <th className="px-4 py-2 text-left font-bold">Executado por</th>
                     <th className="px-4 py-2 text-center font-bold">Ação</th>
@@ -299,9 +287,6 @@ export default function TratamentoTab({ patientId }: Props) {
                         </td>
                         <td className="px-4 py-2.5 text-center font-mono text-xs">
                           {it.tooth_fdi || '—'}
-                        </td>
-                        <td className="px-4 py-2.5 text-right tabular-nums text-foreground">
-                          {brl(it.total_price)}
                         </td>
                         <td className="px-4 py-2.5 text-center">
                           <span className={`inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded border ${style.color} ${style.bg} ${style.border}`}>
