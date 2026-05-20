@@ -711,6 +711,26 @@ export class PatientsService {
   async findFunilClinica(tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
 
+    // Onda 14.52 — alem dos patients que passam o gate financeiro, retornar
+    // tambem availableProcedures: procedimentos com pelo menos 1 TreatmentPlanItem
+    // SCHEDULED/IN_PROGRESS em qualquer paciente do tenant (mesmo que o
+    // paciente ainda nao tenha pago a primeira parcela). Isso permite o
+    // frontend renderizar as colunas do Kanban mesmo quando o funil esta
+    // vazio — operador ve a estrutura do funil sem precisar ter casos reais.
+    const availableProceduresRaw = await this.prisma.treatmentPlanItem.findMany({
+      where: {
+        status: { in: ['SCHEDULED', 'IN_PROGRESS'] },
+        treatment_plan: {
+          patient: { tenant_id: tenantId },
+        },
+      },
+      distinct: ['procedure_id'],
+      select: {
+        procedure: { select: { id: true, name: true, category: true } },
+      },
+    });
+    const availableProcedures = availableProceduresRaw.map((r) => r.procedure);
+
     const patients = await this.prisma.patient.findMany({
       where: {
         tenant_id: tenantId,
@@ -756,7 +776,7 @@ export class PatientsService {
       orderBy: { updated_at: 'desc' },
     });
 
-    return patients.map((p) => {
+    const enrichedPatients = patients.map((p) => {
       const activeItems = p.treatment_plans.flatMap((tp) => tp.items);
 
       // Dedupe procedures: paciente pode ter o mesmo procedimento em multiplos
@@ -794,6 +814,15 @@ export class PatientsService {
         },
       };
     });
+
+    // Onda 14.52 — Retorno passa a ser objeto com `patients` e
+    // `availableProcedures` (antes era array puro). Frontend usa
+    // availableProcedures pra renderizar colunas mesmo quando nao ha
+    // patients no funil — operador ve a estrutura sem precisar ter casos.
+    return {
+      patients: enrichedPatients,
+      availableProcedures,
+    };
   }
 
   // ─── Allergies ────────────────────────────────────────────────

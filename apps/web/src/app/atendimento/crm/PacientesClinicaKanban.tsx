@@ -79,9 +79,19 @@ function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+interface FunilResponse {
+  patients: PatientClinica[];
+  availableProcedures: ProcedureInfo[];
+}
+
 export function PacientesClinicaKanban() {
   const router = useRouter();
   const [patients, setPatients] = useState<PatientClinica[]>([]);
+  // Onda 14.52 — procedures usadas no tenant (TreatmentPlanItem SCHEDULED/
+  // IN_PROGRESS independente do paciente ter pago). Garante que colunas
+  // aparecem mesmo quando o funil ainda nao tem patients que passaram o
+  // gate financeiro (primeira parcela paga).
+  const [availableProcedures, setAvailableProcedures] = useState<ProcedureInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -89,8 +99,9 @@ export function PacientesClinicaKanban() {
     setLoading(true);
     setError(null);
     try {
-      const res = await api.get('/patients/funil-clinica');
-      setPatients(Array.isArray(res.data) ? res.data : []);
+      const res = await api.get<FunilResponse>('/patients/funil-clinica');
+      setPatients(res.data?.patients ?? []);
+      setAvailableProcedures(res.data?.availableProcedures ?? []);
     } catch (e: any) {
       setError(e?.response?.data?.message || 'Erro ao carregar funil de pacientes');
     } finally {
@@ -107,11 +118,18 @@ export function PacientesClinicaKanban() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Colunas dinamicas: 1 por procedure com pelo menos 1 paciente. Ordenadas
-  // alfabeticamente (estavel pt-BR). Procedimento desaparece da view quando
-  // todos os items dele viram DONE/CANCELLED no banco.
+  // Colunas dinamicas: uniao de procedures que aparecem em qualquer paciente
+  // do funil + availableProcedures (procedimentos em uso no tenant mesmo sem
+  // pacientes pagantes). Garante que o operador SEMPRE veja a estrutura das
+  // colunas. Ordenadas alfabeticamente (estavel pt-BR).
   const dynamicColumns = useMemo(() => {
     const procs = new Map<string, ProcedureInfo>();
+    // Backend já filtra availableProcedures pelo tenant
+    for (const proc of availableProcedures) {
+      if (!procs.has(proc.id)) procs.set(proc.id, proc);
+    }
+    // Garantia extra: se algum paciente tem procedure que nao apareceu em
+    // availableProcedures (race condition), inclui tambem
     for (const p of patients) {
       for (const proc of p.funil.procedures) {
         if (!procs.has(proc.id)) procs.set(proc.id, proc);
@@ -120,7 +138,7 @@ export function PacientesClinicaKanban() {
     return Array.from(procs.values()).sort((a, b) =>
       a.name.localeCompare(b.name, 'pt-BR'),
     );
-  }, [patients]);
+  }, [patients, availableProcedures]);
 
   // Conta cada paciente UMA SO VEZ pra "total em jogo" (mesmo que apareca
   // em multiplas colunas no Kanban).
@@ -205,45 +223,55 @@ export function PacientesClinicaKanban() {
         </div>
       </div>
 
-      {totalPacientes === 0 ? (
-        <div className="flex-1 flex flex-col items-center justify-center text-center py-12 text-muted-foreground text-sm">
-          <Users size={32} className="mb-3 opacity-40" />
-          <p>Nenhum paciente com pagamento confirmado.</p>
-          <p className="text-xs mt-1 opacity-70">
-            Paciente aparece aqui assim que a primeira parcela cair em conta (status PAGA ou PARCIAL).
-          </p>
-        </div>
-      ) : (
-        /* Kanban — 1 coluna fixa + N dinamicas com scroll horizontal */
-        <div className="flex-1 overflow-x-auto overflow-y-hidden p-3">
-          <div className="flex gap-3 h-full min-w-max">
-            {/* Coluna fixa "Aguardando Início" — sempre aparece, mesmo vazia */}
-            <KanbanColumn
-              col={AGUARDANDO_COL}
-              patients={patientsForColumn(AGUARDANDO_COL.id)}
-              onCardClick={openPatient}
-              emptyText="Nenhum paciente aguardando início"
-            />
-
-            {/* Colunas dinamicas — 1 por procedimento ativo, em ordem alfabetica */}
-            {dynamicColumns.map((proc) => (
-              <KanbanColumn
-                key={proc.id}
-                col={{
-                  id: proc.id,
-                  label: proc.name,
-                  sub: proc.category ? `Categoria: ${proc.category}` : 'Procedimento',
-                  icon: Stethoscope,
-                  ...PROC_COL_STYLE,
-                }}
-                patients={patientsForColumn(proc.id)}
-                onCardClick={openPatient}
-                emptyText="Nenhum paciente"
-              />
-            ))}
-          </div>
+      {/* Onda 14.52 — Kanban SEMPRE renderiza (coluna fixa + dinamicas), mesmo
+          com 0 pacientes. Antes o empty-state global escondia tudo, agora cada
+          coluna mostra empty interno se nao tiver paciente. Banner extra quando
+          o funil esta totalmente vazio pra explicar a regra. */}
+      {totalPacientes === 0 && (
+        <div className="px-4 py-2.5 bg-sky-50/60 dark:bg-sky-950/20 border-b border-sky-200/60 dark:border-sky-900/40 text-[11px] text-sky-800 dark:text-sky-300">
+          <strong>Funil vazio.</strong> Paciente aparece aqui assim que a primeira parcela cair em conta (status PAGA ou PARCIAL).
         </div>
       )}
+
+      <div className="flex-1 overflow-x-auto overflow-y-hidden p-3">
+        <div className="flex gap-3 h-full min-w-max">
+          {/* Coluna fixa "Aguardando Início" — sempre aparece, mesmo vazia */}
+          <KanbanColumn
+            col={AGUARDANDO_COL}
+            patients={patientsForColumn(AGUARDANDO_COL.id)}
+            onCardClick={openPatient}
+            emptyText="Nenhum paciente aguardando início"
+          />
+
+          {/* Colunas dinamicas — 1 por procedimento ativo no tenant, ordem alfabetica.
+              Aparecem mesmo sem pacientes (estrutura do funil sempre visivel). */}
+          {dynamicColumns.map((proc) => (
+            <KanbanColumn
+              key={proc.id}
+              col={{
+                id: proc.id,
+                label: proc.name,
+                sub: proc.category ? `Categoria: ${proc.category}` : 'Procedimento',
+                icon: Stethoscope,
+                ...PROC_COL_STYLE,
+              }}
+              patients={patientsForColumn(proc.id)}
+              onCardClick={openPatient}
+              emptyText="Nenhum paciente"
+            />
+          ))}
+
+          {/* Se nao ha procedimentos em uso no tenant ainda, mostra coluna
+              placeholder pra orientar o operador */}
+          {dynamicColumns.length === 0 && (
+            <div className="flex-1 min-w-[260px] max-w-[340px] flex flex-col rounded-xl border border-dashed border-border bg-card/40 overflow-hidden p-4 text-center text-[11px] text-muted-foreground italic">
+              <Stethoscope size={20} className="mx-auto mb-2 opacity-40" />
+              Nenhum procedimento agendado ainda no tenant.<br />
+              Ao agendar um procedimento pra qualquer paciente, ele vira uma coluna aqui.
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }
