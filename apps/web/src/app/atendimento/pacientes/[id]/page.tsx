@@ -23,6 +23,7 @@ import {
   Layers, HandCoins,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
+import { useAuthedImage } from '@/lib/use-authed-image';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { calculateAge, formatBirthDateWithAge } from '@/lib/age';
@@ -851,6 +852,10 @@ function AvatarUploader({
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
 
+  // Tag <img> não envia Authorization header → endpoint protegido retorna 401
+  // e mostra alt text. Hook faz fetch via axios (com token) e gera blob URL.
+  const { src: authedSrc, loading: imgLoading } = useAuthedImage(avatarUrl);
+
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       showError('Apenas imagens (JPG, PNG, WebP)');
@@ -903,9 +908,11 @@ function AvatarUploader({
         title={readOnly ? 'Apenas ADMIN pode trocar a foto' : 'Trocar foto'}
         className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center overflow-hidden relative disabled:opacity-60 disabled:cursor-default"
       >
-        {avatarUrl ? (
+        {authedSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={avatarUrl} alt={patientName} className="w-full h-full object-cover" />
+          <img src={authedSrc} alt={patientName} className="w-full h-full object-cover" />
+        ) : imgLoading ? (
+          <Loader2 size={18} className="text-primary/60 animate-spin" />
         ) : (
           <span className="text-xl font-bold text-primary">{initials}</span>
         )}

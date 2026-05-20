@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
+import { useAuthedImage } from '@/lib/use-authed-image';
 import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 // Onda 5c (Fase 25) — NotificationToggle removido da sidebar (duplicava o
 // NotificationCenter). Toggle DND continua disponivel dentro do popover do
@@ -101,6 +102,14 @@ export function Sidebar() {
   const avatarFileRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
   const avatarBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Carrega avatar do user via fetch autenticado (tag <img> nao envia JWT).
+  // userId pode ser null durante boot — hook trata null retornando src=null.
+  const userAvatarSrc = useAuthedImage(
+    hasAvatar && perms.userId
+      ? `${API_BASE_URL}/users/${perms.userId}/avatar?v=${avatarVersion}`
+      : null,
+  ).src;
 
   // Fixed-position tooltip state
   const [navTooltip, setNavTooltip] = useState<{ label: React.ReactNode; y: number } | null>(null);
@@ -966,11 +975,11 @@ export function Sidebar() {
               <div className="w-full h-full flex items-center justify-center bg-muted rounded-full">
                 <Loader2 size={12} className="animate-spin text-muted-foreground" />
               </div>
-            ) : hasAvatar ? (
+            ) : hasAvatar && userAvatarSrc ? (
               <>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
-                  src={`${API_BASE_URL}/users/${perms.userId}/avatar?v=${avatarVersion}`}
+                  src={userAvatarSrc}
                   alt={userName}
                   className="w-full h-full object-cover rounded-full"
                   onError={() => setHasAvatar(false)}
