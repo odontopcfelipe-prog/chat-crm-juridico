@@ -846,7 +846,11 @@ function QuoteCard({
             Slot Lixeira:  32px (so DRAFT)
             Slot Chevron:  20px (sempre) */}
         <div className="ml-auto flex items-center gap-1 shrink-0">
-          <span className="w-[90px] shrink-0 flex items-center justify-end">
+          {/* Onda 14.44.2 — Trocados <span> por <div> nos slots pra evitar
+              edge cases de span com display:flex em alguns browsers. Forca
+              min-width = width pra slot vazio nao colapsar mesmo se nada
+              renderizar dentro (lixeira ausente em quotes ACCEPTED/etc). */}
+          <div className="w-[90px] min-w-[90px] shrink-0 flex items-center justify-end">
             {onDuplicate && (
               <button
                 onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
@@ -857,9 +861,12 @@ function QuoteCard({
                 Duplicar
               </button>
             )}
-          </span>
-          <span className="w-[32px] shrink-0 flex items-center justify-center">
-            {onDelete && (
+          </div>
+          <div
+            className="w-[32px] min-w-[32px] shrink-0 flex items-center justify-center"
+            aria-hidden={!onDelete}
+          >
+            {onDelete ? (
               <button
                 onClick={(e) => { e.stopPropagation(); onDelete(); }}
                 className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
@@ -867,14 +874,19 @@ function QuoteCard({
               >
                 <Trash2 size={12} />
               </button>
+            ) : (
+              // Onda 14.44.2 — Placeholder invisivel pra forcar o slot a manter
+              // largura quando onDelete ausente (cards ACCEPTED/SENT/etc).
+              // Tailwind alguma vezes colapsa div vazio em flex container.
+              <span className="inline-block w-px h-px opacity-0" aria-hidden="true" />
             )}
-          </span>
-          <span
-            className="w-[20px] shrink-0 flex items-center justify-center text-muted-foreground"
+          </div>
+          <div
+            className="w-[20px] min-w-[20px] shrink-0 flex items-center justify-center text-muted-foreground"
             title={expanded ? 'Recolher' : 'Expandir pra editar procedimentos'}
           >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </span>
+          </div>
         </div>
       </div>
 
