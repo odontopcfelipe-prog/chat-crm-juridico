@@ -837,27 +837,42 @@ function QuoteCard({
             <span>por {quote.created_by.name}</span>
           )}
         </div>
-        <div className="ml-auto flex items-center gap-1">
-          {onDuplicate && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-semibold"
-              title="Duplicar orçamento (cria novo rascunho com os mesmos procedimentos)"
-            >
-              <Copy size={12} />
-              Duplicar
-            </button>
-          )}
-          {onDelete && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-              title="Apagar rascunho"
-            >
-              <Trash2 size={12} />
-            </button>
-          )}
-          <span className="text-muted-foreground" title={expanded ? 'Recolher' : 'Expandir pra editar procedimentos'}>
+        {/* Onda 14.44 (extensao) — Actions com slots fixos pra alinhamento
+            vertical consistente entre as linhas. onDuplicate aparece sempre,
+            onDelete so pra DRAFT — slot vazio em outros status preserva o
+            espaco. Chevron sempre presente.
+
+            Slot Duplicar: 90px
+            Slot Lixeira:  32px (so DRAFT)
+            Slot Chevron:  20px (sempre) */}
+        <div className="ml-auto flex items-center gap-1 shrink-0">
+          <span className="w-[90px] shrink-0 flex items-center justify-end">
+            {onDuplicate && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 text-xs font-semibold"
+                title="Duplicar orçamento (cria novo rascunho com os mesmos procedimentos)"
+              >
+                <Copy size={12} />
+                Duplicar
+              </button>
+            )}
+          </span>
+          <span className="w-[32px] shrink-0 flex items-center justify-center">
+            {onDelete && (
+              <button
+                onClick={(e) => { e.stopPropagation(); onDelete(); }}
+                className="p-1.5 rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                title="Apagar rascunho"
+              >
+                <Trash2 size={12} />
+              </button>
+            )}
+          </span>
+          <span
+            className="w-[20px] shrink-0 flex items-center justify-center text-muted-foreground"
+            title={expanded ? 'Recolher' : 'Expandir pra editar procedimentos'}
+          >
             {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
           </span>
         </div>
