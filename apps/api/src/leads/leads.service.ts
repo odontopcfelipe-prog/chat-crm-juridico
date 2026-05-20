@@ -925,6 +925,66 @@ export class LeadsService {
     return updated;
   }
 
+  /**
+   * Onda 14.53 — Promove Lead a Cliente apos primeiro pagamento.
+   *
+   * Idempotente: se ja eh cliente (is_client=true), retorna alreadyClient:true
+   * sem efeito colateral. Best-effort: exceções logam mas nao falham o caller
+   * (webhook de pagamento — nao pode quebrar o fluxo financeiro).
+   *
+   * Disparado pelo PaymentGatewayService quando Installment vira PAGA/PARCIAL
+   * via webhook Asaas. Efeitos cascateados (automaticos via flags existentes):
+   *   - WhatsApp: conversa do lead some da aba "Leads", aparece em "Clientes"
+   *     (InboxSidebar filtra por Lead.is_client via clientMode toggle)
+   *   - IA: ai.processor.ts detecta is_client=true e força skill 'Acompanhamento'
+   *     (pos-venda) em vez da skill comercial padrao
+   *   - Memory: memory-prompts.ts injeta { is_client: true } no contexto da IA
+   *
+   * NAO mexe em stage do pipeline — isso fica a cargo de graduateLeadToEmFechamento
+   * (que ja roda ao criar quote). O is_client e uma flag PARALELA pro WhatsApp/IA.
+   */
+  async graduateLeadToClient(
+    patientId: string,
+    tenantId: string,
+    userId?: string,
+  ): Promise<{ ok: boolean; leadId?: string; alreadyClient?: boolean }> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, tenant_id: true, lead_id: true },
+    });
+    if (!patient) return { ok: false };
+    if (patient.tenant_id !== tenantId) return { ok: false };
+    if (!patient.lead_id) return { ok: false };
+
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: patient.lead_id },
+      select: { id: true, is_client: true },
+    });
+    if (!lead) return { ok: false };
+    if (lead.is_client) {
+      // Idempotente — varias parcelas pagas no mesmo lead nao fazem efeito extra
+      return { ok: true, leadId: lead.id, alreadyClient: true };
+    }
+
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        is_client: true,
+        became_client_at: new Date(),
+        // Onda 14.53 — cs_user_id so atualiza se foi fornecido (operador
+        // manual). Webhook nao passa userId, fica null. Sem regredir cs_user_id
+        // ja existente.
+        ...(userId ? { cs_user_id: userId } : {}),
+      },
+    });
+
+    this.logger.log(
+      `[LEAD→CLIENT] Lead ${lead.id} (patient ${patientId}) promovido a cliente`,
+    );
+
+    return { ok: true, leadId: lead.id };
+  }
+
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });

@@ -4,11 +4,15 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+// Onda 14.53 — Resolvido via ModuleRef (strict:false) — LeadsService eh
+// global no AppModule. Mesmo padrao de quotes.service.ts tryGraduateLead.
+import { LeadsService } from '../leads/leads.service';
 
 // Mapeamento de status Asaas → interno
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -31,6 +35,9 @@ export class PaymentGatewayService {
     private whatsapp: WhatsappService,
     private financeiroService: FinanceiroService,
     private chatGateway: ChatGateway,
+    // Onda 14.53 — pra resolver LeadsService via { strict: false } sem
+    // dependencia circular entre PaymentGatewayModule e LeadsModule.
+    private moduleRef: ModuleRef,
   ) {}
 
   /**
@@ -887,7 +894,15 @@ export class PaymentGatewayService {
       try {
         const inst = await this.prisma.installment.findUnique({
           where: { id: charge.installment_id },
-          select: { id: true, amount: true, discount_value: true, fee_value: true, status: true },
+          select: {
+            id: true,
+            amount: true,
+            discount_value: true,
+            fee_value: true,
+            status: true,
+            // Onda 14.53 — patient_id usado no hook de graduacao Lead -> Cliente
+            patient_id: true,
+          },
         });
         if (inst && inst.status !== 'PAGA') {
           const totalDue = Number(inst.amount) - Number(inst.discount_value) + Number(inst.fee_value);
@@ -910,6 +925,14 @@ export class PaymentGatewayService {
             status: mappedStatus,
             amount: Number(charge.amount),
           });
+
+          // Onda 14.53 — Hook pos-pagamento: promove Lead -> Cliente quando
+          // primeira parcela cai em conta. Best-effort, idempotente (skip se
+          // ja eh cliente). Nao bloqueia o webhook em caso de falha — apenas
+          // loga warning. Cascateia automaticamente:
+          //  - WhatsApp move conversa pra aba "Clientes"
+          //  - IA passa a usar skill 'Acompanhamento' (pos-venda)
+          this.tryGraduateLeadToClient(inst.patient_id, charge.tenant_id);
         }
       } catch (e: any) {
         this.logger.error(`[WEBHOOK] Erro ao marcar Installment como PAGA: ${e.message}`);
@@ -1418,6 +1441,33 @@ export class PaymentGatewayService {
       }
     } catch (e: any) {
       this.logger.warn(`[SOCKET] Falha ao emitir evento: ${e.message}`);
+    }
+  }
+
+  /**
+   * Onda 14.53 — Hook: promove Lead vinculado ao paciente pra "Cliente" quando
+   * a primeira parcela cai em conta. Resolvido via ModuleRef pra evitar
+   * dependencia circular entre PaymentGatewayModule e LeadsModule (mesmo
+   * padrao usado em quotes.service.ts tryGraduateLead).
+   *
+   * Best-effort, idempotente. Falhas logam warning mas nao bloqueiam o
+   * webhook de pagamento — financeiro nao pode quebrar por causa de hook
+   * paralelo de IA/WhatsApp.
+   */
+  private tryGraduateLeadToClient(patientId: string, tenantId: string | null): void {
+    if (!tenantId) return;
+    try {
+      const leadsService = this.moduleRef.get(LeadsService, { strict: false });
+      if (!leadsService) return;
+      leadsService
+        .graduateLeadToClient(patientId, tenantId)
+        .catch((err: any) =>
+          this.logger.warn(
+            `[INSTALLMENT→CLIENT] Hook falhou pra patient ${patientId}: ${err?.message}`,
+          ),
+        );
+    } catch {
+      // LeadsService pode nao estar carregado em testes — ignorar silenciosamente
     }
   }
 }
