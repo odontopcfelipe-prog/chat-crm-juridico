@@ -195,6 +195,16 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   const [expandedQuoteId, setExpandedQuoteId] = useState<string | null>(null);
   const [expandedQuote, setExpandedQuote] = useState<QuoteDraft | null>(null);
   const [loadingQuote, setLoadingQuote] = useState(true);
+  // Onda 14.55 — flag de "criação em voo" pra evitar double-submit do botão
+  // "Adicionar procedimento". useRef em vez de só useState porque estado React
+  // só atualiza no próximo render — ref é síncrono e bloqueia 2 clicks no mesmo
+  // tick. State paralelo serve só pra UI mostrar o spinner.
+  //
+  // Bug original: 2 clicks rápidos criavam 2 quotes. O primeiro ficava órfão
+  // porque justCreatedQuoteId era sobrescrito pelo segundo, então o cleanup de
+  // DRAFT vazio falhava e o quote sem itens ficava poluindo a aba.
+  const creatingQuoteRef = useRef(false);
+  const [creatingQuote, setCreatingQuote] = useState(false);
   // Onda 6 — quando o modal abre via "Adicionar procedimento" (cria DRAFT
   // vazio no banco antes), guardamos o id aqui. Se o operador fechar sem
   // adicionar nenhum item, o DRAFT vazio eh DELETED pra nao poluir a lista.
@@ -280,6 +290,12 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
   // items salvos → modal fecha → lista da Avaliação atualizada. Operador
   // permanece no contexto clinico/operacional sem trocar de aba.
   const createNewQuote = useCallback(async () => {
+    // Onda 14.55 — guarda síncrono contra double-click. Se já está criando,
+    // ignora o click extra. Ref é checada/setada no MESMO tick, antes de
+    // qualquer await — bloqueio efetivo mesmo em rajada de cliques.
+    if (creatingQuoteRef.current) return;
+    creatingQuoteRef.current = true;
+    setCreatingQuote(true);
     try {
       const { data } = await api.post<{ id: string }>(`/patients/${patientId}/quotes`);
       await loadQuotesList();
@@ -291,6 +307,9 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao criar orcamento');
+    } finally {
+      creatingQuoteRef.current = false;
+      setCreatingQuote(false);
     }
   }, [patientId, loadQuotesList]);
 
@@ -501,9 +520,14 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
             </p>
             <button
               onClick={createNewQuote}
-              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold shadow-sm transition"
+              disabled={creatingQuote}
+              className="inline-flex items-center gap-2 px-6 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/70 disabled:cursor-not-allowed text-white text-sm font-semibold shadow-sm transition"
             >
-              <Plus size={16} /> Adicionar procedimento
+              {creatingQuote ? (
+                <><Loader2 size={16} className="animate-spin" /> Criando...</>
+              ) : (
+                <><Plus size={16} /> Adicionar procedimento</>
+              )}
             </button>
           </div>
         ) : (
@@ -513,9 +537,14 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
                 dar destaque maximo (era um botao pequeno tracejado embaixo). */}
             <button
               onClick={createNewQuote}
-              className="w-full bg-emerald-600 hover:bg-emerald-700 rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
+              disabled={creatingQuote}
+              className="w-full bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/70 disabled:cursor-not-allowed rounded-xl py-3.5 text-base font-bold text-white shadow-sm transition-colors inline-flex items-center justify-center gap-2"
             >
-              <Plus size={18} /> Adicionar procedimento
+              {creatingQuote ? (
+                <><Loader2 size={18} className="animate-spin" /> Criando orçamento...</>
+              ) : (
+                <><Plus size={18} /> Adicionar procedimento</>
+              )}
             </button>
             {/* Onda 7.6 — Ordem crescente (#1, #2, #3...) — orcamento mais
                 antigo no topo. API retorna desc por created_at, fazemos
