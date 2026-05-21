@@ -98,6 +98,9 @@ interface QuoteDetailLite {
   requires_credit_check?: boolean;
   /** Onda 14.33 — proposta escolhida pra aguardar decisao do paciente */
   is_chosen_proposal?: boolean;
+  /** Onda 14.38 — forma de pagamento + entrada apresentada quando marcada como proposta */
+  chosen_payment_key?: string | null;
+  chosen_down_payment?: string | number | null;
 }
 
 /** Onda 10 — parseia linhas [CONTRAPROPOSTA YYYY-MM-DD HH:mm] do campo notes */
@@ -2256,18 +2259,60 @@ function PropostaPainel({
   //
   // Entrada opcional (em R$). Operador digita um valor que abate do total
   // parcelavel. PIX e Boleto a vista ignoram. Cartao e Boleto parcelado
-  // recalculam parcelas em cima de (total - entrada). State local (nao
-  // persiste) — e ferramenta de negociacao ao vivo. Reseta quando troca
-  // de quote selecionado (detail.id muda).
+  // recalculam parcelas em cima de (total - entrada).
+  //
+  // Onda 14.56 — agora PERSISTE entre sessoes:
+  //  1. Se a proposta foi marcada como escolhida, o backend salvou em
+  //     chosen_down_payment. Restauramos esse valor ao carregar.
+  //  2. Senao, restauramos do localStorage (operador digitou mas nao salvou
+  //     ainda — comum quando o paciente esta pensando e o operador volta
+  //     pra outra aba e depois retorna).
+  //  3. Toda mudanca no campo grava em localStorage automatico.
   const [customDownPayment, setCustomDownPayment] = useState<number>(0);
   const detailIdRef = useRef<string | null>(null);
+
+  // Restaura valor ao trocar de quote ou recarregar
   useEffect(() => {
     const currentDetailId = detail?.id ?? null;
-    if (detailIdRef.current !== currentDetailId) {
-      detailIdRef.current = currentDetailId;
+    if (detailIdRef.current === currentDetailId) return;
+    detailIdRef.current = currentDetailId;
+
+    if (!currentDetailId) {
+      setCustomDownPayment(0);
+      return;
+    }
+
+    // 1) Banco (chosen_down_payment) tem prioridade — operador ja marcou como proposta
+    const fromDb = Number(detail?.chosen_down_payment) || 0;
+    if (fromDb > 0) {
+      setCustomDownPayment(fromDb);
+      return;
+    }
+
+    // 2) localStorage — operador digitou mas nao marcou
+    try {
+      const raw = localStorage.getItem(`quote_down_payment_${currentDetailId}`);
+      const parsed = raw ? Number(raw) : 0;
+      setCustomDownPayment(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+    } catch {
       setCustomDownPayment(0);
     }
-  }, [detail?.id]);
+  }, [detail?.id, detail?.chosen_down_payment]);
+
+  // Persiste no localStorage a cada mudanca (key escopada por quote id)
+  useEffect(() => {
+    const id = detail?.id;
+    if (!id) return;
+    try {
+      if (customDownPayment > 0) {
+        localStorage.setItem(`quote_down_payment_${id}`, String(customDownPayment));
+      } else {
+        localStorage.removeItem(`quote_down_payment_${id}`);
+      }
+    } catch {
+      // localStorage cheio ou desabilitado — silencioso, nao bloqueia UX
+    }
+  }, [customDownPayment, detail?.id]);
 
   if (loading) {
     return (
