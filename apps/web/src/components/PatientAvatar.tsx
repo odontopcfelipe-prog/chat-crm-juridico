@@ -64,19 +64,22 @@ export function PatientAvatar({
 
   return (
     <div
-      className={`rounded-full overflow-hidden shrink-0 flex items-center justify-center ${
+      data-component="patient-avatar"
+      data-has-photo={src ? 'yes' : 'no'}
+      className={`rounded-full overflow-hidden shrink-0 flex items-center justify-center select-none ${
         src ? 'bg-muted' : bgColor + ' text-white'
       } ${className}`}
       style={{ width: size, height: size, fontSize: `${fontSize}px` }}
+      title={patientName}
     >
       {src ? (
         // eslint-disable-next-line @next/next/no-img-element
         <img src={src} alt={patientName} className="w-full h-full object-cover" />
       ) : loading && avatarUrl ? (
         // Enquanto baixa, mantém iniciais pra evitar flash em branco
-        <span className="font-semibold opacity-60">{initials}</span>
+        <span className="font-semibold opacity-60 leading-none">{initials}</span>
       ) : (
-        <span className="font-semibold">{initials}</span>
+        <span className="font-semibold leading-none">{initials}</span>
       )}
     </div>
   );
