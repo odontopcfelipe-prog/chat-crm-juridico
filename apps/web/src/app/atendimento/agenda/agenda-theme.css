@@ -362,21 +362,36 @@
 
 /* Onda 5d v8 (Fase 25) — Eventos com 3 linhas (dentista / procedimento / horario).
    Title agora vem com \n entre dentista e procedimento; precisa preservar
-   quebras de linha. Reduz font pra caber em slot de 30min sem cortar texto. */
+   quebras de linha. Reduz font pra caber em slot de 30min sem cortar texto.
+   Onda 14.53 — line-height + font reduzidos pra garantir que a 3a linha
+   (horario) caiba inteira em slot de 30min sem ser cortada. Tambem
+   diminuimos padding do container do evento. */
 .sx-react-calendar-wrapper .sx__time-grid-event-text,
 .sx-react-calendar-wrapper .sx__event-title,
 .sx-react-calendar-wrapper [class*="event-title"],
 .sx-react-calendar-wrapper [class*="time-grid-event"] .sx__event-title {
   white-space: pre-line !important;
-  font-size: 11px !important;
-  line-height: 1.3 !important;
+  font-size: 10.5px !important;
+  line-height: 1.15 !important;
 }
 
-/* Tempo do evento (terceira linha) menor */
+/* Tempo do evento (terceira linha) menor.
+   Onda 14.53 — line-height apertado pra terceira linha caber inteira. */
 .sx-react-calendar-wrapper .sx__time-grid-event-time,
 .sx-react-calendar-wrapper [class*="event-time"] {
-  font-size: 10px !important;
+  font-size: 9.5px !important;
+  line-height: 1.1 !important;
   opacity: 0.85;
+  margin-top: 1px !important;
+}
+
+/* Onda 14.53 — Reduz padding interno do card pra liberar espaco vertical.
+   Schedule-x usa padding default ~6px top/bottom; reduzimos pra 3px pra
+   garantir que dentista (l1) + procedimento (l2) + horario (l3) caibam
+   inteiros em slot de 30min. */
+.sx-react-calendar-wrapper .sx__time-grid-event {
+  padding-top: 3px !important;
+  padding-bottom: 3px !important;
 }
 
 /* Onda 5e v6 (Fase 25) — Domingos em vermelho no calendario principal.
