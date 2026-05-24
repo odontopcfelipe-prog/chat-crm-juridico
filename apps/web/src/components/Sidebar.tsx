@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone, HandCoins,
+  Megaphone, HandCoins, Square,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -22,6 +22,7 @@ import { NotificationCenter } from '@/app/atendimento/components/NotificationCen
 // import { NotificationToggle } from '@/components/NotificationToggle';
 import { useRole } from '@/lib/useRole';
 import { THEMES } from '@/components/ThemeSwitcher';
+import { useVisualMode } from '@/components/VisualModeProvider';
 
 // ─── Tooltip Styles (shared) ──────────────────────────────────────
 const TOOLTIP_CLS =
@@ -77,6 +78,7 @@ export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const perms = useRole();
 
   const [expanded, setExpanded] = useState(false);
@@ -1119,6 +1121,32 @@ export function Sidebar() {
               {theme === t.id && <Check size={14} className="text-primary" />}
             </button>
           ))}
+
+          {/* Onda 15.1 — Estilo: Clássico vs Futurista (intensidade visual) */}
+          <div className="h-px bg-border my-1" />
+          <p className="text-[11px] font-bold text-muted-foreground uppercase ml-1 mb-1 tracking-wider">Estilo</p>
+          <button
+            onClick={() => { setFxMode('solid'); }}
+            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-foreground transition-colors hover:bg-accent ${fxMode === 'solid' ? 'bg-accent' : 'bg-transparent'}`}
+            title="Visual ERP clássico: cores chapadas, sem efeitos."
+          >
+            <div className="flex items-center gap-3">
+              <Square size={14} />
+              Clássico
+            </div>
+            {fxMode === 'solid' && <Check size={14} className="text-primary" />}
+          </button>
+          <button
+            onClick={() => { setFxMode('neon'); }}
+            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-foreground transition-colors hover:bg-accent ${fxMode === 'neon' ? 'bg-accent' : 'bg-transparent'}`}
+            title="Visual futurista: gradientes, glassmorphism, glow neon."
+          >
+            <div className="flex items-center gap-3">
+              <Sparkles size={14} />
+              Futurista
+            </div>
+            {fxMode === 'neon' && <Check size={14} className="text-primary" />}
+          </button>
         </div>,
         document.body
       )}
