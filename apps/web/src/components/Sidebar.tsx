@@ -780,6 +780,7 @@ export function Sidebar() {
 
   return (
     <aside
+      data-glass="sidebar"
       className={`${expanded ? 'w-[190px]' : 'w-[64px]'} flex flex-col items-center py-3 bg-primary text-primary-foreground border-r border-primary/20 relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}

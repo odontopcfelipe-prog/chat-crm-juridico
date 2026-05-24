@@ -389,6 +389,54 @@
   text-shadow: none !important;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * Onda 15.2 — Sidebar glass no modo futurista
+ *
+ * Em [data-fx="neon"] a sidebar deixa de usar bg-primary chapado e vira
+ * translucida com backdrop-blur, permitindo o gradient do body passar
+ * por tras. Em temas DARK (noturno/cyber) o texto branco continua
+ * legivel. Em temas LIGHT (glacier/coral) precisamos forcar o texto
+ * pra cor escura do tema senao some sobre o fundo claro.
+ *
+ * Aplicado via [data-glass="sidebar"] marcado no <aside> da Sidebar.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+[data-fx="neon"] [data-glass="sidebar"] {
+  background: var(--glass-bg) !important;
+  backdrop-filter: blur(22px) saturate(150%);
+  -webkit-backdrop-filter: blur(22px) saturate(150%);
+  border-right-color: var(--glass-border) !important;
+}
+
+/* Temas LIGHT precisam de texto escuro pra ficar legivel sobre glass claro */
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"],
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] {
+  color: var(--text-primary);
+}
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"] .text-primary-foreground,
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] .text-primary-foreground {
+  color: var(--text-primary) !important;
+}
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"] [class*="text-primary-foreground/"],
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] [class*="text-primary-foreground/"] {
+  color: var(--text-secondary) !important;
+}
+/* Hover backgrounds da sidebar (usam bg-primary-foreground/15 etc) viram
+   tints escuros nos temas light pra continuar dando feedback de hover */
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"] [class*="bg-primary-foreground"],
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] [class*="bg-primary-foreground"] {
+  background-color: rgba(0, 0, 0, 0.06) !important;
+}
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"] [class*="hover\\:bg-primary-foreground"]:hover,
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] [class*="hover\\:bg-primary-foreground"]:hover {
+  background-color: rgba(0, 0, 0, 0.08) !important;
+}
+/* Divider (h-px bg-primary-foreground/20) tambem precisa virar escuro em light */
+[data-fx="neon"][data-theme="glacier"] [data-glass="sidebar"] .bg-primary-foreground\/20,
+[data-fx="neon"][data-theme="coral"] [data-glass="sidebar"] .bg-primary-foreground\/20 {
+  background-color: rgba(0, 0, 0, 0.10) !important;
+}
+
 /* ─── Scrollbar utilities ─────────────────── */
 .no-scrollbar {
   scrollbar-width: none;
