@@ -9,12 +9,13 @@ import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
 import { SocketProvider } from '@/lib/SocketProvider';
 import { NotificationToggle } from '@/components/NotificationToggle';
+import { useVisualMode } from '@/components/VisualModeProvider';
 
 import { THEMES } from '@/components/ThemeSwitcher';
 
@@ -22,6 +23,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const router = useRouter();
   const pathname = usePathname();
   const { theme, setTheme } = useTheme();
+  const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const { open: cmdOpen, setOpen: setCmdOpen } = useGlobalCommandPalette();
   const perms = useRole();
 
@@ -317,6 +319,30 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                         {theme === t.id && <Check size={14} className="ml-auto text-primary" />}
                       </button>
                     ))}
+                    {/* Toggle Clássico / Futurista */}
+                    <div className="pt-2 mt-2 border-t border-border">
+                      <div className="px-3 pb-1 text-[10px] uppercase tracking-wider font-bold text-muted-foreground">Estilo</div>
+                      <button
+                        onClick={() => { setFxMode('solid'); setMoreMenuOpen(false); }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                          fxMode === 'solid' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                        }`}
+                      >
+                        <Square size={14} />
+                        Clássico
+                        {fxMode === 'solid' && <Check size={14} className="ml-auto text-primary" />}
+                      </button>
+                      <button
+                        onClick={() => { setFxMode('neon'); setMoreMenuOpen(false); }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                          fxMode === 'neon' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                        }`}
+                      >
+                        <Sparkles size={14} />
+                        Futurista
+                        {fxMode === 'neon' && <Check size={14} className="ml-auto text-primary" />}
+                      </button>
+                    </div>
                   </div>
                 )}
 

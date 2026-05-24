@@ -2,6 +2,7 @@
 
 import { ThemeProvider as NextThemesProvider } from 'next-themes';
 import { ReactNode } from 'react';
+import { VisualModeProvider } from '@/components/VisualModeProvider';
 
 export function Providers({ children }: { children: ReactNode }) {
   return (
@@ -11,7 +12,9 @@ export function Providers({ children }: { children: ReactNode }) {
       themes={['noturno', 'cyber', 'glacier', 'coral']}
       enableSystem={false}
     >
-      {children}
+      <VisualModeProvider>
+        {children}
+      </VisualModeProvider>
     </NextThemesProvider>
   );
 }

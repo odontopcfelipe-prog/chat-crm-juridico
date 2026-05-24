@@ -2,7 +2,8 @@
 
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { Palette } from 'lucide-react';
+import { Palette, Sparkles, Square } from 'lucide-react';
+import { useVisualMode } from '@/components/VisualModeProvider';
 
 /**
  * Onda 15 — 4 temas futuristas (2 dark + 2 light).
@@ -60,6 +61,7 @@ export const THEMES = [
 export function ThemeSwitcher() {
   const [mounted, setMounted] = useState(false);
   const { theme, setTheme } = useTheme();
+  const { mode: fxMode, setMode: setFxMode } = useVisualMode();
 
   useEffect(() => {
     setMounted(true);
@@ -68,41 +70,87 @@ export function ThemeSwitcher() {
   if (!mounted) return null;
 
   return (
-    <div className="flex flex-col space-y-3 mt-6 p-4 glass-card">
-      <div className="flex items-center text-sm font-semibold text-muted-foreground mb-2">
-        <Palette className="w-4 h-4 mr-2" />
-        Aparência
+    <div className="flex flex-col space-y-4 mt-6 p-4 glass-card">
+      {/* ── COR DO TEMA ─────────────────────────────────────────── */}
+      <div>
+        <div className="flex items-center text-sm font-semibold text-muted-foreground mb-3">
+          <Palette className="w-4 h-4 mr-2" />
+          Aparência
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          {THEMES.map((t) => {
+            const isActive = theme === t.id;
+            return (
+              <button
+                key={t.id}
+                onClick={() => setTheme(t.id)}
+                className={`group relative flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border overflow-hidden ${
+                  isActive
+                    ? 'border-transparent ring-2 ring-offset-2 ring-offset-background scale-[1.02]'
+                    : 'border-border/40 opacity-75 hover:opacity-100 hover:scale-[1.01]'
+                }`}
+                style={{
+                  background: t.gradient,
+                  color: t.dark ? '#ffffff' : '#0a0a0a',
+                  ['--tw-ring-color' as string]: 'rgb(var(--accent-glow))',
+                  boxShadow: isActive
+                    ? '0 0 14px rgba(var(--accent-glow), 0.55), 0 0 32px rgba(var(--accent-glow), 0.25)'
+                    : undefined,
+                }}
+                title={t.name}
+              >
+                <span
+                  className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/40"
+                  style={{ background: t.accent }}
+                />
+                <span className="truncate">{t.name}</span>
+              </button>
+            );
+          })}
+        </div>
       </div>
-      <div className="grid grid-cols-2 gap-2">
-        {THEMES.map((t) => {
-          const isActive = theme === t.id;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTheme(t.id)}
-              className={`group relative flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border overflow-hidden ${
-                isActive
-                  ? 'border-transparent ring-2 ring-offset-2 ring-offset-background scale-[1.02]'
-                  : 'border-border/40 opacity-75 hover:opacity-100 hover:scale-[1.01]'
-              }`}
-              style={{
-                background: t.gradient,
-                color: t.dark ? '#ffffff' : '#0a0a0a',
-                ['--tw-ring-color' as string]: 'rgb(var(--accent-glow))',
-                boxShadow: isActive
-                  ? '0 0 14px rgba(var(--accent-glow), 0.55), 0 0 32px rgba(var(--accent-glow), 0.25)'
-                  : undefined,
-              }}
-              title={t.name}
-            >
-              <span
-                className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/40"
-                style={{ background: t.accent }}
-              />
-              <span className="truncate">{t.name}</span>
-            </button>
-          );
-        })}
+
+      {/* ── ESTILO (intensidade visual) ─────────────────────────── */}
+      <div>
+        <div className="flex items-center text-sm font-semibold text-muted-foreground mb-3">
+          <Sparkles className="w-4 h-4 mr-2" />
+          Estilo
+        </div>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            onClick={() => setFxMode('solid')}
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border ${
+              fxMode === 'solid'
+                ? 'bg-[var(--bg-tertiary)] border-[var(--accent-primary)] text-foreground'
+                : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+            }`}
+            title="Visual ERP clássico: cores chapadas, sem efeitos. Melhor pra leitura de telas densas."
+          >
+            <Square className="w-3 h-3" />
+            <span>Clássico</span>
+          </button>
+          <button
+            onClick={() => setFxMode('neon')}
+            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border ${
+              fxMode === 'neon'
+                ? 'text-white border-transparent'
+                : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+            }`}
+            style={
+              fxMode === 'neon'
+                ? {
+                    background: 'var(--gradient-accent)',
+                    boxShadow:
+                      '0 0 12px rgba(var(--accent-glow), 0.45), 0 0 26px rgba(var(--accent-glow), 0.25)',
+                  }
+                : undefined
+            }
+            title="Visual futurista: gradientes, glassmorphism, glow neon, animações."
+          >
+            <Sparkles className="w-3 h-3" />
+            <span>Futurista</span>
+          </button>
+        </div>
       </div>
     </div>
   );

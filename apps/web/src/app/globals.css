@@ -260,6 +260,135 @@
   animation: neon-pulse 2.4s ease-in-out infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════════════
+ * Onda 15.1 — MODO SÓLIDO (ERP clássico, "estilo XP")
+ *
+ * O atributo data-fx no <html> (gerenciado por VisualModeProvider) escolhe
+ * a intensidade visual SEM mexer no tema de cor:
+ *   data-fx="neon"  → estado default (todas as regras acima ficam ativas)
+ *   data-fx="solid" → overrides abaixo desativam gradients, blur e glow
+ *
+ * Cores do tema (--bg-*, --accent-*, --text-*) continuam respeitando o
+ * data-theme do next-themes — quem trocou de Cyber Violet pra Glacier
+ * ainda vê suas cores, só sem os efeitos futuristas.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+[data-fx="solid"] body {
+  background: var(--bg-primary);
+  background-attachment: initial;
+}
+
+[data-fx="solid"] .glass-card {
+  background: var(--bg-secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--border-default);
+}
+
+[data-fx="solid"] .glass-surface {
+  background: var(--bg-secondary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+[data-fx="solid"] .neon-glow,
+[data-fx="solid"] .neon-glow:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.10);
+}
+
+[data-fx="solid"] .neon-border {
+  border: 1px solid var(--border-default);
+  box-shadow: none;
+}
+
+[data-fx="solid"] .neon-text {
+  color: var(--accent-primary);
+  text-shadow: none;
+}
+
+[data-fx="solid"] .gradient-text {
+  background: none;
+  -webkit-background-clip: initial;
+  background-clip: initial;
+  -webkit-text-fill-color: initial;
+  color: var(--accent-primary);
+}
+
+[data-fx="solid"] .neon-pulse {
+  animation: none;
+}
+
+/* Scrollbar mais discreta em modo sólido */
+[data-fx="solid"] ::-webkit-scrollbar-thumb {
+  background: var(--bg-hover);
+  box-shadow: none;
+}
+[data-fx="solid"] ::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+  box-shadow: none;
+}
+
+/* Botões — override por variante. O button.tsx marca cada botão com
+   data-button-variant pra CSS poder sobrescrever os gradients e glows. */
+[data-fx="solid"] [data-button-variant="default"],
+[data-fx="solid"] [data-button-variant="neon"] {
+  background: var(--accent-primary) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10) !important;
+  animation: none !important;
+}
+[data-fx="solid"] [data-button-variant="default"]:hover,
+[data-fx="solid"] [data-button-variant="neon"]:hover {
+  filter: brightness(0.92);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-fx="solid"] [data-button-variant="outline"] {
+  background: transparent !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--border-default) !important;
+  box-shadow: none !important;
+}
+[data-fx="solid"] [data-button-variant="outline"]:hover {
+  background: var(--bg-hover) !important;
+  border-color: var(--accent-primary) !important;
+  box-shadow: none !important;
+}
+
+[data-fx="solid"] [data-button-variant="secondary"] {
+  background: var(--bg-tertiary) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid var(--border-subtle) !important;
+  box-shadow: none !important;
+}
+[data-fx="solid"] [data-button-variant="secondary"]:hover {
+  background: var(--bg-hover) !important;
+  box-shadow: none !important;
+}
+
+[data-fx="solid"] [data-button-variant="ghost"]:hover {
+  background: var(--bg-hover) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  box-shadow: none !important;
+}
+
+[data-fx="solid"] [data-button-variant="destructive"],
+[data-fx="solid"] [data-button-variant="success"],
+[data-fx="solid"] [data-button-variant="warning"] {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10) !important;
+}
+[data-fx="solid"] [data-button-variant="destructive"]:hover,
+[data-fx="solid"] [data-button-variant="success"]:hover,
+[data-fx="solid"] [data-button-variant="warning"]:hover {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.15) !important;
+}
+
+[data-fx="solid"] [data-button-variant="link"]:hover {
+  text-shadow: none !important;
+}
+
 /* ─── Scrollbar utilities ─────────────────── */
 .no-scrollbar {
   scrollbar-width: none;
