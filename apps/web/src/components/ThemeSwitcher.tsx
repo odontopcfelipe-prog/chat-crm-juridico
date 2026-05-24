@@ -5,33 +5,56 @@ import { useEffect, useState } from 'react';
 import { Palette } from 'lucide-react';
 
 /**
- * Temas disponiveis. id = chave persistida em localStorage (NAO renomear,
- * quebraria preferencias salvas dos users). name = label exibido no menu.
+ * Onda 15 — 4 temas futuristas (2 dark + 2 light).
+ * Cada tema tem:
+ *   id        — chave persistida em localStorage (NAO renomear sem migração)
+ *   name      — label exibido
+ *   gradient  — preview do fundo do tema (CSS background-image válido)
+ *   accent    — preview do accent (CSS background-image válido, gradient diagonal)
+ *   solidBg   — cor primária chapada (fallback p/ legado que usa backgroundColor)
+ *   dark      — se texto sobre o preview deve ser branco
  *
- * Onda 5e v4: nomes realinhados com cor real do accent_primary +
- * 2 temas novos (Esmeralda + Vermelho).
- *
- * Existentes (renomeados pra ficar coerentes):
- *   escuro -> "Noturno" (preto + dourado)
- *   claro  -> "Claro" (branco + sepia)
- *   odonto -> "Laranja" (Clinicorp #F58220)
- *   azul   -> "Azul" (azul Royal #2952a3)
- *   verde  -> "Floresta" (verde escuro tradicional #1a7a4a)
- *   rose   -> "Rosé" (rosa pastel #c4254a)
- *
- * Novos:
- *   mint     -> "Esmeralda" (verde claro vibrante #10b981)
- *   vermelho -> "Vermelho" (red bold #dc2626)
+ * Temas removidos nesta refatoração: claro, odonto, rose, vermelho, azul,
+ * verde, mint. Quem tinha um desses salvo no localStorage cai no default
+ * (noturno) automaticamente porque providers.tsx só lista os 4 novos.
  */
 export const THEMES = [
-  { id: 'escuro',   name: 'Noturno',   color: '#000000', accent: '#a1773d', dark: true  },
-  { id: 'claro',    name: 'Claro',     color: '#ffffff', accent: '#8b6630', dark: false },
-  { id: 'odonto',   name: 'Laranja',   color: '#ffffff', accent: '#f58220', dark: false },
-  { id: 'rose',     name: 'Rosé',      color: '#fdf2f3', accent: '#c4254a', dark: false },
-  { id: 'vermelho', name: 'Vermelho',  color: '#fef2f2', accent: '#dc2626', dark: false },
-  { id: 'azul',     name: 'Azul',      color: '#f0f4fa', accent: '#2952a3', dark: false },
-  { id: 'verde',    name: 'Floresta',  color: '#f0faf5', accent: '#1a7a4a', dark: false },
-  { id: 'mint',     name: 'Esmeralda', color: '#f0fdf4', accent: '#10b981', dark: false },
+  {
+    id: 'noturno',
+    name: 'Noturno Gold',
+    gradient: 'radial-gradient(ellipse at top, #1a1208 0%, #000000 65%)',
+    accent: 'linear-gradient(135deg, #a1773d 0%, #eae2a1 100%)',
+    solidBg: '#000000',
+    color: '#000000',
+    dark: true,
+  },
+  {
+    id: 'cyber',
+    name: 'Cyber Violet',
+    gradient: 'radial-gradient(ellipse at top, #1e0a3c 0%, #0a0118 70%)',
+    accent: 'linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%)',
+    solidBg: '#0a0118',
+    color: '#0a0118',
+    dark: true,
+  },
+  {
+    id: 'glacier',
+    name: 'Glacier',
+    gradient: 'linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 50%, #ffffff 100%)',
+    accent: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)',
+    solidBg: '#f0f9ff',
+    color: '#f0f9ff',
+    dark: false,
+  },
+  {
+    id: 'coral',
+    name: 'Coral Sunrise',
+    gradient: 'linear-gradient(180deg, #ffedd5 0%, #fff7ed 50%, #ffffff 100%)',
+    accent: 'linear-gradient(135deg, #f97316 0%, #ec4899 100%)',
+    solidBg: '#fff7ed',
+    color: '#fff7ed',
+    dark: false,
+  },
 ];
 
 export function ThemeSwitcher() {
@@ -45,36 +68,38 @@ export function ThemeSwitcher() {
   if (!mounted) return null;
 
   return (
-    <div className="flex flex-col space-y-3 mt-6 p-4 bg-muted/50 rounded-xl border border-border">
+    <div className="flex flex-col space-y-3 mt-6 p-4 glass-card">
       <div className="flex items-center text-sm font-semibold text-muted-foreground mb-2">
         <Palette className="w-4 h-4 mr-2" />
         Aparência
       </div>
-      <div className="flex flex-wrap gap-2">
+      <div className="grid grid-cols-2 gap-2">
         {THEMES.map((t) => {
           const isActive = theme === t.id;
           return (
             <button
               key={t.id}
               onClick={() => setTheme(t.id)}
-              className={`relative flex items-center gap-2 px-3 py-1.5 rounded-full text-[11px] font-bold transition-all border
-                ${isActive
-                  ? 'ring-2 ring-offset-1 ring-offset-background opacity-100 border-transparent shadow-sm'
-                  : 'border-border opacity-70 hover:opacity-100'
-                }
-              `}
+              className={`group relative flex items-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border overflow-hidden ${
+                isActive
+                  ? 'border-transparent ring-2 ring-offset-2 ring-offset-background scale-[1.02]'
+                  : 'border-border/40 opacity-75 hover:opacity-100 hover:scale-[1.01]'
+              }`}
               style={{
-                backgroundColor: t.color,
-                color: t.dark ? '#fff' : '#111',
-                ['--tw-ring-color' as string]: t.accent,
+                background: t.gradient,
+                color: t.dark ? '#ffffff' : '#0a0a0a',
+                ['--tw-ring-color' as string]: 'rgb(var(--accent-glow))',
+                boxShadow: isActive
+                  ? '0 0 14px rgba(var(--accent-glow), 0.55), 0 0 32px rgba(var(--accent-glow), 0.25)'
+                  : undefined,
               }}
               title={t.name}
             >
               <span
-                className="w-2.5 h-2.5 rounded-full shrink-0"
-                style={{ backgroundColor: t.accent }}
+                className="w-3 h-3 rounded-full shrink-0 ring-1 ring-white/40"
+                style={{ background: t.accent }}
               />
-              {t.name}
+              <span className="truncate">{t.name}</span>
             </button>
           );
         })}

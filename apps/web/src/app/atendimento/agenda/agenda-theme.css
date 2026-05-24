@@ -3,9 +3,9 @@
  *
  * O schedule-x (@schedule-x/theme-default) usa variáveis CSS próprias
  * (--sx-color-background, --sx-color-primary, etc) com 2 modos: light e
- * dark. O app, por sua vez, define 6 temas customizados em globals.css
- * via [data-theme="X"] (escuro, claro, rose, azul, verde, odonto), cada
- * um com suas próprias variáveis (--bg-primary, --accent-primary, etc).
+ * dark. O app, por sua vez, define 4 temas customizados em globals.css
+ * via [data-theme="X"] (noturno, cyber, glacier, coral), cada um com
+ * suas próprias variáveis (--bg-primary, --accent-primary, etc).
  *
  * Esse CSS sobrescreve as variáveis do schedule-x apontando pras do app.
  * Como as variáveis do app mudam automaticamente quando data-theme muda,
@@ -195,9 +195,11 @@
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08) !important;
 }
 
-/* Modo escuro: outline vai pra cor de fundo escura tambem */
+/* Modo escuro: outline vai pra cor de fundo escura tambem.
+   Onda 15: dois temas dark agora (noturno + cyber). */
 .sx-react-calendar-wrapper.is-dark .sx__time-grid-event,
-[data-theme="escuro"] .sx-react-calendar-wrapper .sx__time-grid-event {
+[data-theme="noturno"] .sx-react-calendar-wrapper .sx__time-grid-event,
+[data-theme="cyber"] .sx-react-calendar-wrapper .sx__time-grid-event {
   outline-color: var(--bg-primary, #0f172a) !important;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3) !important;
 }

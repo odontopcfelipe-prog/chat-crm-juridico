@@ -444,25 +444,21 @@ export default function AgendaPage() {
   // Tema global (next-themes) — usado pra sincronizar a cor de fundo do calendar
   // (schedule-x) com o tema escolhido em Configurações → Aparência.
   //
-  // O app usa 6 temas customizados (definidos em providers.tsx + globals.css):
-  //   - 'escuro'  → fundo preto (único realmente dark)
-  //   - 'claro'   → fundo branco
-  //   - 'rose'    → fundo rosa claro
-  //   - 'azul'    → fundo azul claro
-  //   - 'verde'   → fundo verde claro
-  //   - 'odonto'  → fundo branco (paleta laranja Clinicorp)
+  // Onda 15: 4 temas (providers.tsx + globals.css):
+  //   - 'noturno' → dark (preto + dourado)
+  //   - 'cyber'   → dark (roxo + ciano)
+  //   - 'glacier' → light (azul gelo)
+  //   - 'coral'   → light (laranja + rosa)
   //
-  // Pra schedule-x, só importa se o fundo é dark ou light (afeta contraste de
-  // texto). 'escuro' = dark; todos os outros = light. As cores ACENTO de cada
-  // tema (laranja, rosa, etc) são aplicadas via agenda-theme.css que mapeia
-  // as CSS vars do schedule-x pras vars do app — sem JS adicional.
-  //
-  // mounted evita flash de tema errado durante hidratação SSR (next-themes
-  // retorna undefined antes de hidratar no cliente).
+  // Pra schedule-x só importa se o fundo é dark ou light. As cores ACENTO
+  // de cada tema são aplicadas via agenda-theme.css que mapeia as CSS vars
+  // do schedule-x pras vars do app — sem JS adicional.
   const { resolvedTheme } = useTheme();
   const [themeMounted, setThemeMounted] = useState(false);
   useEffect(() => setThemeMounted(true), []);
-  const isDarkTheme = themeMounted ? resolvedTheme === 'escuro' : true; // SSR fallback = dark
+  const isDarkTheme = themeMounted
+    ? resolvedTheme === 'noturno' || resolvedTheme === 'cyber'
+    : true; // SSR fallback = dark
 
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');

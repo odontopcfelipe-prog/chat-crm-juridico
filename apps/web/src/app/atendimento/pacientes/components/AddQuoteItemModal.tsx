@@ -84,10 +84,11 @@ function colorForSpecialty(key: string): string {
 }
 
 export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdded, prefillTeeth, initialTitle, onDuplicate }: Props) {
-  // Onda 6 — paleta dos cards se adapta ao tema (escuro precisa de tint mais
-  // forte pra cor ser visivel; claro precisa ser mais sutil pra nao saturar).
+  // Onda 6 — paleta dos cards se adapta ao tema (dark precisa de tint mais
+  // forte pra cor ser visivel; light precisa ser mais sutil pra nao saturar).
+  // Onda 15: dark = noturno (preto+dourado) ou cyber (roxo+ciano).
   const { resolvedTheme } = useTheme();
-  const isDark = resolvedTheme === 'escuro' || resolvedTheme === 'dark';
+  const isDark = resolvedTheme === 'noturno' || resolvedTheme === 'cyber';
   const tintIdle  = isDark ? '24' : '0d';  // ~14% dark / ~5% light
   const tintHover = isDark ? '3d' : '1f';  // ~24% dark / ~12% light
   const borderTone = isDark ? '66' : '40'; // ~40% dark / ~25% light

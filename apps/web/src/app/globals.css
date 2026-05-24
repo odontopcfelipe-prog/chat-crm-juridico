@@ -15,7 +15,7 @@
 @theme {
   --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-ubuntu: var(--font-ubuntu), ui-sans-serif, system-ui, sans-serif;
-  
+
   /* Variáveis Semânticas do Tailwind v4 herdando os Temas */
   --color-border: var(--border-default);
   --color-background: var(--bg-primary);
@@ -39,9 +39,23 @@
 }
 
 @layer base {
-  /* ══ ESCURO — Tema principal do escritório (dourado + preto) ══ */
+  /* ═══════════════════════════════════════════════════════════════════
+   * 4 TEMAS FUTURISTAS — gradientes + glassmorphism + neon glow
+   * Onda 15: redução de 8 → 4 temas com identidade neon agressiva.
+   *
+   * Cada tema define:
+   *   --bg-*            cores chapadas (compat com componentes legados)
+   *   --accent-*        cor principal/secundária do tema
+   *   --accent-glow     RGB triplet (sem rgba()) usado em box-shadow
+   *   --gradient-bg     gradiente do body (fixed)
+   *   --gradient-accent gradiente diagonal pra botões/CTAs
+   *   --glass-bg        fundo translúcido pra glass cards/buttons
+   *   --glass-border    borda translúcida combinando com o glass
+   * ═══════════════════════════════════════════════════════════════════ */
+
+  /* ══ NOTURNO — preto + dourado (escritório/uso noturno) ══ */
   :root,
-  [data-theme="escuro"],
+  [data-theme="noturno"],
   .dark {
     --bg-primary: #000000;
     --bg-secondary: #0c0c0c;
@@ -49,160 +63,96 @@
     --bg-elevated: #1e1e1e;
     --bg-hover: #2a2a2a;
 
-    --accent-primary: #a1773d;
+    --accent-primary: #d4a35a;
     --accent-secondary: #eae2a1;
+    --accent-glow: 212, 163, 90;
 
     --text-primary: #f5f5f5;
     --text-secondary: #c8c8c8;
-    --text-muted: #777777;
+    --text-muted: #888888;
 
-    --border-subtle: rgba(255, 255, 255, 0.06);
-    --border-default: rgba(255, 255, 255, 0.12);
+    --border-subtle: rgba(212, 163, 90, 0.10);
+    --border-default: rgba(212, 163, 90, 0.22);
+
+    --gradient-bg: radial-gradient(ellipse at top, #1a1208 0%, #000000 65%);
+    --gradient-accent: linear-gradient(135deg, #a1773d 0%, #eae2a1 100%);
+    --glass-bg: rgba(212, 163, 90, 0.08);
+    --glass-border: rgba(212, 163, 90, 0.28);
   }
 
-  /* ══ CLARO — Fundo branco, bordas definidas, texto escuro ══ */
-  [data-theme="claro"],
-  .light {
-    --bg-primary: #ffffff;
-    --bg-secondary: #f7f7f8;
-    --bg-tertiary: #eeeff1;
-    --bg-elevated: #ffffff;
-    --bg-hover: #e2e3e8;
+  /* ══ CYBER — violeta + ciano, identidade cyberpunk ══ */
+  [data-theme="cyber"] {
+    --bg-primary: #0a0118;
+    --bg-secondary: #150529;
+    --bg-tertiary: #1e0a3c;
+    --bg-elevated: #2a1450;
+    --bg-hover: #371a66;
 
-    --accent-primary: #8b6630;
-    --accent-secondary: #c4a254;
+    --accent-primary: #8b5cf6;
+    --accent-secondary: #06b6d4;
+    --accent-glow: 139, 92, 246;
 
-    --text-primary: #0a0a0a;
-    --text-secondary: #3a3a3a;
-    --text-muted: #6b6b6b;
+    --text-primary: #f0e9ff;
+    --text-secondary: #c4b5fd;
+    --text-muted: #8b7cb0;
 
-    --border-subtle: rgba(0, 0, 0, 0.10);
-    --border-default: rgba(0, 0, 0, 0.18);
+    --border-subtle: rgba(139, 92, 246, 0.15);
+    --border-default: rgba(139, 92, 246, 0.32);
+
+    --gradient-bg: radial-gradient(ellipse at top, #1e0a3c 0%, #0a0118 70%);
+    --gradient-accent: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+    --glass-bg: rgba(139, 92, 246, 0.10);
+    --glass-border: rgba(139, 92, 246, 0.38);
   }
 
-  /* ══ ROSÉ — Elegante rosa com acentos vibrantes ══ */
-  [data-theme="rose"] {
-    --bg-primary: #fdf2f3;
+  /* ══ GLACIER — azul gelo, claro/profissional ══ */
+  [data-theme="glacier"] {
+    --bg-primary: #f0f9ff;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #fce4e6;
+    --bg-tertiary: #e0f2fe;
     --bg-elevated: #ffffff;
-    --bg-hover: #fbd5d9;
+    --bg-hover: #bae6fd;
 
-    --accent-primary: #c4254a;
-    --accent-secondary: #e8456a;
+    --accent-primary: #0ea5e9;
+    --accent-secondary: #06b6d4;
+    --accent-glow: 14, 165, 233;
 
-    --text-primary: #2a0a12;
-    --text-secondary: #5c1a2a;
-    --text-muted: #9a4058;
+    --text-primary: #0c1e30;
+    --text-secondary: #1e3a5f;
+    --text-muted: #5b7a9a;
 
-    --border-subtle: rgba(196, 37, 74, 0.10);
-    --border-default: rgba(196, 37, 74, 0.20);
+    --border-subtle: rgba(14, 165, 233, 0.12);
+    --border-default: rgba(14, 165, 233, 0.28);
+
+    --gradient-bg: linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 50%, #ffffff 100%);
+    --gradient-accent: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+    --glass-bg: rgba(14, 165, 233, 0.08);
+    --glass-border: rgba(14, 165, 233, 0.28);
   }
 
-  /* ══ AZUL — Profissional, tons de azul/índigo ══ */
-  [data-theme="azul"] {
-    --bg-primary: #f0f4fa;
+  /* ══ CORAL — laranja → rosa, claro/vibrante ══ */
+  [data-theme="coral"] {
+    --bg-primary: #fff7ed;
     --bg-secondary: #ffffff;
-    --bg-tertiary: #e0e8f4;
+    --bg-tertiary: #ffedd5;
     --bg-elevated: #ffffff;
-    --bg-hover: #cdd8eb;
+    --bg-hover: #fed7aa;
 
-    --accent-primary: #2952a3;
-    --accent-secondary: #4a7ae8;
+    --accent-primary: #f97316;
+    --accent-secondary: #ec4899;
+    --accent-glow: 249, 115, 22;
 
-    --text-primary: #0b1a33;
-    --text-secondary: #2c3e5a;
-    --text-muted: #6882a8;
+    --text-primary: #2d1208;
+    --text-secondary: #5c2a14;
+    --text-muted: #8b5a40;
 
-    --border-subtle: rgba(41, 82, 163, 0.10);
-    --border-default: rgba(41, 82, 163, 0.20);
-  }
+    --border-subtle: rgba(249, 115, 22, 0.12);
+    --border-default: rgba(249, 115, 22, 0.28);
 
-  /* ══ VERDE — Fresco, tons de esmeralda ══ */
-  [data-theme="verde"] {
-    --bg-primary: #f0faf5;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #dff0e8;
-    --bg-elevated: #ffffff;
-    --bg-hover: #c8e6d5;
-
-    --accent-primary: #1a7a4a;
-    --accent-secondary: #34b870;
-
-    --text-primary: #08261a;
-    --text-secondary: #1c4a34;
-    --text-muted: #4a8a6a;
-
-    --border-subtle: rgba(26, 122, 74, 0.10);
-    --border-default: rgba(26, 122, 74, 0.20);
-  }
-
-  /* ══ ODONTO — Laranja Clinicorp para clínicas migrando ══
-     Usa a paleta exata do Clinicorp (laranja #F58220 + cinza/branco)
-     para reduzir curva de aprendizado de equipes que ja usam o
-     sistema concorrente. Recomendado como default para clinicas
-     odontologicas/esteticas que querem familiaridade visual. */
-  [data-theme="odonto"] {
-    --bg-primary: #ffffff;
-    --bg-secondary: #fafafa;
-    --bg-tertiary: #f5f5f5;
-    --bg-elevated: #ffffff;
-    --bg-hover: #fff3e6;
-
-    --accent-primary: #f58220;
-    --accent-secondary: #ff6a1a;
-
-    --text-primary: #2d2d2d;
-    --text-secondary: #4a4a4a;
-    --text-muted: #757575;
-
-    --border-subtle: rgba(0, 0, 0, 0.08);
-    --border-default: rgba(0, 0, 0, 0.14);
-  }
-
-  /* ══ MINT — Verde esmeralda fresh, mais vibrante que verde tradicional
-     Acento mais claro/fresco, ideal pra clínicas com identidade jovem
-     ou foco em estética/wellness. Diferencia-se do "verde" classico que
-     eh mais sombrio. */
-  [data-theme="mint"] {
-    --bg-primary: #f0fdf4;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #dcfce7;
-    --bg-elevated: #ffffff;
-    --bg-hover: #bbf7d0;
-
-    --accent-primary: #10b981;
-    --accent-secondary: #34d399;
-
-    --text-primary: #052e1a;
-    --text-secondary: #14532d;
-    --text-muted: #4d7c5f;
-
-    --border-subtle: rgba(16, 185, 129, 0.10);
-    --border-default: rgba(16, 185, 129, 0.20);
-  }
-
-  /* ══ VERMELHO — Vermelho vibrante / coral, energetico
-     Diferente do "Rose" (que eh rosa pastel) e do "Odonto" (laranja).
-     Acento bold pra clinicas que querem destaque visual forte.
-     Cuidado: cor vermelha pode passar urgencia/alerta — usar com
-     intencao se for o tom da marca. */
-  [data-theme="vermelho"] {
-    --bg-primary: #fef2f2;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #fee2e2;
-    --bg-elevated: #ffffff;
-    --bg-hover: #fecaca;
-
-    --accent-primary: #dc2626;
-    --accent-secondary: #ef4444;
-
-    --text-primary: #2a0a0a;
-    --text-secondary: #4a1414;
-    --text-muted: #8b4444;
-
-    --border-subtle: rgba(220, 38, 38, 0.10);
-    --border-default: rgba(220, 38, 38, 0.20);
+    --gradient-bg: linear-gradient(180deg, #ffedd5 0%, #fff7ed 50%, #ffffff 100%);
+    --gradient-accent: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+    --glass-bg: rgba(249, 115, 22, 0.08);
+    --glass-border: rgba(249, 115, 22, 0.32);
   }
 
   *, ::before, ::after {
@@ -214,11 +164,13 @@
   }
 
   body {
-    background-color: var(--color-background);
+    background: var(--gradient-bg);
+    background-attachment: fixed;
     color: var(--color-foreground);
+    min-height: 100vh;
   }
-  
-  /* Scrollbar Customization */
+
+  /* Scrollbar Customization — glow no thumb pra reforçar visual neon */
   ::-webkit-scrollbar {
     width: 6px;
   }
@@ -226,12 +178,86 @@
     background: transparent;
   }
   ::-webkit-scrollbar-thumb {
-    background: var(--bg-hover);
+    background: rgba(var(--accent-glow), 0.4);
     border-radius: 3px;
+    box-shadow: 0 0 6px rgba(var(--accent-glow), 0.3);
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: var(--text-muted);
+    background: rgba(var(--accent-glow), 0.7);
+    box-shadow: 0 0 10px rgba(var(--accent-glow), 0.5);
   }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * UTILITY CLASSES — Glassmorphism + neon glow
+ * Aplicar manualmente em cards/containers que quiserem o look futurista.
+ * Os componentes base (Button, etc) já consomem essas vars diretamente.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+.glass-card {
+  background: var(--glass-bg);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+}
+
+.glass-surface {
+  background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+
+.neon-glow {
+  box-shadow:
+    0 0 10px rgba(var(--accent-glow), 0.35),
+    0 0 24px rgba(var(--accent-glow), 0.18);
+  transition: box-shadow 0.25s ease;
+}
+.neon-glow:hover {
+  box-shadow:
+    0 0 14px rgba(var(--accent-glow), 0.6),
+    0 0 30px rgba(var(--accent-glow), 0.35),
+    0 0 56px rgba(var(--accent-glow), 0.15);
+}
+
+.neon-border {
+  border: 1px solid rgba(var(--accent-glow), 0.5);
+  box-shadow:
+    inset 0 0 8px rgba(var(--accent-glow), 0.15),
+    0 0 12px rgba(var(--accent-glow), 0.25);
+}
+
+.neon-text {
+  color: var(--accent-primary);
+  text-shadow:
+    0 0 6px rgba(var(--accent-glow), 0.45),
+    0 0 14px rgba(var(--accent-glow), 0.25);
+}
+
+.gradient-text {
+  background: var(--gradient-accent);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: transparent;
+}
+
+/* Pulso lento de glow — usar em CTAs principais */
+@keyframes neon-pulse {
+  0%, 100% {
+    box-shadow:
+      0 0 10px rgba(var(--accent-glow), 0.35),
+      0 0 24px rgba(var(--accent-glow), 0.18);
+  }
+  50% {
+    box-shadow:
+      0 0 16px rgba(var(--accent-glow), 0.55),
+      0 0 38px rgba(var(--accent-glow), 0.30);
+  }
+}
+.neon-pulse {
+  animation: neon-pulse 2.4s ease-in-out infinite;
 }
 
 /* ─── Scrollbar utilities ─────────────────── */
