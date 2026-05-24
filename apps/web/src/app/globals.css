@@ -74,7 +74,10 @@
     --border-subtle: rgba(212, 163, 90, 0.10);
     --border-default: rgba(212, 163, 90, 0.22);
 
-    --gradient-bg: radial-gradient(ellipse at top, #1a1208 0%, #000000 65%);
+    --gradient-bg:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(212, 163, 90, 0.18) 0%, transparent 50%),
+      radial-gradient(ellipse 60% 40% at 85% 80%, rgba(234, 226, 161, 0.10) 0%, transparent 60%),
+      radial-gradient(ellipse at top, #1a1208 0%, #000000 65%);
     --gradient-accent: linear-gradient(135deg, #a1773d 0%, #eae2a1 100%);
     --glass-bg: rgba(212, 163, 90, 0.08);
     --glass-border: rgba(212, 163, 90, 0.28);
@@ -99,7 +102,11 @@
     --border-subtle: rgba(139, 92, 246, 0.15);
     --border-default: rgba(139, 92, 246, 0.32);
 
-    --gradient-bg: radial-gradient(ellipse at top, #1e0a3c 0%, #0a0118 70%);
+    --gradient-bg:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(139, 92, 246, 0.30) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 70%, rgba(6, 182, 212, 0.18) 0%, transparent 60%),
+      radial-gradient(ellipse 50% 35% at 10% 90%, rgba(168, 85, 247, 0.15) 0%, transparent 60%),
+      linear-gradient(180deg, #1e0a3c 0%, #0a0118 60%);
     --gradient-accent: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
     --glass-bg: rgba(139, 92, 246, 0.10);
     --glass-border: rgba(139, 92, 246, 0.38);
@@ -124,7 +131,10 @@
     --border-subtle: rgba(14, 165, 233, 0.12);
     --border-default: rgba(14, 165, 233, 0.28);
 
-    --gradient-bg: linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 50%, #ffffff 100%);
+    --gradient-bg:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(14, 165, 233, 0.22) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 90% 80%, rgba(6, 182, 212, 0.15) 0%, transparent 60%),
+      linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 60%, #ffffff 100%);
     --gradient-accent: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
     --glass-bg: rgba(14, 165, 233, 0.08);
     --glass-border: rgba(14, 165, 233, 0.28);
@@ -149,7 +159,10 @@
     --border-subtle: rgba(249, 115, 22, 0.12);
     --border-default: rgba(249, 115, 22, 0.28);
 
-    --gradient-bg: linear-gradient(180deg, #ffedd5 0%, #fff7ed 50%, #ffffff 100%);
+    --gradient-bg:
+      radial-gradient(ellipse 80% 60% at 50% -10%, rgba(249, 115, 22, 0.20) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 85% 75%, rgba(236, 72, 153, 0.18) 0%, transparent 60%),
+      linear-gradient(180deg, #ffedd5 0%, #fff7ed 60%, #ffffff 100%);
     --gradient-accent: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
     --glass-bg: rgba(249, 115, 22, 0.08);
     --glass-border: rgba(249, 115, 22, 0.32);
@@ -387,6 +400,66 @@
 
 [data-fx="solid"] [data-button-variant="link"]:hover {
   text-shadow: none !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * Onda 15.4 — TODOS os blocos viram "flutuantes" no modo neon
+ *
+ * Inspirado em layouts cosmicos (VLTI Business Revolution): cards/containers
+ * com transparencia acinzentada + blur + borda sutil, deixando o gradient
+ * do body atravessar e criar profundidade.
+ *
+ * Atinge as classes Tailwind mais usadas (bg-card, bg-secondary, bg-background)
+ * sem precisar tocar em cada componente individualmente.
+ *
+ * Importante: usamos color-mix com transparencia ~55-65% pra cards (legibilidade
+ * de tabelas/listas densas) e 100% transparente pra containers grandes
+ * (bg-background) que precisam revelar o gradient.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+/* Containers principais — body/main viram totalmente transparentes pra
+   revelar o gradient do body */
+[data-fx="neon"] .bg-background,
+[data-fx="neon"] .bg-\[var\(--bg-primary\)\] {
+  background-color: transparent !important;
+}
+
+/* Cards e popovers — glass moderado (legibilidade preservada) */
+[data-fx="neon"] .bg-card {
+  background-color: color-mix(in srgb, var(--bg-secondary) 55%, transparent) !important;
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* Surfaces secundarias (widgets, painéis) — um pouco mais transparente */
+[data-fx="neon"] .bg-secondary {
+  background-color: color-mix(in srgb, var(--bg-secondary) 50%, transparent) !important;
+  backdrop-filter: blur(12px) saturate(140%);
+  -webkit-backdrop-filter: blur(12px) saturate(140%);
+}
+
+/* Muted (badges, tags suaves) — mais translucido pra reforcar profundidade */
+[data-fx="neon"] .bg-muted,
+[data-fx="neon"] .bg-muted\/50 {
+  background-color: color-mix(in srgb, var(--bg-tertiary) 45%, transparent) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+/* Bordas mais sutis pra dar sensacao flutuante */
+[data-fx="neon"] .border-border {
+  border-color: var(--glass-border) !important;
+}
+
+/* Inputs precisam ficar legiveis — usa cor mais opaca + borda neon */
+[data-fx="neon"] input.bg-background,
+[data-fx="neon"] input.bg-card,
+[data-fx="neon"] textarea.bg-background,
+[data-fx="neon"] textarea.bg-card,
+[data-fx="neon"] select.bg-background,
+[data-fx="neon"] select.bg-card {
+  background-color: color-mix(in srgb, var(--bg-secondary) 75%, transparent) !important;
+  border-color: var(--glass-border) !important;
 }
 
 /* ═══════════════════════════════════════════════════════════════════
