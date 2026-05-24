@@ -752,8 +752,11 @@ export function Sidebar() {
       setThemeMenuPos(null);
     } else {
       const rect = e.currentTarget.getBoundingClientRect();
-      // Onda 15.1 — popup agora tem TEMAS (4) + ESTILO (2), ~340px de altura.
-      const MENU_HEIGHT = 360;
+      // Onda 15.1 — popup tem TEMAS (4 botões) + divider + ESTILO (2 botões).
+      // Medindo na DOM: padding p-3 (24px) + header (24px) + 4×44px (176px) +
+      // 3 gaps×8 (24px) + divider (10px) + header (24px) + 2×44px (88px) +
+      // 1 gap (8px) ≈ 378px. Margem de seguranca: 410px.
+      const MENU_HEIGHT = 410;
       const MENU_MARGIN = 8;
       const rawTop = rect.top;
       const top = rawTop + MENU_HEIGHT + MENU_MARGIN > window.innerHeight
