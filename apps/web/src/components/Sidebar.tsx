@@ -781,16 +781,15 @@ export function Sidebar() {
   return (
     <aside
       data-glass="sidebar"
-      className={`${expanded ? 'w-[190px]' : 'w-[64px]'} flex flex-col items-center py-3 bg-primary text-primary-foreground border-r border-primary/20 relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
+      className={`${expanded ? 'w-[260px]' : 'w-[72px]'} flex flex-col items-center py-4 bg-primary text-primary-foreground border-r border-primary/20 relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
-      <div className={`flex items-center w-full px-3 mb-3 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
-        {/* Onda 5e v8 (Fase 25): logo redondo aumentado pra w-12 (48px) — assim
-            a foto cabe inteira (texto ODONTO PASSOS legivel) sem cropar pelo
-            object-cover. Bg do mesmo tom escuro caso a PNG tenha transparencia.
-            Ring claro destaca o circulo contra o bg-primary do tema. */}
+      <div className={`flex items-center w-full px-4 mb-4 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
+        {/* Onda 15.3: logo aumentado pra w-14 (56px) seguindo referencia AURA.
+            object-contain garante que mostre o logo INTEIRO sem cortar
+            (a PNG ja eh quadrada — colado nas bordas sem whitespace). */}
         <div
-          className="w-12 h-12 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
+          className="w-14 h-14 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
           onClick={() => router.push('/atendimento/dashboard')}
           onMouseEnter={(e) => showTooltip(e, 'Página Inicial')}
           onMouseLeave={hideTooltip}
@@ -818,7 +817,7 @@ export function Sidebar() {
       </div>
 
       {/* ─── Navigation Groups (Onda 5c — colapsaveis individualmente) ─── */}
-      <nav className="flex-1 flex flex-col gap-0 w-full px-3 overflow-y-auto no-scrollbar">
+      <nav className="flex-1 flex flex-col gap-0 w-full px-4 overflow-y-auto no-scrollbar">
         {groups.map((group, gi) => {
           const defaultExp = group.defaultExpanded ?? true;
           const isExpanded = isGroupExpanded(group.id, defaultExp);
@@ -826,7 +825,7 @@ export function Sidebar() {
           const showItems = !expanded || isExpanded;
 
           return (
-            <div key={group.id} className={gi > 0 ? 'mt-2' : ''}>
+            <div key={group.id} className={gi > 0 ? 'mt-4' : ''}>
               {/* Header de grupo (Onda 5e — Fase 25): EVIDENCIADO
                     - Sidebar EXPANDIDA: botao clicavel com bg sutil + texto
                       mais contrastado + chevron sempre visivel + barra
@@ -835,7 +834,7 @@ export function Sidebar() {
               {expanded ? (
                 <button
                   onClick={() => toggleGroup(group.id, defaultExp)}
-                  className={`w-full flex items-center gap-2 px-2 py-1.5 mb-1 rounded-md text-[10px] font-bold uppercase tracking-wider transition-all
+                  className={`w-full flex items-center gap-2 px-2 py-2 mb-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all
                     ${isExpanded
                       ? 'bg-primary-foreground/15 text-primary-foreground'
                       : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'}`}
@@ -862,7 +861,7 @@ export function Sidebar() {
               ) : null}
 
               {showItems && (
-              <div id={`group-${group.id}-items`} className="flex flex-col gap-0.5">
+              <div id={`group-${group.id}-items`} className="flex flex-col gap-1">
               {group.items.map((item) => {
                 const isActive = item.match(pathname);
                 const badge = (item as any).badge as number | undefined;
@@ -873,7 +872,7 @@ export function Sidebar() {
                       onMouseEnter={(e) => showTooltip(e, item.label)}
                       onMouseLeave={hideTooltip}
                       className={`w-full rounded-lg flex items-center relative transition-colors ${
-                        expanded ? 'gap-2 px-3 py-1.5 pl-7' : 'aspect-square justify-center'
+                        expanded ? 'gap-2 px-4 py-2.5 pl-9' : 'aspect-square justify-center'
                       } ${
                         isActive
                           ? 'bg-primary-foreground/20 text-primary-foreground font-semibold'
@@ -889,7 +888,7 @@ export function Sidebar() {
                       )}
 
                       {expanded && (
-                        <span className="text-[11px] font-medium truncate flex-1 text-left">
+                        <span className="text-[13px] font-medium truncate flex-1 text-left">
                           {item.label}
                         </span>
                       )}
@@ -953,7 +952,7 @@ export function Sidebar() {
       <div className="mt-auto flex flex-col gap-0.5 w-full px-2 pt-2 border-t border-primary-foreground/20">
 
         {/* ─── Avatar do usuário (card branco) ─── */}
-        <div className={`w-full flex items-center gap-2 rounded-lg px-1.5 py-1 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
+        <div className={`w-full flex items-center gap-2 rounded-lg px-2 py-1.5 bg-card text-foreground ${expanded ? '' : 'justify-center'}`}>
           {/* Input de arquivo oculto */}
           <input
             ref={avatarFileRef}
@@ -976,7 +975,7 @@ export function Sidebar() {
             }}
             onMouseLeave={hideTooltip}
             className={`relative shrink-0 rounded-full overflow-hidden focus:outline-none group ${perms.isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
-            style={{ width: 26, height: 26 }}
+            style={{ width: 32, height: 32 }}
           >
             {uploadingAvatar ? (
               <div className="w-full h-full flex items-center justify-center bg-muted rounded-full">
@@ -1016,10 +1015,10 @@ export function Sidebar() {
 
           {expanded && (
             <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-[11px] font-semibold text-foreground truncate leading-tight">
+              <span className="text-[13px] font-semibold text-foreground truncate leading-tight">
                 {userName || 'Usuário'}
               </span>
-              <span className="text-[9px] text-muted-foreground truncate leading-tight">
+              <span className="text-[11px] text-muted-foreground truncate leading-tight">
                 {userEmail}
               </span>
             </div>
@@ -1053,15 +1052,16 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Notificacoes — card branco (Onda 5e v13: compactado) */}
+        {/* Notificacoes — card branco (Onda 15.3: aumentado pra ficar coerente
+            com o novo tamanho do menu inspirado na AURA). */}
         <div
-          className={`w-full flex items-center bg-card text-foreground rounded-lg ${expanded ? 'gap-2 px-1.5 py-1' : 'justify-center py-1'}`}
+          className={`w-full flex items-center bg-card text-foreground rounded-lg ${expanded ? 'gap-2 px-2 py-1.5' : 'justify-center py-1.5'}`}
           onMouseEnter={(e) => showTooltip(e, 'Notificações')}
           onMouseLeave={hideTooltip}
         >
           <NotificationCenter />
           {expanded && (
-            <span className="text-[11px] font-medium">Notificações</span>
+            <span className="text-[13px] font-medium">Notificações</span>
           )}
         </div>
 
@@ -1072,11 +1072,11 @@ export function Sidebar() {
           onMouseEnter={(e) => { if (!showThemeMenu) showTooltip(e, 'Aparência'); }}
           onMouseLeave={hideTooltip}
           className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-accent ${
-            expanded ? 'px-2 py-1.5' : 'aspect-square justify-center'
+            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
           } ${showThemeMenu ? 'ring-2 ring-primary-foreground/30' : ''}`}
         >
-          <Palette size={14} strokeWidth={2} className="shrink-0 text-primary" />
-          {expanded && <span className="text-[11px] font-medium">Aparência</span>}
+          <Palette size={16} strokeWidth={2} className="shrink-0 text-primary" />
+          {expanded && <span className="text-[13px] font-medium">Aparência</span>}
         </button>
 
         {/* Logout — card branco */}
@@ -1085,11 +1085,11 @@ export function Sidebar() {
           onMouseEnter={(e) => showTooltip(e, 'Sair')}
           onMouseLeave={hideTooltip}
           className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-destructive/10 hover:text-destructive ${
-            expanded ? 'px-2 py-1.5' : 'aspect-square justify-center'
+            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
           }`}
         >
-          <LogOut size={14} strokeWidth={2} className="shrink-0" />
-          {expanded && <span className="text-[11px] font-medium">Sair</span>}
+          <LogOut size={16} strokeWidth={2} className="shrink-0" />
+          {expanded && <span className="text-[13px] font-medium">Sair</span>}
         </button>
       </div>
 
