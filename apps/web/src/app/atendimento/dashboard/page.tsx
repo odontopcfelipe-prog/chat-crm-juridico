@@ -128,7 +128,7 @@ export default function DashboardPage() {
   if (loading && !data) {
     return (
       <div className="h-full overflow-y-auto bg-background p-4 md:p-6">
-        <div className="max-w-7xl mx-auto space-y-6">
+        <div className="w-full space-y-6">
           <div className="animate-pulse space-y-2">
             <div className="h-8 w-60 bg-muted rounded-lg" />
             <div className="h-4 w-44 bg-muted rounded" />
@@ -156,7 +156,7 @@ export default function DashboardPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="max-w-7xl mx-auto p-4 md:p-6 pb-28 md:pb-6 space-y-4">
+      <div className="w-full p-4 md:p-6 pb-28 md:pb-6 space-y-4">
 
         {/* Cabeçalho + filtro de período (sempre visíveis) */}
         <MotionWidget>

@@ -853,7 +853,7 @@ export default function FinanceiroPage() {
   if (loading && !summary) {
     return (
       <div className="h-full overflow-y-auto bg-background p-4 md:p-6">
-        <div className="max-w-6xl mx-auto space-y-6">
+        <div className="w-full space-y-6">
           <div className="animate-pulse space-y-2">
             <div className="h-8 w-48 bg-muted rounded-lg" />
             <div className="h-4 w-32 bg-muted rounded" />
@@ -885,7 +885,7 @@ export default function FinanceiroPage() {
 
   return (
     <div className="h-full overflow-y-auto bg-background">
-      <div className="max-w-6xl mx-auto p-4 md:p-6 space-y-5 pb-28 md:pb-6">
+      <div className="w-full p-4 md:p-6 space-y-5 pb-28 md:pb-6">
 
         {/* ─── Header ─── */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">

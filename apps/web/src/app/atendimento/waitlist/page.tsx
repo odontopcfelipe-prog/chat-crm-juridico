@@ -114,7 +114,7 @@ export default function WaitlistPage() {
   const openEntry = entries.find((e) => e.id === openEntryId);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 w-full">
       <div className="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">

@@ -62,7 +62,7 @@ export default function ReturnAlertsPage() {
   const openAlert = alerts.find((a) => a.id === openAlertId);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 w-full">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Bell size={26} className="text-primary" /> Retornos pendentes

@@ -1596,7 +1596,7 @@ export default function FollowupPage() {
     <div className="h-full overflow-y-auto bg-background text-foreground">
       {/* Header */}
       <div className="border-b border-border bg-card/80 backdrop-blur-sm sticky top-0 z-20">
-        <div className="max-w-7xl mx-auto px-4 md:px-6 py-4 flex items-center gap-3">
+        <div className="w-full px-4 md:px-6 py-4 flex items-center gap-3">
           <div className="p-2 rounded-xl bg-primary/20 border border-primary/30">
             <Bot size={22} className="text-primary" />
           </div>
@@ -1615,7 +1615,7 @@ export default function FollowupPage() {
         </div>
 
         {/* MELHORIA 5: Tabs ULTRA-COMPACTAS com badge de aprovações (Fase 25 5b v3) */}
-        <div className="max-w-7xl mx-auto px-4 md:px-6 flex gap-0.5 overflow-x-auto">
+        <div className="w-full px-4 md:px-6 flex gap-0.5 overflow-x-auto">
           {TABS.map(tab => {
             const Icon = tab.icon;
             const active = activeTab === tab.id;
@@ -1642,7 +1642,7 @@ export default function FollowupPage() {
         </div>
       </div>
 
-      <div className="max-w-7xl mx-auto px-4 md:px-6 py-6 pb-28 md:pb-6">
+      <div className="w-full px-4 md:px-6 py-6 pb-28 md:pb-6">
 
         {/* ── TAB: DASHBOARD ─────────────────────────────────────────────────── */}
         {activeTab === 'dashboard' && (

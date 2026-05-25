@@ -75,7 +75,7 @@ export default function RelatoriosPage() {
     }, {} as Record<string, CatalogItem[]>);
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 w-full">
       <div className="mb-6 flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
