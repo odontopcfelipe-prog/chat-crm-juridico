@@ -932,8 +932,18 @@ export class PatientsService {
     };
     const mimeType = mimeMap[ext] ?? 'image/jpeg';
 
-    const buffer = await this.fileStorage.read(patient.avatar_url);
-    if (!buffer) return null;
+    // Onda 15.5 — tryRead em vez de read pra nao crashar 500 quando o
+    // arquivo nao existe no disco (paciente migrado, volume Docker recriado,
+    // etc). Retorna null -> controller responde 404 -> front cai pro
+    // fallback de iniciais sem mostrar imagem quebrada.
+    const buffer = await this.fileStorage.tryRead(patient.avatar_url);
+    if (!buffer) {
+      this.logger.warn(
+        `[AVATAR] Inconsistencia: paciente ${patientId} tem avatar_url=${patient.avatar_url} ` +
+        `no DB mas arquivo nao existe no disco. Considere rodar limpeza manual.`
+      );
+      return null;
+    }
     return { buffer, mimeType };
   }
 

@@ -348,7 +348,7 @@ function PacientesPageInner() {
                     patientId={p.id}
                     patientName={p.name}
                     avatarUrl={p.avatar_url}
-                    size={40}
+                    size={56}
                   />
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">

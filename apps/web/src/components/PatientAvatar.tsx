@@ -18,10 +18,13 @@ interface Props {
   patientName: string;
   /** patient.avatar_url do banco. Se null, mostra iniciais sem nem tentar request. */
   avatarUrl: string | null | undefined;
-  /** Tamanho em px (largura = altura). Default 40. */
+  /** Tamanho em px (largura = altura). Default 48. */
   size?: number;
   /** Classe Tailwind adicional pra container. */
   className?: string;
+  /** Forma do avatar. 'rounded' (default) = quadrado com bordas arredondadas
+      (rounded-xl); 'circle' = redondo (rounded-full). */
+  shape?: 'rounded' | 'circle';
 }
 
 // Paleta determinística pelas iniciais — mesma pessoa sempre vê a mesma cor
@@ -50,8 +53,9 @@ export function PatientAvatar({
   patientId,
   patientName,
   avatarUrl,
-  size = 40,
+  size = 48,
   className = '',
+  shape = 'rounded',
 }: Props) {
   // Só dispara fetch se backend confirmou que existe avatar — evita 404 em
   // pacientes sem foto. ?t=<id> serve só pra invalidar cache se o id mudar.
@@ -61,12 +65,13 @@ export function PatientAvatar({
   const initials = getInitials(patientName);
   const bgColor = colorFor(patientName || patientId);
   const fontSize = Math.max(11, Math.round(size * 0.36));
+  const shapeCls = shape === 'circle' ? 'rounded-full' : 'rounded-xl';
 
   return (
     <div
       data-component="patient-avatar"
       data-has-photo={src ? 'yes' : 'no'}
-      className={`rounded-full overflow-hidden shrink-0 flex items-center justify-center select-none ${
+      className={`${shapeCls} overflow-hidden shrink-0 flex items-center justify-center select-none ${
         src ? 'bg-muted' : bgColor + ' text-white'
       } ${className}`}
       style={{ width: size, height: size, fontSize: `${fontSize}px` }}

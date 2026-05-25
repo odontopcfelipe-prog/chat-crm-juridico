@@ -52,9 +52,28 @@ export class FileStorageService implements OnModuleInit {
     await fs.writeFile(fullPath, buffer, { mode: 0o600 });
   }
 
-  /** Lê o arquivo inteiro como Buffer */
+  /** Lê o arquivo inteiro como Buffer. Lança se nao existe (ENOENT). */
   async read(relativePath: string): Promise<Buffer> {
     return fs.readFile(this.getFullPath(relativePath));
+  }
+
+  /**
+   * Lê arquivo retornando null se nao existe (em vez de lançar ENOENT).
+   *
+   * Use em casos onde o arquivo pode legitimamente nao existir: ex. avatar
+   * que foi removido do disco mas avatar_url ainda esta no DB, ou anexos
+   * sincronizados de outra origem. Evita 500 desnecessario.
+   */
+  async tryRead(relativePath: string): Promise<Buffer | null> {
+    try {
+      return await fs.readFile(this.getFullPath(relativePath));
+    } catch (e: any) {
+      if (e.code === 'ENOENT') {
+        this.logger.warn(`[FS] tryRead miss: ${relativePath} (arquivo nao existe no disco)`);
+        return null;
+      }
+      throw e;
+    }
   }
 
   /** Stream para servir áudio/vídeo com suporte a range requests */
