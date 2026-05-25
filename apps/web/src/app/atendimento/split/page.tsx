@@ -18,7 +18,7 @@
  * e funciona standalone. Zero refactor do page.tsx principal.
  */
 
-import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, X, Plus, Search, RefreshCw } from 'lucide-react';
 import api from '@/lib/api';
@@ -34,7 +34,24 @@ interface ConversationLite {
 
 const EMPTY_SLOT = 'EMPTY';
 
+// Next.js 16 exige <Suspense> em pages que usam useSearchParams() porque o
+// search params nao existe durante prerender estatico. Wrapper externo +
+// componente interno com a logica real.
 export default function SplitPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="h-screen flex items-center justify-center text-muted-foreground text-sm">
+          Carregando split…
+        </div>
+      }
+    >
+      <SplitPageInner />
+    </Suspense>
+  );
+}
+
+function SplitPageInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const mode = parseInt(searchParams.get('mode') ?? '4', 10);
