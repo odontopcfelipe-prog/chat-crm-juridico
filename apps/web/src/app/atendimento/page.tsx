@@ -3289,15 +3289,9 @@ export default function Dashboard() {
             </footer>
           </>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src="/odonto-passos-logo.png"
-              alt="Instituto Odonto Passos"
-              style={{ width: '620px', height: 'auto', opacity: 0.85 }}
-              className="select-none pointer-events-none"
-              draggable={false}
-            />
+          <div className="flex-1 flex flex-col items-center justify-center text-muted-foreground select-none">
+            <MessageSquare size={48} strokeWidth={1.2} className="opacity-30 mb-3" />
+            <p className="text-sm opacity-60">Selecione uma conversa para começar</p>
           </div>
         )}
       </main>
