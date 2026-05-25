@@ -16,6 +16,8 @@ import { useRole } from '@/lib/useRole';
 import { SocketProvider } from '@/lib/SocketProvider';
 import { NotificationToggle } from '@/components/NotificationToggle';
 import { useVisualMode } from '@/components/VisualModeProvider';
+import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
+import { ThemeMenuButton } from '@/components/ThemeMenuButton';
 
 import { THEMES } from '@/components/ThemeSwitcher';
 
@@ -231,11 +233,20 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // mensagem). Top bar redundante so ocupa espaco vertical valioso.
           const isWhatsAppRoot = pathname === '/atendimento' || pathname === '/atendimento/';
           const hideSearch = hideByPrefix || insideSpecificPatient || isWhatsAppRoot;
-          if (hideSearch) return null;
+          // Onda 15.8 — header sempre renderiza (mesmo que esconda search) pra
+          // que os icones de Notificacoes + Aparencia no canto direito fiquem
+          // SEMPRE visiveis. Antes o header inteiro sumia em algumas paginas.
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card/50 backdrop-blur-sm shrink-0">
               <div className="flex-1 max-w-xl">
-                <PatientSearch />
+                {!hideSearch && <PatientSearch />}
+              </div>
+              {/* Onda 15.8 — Notificacoes + Aparencia fixos no canto direito */}
+              <div className="flex items-center gap-1 shrink-0">
+                <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
+                  <NotificationCenter />
+                </div>
+                <ThemeMenuButton variant="header" align="right" />
               </div>
             </header>
           );

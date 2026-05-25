@@ -86,6 +86,18 @@ export function Sidebar() {
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const perms = useRole();
 
+  // Onda 15.8 — Mapeia o role principal pra label legivel exibida embaixo do
+  // nome no rodape da sidebar (estilo LUMEN "Cirurgia-Dentista"). Fallback
+  // pro role bruto se nao houver mapping.
+  const ROLE_LABELS: Record<string, string> = {
+    ADMIN: 'Administrador',
+    DENTIST: 'Dentista',
+    OPERADOR: 'Atendimento',
+    ASSISTANT: 'Assistente',
+    FINANCEIRO: 'Financeiro',
+  };
+  const userCargo = perms.role ? (ROLE_LABELS[perms.role] ?? perms.role) : '';
+
   const [expanded, setExpanded] = useState(false);
   // Onda 5c (Fase 25) — estado de cada grupo (expandido/colapsado).
   // Persistido em localStorage. null = ainda nao carregou (ssr-safe).
@@ -995,7 +1007,7 @@ export function Sidebar() {
           {/* Botão do avatar */}
           <button
             ref={avatarBtnRef}
-            onClick={() => perms.isAdmin ? setShowAvatarMenu(v => !v) : undefined}
+            onClick={() => setShowAvatarMenu(v => !v)}
             onMouseEnter={(e) => {
               if (perms.isAdmin) {
                 showTooltip(e, 'Alterar foto de perfil');
@@ -1004,7 +1016,7 @@ export function Sidebar() {
               }
             }}
             onMouseLeave={hideTooltip}
-            className={`relative shrink-0 rounded-full overflow-hidden focus:outline-none group ${perms.isAdmin ? 'cursor-pointer' : 'cursor-default'}`}
+            className="relative shrink-0 rounded-full overflow-hidden focus:outline-none group cursor-pointer"
             style={{ width: 32, height: 32 }}
           >
             {uploadingAvatar ? (
@@ -1049,7 +1061,7 @@ export function Sidebar() {
                 {userName || 'Usuário'}
               </span>
               <span className="text-[11px] text-muted-foreground truncate leading-tight">
-                {userEmail}
+                {userCargo || userEmail}
               </span>
             </div>
           )}
@@ -1082,45 +1094,10 @@ export function Sidebar() {
           )}
         </div>
 
-        {/* Notificacoes — card branco (Onda 15.3: aumentado pra ficar coerente
-            com o novo tamanho do menu inspirado na AURA). */}
-        <div
-          className={`w-full flex items-center bg-card text-foreground rounded-lg ${expanded ? 'gap-2 px-2 py-1.5' : 'justify-center py-1.5'}`}
-          onMouseEnter={(e) => showTooltip(e, 'Notificações')}
-          onMouseLeave={hideTooltip}
-        >
-          <NotificationCenter />
-          {expanded && (
-            <span className="text-[13px] font-medium">Notificações</span>
-          )}
-        </div>
-
-        {/* Theme picker — card branco */}
-        <button
-          ref={themeButtonRef}
-          onClick={toggleThemeMenu}
-          onMouseEnter={(e) => { if (!showThemeMenu) showTooltip(e, 'Aparência'); }}
-          onMouseLeave={hideTooltip}
-          className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-accent ${
-            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
-          } ${showThemeMenu ? 'ring-2 ring-primary-foreground/30' : ''}`}
-        >
-          <Palette size={16} strokeWidth={2} className="shrink-0 text-primary" />
-          {expanded && <span className="text-[13px] font-medium">Aparência</span>}
-        </button>
-
-        {/* Logout — card branco */}
-        <button
-          onClick={() => { localStorage.removeItem('token'); router.push('/atendimento/login'); }}
-          onMouseEnter={(e) => showTooltip(e, 'Sair')}
-          onMouseLeave={hideTooltip}
-          className={`w-full rounded-lg flex items-center gap-2 transition-colors bg-card text-foreground hover:bg-destructive/10 hover:text-destructive ${
-            expanded ? 'px-2.5 py-2' : 'aspect-square justify-center'
-          }`}
-        >
-          <LogOut size={16} strokeWidth={2} className="shrink-0" />
-          {expanded && <span className="text-[13px] font-medium">Sair</span>}
-        </button>
+        {/* Onda 15.8 — Notificacoes / Aparencia / Sair removidos do rodape
+            da sidebar. Notificacoes e Aparencia agora vivem no header global
+            (atendimento/layout.tsx). Sair foi movido pro menu dropdown que
+            abre ao clicar no avatar (logo acima). */}
       </div>
 
       {/* ─── Fixed tooltip portal ────────────────────────────────────── */}
@@ -1135,59 +1112,11 @@ export function Sidebar() {
         document.body
       )}
 
-      {/* ─── Fixed theme popup portal ────────────────────────────────── */}
-      {mounted && showThemeMenu && themeMenuPos && createPortal(
-        <div
-          ref={themePopupRef}
-          style={{ position: 'fixed', top: themeMenuPos.top, left: themeMenuPos.left, zIndex: 9999, maxHeight: 'calc(100vh - 16px)', overflowY: 'auto' }}
-          className="bg-card border border-border rounded-xl p-3 flex flex-col gap-2 w-48 shadow-2xl"
-        >
-          <p className="text-[11px] font-bold text-muted-foreground uppercase ml-1 mb-1 tracking-wider">Temas</p>
-          {THEMES.map((t) => (
-            <button
-              key={t.id}
-              onClick={() => { setTheme(t.id); setShowThemeMenu(false); setThemeMenuPos(null); }}
-              className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-foreground transition-colors hover:bg-accent ${theme === t.id ? 'bg-accent' : 'bg-transparent'}`}
-            >
-              <div className="flex items-center gap-3">
-                <div className="w-3.5 h-3.5 rounded-full border border-border shadow-inner" style={{ background: t.color }} />
-                {t.name}
-              </div>
-              {theme === t.id && <Check size={14} className="text-primary" />}
-            </button>
-          ))}
-
-          {/* Onda 15.1 — Estilo: Clássico vs Futurista (intensidade visual) */}
-          <div className="h-px bg-border my-1" />
-          <p className="text-[11px] font-bold text-muted-foreground uppercase ml-1 mb-1 tracking-wider">Estilo</p>
-          <button
-            onClick={() => { setFxMode('solid'); }}
-            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-foreground transition-colors hover:bg-accent ${fxMode === 'solid' ? 'bg-accent' : 'bg-transparent'}`}
-            title="Visual ERP clássico: cores chapadas, sem efeitos."
-          >
-            <div className="flex items-center gap-3">
-              <Square size={14} />
-              Clássico
-            </div>
-            {fxMode === 'solid' && <Check size={14} className="text-primary" />}
-          </button>
-          <button
-            onClick={() => { setFxMode('neon'); }}
-            className={`flex items-center justify-between w-full px-3 py-2 rounded-lg text-sm text-foreground transition-colors hover:bg-accent ${fxMode === 'neon' ? 'bg-accent' : 'bg-transparent'}`}
-            title="Visual futurista: gradientes, glassmorphism, glow neon."
-          >
-            <div className="flex items-center gap-3">
-              <Sparkles size={14} />
-              Futurista
-            </div>
-            {fxMode === 'neon' && <Check size={14} className="text-primary" />}
-          </button>
-        </div>,
-        document.body
-      )}
+      {/* Onda 15.8 — Popup de tema removido. Aparencia agora vive no
+          <ThemeMenuButton /> renderizado no header global (atendimento/layout). */}
 
       {/* ─── Menu de avatar (portal) ─────────────────────────────────── */}
-      {mounted && showAvatarMenu && perms.isAdmin && avatarBtnRef.current && createPortal(
+      {mounted && showAvatarMenu && avatarBtnRef.current && createPortal(
         <div
           ref={avatarMenuRef}
           style={{
@@ -1199,27 +1128,41 @@ export function Sidebar() {
             left: 12,
             zIndex: 9999,
           }}
-          className="bg-card border border-border rounded-xl p-2 flex flex-col gap-0.5 min-w-[180px] shadow-2xl"
+          className="bg-card border border-border rounded-xl p-2 flex flex-col gap-0.5 min-w-[200px] shadow-2xl"
         >
-          <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2 pb-1 pt-0.5">
-            Foto de perfil
-          </p>
-          <button
-            onClick={() => { setShowAvatarMenu(false); avatarFileRef.current?.click(); }}
-            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
-          >
-            <Camera size={14} className="text-muted-foreground shrink-0" />
-            {hasAvatar ? 'Alterar foto' : 'Adicionar foto'}
-          </button>
-          {hasAvatar && (
-            <button
-              onClick={handleRemoveAvatar}
-              className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"
-            >
-              <Trash2 size={14} className="shrink-0" />
-              Remover foto
-            </button>
+          {/* Foto — so admin pode trocar (precisa do upload endpoint) */}
+          {perms.isAdmin && (
+            <>
+              <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-widest px-2 pb-1 pt-0.5">
+                Foto de perfil
+              </p>
+              <button
+                onClick={() => { setShowAvatarMenu(false); avatarFileRef.current?.click(); }}
+                className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
+              >
+                <Camera size={14} className="text-muted-foreground shrink-0" />
+                {hasAvatar ? 'Alterar foto' : 'Adicionar foto'}
+              </button>
+              {hasAvatar && (
+                <button
+                  onClick={handleRemoveAvatar}
+                  className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"
+                >
+                  <Trash2 size={14} className="shrink-0" />
+                  Remover foto
+                </button>
+              )}
+              <div className="h-px bg-border my-1" />
+            </>
           )}
+          {/* Onda 15.8 — Sair movido pra ca (saiu do rodape da sidebar) */}
+          <button
+            onClick={() => { setShowAvatarMenu(false); localStorage.removeItem('token'); router.push('/atendimento/login'); }}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"
+          >
+            <LogOut size={14} className="shrink-0" />
+            Sair
+          </button>
         </div>,
         document.body
       )}
