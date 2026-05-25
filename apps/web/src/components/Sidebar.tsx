@@ -72,6 +72,11 @@ interface NavGroup {
   /** Onda 5e v5 (Fase 25) — icone do grupo no header (Lucide React).
       Renderizado a esquerda do label uppercase pra dar contexto visual. */
   icon?: React.ReactNode;
+  /** Onda 15.7 — grupo FIXO: sempre expandido, sem chevron, nao clicavel.
+      Usado para os 2 primeiros grupos (Visao Geral, Jornada do Paciente)
+      que devem ficar sempre visiveis pra acesso rapido aos modulos
+      principais. */
+  fixed?: boolean;
 }
 
 export function Sidebar() {
@@ -654,69 +659,65 @@ export function Sidebar() {
   //   waitlist (Lista de espera), referrals (Indicacao Premiada),
   //   parcelas (Parcelas — vai estar dentro de Financeiro)
   // Pra reativar: adicionar de volta no array do grupo desejado.
+  // Onda 15.7 — Reorganizacao do menu lateral seguindo referencia do usuario.
+  // Os 2 primeiros grupos sao FIXOS (sem chevron, sempre visiveis). Os demais
+  // sao colapsaveis. Items duplicados (Orcamentos e Financeiro aparecendo em
+  // 2 grupos) apontam pra mesma rota provisoriamente — pra serem paginas
+  // distintas precisa decidir o conteudo de cada variacao em PR separado.
+  // Items REMOVIDOS do menu (rotas continuam acessiveis via URL direta):
+  // Atendimentos a validar, Lista de espera, Indicacao Premiada, Contatos,
+  // Portal do paciente, Prontuario.
   const groups: NavGroup[] = [
     {
-      id: 'atendimento',
-      label: 'Atendimento',
-      defaultExpanded: true,
-      icon: <HeartPulse size={14} strokeWidth={2.5} />,
+      id: 'visao-geral',
+      label: 'Visão geral',
+      fixed: true,
+      icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
-        allItems.dashboard,    // Dashboard (canViewDashboard only)
-        allItems.inbox,        // WhatsApp
+        allItems.dashboard,    // Dashboard
         allItems.agenda,       // Agenda
-        allItems.crm,          // CRM (movido pra ATENDIMENTO)
-        allItems.validacoes,   // Atendimentos a validar (dentist/admin)
+        allItems.inbox,        // WhatsApp
       ].filter(i => i.show),
     },
     {
-      id: 'pacientes',
-      label: 'Pacientes',
-      defaultExpanded: true,
+      id: 'jornada',
+      label: 'Jornada do paciente',
+      fixed: true,
       icon: <Users size={14} strokeWidth={2.5} />,
       items: [
-        allItems.novoPaciente,    // + Novo paciente (top-level agora)
-        allItems.pacientes,       // Lista de pacientes
-        allItems.contacts,        // Contatos
-        allItems.portalPaciente,  // Portal do paciente
+        allItems.pacientes,    // Pacientes (lista)
+        allItems.orcamentos,   // Orcamentos (atalho — duplicado no CRM)
+        allItems.financeiro,   // Financeiro (atalho — financeiro/visao geral)
       ].filter(i => i.show),
     },
     {
-      id: 'comercial',
-      label: 'Comercial',
+      id: 'crm',
+      label: 'CRM',
       defaultExpanded: true,
-      icon: <Briefcase size={14} strokeWidth={2.5} />,
+      icon: <Network size={14} strokeWidth={2.5} />,
       items: [
-        allItems.orcamentos,   // Orcamentos (lista plana, todos os status)
+        allItems.crm,          // Kanban CRM (movido pra dentro do grupo)
+        allItems.orcamentos,   // Orcamentos (atalho — duplicado em JORNADA)
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
-        allItems.returnAlerts, // Retornos (movido pra COMERCIAL)
+        allItems.returnAlerts, // Retornos
         allItems.followup,     // Follow-up IA (admin)
-      ].filter(i => i.show),
-    },
-    {
-      id: 'marketing',
-      label: 'Marketing',
-      defaultExpanded: false, // grupo novo — comeca colapsado pra nao poluir
-      icon: <Megaphone size={14} strokeWidth={2.5} />,
-      items: [
-        allItems.influencers,  // Cadastro de influenciadores (admin only)
-        allItems.afiliados,    // Onda 5e v36 — dashboard global de afiliados
       ].filter(i => i.show),
     },
     {
       id: 'financeiro',
       label: 'Financeiro',
-      defaultExpanded: true,
+      defaultExpanded: false,
       icon: <Wallet size={14} strokeWidth={2.5} />,
       items: [
-        allItems.financeiro,   // Visao financeira
         allItems.comissoes,    // Comissoes
         allItems.metas,        // Metas
+        allItems.parcelas,     // Parcelas
       ].filter(i => i.show),
     },
     {
       id: 'gestao',
       label: 'Gestão',
-      defaultExpanded: false, // colapsado por default
+      defaultExpanded: false,
       icon: <BarChart3 size={14} strokeWidth={2.5} />,
       items: [
         allItems.analytics,    // Analytics
@@ -726,9 +727,19 @@ export function Sidebar() {
       ].filter(i => i.show),
     },
     {
+      id: 'marketing',
+      label: 'Marketing',
+      defaultExpanded: false,
+      icon: <Megaphone size={14} strokeWidth={2.5} />,
+      items: [
+        allItems.influencers,  // Cadastro de influenciadores
+        allItems.afiliados,    // Dashboard de afiliados
+      ].filter(i => i.show),
+    },
+    {
       id: 'sistema',
       label: 'Sistema',
-      defaultExpanded: false, // colapsado por default
+      defaultExpanded: false,
       icon: <Settings size={14} strokeWidth={2.5} />,
       items: [
         allItems.settings,     // Configuracoes
@@ -822,7 +833,9 @@ export function Sidebar() {
           const defaultExp = group.defaultExpanded ?? true;
           const isExpanded = isGroupExpanded(group.id, defaultExp);
           // Em modo recolhido (sidebar 72px) ignora group collapse — mostra todos
-          const showItems = !expanded || isExpanded;
+          // Onda 15.7: grupos `fixed` (Visao Geral, Jornada do Paciente) sempre
+          // mostram seus items, independente do estado de expansao.
+          const showItems = !expanded || isExpanded || group.fixed;
 
           return (
             <div key={group.id} className={gi > 0 ? 'mt-4' : ''}>
@@ -832,30 +845,44 @@ export function Sidebar() {
                       vertical colorida na esquerda quando expandido
                     - Sidebar COLAPSADA: divisor discreto entre grupos */}
               {expanded ? (
-                <button
-                  onClick={() => toggleGroup(group.id, defaultExp)}
-                  className={`w-full flex items-center gap-2 px-2 pt-3 pb-1.5 mb-0.5 text-[11px] font-bold uppercase tracking-wider transition-all
-                    ${isExpanded
-                      ? 'text-primary-foreground/70 hover:text-primary-foreground'
-                      : 'text-primary-foreground/50 hover:text-primary-foreground/80'}`}
-                  aria-expanded={isExpanded}
-                  aria-controls={`group-${group.id}-items`}
-                >
-                  {/* Onda 15.6 (LUMEN-style): header de grupo discreto, sem
-                      background. Icone do grupo + label uppercase pequeno +
-                      chevron sutil. Estilo "section header" em vez de "button". */}
-                  {group.icon && (
-                    <span className="shrink-0 opacity-80">{group.icon}</span>
-                  )}
-                  <span className="flex-1 text-left">{group.label}</span>
-                  <ChevronDown
-                    size={12}
-                    className={`shrink-0 transition-transform duration-150 opacity-60 ${
-                      isExpanded ? '' : '-rotate-90'
-                    }`}
-                    strokeWidth={2.5}
-                  />
-                </button>
+                group.fixed ? (
+                  // Onda 15.7: grupo FIXO — header como section label nao
+                  // clicavel, sem chevron. Sempre expandido (showItems abaixo
+                  // forca ignorando isExpanded pra grupos fixed).
+                  <div
+                    className="w-full flex items-center gap-2 px-2 pt-3 pb-1.5 mb-0.5 text-[11px] font-bold uppercase tracking-wider text-primary-foreground/70 cursor-default select-none"
+                  >
+                    {group.icon && (
+                      <span className="shrink-0 opacity-80">{group.icon}</span>
+                    )}
+                    <span className="flex-1 text-left">{group.label}</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => toggleGroup(group.id, defaultExp)}
+                    className={`w-full flex items-center gap-2 px-2 pt-3 pb-1.5 mb-0.5 text-[11px] font-bold uppercase tracking-wider transition-all
+                      ${isExpanded
+                        ? 'text-primary-foreground/70 hover:text-primary-foreground'
+                        : 'text-primary-foreground/50 hover:text-primary-foreground/80'}`}
+                    aria-expanded={isExpanded}
+                    aria-controls={`group-${group.id}-items`}
+                  >
+                    {/* Onda 15.6 (LUMEN-style): header de grupo discreto, sem
+                        background. Icone do grupo + label uppercase pequeno +
+                        chevron sutil. Estilo "section header" em vez de "button". */}
+                    {group.icon && (
+                      <span className="shrink-0 opacity-80">{group.icon}</span>
+                    )}
+                    <span className="flex-1 text-left">{group.label}</span>
+                    <ChevronDown
+                      size={12}
+                      className={`shrink-0 transition-transform duration-150 opacity-60 ${
+                        isExpanded ? '' : '-rotate-90'
+                      }`}
+                      strokeWidth={2.5}
+                    />
+                  </button>
+                )
               ) : gi > 0 ? (
                 <div className="h-px bg-primary-foreground/20 mx-1 mb-2" />
               ) : null}
