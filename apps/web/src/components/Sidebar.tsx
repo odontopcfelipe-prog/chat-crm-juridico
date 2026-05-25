@@ -834,24 +834,24 @@ export function Sidebar() {
               {expanded ? (
                 <button
                   onClick={() => toggleGroup(group.id, defaultExp)}
-                  className={`w-full flex items-center gap-2 px-2 py-2 mb-1 rounded-md text-[11px] font-bold uppercase tracking-wider transition-all
+                  className={`w-full flex items-center gap-2 px-2 pt-3 pb-1.5 mb-0.5 text-[11px] font-bold uppercase tracking-wider transition-all
                     ${isExpanded
-                      ? 'bg-primary-foreground/15 text-primary-foreground'
-                      : 'text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground'}`}
+                      ? 'text-primary-foreground/70 hover:text-primary-foreground'
+                      : 'text-primary-foreground/50 hover:text-primary-foreground/80'}`}
                   aria-expanded={isExpanded}
                   aria-controls={`group-${group.id}-items`}
                 >
-                  {/* Onda 5e v5: icone do grupo a esquerda do label (HeartPulse,
-                      Users, Briefcase, Wallet, BarChart3, Settings).
-                      Da contexto visual rapido pra identificar grupo de relance. */}
+                  {/* Onda 15.6 (LUMEN-style): header de grupo discreto, sem
+                      background. Icone do grupo + label uppercase pequeno +
+                      chevron sutil. Estilo "section header" em vez de "button". */}
                   {group.icon && (
-                    <span className="shrink-0 text-primary-foreground/90">{group.icon}</span>
+                    <span className="shrink-0 opacity-80">{group.icon}</span>
                   )}
                   <span className="flex-1 text-left">{group.label}</span>
                   <ChevronDown
                     size={12}
-                    className={`shrink-0 transition-transform duration-150 text-primary-foreground ${
-                      isExpanded ? '' : '-rotate-90 opacity-70'
+                    className={`shrink-0 transition-transform duration-150 opacity-60 ${
+                      isExpanded ? '' : '-rotate-90'
                     }`}
                     strokeWidth={2.5}
                   />
@@ -861,7 +861,7 @@ export function Sidebar() {
               ) : null}
 
               {showItems && (
-              <div id={`group-${group.id}-items`} className="flex flex-col gap-1">
+              <div id={`group-${group.id}-items`} className="flex flex-col gap-0.5">
               {group.items.map((item) => {
                 const isActive = item.match(pathname);
                 const badge = (item as any).badge as number | undefined;
@@ -871,24 +871,31 @@ export function Sidebar() {
                       onClick={() => { if (!isActive) router.push(item.href); }}
                       onMouseEnter={(e) => showTooltip(e, item.label)}
                       onMouseLeave={hideTooltip}
-                      className={`w-full rounded-lg flex items-center relative transition-colors ${
-                        expanded ? 'gap-2 px-4 py-2.5 pl-9' : 'aspect-square justify-center'
+                      style={
+                        isActive && expanded
+                          ? {
+                              background: 'var(--gradient-accent)',
+                              boxShadow: '0 0 14px rgba(var(--accent-glow), 0.45), 0 0 28px rgba(var(--accent-glow), 0.20)',
+                            }
+                          : undefined
+                      }
+                      className={`w-full rounded-xl flex items-center relative transition-all ${
+                        expanded ? 'gap-3 px-3 py-2.5' : 'aspect-square justify-center'
                       } ${
                         isActive
-                          ? 'bg-primary-foreground/20 text-primary-foreground font-semibold'
+                          ? expanded
+                            ? 'text-white font-semibold'
+                            : 'bg-primary-foreground/20 text-primary-foreground font-semibold'
                           : 'text-primary-foreground/85 hover:bg-primary-foreground/10 hover:text-primary-foreground'
                       }`}
                     >
-                      {/* Onda 5e v5 (Fase 25): em modo EXPANDIDO esconde icone
-                          (sub-menu so com texto, indentado pra mostrar hierarquia).
-                          Em modo COLAPSADO mantem icone — eh o unico elemento
-                          visivel, precisa pra clicar. */}
-                      {!expanded && (
-                        <span className="shrink-0">{item.icon}</span>
-                      )}
+                      {/* Onda 15.6 (LUMEN-style): icone SEMPRE visivel (mesmo
+                          em modo expanded). Antes escondia pra mostrar texto
+                          indentado, mas o LUMEN/AURA usam icone + texto sempre. */}
+                      <span className="shrink-0">{item.icon}</span>
 
                       {expanded && (
-                        <span className="text-[13px] font-medium truncate flex-1 text-left">
+                        <span className="text-sm font-medium truncate flex-1 text-left">
                           {item.label}
                         </span>
                       )}
@@ -901,10 +908,6 @@ export function Sidebar() {
                         >
                           {badge > 99 ? '99+' : badge}
                         </span>
-                      )}
-
-                      {isActive && (
-                        <div className="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 bg-primary-foreground rounded-r-md" />
                       )}
                     </button>
 
