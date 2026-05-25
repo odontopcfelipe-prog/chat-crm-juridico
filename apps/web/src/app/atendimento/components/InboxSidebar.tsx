@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch } from 'lucide-react';
+import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, LayoutGrid, Grid3X3 } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import {
   requestNotificationPermission,
@@ -235,16 +235,40 @@ export function InboxSidebar({
           - Padding reduzido (p-5 -> p-3) e space-y-4 -> space-y-2
           - Toggle e busca menores. Espaco que sobra vai pra lista de conversas. */}
       <div className="shrink-0 p-3 border-b border-border space-y-2">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-1">
           <h2 className="text-lg font-bold">WhatsApp</h2>
-          <button
-            onClick={() => onSetInboxOpen(false)}
-            className="hidden md:block p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-            title="Fechar painel"
-            aria-label="Fechar painel"
-          >
-            <PanelLeftClose size={16} />
-          </button>
+          <div className="flex items-center gap-0.5">
+            {/* Onda 16 — Split View: abre /atendimento/split em nova aba com
+                grid de iframes pra observar/atender varias conversas simultaneo */}
+            <a
+              href="/atendimento/split?mode=4"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              title="Abrir split de 4 conversas (nova aba)"
+              aria-label="Split 4"
+            >
+              <LayoutGrid size={15} />
+            </a>
+            <a
+              href="/atendimento/split?mode=6"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              title="Abrir split de 6 conversas (nova aba)"
+              aria-label="Split 6"
+            >
+              <Grid3X3 size={15} />
+            </a>
+            <button
+              onClick={() => onSetInboxOpen(false)}
+              className="hidden md:block p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
+              title="Fechar painel"
+              aria-label="Fechar painel"
+            >
+              <PanelLeftClose size={16} />
+            </button>
+          </div>
         </div>
 
         {/* Toggle Leads / Clientes */}
