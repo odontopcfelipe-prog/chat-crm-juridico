@@ -165,7 +165,7 @@ function PacientesPageInner() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 w-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
