@@ -2539,10 +2539,6 @@ export default function Dashboard() {
                 else if (diffY < 60 && diffX < -60) setShowDetailsPanel(false);
               }}
             >
-              <div className="pointer-events-none select-none absolute inset-0 flex items-center justify-center z-0">
-                <Image src="/odonto-passos-logo.png" alt="" width={1900} height={770}
-                  style={{ width: '620px', height: 'auto', opacity: 0.08 }} aria-hidden />
-              </div>
               {/* Botão scroll-to-bottom: aparece quando há novas mensagens e usuário está acima */}
               {newMsgsWhileScrolled > 0 && (
                 <button
