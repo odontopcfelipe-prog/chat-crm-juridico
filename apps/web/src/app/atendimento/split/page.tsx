@@ -20,7 +20,7 @@
 
 import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { ArrowLeft, X, Plus, Search, RefreshCw } from 'lucide-react';
+import { ArrowLeft, X, Plus, Search, RefreshCw, PanelLeftClose, PanelLeftOpen, Check } from 'lucide-react';
 import api from '@/lib/api';
 
 interface ConversationLite {
@@ -68,6 +68,22 @@ function SplitPageInner() {
   const [loading, setLoading] = useState(true);
   const [pickerForSlot, setPickerForSlot] = useState<number | null>(null);
   const [search, setSearch] = useState('');
+  // Onda 16.2 — sidebar lateral com lista de conversas (click rapido).
+  // Default = aberta. Lembra preferencia em localStorage.
+  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const [sidebarSearch, setSidebarSearch] = useState('');
+
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('split_sidebar_open');
+      if (saved === '0') setSidebarOpen(false);
+    } catch { /* ignore */ }
+  }, []);
+  useEffect(() => {
+    try {
+      localStorage.setItem('split_sidebar_open', sidebarOpen ? '1' : '0');
+    } catch { /* ignore */ }
+  }, [sidebarOpen]);
 
   const fetchConversations = useCallback(async () => {
     try {
@@ -134,6 +150,37 @@ function SplitPageInner() {
   // Helper pra encontrar dados da conversa por id (mostra no header do slot)
   const convById = (id: string) => conversations.find((c) => c.id === id);
 
+  // Onda 16.2 — sidebar: lista filtrada + helper de "qual slot tem essa conv"
+  const slotIndexOf = (id: string) => slots.indexOf(id);
+  const sidebarConvs = useMemo(() => {
+    const s = sidebarSearch.trim().toLowerCase();
+    if (!s) return conversations;
+    return conversations.filter(
+      (c) =>
+        (c.contact_name ?? '').toLowerCase().includes(s) ||
+        (c.contact_phone ?? '').includes(s),
+    );
+  }, [conversations, sidebarSearch]);
+
+  // Click na conversa da sidebar: se ja esta aberta em algum slot, scroll
+  // (no caso de iframe foco visual) ou fecha. Senao, preenche primeiro
+  // slot vazio. Se todos cheios, substitui o ultimo (slot N).
+  const addOrToggleConv = (convId: string) => {
+    const existingIdx = slots.indexOf(convId);
+    if (existingIdx >= 0) {
+      // Ja aberto — remove
+      clearSlot(existingIdx);
+      return;
+    }
+    const firstEmpty = slots.indexOf(EMPTY_SLOT);
+    if (firstEmpty >= 0) {
+      setSlot(firstEmpty, convId);
+    } else {
+      // Todos cheios — substitui o ULTIMO (mais a direita / embaixo)
+      setSlot(slots.length - 1, convId);
+    }
+  };
+
   const gridCls =
     validMode === 4
       ? 'grid-cols-2 grid-rows-2'
@@ -155,6 +202,13 @@ function SplitPageInner() {
         <h1 className="text-sm font-semibold text-foreground">
           Modo Split — {validMode} conversas
         </h1>
+        <button
+          onClick={() => setSidebarOpen((v) => !v)}
+          className="ml-3 inline-flex items-center justify-center p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground transition-colors"
+          title={sidebarOpen ? 'Esconder lista de conversas' : 'Mostrar lista de conversas'}
+        >
+          {sidebarOpen ? <PanelLeftClose size={14} /> : <PanelLeftOpen size={14} />}
+        </button>
         <div className="flex items-center gap-1 ml-auto">
           <button
             onClick={() => changeMode(4)}
@@ -186,8 +240,93 @@ function SplitPageInner() {
         </div>
       </header>
 
-      {/* ── Grid ── */}
-      <main className={`flex-1 grid gap-2 p-2 overflow-hidden ${gridCls}`}>
+      {/* ── Layout: sidebar + grid ── */}
+      <div className="flex-1 flex overflow-hidden">
+        {/* Sidebar lateral — lista de conversas pra adicionar com 1 click */}
+        {sidebarOpen && (
+          <aside className="w-72 shrink-0 border-r border-border bg-card/30 backdrop-blur-sm flex flex-col overflow-hidden">
+            <div className="p-3 border-b border-border shrink-0">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2">
+                Click pra adicionar
+              </p>
+              <div className="relative">
+                <Search
+                  size={13}
+                  className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+                />
+                <input
+                  type="text"
+                  value={sidebarSearch}
+                  onChange={(e) => setSidebarSearch(e.target.value)}
+                  placeholder="Buscar..."
+                  className="w-full pl-8 pr-2 py-1.5 text-xs rounded-lg border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/40"
+                />
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {loading ? (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  Carregando…
+                </div>
+              ) : sidebarConvs.length === 0 ? (
+                <div className="p-4 text-center text-xs text-muted-foreground">
+                  Nenhuma conversa
+                </div>
+              ) : (
+                <ul>
+                  {sidebarConvs.map((c) => {
+                    const slotIdx = slotIndexOf(c.id);
+                    const isOpen = slotIdx >= 0;
+                    return (
+                      <li key={c.id}>
+                        <button
+                          onClick={() => addOrToggleConv(c.id)}
+                          className={`w-full text-left px-3 py-2 flex items-center gap-2 transition-colors border-b border-border/40 ${
+                            isOpen
+                              ? 'bg-primary/10 hover:bg-primary/15'
+                              : 'hover:bg-accent/40'
+                          }`}
+                          title={
+                            isOpen
+                              ? `Aberta no Slot ${slotIdx + 1} — click pra fechar`
+                              : 'Click pra abrir no proximo slot vazio'
+                          }
+                        >
+                          <div className="flex-1 min-w-0">
+                            <p className="text-xs font-semibold text-foreground truncate">
+                              {c.contact_name || c.contact_phone || 'Sem nome'}
+                            </p>
+                            {c.last_msg_preview && (
+                              <p className="text-[10px] text-muted-foreground truncate">
+                                {c.last_msg_preview}
+                              </p>
+                            )}
+                          </div>
+                          {isOpen ? (
+                            <span
+                              className="shrink-0 inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-md bg-primary text-primary-foreground text-[10px] font-bold"
+                              title={`Slot ${slotIdx + 1}`}
+                            >
+                              <Check size={11} className="mr-0.5" />
+                              {slotIdx + 1}
+                            </span>
+                          ) : (c.unread_count ?? 0) > 0 ? (
+                            <span className="shrink-0 min-w-[18px] h-4 px-1.5 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+                              {c.unread_count}
+                            </span>
+                          ) : null}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </aside>
+        )}
+
+        {/* Grid de slots */}
+        <main className={`flex-1 grid gap-2 p-2 overflow-hidden ${gridCls}`}>
         {slots.map((slotId, idx) => {
           const isEmpty = slotId === EMPTY_SLOT;
           const conv = isEmpty ? null : convById(slotId);
@@ -251,7 +390,8 @@ function SplitPageInner() {
             </div>
           );
         })}
-      </main>
+        </main>
+      </div>
 
       {/* ── Picker modal ── */}
       {pickerForSlot !== null && (
