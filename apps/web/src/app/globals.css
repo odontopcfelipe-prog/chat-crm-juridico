@@ -168,6 +168,125 @@
     --glass-border: rgba(249, 115, 22, 0.32);
   }
 
+  /* ══ CLAY — Claymorphism Lavanda (Onda 14.55) ═════════════════════════
+     Estilo "massinha 3D" com paleta roxo-lavanda + pastéis (amarelo,
+     rosa, verde). Inspirado em dashboards modernos friendly (estilo
+     Gen-Z). Diferente dos outros temas, este ALÉM da paleta também
+     aplica overrides de FORMA (cantos super arredondados) e SOMBRA
+     (3D soft sem glow) — capturando a essência claymorphism.
+
+     Funciona puramente via [data-theme="clay"] no <html> — sem precisar
+     de assets/ilustrações 3D nesta primeira versão. Pode evoluir pra
+     fase 2 com personagens 3D em empty-states se o usuario gostar.
+
+     Tokens pastel auxiliares (--clay-pastel-*) usados em badges/chips
+     se quiser destacar elementos com cores diferentes do accent
+     principal lavanda. */
+  [data-theme="clay"] {
+    --bg-primary: #fdf9ff;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f5edff;
+    --bg-elevated: #ffffff;
+    --bg-hover: #ebe0ff;
+
+    --accent-primary: #a78bda;
+    --accent-secondary: #c4a8f0;
+    --accent-glow: 167, 139, 218;
+
+    --text-primary: #2d1b3d;
+    --text-secondary: #5c4080;
+    --text-muted: #9080a8;
+
+    --border-subtle: rgba(167, 139, 218, 0.10);
+    --border-default: rgba(167, 139, 218, 0.22);
+
+    /* Onda 15 — tokens do sistema futurista. Pra clay, usamos gradiente
+       radial soft (sem stripes agressivas) e glass mais opaco (claymorphism
+       eh "barro", nao vidro translucido). */
+    --gradient-bg:
+      radial-gradient(ellipse 80% 60% at 15% -10%, rgba(196, 168, 240, 0.35) 0%, transparent 55%),
+      radial-gradient(ellipse 60% 40% at 85% 110%, rgba(255, 192, 232, 0.25) 0%, transparent 55%),
+      linear-gradient(180deg, #f5edff 0%, #fdf9ff 60%, #ffffff 100%);
+    --gradient-accent: linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%);
+    --glass-bg: rgba(255, 255, 255, 0.85);
+    --glass-border: rgba(167, 139, 218, 0.20);
+
+    /* Pastéis auxiliares — usar via var() em chips/badges customizados */
+    --clay-pastel-yellow: #f5d547;
+    --clay-pastel-pink: #ffc0e8;
+    --clay-pastel-green: #b4f0a8;
+    --clay-pastel-coral: #ffb09c;
+    --clay-pastel-blue: #a8d4f0;
+  }
+
+  /* Background do body com gradient radial soft (assinatura claymorphism) */
+  [data-theme="clay"] body {
+    background-image: radial-gradient(
+      circle at 15% -10%,
+      rgba(196, 168, 240, 0.35) 0%,
+      transparent 55%
+    ),
+    radial-gradient(
+      circle at 85% 110%,
+      rgba(255, 192, 232, 0.25) 0%,
+      transparent 55%
+    );
+    background-attachment: fixed;
+  }
+
+  /* ─── CLAY: overrides de FORMA (cantos super arredondados) ──────────
+     "Amassadinho" — substitui rounded-* do Tailwind nas escalas que
+     componentes do app usam mais. Mantem rounded-full e rounded-none. */
+  [data-theme="clay"] .rounded {
+    border-radius: 1rem;       /* 16px */
+  }
+  [data-theme="clay"] .rounded-md {
+    border-radius: 1.25rem;    /* 20px */
+  }
+  [data-theme="clay"] .rounded-lg {
+    border-radius: 1.5rem;     /* 24px */
+  }
+  [data-theme="clay"] .rounded-xl {
+    border-radius: 2rem;       /* 32px */
+  }
+  [data-theme="clay"] .rounded-2xl {
+    border-radius: 2.5rem;     /* 40px */
+  }
+  [data-theme="clay"] .rounded-3xl {
+    border-radius: 3rem;       /* 48px */
+  }
+
+  /* ─── CLAY: overrides de SOMBRA (3D soft, sem glow) ────────────────
+     Sombras lavanda suaves dando profundidade tipo "objeto de massinha". */
+  [data-theme="clay"] .shadow-sm {
+    box-shadow: 0 2px 8px rgba(167, 139, 218, 0.10);
+  }
+  [data-theme="clay"] .shadow,
+  [data-theme="clay"] .shadow-md {
+    box-shadow: 0 6px 18px rgba(167, 139, 218, 0.14);
+  }
+  [data-theme="clay"] .shadow-lg {
+    box-shadow: 0 12px 32px rgba(167, 139, 218, 0.20);
+  }
+  [data-theme="clay"] .shadow-xl {
+    box-shadow: 0 20px 48px rgba(167, 139, 218, 0.24);
+  }
+
+  /* ─── CLAY: cards/elevated ganham sombra 3D mesmo sem classe shadow ─
+     Containers que costumam ser "cards" (bg-card, bg-background com
+     border-border) recebem sombra suave automaticamente, reforçando o
+     visual "objeto destacado da superfície". */
+  [data-theme="clay"] .bg-card {
+    box-shadow: 0 4px 14px rgba(167, 139, 218, 0.10);
+  }
+
+  /* Botões primários ganham aspecto pill (cantos pill exagerados)
+     quando dentro do tema clay. */
+  [data-theme="clay"] button:not(.no-clay-pill):not(.rounded-full),
+  [data-theme="clay"] a[role="button"]:not(.no-clay-pill):not(.rounded-full) {
+    border-radius: 1.25rem;
+  }
+
   *, ::before, ::after {
     border-color: var(--color-border);
   }

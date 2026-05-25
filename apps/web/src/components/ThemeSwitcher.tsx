@@ -56,6 +56,19 @@ export const THEMES = [
     color: '#fff7ed',
     dark: false,
   },
+  // Onda 14.55 — Claymorphism Lavanda. Diferente dos outros, este tema
+  // tambem aplica overrides de FORMA (rounded-* maiores) e SOMBRA (3D soft
+  // sem glow) via globals.css [data-theme="clay"]. Captura visual
+  // "massinha" com cantos super arredondados e profundidade tatil.
+  {
+    id: 'clay',
+    name: 'Massinha',
+    gradient: 'radial-gradient(circle at 20% 0%, #f5edff 0%, #fdf9ff 60%)',
+    accent: 'linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%)',
+    solidBg: '#fdf9ff',
+    color: '#fdf9ff',
+    dark: false,
+  },
 ];
 
 export function ThemeSwitcher() {
