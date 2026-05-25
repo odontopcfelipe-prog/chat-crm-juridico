@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone, HandCoins, Square,
+  Megaphone, HandCoins, Square, CircleDashed,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -1139,8 +1139,10 @@ export function Sidebar() {
         document.body
       )}
 
-      {/* Onda 15.8 — Popup de tema removido. Aparencia agora vive no
-          <ThemeMenuButton /> renderizado no header global (atendimento/layout). */}
+      {/* Onda 15.8 — Popup de tema removido da Sidebar.
+          Onda 14.55 — Estilo "Massinha" (claymorphism) agora vive no
+          ThemeMenuButton renderizado no header global (atendimento/layout).
+          Aqui não há mais UI de tema. */}
 
       {/* ─── Menu de avatar (portal) ─────────────────────────────────── */}
       {mounted && showAvatarMenu && avatarBtnRef.current && createPortal(

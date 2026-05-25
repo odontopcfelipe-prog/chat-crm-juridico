@@ -9,7 +9,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <NextThemesProvider
       attribute="data-theme"
       defaultTheme="noturno"
-      themes={['noturno', 'cyber', 'glacier', 'coral', 'clay']}
+      themes={['noturno', 'cyber', 'glacier', 'coral']}
       enableSystem={false}
     >
       <VisualModeProvider>

@@ -9,7 +9,7 @@ import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -352,6 +352,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                         <Sparkles size={14} />
                         Futurista
                         {fxMode === 'neon' && <Check size={14} className="ml-auto text-primary" />}
+                      </button>
+                      {/* Onda 14.55 — 3o estilo "Massinha" (claymorphism) */}
+                      <button
+                        onClick={() => { setFxMode('clay'); setMoreMenuOpen(false); }}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition-colors ${
+                          fxMode === 'clay' ? 'bg-accent text-accent-foreground' : 'text-muted-foreground hover:bg-accent/50'
+                        }`}
+                      >
+                        <CircleDashed size={14} />
+                        Massinha
+                        {fxMode === 'clay' && <Check size={14} className="ml-auto text-primary" />}
                       </button>
                     </div>
                   </div>

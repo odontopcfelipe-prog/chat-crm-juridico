@@ -8,14 +8,14 @@
  *
  * - Botao com icone Palette
  * - Click abre popover fixo (renderiza via createPortal) com:
- *   - Lista de 5 temas (Noturno Gold, Cyber Violet, Glacier, Coral, Massinha)
- *   - Toggle Classico/Futurista (estilo visual)
+ *   - Lista de 4 temas de COR (Noturno Gold, Cyber Violet, Glacier, Coral)
+ *   - Toggle Classico/Futurista/Massinha (3 estilos visuais — Onda 14.56)
  *
  * Fecha automaticamente: click fora, ESC, scroll do body.
  */
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Palette, Sparkles, Square, Check } from 'lucide-react';
+import { Palette, Sparkles, Square, Check, CircleDashed } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useVisualMode } from '@/components/VisualModeProvider';
 import { THEMES } from '@/components/ThemeSwitcher';
@@ -153,21 +153,22 @@ export function ThemeMenuButton({ variant = 'header', align = 'right' }: Props) 
                 <Sparkles className="w-3 h-3 mr-1.5" />
                 Estilo
               </p>
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-3 gap-2">
                 <button
                   onClick={() => setFxMode('solid')}
-                  className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                  className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
                     fxMode === 'solid'
                       ? 'bg-[var(--bg-tertiary)] border-[var(--accent-primary)] text-foreground'
                       : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
                   }`}
+                  title="Visual ERP clássico: cores chapadas, sem efeitos."
                 >
                   <Square className="w-3 h-3" />
                   Clássico
                 </button>
                 <button
                   onClick={() => setFxMode('neon')}
-                  className={`flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-bold transition-all border ${
+                  className={`flex items-center justify-center gap-1 px-2 py-1.5 rounded-lg text-[10px] font-bold transition-all border ${
                     fxMode === 'neon'
                       ? 'text-white border-transparent'
                       : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
@@ -181,9 +182,32 @@ export function ThemeMenuButton({ variant = 'header', align = 'right' }: Props) 
                         }
                       : undefined
                   }
+                  title="Visual futurista: gradientes, glassmorphism, glow neon."
                 >
                   <Sparkles className="w-3 h-3" />
                   Futurista
+                </button>
+                {/* Onda 14.56 — 3o estilo "Massinha" (claymorphism) */}
+                <button
+                  onClick={() => setFxMode('clay')}
+                  className={`flex items-center justify-center gap-1 px-2 py-1.5 text-[10px] font-bold transition-all border ${
+                    fxMode === 'clay'
+                      ? 'text-white border-transparent'
+                      : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+                  }`}
+                  style={
+                    fxMode === 'clay'
+                      ? {
+                          background: 'linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%)',
+                          boxShadow: '0 4px 14px rgba(167, 139, 218, 0.35)',
+                          borderRadius: '1.25rem',
+                        }
+                      : { borderRadius: '0.5rem' }
+                  }
+                  title="Visual claymorphism 3D: cantos super arredondados, sombras soft, estilo 'massinha'."
+                >
+                  <CircleDashed className="w-3 h-3" />
+                  Massinha
                 </button>
               </div>
             </div>

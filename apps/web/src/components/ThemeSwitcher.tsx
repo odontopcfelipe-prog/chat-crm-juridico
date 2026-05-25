@@ -2,7 +2,7 @@
 
 import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
-import { Palette, Sparkles, Square } from 'lucide-react';
+import { Palette, Sparkles, Square, CircleDashed } from 'lucide-react';
 import { useVisualMode } from '@/components/VisualModeProvider';
 
 /**
@@ -54,19 +54,6 @@ export const THEMES = [
     accent: 'linear-gradient(135deg, #f97316 0%, #ec4899 100%)',
     solidBg: '#fff7ed',
     color: '#fff7ed',
-    dark: false,
-  },
-  // Onda 14.55 — Claymorphism Lavanda. Diferente dos outros, este tema
-  // tambem aplica overrides de FORMA (rounded-* maiores) e SOMBRA (3D soft
-  // sem glow) via globals.css [data-theme="clay"]. Captura visual
-  // "massinha" com cantos super arredondados e profundidade tatil.
-  {
-    id: 'clay',
-    name: 'Massinha',
-    gradient: 'radial-gradient(circle at 20% 0%, #f5edff 0%, #fdf9ff 60%)',
-    accent: 'linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%)',
-    solidBg: '#fdf9ff',
-    color: '#fdf9ff',
     dark: false,
   },
 ];
@@ -129,10 +116,10 @@ export function ThemeSwitcher() {
           <Sparkles className="w-4 h-4 mr-2" />
           Estilo
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        <div className="grid grid-cols-3 gap-2">
           <button
             onClick={() => setFxMode('solid')}
-            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-[10px] font-bold transition-all border ${
               fxMode === 'solid'
                 ? 'bg-[var(--bg-tertiary)] border-[var(--accent-primary)] text-foreground'
                 : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
@@ -144,7 +131,7 @@ export function ThemeSwitcher() {
           </button>
           <button
             onClick={() => setFxMode('neon')}
-            className={`flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-[11px] font-bold transition-all border ${
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-[10px] font-bold transition-all border ${
               fxMode === 'neon'
                 ? 'text-white border-transparent'
                 : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
@@ -162,6 +149,30 @@ export function ThemeSwitcher() {
           >
             <Sparkles className="w-3 h-3" />
             <span>Futurista</span>
+          </button>
+          {/* Onda 14.55 — 3o estilo "Massinha" (claymorphism): cantos super
+              arredondados + sombras 3D soft. Independente do tema de cor —
+              combina com noturno/cyber/glacier/coral. */}
+          <button
+            onClick={() => setFxMode('clay')}
+            className={`flex items-center justify-center gap-1.5 px-2 py-2 text-[10px] font-bold transition-all border ${
+              fxMode === 'clay'
+                ? 'text-white border-transparent'
+                : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
+            }`}
+            style={
+              fxMode === 'clay'
+                ? {
+                    background: 'linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%)',
+                    boxShadow: '0 4px 14px rgba(167, 139, 218, 0.30)',
+                    borderRadius: '1.25rem',
+                  }
+                : { borderRadius: '0.75rem' }
+            }
+            title="Visual claymorphism 3D: cantos super arredondados, sombras soft, estilo 'massinha'."
+          >
+            <CircleDashed className="w-3 h-3" />
+            <span>Massinha</span>
           </button>
         </div>
       </div>

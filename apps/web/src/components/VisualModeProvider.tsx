@@ -7,14 +7,19 @@ import { createContext, useContext, useEffect, useState, ReactNode } from 'react
  *
  * - 'neon'  → gradientes, glassmorphism, glow, animacoes (default)
  * - 'solid' → estilo ERP clássico: cores chapadas, bordas duras, zero efeitos
+ * - 'clay'  → Onda 14.55: claymorphism "massinha 3D" — cantos super
+ *             arredondados, sombras 3D soft, paleta pastel sobre o tema
+ *             ativo. Independente do tema de cor (combina com noturno/
+ *             cyber/glacier/coral).
  *
  * Persiste em localStorage como 'fx-mode'. O atributo data-fx vai no <html>
  * paralelo ao data-theme do next-themes, permitindo CSS condicionar os
  * efeitos sem mexer nas variaveis de cor:
  *   [data-fx="neon"]  body { background: var(--gradient-bg); }
  *   [data-fx="solid"] body { background: var(--bg-primary); }
+ *   [data-fx="clay"]  body { background: gradient lavanda + rounded-* maior }
  */
-export type FxMode = 'neon' | 'solid';
+export type FxMode = 'neon' | 'solid' | 'clay';
 
 interface VisualModeContextValue {
   mode: FxMode;
@@ -35,7 +40,7 @@ export function VisualModeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === 'solid' || saved === 'neon') {
+      if (saved === 'solid' || saved === 'neon' || saved === 'clay') {
         setModeState(saved);
       }
     } catch {
@@ -59,7 +64,11 @@ export function VisualModeProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const toggle = () => setMode(mode === 'neon' ? 'solid' : 'neon');
+  // Toggle cicla pelos 3 modos na ordem neon → solid → clay → neon
+  const toggle = () => {
+    const next: FxMode = mode === 'neon' ? 'solid' : mode === 'solid' ? 'clay' : 'neon';
+    setMode(next);
+  };
 
   return (
     <VisualModeContext.Provider value={{ mode, setMode, toggle }}>
