@@ -42,6 +42,7 @@ import TratamentoTab from '../components/TratamentoTab';
 import EditPatientModal from '../components/EditPatientModal';
 import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedicationModals';
 import TimelineTab from '../components/TimelineTab';
+import OverviewClinicalSection from '../components/OverviewClinicalSection';
 import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPicker';
 
 interface Patient {
@@ -752,6 +753,10 @@ function PacienteFichaInner() {
             setTab('timeline');
           }}
           onGoToQuotes={() => setTab('quotes')}
+          // Onda 14.54 — callbacks pro snapshot clinico (odontograma + evolucao)
+          // na Visao Geral. Click leva pra aba correspondente.
+          onGoToOdontogram={() => setTab('odontogram')}
+          onGoToTimelineAll={() => setTab('timeline')}
         />
       )}
       {tab === 'timeline' && (
@@ -931,6 +936,7 @@ function AvatarUploader({
 
 function OverviewTab({
   patient, onReload, onEdit, onAddAllergy, onAddMedication, onGoToHistory, onGoToQuotes,
+  onGoToOdontogram, onGoToTimelineAll,
 }: {
   patient: Patient;
   onReload: () => void;
@@ -942,6 +948,10 @@ function OverviewTab({
   onAddMedication: () => void;
   onGoToHistory: (types: Set<string>) => void;
   onGoToQuotes: () => void;
+  /** Onda 14.54 — leva pro odontograma quando click num dente da preview */
+  onGoToOdontogram?: () => void;
+  /** Onda 14.54 — leva pro historico quando click num evento da evolucao */
+  onGoToTimelineAll?: () => void;
 }) {
   const canEditPersonal = !!onEdit;
   const enderecoFmt = [
@@ -975,7 +985,9 @@ function OverviewTab({
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div className="space-y-4">
+      {/* Bloco superior: cards de dados pessoais + clinicos + alergias/medicacoes */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
       {/* Dados pessoais */}
       <div className="bg-card border border-border rounded-xl p-4">
         <div className="flex items-center justify-between mb-3">
@@ -1117,6 +1129,15 @@ function OverviewTab({
           <p className="text-sm text-muted-foreground whitespace-pre-wrap">{patient.notes}</p>
         </div>
       )}
+      </div>
+
+      {/* Onda 14.54 — Snapshot clinico: odontograma read-only + evolucao
+          recente. Clicks navegam pras abas correspondentes. */}
+      <OverviewClinicalSection
+        patientId={patient.id}
+        onGoToOdontogram={onGoToOdontogram}
+        onGoToTimeline={onGoToTimelineAll}
+      />
     </div>
   );
 }
