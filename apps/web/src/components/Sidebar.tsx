@@ -807,23 +807,50 @@ export function Sidebar() {
       className={`${expanded ? 'w-[260px]' : 'w-[72px]'} flex flex-col items-center py-4 bg-primary text-primary-foreground border-r border-primary/20 relative z-50 shrink-0 h-full overflow-y-auto no-scrollbar transition-[width] duration-200 ease-in-out`}
     >
       {/* ─── Logo + Toggle ─────────────────────────────────────────── */}
-      <div className={`flex items-center w-full px-4 mb-4 gap-2 ${expanded ? 'justify-between' : 'flex-col'}`}>
-        {/* Onda 15.3: logo aumentado pra w-14 (56px) seguindo referencia AURA.
-            object-contain garante que mostre o logo INTEIRO sem cortar
-            (a PNG ja eh quadrada — colado nas bordas sem whitespace). */}
-        <div
-          className="w-14 h-14 rounded-full bg-[#111] flex items-center justify-center shadow-lg ring-2 ring-primary-foreground/30 shrink-0 cursor-pointer overflow-hidden"
+      <div className={`flex items-center w-full px-4 mb-4 gap-3 ${expanded ? 'justify-between' : 'flex-col'}`}>
+        {/* Onda 15.9 — Header tipo LUMEN: box quadrado pequeno com ícone +
+            texto "ODONTO" / "SYSTEM" empilhado ao lado. Substitui logo redonda. */}
+        <button
           onClick={() => router.push('/atendimento/dashboard')}
           onMouseEnter={(e) => showTooltip(e, 'Página Inicial')}
           onMouseLeave={hideTooltip}
+          className={`flex items-center gap-2.5 shrink-0 cursor-pointer focus:outline-none ${expanded ? '' : 'flex-col'}`}
+          aria-label="Página Inicial"
         >
-          {/* object-contain (em vez de object-cover) garante que o circulo
-              mostre o LOGO INTEIRO sem cortar a parte de baixo (PASSOS).
-              Como a PNG ja eh quadrada, contain dentro de um circulo nao
-              deixa whitespace visivel — fica colado nas bordas. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/odonto-passos-icon.png" alt="Instituto Odonto Passos" className="w-full h-full object-contain rounded-full" draggable={false} />
-        </div>
+          {/* Box quadrado com gradient do tema + icone de "dente" (SVG inline
+              porque lucide-react nao tem icone de dente especifico) */}
+          <div
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ring-1 ring-primary-foreground/20"
+            style={{
+              background: 'var(--gradient-accent)',
+            }}
+          >
+            <svg
+              width="22"
+              height="22"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="text-white drop-shadow"
+            >
+              {/* Dente simplificado: 2 raizes + coroa arredondada */}
+              <path d="M12 2C8.5 2 6 4 6 7c0 1.5.5 3 1 4.5.5 1.5.5 3 .5 4.5 0 2 .5 6 2 6 1 0 1.5-2 2-4 .3-1.3.5-2 .5-2s.2.7.5 2c.5 2 1 4 2 4 1.5 0 2-4 2-6 0-1.5 0-3 .5-4.5.5-1.5 1-3 1-4.5 0-3-2.5-5-6-5z" />
+            </svg>
+          </div>
+          {expanded && (
+            <div className="flex flex-col items-start leading-none min-w-0">
+              <span className="text-[15px] font-extrabold tracking-tight text-primary-foreground">
+                ODONTO
+              </span>
+              <span className="text-[9px] font-bold tracking-[0.18em] text-primary-foreground/70 mt-0.5">
+                SYSTEM
+              </span>
+            </div>
+          )}
+        </button>
         <button
           onClick={toggleExpanded}
           onMouseEnter={(e) => showTooltip(e, expanded ? 'Recolher menu' : 'Expandir menu')}
