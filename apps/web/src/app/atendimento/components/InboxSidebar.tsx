@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, LayoutGrid, Grid3X3 } from 'lucide-react';
+import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, LayoutGrid, Grid3X3, Square } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import {
   requestNotificationPermission,
@@ -129,6 +129,10 @@ export interface InboxSidebarProps {
   onShowTransferPopup: (transfer: { conversationId: string; contactName: string; fromUserName: string; reason: string | null; audioIds?: string[] }) => void;
   onLightbox: (url: string) => void;
   hasDisconnectedInstance?: boolean;
+  /** Onda 14.55 — modo de split ativo (1 = chat unico, 4/6 = grid).
+   *  Toggle no header da sidebar troca entre os modos sem mudar de rota. */
+  splitMode?: 1 | 4 | 6;
+  onSplitModeChange?: (mode: 1 | 4 | 6) => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────
@@ -167,6 +171,8 @@ export function InboxSidebar({
   onShowTransferPopup,
   onLightbox,
   hasDisconnectedInstance,
+  splitMode = 1,
+  onSplitModeChange,
 }: InboxSidebarProps) {
   const { isAdmin } = useRole();
 
@@ -238,28 +244,53 @@ export function InboxSidebar({
         <div className="flex items-center justify-between gap-1">
           <h2 className="text-lg font-bold">WhatsApp</h2>
           <div className="flex items-center gap-0.5">
-            {/* Onda 16 — Split View: abre /atendimento/split em nova aba com
-                grid de iframes pra observar/atender varias conversas simultaneo */}
-            <a
-              href="/atendimento/split?mode=4"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-              title="Abrir split de 4 conversas (nova aba)"
-              aria-label="Split 4"
-            >
-              <LayoutGrid size={15} />
-            </a>
-            <a
-              href="/atendimento/split?mode=6"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hidden md:inline-flex items-center justify-center p-1.5 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"
-              title="Abrir split de 6 conversas (nova aba)"
-              aria-label="Split 6"
-            >
-              <Grid3X3 size={15} />
-            </a>
+            {/* Onda 14.55 — Toggle de Split View INLINE (era nova aba).
+                3 botoes: 1 chat (default) / 4 quadrantes / 6 quadrantes.
+                Estado vive no parent, sem mudanca de rota — InboxSidebar
+                continua visivel ao ladoindependente do modo escolhido. */}
+            {onSplitModeChange && (
+              <div className="hidden md:flex items-center gap-0.5 mr-1 rounded-lg bg-accent/40 p-0.5">
+                <button
+                  onClick={() => onSplitModeChange(1)}
+                  className={`inline-flex items-center justify-center p-1 rounded transition-all ${
+                    splitMode === 1
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                  title="Visualizar 1 conversa por vez"
+                  aria-label="Single"
+                  aria-pressed={splitMode === 1}
+                >
+                  <Square size={14} />
+                </button>
+                <button
+                  onClick={() => onSplitModeChange(4)}
+                  className={`inline-flex items-center justify-center p-1 rounded transition-all ${
+                    splitMode === 4
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                  title="Split de 4 conversas (2x2)"
+                  aria-label="Split 4"
+                  aria-pressed={splitMode === 4}
+                >
+                  <LayoutGrid size={14} />
+                </button>
+                <button
+                  onClick={() => onSplitModeChange(6)}
+                  className={`inline-flex items-center justify-center p-1 rounded transition-all ${
+                    splitMode === 6
+                      ? 'bg-primary text-primary-foreground shadow-sm'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+                  }`}
+                  title="Split de 6 conversas (3x2)"
+                  aria-label="Split 6"
+                  aria-pressed={splitMode === 6}
+                >
+                  <Grid3X3 size={14} />
+                </button>
+              </div>
+            )}
             <button
               onClick={() => onSetInboxOpen(false)}
               className="hidden md:block p-1 rounded-lg text-muted-foreground hover:text-foreground hover:bg-accent transition-all"

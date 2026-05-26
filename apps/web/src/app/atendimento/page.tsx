@@ -35,6 +35,8 @@ import ContratoTrabalhistaModal from '@/components/modals/ContratoTrabalhistaMod
 import { InboxSidebar } from './components/InboxSidebar';
 import { ChatHeader } from './components/ChatHeader';
 import { NotesPanel } from './components/NotesPanel';
+// Onda 14.55 — split grid embedavel (em vez de pagina separada /atendimento/split)
+import SplitGrid from './components/SplitGrid';
 
 // ─── Slash commands estáticos registrados ─────────────────────────────────────
 const SLASH_COMMANDS = [
@@ -108,6 +110,22 @@ export default function Dashboard() {
   const [clientMode, setClientMode] = useState(false); // false = Leads, true = Clientes
   const clientModeRef = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  // Onda 14.55 — modo split: 1 = chat unico (default), 4 = 2x2 grid, 6 = 3x2 grid.
+  // Quando > 1, o main panel renderiza SplitGrid em vez do chat unico.
+  // Persiste em localStorage pra sobreviver reload.
+  const [splitMode, setSplitMode] = useState<1 | 4 | 6>(() => {
+    if (typeof window === 'undefined') return 1;
+    try {
+      const saved = localStorage.getItem('split_mode_v1');
+      if (saved === '4') return 4;
+      if (saved === '6') return 6;
+    } catch { /* ignore */ }
+    return 1;
+  });
+  useEffect(() => {
+    try { localStorage.setItem('split_mode_v1', String(splitMode)); }
+    catch { /* ignore */ }
+  }, [splitMode]);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [msgTotalPages, setMsgTotalPages] = useState(1);
   const [msgCurrentPage, setMsgCurrentPage] = useState(1);
@@ -2330,6 +2348,8 @@ export default function Dashboard() {
         onToggleBulk={toggleBulk}
         onClearBulk={() => setSelectedBulk(new Set())}
         onBulkAction={handleBulkAction}
+        splitMode={splitMode}
+        onSplitModeChange={setSplitMode}
       />
 
       {/* INBOX OPEN BUTTON (when collapsed) - desktop only */}
@@ -2346,13 +2366,13 @@ export default function Dashboard() {
 
       {/* MAIN CHAT PANEL */}
       <main
-        className={`flex-1 flex flex-col bg-background relative ${isMobile && !selectedId ? 'hidden' : ''}`}
-        onDragEnter={handleDragEnter}
-        onDragLeave={handleDragLeave}
-        onDragOver={handleDragOver}
-        onDrop={handleDrop}
+        className={`flex-1 flex flex-col bg-background relative ${isMobile && !selectedId && splitMode === 1 ? 'hidden' : ''}`}
+        onDragEnter={splitMode === 1 ? handleDragEnter : undefined}
+        onDragLeave={splitMode === 1 ? handleDragLeave : undefined}
+        onDragOver={splitMode === 1 ? handleDragOver : undefined}
+        onDrop={splitMode === 1 ? handleDrop : undefined}
       >
-        {isDragging && isRealConvo && !isClosed && (
+        {isDragging && isRealConvo && !isClosed && splitMode === 1 && (
           <div className="absolute inset-0 z-40 m-3 rounded-2xl border-2 border-dashed border-primary bg-primary/10 flex items-center justify-center pointer-events-none">
             <div className="text-center">
               <Paperclip size={48} className="text-primary mx-auto mb-3 opacity-80" />
@@ -2361,7 +2381,20 @@ export default function Dashboard() {
             </div>
           </div>
         )}
-        {selected ? (
+        {splitMode > 1 ? (
+          /* Onda 14.55 — modo split inline: grid de 4 ou 6 iframes pra
+             /atendimento/chat/[id]. Sem mudar de rota, sem nova aba. */
+          <SplitGrid
+            mode={splitMode as 4 | 6}
+            conversations={conversations.map((c) => ({
+              id: c.id,
+              contact_name: c.contactName,
+              contact_phone: c.contactPhone,
+              last_msg_preview: c.lastMessage,
+              unread_count: unreadCounts[c.id] || 0,
+            }))}
+          />
+        ) : selected ? (
           <>
             {/* Banner de reconexao WebSocket */}
             {(!isOnline || !socketConnected) && (
