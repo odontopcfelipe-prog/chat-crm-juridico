@@ -340,6 +340,11 @@ export class CommercialController {
       installment_value: Number(dto.installment_value),
       decision_id: dto.decision_id,
       source: dto.source,
+      // Onda 14.58 — sinal + datas customizadas (opcionais)
+      signal_value: dto.signal_value !== undefined ? Number(dto.signal_value) : undefined,
+      signal_method: dto.signal_method,
+      entrada_due_date: dto.entrada_due_date,
+      installments_start_date: dto.installments_start_date,
     });
   }
 

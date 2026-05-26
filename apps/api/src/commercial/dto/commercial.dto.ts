@@ -82,12 +82,23 @@ export class CreditCheckSimulateDto {
 
 // Onda 12.2 — Aplica financiamento aprovado pelo credit-check.
 // Aceita o quote + cria TreatmentPlan ACTIVE + gera boletos no Asaas.
+// Onda 14.58 — campos opcionais pra dividir a entrada em Sinal (PIX/Boleto
+// hoje) + Entrada (boleto na data configurada). Parcelas comecam em
+// installments_start_date. Tudo opcional pra preservar fluxo legado.
 export class ApplyFinancingDto {
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) down_payment_value!: number;
   @IsInt() @Min(1) @Max(36) installment_count!: number;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) installment_value!: number;
   @IsOptional() @IsString() decision_id?: string;
   @IsOptional() @IsString() source?: 'internal' | 'asaas_history' | 'serasa';
+  // Onda 14.58 — Sinal de fechamento (parte da entrada paga hoje).
+  // Quando > 0, divide a entrada em 2 boletos (sinal hoje + entrada na data).
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) signal_value?: number;
+  @IsOptional() @IsString() @IsIn(['PIX', 'BOLETO']) signal_method?: 'PIX' | 'BOLETO';
+  // Datas no formato ISO YYYY-MM-DD. Validacao leve aqui — Service converte
+  // pra Date e Asaas valida o formato dueDate.
+  @IsOptional() @IsString() entrada_due_date?: string;
+  @IsOptional() @IsString() installments_start_date?: string;
 }
 
 // Onda 14.5 — Aprova proposta e gera cobranca (PIX/Cartao/Boleto a vista).

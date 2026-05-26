@@ -148,10 +148,21 @@ export class TreatmentPlanBillingService {
     planId: string,
     tenantId: string,
     options: {
+      /** TOTAL da entrada (sinal + entrada do boleto). Sera dividido se
+       *  signalValue > 0: signalValue paga hoje, resto vai pro boleto entrada. */
       downPaymentValue: number;
       installmentCount: number;
       installmentValue: number;
+      /** Data do boleto da entrada (default: hoje + 3 dias) */
       firstDueDate?: string;
+      // ─── Onda 14.58 — Sinal de fechamento + datas customizadas ──────
+      /** Parte da entrada paga HOJE no fechamento (R$). Cobrado via PIX ou
+       *  Boleto vencendo hoje conforme signalMethod. Default 0 = sem sinal. */
+      signalValue?: number;
+      /** Metodo de cobranca do sinal. Default 'BOLETO' quando signalValue > 0. */
+      signalMethod?: 'PIX' | 'BOLETO';
+      /** Data de vencimento da 1a parcela. Default: firstDueDate + 30 dias. */
+      installmentsStartDate?: string;
     },
   ) {
     const plan = await this.prisma.treatmentPlan.findUnique({
@@ -169,6 +180,16 @@ export class TreatmentPlanBillingService {
     if (options.downPaymentValue < 0) {
       throw new BadRequestException('Entrada nao pode ser negativa');
     }
+    const signalValue = options.signalValue ?? 0;
+    if (signalValue < 0) {
+      throw new BadRequestException('Sinal nao pode ser negativo');
+    }
+    if (signalValue > options.downPaymentValue) {
+      throw new BadRequestException(
+        `Sinal (R$ ${signalValue}) nao pode ser maior que a entrada total (R$ ${options.downPaymentValue})`,
+      );
+    }
+    const signalMethod = options.signalMethod || 'BOLETO';
 
     // Idempotencia
     const existing = await this.prisma.paymentGatewayCharge.findFirst({
@@ -180,25 +201,76 @@ export class TreatmentPlanBillingService {
 
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
+    const today = new Date();
     const baseDate = options.firstDueDate
       ? new Date(options.firstDueDate)
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // entrada +3 dias
     const downPaymentDue = baseDate;
-    const installmentsFirstDue = new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000); // +30 dias
+    // Onda 14.58 — data da 1a parcela: usa installmentsStartDate se passado,
+    // senao default +30 dias do vencimento da entrada (legado).
+    const installmentsFirstDue = options.installmentsStartDate
+      ? new Date(options.installmentsStartDate)
+      : new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const created: any[] = [];
 
-    // 1. ENTRADA — boleto unico
-    if (options.downPaymentValue > 0) {
+    // Onda 14.58 — 1. SINAL (opcional) — pago HOJE via PIX ou Boleto a vista
+    if (signalValue > 0) {
+      const signalAsaas = await this.asaas.createCharge({
+        customer: customer.external_id,
+        billingType: signalMethod,
+        value: signalValue,
+        dueDate: today.toISOString().slice(0, 10),
+        description: `Sinal de fechamento — ${plan.patient.name} [plan:${planId}]`,
+        externalReference: planId,
+      });
+      this.logger.log(
+        `[FINANCING] Sinal ${signalMethod} criado para plan ${planId}: ${signalAsaas.id} | R$ ${signalValue}`,
+      );
+      const signalCharge = await this.prisma.paymentGatewayCharge.create({
+        data: {
+          tenant_id: tenantId,
+          gateway: 'ASAAS',
+          external_id: signalAsaas.id,
+          customer_external_id: customer.external_id,
+          billing_type: signalMethod,
+          amount: signalValue,
+          due_date: today,
+          status: signalAsaas.status || 'PENDING',
+          description: `Sinal (1/1) — ${plan.patient.name} [plan:${planId}]`,
+          boleto_url: signalAsaas.bankSlipUrl || null,
+          boleto_barcode: signalAsaas.nossoNumero || null,
+          invoice_url: signalAsaas.invoiceUrl || null,
+          // pix_qr_code/pix_copy_paste sao obtidos via call separada
+          // (GET /payments/:id/pixQrCode) — webhook do Asaas atualiza
+          // quando paciente abre o link. Aqui ficam null no create.
+        },
+      });
+      created.push({
+        kind: 'sinal',
+        charge: signalCharge,
+        billing_type: signalMethod,
+        boleto_url: signalAsaas.bankSlipUrl,
+        invoice_url: signalAsaas.invoiceUrl,
+        due_date: today,
+        amount: signalValue,
+      });
+    }
+
+    // 2. ENTRADA — boleto unico (valor = downPaymentValue - signalValue)
+    const entradaBoletoValue = options.downPaymentValue - signalValue;
+    if (entradaBoletoValue > 0) {
       const downAsaas = await this.asaas.createCharge({
         customer: customer.external_id,
         billingType: 'BOLETO',
-        value: options.downPaymentValue,
+        value: entradaBoletoValue,
         dueDate: downPaymentDue.toISOString().slice(0, 10),
         description: `Entrada Financiamento Banco PASSOS — ${plan.patient.name} [plan:${planId}]`,
         externalReference: planId,
       });
-      this.logger.log(`[FINANCING] Entrada Asaas criada para plan ${planId}: ${downAsaas.id} | R$ ${options.downPaymentValue}`);
+      this.logger.log(
+        `[FINANCING] Entrada Asaas criada para plan ${planId}: ${downAsaas.id} | R$ ${entradaBoletoValue} (total entrada R$ ${options.downPaymentValue} - sinal R$ ${signalValue})`,
+      );
 
       const downCharge = await this.prisma.paymentGatewayCharge.create({
         data: {
@@ -207,7 +279,7 @@ export class TreatmentPlanBillingService {
           external_id: downAsaas.id,
           customer_external_id: customer.external_id,
           billing_type: 'BOLETO',
-          amount: options.downPaymentValue,
+          amount: entradaBoletoValue,
           due_date: downPaymentDue,
           status: downAsaas.status || 'PENDING',
           description: `Entrada (1/1) — ${plan.patient.name} [plan:${planId}]`,
@@ -222,7 +294,7 @@ export class TreatmentPlanBillingService {
         boleto_url: downAsaas.bankSlipUrl,
         barcode: downAsaas.nossoNumero,
         due_date: downPaymentDue,
-        amount: options.downPaymentValue,
+        amount: entradaBoletoValue,
       });
     }
 

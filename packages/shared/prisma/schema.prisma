@@ -2487,7 +2487,30 @@ model Quote {
   /// Onda 14.38 — Valor de entrada (R$) configurado pelo operador quando
   /// salvou a proposta. Default 0 (sem entrada). Aplicavel pra cartao e
   /// boleto parcelado (PIX e Boleto a vista ignoram entrada).
+  ///
+  /// Onda 14.58 — Esse valor passou a representar o TOTAL da entrada (sinal
+  /// + entrada). A divisao em duas etapas (sinal pago hoje + entrada pago
+  /// num boleto futuro) vai nos campos abaixo. Quando chosen_signal_value=0
+  /// e o comportamento legado: entrada unica paga junto com a 1a parcela.
   chosen_down_payment Decimal? @default(0) @db.Decimal(10, 2)
+
+  /// Onda 14.58 — Sinal de fechamento. Parte da entrada que o paciente paga
+  /// na hora do fechamento (R$). Default 0 = sem sinal (entrada unica).
+  /// Cobrado via PIX ou Boleto a vista conforme chosen_signal_method.
+  chosen_signal_value  Decimal? @default(0) @db.Decimal(10, 2)
+  /// Onda 14.58 — Metodo de pagamento do sinal: 'PIX' ou 'BOLETO'.
+  /// Null = nao aplicavel (sem sinal). Operador escolhe na hora do
+  /// fechamento (PIX gera link/QR imediato, Boleto vence hoje).
+  chosen_signal_method String?
+  /// Onda 14.58 — Data de vencimento do boleto da entrada (resto apos
+  /// sinal). Default null = imediato (mesmo dia do fechamento, comportamento
+  /// legado). Quando configurado, eh quando o paciente deve pagar a entrada
+  /// nao-sinal (geralmente fim do mes de fechamento).
+  chosen_entrada_due_date DateTime? @db.Date
+  /// Onda 14.58 — Data de inicio das parcelas (1a parcela vence aqui).
+  /// Default null = +30 dias da entrada (comportamento legado). Configuravel
+  /// pelo operador quando quer dar mais folego ao paciente (ex: 60 dias).
+  chosen_installments_start_date DateTime? @db.Date
 
   subtotal         Decimal @default(0) @db.Decimal(10, 2)
   discount_percent Decimal @default(0) @db.Decimal(5, 2)

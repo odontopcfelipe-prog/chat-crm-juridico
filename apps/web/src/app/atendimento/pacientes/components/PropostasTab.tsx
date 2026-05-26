@@ -19,7 +19,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
-  Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ArrowLeft,
+  Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft,
   Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -823,6 +823,12 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // Antes a entrada aparecia na modal de tabela mas era ignorada no
   // apply-financing, gerando boletos pelo total cheio sem descontar a entrada.
   const [creditCheckCustomDownPayment, setCreditCheckCustomDownPayment] = useState<number>(0);
+  // Onda 14.58 — sinal + datas customizadas pra dividir a cobranca em
+  // sinal (hoje) + entrada (data X) + parcelas (data Y).
+  const [creditCheckSignalValue, setCreditCheckSignalValue] = useState<number>(0);
+  const [creditCheckSignalMethod, setCreditCheckSignalMethod] = useState<'PIX' | 'BOLETO'>('PIX');
+  const [creditCheckEntradaDueDate, setCreditCheckEntradaDueDate] = useState<string>('');
+  const [creditCheckInstallmentsStartDate, setCreditCheckInstallmentsStartDate] = useState<string>('');
 
   // Onda 13 — Bônus de fechamento
   const [bonusOpen, setBonusOpen] = useState(false);
@@ -1229,11 +1235,15 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           sending={sending}
           onSaveCounter={() => setCounterPropOpen(true)}
           onOpenCreditCheck={() => setCreditCheckOpen(true)}
-          onOpenCreditCheckForParcelas={(n, dp) => {
-            setCreditCheckInitialInstallments(n);
-            // Onda 14.56 — captura a entrada custom configurada no painel
-            // pra que o CreditCheckDialog calcule parcelas/boletos corretamente
-            setCreditCheckCustomDownPayment(dp ?? 0);
+          onOpenCreditCheckForParcelas={(params) => {
+            setCreditCheckInitialInstallments(params.installments);
+            // Onda 14.56 — captura entrada custom
+            setCreditCheckCustomDownPayment(params.customDownPayment ?? 0);
+            // Onda 14.58 — captura sinal + datas
+            setCreditCheckSignalValue(params.signalValue ?? 0);
+            setCreditCheckSignalMethod(params.signalMethod ?? 'PIX');
+            setCreditCheckEntradaDueDate(params.entradaDueDate ?? '');
+            setCreditCheckInstallmentsStartDate(params.installmentsStartDate ?? '');
             setCreditCheckOpen(true);
           }}
           onAddBonus={() => setBonusOpen(true)}
@@ -1378,6 +1388,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             // Onda 14.56 — entrada custom configurada pelo operador. Sem isso
             // o calc do dialog ignorava a entrada e gerava boletos errados.
             customDownPayment={creditCheckCustomDownPayment}
+            // Onda 14.58 — sinal + datas customizadas pra dividir a cobranca
+            customSignalValue={creditCheckSignalValue}
+            customSignalMethod={creditCheckSignalMethod}
+            customEntradaDueDate={creditCheckEntradaDueDate}
+            customInstallmentsStartDate={creditCheckInstallmentsStartDate}
             onCancel={() => setCreditCheckOpen(false)}
             onAppliedSuccess={(parcelaKey) => {
               setActivePaymentKey(parcelaKey);
@@ -1784,6 +1799,196 @@ function DownPaymentInput({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─── Onda 14.58 — Sinal + Entrada + Inicio das parcelas ─────────────
+//
+// Card que aparece embaixo do DownPaymentInput quando customDownPayment > 0.
+// Permite dividir a entrada em 2 boletos (sinal cobrado hoje via PIX/Boleto +
+// entrada cobrada na data configuravel) + configurar quando comeca a 1a
+// parcela.
+//
+// Comportamento padrao (sem mudar): se sinal=0 e datas vazias, gera 1 boleto
+// de entrada + parcelas comecando em entrada+30d (igual antes da Onda 14.58).
+function SignalDatesInput({
+  totalEntrada,
+  signalValue,
+  signalMethod,
+  entradaDueDate,
+  installmentsStartDate,
+  onChangeSignalValue,
+  onChangeSignalMethod,
+  onChangeEntradaDueDate,
+  onChangeInstallmentsStartDate,
+}: {
+  totalEntrada: number;
+  signalValue: number;
+  signalMethod: 'PIX' | 'BOLETO';
+  entradaDueDate: string;
+  installmentsStartDate: string;
+  onChangeSignalValue: (v: number) => void;
+  onChangeSignalMethod: (m: 'PIX' | 'BOLETO') => void;
+  onChangeEntradaDueDate: (d: string) => void;
+  onChangeInstallmentsStartDate: (d: string) => void;
+}) {
+  const [expanded, setExpanded] = useState(signalValue > 0 || !!entradaDueDate);
+
+  const signalText = signalValue > 0 ? `R$ ${fmtBRL(signalValue)}` : '';
+  const handleSignalChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const num = digits === '' ? 0 : Number(digits) / 100;
+    // Clamp ao totalEntrada (sinal nao pode ser maior que a entrada total)
+    onChangeSignalValue(Math.min(num, totalEntrada));
+  };
+  const entradaBoletoValue = Math.max(0, totalEntrada - signalValue);
+
+  return (
+    <div className="mb-3 p-3 rounded-lg border border-blue-500/30 bg-blue-500/5">
+      <button
+        type="button"
+        onClick={() => setExpanded((v) => !v)}
+        className="w-full flex items-center gap-2 text-left"
+      >
+        <Clock size={14} className="text-blue-700 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-semibold text-foreground">
+            Plano de cobrança da entrada
+            {signalValue > 0 && (
+              <span className="ml-2 text-[10px] font-normal text-blue-700">
+                · sinal R$ {fmtBRL(signalValue)} ({signalMethod}) +
+                entrada R$ {fmtBRL(entradaBoletoValue)}
+              </span>
+            )}
+          </p>
+          <p className="text-[10px] text-muted-foreground">
+            {expanded
+              ? 'Configure sinal + datas dos boletos abaixo. Vazios = comportamento padrão (1 entrada + parcelas em 30 dias).'
+              : 'Clique pra dividir em sinal (hoje) + entrada (data X) e configurar início das parcelas'}
+          </p>
+        </div>
+        <span className="text-blue-700 shrink-0">
+          {expanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+        </span>
+      </button>
+
+      {expanded && (
+        <div className="mt-3 space-y-3">
+          {/* SINAL — parte paga hoje no fechamento */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-foreground">
+                Sinal de fechamento
+                <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                  (cobrado hoje)
+                </span>
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Parte da entrada que o paciente paga no momento do fechamento.
+                Resto vai no boleto da entrada.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 shrink-0">
+              <button
+                type="button"
+                onClick={() => onChangeSignalMethod('PIX')}
+                className={`text-[10px] font-semibold px-2 py-1 rounded border transition-colors ${
+                  signalMethod === 'PIX'
+                    ? 'border-blue-600 bg-blue-500/15 text-blue-800'
+                    : 'border-border bg-card hover:bg-accent'
+                }`}
+                title="Cobra via PIX (link/QR imediato)"
+              >
+                PIX
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeSignalMethod('BOLETO')}
+                className={`text-[10px] font-semibold px-2 py-1 rounded border transition-colors ${
+                  signalMethod === 'BOLETO'
+                    ? 'border-blue-600 bg-blue-500/15 text-blue-800'
+                    : 'border-border bg-card hover:bg-accent'
+                }`}
+                title="Cobra via Boleto vencendo hoje"
+              >
+                Boleto
+              </button>
+            </div>
+            <input
+              type="text"
+              value={signalText}
+              onChange={(e) => handleSignalChange(e.target.value)}
+              placeholder="R$ 0,00"
+              inputMode="numeric"
+              className="w-32 text-sm font-semibold tabular-nums px-3 py-1.5 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            />
+          </div>
+
+          {/* ENTRADA (boleto resto) — valor calculado + data */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-foreground">
+                Entrada (boleto)
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                R$ {fmtBRL(entradaBoletoValue)} · vencimento configurável (geralmente fim do mês)
+              </p>
+            </div>
+            <span className="text-[10px] text-muted-foreground shrink-0">Vence em:</span>
+            <input
+              type="date"
+              value={entradaDueDate}
+              onChange={(e) => onChangeEntradaDueDate(e.target.value)}
+              className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            />
+          </div>
+
+          {/* INICIO DAS PARCELAS */}
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_auto] gap-2 items-center pt-2 border-t border-blue-500/20">
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-foreground">
+                Parcelas começam em
+              </p>
+              <p className="text-[10px] text-muted-foreground">
+                Data de vencimento da 1ª parcela. Próximas vencem a cada 30 dias.
+              </p>
+            </div>
+            <span className="text-[10px] text-muted-foreground shrink-0">1ª parcela:</span>
+            <input
+              type="date"
+              value={installmentsStartDate}
+              onChange={(e) => onChangeInstallmentsStartDate(e.target.value)}
+              className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+            />
+          </div>
+
+          {/* Resumo do plano */}
+          {(signalValue > 0 || entradaDueDate || installmentsStartDate) && (
+            <div className="mt-2 pt-2 border-t border-blue-500/20 text-[10px] text-muted-foreground space-y-0.5">
+              <p>📋 <strong className="text-foreground">Plano configurado:</strong></p>
+              {signalValue > 0 && (
+                <p>
+                  • Sinal: <strong className="text-foreground">R$ {fmtBRL(signalValue)}</strong>{' '}
+                  ({signalMethod}, hoje)
+                </p>
+              )}
+              {entradaBoletoValue > 0 && (
+                <p>
+                  • Entrada: <strong className="text-foreground">R$ {fmtBRL(entradaBoletoValue)}</strong>{' '}
+                  (boleto{entradaDueDate ? `, vence ${entradaDueDate}` : ', vence amanhã'})
+                </p>
+              )}
+              <p>
+                • Parcelas: começam{' '}
+                <strong className="text-foreground">
+                  {installmentsStartDate || 'em 30 dias após a entrada'}
+                </strong>
+              </p>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -2249,7 +2454,15 @@ function PropostaPainel({
   /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
   onOpenCreditCheck: () => void;
   /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas */
-  onOpenCreditCheckForParcelas: (installments: number, customDownPayment?: number) => void;
+  onOpenCreditCheckForParcelas: (params: {
+    installments: number;
+    customDownPayment?: number;
+    /** Onda 14.58 — sinal + datas customizadas */
+    signalValue?: number;
+    signalMethod?: 'PIX' | 'BOLETO';
+    entradaDueDate?: string;
+    installmentsStartDate?: string;
+  }) => void;
   /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
   onAddBonus: () => void;
   /** Onda 14.5 — abre confirm + chama POST /quotes/:id/approve-and-bill */
@@ -2281,6 +2494,13 @@ function PropostaPainel({
   //     pra outra aba e depois retorna).
   //  3. Toda mudanca no campo grava em localStorage automatico.
   const [customDownPayment, setCustomDownPayment] = useState<number>(0);
+  // Onda 14.58 — Sinal (parte da entrada paga no fechamento via PIX/Boleto)
+  // + datas de vencimento configuraveis pra entrada e inicio das parcelas.
+  // Persistencia: localStorage por quote_id (mesma logica do customDownPayment).
+  const [customSignalValue, setCustomSignalValue] = useState<number>(0);
+  const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO'>('PIX');
+  const [customEntradaDueDate, setCustomEntradaDueDate] = useState<string>('');
+  const [customInstallmentsStartDate, setCustomInstallmentsStartDate] = useState<string>('');
   const detailIdRef = useRef<string | null>(null);
 
   // Restaura valor ao trocar de quote ou recarregar
@@ -2291,6 +2511,9 @@ function PropostaPainel({
 
     if (!currentDetailId) {
       setCustomDownPayment(0);
+      setCustomSignalValue(0);
+      setCustomEntradaDueDate('');
+      setCustomInstallmentsStartDate('');
       return;
     }
 
@@ -2298,18 +2521,71 @@ function PropostaPainel({
     const fromDb = Number(detail?.chosen_down_payment) || 0;
     if (fromDb > 0) {
       setCustomDownPayment(fromDb);
-      return;
+    } else {
+      // 2) localStorage — operador digitou mas nao marcou
+      try {
+        const raw = localStorage.getItem(`quote_down_payment_${currentDetailId}`);
+        const parsed = raw ? Number(raw) : 0;
+        setCustomDownPayment(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+      } catch {
+        setCustomDownPayment(0);
+      }
     }
 
-    // 2) localStorage — operador digitou mas nao marcou
+    // Onda 14.58 — Restaura sinal + datas
     try {
-      const raw = localStorage.getItem(`quote_down_payment_${currentDetailId}`);
-      const parsed = raw ? Number(raw) : 0;
-      setCustomDownPayment(Number.isFinite(parsed) && parsed > 0 ? parsed : 0);
+      const sigRaw = localStorage.getItem(`quote_signal_${currentDetailId}`);
+      if (sigRaw) {
+        const parsed = JSON.parse(sigRaw);
+        if (parsed.value > 0) setCustomSignalValue(Number(parsed.value));
+        if (parsed.method === 'PIX' || parsed.method === 'BOLETO') {
+          setCustomSignalMethod(parsed.method);
+        }
+        if (parsed.entradaDueDate) setCustomEntradaDueDate(String(parsed.entradaDueDate));
+        if (parsed.installmentsStartDate) {
+          setCustomInstallmentsStartDate(String(parsed.installmentsStartDate));
+        }
+      } else {
+        setCustomSignalValue(0);
+        setCustomEntradaDueDate('');
+        setCustomInstallmentsStartDate('');
+      }
     } catch {
-      setCustomDownPayment(0);
+      setCustomSignalValue(0);
     }
   }, [detail?.id, detail?.chosen_down_payment]);
+
+  // Onda 14.58 — Persiste sinal + datas em localStorage (chave separada
+  // do customDownPayment pra nao quebrar fluxo legado).
+  useEffect(() => {
+    const id = detail?.id;
+    if (!id) return;
+    try {
+      const hasValue =
+        customSignalValue > 0 || customEntradaDueDate || customInstallmentsStartDate;
+      if (hasValue) {
+        localStorage.setItem(
+          `quote_signal_${id}`,
+          JSON.stringify({
+            value: customSignalValue,
+            method: customSignalMethod,
+            entradaDueDate: customEntradaDueDate,
+            installmentsStartDate: customInstallmentsStartDate,
+          }),
+        );
+      } else {
+        localStorage.removeItem(`quote_signal_${id}`);
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [
+    customSignalValue,
+    customSignalMethod,
+    customEntradaDueDate,
+    customInstallmentsStartDate,
+    detail?.id,
+  ]);
 
   // Persiste no localStorage a cada mudanca (key escopada por quote id)
   useEffect(() => {
@@ -2512,6 +2788,23 @@ function PropostaPainel({
         onChange={setCustomDownPayment}
       />
 
+      {/* Onda 14.58 — Dividir entrada em Sinal (PIX/Boleto hoje) + Entrada
+          (boleto na data configuravel) + Parcelas comecam em data X.
+          So aparece quando customDownPayment > 0. */}
+      {customDownPayment > 0 && (
+        <SignalDatesInput
+          totalEntrada={customDownPayment}
+          signalValue={customSignalValue}
+          signalMethod={customSignalMethod}
+          entradaDueDate={customEntradaDueDate}
+          installmentsStartDate={customInstallmentsStartDate}
+          onChangeSignalValue={setCustomSignalValue}
+          onChangeSignalMethod={setCustomSignalMethod}
+          onChangeEntradaDueDate={setCustomEntradaDueDate}
+          onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
+        />
+      )}
+
       {/* Onda 11.9 — PIX/dinheiro e Cartao de credito lado a lado em grid 2 cols.
           Onda 12.3 — items-stretch + h-full nos botoes pra alinhar alturas. */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-stretch">
@@ -2581,6 +2874,12 @@ function PropostaPainel({
         requiresCreditCheck={detail.requires_credit_check !== false}
         onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
         customDownPayment={customDownPayment}
+        // Onda 14.58 — sinal + datas propagados pra serem incluidos no
+        // payload do apply-financing quando operador for gerar os boletos.
+        customSignalValue={customSignalValue}
+        customSignalMethod={customSignalMethod}
+        customEntradaDueDate={customEntradaDueDate}
+        customInstallmentsStartDate={customInstallmentsStartDate}
       />
 
       {/* Onda 14.30 — Card de Contrato (abaixo do boleto). Operador escolhe
@@ -2938,13 +3237,25 @@ function CardBoletoParcelado({
   requiresCreditCheck,
   onToggleRequiresCreditCheck,
   customDownPayment = 0,
+  customSignalValue,
+  customSignalMethod,
+  customEntradaDueDate,
+  customInstallmentsStartDate,
 }: {
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
   onChangePayment: (key: string) => void;
   /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas (>= 2x) */
-  onOpenCreditCheckForParcelas: (installments: number, customDownPayment?: number) => void;
+  onOpenCreditCheckForParcelas: (params: {
+    installments: number;
+    customDownPayment?: number;
+    /** Onda 14.58 — sinal + datas customizadas */
+    signalValue?: number;
+    signalMethod?: 'PIX' | 'BOLETO';
+    entradaDueDate?: string;
+    installmentsStartDate?: string;
+  }) => void;
   /** Onda 14.26 — quando true (default), parcelados >= 1x abrem credit-check.
    *  Quando false (cliente VIP / valor baixo), aplicam direto sem consulta. */
   requiresCreditCheck: boolean;
@@ -2952,6 +3263,11 @@ function CardBoletoParcelado({
   onToggleRequiresCreditCheck?: (value: boolean) => void;
   /** Onda 14.29 — entrada opcional pra recalcular parcelas */
   customDownPayment?: number;
+  /** Onda 14.58 — sinal + datas customizadas (opcionais) */
+  customSignalValue?: number;
+  customSignalMethod?: 'PIX' | 'BOLETO';
+  customEntradaDueDate?: string;
+  customInstallmentsStartDate?: string;
 }) {
   const [open, setOpen] = useState(false);
   const activeIdx = options.findIndex((o) => o.key === activePaymentKey);
@@ -2969,10 +3285,16 @@ function CardBoletoParcelado({
     if (opt.key === 'boleto-avista' || !requiresCreditCheck) {
       onChangePayment(opt.key);
     } else {
-      // Onda 14.56 — propaga a entrada custom pro CreditCheckDialog. Antes
-      // a entrada era exibida na modal mas perdida ao avancar pro credit-check,
-      // resultando em boletos sem desconto da entrada.
-      onOpenCreditCheckForParcelas(opt.installments, customDownPayment);
+      // Onda 14.56 — propaga a entrada custom pro CreditCheckDialog.
+      // Onda 14.58 — tambem propaga sinal + datas pra dividir cobranca.
+      onOpenCreditCheckForParcelas({
+        installments: opt.installments,
+        customDownPayment,
+        signalValue: customSignalValue,
+        signalMethod: customSignalMethod,
+        entradaDueDate: customEntradaDueDate,
+        installmentsStartDate: customInstallmentsStartDate,
+      });
     }
   };
 
@@ -4020,6 +4342,10 @@ function CreditCheckDialog({
   valorTotal,
   initialInstallments,
   customDownPayment = 0,
+  customSignalValue = 0,
+  customSignalMethod = 'PIX',
+  customEntradaDueDate = '',
+  customInstallmentsStartDate = '',
   onCancel,
   onAppliedSuccess,
 }: {
@@ -4030,14 +4356,18 @@ function CreditCheckDialog({
   valorTotal: number;
   /** Onda 14.4 — parcelas pre-selecionadas (vem da tabela de boleto) */
   initialInstallments?: number;
-  /** Onda 14.56 — entrada custom (R$) configurada pelo operador no painel.
-   *  Sobrescreve o opt.downPaymentPercent default. Sem isso o calc abaixo
-   *  usava 0 de entrada pra 1x-11x (e 20% pra 12x+), ignorando o que o
-   *  operador tinha digitado. Resultado: boletos gerados ignoram a entrada. */
+  /** Onda 14.56 — entrada custom (R$) configurada pelo operador no painel. */
   customDownPayment?: number;
+  /** Onda 14.58 — sinal + datas customizadas pra dividir a cobranca em
+   *  sinal (PIX/Boleto hoje) + entrada (boleto na data X) + parcelas
+   *  comecando em data Y. Quando vazios = comportamento legado (entrada
+   *  unica + parcelas em 30 dias). */
+  customSignalValue?: number;
+  customSignalMethod?: 'PIX' | 'BOLETO';
+  customEntradaDueDate?: string;
+  customInstallmentsStartDate?: string;
   onCancel: () => void;
-  /** Onda 12.2 — chamado quando o fluxo completa (aceita + boletos gerados).
-   *  parcelaKey: ex "parcelado-12x" — alimenta activePaymentKey no painel. */
+  /** Onda 12.2 — chamado quando o fluxo completa (aceita + boletos gerados). */
   onAppliedSuccess: (parcelaKey: string) => void;
 }) {
   const [phase, setPhase] = useState<CreditPhase>('cadastro');
@@ -4232,6 +4562,13 @@ function CreditCheckDialog({
           installment_value: calc.installmentValue,
           decision_id: result.decision_id,
           source: result.source,
+          // Onda 14.58 — sinal + datas customizadas. Backend gera boletos
+          // separados conforme: sinal hoje + entrada (boleto na data X) +
+          // parcelas comecando em data Y. Quando undefined, mantem o
+          // comportamento legado (1 boleto de entrada + parcelas em 30d).
+          ...(customSignalValue > 0 ? { signal_value: customSignalValue, signal_method: customSignalMethod } : {}),
+          ...(customEntradaDueDate ? { entrada_due_date: customEntradaDueDate } : {}),
+          ...(customInstallmentsStartDate ? { installments_start_date: customInstallmentsStartDate } : {}),
         },
       );
       setApplyResult(data);

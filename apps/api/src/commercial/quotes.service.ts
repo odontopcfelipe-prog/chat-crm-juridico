@@ -805,6 +805,11 @@ export class QuotesService {
       installment_value: number;
       decision_id?: string;
       source?: 'internal' | 'asaas_history' | 'serasa';
+      // Onda 14.58 — sinal + datas customizadas
+      signal_value?: number;
+      signal_method?: 'PIX' | 'BOLETO';
+      entrada_due_date?: string; // ISO date YYYY-MM-DD
+      installments_start_date?: string; // ISO date YYYY-MM-DD
     },
   ) {
     if (!this.billingService) {
@@ -845,16 +850,48 @@ export class QuotesService {
       },
     });
 
-    // 3. Gera os boletos
+    // 3. Gera os boletos.
+    // Onda 14.58 — passa sinal + datas customizadas pra billingService gerar
+    // boletos separados (sinal hoje + entrada na data + parcelas a partir da data).
     const result = await this.billingService.createFinancingCharges(plan.id, tenantId, {
       downPaymentValue: data.down_payment_value,
       installmentCount: data.installment_count,
       installmentValue: data.installment_value,
+      signalValue: data.signal_value,
+      signalMethod: data.signal_method,
+      firstDueDate: data.entrada_due_date,
+      installmentsStartDate: data.installments_start_date,
     });
+
+    // Onda 14.58 — Persiste a configuracao escolhida no Quote pra audit + UI futura
+    // (PDF/WhatsApp + visualizacao do plano executado na aba Financeiro).
+    if (
+      data.signal_value !== undefined ||
+      data.entrada_due_date !== undefined ||
+      data.installments_start_date !== undefined
+    ) {
+      await this.prisma.quote.update({
+        where: { id: quoteId },
+        data: {
+          chosen_signal_value: data.signal_value ?? 0,
+          chosen_signal_method: data.signal_method ?? null,
+          chosen_entrada_due_date: data.entrada_due_date
+            ? new Date(data.entrada_due_date)
+            : null,
+          chosen_installments_start_date: data.installments_start_date
+            ? new Date(data.installments_start_date)
+            : null,
+        },
+      }).catch((e) => {
+        // Best-effort — se falhar (ex: campo nao existe ainda no banco), loga e segue
+        this.logger.warn(`[APPLY-FINANCING] Falha ao persistir sinal/datas no quote: ${e?.message}`);
+      });
+    }
 
     this.logger.log(
       `[APPLY-FINANCING] Quote ${quoteId} aplicado: plano ${plan.id} ACTIVE | ` +
-      `entrada R$ ${data.down_payment_value} + ${data.installment_count}x R$ ${data.installment_value}`,
+      `${data.signal_value ? `sinal R$ ${data.signal_value} (${data.signal_method || 'BOLETO'}) + ` : ''}` +
+      `entrada R$ ${(data.down_payment_value - (data.signal_value || 0))} + ${data.installment_count}x R$ ${data.installment_value}`,
     );
 
     return {
