@@ -883,6 +883,27 @@ export class PaymentGatewayService {
       },
     });
 
+    // Onda 14.59 — Se charge eh de SINAL/ENTRADA e foi confirmada, dispara
+    // trigger do down-payment flow (gera parcelas + aprova proposta quando
+    // todas as charges da entrada estiverem pagas). ModuleRef pra evitar
+    // circular dep entre PaymentGatewayModule e CommercialModule.
+    if (
+      (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') &&
+      (charge as any).kind &&
+      ((charge as any).kind === 'SINAL' || (charge as any).kind === 'ENTRADA')
+    ) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const mod = require('../commercial/down-payment-flow.service');
+        const downFlow = this.moduleRef.get(mod.DownPaymentFlowService, { strict: false });
+        if (downFlow) {
+          await downFlow.handleChargePaid(charge.id);
+        }
+      } catch (e: any) {
+        this.logger.warn(`[WEBHOOK] Falha ao disparar down-payment trigger pra charge ${charge.id}: ${e.message}`);
+      }
+    }
+
     // STUBBED: HonorarioPayment removido Fase 0.2 — branch desativado
 
     // Fase 18: se pagamento RECEIVED/CONFIRMED e tem installment_id (parcela odonto),

@@ -8,6 +8,7 @@ import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
+import { DownPaymentFlowService } from './down-payment-flow.service';
 import { CreditCheckService } from './credit-check.service';
 import { ContractsService } from './contracts.service';
 import { ContractPdfService } from './contract-pdf.service';
@@ -46,6 +47,7 @@ import { FileStorageService } from '../media/filesystem.service';
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,
+    DownPaymentFlowService,
     CreditCheckService,
     ContractsService,
     ContractPdfService,
@@ -61,6 +63,7 @@ import { FileStorageService } from '../media/filesystem.service';
     TreatmentPlansService,
     TreatmentPlanContractService,
     TreatmentPlanBillingService,
+    DownPaymentFlowService,
     CreditCheckService,
     ContractsService,
     ContractPdfService,

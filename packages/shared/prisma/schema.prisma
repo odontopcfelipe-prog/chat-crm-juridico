@@ -1319,6 +1319,20 @@ model PaymentGatewayCharge {
   net_value       Decimal?
   webhook_payload Json?
 
+  /// Onda 14.59 — Vincula direto ao TreatmentPlan (pra sinal/entrada que nao
+  /// passam por Installment). Permite query "todas charges deste plan".
+  treatment_plan_id String?
+
+  /// Onda 14.59 — Tipo da cobranca dentro do plan. SINAL/ENTRADA disparam
+  /// trigger quando ambas pagas; INSTALLMENT eh consequencia. null = legado.
+  kind String? // SINAL|ENTRADA|INSTALLMENT
+
+  /// Onda 14.59 — Recebido em especie (admin/financeiro marca manualmente
+  /// no lugar do Asaas notificar). Funciona como se webhook tivesse chegado.
+  received_in_cash    Boolean   @default(false)
+  received_by_user_id String?
+  received_at         DateTime?
+
   idempotency_key String?  @unique
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
@@ -1328,11 +1342,14 @@ model PaymentGatewayCharge {
   transaction               FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
   tenant                    Tenant?               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   installment               Installment?          @relation(fields: [installment_id], references: [id], onDelete: SetNull)
+  /// Onda 14.59
+  treatment_plan            TreatmentPlan?        @relation(fields: [treatment_plan_id], references: [id], onDelete: SetNull)
 
   @@index([tenant_id, status])
   @@index([customer_external_id])
   @@index([due_date, status])
   @@index([installment_id])
+  @@index([treatment_plan_id, kind])
 }
 
 // ===============================================
@@ -2902,6 +2919,25 @@ model TreatmentPlan {
 
   status String @default("PENDING_SIGNATURE") // "PENDING_SIGNATURE"|"ACTIVE"|"PAUSED"|"COMPLETED"|"CANCELLED"
 
+  /// Onda 14.59 — Status DA NEGOCIACAO (separado do status execucional acima).
+  /// DRAFT (default) -> AWAITING_DOWN_PAYMENT (operador emitiu cobranca de
+  /// entrada+sinal) -> APPROVED (entrada confirmada, parcelas geradas) ->
+  /// COMPLETED (todos pagamentos liquidados).
+  proposal_status String @default("DRAFT") // DRAFT|AWAITING_DOWN_PAYMENT|APPROVED|COMPLETED
+
+  /// Onda 14.59 — Toggle por proposta: quando enviar ClickSign automaticamente.
+  /// BEFORE = envia junto da cobranca de entrada. AFTER = envia quando entrada
+  /// for confirmada. null = manual (operador dispara via botao separado).
+  clicksign_send_timing String? // BEFORE|AFTER|null
+
+  /// Onda 14.59 — Timestamp da emissao das cobrancas da entrada (idempotencia
+  /// + auditoria de quando o ciclo de cobranca comecou).
+  down_payment_emitted_at DateTime?
+
+  /// Onda 14.59 — Timestamp da geracao automatica das parcelas apos confirmar
+  /// entrada. Idempotente: se preenchido, trigger nao gera de novo.
+  installments_generated_at DateTime?
+
   start_date         DateTime?
   end_date           DateTime?
   estimated_sessions Int?
@@ -2919,9 +2955,12 @@ model TreatmentPlan {
   contract_signature ContractSignature?  @relation(fields: [contract_signature_id], references: [id], onDelete: SetNull)
   items              TreatmentPlanItem[]
   consents           ConsentRecord[]
+  /// Onda 14.59 — charges (sinal+entrada+parcelas) vinculadas a este plan
+  charges            PaymentGatewayCharge[]
 
   @@index([patient_id, status])
   @@index([status])
+  @@index([proposal_status])
 }
 
 model TreatmentPlanItem {

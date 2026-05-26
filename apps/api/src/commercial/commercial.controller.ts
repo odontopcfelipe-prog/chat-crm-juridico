@@ -12,6 +12,7 @@ import {
   Res,
   BadRequestException,
   NotFoundException,
+  ForbiddenException,
   UseInterceptors,
   UploadedFile,
 } from '@nestjs/common';
@@ -31,6 +32,7 @@ import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
+import { DownPaymentFlowService } from './down-payment-flow.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Authenticated } from '../auth/decorators/authenticated.decorator';
 import type { AuthUser } from '../auth/decorators/authenticated.decorator';
@@ -81,6 +83,7 @@ export class CommercialController {
     private readonly plansService: TreatmentPlansService,
     private readonly contractService: TreatmentPlanContractService,
     private readonly billingService: TreatmentPlanBillingService,
+    private readonly downPaymentFlow: DownPaymentFlowService,
     private readonly creditCheckService: CreditCheckService,
     private readonly contractsService: ContractsService,
     private readonly contractPdfService: ContractPdfService,
@@ -810,6 +813,55 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.billingService.listCharges(id, tenantId);
+  }
+
+  /**
+   * Onda 14.59 — Emite cobranca da ENTRADA (sinal + restante) com auto-trigger.
+   *
+   * 1-2 cobrancas geradas no Asaas (ou registro CASH local se metodo=CASH).
+   * Quando todas confirmadas (via webhook Asaas ou markCashReceived), trigger
+   * automatico gera as parcelas + aprova proposta.
+   *
+   * Permissao: ADMIN ou FINANCEIRO.
+   */
+  @Post('treatment-plans/:id/emit-down-payment')
+  emitDownPayment(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      signalValue: number;
+      signalMethod: 'PIX' | 'BOLETO' | 'CASH';
+      signalDueDate?: string;
+      restValue: number;
+      restMethod: 'PIX' | 'BOLETO' | 'CASH';
+      restDueDate?: string;
+      clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
+    },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    const roles = user.roles ?? [];
+    if (!roles.includes('ADMIN') && !roles.includes('FINANCEIRO')) {
+      throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem emitir cobranca da entrada');
+    }
+    return this.downPaymentFlow.emitDownPayment(id, user.tenant_id, dto);
+  }
+
+  /**
+   * Onda 14.59 — Marca cobranca CASH como recebida em especie.
+   * Equivale ao webhook do Asaas avisando PAYMENT_RECEIVED. Dispara o trigger
+   * automatico (se for sinal/entrada e completar o ciclo).
+   *
+   * Permissao: ADMIN ou FINANCEIRO.
+   */
+  @Post('charges/:id/mark-cash-received')
+  markCashReceived(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    const roles = user.roles ?? [];
+    if (!roles.includes('ADMIN') && !roles.includes('FINANCEIRO')) {
+      throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem marcar recebimento em especie');
+    }
+    return this.downPaymentFlow.markCashReceived(id, user.id, user.tenant_id);
   }
 
   @Post('treatment-plans/:id/activate')
