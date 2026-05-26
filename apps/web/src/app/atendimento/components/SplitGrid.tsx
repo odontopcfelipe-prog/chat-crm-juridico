@@ -184,7 +184,7 @@ export default function SplitGrid({ mode, conversations }: Props) {
                 ) : (
                   <iframe
                     key={slotId}
-                    src={`/atendimento/chat/${slotId}`}
+                    src={`/atendimento/chat/${slotId}?chatonly=1`}
                     className="w-full h-full border-0"
                     title={`Conversa ${slotId}`}
                   />

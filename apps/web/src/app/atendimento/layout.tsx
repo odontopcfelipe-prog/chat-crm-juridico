@@ -37,6 +37,16 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const moreMenuRef = useRef<HTMLDivElement>(null);
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [overdueCount, setOverdueCount] = useState(0);
+  // Onda 14.58 — Modo "chatonly" pra quando /atendimento/chat/[id] eh
+  // renderizado DENTRO de um iframe do SplitGrid. Esconde a Sidebar lateral
+  // e o header global pra mostrar so o chat puro (header do contato +
+  // mensagens + input). Detecta via ?chatonly=1 no query string.
+  const [isChatOnly, setIsChatOnly] = useState(false);
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    setIsChatOnly(params.get('chatonly') === '1');
+  }, [pathname]);
 
   // ─── Auth check ───────────────────────────────────────────
   useEffect(() => {
@@ -195,10 +205,13 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   return (
     <SocketProvider pathname={pathname}>
     <div className="flex h-screen overflow-hidden">
-      {/* Sidebar — desktop only */}
-      <div className="hidden md:flex">
-        <Sidebar />
-      </div>
+      {/* Sidebar — desktop only. Escondida em modo chatonly (?chatonly=1) usado
+          pelos iframes do Split View pra mostrar so a aba de conversa. */}
+      {!isChatOnly && (
+        <div className="hidden md:flex">
+          <Sidebar />
+        </div>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -207,7 +220,8 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
             e dentro de paciente especifico (ja achou — redundante).
             Mantem em telas operacionais (dashboard, agenda, financeiro,
             pacientes lista, etc) onde busca eh atalho util. */}
-        {(() => {
+        {/* Modo chatonly: nenhum header global (iframe do Split mostra so chat). */}
+        {isChatOnly ? null : (() => {
           // Lista de prefixos onde a busca eh redundante.
           // Pra adicionar mais: basta incluir o prefixo na lista.
           const HIDE_SEARCH_PREFIXES = [
