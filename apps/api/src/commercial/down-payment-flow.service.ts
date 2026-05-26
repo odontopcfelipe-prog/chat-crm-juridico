@@ -46,6 +46,27 @@ export class DownPaymentFlowService {
   ) {}
 
   /**
+   * Wrapper: aceita quoteId e resolve o treatment_plan_id correspondente.
+   * Conveniencia pro frontend que trabalha com Quote nao com TreatmentPlan.
+   */
+  async emitDownPaymentByQuote(
+    quoteId: string,
+    tenantId: string,
+    options: Parameters<DownPaymentFlowService['emitDownPayment']>[2],
+  ) {
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { quote_id: quoteId },
+      select: { id: true },
+    });
+    if (!plan) {
+      throw new BadRequestException(
+        'Esta proposta nao tem plano de tratamento. Aceite a proposta primeiro pra gerar o plano.',
+      );
+    }
+    return this.emitDownPayment(plan.id, tenantId, options);
+  }
+
+  /**
    * Passo 1: emite as cobrancas da entrada (sinal e/ou restante).
    *
    * Idempotencia: se plan ja tem down_payment_emitted_at preenchido, retorna

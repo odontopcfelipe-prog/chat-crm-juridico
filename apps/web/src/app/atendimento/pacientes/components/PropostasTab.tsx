@@ -826,7 +826,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // Onda 14.58 — sinal + datas customizadas pra dividir a cobranca em
   // sinal (hoje) + entrada (data X) + parcelas (data Y).
   const [creditCheckSignalValue, setCreditCheckSignalValue] = useState<number>(0);
-  const [creditCheckSignalMethod, setCreditCheckSignalMethod] = useState<'PIX' | 'BOLETO'>('PIX');
+  const [creditCheckSignalMethod, setCreditCheckSignalMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('PIX');
   const [creditCheckEntradaDueDate, setCreditCheckEntradaDueDate] = useState<string>('');
   const [creditCheckInstallmentsStartDate, setCreditCheckInstallmentsStartDate] = useState<string>('');
 
@@ -1822,18 +1822,62 @@ function SignalDatesInput({
   onChangeSignalMethod,
   onChangeEntradaDueDate,
   onChangeInstallmentsStartDate,
+  /** Onda 14.59 — quote/perms pra renderizar botao "Emitir cobranca da entrada" */
+  quoteId,
+  canEmit,
+  restMethod = 'BOLETO',
+  onChangeRestMethod,
 }: {
   totalEntrada: number;
   signalValue: number;
-  signalMethod: 'PIX' | 'BOLETO';
+  signalMethod: 'PIX' | 'BOLETO' | 'CASH';
   entradaDueDate: string;
   installmentsStartDate: string;
   onChangeSignalValue: (v: number) => void;
-  onChangeSignalMethod: (m: 'PIX' | 'BOLETO') => void;
+  onChangeSignalMethod: (m: 'PIX' | 'BOLETO' | 'CASH') => void;
   onChangeEntradaDueDate: (d: string) => void;
   onChangeInstallmentsStartDate: (d: string) => void;
+  quoteId?: string;
+  canEmit?: boolean;
+  restMethod?: 'PIX' | 'BOLETO' | 'CASH';
+  onChangeRestMethod?: (m: 'PIX' | 'BOLETO' | 'CASH') => void;
 }) {
   const [expanded, setExpanded] = useState(signalValue > 0 || !!entradaDueDate);
+  // Onda 14.59 — Estado do botao Emitir cobranca da entrada
+  const [emitting, setEmitting] = useState(false);
+  const [emitResult, setEmitResult] = useState<{ ok: boolean; msg: string; charges?: any[] } | null>(null);
+
+  const handleEmit = async () => {
+    if (!quoteId) return;
+    setEmitting(true);
+    setEmitResult(null);
+    try {
+      const restValue = Math.max(0, totalEntrada - signalValue);
+      const body: any = {
+        signalValue,
+        signalMethod,
+        restValue,
+        restMethod,
+      };
+      if (restValue > 0 && entradaDueDate) body.restDueDate = entradaDueDate;
+      const { data } = await api.post(`/commercial/quotes/${quoteId}/emit-down-payment`, body);
+      const charges = data?.charges ?? [];
+      setEmitResult({
+        ok: true,
+        msg: data?.idempotent
+          ? `Cobranca ja foi emitida antes (${charges.length} charges existentes).`
+          : `${charges.length} cobranca(s) emitida(s) com sucesso.`,
+        charges,
+      });
+      showSuccess(`Entrada emitida: ${charges.length} cobranca(s) criadas`);
+    } catch (e: any) {
+      const msg = e?.response?.data?.message || e?.message || 'Erro desconhecido';
+      setEmitResult({ ok: false, msg });
+      showError(`Falha ao emitir: ${msg}`);
+    } finally {
+      setEmitting(false);
+    }
+  };
 
   const signalText = signalValue > 0 ? `R$ ${fmtBRL(signalValue)}` : '';
   const handleSignalChange = (raw: string) => {
@@ -1914,6 +1958,18 @@ function SignalDatesInput({
               >
                 Boleto
               </button>
+              <button
+                type="button"
+                onClick={() => onChangeSignalMethod('CASH')}
+                className={`text-[10px] font-semibold px-2 py-1 rounded border transition-colors ${
+                  signalMethod === 'CASH'
+                    ? 'border-blue-600 bg-blue-500/15 text-blue-800'
+                    : 'border-border bg-card hover:bg-accent'
+                }`}
+                title="Recebido em especie (operador confirma manualmente)"
+              >
+                Espécie
+              </button>
             </div>
             <input
               type="text"
@@ -1962,6 +2018,49 @@ function SignalDatesInput({
               className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
             />
           </div>
+
+          {/* Onda 14.59 — Botao Emitir cobranca da entrada (admin/financeiro) */}
+          {quoteId && canEmit && totalEntrada > 0 && (
+            <div className="pt-2 border-t border-blue-500/20">
+              <button
+                type="button"
+                onClick={handleEmit}
+                disabled={emitting || (signalValue === 0 && entradaBoletoValue === 0)}
+                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white text-sm font-bold shadow-sm transition-colors"
+              >
+                {emitting ? (
+                  <><Loader2 size={14} className="animate-spin" /> Emitindo cobranca...</>
+                ) : (
+                  <>💸 Emitir cobranca da entrada</>
+                )}
+              </button>
+              <p className="text-[10px] text-muted-foreground mt-1 text-center">
+                Cria as cobrancas (PIX/Boleto via Asaas, Especie marcada manual). Quando todas pagas, gera as parcelas automaticamente.
+              </p>
+            </div>
+          )}
+
+          {/* Onda 14.59 — Resultado da emissao */}
+          {emitResult && (
+            <div className={`p-2 rounded text-[11px] ${
+              emitResult.ok
+                ? 'bg-emerald-500/10 text-emerald-700 border border-emerald-500/30'
+                : 'bg-red-500/10 text-red-700 border border-red-500/30'
+            }`}>
+              <p className="font-semibold">{emitResult.ok ? '✓ ' : '✗ '}{emitResult.msg}</p>
+              {emitResult.ok && emitResult.charges && emitResult.charges.length > 0 && (
+                <ul className="mt-1 space-y-0.5">
+                  {emitResult.charges.map((c: any) => (
+                    <li key={c.id} className="opacity-80">
+                      • {c.kind === 'SINAL' ? 'Sinal' : 'Entrada'}: R$ {fmtBRL(Number(c.amount))} ({c.billing_type})
+                      {c.boleto_url && <a href={c.boleto_url} target="_blank" rel="noreferrer" className="ml-2 underline">[boleto]</a>}
+                      {c.invoice_url && <a href={c.invoice_url} target="_blank" rel="noreferrer" className="ml-2 underline">[link]</a>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
 
           {/* Resumo do plano */}
           {(signalValue > 0 || entradaDueDate || installmentsStartDate) && (
@@ -2459,7 +2558,7 @@ function PropostaPainel({
     customDownPayment?: number;
     /** Onda 14.58 — sinal + datas customizadas */
     signalValue?: number;
-    signalMethod?: 'PIX' | 'BOLETO';
+    signalMethod?: 'PIX' | 'BOLETO' | 'CASH';
     entradaDueDate?: string;
     installmentsStartDate?: string;
   }) => void;
@@ -2498,7 +2597,7 @@ function PropostaPainel({
   // + datas de vencimento configuraveis pra entrada e inicio das parcelas.
   // Persistencia: localStorage por quote_id (mesma logica do customDownPayment).
   const [customSignalValue, setCustomSignalValue] = useState<number>(0);
-  const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO'>('PIX');
+  const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('PIX');
   const [customEntradaDueDate, setCustomEntradaDueDate] = useState<string>('');
   const [customInstallmentsStartDate, setCustomInstallmentsStartDate] = useState<string>('');
   const detailIdRef = useRef<string | null>(null);
@@ -2802,6 +2901,8 @@ function PropostaPainel({
           onChangeSignalMethod={setCustomSignalMethod}
           onChangeEntradaDueDate={setCustomEntradaDueDate}
           onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
+          quoteId={detail.id}
+          canEmit={true}
         />
       )}
 
@@ -3252,7 +3353,7 @@ function CardBoletoParcelado({
     customDownPayment?: number;
     /** Onda 14.58 — sinal + datas customizadas */
     signalValue?: number;
-    signalMethod?: 'PIX' | 'BOLETO';
+    signalMethod?: 'PIX' | 'BOLETO' | 'CASH';
     entradaDueDate?: string;
     installmentsStartDate?: string;
   }) => void;
@@ -3265,7 +3366,7 @@ function CardBoletoParcelado({
   customDownPayment?: number;
   /** Onda 14.58 — sinal + datas customizadas (opcionais) */
   customSignalValue?: number;
-  customSignalMethod?: 'PIX' | 'BOLETO';
+  customSignalMethod?: 'PIX' | 'BOLETO' | 'CASH';
   customEntradaDueDate?: string;
   customInstallmentsStartDate?: string;
 }) {
@@ -4363,7 +4464,7 @@ function CreditCheckDialog({
    *  comecando em data Y. Quando vazios = comportamento legado (entrada
    *  unica + parcelas em 30 dias). */
   customSignalValue?: number;
-  customSignalMethod?: 'PIX' | 'BOLETO';
+  customSignalMethod?: 'PIX' | 'BOLETO' | 'CASH';
   customEntradaDueDate?: string;
   customInstallmentsStartDate?: string;
   onCancel: () => void;

@@ -848,6 +848,33 @@ export class CommercialController {
   }
 
   /**
+   * Onda 14.59 — Wrapper que aceita quote_id (mais comodo pro frontend).
+   * Resolve internamente o treatment_plan_id e chama emit-down-payment.
+   */
+  @Post('quotes/:id/emit-down-payment')
+  emitDownPaymentByQuote(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      signalValue: number;
+      signalMethod: 'PIX' | 'BOLETO' | 'CASH';
+      signalDueDate?: string;
+      restValue: number;
+      restMethod: 'PIX' | 'BOLETO' | 'CASH';
+      restDueDate?: string;
+      clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
+    },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    const roles = user.roles ?? [];
+    if (!roles.includes('ADMIN') && !roles.includes('FINANCEIRO')) {
+      throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem emitir cobranca da entrada');
+    }
+    return this.downPaymentFlow.emitDownPaymentByQuote(id, user.tenant_id, dto);
+  }
+
+  /**
    * Onda 14.59 — Marca cobranca CASH como recebida em especie.
    * Equivale ao webhook do Asaas avisando PAYMENT_RECEIVED. Dispara o trigger
    * automatico (se for sinal/entrada e completar o ciclo).
