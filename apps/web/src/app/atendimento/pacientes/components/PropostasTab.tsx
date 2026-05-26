@@ -817,6 +817,12 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   const [creditCheckOpen, setCreditCheckOpen] = useState(false);
   // Onda 14.4 — parcelas pre-selecionadas no credit-check (12, 18, 24, etc)
   const [creditCheckInitialInstallments, setCreditCheckInitialInstallments] = useState<number>(18);
+  // Onda 14.56 — entrada custom escolhida pelo operador no painel da proposta.
+  // Propagada do PropostaPainel ate o CreditCheckDialog pra garantir que o
+  // valor financiado (e os boletos gerados) refletem a entrada configurada.
+  // Antes a entrada aparecia na modal de tabela mas era ignorada no
+  // apply-financing, gerando boletos pelo total cheio sem descontar a entrada.
+  const [creditCheckCustomDownPayment, setCreditCheckCustomDownPayment] = useState<number>(0);
 
   // Onda 13 — Bônus de fechamento
   const [bonusOpen, setBonusOpen] = useState(false);
@@ -1223,8 +1229,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           sending={sending}
           onSaveCounter={() => setCounterPropOpen(true)}
           onOpenCreditCheck={() => setCreditCheckOpen(true)}
-          onOpenCreditCheckForParcelas={(n) => {
+          onOpenCreditCheckForParcelas={(n, dp) => {
             setCreditCheckInitialInstallments(n);
+            // Onda 14.56 — captura a entrada custom configurada no painel
+            // pra que o CreditCheckDialog calcule parcelas/boletos corretamente
+            setCreditCheckCustomDownPayment(dp ?? 0);
             setCreditCheckOpen(true);
           }}
           onAddBonus={() => setBonusOpen(true)}
@@ -1366,6 +1375,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             patientId={patientId}
             valorTotal={totalForCheck}
             initialInstallments={creditCheckInitialInstallments}
+            // Onda 14.56 — entrada custom configurada pelo operador. Sem isso
+            // o calc do dialog ignorava a entrada e gerava boletos errados.
+            customDownPayment={creditCheckCustomDownPayment}
             onCancel={() => setCreditCheckOpen(false)}
             onAppliedSuccess={(parcelaKey) => {
               setActivePaymentKey(parcelaKey);
@@ -2237,7 +2249,7 @@ function PropostaPainel({
   /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
   onOpenCreditCheck: () => void;
   /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas */
-  onOpenCreditCheckForParcelas: (installments: number) => void;
+  onOpenCreditCheckForParcelas: (installments: number, customDownPayment?: number) => void;
   /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
   onAddBonus: () => void;
   /** Onda 14.5 — abre confirm + chama POST /quotes/:id/approve-and-bill */
@@ -2925,7 +2937,7 @@ function CardBoletoParcelado({
   activePaymentKey: string;
   onChangePayment: (key: string) => void;
   /** Onda 14.4 — abre credit-check com N parcelas pre-selecionadas (>= 2x) */
-  onOpenCreditCheckForParcelas: (installments: number) => void;
+  onOpenCreditCheckForParcelas: (installments: number, customDownPayment?: number) => void;
   /** Onda 14.26 — quando true (default), parcelados >= 1x abrem credit-check.
    *  Quando false (cliente VIP / valor baixo), aplicam direto sem consulta. */
   requiresCreditCheck: boolean;
@@ -2950,7 +2962,10 @@ function CardBoletoParcelado({
     if (opt.key === 'boleto-avista' || !requiresCreditCheck) {
       onChangePayment(opt.key);
     } else {
-      onOpenCreditCheckForParcelas(opt.installments);
+      // Onda 14.56 — propaga a entrada custom pro CreditCheckDialog. Antes
+      // a entrada era exibida na modal mas perdida ao avancar pro credit-check,
+      // resultando em boletos sem desconto da entrada.
+      onOpenCreditCheckForParcelas(opt.installments, customDownPayment);
     }
   };
 
@@ -3990,6 +4005,7 @@ function CreditCheckDialog({
   patientId,
   valorTotal,
   initialInstallments,
+  customDownPayment = 0,
   onCancel,
   onAppliedSuccess,
 }: {
@@ -4000,6 +4016,11 @@ function CreditCheckDialog({
   valorTotal: number;
   /** Onda 14.4 — parcelas pre-selecionadas (vem da tabela de boleto) */
   initialInstallments?: number;
+  /** Onda 14.56 — entrada custom (R$) configurada pelo operador no painel.
+   *  Sobrescreve o opt.downPaymentPercent default. Sem isso o calc abaixo
+   *  usava 0 de entrada pra 1x-11x (e 20% pra 12x+), ignorando o que o
+   *  operador tinha digitado. Resultado: boletos gerados ignoram a entrada. */
+  customDownPayment?: number;
   onCancel: () => void;
   /** Onda 12.2 — chamado quando o fluxo completa (aceita + boletos gerados).
    *  parcelaKey: ex "parcelado-12x" — alimenta activePaymentKey no painel. */
@@ -4076,7 +4097,10 @@ function CreditCheckDialog({
     interestRate: 1.5,
     downPaymentPercent: parcelas >= 12 ? 20 : 0,
   }), [parcelas]);
-  const calc = applyPaymentOption(valorTotal, opt);
+  // Onda 14.56 — passa customDownPayment pra applyPaymentOption respeitar
+  // a entrada que o operador configurou no painel. Antes este calculo ignorava
+  // a entrada e gerava parcelas como se o valor cheio fosse financiado.
+  const calc = applyPaymentOption(valorTotal, opt, customDownPayment);
 
   // Mensagens dinamicas durante consultando
   useEffect(() => {
