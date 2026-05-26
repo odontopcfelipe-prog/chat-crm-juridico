@@ -2850,11 +2850,15 @@ function CartaoInstallmentsModal({
           </span>
         </div>
 
-        {/* Cabeçalho da tabela */}
+        {/* Cabeçalho da tabela.
+            Onda 14.57 — coluna direita renomeada pra "Total no cartão" (era
+            apenas "Total"). Valor mostrado agora exclui a entrada — mostra so a
+            soma das parcelas. Antes incluia entrada e ficava artificialmente
+            alto comparado ao Valor Total do tratamento. */}
         <div className="grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-2 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
           <span>Parcelas</span>
           <span>Valor de cada parcela</span>
-          <span className="text-right">Total</span>
+          <span className="text-right">Total no cartão</span>
         </div>
 
         {/* Linhas */}
@@ -2894,8 +2898,11 @@ function CartaoInstallmentsModal({
                       <span className="text-amber-700 text-xs font-medium">com juros</span>
                     )}
                   </span>
+                  {/* Onda 14.57 — exibe apenas a soma das parcelas (sem
+                      entrada). Antes era c.finalValue (entrada + parcelas)
+                      e ficava artificialmente alto vs o Valor Total do topo. */}
                   <span className="text-sm tabular-nums text-right text-muted-foreground">
-                    R$ {fmtBRL(c.finalValue)}
+                    R$ {fmtBRL(c.finalValue - c.downPaymentValue)}
                   </span>
                 </button>
               </li>
@@ -3224,11 +3231,15 @@ function BoletoInstallmentsModal({
           </div>
         )}
 
-        {/* Cabeçalho da tabela */}
+        {/* Cabeçalho da tabela.
+            Onda 14.57 — coluna direita mostra "Total dos boletos" (soma das
+            parcelas sem entrada). Antes incluia entrada e ficava artificialmente
+            alto comparado ao Valor Total do tratamento. Entrada segue visivel
+            na linha do meio ("entrada R$ X +..."). */}
         <div className="grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-2 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
           <span>Parcelas</span>
           <span>Valor de cada parcela</span>
-          <span className="text-right">Total</span>
+          <span className="text-right">Total dos boletos</span>
         </div>
 
         {/* Linhas — Onda 14.25: filtradas, sem boleto-avista (renderizado acima destacado) */}
@@ -3285,8 +3296,11 @@ function BoletoInstallmentsModal({
                       </span>
                     )}
                   </span>
+                  {/* Onda 14.57 — exibe apenas a soma das parcelas (sem
+                      entrada). Antes era c.finalValue (entrada + parcelas)
+                      e ficava artificialmente alto vs o Valor Total do topo. */}
                   <span className="text-sm tabular-nums text-right text-muted-foreground">
-                    R$ {fmtBRL(c.finalValue)}
+                    R$ {fmtBRL(c.finalValue - c.downPaymentValue)}
                   </span>
                 </button>
               </li>
