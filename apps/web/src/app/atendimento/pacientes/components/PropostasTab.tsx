@@ -1871,7 +1871,7 @@ function SignalDatesInput({
         parts: [part],
       };
       if (restValue > 0 && entradaDueDate) body.restDueDate = entradaDueDate;
-      ({ data } = await api.post(`/commercial/quotes/${quoteId}/emit-down-payment`, body));
+      ({ data } = await api.post(`/quotes/${quoteId}/emit-down-payment`, body));
       const charges = data?.charges ?? [];
       const partLabel = part === 'SIGNAL' ? 'Sinal' : 'Entrada';
       setEmitResult({
