@@ -863,6 +863,7 @@ export class CommercialController {
       restMethod: 'PIX' | 'BOLETO' | 'CASH';
       restDueDate?: string;
       clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
+      parts?: ('SIGNAL' | 'REST')[];
     },
     @Authenticated() user: AuthUser,
   ) {
@@ -872,6 +873,33 @@ export class CommercialController {
       throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem emitir cobranca da entrada');
     }
     return this.downPaymentFlow.emitDownPaymentByQuote(id, user.tenant_id, dto);
+  }
+
+  /**
+   * Onda 14.59.2 — Emite as PARCELAS do plano (alternativa ao trigger automatico
+   * do webhook). Util quando operador quer disparar manualmente ao confirmar
+   * entrada em especie, ou quando quer revisar antes de gerar.
+   *
+   * Backend valida que sinal+entrada estao pagos antes de criar parcelas.
+   * Permissao: ADMIN ou FINANCEIRO.
+   */
+  @Post('quotes/:id/emit-installments')
+  emitInstallmentsByQuote(
+    @Param('id') id: string,
+    @Body()
+    dto: {
+      installmentCount: number;
+      installmentValue: number;
+      firstDueDate?: string;
+    },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!user.tenant_id) throw new BadRequestException('tenant_id ausente');
+    const roles = user.roles ?? [];
+    if (!roles.includes('ADMIN') && !roles.includes('FINANCEIRO')) {
+      throw new ForbiddenException('Apenas ADMIN ou FINANCEIRO podem emitir parcelas');
+    }
+    return this.downPaymentFlow.emitInstallmentsByQuote(id, user.tenant_id, dto);
   }
 
   /**

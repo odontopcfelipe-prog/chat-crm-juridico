@@ -84,8 +84,16 @@ export class DownPaymentFlowService {
       restMethod: 'PIX' | 'BOLETO' | 'CASH';
       restDueDate?: string; // required se restValue > 0
       clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
+      /** Onda 14.59.2 — quais partes emitir. Default: ambas.
+       *  Permite operador emitir SO o sinal ou SO o restante (botoes
+       *  individuais no frontend). Idempotente: se ja existe charge
+       *  do mesmo kind, retorna existente sem recriar. */
+      parts?: ('SIGNAL' | 'REST')[];
     },
   ) {
+    const parts = options.parts ?? ['SIGNAL', 'REST'];
+    const emitSignal = parts.includes('SIGNAL');
+    const emitRest = parts.includes('REST');
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
       include: { patient: true },
@@ -93,32 +101,38 @@ export class DownPaymentFlowService {
     if (!plan) throw new NotFoundException('Plano nao encontrado');
     if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
 
-    // Idempotencia: se ja emitiu, retorna o que existe
-    if (plan.down_payment_emitted_at) {
-      this.logger.warn(`[DOWN-PMT] Plan ${planId} ja emitiu cobranca em ${plan.down_payment_emitted_at}, retornando existentes`);
-      const existing = await this.prisma.paymentGatewayCharge.findMany({
-        where: { treatment_plan_id: planId, kind: { in: ['SINAL', 'ENTRADA'] } },
-        orderBy: { created_at: 'asc' },
-      });
-      return { charges: existing, idempotent: true };
-    }
+    // Onda 14.59.2 — Idempotencia POR PARTE. Em vez de bloquear a emissao
+    // inteira se ja emitiu uma parte, busca quais kinds ja existem e
+    // emite somente os pedidos QUE AINDA NAO existem.
+    const existingByKind = await this.prisma.paymentGatewayCharge.findMany({
+      where: { treatment_plan_id: planId, kind: { in: ['SINAL', 'ENTRADA'] } },
+      orderBy: { created_at: 'asc' },
+    });
+    const hasSignal = existingByKind.some((c) => c.kind === 'SINAL');
+    const hasEntrada = existingByKind.some((c) => c.kind === 'ENTRADA');
 
     if (options.signalValue < 0 || options.restValue < 0) {
       throw new BadRequestException('Valores nao podem ser negativos');
     }
-    if (options.signalValue === 0 && options.restValue === 0) {
-      throw new BadRequestException('Sem entrada — nao precisa emitir cobranca');
+    const shouldCreateSignal = emitSignal && options.signalValue > 0 && !hasSignal;
+    const shouldCreateRest = emitRest && options.restValue > 0 && !hasEntrada;
+
+    if (!shouldCreateSignal && !shouldCreateRest) {
+      // Nada novo pra criar — retorna existentes
+      this.logger.warn(`[DOWN-PMT] Plan ${planId} ja tem charges pra as partes pedidas, retornando existentes`);
+      return { charges: existingByKind, idempotent: true };
     }
-    if (options.restValue > 0 && !options.restDueDate) {
+
+    if (shouldCreateRest && !options.restDueDate) {
       throw new BadRequestException('restDueDate obrigatorio quando restValue > 0');
     }
 
-    // Salva timing do ClickSign no plan (se fornecido)
+    // Atualiza plan: marca status awaiting + timestamp da primeira emissao (idempotente)
     await this.prisma.treatmentPlan.update({
       where: { id: planId },
       data: {
         proposal_status: 'AWAITING_DOWN_PAYMENT',
-        down_payment_emitted_at: new Date(),
+        ...(!plan.down_payment_emitted_at && { down_payment_emitted_at: new Date() }),
         ...(options.clicksignSendTiming !== undefined && {
           clicksign_send_timing: options.clicksignSendTiming,
         }),
@@ -132,7 +146,7 @@ export class DownPaymentFlowService {
     const created: any[] = [];
 
     // ─── SINAL ──────────────────────────────────────────
-    if (options.signalValue > 0) {
+    if (shouldCreateSignal) {
       const signalCharge = await this.createCharge({
         planId,
         tenantId,
@@ -146,7 +160,7 @@ export class DownPaymentFlowService {
     }
 
     // ─── RESTANTE DA ENTRADA ────────────────────────────
-    if (options.restValue > 0 && restDue) {
+    if (shouldCreateRest && restDue) {
       const restCharge = await this.createCharge({
         planId,
         tenantId,
@@ -312,6 +326,116 @@ export class DownPaymentFlowService {
     // - Se plan.clicksign_send_timing === 'AFTER', disparar ClickSign agora
     // - Mandar WhatsApp pro paciente "Pagamento confirmado!"
     // - Emit socket event 'down_payment_confirmed' pra UI atualizar
+  }
+
+  /**
+   * Onda 14.59.2 — Emite parcelas manualmente (alternativa ao trigger automatico).
+   * Pre-requisitos:
+   *   - Plan deve existir
+   *   - Todas charges de SINAL e ENTRADA devem estar pagas (RECEIVED/CONFIRMED ou
+   *     received_in_cash=true). Sem essa garantia, recusa pra evitar gerar parcelas
+   *     antes do cliente confirmar a entrada.
+   *   - Idempotente: se installments_generated_at ja preenchido, retorna existentes.
+   */
+  async emitInstallmentsByQuote(
+    quoteId: string,
+    tenantId: string,
+    options: {
+      installmentCount: number;
+      installmentValue: number;
+      firstDueDate?: string; // default: hoje + 30 dias
+    },
+  ) {
+    const plan = await this.prisma.treatmentPlan.findFirst({
+      where: { quote_id: quoteId },
+      include: { patient: true },
+    });
+    if (!plan) {
+      throw new BadRequestException('Plano nao encontrado pra esta proposta.');
+    }
+    if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+
+    // Idempotencia
+    if (plan.installments_generated_at) {
+      this.logger.warn(`[INSTALLMENTS] Plan ${plan.id} ja gerou parcelas em ${plan.installments_generated_at}`);
+      const existing = await this.prisma.paymentGatewayCharge.findMany({
+        where: { treatment_plan_id: plan.id, kind: 'INSTALLMENT' },
+        orderBy: { created_at: 'asc' },
+      });
+      return { charges: existing, idempotent: true };
+    }
+
+    // Verifica sinal+entrada todas pagas
+    const downCharges = await this.prisma.paymentGatewayCharge.findMany({
+      where: { treatment_plan_id: plan.id, kind: { in: ['SINAL', 'ENTRADA'] } },
+    });
+    const allPaid = downCharges.length > 0 && downCharges.every(
+      (c) => c.status === 'RECEIVED' || c.status === 'CONFIRMED' || c.received_in_cash,
+    );
+    if (!allPaid) {
+      throw new BadRequestException(
+        'Nao eh possivel emitir parcelas: ainda ha cobrancas de sinal/entrada pendentes. ' +
+        'Aguarde a confirmacao do pagamento (PIX/boleto via webhook) ou marque como recebida em especie.',
+      );
+    }
+
+    if (options.installmentCount < 1 || options.installmentCount > 36) {
+      throw new BadRequestException('installmentCount deve estar entre 1 e 36');
+    }
+    if (options.installmentValue <= 0) {
+      throw new BadRequestException('installmentValue deve ser positivo');
+    }
+
+    const firstDue = options.firstDueDate
+      ? new Date(options.firstDueDate)
+      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    // Cria 1 charge no Asaas que vira N boletos (Asaas split automatico)
+    const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient_id, tenantId);
+    const total = options.installmentValue * options.installmentCount;
+    const asaasCharge = await this.asaas.createCharge({
+      customer: customer.external_id,
+      billingType: 'BOLETO',
+      value: total,
+      dueDate: firstDue.toISOString().slice(0, 10),
+      description: `Parcelas (${options.installmentCount}x) — ${plan.patient.name} [plan:${plan.id}]`,
+      externalReference: plan.id,
+      installmentCount: options.installmentCount,
+      installmentValue: options.installmentValue,
+    });
+
+    const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
+      data: {
+        tenant_id: tenantId,
+        treatment_plan_id: plan.id,
+        kind: 'INSTALLMENT',
+        gateway: 'ASAAS',
+        external_id: asaasCharge.id,
+        customer_external_id: customer.external_id,
+        billing_type: 'BOLETO',
+        amount: total,
+        due_date: firstDue,
+        status: asaasCharge.status || 'PENDING',
+        description: `Parcelas ${options.installmentCount}x R$ ${options.installmentValue} — ${plan.patient.name} [plan:${plan.id}]`,
+        boleto_url: asaasCharge.bankSlipUrl || null,
+        boleto_barcode: asaasCharge.nossoNumero || null,
+        invoice_url: asaasCharge.invoiceUrl || null,
+      },
+    });
+
+    await this.prisma.treatmentPlan.update({
+      where: { id: plan.id },
+      data: {
+        installments_generated_at: new Date(),
+        proposal_status: 'APPROVED',
+      },
+    });
+
+    this.logger.log(
+      `[INSTALLMENTS] Plan ${plan.id} parcelas geradas manualmente: ${options.installmentCount}x R$ ${options.installmentValue}`,
+    );
+
+    return { charges: [installmentsCharge], idempotent: false };
   }
 
   /**

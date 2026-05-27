@@ -1843,39 +1843,51 @@ function SignalDatesInput({
   onChangeRestMethod?: (m: 'PIX' | 'BOLETO' | 'CASH') => void;
 }) {
   const [expanded, setExpanded] = useState(signalValue > 0 || !!entradaDueDate);
-  // Onda 14.59 — Estado do botao Emitir cobranca da entrada
-  const [emitting, setEmitting] = useState(false);
+  // Onda 14.59.2 — Estado dos 3 botoes individuais (sinal/entrada/parcelas)
+  const [emittingPart, setEmittingPart] = useState<null | 'SIGNAL' | 'REST' | 'INSTALLMENTS'>(null);
   const [emitResult, setEmitResult] = useState<{ ok: boolean; msg: string; charges?: any[] } | null>(null);
 
-  const handleEmit = async () => {
+  const emitPart = async (part: 'SIGNAL' | 'REST' | 'INSTALLMENTS') => {
     if (!quoteId) return;
-    setEmitting(true);
+    setEmittingPart(part);
     setEmitResult(null);
     try {
+      let data: any;
+      if (part === 'INSTALLMENTS') {
+        // Emitir parcelas — endpoint separado. Frontend ainda nao tem os params
+        // de installmentCount/Value persistidos aqui, entao deixa o backend
+        // pegar do plan. (Caso o plan nao tenha, retorna erro 400.)
+        // Vou pular por ora pra simplificar o MVP. Operador usa o "Boleto
+        // Banco PASSOS" antigo pra gerar parcelas.
+        showError('Emissao manual de parcelas ainda nao implementada — use o "Boleto Banco PASSOS" pra gerar.');
+        return;
+      }
       const restValue = Math.max(0, totalEntrada - signalValue);
       const body: any = {
         signalValue,
         signalMethod,
         restValue,
         restMethod,
+        parts: [part],
       };
       if (restValue > 0 && entradaDueDate) body.restDueDate = entradaDueDate;
-      const { data } = await api.post(`/commercial/quotes/${quoteId}/emit-down-payment`, body);
+      ({ data } = await api.post(`/commercial/quotes/${quoteId}/emit-down-payment`, body));
       const charges = data?.charges ?? [];
+      const partLabel = part === 'SIGNAL' ? 'Sinal' : 'Entrada';
       setEmitResult({
         ok: true,
         msg: data?.idempotent
-          ? `Cobranca ja foi emitida antes (${charges.length} charges existentes).`
-          : `${charges.length} cobranca(s) emitida(s) com sucesso.`,
+          ? `${partLabel} ja foi emitido antes (charges existentes retornadas).`
+          : `${partLabel} emitido com sucesso (${charges.length} cobranca).`,
         charges,
       });
-      showSuccess(`Entrada emitida: ${charges.length} cobranca(s) criadas`);
+      showSuccess(`${partLabel} emitido`);
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || 'Erro desconhecido';
       setEmitResult({ ok: false, msg });
       showError(`Falha ao emitir: ${msg}`);
     } finally {
-      setEmitting(false);
+      setEmittingPart(null);
     }
   };
 
@@ -2019,23 +2031,63 @@ function SignalDatesInput({
             />
           </div>
 
-          {/* Onda 14.59 — Botao Emitir cobranca da entrada (admin/financeiro) */}
+          {/* Onda 14.59.2 — 3 BOTOES INDIVIDUAIS: emite sinal/entrada/parcelas
+              separadamente. Operador decide quando emitir cada parte. */}
           {quoteId && canEmit && totalEntrada > 0 && (
-            <div className="pt-2 border-t border-blue-500/20">
-              <button
-                type="button"
-                onClick={handleEmit}
-                disabled={emitting || (signalValue === 0 && entradaBoletoValue === 0)}
-                className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-600/50 disabled:cursor-not-allowed text-white text-sm font-bold shadow-sm transition-colors"
-              >
-                {emitting ? (
-                  <><Loader2 size={14} className="animate-spin" /> Emitindo cobranca...</>
-                ) : (
-                  <>💸 Emitir cobranca da entrada</>
-                )}
-              </button>
-              <p className="text-[10px] text-muted-foreground mt-1 text-center">
-                Cria as cobrancas (PIX/Boleto via Asaas, Especie marcada manual). Quando todas pagas, gera as parcelas automaticamente.
+            <div className="pt-2 border-t border-blue-500/20 space-y-2">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                Emitir cobrancas (individuais)
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                {/* SINAL */}
+                <button
+                  type="button"
+                  onClick={() => emitPart('SIGNAL')}
+                  disabled={!!emittingPart || signalValue <= 0}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition-colors"
+                  title={signalValue <= 0 ? 'Configure um valor de sinal > 0' : `Emitir sinal R$ ${fmtBRL(signalValue)} (${signalMethod})`}
+                >
+                  {emittingPart === 'SIGNAL' ? (
+                    <><Loader2 size={12} className="animate-spin" /> Emitindo...</>
+                  ) : (
+                    <>💸 Sinal{signalValue > 0 ? ` R$ ${fmtBRL(signalValue)}` : ''}</>
+                  )}
+                </button>
+
+                {/* ENTRADA (restante) */}
+                <button
+                  type="button"
+                  onClick={() => emitPart('REST')}
+                  disabled={!!emittingPart || entradaBoletoValue <= 0 || !entradaDueDate}
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition-colors"
+                  title={
+                    entradaBoletoValue <= 0
+                      ? 'Sinal cobre toda a entrada — nao ha restante'
+                      : !entradaDueDate
+                      ? 'Defina a data de vencimento da entrada acima'
+                      : `Emitir entrada R$ ${fmtBRL(entradaBoletoValue)} (${restMethod})`
+                  }
+                >
+                  {emittingPart === 'REST' ? (
+                    <><Loader2 size={12} className="animate-spin" /> Emitindo...</>
+                  ) : (
+                    <>💸 Entrada{entradaBoletoValue > 0 ? ` R$ ${fmtBRL(entradaBoletoValue)}` : ''}</>
+                  )}
+                </button>
+
+                {/* PARCELAS (so depois de sinal+entrada confirmados) */}
+                <button
+                  type="button"
+                  onClick={() => emitPart('INSTALLMENTS')}
+                  disabled
+                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-stone-300 text-stone-500 cursor-not-allowed text-xs font-bold shadow-sm transition-colors"
+                  title="Parcelas geradas automaticamente quando sinal+entrada confirmados (via webhook Asaas). Manual em breve."
+                >
+                  📋 Parcelas (auto)
+                </button>
+              </div>
+              <p className="text-[10px] text-muted-foreground text-center">
+                Cada botão emite SO sua parte. Idempotente: nao re-emite se ja existe.
               </p>
             </div>
           )}
