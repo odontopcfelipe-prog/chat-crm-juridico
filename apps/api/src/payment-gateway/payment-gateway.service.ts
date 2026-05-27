@@ -148,11 +148,25 @@ export class PaymentGatewayService {
       where: { lead_id: lead.id, tenant_id: tenantId },
       select: { id: true, name: true, phone: true },
     });
-    const phone = patient?.phone || lead.phone;
+    const rawPhone = patient?.phone || lead.phone;
     const displayName = patient?.name || lead.name || 'Olá';
-    if (!phone) {
+    if (!rawPhone) {
       throw new BadRequestException('Paciente sem telefone cadastrado');
     }
+    // Onda 14.59.3 — Normaliza pra E.164 BR: garante que o numero tem `55`
+    // (codigo do Brasil) na frente antes de mandar pra Evolution API. Sem
+    // isso, ela valida `82996578143@s.whatsapp.net` (sem 55) e retorna
+    // "exists":false mesmo com o whatsapp existindo em `5582996578143`.
+    const digits = rawPhone.replace(/\D/g, '');
+    let phone: string;
+    if (digits.startsWith('55') && digits.length >= 12) {
+      phone = digits; // ja tem codigo BR
+    } else if (digits.length === 10 || digits.length === 11) {
+      phone = `55${digits}`; // DDD+numero sem codigo
+    } else {
+      phone = digits; // internacional ou formato fora do padrao — manda como esta
+    }
+    this.logger.log(`[RESEND] Normalizou phone: "${rawPhone}" -> "${phone}"`);
 
     // 3. Instances do tenant
     const instances = await this.prisma.instance.findMany({
