@@ -24,10 +24,15 @@ echo "════════════════════════�
 echo " Redeploy chatcrm — tag: $TAG"
 echo "═══════════════════════════════════════════════════════════════"
 
-# Detecta os services do stack (api/worker/web), seja qual for o nome do stack.
-SERVICES=$(docker service ls --format '{{.Name}}' | grep -E '_(api|worker|web)$' || true)
+# Detecta SÓ os services do stack chatcrm. Ancorado em "^chatcrm_" de
+# propósito: o regex genérico "_(api|worker|web)$" pegava também services de
+# OUTROS stacks que terminam em _api (ex.: o service da Evolution
+# "evolution_evolution_api") e os sobrescrevia com a imagem do CRM. Override
+# do nome do stack via env STACK=.
+STACK="${STACK:-chatcrm}"
+SERVICES=$(docker service ls --format '{{.Name}}' | grep -E "^${STACK}_(api|worker|web)\$" || true)
 if [ -z "$SERVICES" ]; then
-  echo "❌ Nenhum service *_(api|worker|web) encontrado. É Swarm? O stack está no ar?"
+  echo "❌ Nenhum service ${STACK}_(api|worker|web) encontrado. É Swarm? O stack está no ar?"
   docker service ls --format '   - {{.Name}}'
   exit 1
 fi
