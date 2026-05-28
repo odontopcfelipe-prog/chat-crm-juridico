@@ -58,6 +58,19 @@ export class MediaUrlService {
     return a.length === b.length && crypto.timingSafeEqual(a, b);
   }
 
+  /** Anexa `url_token` (querystring assinada) ao objeto media de uma mensagem. */
+  attachToMessage<T extends { id?: string; media?: any }>(message: T): T {
+    if (message?.media && message.id) {
+      (message.media as any).url_token = this.signedQuery(message.id);
+    }
+    return message;
+  }
+
+  /** Idem para uma lista de mensagens (mutacao in-place). */
+  attachToMessages(messages: Array<{ id?: string; media?: any }> | null | undefined): void {
+    for (const m of messages || []) this.attachToMessage(m);
+  }
+
   private hmac(messageId: string, exp: number): string {
     return crypto
       .createHmac('sha256', this.secret)

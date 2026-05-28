@@ -7,6 +7,7 @@ import { ChatGateway } from '../gateway/chat.gateway';
 import { MediaS3Service } from '../media/s3.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { SettingsService } from '../settings/settings.service';
+import { MediaUrlService } from '../media/media-url.service';
 import { Readable } from 'stream';
 import OpenAI, { toFile } from 'openai';
 
@@ -60,6 +61,7 @@ export class MessagesService {
     private s3: MediaS3Service,
     private fileStorage: FileStorageService,
     private settings: SettingsService,
+    private mediaSign: MediaUrlService,
     @InjectQueue('ai-jobs') private aiQueue: Queue,
   ) {}
 
@@ -90,6 +92,9 @@ export class MessagesService {
       this.prisma.message.count({ where }),
     ]);
 
+    // A3 etapa 2: anexa url_token assinado a cada midia (o front monta
+    // /api/media/<id>?<url_token>). Inocuo enquanto a rota nao exige (etapa 3).
+    this.mediaSign.attachToMessages(data);
     return { data, total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) };
   }
 
@@ -388,8 +393,8 @@ export class MessagesService {
 
     // 4. URL pública que a Evolution API vai baixar (prioridade: banco → env → fallback)
     const resolvedApiUrl = await this.resolvePublicApiUrl();
-    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}`;
-    this.logger.log(`[AUDIO] Enviando áudio via Evolution: ${mediaUrl}`);
+    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}?${this.mediaSign.signedQuery(msg.id)}`;
+    this.logger.log(`[AUDIO] Enviando áudio via Evolution: ${resolvedApiUrl}/media/${msg.id}`);
 
     // 5. Enviar via Evolution API
     let audioSendStatus = 'enviado';
@@ -497,8 +502,8 @@ export class MessagesService {
     });
 
     const resolvedApiUrl = await this.resolvePublicApiUrl();
-    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}`;
-    this.logger.log(`[FILE] Enviando ${mediaType} via Evolution: ${mediaUrl}`);
+    const mediaUrl = `${resolvedApiUrl}/media/${msg.id}?${this.mediaSign.signedQuery(msg.id)}`;
+    this.logger.log(`[FILE] Enviando ${mediaType} via Evolution: ${resolvedApiUrl}/media/${msg.id}`);
     try {
       const result = await this.whatsapp.sendMedia(
         convo.lead.phone,
