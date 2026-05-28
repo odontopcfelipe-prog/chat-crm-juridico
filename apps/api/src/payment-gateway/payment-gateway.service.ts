@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import * as crypto from 'crypto';
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
@@ -823,6 +824,30 @@ export class PaymentGatewayService {
   }
 
   // ─── Webhook handling ──────────────────────────────────
+
+  /**
+   * Valida o token do webhook do Asaas (header `asaas-access-token`).
+   * O Asaas envia em cada requisicao o "Token de autenticacao" configurado no
+   * painel; comparamos com o `asaas_webhook_token` salvo nas settings.
+   *
+   * Padrao igual ao Clicksign: se o token NAO esta configurado, loga warning e
+   * aceita (fail-open) pra nao derrubar webhooks legitimos antes de configurar.
+   * Quando configurado, exige match exato (timing-safe).
+   */
+  async verifyWebhookToken(received?: string): Promise<{ ok: boolean; configured: boolean }> {
+    const { webhookToken } = await this.asaas.getConfig();
+    if (!webhookToken) {
+      this.logger.warn(
+        '[WEBHOOK] asaas_webhook_token NAO configurado — aceitando sem validar. ' +
+          'Configure o token no painel Asaas e em Settings para proteger contra spoofing.',
+      );
+      return { ok: true, configured: false };
+    }
+    const a = Buffer.from(received || '');
+    const b = Buffer.from(webhookToken);
+    const ok = a.length === b.length && crypto.timingSafeEqual(a, b);
+    return { ok, configured: true };
+  }
 
   async handleWebhook(payload: any) {
     const event = payload?.event;

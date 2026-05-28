@@ -6,6 +6,7 @@ interface AsaasConfig {
   apiKey: string;
   baseUrl: string;
   sandbox: boolean;
+  webhookToken: string;
 }
 
 interface CreateCustomerData {
@@ -46,6 +47,7 @@ export class AsaasClient {
     const apiKey = await this.settingsService.get('asaas_api_key');
     const sandboxStr = await this.settingsService.get('asaas_sandbox');
     const sandbox = sandboxStr === 'true';
+    const webhookToken = await this.settingsService.get('asaas_webhook_token');
 
     // Docs: https://docs.asaas.com/docs/authentication-2
     const baseUrl = sandbox
@@ -54,7 +56,7 @@ export class AsaasClient {
 
     this.logger.debug(`[ASAAS] Config: sandbox=${sandbox}, baseUrl=${baseUrl}, apiKey=${apiKey ? `${apiKey.slice(0, 10)}...` : 'NAO CONFIGURADA'}`);
 
-    return { apiKey: apiKey || '', baseUrl, sandbox };
+    return { apiKey: apiKey || '', baseUrl, sandbox, webhookToken: webhookToken || '' };
   }
 
   // ─── Core HTTP wrapper ─────────────────────────────────
