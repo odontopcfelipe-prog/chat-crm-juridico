@@ -61,7 +61,11 @@ export class HmacGuard implements CanActivate {
       .update(rawBody)
       .digest('hex');
 
-    if (!crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected))) {
+    const sigBuf = Buffer.from(String(signature));
+    const expBuf = Buffer.from(expected);
+    // timingSafeEqual lanca RangeError se os buffers tiverem tamanhos diferentes
+    // (assinatura forjada/curta) — checar o length antes evita 500 e devolve 401 limpo.
+    if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       this.logger.warn('[HMAC] Assinatura invalida no webhook — rejeitado');
       throw new UnauthorizedException('Invalid webhook signature');
     }

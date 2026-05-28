@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import DOMPurify from 'dompurify';
 
 interface Exam {
   id: string;
@@ -222,7 +223,15 @@ function ExamViewer({
               <FileText size={11} /> Laudo
             </div>
             {exam.report_html ? (
-              <div className="prose prose-sm" dangerouslySetInnerHTML={{ __html: exam.report_html }} />
+              <div
+                className="prose prose-sm"
+                // Laudo vem de provedor externo de radiologia / IA — HTML nao confiavel.
+                // Sanitiza com DOMPurify. Guard de window: no SSR o report ainda nao
+                // foi carregado (vem de fetch no client), entao renderiza vazio.
+                dangerouslySetInnerHTML={{
+                  __html: typeof window !== 'undefined' ? DOMPurify.sanitize(exam.report_html) : '',
+                }}
+              />
             ) : (
               <p className="text-sm whitespace-pre-wrap">{exam.report_text}</p>
             )}
