@@ -8,6 +8,7 @@ import { MediaDownloadService } from './media-download.service';
 import { GoogleDriveModule } from '../google-drive/google-drive.module';
 import { SettingsModule } from '../settings/settings.module';
 import { GatewayModule } from '../gateway/gateway.module';
+import { MediaUrlService } from './media-url.service';
 
 /**
  * Nota: a queue `media-jobs` é mantida APENAS para o job `sync_missed_messages`
@@ -22,7 +23,7 @@ import { GatewayModule } from '../gateway/gateway.module';
     SettingsModule,
   ],
   controllers: [MediaController],
-  providers: [MediaS3Service, FileStorageService, AiEventsService, MediaDownloadService],
-  exports: [MediaS3Service, FileStorageService, MediaDownloadService],
+  providers: [MediaS3Service, FileStorageService, AiEventsService, MediaDownloadService, MediaUrlService],
+  exports: [MediaS3Service, FileStorageService, MediaDownloadService, MediaUrlService],
 })
 export class MediaModule {}

@@ -18,6 +18,7 @@ import { FileStorageService } from './filesystem.service';
 import { MediaDownloadService } from './media-download.service';
 import { Public } from '../auth/decorators/public.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { MediaUrlService } from './media-url.service';
 import * as https from 'https';
 import * as http from 'http';
 
@@ -30,6 +31,7 @@ export class MediaController {
     private s3: MediaS3Service,
     private fileStorage: FileStorageService,
     private mediaDownloadService: MediaDownloadService,
+    private mediaUrl: MediaUrlService,
   ) {}
 
   /**
@@ -73,9 +75,21 @@ export class MediaController {
   async getMedia(
     @Param('messageId') messageId: string,
     @Query('dl') dl: string,
+    @Query('token') token: string,
+    @Query('exp') exp: string,
     @Req() req: any,
     @Res() res: any,
   ) {
+    // A3 etapa 1 (expand): se vier token assinado, valida; se nao vier, serve
+    // igual (compat com front/Evolution que ainda nao assinam a URL). Modo
+    // audit — apenas loga, pra medirmos a cobertura antes de passar a EXIGIR
+    // o token na etapa 3 (fail-closed, que fecha o IDOR).
+    if (token && !this.mediaUrl.verify(messageId, token, exp)) {
+      this.logger.warn(
+        `[MEDIA-AUTH] token invalido/expirado p/ ${messageId} — servindo assim mesmo (migracao A3)`,
+      );
+    }
+
     const media = await this.prisma.media.findUnique({
       where: { message_id: messageId },
     });
