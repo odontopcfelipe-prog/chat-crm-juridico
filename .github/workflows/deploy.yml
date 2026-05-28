@@ -51,7 +51,11 @@ jobs:
           file: ${{ matrix.dockerfile }}
           build-args: ${{ matrix.build-args }}
           push: true
-          tags: odontopassos/chat-crm-juridico-${{ matrix.suffix }}:latest
+          # Publica :latest (deploy padrão) e :<sha> (deploy determinístico/rollback).
+          # A tag por commit permite `vps-redeploy.sh <sha>` apontar exatamente o build certo.
+          tags: |
+            odontopassos/chat-crm-juridico-${{ matrix.suffix }}:latest
+            odontopassos/chat-crm-juridico-${{ matrix.suffix }}:${{ github.sha }}
           no-cache: true
 
   # Espelha master -> main apos o build do Docker passar.
