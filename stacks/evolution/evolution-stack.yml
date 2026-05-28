@@ -5,7 +5,10 @@ version: '3.8'
 
 services:
   evolution_api:
-    image: atendai/evolution-api:latest
+    # Pinada na imagem/versão que roda em produção. NÃO trocar para
+    # atendai/evolution-api nem para :latest — prod usa o registry evoapicloud
+    # nesta versão. Re-deploy com imagem divergente derruba o WhatsApp.
+    image: evoapicloud/evolution-api:v2.3.7
     networks:
       - traefik_public
     volumes:
