@@ -497,6 +497,118 @@ function ModalPortal({ children }: { children: React.ReactNode }) {
   return createPortal(children, document.body);
 }
 
+/**
+ * Onda 15 (etapa 14) — Modal "profissional" pra exibir o QR PIX da clinica
+ * em vez da pagina hospedada do Asaas (que tem Open Finance, branding Asaas,
+ * etc.). Usado no emit do sinal/entrada quando a forma e PIX.
+ *
+ * - QR code grande, copia-cola com botao "Copiar"
+ * - Mantem um botao discreto "Abrir pagina de pagamento" como fallback
+ *   pra quando o operador quer enviar o link pro paciente (WhatsApp)
+ * - Portado pro body (escapa do containing-block do .bg-card neon)
+ */
+function PixQrDialog({
+  qrCode,
+  copyPaste,
+  amount,
+  invoiceUrl,
+  title,
+  subtitle,
+  onClose,
+}: {
+  qrCode: string;
+  copyPaste: string;
+  amount: number;
+  invoiceUrl?: string;
+  title: string;
+  subtitle?: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+        onClick={onClose}
+      >
+        <div
+          className="bg-card border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="p-5 border-b border-border bg-emerald-500/10 flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="text-base font-bold text-emerald-800">{title}</h3>
+              {subtitle && <p className="text-xs text-emerald-700 mt-1">{subtitle}</p>}
+              <p className="text-2xl font-extrabold tabular-nums text-emerald-700 mt-2">R$ {fmtBRL(amount)}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md transition-colors shrink-0"
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            <div className="bg-muted/20 border border-border rounded-lg p-4 text-center">
+              <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold mb-2">
+                Escaneie o QR Code
+              </p>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={`data:image/png;base64,${qrCode}`}
+                alt="QR Code PIX"
+                className="w-56 h-56 mx-auto rounded-md"
+              />
+            </div>
+
+            {copyPaste && (
+              <div className="space-y-1.5">
+                <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold">
+                  Ou copie o código PIX
+                </p>
+                <div className="flex items-start gap-2">
+                  <code className="flex-1 text-[10px] font-mono break-all bg-muted/20 border border-border rounded-md p-2 max-h-20 overflow-y-auto">
+                    {copyPaste}
+                  </code>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      try {
+                        await navigator.clipboard.writeText(copyPaste);
+                        setCopied(true);
+                        setTimeout(() => setCopied(false), 2000);
+                      } catch {
+                        showError('Falha ao copiar — copie manualmente');
+                      }
+                    }}
+                    className="px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shrink-0 transition-colors"
+                  >
+                    {copied ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {invoiceUrl && (
+              <button
+                type="button"
+                onClick={() => window.open(invoiceUrl, '_blank', 'noopener,noreferrer')}
+                className="w-full text-xs px-3 py-2 rounded-md border border-border hover:bg-accent/50 text-muted-foreground transition-colors"
+                title="Abre a página hospedada do Asaas — útil pra copiar o link e mandar pro paciente via WhatsApp"
+              >
+                🔗 Abrir página de pagamento (pra enviar ao paciente)
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
 interface VariantConfig {
   label: string;
   description: string;
@@ -1877,6 +1989,11 @@ function SignalDatesInput({
   const [emitResult, setEmitResult] = useState<{ ok: boolean; msg: string; charges?: any[] } | null>(null);
   // Link da cobranca por parte (apos emitir). Reapertar abre a 2a via existente — nao cria nova.
   const [partLink, setPartLink] = useState<{ SIGNAL?: string; REST?: string }>({});
+  // Onda 15 (etapa 14) — Dados PIX por parte (QR + copia-cola). Quando preenchido,
+  // o botao "2a via" abre o modal PixQrDialog em vez de redirecionar pro Asaas.
+  type PixCacheData = { qrCode: string; copyPaste: string; amount: number; invoiceUrl?: string };
+  const [partPix, setPartPix] = useState<{ SIGNAL?: PixCacheData; REST?: PixCacheData }>({});
+  const [pixDialog, setPixDialog] = useState<null | (PixCacheData & { kind: 'SIGNAL' | 'REST' })>(null);
 
   const emitPart = async (part: 'SIGNAL' | 'REST' | 'INSTALLMENTS') => {
     if (!quoteId) return;
@@ -1988,12 +2105,28 @@ function SignalDatesInput({
           : `${partLabel} emitido com sucesso (${charges.length} cobranca).`,
         charges,
       });
-      // Guarda o link da cobranca pra "2a via". Se ja existia (idempotent), abre direto.
-      const link = charges[0]?.invoice_url || charges[0]?.boleto_url || null;
-      if (link && (part === 'SIGNAL' || part === 'REST')) {
-        setPartLink((prev) => ({ ...prev, [part]: link }));
-        if (data?.idempotent && typeof window !== 'undefined') {
-          window.open(link, '_blank', 'noopener,noreferrer');
+      // Onda 15 (etapa 14) — Procura a charge da parte (idempotencia pode
+      // devolver SINAL+ENTRADA juntos) e decide como mostrar:
+      //  - PIX com QR populado: abre nosso PixQrDialog (cara da clinica)
+      //  - resto (BOLETO ou PIX antigo sem QR): abre a 2a via via link
+      const myKind = part === 'SIGNAL' ? 'SINAL' : 'ENTRADA';
+      const myCharge = charges.find((c: any) => c.kind === myKind) || charges[0];
+      if (myCharge?.billing_type === 'PIX' && myCharge?.pix_qr_code) {
+        const pixObj = {
+          qrCode: myCharge.pix_qr_code as string,
+          copyPaste: (myCharge.pix_copy_paste as string) || '',
+          amount: Number(myCharge.amount),
+          invoiceUrl: (myCharge.invoice_url as string) || undefined,
+        };
+        setPartPix((prev) => ({ ...prev, [part]: pixObj }));
+        setPixDialog({ ...pixObj, kind: part });
+      } else {
+        const link = myCharge?.invoice_url || myCharge?.boleto_url || null;
+        if (link && (part === 'SIGNAL' || part === 'REST')) {
+          setPartLink((prev) => ({ ...prev, [part]: link }));
+          if (data?.idempotent && typeof window !== 'undefined') {
+            window.open(link, '_blank', 'noopener,noreferrer');
+          }
         }
       }
       showSuccess(data?.idempotent ? `${partLabel}: 2a via aberta` : `${partLabel} emitido`);
@@ -2110,12 +2243,18 @@ function SignalDatesInput({
               {quoteId && canEmit && totalEntrada > 0 && (
                 <button
                   type="button"
-                  onClick={() => partLink.SIGNAL ? window.open(partLink.SIGNAL, '_blank', 'noopener,noreferrer') : emitPart('SIGNAL')}
-                  disabled={!!emittingPart || (!partLink.SIGNAL && signalValue <= 0)}
-                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${partLink.SIGNAL ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                  title={partLink.SIGNAL ? 'Abrir 2ª via (não cria nova cobrança)' : signalValue <= 0 ? 'Configure um valor de sinal > 0' : signalMethod === 'CASH' ? `Registrar sinal R$ ${fmtBRL(signalValue)} como recebido em espécie (1 clique cria e dá baixa)` : `Emitir sinal R$ ${fmtBRL(signalValue)} (${signalMethod})`}
+                  onClick={() =>
+                    partPix.SIGNAL
+                      ? setPixDialog({ ...partPix.SIGNAL, kind: 'SIGNAL' })
+                      : partLink.SIGNAL
+                      ? window.open(partLink.SIGNAL, '_blank', 'noopener,noreferrer')
+                      : emitPart('SIGNAL')
+                  }
+                  disabled={!!emittingPart || (!partPix.SIGNAL && !partLink.SIGNAL && signalValue <= 0)}
+                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${(partPix.SIGNAL || partLink.SIGNAL) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  title={partPix.SIGNAL ? 'Mostrar QR PIX de novo (não cria nova cobrança)' : partLink.SIGNAL ? 'Abrir 2ª via (não cria nova cobrança)' : signalValue <= 0 ? 'Configure um valor de sinal > 0' : signalMethod === 'CASH' ? `Registrar sinal R$ ${fmtBRL(signalValue)} como recebido em espécie (1 clique cria e dá baixa)` : `Emitir sinal R$ ${fmtBRL(signalValue)} (${signalMethod})`}
                 >
-                  {emittingPart === 'SIGNAL' ? <Loader2 size={11} className="animate-spin" /> : partLink.SIGNAL ? '📄 2ª via' : signalMethod === 'CASH' ? '✓ Registrar recebido' : '💸 Emitir'}
+                  {emittingPart === 'SIGNAL' ? <Loader2 size={11} className="animate-spin" /> : partPix.SIGNAL ? '📱 Ver QR' : partLink.SIGNAL ? '📄 2ª via' : signalMethod === 'CASH' ? '✓ Registrar recebido' : '💸 Emitir'}
                 </button>
               )}
             </div>
@@ -2142,12 +2281,18 @@ function SignalDatesInput({
               {quoteId && canEmit && totalEntrada > 0 && (
                 <button
                   type="button"
-                  onClick={() => partLink.REST ? window.open(partLink.REST, '_blank', 'noopener,noreferrer') : emitPart('REST')}
-                  disabled={!!emittingPart || (!partLink.REST && (entradaBoletoValue <= 0 || !entradaDueDate))}
-                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${partLink.REST ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                  title={partLink.REST ? 'Abrir 2ª via (não cria nova cobrança)' : entradaBoletoValue <= 0 ? 'Sinal cobre toda a entrada — nao ha restante' : !entradaDueDate ? 'Defina a data de vencimento da entrada' : `Emitir entrada R$ ${fmtBRL(entradaBoletoValue)} (${restMethod})`}
+                  onClick={() =>
+                    partPix.REST
+                      ? setPixDialog({ ...partPix.REST, kind: 'REST' })
+                      : partLink.REST
+                      ? window.open(partLink.REST, '_blank', 'noopener,noreferrer')
+                      : emitPart('REST')
+                  }
+                  disabled={!!emittingPart || (!partPix.REST && !partLink.REST && (entradaBoletoValue <= 0 || !entradaDueDate))}
+                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${(partPix.REST || partLink.REST) ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  title={partPix.REST ? 'Mostrar QR PIX de novo (não cria nova cobrança)' : partLink.REST ? 'Abrir 2ª via (não cria nova cobrança)' : entradaBoletoValue <= 0 ? 'Sinal cobre toda a entrada — nao ha restante' : !entradaDueDate ? 'Defina a data de vencimento da entrada' : `Emitir entrada R$ ${fmtBRL(entradaBoletoValue)} (${restMethod})`}
                 >
-                  {emittingPart === 'REST' ? <Loader2 size={11} className="animate-spin" /> : partLink.REST ? '📄 2ª via' : '💸 Emitir'}
+                  {emittingPart === 'REST' ? <Loader2 size={11} className="animate-spin" /> : partPix.REST ? '📱 Ver QR' : partLink.REST ? '📄 2ª via' : '💸 Emitir'}
                 </button>
               )}
             </div>
@@ -2230,6 +2375,19 @@ function SignalDatesInput({
             </div>
           )}
         </div>
+      )}
+
+      {/* Onda 15 (etapa 14) — Modal "profissional" do PIX (QR + copia-cola) */}
+      {pixDialog && (
+        <PixQrDialog
+          qrCode={pixDialog.qrCode}
+          copyPaste={pixDialog.copyPaste}
+          amount={pixDialog.amount}
+          invoiceUrl={pixDialog.invoiceUrl}
+          title={pixDialog.kind === 'SIGNAL' ? 'Sinal via PIX' : 'Entrada via PIX'}
+          subtitle="Escaneie o QR code abaixo pra pagar"
+          onClose={() => setPixDialog(null)}
+        />
       )}
     </div>
   );

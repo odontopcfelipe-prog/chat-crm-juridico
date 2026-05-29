@@ -238,6 +238,23 @@ export class DownPaymentFlowService {
       externalReference: args.planId,
     });
 
+    // Onda 15 (etapa 14) — Pra PIX, buscar QR code + copia-cola NA HORA da
+    // criacao (sem esperar o webhook do Asaas, que so dispara quando o
+    // paciente abre o link). Assim o operador pode mostrar o QR direto no
+    // modal da clinica, com cara profissional, sem precisar redirecionar
+    // pra pagina hospedada do Asaas. Falha aqui NAO bloqueia o registro:
+    // o invoice_url continua funcionando como fallback.
+    let pixData: { encodedImage?: string; payload?: string } | null = null;
+    if (args.method === 'PIX') {
+      try {
+        pixData = await this.asaas.getPixQrCode(asaasCharge.id);
+      } catch (err: any) {
+        this.logger.warn(
+          `[DOWN-PMT] Falha ao buscar QR PIX da charge ${asaasCharge.id}: ${err?.message || err}`,
+        );
+      }
+    }
+
     return this.prisma.paymentGatewayCharge.create({
       data: {
         tenant_id: args.tenantId,
@@ -254,6 +271,8 @@ export class DownPaymentFlowService {
         boleto_url: asaasCharge.bankSlipUrl || null,
         boleto_barcode: asaasCharge.nossoNumero || null,
         invoice_url: asaasCharge.invoiceUrl || null,
+        pix_qr_code: pixData?.encodedImage || null,
+        pix_copy_paste: pixData?.payload || null,
       },
     });
   }
