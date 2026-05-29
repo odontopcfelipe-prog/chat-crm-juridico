@@ -17,6 +17,7 @@
  * existe. Filtra DRAFT/SENT (aceitos/rejeitados ja foram decididos).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft,
@@ -477,6 +478,23 @@ function applyPaymentOption(
 
 function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+/**
+ * Onda 15 (etapa 10) — Renderiza o modal direto no <body> via portal.
+ *
+ * Necessario porque no FX "neon" (glass) o CSS aplica `backdrop-filter` em
+ * `.bg-card` (globals.css). backdrop-filter cria um "containing block" pra
+ * elementos `position: fixed`. Como os modais de parcelas sao renderizados
+ * DENTRO do painel `.bg-card` da proposta, sem o portal eles ancoravam no
+ * painel (apareciam "em baixo") em vez de centralizar na viewport. O portal
+ * joga o modal pro body, escapando do containing block.
+ */
+function ModalPortal({ children }: { children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  if (!mounted) return null;
+  return createPortal(children, document.body);
 }
 
 interface VariantConfig {
@@ -1038,7 +1056,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       : Number(c.total_value);
   }, [grouped]);
 
-  if (loading) {
+  // Onda 15 (etapa 11) — So mostra o spinner de tela cheia no PRIMEIRO load
+  // (sem dados ainda). Refetches em background (ex: toggle de consulta de
+  // credito chamando load()) NAO podem desmontar o painel/modal — antes isso
+  // fechava o modal de parcelas toda vez que se clicava na opcao de consulta.
+  if (loading && quotes.length === 0) {
     return (
       <div className="py-12 flex items-center justify-center text-muted-foreground">
         <Loader2 size={18} className="animate-spin mr-2" /> Carregando propostas...
@@ -1825,6 +1847,8 @@ function SignalDatesInput({
   /** Onda 14.59 — quote/perms pra renderizar botao "Emitir cobranca da entrada" */
   quoteId,
   canEmit,
+  installmentCount,
+  installmentValue,
   restMethod = 'BOLETO',
   onChangeRestMethod,
 }: {
@@ -1839,6 +1863,11 @@ function SignalDatesInput({
   onChangeInstallmentsStartDate: (d: string) => void;
   quoteId?: string;
   canEmit?: boolean;
+  /** Onda 15 (etapa 12) — qtd + valor da parcela do boleto selecionado, pra
+   *  emitir o parcelado manualmente (botao "Emitir parcelas"). undefined =
+   *  nao ha boleto parcelado selecionado → botao desabilitado. */
+  installmentCount?: number;
+  installmentValue?: number;
   restMethod?: 'PIX' | 'BOLETO' | 'CASH';
   onChangeRestMethod?: (m: 'PIX' | 'BOLETO' | 'CASH') => void;
 }) {
@@ -1846,6 +1875,8 @@ function SignalDatesInput({
   // Onda 14.59.2 — Estado dos 3 botoes individuais (sinal/entrada/parcelas)
   const [emittingPart, setEmittingPart] = useState<null | 'SIGNAL' | 'REST' | 'INSTALLMENTS'>(null);
   const [emitResult, setEmitResult] = useState<{ ok: boolean; msg: string; charges?: any[] } | null>(null);
+  // Link da cobranca por parte (apos emitir). Reapertar abre a 2a via existente — nao cria nova.
+  const [partLink, setPartLink] = useState<{ SIGNAL?: string; REST?: string }>({});
 
   const emitPart = async (part: 'SIGNAL' | 'REST' | 'INSTALLMENTS') => {
     if (!quoteId) return;
@@ -1854,12 +1885,88 @@ function SignalDatesInput({
     try {
       let data: any;
       if (part === 'INSTALLMENTS') {
-        // Emitir parcelas — endpoint separado. Frontend ainda nao tem os params
-        // de installmentCount/Value persistidos aqui, entao deixa o backend
-        // pegar do plan. (Caso o plan nao tenha, retorna erro 400.)
-        // Vou pular por ora pra simplificar o MVP. Operador usa o "Boleto
-        // Banco PASSOS" antigo pra gerar parcelas.
-        showError('Emissao manual de parcelas ainda nao implementada — use o "Boleto Banco PASSOS" pra gerar.');
+        // Onda 15 (etapa 12) — Emite o parcelado via endpoint dedicado. A 1a
+        // parcela vence em installmentsStartDate (ou +30d se vazio) e o Asaas
+        // gera as demais a cada 30 dias conforme installmentCount. O backend
+        // exige sinal+entrada PAGOS (retorna 400 com mensagem clara senao).
+        if (!installmentCount || !installmentValue) {
+          showError('Selecione a quantidade de parcelas no card do Boleto antes de emitir.');
+          return;
+        }
+        const dueLabel = installmentsStartDate ? `1ª vence em ${installmentsStartDate}` : '1ª vence em ~30 dias';
+        const ok = window.confirm(
+          `Emitir ${installmentCount}x de R$ ${fmtBRL(installmentValue)} (${dueLabel}, demais a cada 30 dias)?\n\n` +
+          `Isso gera boletos REAIS no Asaas. Só funciona se o sinal + entrada já estiverem pagos.`,
+        );
+        if (!ok) return;
+        const { data: instData } = await api.post(`/quotes/${quoteId}/emit-installments`, {
+          installmentCount,
+          installmentValue,
+          ...(installmentsStartDate ? { firstDueDate: installmentsStartDate } : {}),
+        });
+        const instCharges = instData?.charges ?? [];
+        setEmitResult({
+          ok: true,
+          msg: instData?.idempotent
+            ? 'Parcelas já estavam emitidas — não criou novas cobranças.'
+            : `Parcelas emitidas: ${installmentCount}x de R$ ${fmtBRL(installmentValue)}.`,
+          charges: instCharges,
+        });
+        showSuccess(instData?.idempotent ? 'Parcelas já emitidas' : 'Parcelas emitidas');
+        return;
+      }
+      // Onda 15 (etapa 13) — SINAL em ESPÉCIE: confirma + emite + da baixa
+      // num clique so (cria registro CASH no DB + chama mark-cash-received).
+      // Backend e idempotente nos dois endpoints, entao cliques repetidos sao
+      // seguros (retornam o registro existente).
+      if (part === 'SIGNAL' && signalMethod === 'CASH') {
+        const ok = window.confirm(
+          `Registrar sinal R$ ${fmtBRL(signalValue)} como recebido em espécie?\n\n` +
+          `Confirme que o paciente entregou o dinheiro em mãos. ` +
+          `Isso cria o registro e já dá baixa.`,
+        );
+        if (!ok) return;
+        const restValueLocal = Math.max(0, totalEntrada - signalValue);
+        const cashBody: any = {
+          signalValue,
+          signalMethod,
+          restValue: restValueLocal,
+          restMethod,
+          parts: ['SIGNAL'],
+        };
+        if (restValueLocal > 0 && entradaDueDate) cashBody.restDueDate = entradaDueDate;
+        const { data: emitData } = await api.post(`/quotes/${quoteId}/emit-down-payment`, cashBody);
+        // Procura especificamente o SINAL (idempotencia pode devolver SINAL+ENTRADA juntos).
+        const cashCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+          || (emitData?.charges ?? [])[0];
+        if (!cashCharge?.id) {
+          showError('Falha ao criar registro do sinal em espécie.');
+          return;
+        }
+        // Onda 15 (etapa 13.1) — Se ja existe um sinal PIX/BOLETO emitido, o
+        // backend (idempotencia) retorna ele em vez de criar um CASH novo.
+        // Espécie nao pode "dar baixa" num boleto/PIX do Asaas — o operador
+        // precisa cancelar a cobranca anterior primeiro. Mostra mensagem clara.
+        if (cashCharge.gateway !== 'CASH') {
+          const tipo = cashCharge.billing_type || cashCharge.gateway || 'PIX/BOLETO';
+          const msg = `Já existe um sinal emitido via ${tipo} no Asaas. ` +
+            `Para registrar em espécie, cancele essa cobrança primeiro (aba Financeiro). ` +
+            `Espécie fica registrada só no sistema, sem passar pelo Asaas.`;
+          setEmitResult({ ok: false, msg });
+          showError(msg);
+          return;
+        }
+        const wasAlreadyReceived = !!cashCharge.received_in_cash;
+        await api.post(`/charges/${cashCharge.id}/mark-cash-received`);
+        const alreadyDone = wasAlreadyReceived || !!emitData?.idempotent;
+        setEmitResult({
+          ok: true,
+          msg: alreadyDone
+            ? 'Sinal em espécie já estava registrado como recebido.'
+            : `Sinal R$ ${fmtBRL(signalValue)} registrado como recebido em espécie.`,
+          charges: [cashCharge],
+        });
+        showSuccess(alreadyDone ? 'Sinal em espécie já registrado' : 'Sinal recebido em espécie registrado');
         return;
       }
       const restValue = Math.max(0, totalEntrada - signalValue);
@@ -1877,11 +1984,19 @@ function SignalDatesInput({
       setEmitResult({
         ok: true,
         msg: data?.idempotent
-          ? `${partLabel} ja foi emitido antes (charges existentes retornadas).`
+          ? `${partLabel} ja estava emitido — abrindo 2a via (nao criou nova cobranca).`
           : `${partLabel} emitido com sucesso (${charges.length} cobranca).`,
         charges,
       });
-      showSuccess(`${partLabel} emitido`);
+      // Guarda o link da cobranca pra "2a via". Se ja existia (idempotent), abre direto.
+      const link = charges[0]?.invoice_url || charges[0]?.boleto_url || null;
+      if (link && (part === 'SIGNAL' || part === 'REST')) {
+        setPartLink((prev) => ({ ...prev, [part]: link }));
+        if (data?.idempotent && typeof window !== 'undefined') {
+          window.open(link, '_blank', 'noopener,noreferrer');
+        }
+      }
+      showSuccess(data?.idempotent ? `${partLabel}: 2a via aberta` : `${partLabel} emitido`);
     } catch (e: any) {
       const msg = e?.response?.data?.message || e?.message || 'Erro desconhecido';
       setEmitResult({ ok: false, msg });
@@ -1983,14 +2098,27 @@ function SignalDatesInput({
                 Espécie
               </button>
             </div>
-            <input
-              type="text"
-              value={signalText}
-              onChange={(e) => handleSignalChange(e.target.value)}
-              placeholder="R$ 0,00"
-              inputMode="numeric"
-              className="w-32 text-sm font-semibold tabular-nums px-3 py-1.5 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-            />
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="text"
+                value={signalText}
+                onChange={(e) => handleSignalChange(e.target.value)}
+                placeholder="R$ 0,00"
+                inputMode="numeric"
+                className="w-28 text-sm font-semibold tabular-nums px-3 py-1.5 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+              />
+              {quoteId && canEmit && totalEntrada > 0 && (
+                <button
+                  type="button"
+                  onClick={() => partLink.SIGNAL ? window.open(partLink.SIGNAL, '_blank', 'noopener,noreferrer') : emitPart('SIGNAL')}
+                  disabled={!!emittingPart || (!partLink.SIGNAL && signalValue <= 0)}
+                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${partLink.SIGNAL ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  title={partLink.SIGNAL ? 'Abrir 2ª via (não cria nova cobrança)' : signalValue <= 0 ? 'Configure um valor de sinal > 0' : signalMethod === 'CASH' ? `Registrar sinal R$ ${fmtBRL(signalValue)} como recebido em espécie (1 clique cria e dá baixa)` : `Emitir sinal R$ ${fmtBRL(signalValue)} (${signalMethod})`}
+                >
+                  {emittingPart === 'SIGNAL' ? <Loader2 size={11} className="animate-spin" /> : partLink.SIGNAL ? '📄 2ª via' : signalMethod === 'CASH' ? '✓ Registrar recebido' : '💸 Emitir'}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* ENTRADA (boleto resto) — valor calculado + data */}
@@ -2004,12 +2132,25 @@ function SignalDatesInput({
               </p>
             </div>
             <span className="text-[10px] text-muted-foreground shrink-0">Vence em:</span>
-            <input
-              type="date"
-              value={entradaDueDate}
-              onChange={(e) => onChangeEntradaDueDate(e.target.value)}
-              className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-            />
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="date"
+                value={entradaDueDate}
+                onChange={(e) => onChangeEntradaDueDate(e.target.value)}
+                className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+              />
+              {quoteId && canEmit && totalEntrada > 0 && (
+                <button
+                  type="button"
+                  onClick={() => partLink.REST ? window.open(partLink.REST, '_blank', 'noopener,noreferrer') : emitPart('REST')}
+                  disabled={!!emittingPart || (!partLink.REST && (entradaBoletoValue <= 0 || !entradaDueDate))}
+                  className={`inline-flex items-center justify-center gap-1 px-3 py-1.5 rounded-md text-white text-[11px] font-bold shadow-sm transition-colors shrink-0 whitespace-nowrap disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed ${partLink.REST ? 'bg-blue-600 hover:bg-blue-700' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  title={partLink.REST ? 'Abrir 2ª via (não cria nova cobrança)' : entradaBoletoValue <= 0 ? 'Sinal cobre toda a entrada — nao ha restante' : !entradaDueDate ? 'Defina a data de vencimento da entrada' : `Emitir entrada R$ ${fmtBRL(entradaBoletoValue)} (${restMethod})`}
+                >
+                  {emittingPart === 'REST' ? <Loader2 size={11} className="animate-spin" /> : partLink.REST ? '📄 2ª via' : '💸 Emitir'}
+                </button>
+              )}
+            </div>
           </div>
 
           {/* INICIO DAS PARCELAS */}
@@ -2023,73 +2164,23 @@ function SignalDatesInput({
               </p>
             </div>
             <span className="text-[10px] text-muted-foreground shrink-0">1ª parcela:</span>
-            <input
-              type="date"
-              value={installmentsStartDate}
-              onChange={(e) => onChangeInstallmentsStartDate(e.target.value)}
-              className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
-            />
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                type="date"
+                value={installmentsStartDate}
+                onChange={(e) => onChangeInstallmentsStartDate(e.target.value)}
+                className="w-36 text-xs px-2 py-1.5 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-500"
+              />
+            </div>
           </div>
 
-          {/* Onda 14.59.2 — 3 BOTOES INDIVIDUAIS: emite sinal/entrada/parcelas
-              separadamente. Operador decide quando emitir cada parte. */}
+          {/* Onda 14.59.2 — botoes movidos pra cada linha de cobranca acima.
+              Aqui fica so a nota explicativa. */}
           {quoteId && canEmit && totalEntrada > 0 && (
-            <div className="pt-2 border-t border-blue-500/20 space-y-2">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
-                Emitir cobrancas (individuais)
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
-                {/* SINAL */}
-                <button
-                  type="button"
-                  onClick={() => emitPart('SIGNAL')}
-                  disabled={!!emittingPart || signalValue <= 0}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition-colors"
-                  title={signalValue <= 0 ? 'Configure um valor de sinal > 0' : `Emitir sinal R$ ${fmtBRL(signalValue)} (${signalMethod})`}
-                >
-                  {emittingPart === 'SIGNAL' ? (
-                    <><Loader2 size={12} className="animate-spin" /> Emitindo...</>
-                  ) : (
-                    <>💸 Sinal{signalValue > 0 ? ` R$ ${fmtBRL(signalValue)}` : ''}</>
-                  )}
-                </button>
-
-                {/* ENTRADA (restante) */}
-                <button
-                  type="button"
-                  onClick={() => emitPart('REST')}
-                  disabled={!!emittingPart || entradaBoletoValue <= 0 || !entradaDueDate}
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-stone-300 disabled:text-stone-500 disabled:cursor-not-allowed text-white text-xs font-bold shadow-sm transition-colors"
-                  title={
-                    entradaBoletoValue <= 0
-                      ? 'Sinal cobre toda a entrada — nao ha restante'
-                      : !entradaDueDate
-                      ? 'Defina a data de vencimento da entrada acima'
-                      : `Emitir entrada R$ ${fmtBRL(entradaBoletoValue)} (${restMethod})`
-                  }
-                >
-                  {emittingPart === 'REST' ? (
-                    <><Loader2 size={12} className="animate-spin" /> Emitindo...</>
-                  ) : (
-                    <>💸 Entrada{entradaBoletoValue > 0 ? ` R$ ${fmtBRL(entradaBoletoValue)}` : ''}</>
-                  )}
-                </button>
-
-                {/* PARCELAS (so depois de sinal+entrada confirmados) */}
-                <button
-                  type="button"
-                  onClick={() => emitPart('INSTALLMENTS')}
-                  disabled
-                  className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-stone-300 text-stone-500 cursor-not-allowed text-xs font-bold shadow-sm transition-colors"
-                  title="Parcelas geradas automaticamente quando sinal+entrada confirmados (via webhook Asaas). Manual em breve."
-                >
-                  📋 Parcelas (auto)
-                </button>
-              </div>
-              <p className="text-[10px] text-muted-foreground text-center">
-                Cada botão emite SO sua parte. Idempotente: nao re-emite se ja existe.
-              </p>
-            </div>
+            <p className="text-[10px] text-muted-foreground pt-2 border-t border-blue-500/20">
+              Sinal e entrada são emitidos nos botões acima (idempotente: não re-emite se já existe).
+              As parcelas começam na data definida e são geradas automaticamente ao aprovar — o Asaas escalona as demais a cada 30 dias.
+            </p>
           )}
 
           {/* Onda 14.59 — Resultado da emissao */}
@@ -2652,6 +2743,11 @@ function PropostaPainel({
   const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('PIX');
   const [customEntradaDueDate, setCustomEntradaDueDate] = useState<string>('');
   const [customInstallmentsStartDate, setCustomInstallmentsStartDate] = useState<string>('');
+  // Onda 15 (etapa 8) — modais de parcelamento abertos pelos cards de Cartao
+  // e Boleto. Clicar no card abre a "aba" de parcelas; ao escolher, o card
+  // passa a expor a quantidade selecionada na propria face.
+  const [cartaoModalOpen, setCartaoModalOpen] = useState(false);
+  const [boletoModalOpen, setBoletoModalOpen] = useState(false);
   const detailIdRef = useRef<string | null>(null);
 
   // Restaura valor ao trocar de quote ou recarregar
@@ -2930,110 +3026,224 @@ function PropostaPainel({
         )}
       </div>
 
-      {/* Onda 14.29 — Entrada opcional. Operador digita valor que abate
-          do total parcelavel. Cartao e Boleto parcelado recalculam parcelas
-          sobre (total - entrada). PIX e Boleto a vista ignoram. */}
-      <DownPaymentInput
-        total={total}
-        value={customDownPayment}
-        onChange={setCustomDownPayment}
-      />
+      {/* Onda 15 (etapa 7) — Entrada opcional + datas foram movidas pra DENTRO
+          da secao "Como o paciente quer pagar?" abaixo: so aparecem ao escolher
+          Cartao parcelado ou Boleto financiado (PIX/avista nao usam entrada). */}
 
-      {/* Onda 14.58 — Dividir entrada em Sinal (PIX/Boleto hoje) + Entrada
-          (boleto na data configuravel) + Parcelas comecam em data X.
-          So aparece quando customDownPayment > 0. */}
-      {customDownPayment > 0 && (
-        <SignalDatesInput
-          totalEntrada={customDownPayment}
-          signalValue={customSignalValue}
-          signalMethod={customSignalMethod}
-          entradaDueDate={customEntradaDueDate}
-          installmentsStartDate={customInstallmentsStartDate}
-          onChangeSignalValue={setCustomSignalValue}
-          onChangeSignalMethod={setCustomSignalMethod}
-          onChangeEntradaDueDate={setCustomEntradaDueDate}
-          onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
-          quoteId={detail.id}
-          canEmit={true}
-        />
-      )}
-
-      {/* Onda 11.9 — PIX/dinheiro e Cartao de credito lado a lado em grid 2 cols.
-          Onda 12.3 — items-stretch + h-full nos botoes pra alinhar alturas. */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4 items-stretch">
-        {/* Pagamento à vista — Onda 11.6: so PIX/dinheiro */}
-        <div className="flex flex-col">
-          <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-            À vista — com desconto
-          </p>
-          {options.avista.map((opt) => {
-            const isActive = activePaymentKey === opt.key;
-            const calc = applyPaymentOption(total, opt);
-            return (
-              <button
-                key={opt.key}
-                type="button"
-                onClick={() => onChangePayment(opt.key)}
-                className={`w-full flex-1 p-4 rounded-lg border text-left transition-colors relative ${
-                  isActive
-                    ? 'border-emerald-500 bg-emerald-500/10'
-                    : 'border-border hover:bg-accent/40'
-                }`}
-              >
-                <span className="absolute top-2 right-2 text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">
-                  −{opt.discountPercent}%
-                </span>
-                <p className="text-sm font-semibold flex items-center gap-1.5 mb-2">
-                  <Send size={13} />
-                  {opt.label}
-                </p>
-                <div className="flex items-baseline gap-3 flex-wrap">
-                  <p className="text-3xl font-bold tabular-nums text-emerald-700">
-                    R$ {fmtBRL(calc.finalValue)}
+      {/* === Onda 15 — Comparativo "Como o paciente quer pagar?" ===
+          3 cards lado a lado (PIX / Cartao / Boleto) pra apresentar ao paciente.
+          Clicar seleciona a forma; entrada + parcelas aparecem abaixo so ao
+          escolher Cartao/Boleto. */}
+      {(() => {
+        const pixOpt = options.avista[0];
+        const pixCalc = pixOpt ? applyPaymentOption(total, pixOpt) : null;
+        const cartaoOpt = options.cartao.find((o: any) => o.installments === 6);
+        const cartaoCalc = cartaoOpt ? applyPaymentOption(total, cartaoOpt, customDownPayment) : null;
+        const boletoOpt = options.parcelado.find((o: any) => o.installments === 10 && !o.isAVistaHighlight);
+        const boletoCalc = boletoOpt ? applyPaymentOption(total, boletoOpt, customDownPayment) : null;
+        const sel = !activePaymentKey
+          ? null
+          : activePaymentKey === 'pix'
+          ? 'pix'
+          : activePaymentKey.startsWith('cartao-')
+          ? 'cartao'
+          : (activePaymentKey === 'boleto-avista' || activePaymentKey.startsWith('parcelado-'))
+          ? 'boleto'
+          : null;
+        // Onda 15 (etapa 8) — opcao REALMENTE selecionada (pra expor a
+        // quantidade de parcelas na face do card). Default = comparacao 6x/10x.
+        const activeCartaoOpt = options.cartao.find((o: any) => o.key === activePaymentKey);
+        const cartaoDisplayOpt = activeCartaoOpt || cartaoOpt;
+        const cartaoDisplayCalc = cartaoDisplayOpt ? applyPaymentOption(total, cartaoDisplayOpt, customDownPayment) : null;
+        const activeBoletoOpt = options.parcelado.find((o: any) => o.key === activePaymentKey);
+        const boletoDisplayOpt = activeBoletoOpt || boletoOpt;
+        const boletoDisplayCalc = boletoDisplayOpt ? applyPaymentOption(total, boletoDisplayOpt, customDownPayment) : null;
+        const requiresCC = detail.requires_credit_check !== false;
+        return (
+          <div className="mb-5">
+            <p className="text-sm font-bold text-foreground mb-2">Como o paciente quer pagar?</p>
+            {/* Onda 15 (etapa 8) — 3 cards. PIX seleciona direto. Cartao e
+                Boleto ABREM a aba de parcelamento (modal) ao clicar; ao escolher,
+                a face do card passa a expor a quantidade de parcelas selecionada. */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
+              {/* PIX ou dinheiro */}
+              {pixCalc && (
+                <button type="button" onClick={() => onChangePayment(pixOpt.key)}
+                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                    sel === 'pix'
+                      ? 'border-emerald-500 bg-emerald-500/10'
+                      : 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
+                  }`}>
+                  <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-2 flex-wrap">
+                    PIX ou dinheiro
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">Melhor opção</span>
+                    {sel === 'pix' && <Check size={12} className="text-emerald-600" />}
                   </p>
-                  <p className="text-base text-muted-foreground line-through tabular-nums">
-                    R$ {fmtBRL(total)}
-                  </p>
-                </div>
-                <p className="text-xs text-emerald-700 mt-1 font-medium">
-                  economia de R$ {fmtBRL(calc.savedValue)}
-                </p>
-              </button>
-            );
-          })}
-        </div>
+                  <p className="text-2xl font-extrabold tabular-nums text-emerald-700">R$ {fmtBRL(pixCalc.finalValue)}</p>
+                  <p className="text-[11px] text-emerald-700 font-medium mt-1">↓ economiza R$ {fmtBRL(pixCalc.savedValue)} (-{pixOpt.discountPercent}%)</p>
+                </button>
+              )}
 
-        {/* Onda 11.5 — Cartao de credito (card unico com dropdown inline) */}
-        <CardCartao
-          options={options.cartao}
-          total={total}
-          activePaymentKey={activePaymentKey}
-          onChangePayment={onChangePayment}
-          customDownPayment={customDownPayment}
-        />
-      </div>
+              {/* Cartão de crédito — clique abre a aba de parcelas */}
+              {cartaoDisplayCalc && cartaoDisplayOpt && (
+                <button type="button"
+                  onClick={() => { if (sel !== 'cartao') onChangePayment(cartaoDisplayOpt.key); setCartaoModalOpen(true); }}
+                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                    sel === 'cartao'
+                      ? 'border-blue-500 bg-blue-500/10'
+                      : 'border-border bg-card hover:bg-accent/40'
+                  }`}>
+                  {sel === 'cartao' ? (
+                    <>
+                      <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
+                        <DollarSign size={13} className="text-blue-600" />
+                        Cartão · {cartaoDisplayOpt.installments}x
+                        <Check size={12} className="text-blue-600" />
+                      </p>
+                      {cartaoDisplayCalc.downPaymentValue > 0 && (
+                        <p className="text-[10px] text-muted-foreground mb-0.5">entrada R$ {fmtBRL(cartaoDisplayCalc.downPaymentValue)} +</p>
+                      )}
+                      <p className="text-2xl font-extrabold tabular-nums text-blue-700">{cartaoDisplayOpt.installments}x de R$ {fmtBRL(cartaoDisplayCalc.installmentValue)}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        total R$ {fmtBRL(cartaoDisplayCalc.finalValue)} · {cartaoDisplayCalc.extraInterest > 0 ? <span className="text-amber-700 font-semibold">+R$ {fmtBRL(cartaoDisplayCalc.extraInterest)} juros</span> : <span className="text-emerald-700 font-semibold">sem juros</span>} · <span className="text-blue-600 font-semibold">trocar ▾</span>
+                      </p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-foreground mb-1">Cartão de crédito</p>
+                      <p className="text-2xl font-extrabold tabular-nums text-foreground">R$ {fmtBRL(cartaoDisplayCalc.finalValue)}</p>
+                      <p className="text-[11px] text-muted-foreground mt-1">até 6x sem juros · clique pra escolher ▾</p>
+                    </>
+                  )}
+                </button>
+              )}
 
-      {/* Onda 11.8 — Boleto parcelado vira card reclinavel (nao exposto por padrao).
-          Operador abre so quando quer propor essa alternativa ao paciente.
-          Onda 14.26 — agora respeita requires_credit_check da venda: quando
-          false, parcelados aplicam direto sem credit-check. */}
-      <CardBoletoParcelado
-        options={options.parcelado}
-        total={total}
-        activePaymentKey={activePaymentKey}
-        onChangePayment={onChangePayment}
-        onOpenCreditCheckForParcelas={onOpenCreditCheckForParcelas}
-        requiresCreditCheck={detail.requires_credit_check !== false}
-        onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
-        customDownPayment={customDownPayment}
-        // Onda 14.58 — sinal + datas propagados pra serem incluidos no
-        // payload do apply-financing quando operador for gerar os boletos.
-        customSignalValue={customSignalValue}
-        customSignalMethod={customSignalMethod}
-        customEntradaDueDate={customEntradaDueDate}
-        customInstallmentsStartDate={customInstallmentsStartDate}
-      />
+              {/* Boleto financiado — clique abre a aba de parcelas */}
+              {boletoDisplayCalc && boletoDisplayOpt && (
+                <button type="button"
+                  onClick={() => setBoletoModalOpen(true)}
+                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                    sel === 'boleto'
+                      ? 'border-amber-500 bg-amber-500/10'
+                      : 'border-border bg-card hover:bg-accent/40'
+                  }`}>
+                  {sel === 'boleto' ? (
+                    boletoDisplayOpt.key === 'boleto-avista' ? (
+                      <>
+                        <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
+                          <Building2 size={13} className="text-amber-600" />
+                          Boleto · à vista
+                          <Check size={12} className="text-amber-600" />
+                        </p>
+                        <p className="text-2xl font-extrabold tabular-nums text-amber-700">R$ {fmtBRL(boletoDisplayCalc.finalValue)}</p>
+                        <p className="text-[11px] text-muted-foreground mt-1">à vista · <span className="text-emerald-700 font-semibold">sem juros</span> · <span className="text-amber-700 font-semibold">trocar ▾</span></p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
+                          <Building2 size={13} className="text-amber-600" />
+                          Boleto · {boletoDisplayOpt.installments}x
+                          <Check size={12} className="text-amber-600" />
+                        </p>
+                        {boletoDisplayCalc.downPaymentValue > 0 && (
+                          <p className="text-[10px] text-muted-foreground mb-0.5">entrada R$ {fmtBRL(boletoDisplayCalc.downPaymentValue)} +</p>
+                        )}
+                        <p className="text-2xl font-extrabold tabular-nums text-amber-700">{boletoDisplayOpt.installments}x de R$ {fmtBRL(boletoDisplayCalc.installmentValue)}<span className="text-sm font-bold">/mês</span></p>
+                        <p className="text-[11px] text-muted-foreground mt-1">
+                          total R$ {fmtBRL(boletoDisplayCalc.finalValue)}{boletoDisplayCalc.extraInterest > 0 ? <> · <span className="text-amber-700 font-semibold">+R$ {fmtBRL(boletoDisplayCalc.extraInterest)} juros</span></> : ''} · <span className="text-amber-700 font-semibold">trocar ▾</span>
+                        </p>
+                      </>
+                    )
+                  ) : (
+                    <>
+                      <p className="text-xs font-semibold text-foreground mb-1">Boleto financiado</p>
+                      <p className="text-2xl font-extrabold tabular-nums text-amber-700">R$ {fmtBRL(boletoDisplayCalc.finalValue)}</p>
+                      <p className="text-[11px] text-amber-700 mt-1">parcele em 1x a 24x · clique pra escolher ▾</p>
+                    </>
+                  )}
+                </button>
+              )}
+            </div>
+
+            {/* Entrada + plano — abaixo, so ao escolher Cartao/Boleto.
+                O SELETOR de parcelas vive na aba (modal) aberta pelo card. */}
+            {(sel === 'cartao' || sel === 'boleto') && (
+              <div className="mt-3 space-y-3">
+                <DownPaymentInput
+                  total={total}
+                  value={customDownPayment}
+                  onChange={setCustomDownPayment}
+                />
+                {customDownPayment > 0 && (
+                  <SignalDatesInput
+                    totalEntrada={customDownPayment}
+                    signalValue={customSignalValue}
+                    signalMethod={customSignalMethod}
+                    entradaDueDate={customEntradaDueDate}
+                    installmentsStartDate={customInstallmentsStartDate}
+                    onChangeSignalValue={setCustomSignalValue}
+                    onChangeSignalMethod={setCustomSignalMethod}
+                    onChangeEntradaDueDate={setCustomEntradaDueDate}
+                    onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
+                    quoteId={detail.id}
+                    canEmit={true}
+                    installmentCount={sel === 'boleto' && boletoDisplayOpt && boletoDisplayOpt.key !== 'boleto-avista' ? boletoDisplayOpt.installments : undefined}
+                    installmentValue={sel === 'boleto' && boletoDisplayOpt && boletoDisplayOpt.key !== 'boleto-avista' && boletoDisplayCalc ? boletoDisplayCalc.installmentValue : undefined}
+                  />
+                )}
+              </div>
+            )}
+            <p className="text-[11px] text-muted-foreground mt-2">
+              ⓘ Cartão e boleto: clique no card pra escolher as parcelas · a opção escolhida fica exposta na face do card.
+            </p>
+
+            {/* Abas de parcelamento (modais) abertas pelos cards de Cartao/Boleto */}
+            {cartaoModalOpen && (
+              <CartaoInstallmentsModal
+                options={options.cartao}
+                total={total}
+                activePaymentKey={activePaymentKey}
+                onSelect={(key) => { onChangePayment(key); setCartaoModalOpen(false); }}
+                onClose={() => setCartaoModalOpen(false)}
+                customDownPayment={customDownPayment}
+              />
+            )}
+            {boletoModalOpen && (
+              <BoletoInstallmentsModal
+                options={options.parcelado}
+                total={total}
+                activePaymentKey={activePaymentKey}
+                onSelect={(opt) => {
+                  setBoletoModalOpen(false);
+                  // Mesma logica do CardBoletoParcelado: a vista / VIP aplica
+                  // direto; parcelado >= 2x abre a consulta de credito.
+                  if (opt.key === 'boleto-avista' || !requiresCC) {
+                    onChangePayment(opt.key);
+                  } else {
+                    onOpenCreditCheckForParcelas({
+                      installments: opt.installments,
+                      customDownPayment,
+                      signalValue: customSignalValue,
+                      signalMethod: customSignalMethod,
+                      entradaDueDate: customEntradaDueDate,
+                      installmentsStartDate: customInstallmentsStartDate,
+                    });
+                  }
+                }}
+                onClose={() => setBoletoModalOpen(false)}
+                requiresCreditCheck={requiresCC}
+                onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
+                customDownPayment={customDownPayment}
+              />
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Onda 15 (etapa 2) — Detalhe/ajuste da forma escolhida agora vive
+          DENTRO da fileira comparativa acima (bloco "sel !== null"). Os
+          antigos blocos duplicados (CardCartao/CardBoletoParcelado soltos
+          aqui) foram removidos pra nao renderizar 2x a mesma coisa. */}
 
       {/* Onda 14.30 — Card de Contrato (abaixo do boleto). Operador escolhe
           quais documentos vao ser incluidos pra assinatura (TCLE/USO_IMAGEM/
@@ -3242,12 +3452,13 @@ function CartaoInstallmentsModal({
   customDownPayment?: number;
 }) {
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-4xl w-full overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header destacado com gradient sutil */}
@@ -3314,7 +3525,7 @@ function CartaoInstallmentsModal({
         </div>
 
         {/* Linhas */}
-        <ul className="flex-1 overflow-y-auto">
+        <ul className="flex-1 min-h-0 overflow-y-auto">
           {options.map((opt) => {
             const isActive = activePaymentKey === opt.key;
             // Onda 14.29 — aplica entrada custom no calculo de cada linha
@@ -3374,6 +3585,7 @@ function CartaoInstallmentsModal({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
@@ -3555,6 +3767,7 @@ function BoletoInstallmentsModal({
   onSelect,
   onClose,
   requiresCreditCheck,
+  onToggleRequiresCreditCheck,
   customDownPayment = 0,
 }: {
   options: PaymentOption[];
@@ -3568,6 +3781,9 @@ function BoletoInstallmentsModal({
    *  "exige consulta" nas linhas parcelados. UI apenas — logica de
    *  application esta no handleSelectInstallment do CardBoletoParcelado. */
   requiresCreditCheck: boolean;
+  /** Onda 15 (etapa 9) — toggle da consulta de credito agora vive DENTRO
+   *  do modal do boleto (operador liga/desliga a exigencia aqui). */
+  onToggleRequiresCreditCheck?: (value: boolean) => void;
   /** Onda 14.29 — entrada opcional pra recalcular parcelas em cada linha */
   customDownPayment?: number;
 }) {
@@ -3580,12 +3796,13 @@ function BoletoInstallmentsModal({
   const highlightCalc = highlightOption ? applyPaymentOption(total, highlightOption, 0) : null;
   const isHighlightActive = !!highlightOption && activePaymentKey === highlightOption.key;
   return (
+    <ModalPortal>
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl max-w-3xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+        className="bg-card border border-border rounded-xl shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col max-h-[90vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header destacado com gradient amber */}
@@ -3638,6 +3855,31 @@ function BoletoInstallmentsModal({
             R$ {fmtBRL(total)}
           </span>
         </div>
+
+        {/* Onda 15 (etapa 9) — Opção de consulta de crédito dentro do modal.
+            Operador liga/desliga a exigência aqui mesmo, antes de escolher as
+            parcelas. Off = aplica direto sem consulta (operador assume risco). */}
+        {onToggleRequiresCreditCheck && (
+          <div className="px-6 py-3 border-b border-border flex items-center justify-between gap-3">
+            <label className="text-xs font-medium text-foreground flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={requiresCreditCheck}
+                onChange={(e) => onToggleRequiresCreditCheck(e.target.checked)}
+                className="w-4 h-4 rounded border-border accent-amber-600 cursor-pointer"
+              />
+              <span>
+                Exigir consulta de crédito ao parcelar
+                {!requiresCreditCheck && <span className="text-amber-700 italic"> · operador assume risco</span>}
+              </span>
+            </label>
+            {!requiresCreditCheck && (
+              <span className="text-[10px] text-amber-700 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 shrink-0">
+                consulta dispensada
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Onda 14.25 — Boleto à vista destacado (verde, grande, separado).
             10% desconto, sem juros, sem consulta de credito — pagamento
@@ -3718,7 +3960,7 @@ function BoletoInstallmentsModal({
         </div>
 
         {/* Linhas — Onda 14.25: filtradas, sem boleto-avista (renderizado acima destacado) */}
-        <ul className="flex-1 overflow-y-auto">
+        <ul className="flex-1 min-h-0 overflow-y-auto">
           {tableOptions.map((opt) => {
             const isActive = activePaymentKey === opt.key;
             // Onda 14.29 — entrada custom sobrescreve downPaymentPercent default
@@ -3795,6 +4037,7 @@ function BoletoInstallmentsModal({
         </div>
       </div>
     </div>
+    </ModalPortal>
   );
 }
 
