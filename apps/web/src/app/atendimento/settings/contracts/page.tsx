@@ -363,7 +363,7 @@ export default function ContractsSettingsPage() {
                   <Scale size={16} />
                 </div>
                 <div>
-                  <h4 className="text-sm font-bold text-foreground">Dados Fixos do Contrato Trabalhista</h4>
+                  <h4 className="text-sm font-bold text-foreground">Dados Fixos dos Contratos</h4>
                   <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
                     Preenchidos automaticamente em todo contrato gerado
                   </p>
@@ -372,10 +372,10 @@ export default function ContractsSettingsPage() {
 
               <div className="p-5 space-y-5">
 
-                {/* Advogado 1 */}
+                {/* Dentista Responsável Técnico — campos persistidos como advogado1_* (schema legado; renomeio em cleanup futuro) */}
                 <div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
-                    <Scale size={12} /> Advogado 1
+                    <Scale size={12} /> Dentista Responsável Técnico
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
@@ -383,26 +383,26 @@ export default function ContractsSettingsPage() {
                       <input
                         value={contract.advogado1_nome}
                         onChange={ct('advogado1_nome')}
-                        placeholder="Ex: André Freire Lustosa"
+                        placeholder="Ex: Dr. João Silva"
                         className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">OAB</label>
+                      <label className="text-xs font-semibold text-muted-foreground">CRO</label>
                       <input
                         value={contract.advogado1_oab}
                         onChange={ct('advogado1_oab')}
-                        placeholder="Ex: OAB/AL 14.209"
+                        placeholder="Ex: CRO/AL 1234"
                         className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
                       />
                     </div>
                   </div>
                 </div>
 
-                {/* Advogado 2 */}
+                {/* Dentista 2 — substituto/co-responsável; persistido como advogado2_* (schema legado) */}
                 <div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
-                    <Scale size={12} /> Advogado 2
+                    <Scale size={12} /> Dentista 2 <span className="text-[10px] font-normal lowercase text-muted-foreground">(opcional · substituto/co-responsável)</span>
                   </p>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
@@ -410,16 +410,16 @@ export default function ContractsSettingsPage() {
                       <input
                         value={contract.advogado2_nome}
                         onChange={ct('advogado2_nome')}
-                        placeholder="Ex: Gianny Karla Oliveira Silva"
+                        placeholder="Ex: Dra. Maria Santos"
                         className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
                       />
                     </div>
                     <div className="space-y-1.5">
-                      <label className="text-xs font-semibold text-muted-foreground">OAB</label>
+                      <label className="text-xs font-semibold text-muted-foreground">CRO</label>
                       <input
                         value={contract.advogado2_oab}
                         onChange={ct('advogado2_oab')}
-                        placeholder="Ex: OAB/AL 21.897"
+                        placeholder="Ex: CRO/AL 5678"
                         className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
                       />
                     </div>
@@ -429,7 +429,7 @@ export default function ContractsSettingsPage() {
                 {/* Escritório */}
                 <div>
                   <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3 flex items-center gap-2">
-                    <Building2 size={12} /> Endereço do Escritório
+                    <Building2 size={12} /> Endereço da Clínica
                   </p>
                   <div className="space-y-3">
                     <div className="space-y-1.5">
@@ -486,7 +486,7 @@ export default function ContractsSettingsPage() {
                   <input
                     value={contract.publicApiUrl}
                     onChange={ct('publicApiUrl')}
-                    placeholder="Ex: https://api.meuescritorio.com.br"
+                    placeholder="Ex: https://api.minhaclinica.com.br"
                     className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all font-mono"
                   />
                   <p className="text-[11px] text-muted-foreground">
