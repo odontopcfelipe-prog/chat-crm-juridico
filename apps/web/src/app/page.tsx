@@ -9,10 +9,10 @@ const baseUrl = process.env.NEXT_PUBLIC_APP_URL || '';
 
 const staticContent = {
   hero: {
-    title: 'ANDRÉ LUSTOSA ADVOGADOS',
+    title: 'ODONTO SYSTEM',
     subtitle:
-      'Especialistas na proteção dos seus direitos. Atendimento humano, ágil e focado em resultados nas áreas Trabalhista, Previdenciária, Civil e do Consumidor, em todo o Brasil.',
-    ctaText: 'Fale com um Especialista',
+      'Cuidamos do seu sorriso com excelência e tecnologia. Atendimento humano e personalizado em odontologia geral, estética, ortodontia e implantes.',
+    ctaText: 'Agendar Avaliação',
     ctaLink: 'https://wa.me/5582996390799',
   },
   steps: [

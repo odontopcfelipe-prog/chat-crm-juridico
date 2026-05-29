@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from "react";
 import Image from "next/image";
+import { OdontoLogo } from "../OdontoLogo";
 import {
   MessageCircle,
   ChevronDown,
@@ -168,13 +169,7 @@ export function HomeTemplate({
               className="flex items-center hover:opacity-80 transition-opacity cursor-pointer focus:outline-none"
               aria-label="Voltar para o topo"
             >
-              <Image
-                src="/landing/logo_andre_lustosa_transparente.png"
-                alt="André Lustosa Advogado"
-                width={220}
-                height={60}
-                className="h-10 lg:h-12 w-auto object-contain"
-              />
+              <OdontoLogo size="md" />
             </button>
 
             {/* Right Side Group: Menu + CTA */}
@@ -209,7 +204,7 @@ export function HomeTemplate({
                   }
                   className="text-[11px] font-bold text-slate-300 hover:text-[#FAFAFA] transition-colors uppercase tracking-widest px-2"
                 >
-                  Processo
+                  Como Funciona
                 </button>
                 <div className="w-px h-4 bg-white/20 mx-1 hidden lg:block" />
                 <a
@@ -217,14 +212,14 @@ export function HomeTemplate({
                   className="text-[11px] font-bold text-slate-300 hover:text-[#FAFAFA] transition-colors uppercase tracking-widest px-2 flex items-center gap-2"
                 >
                   <Users size={14} className="text-[#A89048]" />
-                  Portal do Cliente
+                  Portal do Paciente
                 </a>
                 <a
                   href="/atendimento/login"
                   className="text-[11px] font-bold text-[#A89048] hover:text-[#e3c788] transition-colors uppercase tracking-widest px-3 py-1.5 border border-[#A89048]/30 hover:border-[#A89048] rounded-md flex items-center gap-2"
                 >
                   <Briefcase size={14} />
-                  Área do Advogado
+                  Área da Equipe
                 </a>
               </div>
             </div>
@@ -294,14 +289,14 @@ export function HomeTemplate({
               className="text-sm font-bold text-slate-100 border-b border-[#A89048]/10 pb-2 text-left uppercase tracking-widest flex items-center gap-2"
             >
               <Users size={16} className="text-[#A89048]" />
-              Portal do Cliente
+              Portal do Paciente
             </a>
             <a
               href="/atendimento/login"
               className="text-sm font-bold text-[#A89048] border-b border-[#A89048]/10 pb-2 text-left uppercase tracking-widest flex items-center gap-2"
             >
               <Briefcase size={16} />
-              Área do Advogado
+              Área da Equipe
             </a>
           </div>
         )}
@@ -312,32 +307,18 @@ export function HomeTemplate({
         id="about"
         className="relative h-dvh min-h-[600px] w-full flex items-center bg-black group/hero overflow-hidden"
       >
-        {/* Background com Imagem de Biblioteca/Escritório com Overlay Escuro */}
-        <div className="absolute inset-0 z-0 overflow-hidden">
-          {/* Desktop Background */}
-          <div className="hidden md:block absolute inset-0">
-            <Image
-              src="/landing/Design sem nome (35).png"
-              alt="Fundo Escritório Desktop"
-              fill
-              className="object-cover object-top"
-              priority
-            />
-          </div>
-          {/* Mobile Background */}
-          <div className="md:hidden absolute inset-0">
-            <Image
-              src="/landing/Design sem nome (26).png"
-              alt="Fundo Escritório Mobile"
-              fill
-              className="object-cover object-top"
-              priority
-            />
-          </div>
-
-          {/* Premium Gradient Overlay - Lighter Version */}
-          <div className="absolute inset-0 bg-linear-to-t from-black/90 via-black/40 to-transparent z-10 pointer-events-none" />
-          <div className="absolute inset-0 bg-linear-to-r from-black/80 via-black/20 to-transparent z-10 pointer-events-none" />
+        {/* Background — gradiente escuro provisorio (nao ha foto odonto na pasta;
+            trocar pela foto da clinica: colocar em public/landing/ e apontar os
+            <Image> de volta aqui). */}
+        <div className="absolute inset-0 z-0 overflow-hidden bg-[#0A0A0A]">
+          {/* Arte SVG provisoria (tema odonto). Trocar pela foto real: colocar em
+              public/landing/ e usar <Image src="..." fill className="object-cover" />. */}
+          <div
+            className="absolute inset-0 bg-cover bg-center"
+            style={{ backgroundImage: "url('/landing/hero-odonto-bg.svg')" }}
+          />
+          {/* Overlay leve pra contraste do texto a esquerda */}
+          <div className="absolute inset-0 bg-linear-to-r from-black/70 via-black/20 to-transparent z-10 pointer-events-none" />
         </div>
 
         {/* Content Container - Senior Fluid Strategy */}
@@ -386,11 +367,11 @@ export function HomeTemplate({
 
             {/* Título Monumental - Elegante */}
             <h1 className="text-[clamp(2.25rem,4.5vw,3.75rem)] 2xl:text-[clamp(2.5rem,4vw,4.5rem)] font-medium text-[#FAFAFA] leading-tight tracking-normal font-[family-name:var(--font-playfair)] drop-shadow-[0_4px_4px_rgba(0,0,0,0.5)]">
-              {hero.title.split(/(ANDRÉ LUSTOSA ADVOGADOS|Advocacia)/g).map((part, i) => (
+              {hero.title.split(/(ODONTO SYSTEM|Odonto System)/g).map((part, i) => (
                 <span
                   key={i}
                   className={
-                    part === "ANDRÉ LUSTOSA ADVOGADOS" || part === "Advocacia"
+                    part === "ODONTO SYSTEM" || part === "Odonto System"
                       ? "text-[#A89048] drop-shadow-[0_0_20px_rgba(168,144,72,0.5)]"
                       : ""
                   }
@@ -423,7 +404,7 @@ export function HomeTemplate({
                   {/* Glow overlay — masked by rotating conic-gradient */}
                   <span className="btn-premium-glow-overlay" />
                   <span className="relative z-10 flex items-center">
-                    REALIZAR CONSULTA
+                    AGENDAR AVALIAÇÃO
                     <ChevronRight className="ml-2 w-6 h-6" />
                   </span>
                 </Button>
@@ -474,7 +455,7 @@ export function HomeTemplate({
                 <div className="absolute inset-0 bg-linear-to-t from-black via-transparent to-transparent z-10"></div>
                 <Image
                   src={hero.lawyerImage}
-                  alt="Advogado"
+                  alt="Equipe odontológica"
                   fill
                   className="object-contain object-bottom relative z-0"
                   priority
@@ -506,14 +487,9 @@ export function HomeTemplate({
             {[...Array(20)].map((_, i) => (
               <div
                 key={i}
-                className="relative h-[65px] w-[220px] mx-0.5 shrink-0"
+                className="flex items-center justify-center h-[65px] w-[240px] mx-4 shrink-0"
               >
-                <Image
-                  src="/landing/logo_andre_lustosa_transparente.png"
-                  alt="André Lustosa Logo"
-                  fill
-                  className="object-contain"
-                />
+                <OdontoLogo size="md" />
               </div>
             ))}
           </div>
@@ -1545,7 +1521,7 @@ export function HomeTemplate({
             transform-origin-center
             select-none font-ubuntu"
           >
-            LUSTOSA
+            ODONTO
           </h2>
         </div>
 
@@ -1553,13 +1529,7 @@ export function HomeTemplate({
           
           {/* BRAND & INFO (5 cols) */}
           <div className="md:col-span-5 flex flex-col items-center md:items-start text-center md:text-left">
-            <Image
-              src="/landing/logo_andre_lustosa_transparente.png"
-              alt="André Lustosa Advogados"
-              width={240}
-              height={65}
-              className="h-20 lg:h-24 w-auto object-contain mb-6 drop-shadow-[0_2px_10px_rgba(255,255,255,0.1)]"
-            />
+            <OdontoLogo size="lg" className="mb-6" />
             <h4 className="text-[#FAFAFA] font-bold text-sm md:text-base mb-6 tracking-wide drop-shadow-sm">
               Escritório de Advocacia de Alta Performance
             </h4>
