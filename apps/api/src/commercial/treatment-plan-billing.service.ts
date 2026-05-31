@@ -217,14 +217,19 @@ export class TreatmentPlanBillingService {
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
     const today = new Date();
+    // Onda 15 (etapa 16.4) — Helper pra parsear datas YYYY-MM-DD sem o bug
+    // de timezone: new Date("2026-06-21") vira meia-noite UTC = 21h BRT do
+    // dia ANTERIOR, e a UI mostra a data errada. Forcando meio-dia UTC, a
+    // data fica estavel em qualquer fuso (de UTC-12 a UTC+14).
+    const parseLocalDate = (s: string) => new Date(s + 'T12:00:00Z');
     const baseDate = options.firstDueDate
-      ? new Date(options.firstDueDate)
+      ? parseLocalDate(options.firstDueDate)
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000); // entrada +3 dias
     const downPaymentDue = baseDate;
     // Onda 14.58 — data da 1a parcela: usa installmentsStartDate se passado,
     // senao default +30 dias do vencimento da entrada (legado).
     const installmentsFirstDue = options.installmentsStartDate
-      ? new Date(options.installmentsStartDate)
+      ? parseLocalDate(options.installmentsStartDate)
       : new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
     const created: any[] = [];

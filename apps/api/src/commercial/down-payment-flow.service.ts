@@ -189,8 +189,12 @@ export class DownPaymentFlowService {
     });
 
     const today = new Date();
-    const signalDue = options.signalDueDate ? new Date(options.signalDueDate) : today;
-    const restDue = options.restDueDate ? new Date(options.restDueDate) : null;
+    // Onda 15 (etapa 16.4) — Helper pra parsear datas YYYY-MM-DD sem
+    // shift de timezone. Veja comentario equivalente em
+    // treatment-plan-billing.service.ts createFinancingCharges.
+    const parseLocalDate = (s: string) => new Date(s + 'T12:00:00Z');
+    const signalDue = options.signalDueDate ? parseLocalDate(options.signalDueDate) : today;
+    const restDue = options.restDueDate ? parseLocalDate(options.restDueDate) : null;
 
     const created: any[] = [];
 
@@ -494,8 +498,9 @@ export class DownPaymentFlowService {
       throw new BadRequestException('installmentValue deve ser positivo');
     }
 
+    // Onda 15 (etapa 16.4) — Veja parseLocalDate em emitDownPayment.
     const firstDue = options.firstDueDate
-      ? new Date(options.firstDueDate)
+      ? new Date(options.firstDueDate + 'T12:00:00Z')
       : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     // Cria 1 charge no Asaas que vira N boletos (Asaas split automatico)
