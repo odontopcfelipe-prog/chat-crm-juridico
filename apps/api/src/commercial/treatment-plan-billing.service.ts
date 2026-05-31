@@ -191,13 +191,28 @@ export class TreatmentPlanBillingService {
     }
     const signalMethod = options.signalMethod || 'BOLETO';
 
-    // Idempotencia
-    const existing = await this.prisma.paymentGatewayCharge.findFirst({
-      where: { description: { contains: `plan:${planId}` } },
+    // Onda 15 (etapa 16.3) — Idempotencia POR KIND. Antes: jogava se qualquer
+    // cobranca existisse pro plano. Agora: identifica o que ja existe (SINAL,
+    // ENTRADA, INSTALLMENT) e cria SO o que falta. Suporta o fluxo onde o
+    // operador emitiu o sinal antes via emit-down-payment (Opcao B) e depois
+    // clicou em "Aprovar e cobrar" — gera so entrada + parcelado.
+    const existingByKind = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        OR: [
+          // Match por treatment_plan_id (charges criadas pelo emit-down-payment)
+          { treatment_plan_id: planId },
+          // Match por description (fallback pra charges legadas que nao tinham
+          // treatment_plan_id setado neste service).
+          { description: { contains: `plan:${planId}` } },
+        ],
+      },
+      select: { kind: true, description: true },
     });
-    if (existing) {
-      throw new BadRequestException('Plano ja possui cobranca gerada');
-    }
+    const isKind = (k: string, label: string, c: { kind: string | null; description: string | null }) =>
+      c.kind === k || (c.description || '').toLowerCase().includes(label);
+    const hasSignal = existingByKind.some((c) => isKind('SINAL', 'sinal', c));
+    const hasEntrada = existingByKind.some((c) => isKind('ENTRADA', 'entrada', c));
+    const hasInstallments = existingByKind.some((c) => isKind('INSTALLMENT', 'parcelado', c));
 
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
@@ -215,7 +230,9 @@ export class TreatmentPlanBillingService {
     const created: any[] = [];
 
     // Onda 14.58 — 1. SINAL (opcional) — pago HOJE via PIX ou Boleto a vista
-    if (signalValue > 0) {
+    // Onda 15 (etapa 16.3) — Pula se ja existe (operador pode ter emitido
+    // via emit-down-payment antes de clicar "Aprovar e cobrar").
+    if (signalValue > 0 && !hasSignal) {
       const signalAsaas = await this.asaas.createCharge({
         customer: customer.external_id,
         billingType: signalMethod,
@@ -230,6 +247,8 @@ export class TreatmentPlanBillingService {
       const signalCharge = await this.prisma.paymentGatewayCharge.create({
         data: {
           tenant_id: tenantId,
+          treatment_plan_id: planId,
+          kind: 'SINAL',
           gateway: 'ASAAS',
           external_id: signalAsaas.id,
           customer_external_id: customer.external_id,
@@ -255,11 +274,14 @@ export class TreatmentPlanBillingService {
         due_date: today,
         amount: signalValue,
       });
+    } else if (hasSignal) {
+      this.logger.log(`[FINANCING] Sinal pulado: plan ${planId} ja tem charge SINAL.`);
     }
 
     // 2. ENTRADA — boleto unico (valor = downPaymentValue - signalValue)
+    // Onda 15 (etapa 16.3) — Pula se ja existe.
     const entradaBoletoValue = options.downPaymentValue - signalValue;
-    if (entradaBoletoValue > 0) {
+    if (entradaBoletoValue > 0 && !hasEntrada) {
       const downAsaas = await this.asaas.createCharge({
         customer: customer.external_id,
         billingType: 'BOLETO',
@@ -275,6 +297,8 @@ export class TreatmentPlanBillingService {
       const downCharge = await this.prisma.paymentGatewayCharge.create({
         data: {
           tenant_id: tenantId,
+          treatment_plan_id: planId,
+          kind: 'ENTRADA',
           gateway: 'ASAAS',
           external_id: downAsaas.id,
           customer_external_id: customer.external_id,
@@ -298,49 +322,57 @@ export class TreatmentPlanBillingService {
       });
     }
 
-    // 2. PARCELADO — Asaas cria N parcelas automaticamente
+    // 3. PARCELADO — Asaas cria N parcelas automaticamente
+    // Onda 15 (etapa 16.3) — Pula se ja existe (operador pode ter rodado
+    // emit-installments antes de chamar apply-financing).
     const totalInstallments = options.installmentValue * options.installmentCount;
-    const installmentsAsaas = await this.asaas.createCharge({
-      customer: customer.external_id,
-      billingType: 'BOLETO',
-      value: totalInstallments,
-      dueDate: installmentsFirstDue.toISOString().slice(0, 10),
-      description: `Parcelado Financiamento Banco PASSOS — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`,
-      externalReference: planId,
-      installmentCount: options.installmentCount,
-      installmentValue: options.installmentValue,
-    });
-    this.logger.log(
-      `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} | ` +
-      `${options.installmentCount}x R$ ${options.installmentValue} = R$ ${totalInstallments}`,
-    );
+    if (hasInstallments) {
+      this.logger.log(`[FINANCING] Parcelado pulado: plan ${planId} ja tem charge INSTALLMENT.`);
+    } else {
+      const installmentsAsaas = await this.asaas.createCharge({
+        customer: customer.external_id,
+        billingType: 'BOLETO',
+        value: totalInstallments,
+        dueDate: installmentsFirstDue.toISOString().slice(0, 10),
+        description: `Parcelado Financiamento Banco PASSOS — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`,
+        externalReference: planId,
+        installmentCount: options.installmentCount,
+        installmentValue: options.installmentValue,
+      });
+      this.logger.log(
+        `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} | ` +
+        `${options.installmentCount}x R$ ${options.installmentValue} = R$ ${totalInstallments}`,
+      );
 
-    const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
-      data: {
-        tenant_id: tenantId,
-        gateway: 'ASAAS',
-        external_id: installmentsAsaas.id,
-        customer_external_id: customer.external_id,
-        billing_type: 'BOLETO',
-        amount: totalInstallments,
+      const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
+        data: {
+          tenant_id: tenantId,
+          treatment_plan_id: planId,
+          kind: 'INSTALLMENT',
+          gateway: 'ASAAS',
+          external_id: installmentsAsaas.id,
+          customer_external_id: customer.external_id,
+          billing_type: 'BOLETO',
+          amount: totalInstallments,
+          due_date: installmentsFirstDue,
+          status: installmentsAsaas.status || 'PENDING',
+          description: `Parcelado (${options.installmentCount}x) — ${plan.patient.name} [plan:${planId}]`,
+          boleto_url: installmentsAsaas.bankSlipUrl || null,
+          boleto_barcode: installmentsAsaas.nossoNumero || null,
+          invoice_url: installmentsAsaas.invoiceUrl || null,
+        },
+      });
+      created.push({
+        kind: 'parcelado',
+        charge: installmentsCharge,
+        boleto_url: installmentsAsaas.bankSlipUrl,
+        barcode: installmentsAsaas.nossoNumero,
         due_date: installmentsFirstDue,
-        status: installmentsAsaas.status || 'PENDING',
-        description: `Parcelado (${options.installmentCount}x) — ${plan.patient.name} [plan:${planId}]`,
-        boleto_url: installmentsAsaas.bankSlipUrl || null,
-        boleto_barcode: installmentsAsaas.nossoNumero || null,
-        invoice_url: installmentsAsaas.invoiceUrl || null,
-      },
-    });
-    created.push({
-      kind: 'parcelado',
-      charge: installmentsCharge,
-      boleto_url: installmentsAsaas.bankSlipUrl,
-      barcode: installmentsAsaas.nossoNumero,
-      due_date: installmentsFirstDue,
-      amount: totalInstallments,
-      installment_count: options.installmentCount,
-      installment_value: options.installmentValue,
-    });
+        amount: totalInstallments,
+        installment_count: options.installmentCount,
+        installment_value: options.installmentValue,
+      });
+    }
 
     return {
       plan_id: planId,
