@@ -2385,7 +2385,7 @@ function SignalDatesInput({
           amount={pixDialog.amount}
           invoiceUrl={pixDialog.invoiceUrl}
           title={pixDialog.kind === 'SIGNAL' ? 'Sinal via PIX' : 'Entrada via PIX'}
-          subtitle="Escaneie o QR code abaixo pra pagar"
+          subtitle="Escaneie o QR Code abaixo. Após o pagamento, a proposta é confirmada automaticamente."
           onClose={() => setPixDialog(null)}
         />
       )}

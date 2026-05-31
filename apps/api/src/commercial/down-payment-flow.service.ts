@@ -48,21 +48,70 @@ export class DownPaymentFlowService {
   /**
    * Wrapper: aceita quoteId e resolve o treatment_plan_id correspondente.
    * Conveniencia pro frontend que trabalha com Quote nao com TreatmentPlan.
+   *
+   * Onda 15 (etapa 15) — ACEITE TARDIO: se a proposta ainda nao tem plano,
+   * cria um plano TENTATIVO (sem mudar quote.status). A proposta so vira
+   * ACCEPTED quando o pagamento do SINAL for confirmado pelo webhook do
+   * Asaas (logica em handleChargePaid). Esse fluxo permite que o operador
+   * emita o PIX antes de aceitar formalmente — o ato de pagar e o aceite.
    */
   async emitDownPaymentByQuote(
     quoteId: string,
     tenantId: string,
     options: Parameters<DownPaymentFlowService['emitDownPayment']>[2],
   ) {
-    const plan = await this.prisma.treatmentPlan.findFirst({
+    let plan = await this.prisma.treatmentPlan.findFirst({
       where: { quote_id: quoteId },
       select: { id: true },
     });
+
     if (!plan) {
-      throw new BadRequestException(
-        'Esta proposta nao tem plano de tratamento. Aceite a proposta primeiro pra gerar o plano.',
+      // Sem plano: cria tentativo. Quote NAO e marcada como ACCEPTED aqui —
+      // o auto-aceite acontece em handleChargePaid quando o sinal for pago.
+      const quote = await this.prisma.quote.findFirst({
+        where: { id: quoteId },
+        include: { items: true, patient: { select: { tenant_id: true } } },
+      });
+      if (!quote) {
+        throw new NotFoundException('Orcamento nao encontrado');
+      }
+      if (quote.patient.tenant_id !== tenantId) {
+        throw new ForbiddenException('Acesso negado');
+      }
+      if (!['DRAFT', 'SENT'].includes(quote.status)) {
+        throw new BadRequestException(
+          `Esta proposta esta em status ${quote.status}; so DRAFT/SENT podem ` +
+          `gerar plano tentativo via emit (use Aprovar normalmente).`,
+        );
+      }
+      plan = await this.prisma.treatmentPlan.create({
+        data: {
+          patient_id: quote.patient_id,
+          quote_id: quoteId,
+          // Status PENDING_SIGNATURE (mesmo que acceptQuote usa). Vira ACTIVE
+          // quando handleChargePaid detectar sinal pago e aceitar a proposta.
+          status: 'PENDING_SIGNATURE',
+          total_value: quote.total_value,
+          items: {
+            create: quote.items.map((qi, idx) => ({
+              procedure_id: qi.procedure_id,
+              tooth_fdi: qi.tooth_fdi,
+              quantity: qi.quantity,
+              unit_price: qi.unit_price,
+              total_price: qi.total_price,
+              notes: qi.notes,
+              order_index: idx,
+            })),
+          },
+        },
+        select: { id: true },
+      });
+      this.logger.log(
+        `[DOWN-PMT] Plano TENTATIVO criado pra quote ${quoteId} (plan ${plan.id}). ` +
+        `Quote segue como ${quote.status} ate o sinal ser pago.`,
       );
     }
+
     return this.emitDownPayment(plan.id, tenantId, options);
   }
 
@@ -289,6 +338,46 @@ export class DownPaymentFlowService {
     });
     if (!charge?.treatment_plan_id) return; // nao eh do fluxo down-payment
     if (charge.kind !== 'SINAL' && charge.kind !== 'ENTRADA') return; // installments nao disparam trigger
+
+    // Onda 15 (etapa 15) — AUTO-ACEITE TARDIO: se o SINAL acabou de ser pago
+    // e a quote vinculada ainda esta DRAFT/SENT (plano tentativo gerado pelo
+    // emit-down-payment), aceita a proposta automaticamente + ativa o plano.
+    // Idempotente: se quote ja for ACCEPTED, nao faz nada.
+    if (charge.kind === 'SINAL') {
+      const plan = await this.prisma.treatmentPlan.findUnique({
+        where: { id: charge.treatment_plan_id },
+        select: { id: true, quote_id: true, status: true },
+      });
+      if (plan?.quote_id) {
+        const quote = await this.prisma.quote.findUnique({
+          where: { id: plan.quote_id },
+          select: { id: true, status: true },
+        });
+        if (quote && (quote.status === 'DRAFT' || quote.status === 'SENT')) {
+          const now = new Date();
+          await this.prisma.$transaction([
+            this.prisma.quote.update({
+              where: { id: quote.id },
+              data: {
+                status: 'ACCEPTED',
+                accepted_at: now,
+                // Se aceitando de DRAFT (sem sent_at), registra sent_at agora
+                // pra manter audit trail consistente (mesma logica de acceptQuote).
+                ...(quote.status === 'DRAFT' ? { sent_at: now } : {}),
+              },
+            }),
+            this.prisma.treatmentPlan.update({
+              where: { id: plan.id },
+              data: { status: 'ACTIVE' },
+            }),
+          ]);
+          this.logger.log(
+            `[DOWN-PMT] Auto-aceite tardio: sinal pago → quote ${quote.id} ` +
+            `${quote.status}→ACCEPTED + plan ${plan.id} ACTIVE.`,
+          );
+        }
+      }
+    }
 
     // Busca todas as charges de sinal+entrada do plan
     const downCharges = await this.prisma.paymentGatewayCharge.findMany({
