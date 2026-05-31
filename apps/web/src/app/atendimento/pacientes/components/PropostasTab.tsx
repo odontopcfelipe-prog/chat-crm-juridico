@@ -982,7 +982,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   const [approvingBill, setApprovingBill] = useState(false);
 
   // Onda 14.5 — Aprovar proposta + gerar cobranca direta
-  const approveAndBill = useCallback(async () => {
+  const approveAndBill = useCallback(async (extras?: {
+    customDownPayment?: number;
+    customSignalValue?: number;
+    customSignalMethod?: 'PIX' | 'BOLETO' | 'CASH';
+    customEntradaDueDate?: string;
+    customInstallmentsStartDate?: string;
+  }) => {
     if (!selectedDetail) return;
     // Mapeia activePaymentKey pra payment_method + installments
     const opts = buildPaymentOptions();
@@ -997,7 +1003,63 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     const totalBruto = Number(selectedDetail.total_value);
     const hasPartial = selectedDetail.items.some((it) => !!it.approved_at);
     const baseTotal = hasPartial ? approvedValue : totalBruto;
-    const calc = applyPaymentOption(baseTotal, activeOpt);
+    const customDp = extras?.customDownPayment ?? 0;
+    const calc = applyPaymentOption(baseTotal, activeOpt, customDp);
+
+    // Onda 15 (etapa 16) — Boleto parcelado COM consulta DISPENSADA: chama
+    // apply-financing direto (sem decision_id). Backend ja aceita decision_id
+    // como opcional. Caso a consulta esteja EXIGIDA, segue bloqueando com
+    // mensagem orientadora (operador deve passar pelo card do Boleto pra a
+    // consulta abrir automaticamente).
+    if (activeOpt.variant === 'parcelado' && activeOpt.installments > 1) {
+      const ccRequired = selectedDetail.requires_credit_check !== false;
+      if (ccRequired) {
+        showError(
+          'Boleto parcelado com consulta EXIGIDA: clique no card do Boleto, ' +
+          'escolha as parcelas e o sistema abre a consulta de crédito automaticamente. ' +
+          'Pra pular a consulta, desmarque "Exigir consulta de crédito" no modal do Boleto.',
+        );
+        return;
+      }
+      // Dispensada — aplica financing direto
+      if (calc.finalValue < 5.0) {
+        showError(`Asaas exige R$ 5,00 minimo por cobranca (atual: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`);
+        return;
+      }
+      const confirmMsg =
+        `Aprovar e gerar boleto parcelado em ${activeOpt.installments}x?\n\n` +
+        (customDp > 0 ? `Entrada: R$ ${customDp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n` : '') +
+        `${activeOpt.installments}x de R$ ${calc.installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n` +
+        `Total final: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+        `⚠ Consulta de crédito DISPENSADA — operador assume o risco.\n\n` +
+        `Isso vai:\n` +
+        `• Aceitar o orçamento (ACCEPTED)\n` +
+        `• Ativar o plano\n` +
+        `• Gerar entrada + ${activeOpt.installments} boletos no Asaas`;
+      if (!window.confirm(confirmMsg)) return;
+      setApprovingBill(true);
+      try {
+        await api.post(`/quotes/${selectedDetail.id}/apply-financing`, {
+          down_payment_value: customDp,
+          installment_count: activeOpt.installments,
+          installment_value: calc.installmentValue,
+          // decision_id e source omitidos: consulta dispensada
+          ...(extras?.customSignalValue && extras.customSignalValue > 0
+            ? { signal_value: extras.customSignalValue, signal_method: extras.customSignalMethod === 'CASH' ? 'BOLETO' : (extras.customSignalMethod || 'BOLETO') }
+            : {}),
+          ...(extras?.customEntradaDueDate ? { entrada_due_date: extras.customEntradaDueDate } : {}),
+          ...(extras?.customInstallmentsStartDate ? { installments_start_date: extras.customInstallmentsStartDate } : {}),
+        });
+        showSuccess('Proposta aprovada e boletos gerados (consulta dispensada).');
+        load();
+      } catch (err: unknown) {
+        const e = err as { response?: { data?: { message?: string } } };
+        showError(e?.response?.data?.message || 'Erro ao aprovar e gerar boletos');
+      } finally {
+        setApprovingBill(false);
+      }
+      return;
+    }
 
     // Determina billing_type
     let billingType: 'PIX' | 'BOLETO' | 'CREDIT_CARD';
@@ -1013,17 +1075,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       installmentCount = activeOpt.installments;
       valueToCharge = calc.finalValue; // com juros se houver
     } else {
-      // parcelado: 1x boleto à vista, 2x+ deveria ir pra credit-check
-      if (activeOpt.installments === 1) {
-        billingType = 'BOLETO';
-        valueToCharge = calc.finalValue;
-      } else {
-        showError(
-          'Pra boleto parcelado, use o fluxo de Financiamento Banco PASSOS ' +
-          '(consulta de crédito).',
-        );
-        return;
-      }
+      // parcelado 1x (boleto à vista)
+      billingType = 'BOLETO';
+      valueToCharge = calc.finalValue;
     }
 
     // Onda 14.10 — Asaas exige valor minimo de R$ 5,00 por cobranca.
@@ -2866,7 +2920,13 @@ function PropostaPainel({
   /** Onda 13 — abre dialog pra adicionar bônus de fechamento */
   onAddBonus: () => void;
   /** Onda 14.5 — abre confirm + chama POST /quotes/:id/approve-and-bill */
-  onApproveAndBill: () => void;
+  onApproveAndBill: (extras?: {
+    customDownPayment?: number;
+    customSignalValue?: number;
+    customSignalMethod?: 'PIX' | 'BOLETO' | 'CASH';
+    customEntradaDueDate?: string;
+    customInstallmentsStartDate?: string;
+  }) => void;
   /** Onda 14.26 — toggle "exige consulta de credito" no card de boleto.
    *  Quando false, parcelados aplicam direto sem credit-check. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
@@ -3467,10 +3527,19 @@ function PropostaPainel({
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
         </button>
-        {/* Onda 14.5 — Aprovar proposta + gerar cobranca real */}
+        {/* Onda 14.5 — Aprovar proposta + gerar cobranca real.
+            Onda 15 (etapa 16) — passa estado da entrada/sinal/datas pro
+            handler, pra dar suporte ao "parcelado com consulta dispensada"
+            (chama apply-financing direto no parent). */}
         <button
           type="button"
-          onClick={onApproveAndBill}
+          onClick={() => onApproveAndBill({
+            customDownPayment,
+            customSignalValue,
+            customSignalMethod,
+            customEntradaDueDate,
+            customInstallmentsStartDate,
+          })}
           className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 font-semibold shadow-sm"
           title="Fecha o orçamento e gera cobrança PIX/Cartão/Boleto no Asaas"
         >
