@@ -1038,14 +1038,18 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         `• Gerar entrada + ${activeOpt.installments} boletos no Asaas`;
       if (!window.confirm(confirmMsg)) return;
       setApprovingBill(true);
+      // Onda 15 (etapa 16.1) — DTO do backend exige maxDecimalPlaces: 2 nos
+      // valores monetarios. A formula de Price gera floats tipo 693.8028147,
+      // entao arredondamos pra 2 casas (centavos) antes de enviar.
+      const round2 = (n: number) => Math.round(n * 100) / 100;
       try {
         await api.post(`/quotes/${selectedDetail.id}/apply-financing`, {
-          down_payment_value: customDp,
+          down_payment_value: round2(customDp),
           installment_count: activeOpt.installments,
-          installment_value: calc.installmentValue,
+          installment_value: round2(calc.installmentValue),
           // decision_id e source omitidos: consulta dispensada
           ...(extras?.customSignalValue && extras.customSignalValue > 0
-            ? { signal_value: extras.customSignalValue, signal_method: extras.customSignalMethod === 'CASH' ? 'BOLETO' : (extras.customSignalMethod || 'BOLETO') }
+            ? { signal_value: round2(extras.customSignalValue), signal_method: extras.customSignalMethod === 'CASH' ? 'BOLETO' : (extras.customSignalMethod || 'BOLETO') }
             : {}),
           ...(extras?.customEntradaDueDate ? { entrada_due_date: extras.customEntradaDueDate } : {}),
           ...(extras?.customInstallmentsStartDate ? { installments_start_date: extras.customInstallmentsStartDate } : {}),
@@ -5176,20 +5180,23 @@ function CreditCheckDialog({
     if (!result || result.status !== 'approved') return;
     setError(null);
     setPhase('gerando');
+    // Onda 15 (etapa 16.1) — DTO do backend exige maxDecimalPlaces: 2 nos
+    // valores monetarios. Price formula gera floats com muitas casas; arredondamos.
+    const round2 = (n: number) => Math.round(n * 100) / 100;
     try {
       const { data } = await api.post<ApplyFinancingResult>(
         `/quotes/${quoteId}/apply-financing`,
         {
-          down_payment_value: calc.downPaymentValue,
+          down_payment_value: round2(calc.downPaymentValue),
           installment_count: parcelas,
-          installment_value: calc.installmentValue,
+          installment_value: round2(calc.installmentValue),
           decision_id: result.decision_id,
           source: result.source,
           // Onda 14.58 — sinal + datas customizadas. Backend gera boletos
           // separados conforme: sinal hoje + entrada (boleto na data X) +
           // parcelas comecando em data Y. Quando undefined, mantem o
           // comportamento legado (1 boleto de entrada + parcelas em 30d).
-          ...(customSignalValue > 0 ? { signal_value: customSignalValue, signal_method: customSignalMethod } : {}),
+          ...(customSignalValue > 0 ? { signal_value: round2(customSignalValue), signal_method: customSignalMethod } : {}),
           ...(customEntradaDueDate ? { entrada_due_date: customEntradaDueDate } : {}),
           ...(customInstallmentsStartDate ? { installments_start_date: customInstallmentsStartDate } : {}),
         },
