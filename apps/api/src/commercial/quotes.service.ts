@@ -823,8 +823,34 @@ export class QuotesService {
     await this.ensurePatientReadyForBilling(quoteCheck.patient_id, tenantId);
 
     // 1. Aceita o quote SO se ainda DRAFT/SENT (idempotente)
+    // Onda 15 (etapa 16.2) — Se ja existe um TreatmentPlan (provavelmente
+    // criado como TENTATIVO pelo emit-down-payment da Opcao B), o accept()
+    // legado tentaria criar OUTRO plano e o Prisma rejeita por @@unique.
+    // Nesse caso, fazemos um "aceite leve": atualiza so o status da quote.
     if (quoteCheck.status === 'DRAFT' || quoteCheck.status === 'SENT') {
-      await this.accept(quoteId, tenantId, userId);
+      const existingPlan = await this.prisma.treatmentPlan.findFirst({
+        where: { quote_id: quoteId },
+        select: { id: true },
+      });
+      if (existingPlan) {
+        // Plano tentativo existe — so promove a quote
+        const now = new Date();
+        await this.prisma.quote.update({
+          where: { id: quoteId },
+          data: {
+            status: 'ACCEPTED',
+            accepted_at: now,
+            ...(quoteCheck.status === 'DRAFT' && !quoteCheck.sent_at ? { sent_at: now } : {}),
+          },
+        });
+        this.logger.log(
+          `[FINANCING] Aceite leve: quote ${quoteId} ${quoteCheck.status}→ACCEPTED ` +
+          `(plano tentativo ${existingPlan.id} ja existia).`,
+        );
+      } else {
+        // Caminho legado: aceita normalmente (cria quote + plan + snapshot + ClickSign)
+        await this.accept(quoteId, tenantId, userId);
+      }
     }
 
     // 2. Busca o TreatmentPlan recem-criado e marca como ACTIVE
