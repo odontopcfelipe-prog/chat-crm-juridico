@@ -715,26 +715,33 @@ export function Sidebar() {
         allItems.followup,     // Follow-up IA (admin)
       ].filter(i => i.show),
     },
-    {
-      id: 'financeiro',
-      label: 'Financeiro',
-      defaultExpanded: false,
-      icon: <Wallet size={14} strokeWidth={2.5} />,
-      items: [
-        allItems.comissoes,    // Comissoes
-        allItems.metas,        // Metas
-        allItems.parcelas,     // Parcelas
-      ].filter(i => i.show),
-    },
+    // Onda 15 (etapa 17) — Grupo "Financeiro" removido do sidebar.
+    // Comissões + Metas foram movidos pro grupo Gestão (mais coerente com
+    // o uso real: KPIs e gestão de pessoal/financeiro juntos).
+    // Parcelas foi escondido por enquanto pra reativar quando o modulo
+    // estiver maduro. Pra restaurar:
+    //   1. Descomenta o bloco abaixo
+    //   2. Move allItems.parcelas pra cá (atualmente definido em allItems)
+    // {
+    //   id: 'financeiro',
+    //   label: 'Financeiro',
+    //   defaultExpanded: false,
+    //   icon: <Wallet size={14} strokeWidth={2.5} />,
+    //   items: [
+    //     allItems.parcelas,     // Parcelas
+    //   ].filter(i => i.show),
+    // },
     {
       id: 'gestao',
       label: 'Gestão',
       defaultExpanded: false,
       icon: <BarChart3 size={14} strokeWidth={2.5} />,
       items: [
+        allItems.comissoes,    // Comissões (movido do antigo Financeiro)
+        allItems.metas,        // Metas (movido do antigo Financeiro)
         allItems.analytics,    // Analytics
         allItems.estoque,      // Estoque
-        allItems.relatorios,   // Relatorios
+        allItems.relatorios,   // Relatórios
         allItems.minhaRede,    // Minha rede
       ].filter(i => i.show),
     },
