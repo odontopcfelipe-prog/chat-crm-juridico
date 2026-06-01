@@ -455,7 +455,8 @@ export function Sidebar() {
   const allItems: Record<string, NavItem> = {
     dashboard: {
       // Onda 16.3 — renomeado pra "Visao geral" (pt-BR, alinhado com odonto)
-      label: 'Visão geral',
+      // Onda 16.6 — virou "Menu inicial" (porta de entrada do sistema)
+      label: 'Menu inicial',
       href: '/atendimento/dashboard',
       icon: <LayoutDashboard size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/dashboard'),
@@ -682,15 +683,14 @@ export function Sidebar() {
   // Portal do paciente, Prontuario.
   const groups: NavGroup[] = [
     {
-      // Onda 16.5 — Grupo isolado so com "Visao geral" (Central de
-      // Comando — menu de atalhos). Fica no topo absoluto pra ser o
-      // primeiro destino quando o operador entra no sistema.
+      // Onda 16.6 — Grupo isolado "Menu inicial" no topo absoluto:
+      // porta de entrada do sistema (Central de Comando com atalhos).
       id: 'home',
-      label: 'Visão geral',
+      label: 'Menu inicial',
       fixed: true,
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
-        allItems.dashboard,    // Visão geral (rota /atendimento/dashboard)
+        allItems.dashboard,    // Menu inicial (rota /atendimento/dashboard)
       ].filter(i => i.show),
     },
     {
