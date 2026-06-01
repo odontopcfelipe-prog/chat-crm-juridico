@@ -222,21 +222,18 @@ function OrcamentosPageInner() {
             icon={DollarSign}
             label="Pipeline em fechamento"
             value={formatBRL(stats.byStatus.SENT?.total ?? 0)}
-            sub={`${stats.byStatus.SENT?.count ?? 0} orçamento(s) enviado(s)`}
             colorClass="emerald"
           />
           <FunnelCard
             icon={FileText}
             label="Aguardando resposta"
             value={stats.byStatus.SENT?.count ?? 0}
-            sub="paciente decidindo"
             colorClass="blue"
           />
           <FunnelCard
             icon={Clock}
             label="Vencem em 7 dias"
             value={stats.expiring_soon}
-            sub={stats.expiring_soon > 0 ? 'reaja rápido' : 'nada urgente'}
             colorClass={stats.expiring_soon > 0 ? 'amber' : 'gray'}
             highlight={stats.expiring_soon > 0}
           />
@@ -244,14 +241,13 @@ function OrcamentosPageInner() {
             icon={AlertTriangle}
             label="Já expiraram"
             value={stats.byStatus.EXPIRED?.count ?? 0}
-            sub={formatBRL(stats.byStatus.EXPIRED?.total ?? 0)}
+            sub={(stats.byStatus.EXPIRED?.count ?? 0) > 0 ? formatBRL(stats.byStatus.EXPIRED?.total ?? 0) : undefined}
             colorClass={(stats.byStatus.EXPIRED?.count ?? 0) > 0 ? 'red' : 'gray'}
           />
           <FunnelCard
             icon={TrendingUp}
             label="Conversão (30d)"
             value={stats.conversion_rate !== null ? `${(stats.conversion_rate * 100).toFixed(0)}%` : '—'}
-            sub={`${stats.byStatus.ACCEPTED?.count ?? 0} aceito(s) / decididos`}
             colorClass="violet"
           />
         </div>
@@ -618,12 +614,17 @@ function StatCard({
 }
 
 /**
- * Onda 15 (etapa 19.4) — Card de funil. Visual mais polido que o
- * StatCard tecnico — icon colorido no canto, valor BEM destacado, label
- * acima e descricao curta embaixo. Cores tematicas pelo prop colorClass
- * (verde=pipeline, azul=esperando, ambar=urgente, vermelho=perdido,
- * violeta=KPI). Highlight = pulse sutil pra chamar atencao em metricas
- * urgentes (ex: "Vencem em 7 dias" > 0).
+ * Onda 15 (etapa 19.5) — Card de funil estilo dashboard financeiro.
+ * Layout: caixinha colorida com icone no topo → valor BEM grande
+ * em cor tematica → label minusculo MAIUSCULO cinza abaixo. Limpo,
+ * profissional, otimo pra leitura de relance.
+ *
+ * Cores: emerald (pipeline/positivo), blue (em andamento), amber
+ * (urgente/alerta), red (perdido/negativo), violet (KPI especial),
+ * gray (zerado / neutro).
+ *
+ * highlight = ring colorido pra chamar atencao quando valor > 0
+ * em metricas de urgencia (ex: "Vencem em 7 dias").
  */
 function FunnelCard({
   icon: Icon, label, value, sub, colorClass, highlight,
@@ -635,25 +636,23 @@ function FunnelCard({
   colorClass: 'emerald' | 'blue' | 'amber' | 'red' | 'violet' | 'gray';
   highlight?: boolean;
 }) {
-  const palette: Record<typeof colorClass, { icon: string; iconBg: string; value: string; border?: string }> = {
-    emerald: { icon: 'text-emerald-600', iconBg: 'bg-emerald-500/10', value: 'text-emerald-700' },
-    blue:    { icon: 'text-blue-600',    iconBg: 'bg-blue-500/10',    value: 'text-blue-700' },
-    amber:   { icon: 'text-amber-600',   iconBg: 'bg-amber-500/10',   value: 'text-amber-700', border: 'border-amber-500/30' },
-    red:     { icon: 'text-red-600',     iconBg: 'bg-red-500/10',     value: 'text-red-700' },
-    violet:  { icon: 'text-violet-600',  iconBg: 'bg-violet-500/10',  value: 'text-violet-700' },
+  const palette: Record<typeof colorClass, { icon: string; iconBg: string; value: string; ring?: string }> = {
+    emerald: { icon: 'text-emerald-600', iconBg: 'bg-emerald-500/10', value: 'text-emerald-600' },
+    blue:    { icon: 'text-blue-600',    iconBg: 'bg-blue-500/10',    value: 'text-blue-600' },
+    amber:   { icon: 'text-amber-600',   iconBg: 'bg-amber-500/10',   value: 'text-amber-600', ring: 'ring-1 ring-amber-500/30' },
+    red:     { icon: 'text-red-600',     iconBg: 'bg-red-500/10',     value: 'text-red-600' },
+    violet:  { icon: 'text-violet-600',  iconBg: 'bg-violet-500/10',  value: 'text-violet-600' },
     gray:    { icon: 'text-muted-foreground', iconBg: 'bg-muted/40',  value: 'text-foreground' },
   };
   const p = palette[colorClass];
   return (
-    <div className={`bg-card rounded-xl p-4 border ${p.border || 'border-border'} ${highlight ? 'ring-1 ring-amber-500/30' : ''} hover:shadow-sm transition-shadow`}>
-      <div className="flex items-start gap-2.5 mb-2">
-        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${p.iconBg}`}>
-          <Icon size={14} className={p.icon} />
-        </div>
-        <p className="text-xs font-semibold text-foreground leading-tight pt-0.5">{label}</p>
+    <div className={`bg-card rounded-xl p-4 border border-border hover:shadow-sm transition-shadow ${highlight ? p.ring || '' : ''}`}>
+      <div className={`w-9 h-9 rounded-lg flex items-center justify-center mb-3 ${p.iconBg}`}>
+        <Icon size={16} className={p.icon} />
       </div>
-      <p className={`text-3xl font-extrabold tabular-nums leading-none ${p.value}`}>{value}</p>
-      {sub && <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>}
+      <p className={`text-2xl font-extrabold tabular-nums leading-tight ${p.value}`}>{value}</p>
+      <p className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mt-1">{label}</p>
+      {sub && <p className="text-[10px] text-muted-foreground mt-0.5 italic">{sub}</p>}
     </div>
   );
 }
