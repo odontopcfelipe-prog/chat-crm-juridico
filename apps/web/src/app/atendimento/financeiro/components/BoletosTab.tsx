@@ -105,7 +105,10 @@ export default function BoletosTab({ dentistId }: Props) {
   const [loading, setLoading] = useState(true);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [total, setTotal] = useState(0);
-  const [statusGroup, setStatusGroup] = useState<typeof STATUS_GROUPS[number]['key']>('open');
+  // Default 'all' — mostra TODOS os boletos ja gerados (pagos +
+  // em aberto + atrasados + cancelados? -> cancelados filtrados na
+  // query). Quer filtrar? Os chips no topo trocam o grupo.
+  const [statusGroup, setStatusGroup] = useState<typeof STATUS_GROUPS[number]['key']>('all');
   const [kind, setKind] = useState<string>('');
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
