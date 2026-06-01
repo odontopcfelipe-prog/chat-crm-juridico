@@ -102,6 +102,12 @@ interface QuoteDetailLite {
   /** Onda 14.38 — forma de pagamento + entrada apresentada quando marcada como proposta */
   chosen_payment_key?: string | null;
   chosen_down_payment?: string | number | null;
+  /** Onda 15 (etapa 16.8) — plano de cobranca da entrada congelado quando
+   *  operador clica em "Salvar proposta". Restaurado ao reabrir o painel. */
+  chosen_signal_value?: string | number | null;
+  chosen_signal_method?: 'PIX' | 'BOLETO' | 'CASH' | string | null;
+  chosen_entrada_due_date?: string | null;
+  chosen_installments_start_date?: string | null;
 }
 
 /** Onda 10 — parseia linhas [CONTRAPROPOSTA YYYY-MM-DD HH:mm] do campo notes */
@@ -822,7 +828,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // orcamento usa esses dados pra mostrar "Proposta de pagamento".
   const chooseAsProposal = useCallback(async (
     quoteId: string,
-    opts?: { payment_key?: string | null; down_payment?: number | null },
+    opts?: {
+      payment_key?: string | null;
+      down_payment?: number | null;
+      // Onda 15 (etapa 16.8) — persistir tambem o plano de cobranca (sinal,
+      // metodo, datas) pra operador nao perder configuracao ao salvar.
+      signal_value?: number | null;
+      signal_method?: string | null;
+      entrada_due_date?: string | null;
+      installments_start_date?: string | null;
+    },
   ) => {
     // Optimistic — atualiza estado local antes do PATCH
     setQuotes((prev) =>
@@ -838,6 +853,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       await api.post(`/quotes/${quoteId}/choose-as-proposal`, {
         payment_key: opts?.payment_key || null,
         down_payment: opts?.down_payment || 0,
+        signal_value: opts?.signal_value ?? null,
+        signal_method: opts?.signal_method ?? null,
+        entrada_due_date: opts?.entrada_due_date ?? null,
+        installments_start_date: opts?.installments_start_date ?? null,
       });
       showSuccess('Proposta salva — aguardando decisão do paciente');
       load(); // refetch em background pra garantir consistencia
@@ -3017,7 +3036,14 @@ function PropostaPainel({
    *  decisao do paciente. So uma por paciente.
    *  Onda 14.38 — recebe payment_key + down_payment pra persistir a forma
    *  de pagamento + entrada apresentada (vai pro PDF do orcamento). */
-  onChooseAsProposal?: (opts?: { payment_key?: string | null; down_payment?: number | null }) => void;
+  onChooseAsProposal?: (opts?: {
+    payment_key?: string | null;
+    down_payment?: number | null;
+    signal_value?: number | null;
+    signal_method?: string | null;
+    entrada_due_date?: string | null;
+    installments_start_date?: string | null;
+  }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
   onUnchooseAsProposal?: () => void;
 }) {
@@ -3080,28 +3106,56 @@ function PropostaPainel({
       }
     }
 
-    // Onda 14.58 — Restaura sinal + datas
-    try {
-      const sigRaw = localStorage.getItem(`quote_signal_${currentDetailId}`);
-      if (sigRaw) {
-        const parsed = JSON.parse(sigRaw);
-        if (parsed.value > 0) setCustomSignalValue(Number(parsed.value));
-        if (parsed.method === 'PIX' || parsed.method === 'BOLETO') {
-          setCustomSignalMethod(parsed.method);
-        }
-        if (parsed.entradaDueDate) setCustomEntradaDueDate(String(parsed.entradaDueDate));
-        if (parsed.installmentsStartDate) {
-          setCustomInstallmentsStartDate(String(parsed.installmentsStartDate));
-        }
-      } else {
-        setCustomSignalValue(0);
-        setCustomEntradaDueDate('');
-        setCustomInstallmentsStartDate('');
+    // Onda 14.58 — Restaura sinal + datas.
+    // Onda 15 (etapa 16.8) — Banco (campos chosen_*) tem prioridade sobre
+    // localStorage, porque foi explicitamente salvo pelo operador via
+    // "Salvar proposta" e persiste entre dispositivos/browsers.
+    const dbSignalValue = Number(detail?.chosen_signal_value) || 0;
+    const dbSignalMethod = detail?.chosen_signal_method;
+    const dbEntradaDate = detail?.chosen_entrada_due_date;
+    const dbInstStartDate = detail?.chosen_installments_start_date;
+    const dbHasAny = dbSignalValue > 0 || dbSignalMethod || dbEntradaDate || dbInstStartDate;
+
+    if (dbHasAny) {
+      setCustomSignalValue(dbSignalValue);
+      if (dbSignalMethod === 'PIX' || dbSignalMethod === 'BOLETO' || dbSignalMethod === 'CASH') {
+        setCustomSignalMethod(dbSignalMethod);
       }
-    } catch {
-      setCustomSignalValue(0);
+      // dbEntradaDate e dbInstStartDate vem como string ISO ("2026-06-21T00:...")
+      // ou puro "2026-06-21". Pega so YYYY-MM-DD pra alimentar <input type="date">.
+      setCustomEntradaDueDate(dbEntradaDate ? String(dbEntradaDate).slice(0, 10) : '');
+      setCustomInstallmentsStartDate(dbInstStartDate ? String(dbInstStartDate).slice(0, 10) : '');
+    } else {
+      // Fallback pra localStorage (rascunho nao salvo ainda)
+      try {
+        const sigRaw = localStorage.getItem(`quote_signal_${currentDetailId}`);
+        if (sigRaw) {
+          const parsed = JSON.parse(sigRaw);
+          if (parsed.value > 0) setCustomSignalValue(Number(parsed.value));
+          if (parsed.method === 'PIX' || parsed.method === 'BOLETO' || parsed.method === 'CASH') {
+            setCustomSignalMethod(parsed.method);
+          }
+          if (parsed.entradaDueDate) setCustomEntradaDueDate(String(parsed.entradaDueDate));
+          if (parsed.installmentsStartDate) {
+            setCustomInstallmentsStartDate(String(parsed.installmentsStartDate));
+          }
+        } else {
+          setCustomSignalValue(0);
+          setCustomEntradaDueDate('');
+          setCustomInstallmentsStartDate('');
+        }
+      } catch {
+        setCustomSignalValue(0);
+      }
     }
-  }, [detail?.id, detail?.chosen_down_payment]);
+  }, [
+    detail?.id,
+    detail?.chosen_down_payment,
+    detail?.chosen_signal_value,
+    detail?.chosen_signal_method,
+    detail?.chosen_entrada_due_date,
+    detail?.chosen_installments_start_date,
+  ]);
 
   // Onda 14.58 — Persiste sinal + datas em localStorage (chave separada
   // do customDownPayment pra nao quebrar fluxo legado).
@@ -3581,6 +3635,12 @@ function PropostaPainel({
             onClick={() => onChooseAsProposal?.({
               payment_key: activePaymentKey || null,
               down_payment: customDownPayment > 0 ? customDownPayment : 0,
+              // Onda 15 (etapa 16.8) — salva tambem o plano de cobranca
+              // completo (sinal, metodo, datas) pra operador nao perder.
+              signal_value: customSignalValue > 0 ? customSignalValue : null,
+              signal_method: customSignalValue > 0 ? customSignalMethod : null,
+              entrada_due_date: customEntradaDueDate || null,
+              installments_start_date: customInstallmentsStartDate || null,
             })}
             className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
             title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Forma de pagamento e entrada atuais ficam salvos."
@@ -3589,15 +3649,35 @@ function PropostaPainel({
             Salvar proposta
           </button>
         ) : (
-          <button
-            type="button"
-            onClick={onUnchooseAsProposal}
-            className="text-xs px-3 py-2 rounded-lg border border-amber-600 bg-amber-500 text-amber-950 hover:bg-amber-600 flex items-center gap-1.5 ml-auto font-semibold"
-            title="Desmarcar como escolhida (volta ao estado neutro)"
-          >
-            <Check size={12} />
-            Aguardando paciente · desmarcar
-          </button>
+          <>
+            {/* Onda 15 (etapa 16.8) — quando ja esta como "Aguardando paciente",
+                permite RE-SALVAR (atualizar a config) sem desmarcar. */}
+            <button
+              type="button"
+              onClick={() => onChooseAsProposal?.({
+                payment_key: activePaymentKey || null,
+                down_payment: customDownPayment > 0 ? customDownPayment : 0,
+                signal_value: customSignalValue > 0 ? customSignalValue : null,
+                signal_method: customSignalValue > 0 ? customSignalMethod : null,
+                entrada_due_date: customEntradaDueDate || null,
+                installments_start_date: customInstallmentsStartDate || null,
+              })}
+              className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/10 text-amber-900 hover:bg-amber-500/20 flex items-center gap-1.5 ml-auto"
+              title="Re-salva o plano de cobrança atual (sinal, datas, entrada, forma de pagamento) sem desmarcar"
+            >
+              <Clock size={12} />
+              Salvar alterações
+            </button>
+            <button
+              type="button"
+              onClick={onUnchooseAsProposal}
+              className="text-xs px-3 py-2 rounded-lg border border-amber-600 bg-amber-500 text-amber-950 hover:bg-amber-600 flex items-center gap-1.5 font-semibold"
+              title="Desmarcar como escolhida (volta ao estado neutro)"
+            >
+              <Check size={12} />
+              Aguardando paciente · desmarcar
+            </button>
+          </>
         )}
 
         <button

@@ -406,7 +406,16 @@ export class QuotesService {
   async markAsChosenProposal(
     quoteId: string,
     tenantId: string,
-    opts?: { payment_key?: string | null; down_payment?: number | null },
+    opts?: {
+      payment_key?: string | null;
+      down_payment?: number | null;
+      // Onda 15 (etapa 16.8) — persistir tudo do "Plano de cobranca da
+      // entrada" pra o operador nao perder a configuracao ao salvar.
+      signal_value?: number | null;
+      signal_method?: string | null;
+      entrada_due_date?: string | null;
+      installments_start_date?: string | null;
+    },
   ) {
     const quote = await this.findOne(quoteId, tenantId);
 
@@ -420,6 +429,21 @@ export class QuotesService {
     const cleanDownPayment = typeof opts?.down_payment === 'number' && opts.down_payment > 0
       ? Math.min(opts.down_payment, totalNum)
       : 0;
+    // Onda 15 (etapa 16.8) — limpeza dos novos campos do plano de cobranca.
+    const cleanSignalValue = typeof opts?.signal_value === 'number' && opts.signal_value > 0
+      ? Math.min(opts.signal_value, cleanDownPayment || totalNum)
+      : 0;
+    const cleanSignalMethod = (typeof opts?.signal_method === 'string'
+      && ['PIX', 'BOLETO', 'CASH'].includes(opts.signal_method))
+      ? opts.signal_method
+      : null;
+    // Parse leve das datas: YYYY-MM-DD ou null. parseLocalDate evita TZ shift.
+    const parseLocalDate = (s: string | null | undefined) =>
+      s && typeof s === 'string' && /^\d{4}-\d{2}-\d{2}/.test(s)
+        ? new Date(s + 'T12:00:00Z')
+        : null;
+    const cleanEntradaDueDate = parseLocalDate(opts?.entrada_due_date);
+    const cleanInstallmentsStartDate = parseLocalDate(opts?.installments_start_date);
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Desmarca quaisquer outras chosen do mesmo paciente (so 1 por vez)
@@ -438,13 +462,23 @@ export class QuotesService {
           is_chosen_proposal: true,
           chosen_payment_key: cleanPaymentKey,
           chosen_down_payment: cleanDownPayment,
+          // Onda 15 (etapa 16.8) — Persiste plano de cobranca inteiro pra
+          // o operador poder fechar o painel sem perder o que digitou.
+          chosen_signal_value: cleanSignalValue,
+          chosen_signal_method: cleanSignalMethod,
+          chosen_entrada_due_date: cleanEntradaDueDate,
+          chosen_installments_start_date: cleanInstallmentsStartDate,
         },
       });
     });
 
     this.logger.log(
       `[Quote ${quoteId}] marcada como CHOSEN proposal pra paciente ${quote.patient_id}` +
-      (cleanPaymentKey ? ` (payment=${cleanPaymentKey}, down=${cleanDownPayment})` : ''),
+      (cleanPaymentKey ? ` (payment=${cleanPaymentKey}, down=${cleanDownPayment}` : '') +
+      (cleanSignalValue > 0 ? `, sinal=${cleanSignalValue} ${cleanSignalMethod}` : '') +
+      (cleanEntradaDueDate ? `, entrada=${cleanEntradaDueDate.toISOString().slice(0, 10)}` : '') +
+      (cleanInstallmentsStartDate ? `, parcelas=${cleanInstallmentsStartDate.toISOString().slice(0, 10)}` : '') +
+      (cleanPaymentKey ? ')' : ''),
     );
     return this.findOne(quoteId, tenantId);
   }

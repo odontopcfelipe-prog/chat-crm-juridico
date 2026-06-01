@@ -380,12 +380,25 @@ export class CommercialController {
   @Post('quotes/:id/choose-as-proposal')
   chooseQuoteAsProposal(
     @Param('id') id: string,
-    @Body() body: { payment_key?: string | null; down_payment?: number | null },
+    @Body() body: {
+      payment_key?: string | null;
+      down_payment?: number | null;
+      // Onda 15 (etapa 16.8) — Persistir tambem o "Plano de cobranca da
+      // entrada" inteiro, pra operador nao perder a configuracao ao salvar.
+      signal_value?: number | null;
+      signal_method?: string | null;
+      entrada_due_date?: string | null;
+      installments_start_date?: string | null;
+    },
     @Authenticated() user: AuthUser,
   ) {
     return this.quotesService.markAsChosenProposal(id, user.tenant_id, {
       payment_key: body?.payment_key,
       down_payment: body?.down_payment,
+      signal_value: body?.signal_value,
+      signal_method: body?.signal_method,
+      entrada_due_date: body?.entrada_due_date,
+      installments_start_date: body?.installments_start_date,
     });
   }
 
