@@ -698,8 +698,9 @@ export function Sidebar() {
       icon: <Users size={14} strokeWidth={2.5} />,
       items: [
         allItems.pacientes,    // Pacientes (lista)
-        allItems.orcamentos,   // Orcamentos (atalho — duplicado no CRM)
-        allItems.financeiro,   // Financeiro (atalho — financeiro/visao geral)
+        // Onda 15 (etapa 18) — Orcamentos e Financeiro moveram pro
+        // grupo "Financeiro" abaixo (operador preferiu agrupar la).
+        // Orcamentos continua duplicado no CRM como atalho.
       ].filter(i => i.show),
     },
     {
@@ -709,28 +710,26 @@ export function Sidebar() {
       icon: <Network size={14} strokeWidth={2.5} />,
       items: [
         allItems.crm,          // Kanban CRM (movido pra dentro do grupo)
-        allItems.orcamentos,   // Orcamentos (atalho — duplicado em JORNADA)
+        allItems.orcamentos,   // Orcamentos (atalho — tambem aparece em Financeiro)
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
         allItems.returnAlerts, // Retornos
         allItems.followup,     // Follow-up IA (admin)
       ].filter(i => i.show),
     },
-    // Onda 15 (etapa 17) — Grupo "Financeiro" removido do sidebar.
-    // Comissões + Metas foram movidos pro grupo Gestão (mais coerente com
-    // o uso real: KPIs e gestão de pessoal/financeiro juntos).
-    // Parcelas foi escondido por enquanto pra reativar quando o modulo
-    // estiver maduro. Pra restaurar:
-    //   1. Descomenta o bloco abaixo
-    //   2. Move allItems.parcelas pra cá (atualmente definido em allItems)
-    // {
-    //   id: 'financeiro',
-    //   label: 'Financeiro',
-    //   defaultExpanded: false,
-    //   icon: <Wallet size={14} strokeWidth={2.5} />,
-    //   items: [
-    //     allItems.parcelas,     // Parcelas
-    //   ].filter(i => i.show),
-    // },
+    {
+      // Onda 15 (etapa 18) — Grupo "Financeiro" reativado, agora hospedando
+      // Orcamentos + Financeiro (visao geral) que estavam em Jornada.
+      // Parcelas continua oculta — descomentar quando o modulo estiver maduro.
+      id: 'financeiro',
+      label: 'Financeiro',
+      defaultExpanded: true,
+      icon: <Wallet size={14} strokeWidth={2.5} />,
+      items: [
+        allItems.orcamentos,   // Orçamentos (movido da Jornada)
+        allItems.financeiro,   // Financeiro (visão geral, movido da Jornada)
+        // allItems.parcelas,  // Parcelas — oculto ate o modulo estar maduro
+      ].filter(i => i.show),
+    },
     {
       id: 'gestao',
       label: 'Gestão',
