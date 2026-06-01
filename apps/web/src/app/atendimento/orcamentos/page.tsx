@@ -146,13 +146,33 @@ function OrcamentosPageInner() {
       if (statusFilter) params.set('status', statusFilter);
       if (search.trim()) params.set('search', search.trim());
       params.set('limit', '200');
-      const [listRes, statsRes] = await Promise.all([
+      // Onda 15 (etapa 19.2) — Promise.allSettled em vez de Promise.all
+      // pra evitar que UM endpoint quebrado (ex: /quotes/dashboard caindo
+      // no roteador errado e devolvendo 404) zere a tela inteira. Lista e
+      // stats sao independentes — a lista deve aparecer mesmo se as stats
+      // falharem (e o operador ve so um aviso suave em vez de tela vazia).
+      const [listRes, statsRes] = await Promise.allSettled([
         api.get<Quote[]>(`/quotes?${params}`),
         api.get<DashboardStats>('/quotes/dashboard'),
       ]);
-      setList(listRes.data);
-      setStats(statsRes.data);
+      if (listRes.status === 'fulfilled') {
+        setList(listRes.value.data);
+      } else {
+        const err: any = listRes.reason;
+        showError(err?.response?.data?.message || 'Erro ao carregar lista de orçamentos');
+      }
+      if (statsRes.status === 'fulfilled') {
+        setStats(statsRes.value.data);
+      } else {
+        // Falha de stats nao bloqueia a tela — esconde os cards no topo.
+        setStats(null);
+        const err: any = statsRes.reason;
+        const msg = err?.response?.data?.message || 'Erro ao carregar estatísticas';
+        // Nao spamma toast: so loga (lista ja sobe sozinha).
+        console.warn('[orcamentos] stats falhou:', msg);
+      }
     } catch (err: any) {
+      // Catch defensivo para qualquer erro inesperado fora dos endpoints.
       showError(err?.response?.data?.message || 'Erro ao carregar orçamentos');
     } finally {
       setLoading(false);
