@@ -11,6 +11,35 @@ export interface Question {
   label: string;
   required?: boolean;
   options?: string[];
+  /** Onda 17.7 — campos opcionais pra inputs number. Quando definidos no
+   *  schema do template, sao aplicados no input HTML (min/max) E geram
+   *  warning visual quando valor cai fora do intervalo "saudavel".
+   *  Se nao vierem do backend, o frontend aplica heuristica por label
+   *  (ex: label contendo "altura" -> 30-250cm, "peso" -> 0.5-300kg). */
+  min?: number;
+  max?: number;
+  /** Unidade exibida ao lado do warning (ex: "cm", "kg"). Cosmetico. */
+  unit?: string;
+}
+
+/** Heuristica de range esperado por label do campo. Cobre o caso comum
+ *  em que o backend nao injetou min/max no schema mas a UI sabe que
+ *  "altura"/"peso" tem valores plausiveis bem definidos. */
+function getNumberRangeFromLabel(label: string): { min: number; max: number; unit: string } | null {
+  const norm = (label || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  if (/altura/.test(norm)) return { min: 30, max: 250, unit: 'cm' };
+  if (/peso/.test(norm)) return { min: 0.5, max: 300, unit: 'kg' };
+  if (/press[aã]o/.test(norm)) return { min: 40, max: 220, unit: 'mmHg' };
+  if (/idade/.test(norm)) return { min: 0, max: 130, unit: 'anos' };
+  return null;
+}
+
+/** Resolve o range efetivo: prioriza o schema, cai pra heuristica do label. */
+function resolveNumberRange(q: Question): { min: number; max: number; unit: string } | null {
+  if (q.min != null && q.max != null) {
+    return { min: q.min, max: q.max, unit: q.unit ?? '' };
+  }
+  return getNumberRangeFromLabel(q.label);
 }
 
 export interface SectionShowIf {
@@ -182,22 +211,41 @@ function QuestionField({
           />
         </div>
       );
-    case 'number':
+    case 'number': {
+      // Onda 17.7 — valida range (min/max do schema ou heuristica por label).
+      // Permite salvar valores fora do intervalo (caso especial: bebe,
+      // atleta, etc), mas exibe warning visual amarelo pro operador
+      // confirmar conscientemente.
+      const range = resolveNumberRange(question);
+      const numValue = typeof value === 'number' ? value : null;
+      const outOfRange =
+        range != null && numValue != null && (numValue < range.min || numValue > range.max);
       return (
         <div>
           {label}
           <input
             type="number"
             value={value ?? ''}
+            min={range?.min}
+            max={range?.max}
+            step="any"
             onChange={(e) => {
               const n = e.target.value === '' ? null : Number(e.target.value);
               onChange(n);
             }}
             disabled={readOnly}
-            className={commonInputCls}
+            className={`${commonInputCls} ${outOfRange ? 'border-amber-500/60 ring-1 ring-amber-500/30' : ''}`}
+            aria-invalid={outOfRange || undefined}
           />
+          {outOfRange && range && (
+            <p className="text-[11px] text-amber-500 mt-1 flex items-center gap-1.5">
+              <span>⚠️</span>
+              Valor incomum (esperado entre {range.min} e {range.max}{range.unit ? ` ${range.unit}` : ''}). Confirme se está correto.
+            </p>
+          )}
         </div>
       );
+    }
     case 'textarea':
       return (
         <div>

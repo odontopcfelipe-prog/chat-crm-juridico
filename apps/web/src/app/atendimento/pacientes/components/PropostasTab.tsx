@@ -1206,6 +1206,12 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     if (!window.confirm(confirmMsg)) return;
 
     setApprovingBill(true);
+    // Onda 17.8 — AbortController com timeout de 60s. Antes, se o backend
+    // (ou o Asaas) demorava muito, a requisicao ficava pendente sem fim,
+    // o operador via "loading" infinito sem feedback. Agora aborta limpo
+    // depois de 60s e mostra mensagem util.
+    const abortCtrl = new AbortController();
+    const timeoutId = setTimeout(() => abortCtrl.abort(), 60_000);
     try {
       const { data } = await api.post<ApproveAndBillResult>(
         `/quotes/${selectedDetail.id}/approve-and-bill`,
@@ -1214,15 +1220,31 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           value: valueToCharge,
           installment_count: installmentCount,
         },
+        { signal: abortCtrl.signal, timeout: 60_000 },
       );
       setApproveBillResult(data);
       setApproveBillOpen(true);
       showSuccess('Proposta aprovada e cobrança gerada!');
       load(); // refresh lista
     } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao aprovar e gerar cobrança');
+      const e = err as { response?: { data?: { message?: string }; status?: number }; code?: string; name?: string; message?: string };
+      const isAbort =
+        e?.name === 'CanceledError' ||
+        e?.name === 'AbortError' ||
+        e?.code === 'ECONNABORTED' ||
+        (e?.message || '').toLowerCase().includes('abort') ||
+        (e?.message || '').toLowerCase().includes('timeout');
+      if (isAbort) {
+        showError(
+          'A operação demorou mais de 60s e foi cancelada. Pode ser ' +
+          'lentidão no Asaas. Verifique no Financeiro se a cobrança ' +
+          'foi gerada antes de tentar de novo (pra evitar duplicar).',
+        );
+      } else {
+        showError(e?.response?.data?.message || 'Erro ao aprovar e gerar cobrança');
+      }
     } finally {
+      clearTimeout(timeoutId);
       setApprovingBill(false);
     }
   }, [selectedDetail, activePaymentKey, load]);
@@ -1653,9 +1675,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       )}
       {approvingBill && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
-          <div className="bg-card border border-border rounded-xl p-6 flex items-center gap-3 shadow-2xl">
-            <Loader2 size={20} className="animate-spin text-emerald-700" />
-            <span className="text-sm font-semibold">Aprovando proposta + gerando cobrança...</span>
+          <div className="bg-card border border-border rounded-xl p-6 flex flex-col items-center gap-3 shadow-2xl max-w-md text-center">
+            <Loader2 size={28} className="animate-spin text-emerald-600" />
+            <div>
+              <p className="text-sm font-semibold text-foreground">Aprovando proposta + gerando cobrança...</p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Pode levar até 1 minuto enquanto integra com o Asaas. Não feche a janela.
+              </p>
+            </div>
           </div>
         </div>
       )}

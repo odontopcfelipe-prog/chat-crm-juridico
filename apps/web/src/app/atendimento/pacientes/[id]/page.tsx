@@ -27,6 +27,7 @@ import { useAuthedImage } from '@/lib/use-authed-image';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { calculateAge, formatBirthDateWithAge } from '@/lib/age';
+import { formatPhone, formatCPF, formatRG } from '@/lib/utils';
 import AnamneseTab from '../components/AnamneseTab';
 import ProntuarioTab from '../components/ProntuarioTab';
 import OdontogramaTab from '../components/OdontogramaTab';
@@ -363,9 +364,9 @@ function PacienteFichaInner() {
               )}
             </h1>
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
-              {patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {patient.phone}</span>}
+              {patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {formatPhone(patient.phone)}</span>}
               {patient.email && <span className="flex items-center gap-1"><Mail size={14} /> {patient.email}</span>}
-              {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {patient.cpf}</span>}
+              {patient.cpf && <span className="flex items-center gap-1"><IdCard size={14} /> {formatCPF(patient.cpf)}</span>}
             </div>
             {/* Tags do paciente — gerenciamento inline */}
             <div className="mt-2">
@@ -1006,8 +1007,8 @@ function OverviewTab({
         </div>
         <dl className="space-y-2 text-sm">
           <Field label="Nome" value={patient.name} />
-          <Field label="CPF" value={patient.cpf} />
-          <Field label="RG" value={patient.rg} />
+          <Field label="CPF" value={patient.cpf ? formatCPF(patient.cpf) : null} />
+          <Field label="RG" value={patient.rg ? formatRG(patient.rg) : null} />
           {/* Onda 25.4 — DD/MM/YYYY + idade calculada (helper compartilhado) */}
           <Field label="Nascimento" value={formatBirthDateWithAge(patient.birth_date) || null} />
           <Field
@@ -1015,21 +1016,21 @@ function OverviewTab({
             value={patient.gender === 'F' ? 'Feminino' : patient.gender === 'M' ? 'Masculino' : patient.gender || null}
           />
           <Field label="Estado civil" value={patient.marital_status ? MARITAL_LABEL[patient.marital_status] : null} />
-          <Field label="Telefone" value={patient.phone} />
+          <Field label="Telefone" value={patient.phone ? formatPhone(patient.phone) : null} />
           <Field label="Email" value={patient.email} />
           <Field label="Endereço" value={enderecoFmt || null} />
           {patient.is_minor && (
             <>
               <div className="border-t border-border my-2" />
               <Field label="Responsável" value={patient.guardian_name} />
-              <Field label="CPF responsável" value={patient.guardian_cpf} />
-              <Field label="Tel. responsável" value={patient.guardian_phone} />
+              <Field label="CPF responsável" value={patient.guardian_cpf ? formatCPF(patient.guardian_cpf) : null} />
+              <Field label="Tel. responsável" value={patient.guardian_phone ? formatPhone(patient.guardian_phone) : null} />
             </>
           )}
           {(patient.emergency_contact_name || patient.emergency_contact_phone) && (
             <>
               <div className="border-t border-border my-2" />
-              <Field label="Emergência" value={[patient.emergency_contact_name, patient.emergency_contact_phone].filter(Boolean).join(' · ')} />
+              <Field label="Emergência" value={[patient.emergency_contact_name, patient.emergency_contact_phone ? formatPhone(patient.emergency_contact_phone) : null].filter(Boolean).join(' · ')} />
             </>
           )}
         </dl>
@@ -1314,7 +1315,7 @@ function ResumoClinicoCard({
         {patient.referred_by_patient && (
           <Field
             label="Indicado por"
-            value={`${patient.referred_by_patient.name || 'Sem nome'} (${patient.referred_by_patient.phone || 'sem telefone'})`}
+            value={`${patient.referred_by_patient.name || 'Sem nome'} (${patient.referred_by_patient.phone ? formatPhone(patient.referred_by_patient.phone) : 'sem telefone'})`}
           />
         )}
         {!patient.referred_by_patient && patient.referred_by && (

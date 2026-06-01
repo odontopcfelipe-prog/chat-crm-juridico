@@ -39,7 +39,11 @@ interface ListChargesParams {
 @Injectable()
 export class AsaasClient {
   private readonly logger = new Logger(AsaasClient.name);
-  private readonly MAX_RETRIES = 3;
+  // Onda 17.8 — Reduzido de 3 pra 2: com timeout 30s + backoff exponencial,
+  // 3 tentativas resultavam em ate 93s no pior caso, deixando o operador
+  // esperando "loading" infinito no frontend. Com 2, pior caso = 20s + 1s + 20s
+  // = 41s, dentro do timeout de 60s do frontend.
+  private readonly MAX_RETRIES = 2;
 
   constructor(private settingsService: SettingsService) {}
 
@@ -91,7 +95,9 @@ export class AsaasClient {
             'Content-Type': 'application/json',
             'User-Agent': 'LexCRM/1.0',  // Obrigatório desde Nov/2024
           },
-          timeout: 30000,
+          // Onda 17.8 — 20s (era 30s). Combinado com MAX_RETRIES=2,
+          // pior caso 41s. Asaas raramente excede 5s no caminho feliz.
+          timeout: 20000,
         });
 
         this.logger.debug(

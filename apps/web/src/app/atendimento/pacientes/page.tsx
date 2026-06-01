@@ -6,6 +6,7 @@ import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { formatPhone, formatCPF } from '@/lib/utils';
 import NewPatientModal from './components/NewPatientModal';
 import { Badge as TagBadge, type PatientTag } from './components/PatientTagsPicker';
 import { PatientAvatar } from '@/components/PatientAvatar';
@@ -367,8 +368,8 @@ function PacientesPageInner() {
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
-                      {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {p.phone}</span>}
-                      {p.cpf && <span>CPF: {p.cpf}</span>}
+                      {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
+                      {p.cpf && <span>CPF: {formatCPF(p.cpf)}</span>}
                       {p.primary_dentist && <span>Dentista: {p.primary_dentist.name}</span>}
                     </div>
                   </div>
