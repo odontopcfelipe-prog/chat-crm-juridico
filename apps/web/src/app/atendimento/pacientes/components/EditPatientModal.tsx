@@ -187,11 +187,22 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
         referred_by: referredBy.trim() || null,
         referred_by_id: referredById || null,
         notes: notes.trim() || null,
-        // Programa de Afiliado — 3% sobre tratamentos fechados por indicacao
+        // Programa de Afiliado — 3% sobre tratamentos fechados por indicacao.
+        // affiliate_commission_pct e Decimal NAO-NULL no schema (default 3),
+        // entao quando NAO e afiliado, omite o campo (em vez de mandar null)
+        // pra Prisma nao tentar setar null e jogar exceção (500).
         is_affiliate: isAffiliate,
-        affiliate_code: isAffiliate ? (affiliateCode.trim() || null) : null,
-        affiliate_commission_pct: isAffiliate ? AFFILIATE_COMMISSION_PCT : null,
-        affiliate_notes: isAffiliate ? (affiliateNotes.trim() || null) : null,
+        ...(isAffiliate
+          ? {
+              affiliate_code: affiliateCode.trim() || null,
+              affiliate_commission_pct: AFFILIATE_COMMISSION_PCT,
+              affiliate_notes: affiliateNotes.trim() || null,
+            }
+          : {
+              affiliate_code: null,
+              affiliate_notes: null,
+              // affiliate_commission_pct omitido: schema e Decimal NOT NULL.
+            }),
       };
 
       // Remove campos vazios pra evitar validação chata em strings vazias com @IsEmail/etc
