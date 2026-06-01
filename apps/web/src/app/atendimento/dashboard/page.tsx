@@ -105,28 +105,28 @@ const PRIMARY_ACTIONS = [
     description: 'Cadastrar uma nova ficha',
     href: '/atendimento/pacientes?new=1',
     icon: UserPlus,
-    color: 'orange', // brand
+    color: 'sky', // alinhado com o ciano/azul da sidebar (primary do tema)
   },
   {
     label: 'Nova avaliação',
     description: 'Selecionar paciente p/ avaliação',
     action: 'open-modal-nova-avaliacao' as const,
     icon: FileText,
-    color: 'teal',
+    color: 'emerald', // verde de "ação positiva" — combina com saudações de saúde
   },
   {
     label: 'Agendar',
     description: 'Marcar na agenda',
     href: '/atendimento/agenda',
     icon: Calendar,
-    color: 'indigo',
+    color: 'violet', // roxo de "tempo/agenda" — contrasta sem brigar com o ciano
   },
   {
     label: 'Metas',
     description: 'Acompanhe seu progresso',
     href: '/atendimento/metas',
     icon: Target,
-    color: 'violet',
+    color: 'amber', // dourado de "troféu" — único quente, dá destaque
   },
 ] as const;
 
@@ -137,30 +137,33 @@ const SECONDARY_ACTIONS = [
   { label: 'Lembrete no WhatsApp', href: '/atendimento', icon: MessageCircle },
 ] as const;
 
+// Onda 17.14 — Paleta alinhada com tema do sistema (ciano/azul da
+// sidebar). Antes usava cores Clinicorp soltas; agora usa tons da
+// paleta principal: sky (primary), emerald, violet, amber.
 const COLOR_CLASSES = {
-  orange: {
-    iconBg: 'bg-orange-100 dark:bg-orange-500/15',
-    iconText: 'text-orange-600 dark:text-orange-400',
-    glow: 'hover:shadow-orange-500/20',
-    ring: 'group-hover:ring-orange-500/20',
+  sky: {
+    iconBg: 'bg-sky-100 dark:bg-sky-500/15',
+    iconText: 'text-sky-600 dark:text-sky-400',
+    glow: 'hover:shadow-sky-500/20',
+    ring: 'group-hover:ring-sky-500/20',
   },
-  teal: {
-    iconBg: 'bg-teal-100 dark:bg-teal-500/15',
-    iconText: 'text-teal-600 dark:text-teal-400',
-    glow: 'hover:shadow-teal-500/20',
-    ring: 'group-hover:ring-teal-500/20',
-  },
-  indigo: {
-    iconBg: 'bg-indigo-100 dark:bg-indigo-500/15',
-    iconText: 'text-indigo-600 dark:text-indigo-400',
-    glow: 'hover:shadow-indigo-500/20',
-    ring: 'group-hover:ring-indigo-500/20',
+  emerald: {
+    iconBg: 'bg-emerald-100 dark:bg-emerald-500/15',
+    iconText: 'text-emerald-600 dark:text-emerald-400',
+    glow: 'hover:shadow-emerald-500/20',
+    ring: 'group-hover:ring-emerald-500/20',
   },
   violet: {
     iconBg: 'bg-violet-100 dark:bg-violet-500/15',
     iconText: 'text-violet-600 dark:text-violet-400',
     glow: 'hover:shadow-violet-500/20',
     ring: 'group-hover:ring-violet-500/20',
+  },
+  amber: {
+    iconBg: 'bg-amber-100 dark:bg-amber-500/15',
+    iconText: 'text-amber-600 dark:text-amber-400',
+    glow: 'hover:shadow-amber-500/20',
+    ring: 'group-hover:ring-amber-500/20',
   },
 } as const;
 
@@ -297,14 +300,19 @@ export default function VisaoGeralPage() {
     ? `${cap(DIAS[now.getDay()])}, ${now.getDate()} de ${MESES[now.getMonth()]} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     : '—';
 
-  // Background do "ceu" baseado no periodo
+  // Onda 17.14 — Background do "ceu" usando paleta fria do sistema
+  // (sky/cyan/indigo), em vez de orange/amber. Conserva a metafora
+  // dia-tarde-noite mas em tons que combinam com a sidebar ciano.
   const skyBg = useMemo(() => {
     switch (sal.period) {
       case 'morning':
-        return 'bg-gradient-to-b from-orange-200 via-orange-100 to-transparent';
+        // Manha: ceu azul claro com toque amarelado (raiar do dia)
+        return 'bg-gradient-to-b from-sky-200 via-sky-100 to-transparent';
       case 'afternoon':
-        return 'bg-gradient-to-b from-amber-200 via-amber-100 to-transparent';
+        // Tarde: ciano vibrante alinhando com o azul da sidebar
+        return 'bg-gradient-to-b from-cyan-200 via-sky-100 to-transparent';
       case 'night':
+        // Noite: indigo profundo + violet (ja estava OK, mantém)
         return 'bg-gradient-to-b from-indigo-900 via-purple-900 to-transparent';
     }
   }, [sal.period]);
@@ -407,11 +415,12 @@ export default function VisaoGeralPage() {
           {/* Greeting */}
           <h1 className={`text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight ${sal.period === 'night' ? 'text-white' : 'text-foreground'}`}>
             {sal.text},{' '}
-            <span className="italic text-orange-600 dark:text-orange-400">
+            <span className="italic text-sky-600 dark:text-sky-400">
               {/* Onda 17.13 — Mostra o nome EXATO do cadastro (primeiro
                   nome), sem prefixo Dr./Dra. Antes acrescentava
                   automaticamente, o que ficava errado pra perfis nao
-                  dentistas (Admin, Operador, Recepcao, etc). */}
+                  dentistas (Admin, Operador, Recepcao, etc).
+                  Onda 17.14 — Cor sky alinhada com a paleta do tema. */}
               {userName ? userName.split(' ')[0] : 'visitante'}
             </span>{' '}
             <span className="wave-hand">👋</span>
@@ -436,7 +445,7 @@ export default function VisaoGeralPage() {
                   ? 'bg-white/10 border-white/20 text-white'
                   : 'bg-card border-border text-foreground'
               }`}>
-                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-amber-400 to-orange-500 grid place-items-center flex-none shadow">
+                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-sky-400 to-cyan-600 grid place-items-center flex-none shadow">
                   <BookOpen size={14} className="text-white" />
                 </span>
                 <span className="leading-snug">
@@ -516,7 +525,7 @@ export default function VisaoGeralPage() {
           <section className="bg-card border border-border rounded-xl shadow-sm">
             <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
               <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-orange-500" />
+                <CheckCircle2 size={16} className="text-sky-500" />
                 Afazeres do dia
               </h3>
               <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
@@ -527,7 +536,7 @@ export default function VisaoGeralPage() {
                     cx="18"
                     cy="18"
                     r="15"
-                    stroke="#FF6A1A"
+                    stroke="#0EA5E9"
                     strokeWidth="4"
                     fill="none"
                     strokeLinecap="round"
@@ -579,10 +588,12 @@ export default function VisaoGeralPage() {
             )}
           </section>
 
-          {/* Anotacoes — post-it style */}
-          <section className="bg-gradient-to-b from-amber-50/80 to-yellow-50/60 dark:from-amber-500/10 dark:to-yellow-500/5 border border-amber-200/50 dark:border-amber-500/20 rounded-xl shadow-sm relative overflow-hidden">
+          {/* Anotações — Onda 17.14: paleta alinhada com tema (sky em
+              vez de amber/yellow). Mantém a sensação de "caderno" mas
+              com tons frios que combinam com a sidebar. */}
+          <section className="bg-gradient-to-b from-sky-50/80 to-blue-50/60 dark:from-sky-500/10 dark:to-blue-500/5 border border-sky-200/50 dark:border-sky-500/20 rounded-xl shadow-sm relative overflow-hidden">
             {/* Fita decorativa no topo */}
-            <div className="absolute top-[-12px] left-1/2 -translate-x-1/2 w-24 h-6 bg-orange-500/15 border border-dashed border-orange-500/30 rounded-sm" />
+            <div className="absolute top-[-12px] left-1/2 -translate-x-1/2 w-24 h-6 bg-sky-500/15 border border-dashed border-sky-500/30 rounded-sm" />
 
             <div className="flex items-center justify-between px-5 py-5">
               <h3 className="text-lg font-serif font-semibold text-foreground">Anotações</h3>
@@ -597,7 +608,7 @@ export default function VisaoGeralPage() {
               placeholder={`Anote algo rápido…\n• Ligar para o protético sobre a coroa da Dona Cida\n• Repor anestésico no estoque`}
               className="w-full px-5 py-2 pb-5 text-sm leading-[30px] text-foreground placeholder:text-muted-foreground/40 bg-transparent border-0 outline-none resize-none min-h-[200px]"
               style={{
-                backgroundImage: 'repeating-linear-gradient(transparent, transparent 29px, rgba(240, 230, 204, 0.5) 29px, rgba(240, 230, 204, 0.5) 30px)',
+                backgroundImage: 'repeating-linear-gradient(transparent, transparent 29px, rgba(186, 230, 253, 0.5) 29px, rgba(186, 230, 253, 0.5) 30px)',
                 fontFamily: 'inherit',
               }}
             />
