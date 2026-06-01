@@ -55,8 +55,14 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
       if (dentistId) params.dentistId = dentistId;
       const r = await api.get('/financeiro/patients-summary', { params });
       setRows(r.data?.data || []);
-    } catch {
-      showError('Erro ao carregar resumo por paciente');
+    } catch (e: any) {
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.message || e?.message || 'erro desconhecido';
+      if (status === 404) {
+        showError('Endpoint /financeiro/patients-summary não disponível. Backend ainda não deployou.');
+      } else {
+        showError(`Erro ao carregar resumo (${status || 'sem status'}): ${msg}`);
+      }
     } finally {
       setLoading(false);
     }

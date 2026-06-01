@@ -87,7 +87,7 @@ export class FinanceiroChargesService {
     if (tenantId) baseWhere.tenant_id = tenantId;
     // Filtro por dentista: passa pelo plan.quote.created_by_id
     if (dentistId) {
-      baseWhere.treatment_plan = { quote: { created_by_id: dentistId } };
+      baseWhere.treatment_plan = { quote: { created_by_user_id: dentistId } };
     }
 
     // 1. RECEBIDO no período (filtra paid_at no range, ou criação se sem range)
@@ -275,7 +275,7 @@ export class FinanceiroChargesService {
     if (patientId) {
       where.treatment_plan = { patient_id: patientId };
     } else if (dentistId) {
-      where.treatment_plan = { quote: { created_by_id: dentistId } };
+      where.treatment_plan = { quote: { created_by_user_id: dentistId } };
     }
 
     if (status) {
@@ -363,7 +363,7 @@ export class FinanceiroChargesService {
     // dói. Se virar gargalo, reescrevemos com $queryRaw.
     const planWhere: any = {};
     if (tenantId) planWhere.patient = { tenant_id: tenantId };
-    if (dentistId) planWhere.quote = { created_by_id: dentistId };
+    if (dentistId) planWhere.quote = { created_by_user_id: dentistId };
 
     const plans = await this.prisma.treatmentPlan.findMany({
       where: planWhere,

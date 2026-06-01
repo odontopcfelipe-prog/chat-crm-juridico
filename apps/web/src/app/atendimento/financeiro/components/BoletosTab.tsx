@@ -125,8 +125,17 @@ export default function BoletosTab({ dentistId }: Props) {
       const r = await api.get('/financeiro/charges', { params });
       setCharges(r.data?.data || []);
       setTotal(r.data?.total || 0);
-    } catch {
-      showError('Erro ao carregar boletos');
+    } catch (e: any) {
+      // Onda 16.1 — mostra status code + mensagem do backend pra debugar.
+      // Quando backend ainda nao deployou, da 404; quando query falha, 500
+      // + mensagem clara. Ajuda muito pra ngm ficar adivinhando.
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.message || e?.message || 'erro desconhecido';
+      if (status === 404) {
+        showError('Endpoint /financeiro/charges não disponível. Backend ainda não deployou — aguarde o redeploy completar.');
+      } else {
+        showError(`Erro ao carregar boletos (${status || 'sem status'}): ${msg}`);
+      }
     } finally {
       setLoading(false);
     }
