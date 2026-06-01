@@ -208,50 +208,51 @@ function OrcamentosPageInner() {
         </div>
       </div>
 
-      {/* Stats cards */}
+      {/* Onda 15 (etapa 19.4) — Cards focados no FUNIL (em vez de
+          contagem por status, que era informacao tecnica). Operador agora
+          ve de relance: quanto dinheiro tem em jogo, quantos pacientes
+          esperam decisao, o que e urgente, o que ja se perdeu, e o quao
+          eficiente esta fechando.
+
+          Breakdown completo por status segue disponivel via os chips de
+          filtro abaixo. */}
       {stats && (
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3 mb-6">
-          <StatCard
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          <FunnelCard
+            icon={DollarSign}
+            label="Pipeline em fechamento"
+            value={formatBRL(stats.byStatus.SENT?.total ?? 0)}
+            sub={`${stats.byStatus.SENT?.count ?? 0} orçamento(s) enviado(s)`}
+            colorClass="emerald"
+          />
+          <FunnelCard
             icon={FileText}
-            label="Rascunhos"
-            value={stats.byStatus.DRAFT.count}
-            sub={formatBRL(stats.byStatus.DRAFT.total)}
-            cls="text-muted-foreground"
+            label="Aguardando resposta"
+            value={stats.byStatus.SENT?.count ?? 0}
+            sub="paciente decidindo"
+            colorClass="blue"
           />
-          <StatCard
-            icon={Send}
-            label="Enviados"
-            value={stats.byStatus.SENT.count}
-            sub={formatBRL(stats.byStatus.SENT.total)}
-            cls="text-blue-600"
-          />
-          <StatCard
-            icon={Check}
-            label="Aceitos"
-            value={stats.byStatus.ACCEPTED.count}
-            sub={formatBRL(stats.byStatus.ACCEPTED.total)}
-            cls="text-emerald-600"
-          />
-          <StatCard
-            icon={X}
-            label="Rejeitados"
-            value={stats.byStatus.REJECTED.count}
-            sub={formatBRL(stats.byStatus.REJECTED.total)}
-            cls="text-destructive"
-          />
-          <StatCard
+          <FunnelCard
             icon={Clock}
-            label="Expirados"
-            value={stats.byStatus.EXPIRED.count}
-            sub={formatBRL(stats.byStatus.EXPIRED.total)}
-            cls="text-amber-600"
+            label="Vencem em 7 dias"
+            value={stats.expiring_soon}
+            sub={stats.expiring_soon > 0 ? 'reaja rápido' : 'nada urgente'}
+            colorClass={stats.expiring_soon > 0 ? 'amber' : 'gray'}
+            highlight={stats.expiring_soon > 0}
           />
-          <StatCard
+          <FunnelCard
+            icon={AlertTriangle}
+            label="Já expiraram"
+            value={stats.byStatus.EXPIRED?.count ?? 0}
+            sub={formatBRL(stats.byStatus.EXPIRED?.total ?? 0)}
+            colorClass={(stats.byStatus.EXPIRED?.count ?? 0) > 0 ? 'red' : 'gray'}
+          />
+          <FunnelCard
             icon={TrendingUp}
-            label="Conversão"
+            label="Conversão (30d)"
             value={stats.conversion_rate !== null ? `${(stats.conversion_rate * 100).toFixed(0)}%` : '—'}
-            sub={`Aceitos / decididos`}
-            cls="text-primary"
+            sub={`${stats.byStatus.ACCEPTED?.count ?? 0} aceito(s) / decididos`}
+            colorClass="violet"
           />
         </div>
       )}
@@ -612,6 +613,47 @@ function StatCard({
       </div>
       <p className={`text-2xl font-bold ${cls || 'text-foreground'}`}>{value}</p>
       {sub && <p className="text-xs text-muted-foreground mt-0.5">{sub}</p>}
+    </div>
+  );
+}
+
+/**
+ * Onda 15 (etapa 19.4) — Card de funil. Visual mais polido que o
+ * StatCard tecnico — icon colorido no canto, valor BEM destacado, label
+ * acima e descricao curta embaixo. Cores tematicas pelo prop colorClass
+ * (verde=pipeline, azul=esperando, ambar=urgente, vermelho=perdido,
+ * violeta=KPI). Highlight = pulse sutil pra chamar atencao em metricas
+ * urgentes (ex: "Vencem em 7 dias" > 0).
+ */
+function FunnelCard({
+  icon: Icon, label, value, sub, colorClass, highlight,
+}: {
+  icon: React.ElementType;
+  label: string;
+  value: number | string;
+  sub?: string;
+  colorClass: 'emerald' | 'blue' | 'amber' | 'red' | 'violet' | 'gray';
+  highlight?: boolean;
+}) {
+  const palette: Record<typeof colorClass, { icon: string; iconBg: string; value: string; border?: string }> = {
+    emerald: { icon: 'text-emerald-600', iconBg: 'bg-emerald-500/10', value: 'text-emerald-700' },
+    blue:    { icon: 'text-blue-600',    iconBg: 'bg-blue-500/10',    value: 'text-blue-700' },
+    amber:   { icon: 'text-amber-600',   iconBg: 'bg-amber-500/10',   value: 'text-amber-700', border: 'border-amber-500/30' },
+    red:     { icon: 'text-red-600',     iconBg: 'bg-red-500/10',     value: 'text-red-700' },
+    violet:  { icon: 'text-violet-600',  iconBg: 'bg-violet-500/10',  value: 'text-violet-700' },
+    gray:    { icon: 'text-muted-foreground', iconBg: 'bg-muted/40',  value: 'text-foreground' },
+  };
+  const p = palette[colorClass];
+  return (
+    <div className={`bg-card rounded-xl p-4 border ${p.border || 'border-border'} ${highlight ? 'ring-1 ring-amber-500/30' : ''} hover:shadow-sm transition-shadow`}>
+      <div className="flex items-start gap-2.5 mb-2">
+        <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${p.iconBg}`}>
+          <Icon size={14} className={p.icon} />
+        </div>
+        <p className="text-xs font-semibold text-foreground leading-tight pt-0.5">{label}</p>
+      </div>
+      <p className={`text-3xl font-extrabold tabular-nums leading-none ${p.value}`}>{value}</p>
+      {sub && <p className="text-[11px] text-muted-foreground mt-1.5">{sub}</p>}
     </div>
   );
 }
