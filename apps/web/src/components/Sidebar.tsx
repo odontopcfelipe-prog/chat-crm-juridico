@@ -624,11 +624,23 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/followup'),
       show: perms.isAdmin,
     },
+    financeiroVisaoGeral: {
+      // Onda 17.1 — KPIs + graficos do financeiro (RevenueTrend +
+      // FinancialAging + Top atrasos + Entrada do dia). Pagina dedicada
+      // pra visualizacao gerencial, separada da pagina /financeiro que
+      // foca em tabelas e CRUD.
+      label: 'Visão Geral',
+      href: '/atendimento/financeiro/dashboard',
+      icon: <BarChart3 size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/financeiro/dashboard'),
+      show: perms.canViewFinanceiro,
+    },
     financeiro: {
       label: 'Financeiro',
       href: '/atendimento/financeiro',
       icon: <Wallet size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/financeiro'),
+      // Match restrito: nao casa com /financeiro/dashboard nem /financeiro/parcelas
+      match: (p) => p === '/atendimento/financeiro' || p.startsWith('/atendimento/financeiro?'),
       show: perms.canViewFinanceiro,
     },
     analytics: {
@@ -748,9 +760,10 @@ export function Sidebar() {
       defaultExpanded: true,
       icon: <Wallet size={14} strokeWidth={2.5} />,
       items: [
-        allItems.orcamentos,   // Orçamentos (movido da Jornada)
-        allItems.financeiro,   // Financeiro (visão geral, movido da Jornada)
-        // allItems.parcelas,  // Parcelas — oculto ate o modulo estar maduro
+        allItems.financeiroVisaoGeral, // Onda 17.1 — Visão Geral (KPIs + graficos)
+        allItems.orcamentos,           // Orçamentos
+        allItems.financeiro,           // Financeiro (tabela detalhada)
+        // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
       ].filter(i => i.show),
     },
     {
