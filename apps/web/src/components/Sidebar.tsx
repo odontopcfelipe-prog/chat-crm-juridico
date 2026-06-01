@@ -682,15 +682,15 @@ export function Sidebar() {
   // Portal do paciente, Prontuario.
   const groups: NavGroup[] = [
     {
-      // Onda 16.3 — "Dashboard"/Visao geral moveu pro grupo Financeiro
-      // (operador prefere agrupar la, junto com Orcamentos/Financeiro).
-      // Grupo aqui ficou com so canais de atendimento. Renomeei pra
-      // "Atendimento" pra refletir o conteudo real (Agenda + WhatsApp).
+      // Onda 16.4 — Visao geral volta pro grupo de cima (primeiro item).
+      // Grupo mantem nome "Atendimento" pra evitar redundancia
+      // "Visao geral > Visao geral" no breadcrumb mental.
       id: 'visao-geral',
       label: 'Atendimento',
       fixed: true,
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
+        allItems.dashboard,    // Visão geral (primeiro item)
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
       ].filter(i => i.show),
@@ -726,14 +726,13 @@ export function Sidebar() {
     {
       // Onda 15 (etapa 18) — Grupo "Financeiro" reativado, agora hospedando
       // Orcamentos + Financeiro (visao geral) que estavam em Jornada.
-      // Onda 16.3 — Visao geral (antigo Dashboard) entrou aqui tambem.
+      // Onda 16.4 — Visao geral voltou pro grupo Atendimento.
       // Parcelas continua oculta — descomentar quando o modulo estiver maduro.
       id: 'financeiro',
       label: 'Financeiro',
       defaultExpanded: true,
       icon: <Wallet size={14} strokeWidth={2.5} />,
       items: [
-        allItems.dashboard,    // Visão geral (movido do grupo Atendimento)
         allItems.orcamentos,   // Orçamentos (movido da Jornada)
         allItems.financeiro,   // Financeiro (visão geral, movido da Jornada)
         // allItems.parcelas,  // Parcelas — oculto ate o modulo estar maduro
