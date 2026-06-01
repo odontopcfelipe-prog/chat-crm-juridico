@@ -95,6 +95,21 @@ interface DashboardData {
     boleto_url: string | null;
     patient: { id: string; name: string | null; phone: string | null } | null;
   }[];
+  /** Onda 16.2 — entradas que efetivamente cairam HOJE (paid_at ou
+   *  received_at no dia corrente). Inclui total + lista das ultimas 10. */
+  entrada_do_dia: {
+    value: number;
+    count: number;
+    items: {
+      id: string;
+      kind: string | null;
+      amount: number;
+      paid_at: string;
+      billing_type: string;
+      received_in_cash: boolean;
+      patient: { id: string; name: string | null; phone: string | null } | null;
+    }[];
+  };
   now: string;
 }
 
@@ -1084,8 +1099,9 @@ export default function FinanceiroPage() {
               />
             </div>
 
-            {/* Widget Top atrasos + Próximos vencimentos (lado a lado) */}
-            {dashboard && (dashboard.top_atrasos.length > 0 || dashboard.proximos_vencimentos.length > 0) && (
+            {/* Widgets Top atrasos + Entrada do dia (lado a lado).
+                Próximos vencimentos foi pra baixo em widget próprio. */}
+            {dashboard && (dashboard.top_atrasos.length > 0 || dashboard.entrada_do_dia.count > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Top atrasos */}
                 {dashboard.top_atrasos.length > 0 && (
@@ -1115,17 +1131,21 @@ export default function FinanceiroPage() {
                   </div>
                 )}
 
-                {/* Proximos vencimentos */}
-                {dashboard.proximos_vencimentos.length > 0 && (
-                  <div className="bg-card border border-amber-500/20 rounded-xl p-4">
-                    <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
-                      <Clock size={14} />
-                      Próximos vencimentos (7d)
-                    </h3>
+                {/* Entrada do dia — Onda 16.2 */}
+                {dashboard.entrada_do_dia.count > 0 ? (
+                  <div className="bg-card border border-emerald-500/20 rounded-xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
+                        <DollarSign size={14} />
+                        Entrada do dia ({dashboard.entrada_do_dia.count})
+                      </h3>
+                      <span className="text-sm font-bold text-emerald-400 tabular-nums">
+                        {fmt(dashboard.entrada_do_dia.value)}
+                      </span>
+                    </div>
                     <div className="space-y-2">
-                      {dashboard.proximos_vencimentos.slice(0, 5).map((c) => {
-                        const dt = new Date(c.due_date);
-                        const days = Math.ceil((dt.getTime() - Date.now()) / 86400000);
+                      {dashboard.entrada_do_dia.items.slice(0, 5).map((c) => {
+                        const hora = new Date(c.paid_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                         return (
                           <button
                             key={c.id}
@@ -1133,19 +1153,63 @@ export default function FinanceiroPage() {
                             className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
                           >
                             <div className="flex items-center gap-2 min-w-0">
-                              <span className={`text-xs font-bold shrink-0 ${days <= 3 ? 'text-red-400' : 'text-amber-400'}`}>{days}d</span>
+                              <span className="text-[10px] font-bold text-emerald-400 shrink-0 tabular-nums w-10">{hora}</span>
                               <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
+                              <span className="text-[10px] text-muted-foreground shrink-0">
+                                {c.received_in_cash ? 'Espécie' : c.billing_type}
+                              </span>
                             </div>
-                            <span className="text-xs font-bold text-amber-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
+                            <span className="text-xs font-bold text-emerald-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
                           </button>
                         );
                       })}
                     </div>
-                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-amber-400 hover:underline mt-3">
+                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-emerald-400 hover:underline mt-3">
                       Ver todos →
                     </button>
                   </div>
-                )}
+                ) : dashboard.top_atrasos.length > 0 ? (
+                  // Placeholder quando tem atrasos mas nao tem entrada hoje —
+                  // mantem grid 2 colunas pra simetria, nao deixa Top atrasos
+                  // gigante esticado pelo card todo.
+                  <div className="bg-card border border-border rounded-xl p-4 flex flex-col items-center justify-center text-center min-h-[140px]">
+                    <DollarSign size={20} className="text-muted-foreground/40 mb-2" />
+                    <p className="text-xs text-muted-foreground font-semibold">Entrada do dia</p>
+                    <p className="text-[11px] text-muted-foreground/60 mt-1">Nenhuma cobrança paga hoje ainda</p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {/* Proximos vencimentos (7d) — vira widget separado abaixo */}
+            {dashboard && dashboard.proximos_vencimentos.length > 0 && (
+              <div className="bg-card border border-amber-500/20 rounded-xl p-4">
+                <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
+                  <Clock size={14} />
+                  Próximos vencimentos (7d)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-2">
+                  {dashboard.proximos_vencimentos.slice(0, 10).map((c) => {
+                    const dt = new Date(c.due_date);
+                    const days = Math.ceil((dt.getTime() - Date.now()) / 86400000);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
+                        className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className={`text-xs font-bold shrink-0 ${days <= 3 ? 'text-red-400' : 'text-amber-400'}`}>{days}d</span>
+                          <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
+                        </div>
+                        <span className="text-xs font-bold text-amber-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-amber-400 hover:underline mt-3">
+                  Ver todos →
+                </button>
               </div>
             )}
 

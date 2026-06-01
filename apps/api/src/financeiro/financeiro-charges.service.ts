@@ -220,6 +220,36 @@ export class FinanceiroChargesService {
       take: 10,
     });
 
+    // 7. Entradas DE HOJE (charges efetivamente pagos no dia, Asaas ou especie)
+    const hojeStart = new Date(now);
+    hojeStart.setHours(0, 0, 0, 0);
+    const hojeEnd = new Date(hojeStart);
+    hojeEnd.setDate(hojeStart.getDate() + 1);
+
+    const entradas_hoje = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        ...baseWhere,
+        OR: [
+          { status: { in: PAID_STATUSES }, paid_at: { gte: hojeStart, lt: hojeEnd } },
+          { received_in_cash: true, received_at: { gte: hojeStart, lt: hojeEnd } },
+        ],
+      },
+      include: {
+        treatment_plan: {
+          select: {
+            patient: { select: { id: true, name: true, phone: true } },
+          },
+        },
+      },
+      orderBy: { updated_at: 'desc' },
+      take: 10,
+    });
+
+    const entradasHojeTotal = entradas_hoje.reduce(
+      (s, c) => s + Number(c.amount),
+      0,
+    );
+
     return {
       recebido_no_periodo: {
         value: Math.round(Number(receivedAgg._sum.amount || 0) * 100) / 100,
@@ -241,6 +271,11 @@ export class FinanceiroChargesService {
       cashflow_30d,
       proximos_vencimentos: this.serializeChargeLight(proximos_vencimentos),
       top_atrasos: this.serializeChargeLight(top_atrasos),
+      entrada_do_dia: {
+        value: Math.round(entradasHojeTotal * 100) / 100,
+        count: entradas_hoje.length,
+        items: this.serializeChargeReceived(entradas_hoje),
+      },
       now: now.toISOString(),
     };
   }
@@ -518,6 +553,20 @@ export class FinanceiroChargesService {
           ? Math.floor((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000)
           : 0,
       boleto_url: r.boleto_url || null,
+      patient: r.treatment_plan?.patient || null,
+    }));
+  }
+
+  /** Para o widget "Entrada do dia" — usa paid_at (quando entrou) em vez
+   *  de due_date (quando deveria entrar). */
+  private serializeChargeReceived(rows: any[]) {
+    return rows.map((r) => ({
+      id: r.id,
+      kind: r.kind,
+      amount: Number(r.amount),
+      paid_at: r.paid_at || r.payment_date || r.received_at,
+      billing_type: r.billing_type,
+      received_in_cash: !!r.received_in_cash,
       patient: r.treatment_plan?.patient || null,
     }));
   }
