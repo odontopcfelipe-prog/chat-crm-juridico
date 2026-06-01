@@ -1026,39 +1026,118 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         showError(`Asaas exige R$ 5,00 minimo por cobranca (atual: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}).`);
         return;
       }
-      const confirmMsg =
-        `Aprovar e gerar boleto parcelado em ${activeOpt.installments}x?\n\n` +
-        (customDp > 0 ? `Entrada: R$ ${customDp.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n` : '') +
-        `${activeOpt.installments}x de R$ ${calc.installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n` +
-        `Total final: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
-        `⚠ Consulta de crédito DISPENSADA — operador assume o risco.\n\n` +
-        `Isso vai:\n` +
-        `• Aceitar o orçamento (ACCEPTED)\n` +
-        `• Ativar o plano\n` +
-        `• Gerar entrada + ${activeOpt.installments} boletos no Asaas`;
-      if (!window.confirm(confirmMsg)) return;
+      // Onda 15 (etapa 16.7) — Sinal em ESPECIE (CASH) precisa de tratamento
+      // dedicado: nao da pra mandar signal_method=CASH pro /apply-financing
+      // (DTO so aceita PIX|BOLETO) e tampouco converter pra BOLETO (geraria
+      // um boleto Asaas no lugar do recebimento em maos — bug que apareceu
+      // em testes). Fluxo correto: registrar a especie primeiro (cria CASH
+      // charge + mark-cash-received) e depois chamar /apply-financing SEM
+      // signal_method (backend ve hasSignal=true por kind e pula a criacao
+      // do sinal, mas usa signal_value pra calcular entrada-restante).
+      const isCashSignal =
+        extras?.customSignalMethod === 'CASH' &&
+        !!extras?.customSignalValue &&
+        extras.customSignalValue > 0;
+      const signalAmt = extras?.customSignalValue || 0;
+      const confirmLines = [
+        `Aprovar e gerar boleto parcelado em ${activeOpt.installments}x?`,
+        '',
+      ];
+      if (isCashSignal) {
+        confirmLines.push(
+          `Sinal: R$ ${signalAmt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em ESPÉCIE (recebido em mãos, sem Asaas)`,
+        );
+      } else if (signalAmt > 0) {
+        confirmLines.push(
+          `Sinal: R$ ${signalAmt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} via ${extras?.customSignalMethod || 'BOLETO'}`,
+        );
+      }
+      if (customDp > 0) {
+        const restante = customDp - signalAmt;
+        confirmLines.push(
+          `Entrada (restante): R$ ${restante.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} em boleto`,
+        );
+      }
+      confirmLines.push(
+        `${activeOpt.installments}x de R$ ${calc.installmentValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        `Total final: R$ ${calc.finalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+        '',
+        '⚠ Consulta de crédito DISPENSADA — operador assume o risco.',
+        '',
+        'Isso vai:',
+        '• Aceitar o orçamento (ACCEPTED)',
+        '• Ativar o plano',
+      );
+      if (isCashSignal) {
+        confirmLines.push(`• Registrar o sinal R$ ${signalAmt.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} como recebido em espécie`);
+      }
+      confirmLines.push(`• Gerar entrada + ${activeOpt.installments} boletos no Asaas`);
+      if (!window.confirm(confirmLines.join('\n'))) return;
       setApprovingBill(true);
-      // Onda 15 (etapa 16.1) — DTO do backend exige maxDecimalPlaces: 2 nos
-      // valores monetarios. A formula de Price gera floats tipo 693.8028147,
-      // entao arredondamos pra 2 casas (centavos) antes de enviar.
+      // DTO do backend exige maxDecimalPlaces: 2 nos valores monetarios.
       const round2 = (n: number) => Math.round(n * 100) / 100;
       try {
-        await api.post(`/quotes/${selectedDetail.id}/apply-financing`, {
+        // Passo 1 (so se CASH): emite + da baixa do sinal em especie
+        if (isCashSignal) {
+          const restValueLocal = Math.max(0, customDp - signalAmt);
+          const cashBody: any = {
+            signalValue: round2(signalAmt),
+            signalMethod: 'CASH',
+            restValue: restValueLocal,
+            restMethod: 'BOLETO',
+            parts: ['SIGNAL'],
+          };
+          if (restValueLocal > 0 && extras?.customEntradaDueDate) {
+            cashBody.restDueDate = extras.customEntradaDueDate;
+          }
+          const { data: emitData } = await api.post(
+            `/quotes/${selectedDetail.id}/emit-down-payment`,
+            cashBody,
+          );
+          const cashCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+            || (emitData?.charges ?? [])[0];
+          if (!cashCharge?.id) {
+            throw new Error('Falha ao criar registro do sinal em espécie.');
+          }
+          if (cashCharge.gateway !== 'CASH') {
+            throw new Error(
+              `Já existe um sinal emitido via ${cashCharge.billing_type || cashCharge.gateway} no Asaas. ` +
+              'Cancele essa cobrança primeiro pra usar espécie.',
+            );
+          }
+          if (!cashCharge.received_in_cash) {
+            await api.post(`/charges/${cashCharge.id}/mark-cash-received`);
+          }
+        }
+        // Passo 2: aplica financing.
+        // - Quando CASH, o backend ve hasSignal=true (sinal CASH ja existe) e
+        //   pula a criacao do SINAL, mas usa signal_value pra calcular o
+        //   restante da entrada que vira boleto (entrada - sinal).
+        // - Quando PIX/BOLETO, manda signal_method tambem; backend cria a
+        //   cobranca do sinal correspondente.
+        const applyBody: any = {
           down_payment_value: round2(customDp),
           installment_count: activeOpt.installments,
           installment_value: round2(calc.installmentValue),
-          // decision_id e source omitidos: consulta dispensada
-          ...(extras?.customSignalValue && extras.customSignalValue > 0
-            ? { signal_value: round2(extras.customSignalValue), signal_method: extras.customSignalMethod === 'CASH' ? 'BOLETO' : (extras.customSignalMethod || 'BOLETO') }
-            : {}),
-          ...(extras?.customEntradaDueDate ? { entrada_due_date: extras.customEntradaDueDate } : {}),
-          ...(extras?.customInstallmentsStartDate ? { installments_start_date: extras.customInstallmentsStartDate } : {}),
-        });
-        showSuccess('Proposta aprovada e boletos gerados (consulta dispensada).');
+        };
+        if (signalAmt > 0) {
+          applyBody.signal_value = round2(signalAmt);
+          if (!isCashSignal) {
+            applyBody.signal_method = extras?.customSignalMethod || 'BOLETO';
+          }
+        }
+        if (extras?.customEntradaDueDate) applyBody.entrada_due_date = extras.customEntradaDueDate;
+        if (extras?.customInstallmentsStartDate) applyBody.installments_start_date = extras.customInstallmentsStartDate;
+        await api.post(`/quotes/${selectedDetail.id}/apply-financing`, applyBody);
+        showSuccess(
+          isCashSignal
+            ? 'Sinal em espécie registrado + entrada e parcelas geradas.'
+            : 'Proposta aprovada e boletos gerados (consulta dispensada).',
+        );
         load();
       } catch (err: unknown) {
-        const e = err as { response?: { data?: { message?: string } } };
-        showError(e?.response?.data?.message || 'Erro ao aprovar e gerar boletos');
+        const e = err as { response?: { data?: { message?: string } }; message?: string };
+        showError(e?.response?.data?.message || e?.message || 'Erro ao aprovar e gerar boletos');
       } finally {
         setApprovingBill(false);
       }
