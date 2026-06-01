@@ -454,7 +454,8 @@ export function Sidebar() {
   // ─── Itens por grupo ──────────────────────────────────────────────
   const allItems: Record<string, NavItem> = {
     dashboard: {
-      label: 'Dashboard',
+      // Onda 16.3 — renomeado pra "Visao geral" (pt-BR, alinhado com odonto)
+      label: 'Visão geral',
       href: '/atendimento/dashboard',
       icon: <LayoutDashboard size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/dashboard'),
