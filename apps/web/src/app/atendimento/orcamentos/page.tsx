@@ -16,7 +16,7 @@ import { useRouter } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
   Clock, AlertTriangle, TrendingUp, FileText, Users, List, LayoutGrid,
-  ChevronDown, ChevronUp, User,
+  ChevronDown, ChevronUp, User, ShieldCheck,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -32,6 +32,10 @@ interface Quote {
   patient: { id: string; name: string | null; phone: string | null };
   created_by: { id: string; name: string } | null;
   _count?: { items: number };
+  /** Onda 14.33 — Marca que o operador apertou "Salvar proposta",
+   *  formalizando como a escolhida. Usado pra distinguir "aprovadas" de
+   *  "apenas aceitas" no funil. */
+  is_chosen_proposal?: boolean;
 }
 
 interface DashboardStats {
@@ -124,7 +128,20 @@ function OrcamentosPageInner() {
   // cards invisiveis. Computando aqui: cards sempre aparecem se houver
   // pelo menos 1 orcamento carregado, independente do backend.
   // OBS: respeita o filtro de dentista pra dar uma visao por profissional.
-  const computedStats = useMemo<DashboardStats | null>(() => {
+  //
+  // Onda 15 (etapa 19.7) — Estendido pra incluir KPIs do funil completo:
+  // - patients_evaluated: pacientes unicos com orcamento (proxy de
+  //   avaliacoes realizadas — cada paciente que tem qualquer orcamento
+  //   passou pela cadeira do dentista pelo menos uma vez).
+  // - approved: count + R$ de quotes ACEITAS E marcadas como proposta
+  //   escolhida (is_chosen_proposal=true) — ou seja, o operador apertou
+  //   "Salvar proposta" / "Aprovar e cobrar". Distingue "paciente disse
+  //   sim" de "venda fechada com plano de tratamento ativo".
+  const computedStats = useMemo<(DashboardStats & {
+    patients_evaluated: number;
+    approved_count: number;
+    approved_value: number;
+  }) | null>(() => {
     if (list.length === 0) return null;
     const source = filteredList; // respeita filtro de dentista
     const byStatus: Record<string, { count: number; total: number }> = {
@@ -137,6 +154,9 @@ function OrcamentosPageInner() {
     let pipelineValue = 0;
     let revenueAccepted = 0;
     let expiringSoon = 0;
+    let approvedCount = 0;
+    let approvedValue = 0;
+    const uniquePatients = new Set<string>();
     const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
     const now = Date.now();
     for (const q of source) {
@@ -144,6 +164,9 @@ function OrcamentosPageInner() {
       if (byStatus[q.status]) {
         byStatus[q.status].count += 1;
         byStatus[q.status].total += value;
+      }
+      if (q.patient?.id) {
+        uniquePatients.add(q.patient.id);
       }
       if (q.status === 'SENT') {
         pipelineValue += value;
@@ -156,6 +179,13 @@ function OrcamentosPageInner() {
       }
       if (q.status === 'ACCEPTED') {
         revenueAccepted += value;
+        // "Aprovada" = aceita + formalizada como proposta escolhida pelo
+        // operador (is_chosen_proposal=true). Proxy pra "venda fechada
+        // com plano ativo" enquanto nao integramos o status do plano.
+        if (q.is_chosen_proposal) {
+          approvedCount += 1;
+          approvedValue += value;
+        }
       }
     }
     const decided = byStatus.ACCEPTED.count + byStatus.REJECTED.count;
@@ -167,12 +197,19 @@ function OrcamentosPageInner() {
       revenue_accepted: revenueAccepted,
       conversion_rate: conversionRate,
       expiring_soon: expiringSoon,
+      patients_evaluated: uniquePatients.size,
+      approved_count: approvedCount,
+      approved_value: approvedValue,
     };
   }, [list, filteredList]);
 
   // Stats finais: prioriza o backend (mais detalhado, ex: agregacao por
   // periodo de 30d) e cai pro calculado se backend nao respondeu.
-  const displayStats = stats || computedStats;
+  // Note: campos extras (patients_evaluated, approved_*) sempre vem do
+  // computado (backend nao retorna ainda).
+  const displayStats = stats
+    ? { ...stats, patients_evaluated: computedStats?.patients_evaluated ?? 0, approved_count: computedStats?.approved_count ?? 0, approved_value: computedStats?.approved_value ?? 0 }
+    : computedStats;
 
   // Quotes agrupados por dentista, ordenados por total. Respeita o filtro
   // de dentista (se nenhum: mostra todos os grupos; se filtrado: 1 grupo).
@@ -273,7 +310,15 @@ function OrcamentosPageInner() {
           Breakdown completo por status segue disponivel via os chips de
           filtro abaixo. */}
       {displayStats && (
-        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {/* LINHA 1 — ENTRADA DO FUNIL: o que esta passando pela mesa */}
+          <FunnelCard
+            icon={Users}
+            label="Avaliações realizadas"
+            value={displayStats.patients_evaluated}
+            sub="pacientes únicos com orçamento"
+            colorClass="blue"
+          />
           <FunnelCard
             icon={DollarSign}
             label="Pipeline em fechamento"
@@ -292,6 +337,21 @@ function OrcamentosPageInner() {
             value={displayStats.expiring_soon}
             colorClass={displayStats.expiring_soon > 0 ? 'amber' : 'gray'}
             highlight={displayStats.expiring_soon > 0}
+          />
+          {/* LINHA 2 — SAIDA DO FUNIL: o que foi convertido (positivo) ou perdido */}
+          <FunnelCard
+            icon={Check}
+            label="Propostas aceitas"
+            value={displayStats.byStatus.ACCEPTED?.count ?? 0}
+            sub={formatBRL(displayStats.byStatus.ACCEPTED?.total ?? 0)}
+            colorClass="emerald"
+          />
+          <FunnelCard
+            icon={ShieldCheck}
+            label="Aprovadas (fechadas)"
+            value={displayStats.approved_count}
+            sub={displayStats.approved_count > 0 ? formatBRL(displayStats.approved_value) : 'aceita + plano ativado'}
+            colorClass="violet"
           />
           <FunnelCard
             icon={AlertTriangle}
