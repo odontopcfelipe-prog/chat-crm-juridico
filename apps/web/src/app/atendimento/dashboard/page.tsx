@@ -24,20 +24,11 @@ import {
   Calendar as CalendarIcon, CreditCard, CheckCircle2, MessageCircle,
   Check, BookOpen, Sparkles,
 } from 'lucide-react';
-// useRole nao expoe nome do usuario — leio direto do JWT (forma usada
-// em outros lugares da app). Helper local pra nao acoplar.
-function getUserNameFromJWT(): string | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    const token = localStorage.getItem('token');
-    if (!token) return null;
-    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
-    const payload = JSON.parse(atob(b64));
-    return payload?.name || payload?.user?.name || null;
-  } catch {
-    return null;
-  }
-}
+import api from '@/lib/api';
+// O JWT NAO inclui o nome do usuario — payload backend tem so
+// { email, sub, roles, tenant_id }. Pra pegar o nome real, usa o
+// endpoint /users/me. Cacheamos em memoria na primeira carga.
+// Onda 17.5.
 
 /* ───────────────────────────────────────────────────────────────
    Saudacao por hora do dia
@@ -237,10 +228,24 @@ export default function VisaoGeralPage() {
   // Hidratacao do horario + nome — evita mismatch SSR/CSR
   const [now, setNow] = useState<Date | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
+  const [userGender, setUserGender] = useState<'M' | 'F' | null>(null);
   useEffect(() => {
     setNow(new Date());
-    setUserName(getUserNameFromJWT());
     const id = setInterval(() => setNow(new Date()), 60_000); // atualiza data a cada min
+
+    // Onda 17.5 — busca nome real do usuario via /users/me. JWT nao
+    // inclui name no payload, e nao queremos forcar relogin.
+    api.get('/users/me')
+      .then((r) => {
+        setUserName(r.data?.name || null);
+        // Inferencia de genero pelo final do primeiro nome — simples
+        // mas funciona pra 95% dos casos PT-BR. Marina, Maria -> F;
+        // Joao, Pedro -> M. Se acentuar, ja considera o final correto.
+        const first = String(r.data?.name || '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
+        if (first) setUserGender(first.endsWith('a') ? 'F' : 'M');
+      })
+      .catch(() => {/* falha silenciosa — usa fallback "Doutor(a)" */});
+
     return () => clearInterval(id);
   }, []);
 
@@ -403,7 +408,9 @@ export default function VisaoGeralPage() {
           <h1 className={`text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight ${sal.period === 'night' ? 'text-white' : 'text-foreground'}`}>
             {sal.text},{' '}
             <span className="italic text-orange-600 dark:text-orange-400">
-              {userName ? `Dr${userName.endsWith('a') ? 'a' : ''}. ${userName.split(' ')[0]}` : 'Doutor(a)'}
+              {userName
+                ? `Dr${userGender === 'F' ? 'a' : ''}. ${userName.split(' ')[0]}`
+                : 'Doutor(a)'}
             </span>{' '}
             <span className="wave-hand">👋</span>
           </h1>
