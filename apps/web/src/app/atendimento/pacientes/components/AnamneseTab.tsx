@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, FileText, Send, ShieldCheck, User, Hash, Camera } from 'lucide-react';
+import { Loader2, FileText, Send, ShieldCheck, User, Hash, Camera, Copy, X, MessageCircle, AlertTriangle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import DynamicAnamneseForm, { AnamnesisSchema } from './DynamicAnamneseForm';
@@ -38,6 +38,15 @@ export default function AnamneseTab({ patientId }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [sendingLink, setSendingLink] = useState(false);
+  // Onda 17.9 — modal de fallback quando Evolution falha (link foi
+  // gerado, mas WhatsApp nao foi enviado). Operadora ve o link, copia
+  // e envia manualmente, ou abre wa.me.
+  const [fallbackLink, setFallbackLink] = useState<{
+    link: string;
+    patientName: string;
+    patientPhone: string | null;
+    reason: string;
+  } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -80,13 +89,19 @@ export default function AnamneseTab({ patientId }: Props) {
       });
       if (resp?.dispatch?.status === 'SENT') {
         showSuccess('Link enviado pelo WhatsApp');
-      } else if (resp?.dispatch?.status === 'SKIPPED') {
-        showError(resp.dispatch.reason || 'Nao foi possivel enviar (paciente sem telefone)');
       } else {
-        showError(resp?.dispatch?.reason || 'Falha ao enviar WhatsApp — link gerado mesmo assim');
+        // Onda 17.9 — Evolution offline / paciente sem telefone / outro
+        // erro: o link foi gerado, abrimos modal de fallback pra
+        // operadora copiar e enviar manualmente.
+        setFallbackLink({
+          link: resp?.link || '',
+          patientName: resp?.patient?.name || 'Paciente',
+          patientPhone: resp?.patient?.phone || null,
+          reason: resp?.dispatch?.reason || 'WhatsApp não foi enviado automaticamente',
+        });
       }
     } catch (err: any) {
-      showError(err?.response?.data?.message || 'Erro ao enviar link');
+      showError(err?.response?.data?.message || 'Erro ao gerar link');
     } finally {
       setSendingLink(false);
     }
@@ -157,6 +172,115 @@ export default function AnamneseTab({ patientId }: Props) {
         onSave={handleSave}
         saving={saving}
       />
+
+      {/* Onda 17.9 — Modal de fallback quando o envio automatico do
+          WhatsApp falha (Evolution offline, paciente sem telefone, etc).
+          O link foi gerado no banco e funciona — operadora copia e envia
+          manualmente OU abre wa.me direto pelo botao. */}
+      {fallbackLink && (
+        <FallbackLinkModal
+          link={fallbackLink.link}
+          patientName={fallbackLink.patientName}
+          patientPhone={fallbackLink.patientPhone}
+          reason={fallbackLink.reason}
+          onClose={() => setFallbackLink(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ──────────────────────────────────────────────────────────────
+   FallbackLinkModal — Onda 17.9
+   Aparece quando /portal/magic-link gera link mas Evolution falha.
+────────────────────────────────────────────────────────────── */
+function FallbackLinkModal({
+  link, patientName, patientPhone, reason, onClose,
+}: {
+  link: string;
+  patientName: string;
+  patientPhone: string | null;
+  reason: string;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopied(true);
+      showSuccess('Link copiado!');
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      showError('Não foi possível copiar (permita acesso à área de transferência)');
+    }
+  };
+
+  const firstName = patientName.split(' ')[0];
+  const waText = encodeURIComponent(
+    `Olá ${firstName}! 👋\n\n` +
+    `Para sua próxima consulta, precisamos que você preencha sua ficha de anamnese ` +
+    `(histórico de saúde). Acesse o link abaixo, responda as perguntas e confirme com ` +
+    `seu nome ao final. Leva uns 3 minutos:\n\n${link}\n\n🔒 Link pessoal, válido por 7 dias.`,
+  );
+  const waLink = patientPhone
+    ? `https://wa.me/${patientPhone.replace(/\D/g, '')}?text=${waText}`
+    : null;
+
+  return (
+    <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+        <div className="flex items-start gap-3 px-5 py-4 border-b border-border bg-amber-500/5">
+          <div className="w-9 h-9 rounded-lg bg-amber-500/15 grid place-items-center flex-none">
+            <AlertTriangle size={18} className="text-amber-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="text-sm font-bold text-foreground">
+              Link gerado, mas WhatsApp não foi enviado
+            </h2>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              Motivo: {reason}
+            </p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent/30 text-muted-foreground" aria-label="Fechar">
+            <X size={16} />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-foreground">
+            O link de preenchimento foi gerado e está válido por 7 dias. Você pode <b>copiar</b> e enviar manualmente:
+          </p>
+
+          <div className="bg-background border border-border rounded-lg p-3 break-all text-xs text-muted-foreground font-mono">
+            {link}
+          </div>
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              onClick={handleCopy}
+              className="inline-flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
+            >
+              <Copy size={14} />
+              {copied ? 'Copiado!' : 'Copiar link'}
+            </button>
+            {waLink && (
+              <a
+                href={waLink}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors"
+              >
+                <MessageCircle size={14} />
+                Abrir no WhatsApp
+              </a>
+            )}
+            <span className="text-[11px] text-muted-foreground ml-auto">
+              {patientPhone ? `Tel: ${patientPhone}` : 'Paciente sem telefone'}
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
