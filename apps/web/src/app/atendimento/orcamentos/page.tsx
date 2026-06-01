@@ -15,7 +15,7 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
-  Clock, AlertTriangle, TrendingUp, FileText, Users, List, LayoutGrid,
+  AlertTriangle, TrendingUp, Users, List, LayoutGrid,
   ChevronDown, ChevronUp, User, ShieldCheck,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -310,8 +310,11 @@ function OrcamentosPageInner() {
           Breakdown completo por status segue disponivel via os chips de
           filtro abaixo. */}
       {displayStats && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          {/* LINHA 1 — ENTRADA DO FUNIL: o que esta passando pela mesa */}
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+          {/* Funil enxuto — so 5 cards, sem repeticao nem ruido de zeros.
+              Vencidos/expirando saem (so apareciam =0 a maior parte do tempo);
+              "Aguardando resposta" colapsou pra sub-label do Pipeline (mesma
+              info: SENT, R$ vs count). */}
           <FunnelCard
             icon={Users}
             label="Avaliações realizadas"
@@ -323,22 +326,9 @@ function OrcamentosPageInner() {
             icon={DollarSign}
             label="Pipeline em fechamento"
             value={formatBRL(displayStats.byStatus.SENT?.total ?? 0)}
+            sub={`${displayStats.byStatus.SENT?.count ?? 0} proposta(s) aguardando`}
             colorClass="emerald"
           />
-          <FunnelCard
-            icon={FileText}
-            label="Aguardando resposta"
-            value={displayStats.byStatus.SENT?.count ?? 0}
-            colorClass="blue"
-          />
-          <FunnelCard
-            icon={Clock}
-            label="Vencem em 7 dias"
-            value={displayStats.expiring_soon}
-            colorClass={displayStats.expiring_soon > 0 ? 'amber' : 'gray'}
-            highlight={displayStats.expiring_soon > 0}
-          />
-          {/* LINHA 2 — SAIDA DO FUNIL: o que foi convertido (positivo) ou perdido */}
           <FunnelCard
             icon={Check}
             label="Propostas aceitas"
@@ -352,13 +342,6 @@ function OrcamentosPageInner() {
             value={displayStats.approved_count}
             sub={displayStats.approved_count > 0 ? formatBRL(displayStats.approved_value) : 'aceita + plano ativado'}
             colorClass="violet"
-          />
-          <FunnelCard
-            icon={AlertTriangle}
-            label="Já expiraram"
-            value={displayStats.byStatus.EXPIRED?.count ?? 0}
-            sub={(displayStats.byStatus.EXPIRED?.count ?? 0) > 0 ? formatBRL(displayStats.byStatus.EXPIRED?.total ?? 0) : undefined}
-            colorClass={(displayStats.byStatus.EXPIRED?.count ?? 0) > 0 ? 'red' : 'gray'}
           />
           <FunnelCard
             icon={TrendingUp}
