@@ -96,8 +96,9 @@ interface DashboardData {
     patient: { id: string; name: string | null; phone: string | null } | null;
   }[];
   /** Onda 16.2 — entradas que efetivamente cairam HOJE (paid_at ou
-   *  received_at no dia corrente). Inclui total + lista das ultimas 10. */
-  entrada_do_dia: {
+   *  received_at no dia corrente). Opcional porque o backend antigo
+   *  (pre-deploy) nao retorna esse campo — front cai pro fallback. */
+  entrada_do_dia?: {
     value: number;
     count: number;
     items: {
@@ -1101,7 +1102,7 @@ export default function FinanceiroPage() {
 
             {/* Widgets Top atrasos + Entrada do dia (lado a lado).
                 Próximos vencimentos foi pra baixo em widget próprio. */}
-            {dashboard && (dashboard.top_atrasos.length > 0 || dashboard.entrada_do_dia.count > 0) && (
+            {dashboard && (dashboard.top_atrasos.length > 0 || (dashboard.entrada_do_dia?.count ?? 0) > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {/* Top atrasos */}
                 {dashboard.top_atrasos.length > 0 && (
@@ -1132,19 +1133,19 @@ export default function FinanceiroPage() {
                 )}
 
                 {/* Entrada do dia — Onda 16.2 */}
-                {dashboard.entrada_do_dia.count > 0 ? (
+                {(dashboard.entrada_do_dia?.count ?? 0) > 0 ? (
                   <div className="bg-card border border-emerald-500/20 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h3 className="text-sm font-bold text-emerald-400 flex items-center gap-2">
                         <DollarSign size={14} />
-                        Entrada do dia ({dashboard.entrada_do_dia.count})
+                        Entrada do dia ({(dashboard.entrada_do_dia?.count ?? 0)})
                       </h3>
                       <span className="text-sm font-bold text-emerald-400 tabular-nums">
-                        {fmt(dashboard.entrada_do_dia.value)}
+                        {fmt((dashboard.entrada_do_dia?.value ?? 0))}
                       </span>
                     </div>
                     <div className="space-y-2">
-                      {dashboard.entrada_do_dia.items.slice(0, 5).map((c) => {
+                      {(dashboard.entrada_do_dia?.items ?? []).slice(0, 5).map((c) => {
                         const hora = new Date(c.paid_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
                         return (
                           <button
