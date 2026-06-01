@@ -1263,17 +1263,33 @@ function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
         <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${statusCls}`}>
           {statusLabel}
         </span>
-        {(p.boletoUrl || p.invoiceUrl) && (
+        {/* Onda 15 (etapa 16.6) — botao "Abrir boleto"/"Abrir cobrança" visivel.
+            Antes era um "↗" minusculo, facil de ignorar. Quando ha boletoUrl
+            (PDF direto) abre como Boleto; senao, abre o invoice_url (Asaas
+            hospedado). Cor amber pra boleto, sky pra link generico. */}
+        {p.boletoUrl ? (
           <a
-            href={p.boletoUrl || p.invoiceUrl!}
+            href={p.boletoUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[10px] text-amber-700 hover:underline"
-            title="Abrir link da cobrança"
+            className="text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-500/50 text-amber-800 hover:bg-amber-500/10 font-semibold"
+            title="Abrir PDF do boleto"
           >
-            ↗
+            <ExternalLink size={9} />
+            Boleto
           </a>
-        )}
+        ) : p.invoiceUrl ? (
+          <a
+            href={p.invoiceUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-sky-500/50 text-sky-800 hover:bg-sky-500/10 font-semibold"
+            title="Abrir página de pagamento (Asaas)"
+          >
+            <ExternalLink size={9} />
+            Abrir
+          </a>
+        ) : null}
         {/* Onda 14.52 — Reenviar via WhatsApp.
             So aparece em parcelas nao pagas/canceladas. */}
         {canResend && (

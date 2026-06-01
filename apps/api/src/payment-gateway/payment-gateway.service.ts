@@ -77,7 +77,33 @@ export class PaymentGatewayService {
         installment: asaasCharge.installment,
         limit: 50,
       });
-      const items = (list?.data || []).map((c: any) => ({
+      let rows = list?.data || [];
+
+      // Onda 15 (etapa 16.6) — A listagem do Asaas as vezes nao traz o
+      // bankSlipUrl (boleto PDF) por padrao. Quando vier vazio, faz um
+      // getCharge por filha pra puxar o boleto completo. Custa N chamadas
+      // extras, mas garante a 2a via no Financeiro.
+      const missingBoleto = rows.filter((c: any) => c.billingType === 'BOLETO' && !c.bankSlipUrl);
+      if (missingBoleto.length > 0) {
+        this.logger.log(
+          `[SUB-INSTALLMENTS] ${missingBoleto.length}/${rows.length} filhas sem bankSlipUrl — ` +
+          `buscando individualmente.`,
+        );
+        await Promise.all(
+          missingBoleto.map(async (c: any) => {
+            try {
+              const detail = await this.asaas.getCharge(c.id);
+              c.bankSlipUrl = detail.bankSlipUrl || c.bankSlipUrl;
+              c.invoiceUrl = detail.invoiceUrl || c.invoiceUrl;
+              c.nossoNumero = detail.nossoNumero || c.nossoNumero;
+            } catch (err: any) {
+              this.logger.warn(`[SUB-INSTALLMENTS] Falha enriquecer charge ${c.id}: ${err?.message || err}`);
+            }
+          }),
+        );
+      }
+
+      const items = rows.map((c: any) => ({
         external_id: c.id,
         installment_number: c.installmentNumber,
         value: c.value,
