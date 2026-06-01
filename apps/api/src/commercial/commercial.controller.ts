@@ -140,6 +140,24 @@ export class CommercialController {
     return this.quotesService.getClosingBoard(user.tenant_id);
   }
 
+  /**
+   * Dashboard funil — counts/valores por status + conversao + expirando.
+   *
+   * ⚠️ Onda 15 (etapa 19.1) — DEVE vir ANTES de @Get('quotes/:id'), pelo
+   * mesmo motivo do closing-board. Antes estava la embaixo (linha ~439)
+   * e era capturado como :id='dashboard' → "Orcamento nao encontrado".
+   */
+  @Get('quotes/dashboard')
+  quotesDashboard(
+    @Request() req: any,
+    @Query('from') from?: string,
+    @Query('to') to?: string,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.getDashboardStats(tenantId, { from, to });
+  }
+
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findOne(id, user.tenant_id);
@@ -433,18 +451,6 @@ export class CommercialController {
       search,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
-  }
-
-  /** Dashboard funil — counts/valores por status + conversao + expirando */
-  @Get('quotes/dashboard')
-  quotesDashboard(
-    @Request() req: any,
-    @Query('from') from?: string,
-    @Query('to') to?: string,
-  ) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.quotesService.getDashboardStats(tenantId, { from, to });
   }
 
   /** Envia orcamento por WhatsApp com link do portal */
