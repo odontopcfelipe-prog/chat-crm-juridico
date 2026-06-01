@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   UserPlus, FileText, Calendar, Target,
   Calendar as CalendarIcon, CreditCard, CheckCircle2, MessageCircle,
-  BarChart3, Check, Flame, Sparkles,
+  Check, Flame, Sparkles,
 } from 'lucide-react';
 // useRole nao expoe nome do usuario — leio direto do JWT (forma usada
 // em outros lugares da app). Helper local pra nao acoplar.
@@ -339,16 +339,9 @@ export default function VisaoGeralPage() {
 
       <div className="relative z-10 max-w-6xl mx-auto p-4 md:p-6 pb-28 md:pb-12 space-y-6">
 
-        {/* Botao "Dashboard completo" — fixo no topo direito */}
-        <div className="flex items-center justify-end gap-2 mb-2">
-          <Link
-            href="/atendimento/dashboard-completo"
-            className="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-semibold rounded-lg bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-accent/30 transition-colors shadow-sm"
-          >
-            <BarChart3 size={13} />
-            Dashboard completo
-          </Link>
-        </div>
+        {/* Onda 17.3 — botao "Dashboard completo" removido daqui.
+            Acesso a esse conteudo agora pelo sidebar (Financeiro >
+            Visao Geral). Mantem essa tela 100% focada em atalhos. */}
 
         {/* ─── HERO: saudacao + mascote ─── */}
         <section className="relative mb-6">
