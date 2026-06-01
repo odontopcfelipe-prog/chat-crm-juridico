@@ -25,6 +25,7 @@ import {
   Check, BookOpen, Sparkles,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
 // O JWT NAO inclui o nome do usuario — payload backend tem so
 // { email, sub, roles, tenant_id }. Pra pegar o nome real, usa o
 // endpoint /users/me. Cacheamos em memoria na primeira carga.
@@ -93,6 +94,11 @@ function getVerseOfDay(date: Date): { text: string; ref: string } {
 /* ───────────────────────────────────────────────────────────────
    Atalhos principais — 4 cards
 ─────────────────────────────────────────────────────────────── */
+/**
+ * Acao especial usada pelo card "Nova avaliacao": em vez de navegar,
+ * abre o NovaAvaliacaoModal pra escolher paciente. Identificado por
+ * `action: 'open-modal-nova-avaliacao'` no render.
+ */
 const PRIMARY_ACTIONS = [
   {
     label: 'Novo paciente',
@@ -103,8 +109,8 @@ const PRIMARY_ACTIONS = [
   },
   {
     label: 'Nova avaliação',
-    description: 'Anamnese + odontograma',
-    href: '/atendimento/pacientes?new=1&tab=avaliacao',
+    description: 'Selecionar paciente p/ avaliação',
+    action: 'open-modal-nova-avaliacao' as const,
     icon: FileText,
     color: 'teal',
   },
@@ -229,6 +235,8 @@ export default function VisaoGeralPage() {
   const [now, setNow] = useState<Date | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
   const [userGender, setUserGender] = useState<'M' | 'F' | null>(null);
+  // Onda 17.6 — modal de seleção de paciente pra avaliação
+  const [novaAvaliacaoOpen, setNovaAvaliacaoOpen] = useState(false);
   useEffect(() => {
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 60_000); // atualiza data a cada min
@@ -462,10 +470,18 @@ export default function VisaoGeralPage() {
             {PRIMARY_ACTIONS.map((a) => {
               const c = COLOR_CLASSES[a.color];
               const Icon = a.icon;
+              const handleClick = () => {
+                // Onda 17.6 — alguns cards abrem modal em vez de navegar
+                if ('action' in a && a.action === 'open-modal-nova-avaliacao') {
+                  setNovaAvaliacaoOpen(true);
+                  return;
+                }
+                if ('href' in a) router.push(a.href);
+              };
               return (
                 <button
                   key={a.label}
-                  onClick={() => router.push(a.href)}
+                  onClick={handleClick}
                   className={`group relative overflow-hidden bg-card border border-border rounded-xl p-4 md:p-5 text-left shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-200 ${c.glow}`}
                 >
                   <div className={`w-12 h-12 rounded-xl ${c.iconBg} grid place-items-center mb-8 transition-transform group-hover:scale-110 group-hover:-rotate-6`}>
@@ -594,6 +610,12 @@ export default function VisaoGeralPage() {
           </section>
         </div>
       </div>
+
+      {/* Onda 17.6 — Modal de selecao de paciente pra nova avaliacao */}
+      <NovaAvaliacaoModal
+        open={novaAvaliacaoOpen}
+        onClose={() => setNovaAvaliacaoOpen(false)}
+      />
     </div>
   );
 }
