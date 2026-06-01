@@ -234,7 +234,6 @@ export default function VisaoGeralPage() {
   // Hidratacao do horario + nome — evita mismatch SSR/CSR
   const [now, setNow] = useState<Date | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
-  const [userGender, setUserGender] = useState<'M' | 'F' | null>(null);
   // Onda 17.6 — modal de seleção de paciente pra avaliação
   const [novaAvaliacaoOpen, setNovaAvaliacaoOpen] = useState(false);
   useEffect(() => {
@@ -244,15 +243,8 @@ export default function VisaoGeralPage() {
     // Onda 17.5 — busca nome real do usuario via /users/me. JWT nao
     // inclui name no payload, e nao queremos forcar relogin.
     api.get('/users/me')
-      .then((r) => {
-        setUserName(r.data?.name || null);
-        // Inferencia de genero pelo final do primeiro nome — simples
-        // mas funciona pra 95% dos casos PT-BR. Marina, Maria -> F;
-        // Joao, Pedro -> M. Se acentuar, ja considera o final correto.
-        const first = String(r.data?.name || '').trim().split(/\s+/)[0]?.toLowerCase() ?? '';
-        if (first) setUserGender(first.endsWith('a') ? 'F' : 'M');
-      })
-      .catch(() => {/* falha silenciosa — usa fallback "Doutor(a)" */});
+      .then((r) => setUserName(r.data?.name || null))
+      .catch(() => {/* falha silenciosa — usa fallback */});
 
     return () => clearInterval(id);
   }, []);
@@ -416,9 +408,11 @@ export default function VisaoGeralPage() {
           <h1 className={`text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight ${sal.period === 'night' ? 'text-white' : 'text-foreground'}`}>
             {sal.text},{' '}
             <span className="italic text-orange-600 dark:text-orange-400">
-              {userName
-                ? `Dr${userGender === 'F' ? 'a' : ''}. ${userName.split(' ')[0]}`
-                : 'Doutor(a)'}
+              {/* Onda 17.13 — Mostra o nome EXATO do cadastro (primeiro
+                  nome), sem prefixo Dr./Dra. Antes acrescentava
+                  automaticamente, o que ficava errado pra perfis nao
+                  dentistas (Admin, Operador, Recepcao, etc). */}
+              {userName ? userName.split(' ')[0] : 'visitante'}
             </span>{' '}
             <span className="wave-hand">👋</span>
           </h1>
