@@ -682,15 +682,24 @@ export function Sidebar() {
   // Portal do paciente, Prontuario.
   const groups: NavGroup[] = [
     {
-      // Onda 16.4 — Visao geral volta pro grupo de cima (primeiro item).
-      // Grupo mantem nome "Atendimento" pra evitar redundancia
-      // "Visao geral > Visao geral" no breadcrumb mental.
-      id: 'visao-geral',
+      // Onda 16.5 — Grupo isolado so com "Visao geral" (Central de
+      // Comando — menu de atalhos). Fica no topo absoluto pra ser o
+      // primeiro destino quando o operador entra no sistema.
+      id: 'home',
+      label: 'Visão geral',
+      fixed: true,
+      icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
+      items: [
+        allItems.dashboard,    // Visão geral (rota /atendimento/dashboard)
+      ].filter(i => i.show),
+    },
+    {
+      // Atendimento: canais ativos (agenda + comunicacao com o paciente).
+      id: 'atendimento',
       label: 'Atendimento',
       fixed: true,
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
-        allItems.dashboard,    // Visão geral (primeiro item)
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
       ].filter(i => i.show),
