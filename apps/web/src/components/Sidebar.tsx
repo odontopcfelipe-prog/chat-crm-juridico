@@ -77,6 +77,10 @@ interface NavGroup {
       que devem ficar sempre visiveis pra acesso rapido aos modulos
       principais. */
   fixed?: boolean;
+  /** Onda 16.7 — esconde o header (label uppercase) do grupo. Util pra
+      grupos com 1 item soh, onde o label do grupo duplicaria o do item.
+      Items continuam renderizando normal. */
+  hideLabel?: boolean;
 }
 
 export function Sidebar() {
@@ -683,11 +687,13 @@ export function Sidebar() {
   // Portal do paciente, Prontuario.
   const groups: NavGroup[] = [
     {
-      // Onda 16.6 — Grupo isolado "Menu inicial" no topo absoluto:
-      // porta de entrada do sistema (Central de Comando com atalhos).
+      // Onda 16.7 — Grupo "Menu inicial" sem header (hideLabel) pra
+      // nao duplicar o nome com o item unico. Resultado: item solto
+      // no topo do sidebar, sem secao "MENU INICIAL" acima.
       id: 'home',
       label: 'Menu inicial',
       fixed: true,
+      hideLabel: true,
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
         allItems.dashboard,    // Menu inicial (rota /atendimento/dashboard)
@@ -907,7 +913,12 @@ export function Sidebar() {
                       vertical colorida na esquerda quando expandido
                     - Sidebar COLAPSADA: divisor discreto entre grupos */}
               {expanded ? (
-                group.fixed ? (
+                group.hideLabel ? (
+                  // Onda 16.7: grupo sem header. Pula direto pra renderizar
+                  // os items. Util quando o grupo tem 1 item soh e o label
+                  // duplicaria o nome (ex: "Menu inicial > Menu inicial").
+                  null
+                ) : group.fixed ? (
                   // Onda 15.7: grupo FIXO — header como section label nao
                   // clicavel, sem chevron. Sempre expandido (showItems abaixo
                   // forca ignorando isExpanded pra grupos fixed).
