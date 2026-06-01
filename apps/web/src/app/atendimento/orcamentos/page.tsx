@@ -329,31 +329,85 @@ function OrcamentosPageInner() {
               Por dentista
             </button>
           </div>
-          {dentists.length > 1 && (
-            <div className="flex items-center gap-2 flex-1">
-              <Users size={13} className="text-muted-foreground shrink-0" />
-              <select
-                value={dentistFilter}
-                onChange={(e) => setDentistFilter(e.target.value)}
-                className="text-xs px-3 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 max-w-xs"
+          {/* Onda 15 (etapa 19.3) — Seletor de dentista sempre visivel
+              (antes so aparecia com 2+ dentistas, dificultando descoberta
+              da feature). Quando ha pelo menos 1, vira interativo. */}
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Users size={13} className="text-muted-foreground shrink-0" />
+            <select
+              value={dentistFilter}
+              onChange={(e) => setDentistFilter(e.target.value)}
+              disabled={dentists.length === 0}
+              className="text-xs px-3 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 max-w-xs flex-1 sm:flex-initial disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              <option value="">
+                {dentists.length === 0
+                  ? 'Nenhum dentista (sem orçamentos)'
+                  : `Todos os dentistas (${dentists.length})`}
+              </option>
+              {dentists.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name} — {d.count} {d.count === 1 ? 'orçamento' : 'orçamentos'}
+                </option>
+              ))}
+            </select>
+            {dentistFilter && (
+              <button
+                onClick={() => setDentistFilter('')}
+                className="text-xs px-2 py-1 rounded-md border border-border text-muted-foreground hover:bg-accent shrink-0"
+                title="Limpar filtro de dentista"
               >
-                <option value="">Todos os dentistas ({dentists.length})</option>
-                {dentists.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} — {d.count} {d.count === 1 ? 'orçamento' : 'orçamentos'}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
+                Limpar
+              </button>
+            )}
+          </div>
           {viewMode === 'by-dentist' && (
-            <div className="text-xs text-muted-foreground sm:ml-auto">
+            <div className="text-xs text-muted-foreground sm:ml-auto shrink-0">
               {groupedByDentist.length} {groupedByDentist.length === 1 ? 'dentista' : 'dentistas'}
               {' · '}
               {filteredList.length} {filteredList.length === 1 ? 'orçamento' : 'orçamentos'}
             </div>
           )}
         </div>
+
+        {/* Onda 15 (etapa 19.3) — Chips de dentistas (visiveis no modo
+            "Por dentista" pra acesso rapido). Click toggla o filtro. */}
+        {viewMode === 'by-dentist' && dentists.length > 0 && (
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setDentistFilter('')}
+              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
+                !dentistFilter
+                  ? 'bg-primary text-primary-foreground border-primary'
+                  : 'bg-card border-border text-muted-foreground hover:bg-accent'
+              }`}
+            >
+              Todos
+            </button>
+            {dentists.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => setDentistFilter(dentistFilter === d.id ? '' : d.id)}
+                className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
+                  dentistFilter === d.id
+                    ? 'bg-primary text-primary-foreground border-primary'
+                    : 'bg-card border-border text-foreground hover:bg-accent'
+                }`}
+                title={`Filtrar pelos orçamentos de ${d.name}`}
+              >
+                <User size={11} />
+                {d.name}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
+                  dentistFilter === d.id
+                    ? 'bg-primary-foreground/20 text-primary-foreground'
+                    : 'bg-muted text-muted-foreground'
+                }`}>
+                  {d.count}
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Lista */}
