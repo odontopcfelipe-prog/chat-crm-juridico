@@ -11,11 +11,12 @@
  *
  * Métrica de sucesso: clínica aumentar a conversão Quote→TreatmentPlan.
  */
-import { Suspense, useCallback, useEffect, useState } from 'react';
+import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
-  Clock, AlertTriangle, TrendingUp, FileText,
+  Clock, AlertTriangle, TrendingUp, FileText, Users, List, LayoutGrid,
+  ChevronDown, ChevronUp, User,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -90,6 +91,53 @@ function OrcamentosPageInner() {
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [search, setSearch] = useState('');
+  // Onda 15 (etapa 19) — view por dentista + filtro por dentista especifico
+  const [viewMode, setViewMode] = useState<'list' | 'by-dentist'>('list');
+  const [dentistFilter, setDentistFilter] = useState<string>(''); // '' = todos
+  const [collapsedDentists, setCollapsedDentists] = useState<Set<string>>(new Set());
+
+  // Lista de dentistas unicos com KPIs — derivado de list (client-side).
+  const dentists = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; count: number; total: number; accepted: number; sent: number }>();
+    for (const q of list) {
+      const id = q.created_by?.id || 'SEM_DENTISTA';
+      const name = q.created_by?.name || 'Sem dentista atribuído';
+      const existing = map.get(id) || { id, name, count: 0, total: 0, accepted: 0, sent: 0 };
+      existing.count += 1;
+      existing.total += Number(q.total_value) || 0;
+      if (q.status === 'ACCEPTED') existing.accepted += 1;
+      if (q.status === 'SENT') existing.sent += 1;
+      map.set(id, existing);
+    }
+    return Array.from(map.values()).sort((a, b) => b.total - a.total);
+  }, [list]);
+
+  // Lista filtrada (status + busca + dentista) — usada nas duas views.
+  const filteredList = useMemo(() => {
+    if (!dentistFilter) return list;
+    return list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter);
+  }, [list, dentistFilter]);
+
+  // Quotes agrupados por dentista, ordenados por total. Respeita o filtro
+  // de dentista (se nenhum: mostra todos os grupos; se filtrado: 1 grupo).
+  const groupedByDentist = useMemo(() => {
+    return dentists
+      .filter((d) => !dentistFilter || d.id === dentistFilter)
+      .map((d) => ({
+        ...d,
+        quotes: filteredList.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === d.id),
+      }))
+      .filter((g) => g.quotes.length > 0);
+  }, [dentists, filteredList, dentistFilter]);
+
+  const toggleDentistCollapse = (id: string) => {
+    setCollapsedDentists((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -206,30 +254,85 @@ function OrcamentosPageInner() {
       )}
 
       {/* Filtros */}
-      <div className="flex flex-col sm:flex-row gap-2 mb-4">
-        <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-          {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const).map((s) => (
+      <div className="flex flex-col gap-2 mb-4">
+        <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
+            {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const).map((s) => (
+              <button
+                key={s || 'TODOS'}
+                onClick={() => setStatusFilter(s)}
+                className={`px-3 py-1.5 rounded text-xs font-medium ${
+                  statusFilter === s
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {s ? STATUS_LABEL[s as Quote['status']] : 'Todos'}
+              </button>
+            ))}
+          </div>
+          <div className="relative flex-1 max-w-md">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Buscar por paciente, telefone ou CPF..."
+              className="w-full pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+            />
+          </div>
+        </div>
+        {/* Onda 15 (etapa 19) — Toggle de visualizacao + filtro por dentista */}
+        <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
             <button
-              key={s || 'TODOS'}
-              onClick={() => setStatusFilter(s)}
-              className={`px-3 py-1.5 rounded text-xs font-medium ${
-                statusFilter === s
+              onClick={() => setViewMode('list')}
+              className={`px-3 py-1.5 rounded text-xs font-medium inline-flex items-center gap-1.5 ${
+                viewMode === 'list'
                   ? 'bg-primary text-primary-foreground'
                   : 'text-muted-foreground hover:text-foreground'
               }`}
+              title="Lista plana de orçamentos"
             >
-              {s ? STATUS_LABEL[s as Quote['status']] : 'Todos'}
+              <List size={13} />
+              Lista
             </button>
-          ))}
-        </div>
-        <div className="relative flex-1 max-w-md">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por paciente, telefone ou CPF..."
-            className="w-full pl-9 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-          />
+            <button
+              onClick={() => setViewMode('by-dentist')}
+              className={`px-3 py-1.5 rounded text-xs font-medium inline-flex items-center gap-1.5 ${
+                viewMode === 'by-dentist'
+                  ? 'bg-primary text-primary-foreground'
+                  : 'text-muted-foreground hover:text-foreground'
+              }`}
+              title="Agrupar por dentista"
+            >
+              <LayoutGrid size={13} />
+              Por dentista
+            </button>
+          </div>
+          {dentists.length > 1 && (
+            <div className="flex items-center gap-2 flex-1">
+              <Users size={13} className="text-muted-foreground shrink-0" />
+              <select
+                value={dentistFilter}
+                onChange={(e) => setDentistFilter(e.target.value)}
+                className="text-xs px-3 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30 max-w-xs"
+              >
+                <option value="">Todos os dentistas ({dentists.length})</option>
+                {dentists.map((d) => (
+                  <option key={d.id} value={d.id}>
+                    {d.name} — {d.count} {d.count === 1 ? 'orçamento' : 'orçamentos'}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          {viewMode === 'by-dentist' && (
+            <div className="text-xs text-muted-foreground sm:ml-auto">
+              {groupedByDentist.length} {groupedByDentist.length === 1 ? 'dentista' : 'dentistas'}
+              {' · '}
+              {filteredList.length} {filteredList.length === 1 ? 'orçamento' : 'orçamentos'}
+            </div>
+          )}
         </div>
       </div>
 
@@ -238,100 +341,183 @@ function OrcamentosPageInner() {
         <div className="p-12 flex items-center justify-center text-muted-foreground">
           <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
         </div>
-      ) : list.length === 0 ? (
+      ) : filteredList.length === 0 ? (
         <div className="p-12 text-center bg-card border border-border rounded-xl">
           <DollarSign size={28} className="mx-auto mb-2 text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">
             Nenhum orçamento {statusFilter ? `${STATUS_LABEL[statusFilter as Quote['status']].toLowerCase()}` : ''} encontrado.
           </p>
         </div>
-      ) : (
+      ) : viewMode === 'list' ? (
+        /* MODO LISTA — Tabela plana com todos os orcamentos filtrados. */
         <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
-              <tr>
-                <th className="text-left px-4 py-2 font-medium">Paciente</th>
-                <th className="text-left px-4 py-2 font-medium">Status</th>
-                <th className="text-right px-4 py-2 font-medium">Valor</th>
-                <th className="text-left px-4 py-2 font-medium">Validade</th>
-                <th className="text-left px-4 py-2 font-medium">Criado</th>
-                <th className="text-right px-4 py-2 font-medium">Ações</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-border">
-              {list.map((q) => {
-                const expiry = expiryStatus(q.valid_until, q.status);
-                return (
-                  <tr key={q.id} className="hover:bg-muted/30">
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}`)}
-                        className="text-left hover:text-primary"
-                      >
-                        <div className="font-medium">{q.patient.name || 'Sem nome'}</div>
-                        {q.patient.phone && (
-                          <div className="text-xs text-muted-foreground">{q.patient.phone}</div>
-                        )}
-                      </button>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border ${STATUS_BADGE[q.status]}`}>
-                        {STATUS_LABEL[q.status]}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right font-semibold">
-                      {formatBRL(q.total_value)}
-                      {q._count && (
-                        <div className="text-xs text-muted-foreground font-normal">
-                          {q._count.items} item(ns)
-                        </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3">
-                      {q.valid_until ? (
-                        <div className="text-xs">
-                          <div>{new Date(q.valid_until).toLocaleDateString('pt-BR')}</div>
-                          {expiry && (
-                            <div className={`font-medium ${expiry.cls}`}>{expiry.text}</div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-muted-foreground">
-                      <div>{new Date(q.created_at).toLocaleDateString('pt-BR')}</div>
-                      {q.created_by && <div>por {q.created_by.name}</div>}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1">
-                        {(q.status === 'DRAFT' || q.status === 'SENT') && q.patient.phone && (
-                          <button
-                            onClick={() => sendWhatsApp(q)}
-                            className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
-                            title={q.status === 'SENT' ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}
-                          >
-                            <MessageCircle size={11} />
-                            {q.status === 'SENT' ? 'Reenviar' : 'Enviar'}
-                          </button>
-                        )}
-                        <button
-                          onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}?tab=quotes`)}
-                          className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
-                          title="Abrir ficha do paciente"
-                        >
-                          Detalhes
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <QuoteTable
+            quotes={filteredList}
+            router={router}
+            sendWhatsApp={sendWhatsApp}
+          />
+        </div>
+      ) : (
+        /* MODO POR DENTISTA — Sections expansiveis com KPIs do dentista. */
+        <div className="space-y-3">
+          {groupedByDentist.map((g) => {
+            const isCollapsed = collapsedDentists.has(g.id);
+            const decidedCount = g.accepted + g.quotes.filter((q) => q.status === 'REJECTED').length;
+            const conversionRate = decidedCount > 0 ? (g.accepted / decidedCount) : null;
+            return (
+              <div key={g.id} className="bg-card border border-border rounded-xl overflow-hidden">
+                <button
+                  type="button"
+                  onClick={() => toggleDentistCollapse(g.id)}
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors"
+                >
+                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                    <User size={18} />
+                  </div>
+                  <div className="text-left flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate">{g.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {g.count} {g.count === 1 ? 'orçamento' : 'orçamentos'}
+                      {g.sent > 0 && ` · ${g.sent} enviado(s)`}
+                      {g.accepted > 0 && ` · ${g.accepted} aceito(s)`}
+                    </p>
+                  </div>
+                  <div className="text-right shrink-0 hidden sm:block">
+                    <p className="text-sm font-bold tabular-nums">{formatBRL(g.total)}</p>
+                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">total</p>
+                  </div>
+                  {conversionRate !== null && (
+                    <div className="text-right shrink-0 hidden md:block px-3 border-l border-border">
+                      <p className={`text-sm font-bold ${conversionRate >= 0.5 ? 'text-emerald-600' : conversionRate >= 0.25 ? 'text-amber-600' : 'text-red-600'}`}>
+                        {(conversionRate * 100).toFixed(0)}%
+                      </p>
+                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">conversão</p>
+                    </div>
+                  )}
+                  <div className="shrink-0 text-muted-foreground ml-1">
+                    {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
+                  </div>
+                </button>
+                {!isCollapsed && (
+                  <div className="border-t border-border">
+                    <QuoteTable
+                      quotes={g.quotes}
+                      router={router}
+                      sendWhatsApp={sendWhatsApp}
+                      hideDentistColumn
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Onda 15 (etapa 19) — Tabela reutilizavel pra os dois modos de view
+ * (lista plana e por dentista). Quando hideDentistColumn=true, omite a
+ * coluna "Criado por" (porque ja esta no header da section).
+ */
+function QuoteTable({
+  quotes,
+  router,
+  sendWhatsApp,
+  hideDentistColumn,
+}: {
+  quotes: Quote[];
+  router: ReturnType<typeof useRouter>;
+  sendWhatsApp: (q: Quote) => void;
+  hideDentistColumn?: boolean;
+}) {
+  return (
+    <table className="w-full text-sm">
+      <thead className="bg-muted/50 text-muted-foreground text-xs uppercase">
+        <tr>
+          <th className="text-left px-4 py-2 font-medium">Paciente</th>
+          <th className="text-left px-4 py-2 font-medium">Status</th>
+          <th className="text-right px-4 py-2 font-medium">Valor</th>
+          <th className="text-left px-4 py-2 font-medium">Validade</th>
+          <th className="text-left px-4 py-2 font-medium">
+            {hideDentistColumn ? 'Criado' : 'Criado'}
+          </th>
+          <th className="text-right px-4 py-2 font-medium">Ações</th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {quotes.map((q) => {
+          const expiry = expiryStatus(q.valid_until, q.status);
+          return (
+            <tr key={q.id} className="hover:bg-muted/30">
+              <td className="px-4 py-3">
+                <button
+                  onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}`)}
+                  className="text-left hover:text-primary"
+                >
+                  <div className="font-medium">{q.patient.name || 'Sem nome'}</div>
+                  {q.patient.phone && (
+                    <div className="text-xs text-muted-foreground">{q.patient.phone}</div>
+                  )}
+                </button>
+              </td>
+              <td className="px-4 py-3">
+                <span className={`inline-flex text-xs px-2 py-0.5 rounded-full border ${STATUS_BADGE[q.status]}`}>
+                  {STATUS_LABEL[q.status]}
+                </span>
+              </td>
+              <td className="px-4 py-3 text-right font-semibold">
+                {formatBRL(q.total_value)}
+                {q._count && (
+                  <div className="text-xs text-muted-foreground font-normal">
+                    {q._count.items} item(ns)
+                  </div>
+                )}
+              </td>
+              <td className="px-4 py-3">
+                {q.valid_until ? (
+                  <div className="text-xs">
+                    <div>{new Date(q.valid_until).toLocaleDateString('pt-BR')}</div>
+                    {expiry && (
+                      <div className={`font-medium ${expiry.cls}`}>{expiry.text}</div>
+                    )}
+                  </div>
+                ) : (
+                  <span className="text-xs text-muted-foreground">—</span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-xs text-muted-foreground">
+                <div>{new Date(q.created_at).toLocaleDateString('pt-BR')}</div>
+                {!hideDentistColumn && q.created_by && <div>por {q.created_by.name}</div>}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <div className="flex items-center justify-end gap-1">
+                  {(q.status === 'DRAFT' || q.status === 'SENT') && q.patient.phone && (
+                    <button
+                      onClick={() => sendWhatsApp(q)}
+                      className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white"
+                      title={q.status === 'SENT' ? 'Reenviar WhatsApp' : 'Enviar WhatsApp'}
+                    >
+                      <MessageCircle size={11} />
+                      {q.status === 'SENT' ? 'Reenviar' : 'Enviar'}
+                    </button>
+                  )}
+                  <button
+                    onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}?tab=quotes`)}
+                    className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
+                    title="Abrir ficha do paciente"
+                  >
+                    Detalhes
+                  </button>
+                </div>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 
