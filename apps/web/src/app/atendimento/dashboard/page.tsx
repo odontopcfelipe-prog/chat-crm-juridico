@@ -300,20 +300,21 @@ export default function VisaoGeralPage() {
     ? `${cap(DIAS[now.getDay()])}, ${now.getDate()} de ${MESES[now.getMonth()]} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     : '—';
 
-  // Onda 17.14 — Background do "ceu" usando paleta fria do sistema
-  // (sky/cyan/indigo), em vez de orange/amber. Conserva a metafora
-  // dia-tarde-noite mas em tons que combinam com a sidebar ciano.
+  // Onda 17.15 — Background do "ceu" adaptativo a TODOS os temas
+  // (light/dark + neon/solid/clay). Em light: cores vivas (sky/cyan
+  // pra dia/tarde, indigo pra noite). Em dark/neon: opacidade
+  // reduzida e tons mais discretos pra nao "iluminar" demais a tela
+  // escura. Variantes com `dark:` adaptam automaticamente.
   const skyBg = useMemo(() => {
     switch (sal.period) {
       case 'morning':
-        // Manha: ceu azul claro com toque amarelado (raiar do dia)
-        return 'bg-gradient-to-b from-sky-200 via-sky-100 to-transparent';
+        return 'bg-gradient-to-b from-sky-200 via-sky-100 to-transparent dark:from-sky-500/10 dark:via-sky-500/5 dark:to-transparent';
       case 'afternoon':
-        // Tarde: ciano vibrante alinhando com o azul da sidebar
-        return 'bg-gradient-to-b from-cyan-200 via-sky-100 to-transparent';
+        return 'bg-gradient-to-b from-cyan-200 via-sky-100 to-transparent dark:from-cyan-500/10 dark:via-sky-500/5 dark:to-transparent';
       case 'night':
-        // Noite: indigo profundo + violet (ja estava OK, mantém)
-        return 'bg-gradient-to-b from-indigo-900 via-purple-900 to-transparent';
+        // Noite: in light mode, indigo medio (nao tao escuro); em
+        // dark mode ja eh discreto naturalmente.
+        return 'bg-gradient-to-b from-indigo-300 via-purple-200 to-transparent dark:from-indigo-900 dark:via-purple-900 dark:to-transparent';
     }
   }, [sal.period]);
 
@@ -407,13 +408,16 @@ export default function VisaoGeralPage() {
           <ToothMascot />
 
           {/* Eyebrow: data + hora atualizada */}
-          <div className={`inline-flex items-center gap-2 text-xs font-semibold mb-2.5 ${sal.period === 'night' ? 'text-white/80' : 'text-muted-foreground'}`}>
+          {/* Onda 17.15 — Texto usa variaveis do tema (foreground/
+              muted-foreground) que ja se adaptam light/dark. Antes
+              forcava text-white em night, ficava ilegivel em light. */}
+          <div className="inline-flex items-center gap-2 text-xs font-semibold mb-2.5 text-muted-foreground">
             <span className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
             <span>{dateline}</span>
           </div>
 
           {/* Greeting */}
-          <h1 className={`text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight ${sal.period === 'night' ? 'text-white' : 'text-foreground'}`}>
+          <h1 className="text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight text-foreground">
             {sal.text},{' '}
             <span className="italic text-sky-600 dark:text-sky-400">
               {/* Onda 17.13 — Mostra o nome EXATO do cadastro (primeiro
@@ -426,7 +430,7 @@ export default function VisaoGeralPage() {
             <span className="wave-hand">👋</span>
           </h1>
 
-          <p className={`mt-3 text-sm md:text-base max-w-lg ${sal.period === 'night' ? 'text-white/70' : 'text-muted-foreground'}`}>
+          <p className="mt-3 text-sm md:text-base max-w-lg text-muted-foreground">
             {sal.period === 'morning'
               ? <>Bom começo de dia. Aqui estão seus atalhos pra acelerar a rotina.</>
               : sal.period === 'afternoon'
@@ -440,17 +444,13 @@ export default function VisaoGeralPage() {
           {now && (() => {
             const verse = getVerseOfDay(now);
             return (
-              <div className={`inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border shadow-sm max-w-xl ${
-                sal.period === 'night'
-                  ? 'bg-white/10 border-white/20 text-white'
-                  : 'bg-card border-border text-foreground'
-              }`}>
+              <div className="inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border shadow-sm max-w-xl bg-card border-border text-foreground">
                 <span className="w-7 h-7 rounded-md bg-gradient-to-br from-sky-400 to-cyan-600 grid place-items-center flex-none shadow">
                   <BookOpen size={14} className="text-white" />
                 </span>
                 <span className="leading-snug">
                   <span className="italic">&ldquo;{verse.text}&rdquo;</span>
-                  <span className={`block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic ${sal.period === 'night' ? 'text-white/60' : 'text-muted-foreground'}`}>
+                  <span className="block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic text-muted-foreground">
                     — {verse.ref}
                   </span>
                 </span>
