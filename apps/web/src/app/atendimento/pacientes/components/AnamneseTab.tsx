@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Loader2, FileText, Send, ShieldCheck, User, Hash, Camera, Copy, X, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Loader2, FileText, Send, ShieldCheck, User, Hash, Camera, Copy, X, RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import DynamicAnamneseForm, { AnamnesisSchema } from './DynamicAnamneseForm';
@@ -179,11 +179,21 @@ export default function AnamneseTab({ patientId }: Props) {
           manualmente OU abre wa.me direto pelo botao. */}
       {fallbackLink && (
         <FallbackLinkModal
+          patientId={patientId}
           link={fallbackLink.link}
           patientName={fallbackLink.patientName}
           patientPhone={fallbackLink.patientPhone}
           reason={fallbackLink.reason}
           onClose={() => setFallbackLink(null)}
+          onResent={(newLink) => {
+            // Reenvio teve sucesso: fecha modal + mostra success
+            showSuccess('Link enviado pelo WhatsApp');
+            setFallbackLink(null);
+          }}
+          onResendFailed={(newReason, newLink) => {
+            // Falhou de novo: atualiza o motivo no modal e mantem aberto
+            setFallbackLink((prev) => prev ? { ...prev, reason: newReason, link: newLink || prev.link } : prev);
+          }}
         />
       )}
     </div>
@@ -191,19 +201,26 @@ export default function AnamneseTab({ patientId }: Props) {
 }
 
 /* ──────────────────────────────────────────────────────────────
-   FallbackLinkModal — Onda 17.9
+   FallbackLinkModal — Onda 17.10
    Aparece quando /portal/magic-link gera link mas Evolution falha.
+   Acao principal: TENTAR REENVIAR pela Evolution (chama o mesmo
+   endpoint do backend de novo). Fallback secundario: copiar link
+   pra enviar manualmente caso reenvio continue falhando.
 ────────────────────────────────────────────────────────────── */
 function FallbackLinkModal({
-  link, patientName, patientPhone, reason, onClose,
+  patientId, link, patientName, patientPhone, reason, onClose, onResent, onResendFailed,
 }: {
+  patientId: string;
   link: string;
   patientName: string;
   patientPhone: string | null;
   reason: string;
   onClose: () => void;
+  onResent: (newLink: string) => void;
+  onResendFailed: (newReason: string, newLink?: string) => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const [retrying, setRetrying] = useState(false);
 
   const handleCopy = async () => {
     try {
@@ -216,16 +233,31 @@ function FallbackLinkModal({
     }
   };
 
-  const firstName = patientName.split(' ')[0];
-  const waText = encodeURIComponent(
-    `Olá ${firstName}! 👋\n\n` +
-    `Para sua próxima consulta, precisamos que você preencha sua ficha de anamnese ` +
-    `(histórico de saúde). Acesse o link abaixo, responda as perguntas e confirme com ` +
-    `seu nome ao final. Leva uns 3 minutos:\n\n${link}\n\n🔒 Link pessoal, válido por 7 dias.`,
-  );
-  const waLink = patientPhone
-    ? `https://wa.me/${patientPhone.replace(/\D/g, '')}?text=${waText}`
-    : null;
+  const handleRetry = async () => {
+    if (retrying) return;
+    setRetrying(true);
+    try {
+      const { data: resp } = await api.post('/portal/magic-link', {
+        patient_id: patientId,
+        channel: 'WHATSAPP',
+        purpose: 'ANAMNESE',
+      });
+      if (resp?.dispatch?.status === 'SENT') {
+        onResent(resp.link);
+      } else {
+        onResendFailed(
+          resp?.dispatch?.reason || 'WhatsApp não foi enviado',
+          resp?.link,
+        );
+      }
+    } catch (err: any) {
+      onResendFailed(
+        err?.response?.data?.message || err?.message || 'Erro ao reenviar pela Evolution',
+      );
+    } finally {
+      setRetrying(false);
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-center justify-center p-4">
@@ -236,9 +268,9 @@ function FallbackLinkModal({
           </div>
           <div className="flex-1 min-w-0">
             <h2 className="text-sm font-bold text-foreground">
-              Link gerado, mas WhatsApp não foi enviado
+              WhatsApp não foi enviado pela Evolution
             </h2>
-            <p className="text-xs text-muted-foreground mt-0.5">
+            <p className="text-xs text-muted-foreground mt-0.5 break-words">
               Motivo: {reason}
             </p>
           </div>
@@ -249,35 +281,59 @@ function FallbackLinkModal({
 
         <div className="p-5 space-y-4">
           <p className="text-sm text-foreground">
-            O link de preenchimento foi gerado e está válido por 7 dias. Você pode <b>copiar</b> e enviar manualmente:
+            O link foi gerado e está válido por 7 dias. Você pode tentar reenviar pela
+            Evolution agora — pode ter sido lentidão momentânea.
           </p>
 
-          <div className="bg-background border border-border rounded-lg p-3 break-all text-xs text-muted-foreground font-mono">
-            {link}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1.5 px-3 py-2 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
-            >
-              <Copy size={14} />
-              {copied ? 'Copiado!' : 'Copiar link'}
-            </button>
-            {waLink && (
-              <a
-                href={waLink}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 bg-emerald-600 text-white rounded-lg text-xs font-semibold hover:bg-emerald-700 transition-colors"
-              >
-                <MessageCircle size={14} />
-                Abrir no WhatsApp
-              </a>
+          {/* Acao principal: reenviar pela Evolution */}
+          <button
+            onClick={handleRetry}
+            disabled={retrying}
+            className="w-full inline-flex items-center justify-center gap-2 px-4 py-3 bg-emerald-600 text-white rounded-lg text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50 transition-colors"
+          >
+            {retrying ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Reenviando pela Evolution...
+              </>
+            ) : (
+              <>
+                <RefreshCw size={16} />
+                Tentar reenviar pela Evolution
+              </>
             )}
-            <span className="text-[11px] text-muted-foreground ml-auto">
-              {patientPhone ? `Tel: ${patientPhone}` : 'Paciente sem telefone'}
-            </span>
+          </button>
+
+          {/* Fallback secundario: copiar link */}
+          <details className="border border-border rounded-lg overflow-hidden">
+            <summary className="px-3 py-2.5 cursor-pointer text-xs font-semibold text-muted-foreground hover:bg-accent/10 select-none">
+              Se continuar falhando, copiar link e enviar manualmente
+            </summary>
+            <div className="p-3 space-y-2 border-t border-border bg-accent/5">
+              <div className="bg-background border border-border rounded p-2 break-all text-[11px] text-muted-foreground font-mono">
+                {link}
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={handleCopy}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded text-xs font-semibold hover:opacity-90 transition-opacity"
+                >
+                  {copied ? <CheckCircle2 size={12} /> : <Copy size={12} />}
+                  {copied ? 'Copiado!' : 'Copiar link'}
+                </button>
+                <span className="text-[10px] text-muted-foreground ml-auto">
+                  {patientPhone ? `Tel: ${patientPhone}` : 'Sem telefone'}
+                </span>
+              </div>
+            </div>
+          </details>
+
+          {/* Dica de diagnostico */}
+          <div className="text-[11px] text-muted-foreground bg-muted/30 rounded-lg p-3 leading-relaxed">
+            <b>Não consegue reenviar?</b> Verifique:
+            <br />• <b>Configurações → WhatsApp</b>: URL e API Key da Evolution corretas
+            <br />• Instância está conectada (QR code lido)
+            <br />• Servidor da Evolution está online
           </div>
         </div>
       </div>

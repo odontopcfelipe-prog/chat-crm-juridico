@@ -134,8 +134,12 @@ export class PortalAuthService {
           `Link valido por 7 dias e de uso unico.`
         );
 
+      const endpoint = `${cfg.apiUrl}/message/sendText/${instance.name}`;
+      this.logger.log(
+        `[Portal] [evolution-call] POST ${endpoint} | phone=${phone} | instance=${instance.name}`,
+      );
       await axios.post(
-        `${cfg.apiUrl}/message/sendText/${instance.name}`,
+        endpoint,
         { number: phone, text },
         {
           headers: { 'Content-Type': 'application/json', apikey: cfg.apiKey },
@@ -145,9 +149,38 @@ export class PortalAuthService {
       this.logger.log(`[Portal] Magic link (${purpose}) enviado para ${name} (${phone})`);
       return { status: 'SENT' };
     } catch (err: any) {
-      const reason = err?.response?.data?.message || err?.message || 'erro';
-      this.logger.warn(`[Portal] Falha ao enviar WhatsApp para ${phone}: ${reason}`);
-      return { status: 'FAILED', reason };
+      // Onda 17.10 — log MUITO mais detalhado pra diagnose. Antes so
+      // mostrava o message generico ("fetch failed"). Agora inclui:
+      // - URL exata que tentou chamar
+      // - Status code se a Evolution respondeu
+      // - Body de erro da Evolution
+      // - error code (ECONNREFUSED, ENOTFOUND, ETIMEDOUT, etc) — esses
+      //   sao os mais uteis pra distinguir DNS x rede x firewall.
+      const status = err?.response?.status;
+      const body = err?.response?.data;
+      const code = err?.code || err?.cause?.code;
+      const reason =
+        body?.message ||
+        body?.error ||
+        err?.message ||
+        'erro desconhecido';
+
+      this.logger.error(
+        `[Portal] [evolution-FAILED] phone=${phone} | ` +
+        `code=${code || 'n/a'} | http=${status || 'sem-resposta'} | ` +
+        `reason="${reason}" | body=${body ? JSON.stringify(body).slice(0, 200) : 'n/a'}`,
+      );
+
+      // Mensagem amigavel pro frontend, com dica baseada no tipo de erro.
+      let humanReason = reason;
+      if (code === 'ENOTFOUND') humanReason = 'Evolution API: endereço não resolvido (DNS). Verifique a URL em Configurações.';
+      else if (code === 'ECONNREFUSED') humanReason = 'Evolution API: conexão recusada. Verifique se a API está online.';
+      else if (code === 'ETIMEDOUT' || code === 'ECONNABORTED') humanReason = 'Evolution API: timeout (15s). API pode estar lenta.';
+      else if (status === 401 || status === 403) humanReason = 'Evolution API: apikey inválida ou não autorizada.';
+      else if (status === 404) humanReason = 'Evolution API: instance não encontrada. Verifique o nome da instância.';
+      else if (reason === 'fetch failed') humanReason = 'Evolution API inacessível (fetch failed). Container do API não conseguiu alcançar a URL configurada.';
+
+      return { status: 'FAILED', reason: humanReason };
     }
   }
 
