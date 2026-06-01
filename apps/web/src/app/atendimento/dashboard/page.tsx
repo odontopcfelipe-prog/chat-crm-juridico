@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   UserPlus, FileText, Calendar, Target,
   Calendar as CalendarIcon, CreditCard, CheckCircle2, MessageCircle,
-  Check, Flame, Sparkles,
+  Check, BookOpen, Sparkles,
 } from 'lucide-react';
 // useRole nao expoe nome do usuario — leio direto do JWT (forma usada
 // em outros lugares da app). Helper local pra nao acoplar.
@@ -52,6 +52,52 @@ const DIAS = ['domingo', 'segunda-feira', 'terça-feira', 'quarta-feira', 'quint
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+
+/* ───────────────────────────────────────────────────────────────
+   Versiculo do dia — rotaciona com base no day-of-year, igual o
+   dia todo, muda automaticamente quando o calendario vira. Lista
+   curada com 30 versiculos curtos e encorajadores.
+─────────────────────────────────────────────────────────────── */
+const VERSES: Array<{ text: string; ref: string }> = [
+  { text: 'Tudo posso naquele que me fortalece.', ref: 'Filipenses 4:13' },
+  { text: 'O Senhor é o meu pastor; nada me faltará.', ref: 'Salmos 23:1' },
+  { text: 'A alegria do Senhor é a vossa força.', ref: 'Neemias 8:10' },
+  { text: 'Se Deus é por nós, quem será contra nós?', ref: 'Romanos 8:31' },
+  { text: 'Confia no Senhor de todo o teu coração.', ref: 'Provérbios 3:5' },
+  { text: 'Aquietai-vos, e sabei que eu sou Deus.', ref: 'Salmos 46:10' },
+  { text: 'Não temas, porque eu sou contigo.', ref: 'Isaías 41:10' },
+  { text: 'Em tudo dai graças.', ref: '1 Tessalonicenses 5:18' },
+  { text: 'Buscai primeiro o reino de Deus.', ref: 'Mateus 6:33' },
+  { text: 'Sede fortes e corajosos.', ref: 'Deuteronômio 31:6' },
+  { text: 'Tudo coopera para o bem daqueles que amam a Deus.', ref: 'Romanos 8:28' },
+  { text: 'O Senhor te abençoe e te guarde.', ref: 'Números 6:24' },
+  { text: 'Lança o teu cuidado sobre o Senhor.', ref: 'Salmos 55:22' },
+  { text: 'Bom é dar graças ao Senhor.', ref: 'Salmos 92:1' },
+  { text: 'Tudo tem o seu tempo determinado.', ref: 'Eclesiastes 3:1' },
+  { text: 'Tudo o que fizerdes, fazei-o como ao Senhor.', ref: 'Colossenses 3:23' },
+  { text: 'O Senhor é a minha luz e a minha salvação.', ref: 'Salmos 27:1' },
+  { text: 'Que o Deus da esperança vos encha de alegria.', ref: 'Romanos 15:13' },
+  { text: 'O ferro com o ferro se afia.', ref: 'Provérbios 27:17' },
+  { text: 'Bem-aventurado o homem que confia no Senhor.', ref: 'Jeremias 17:7' },
+  { text: 'Vinde a mim, todos vós que estais cansados.', ref: 'Mateus 11:28' },
+  { text: 'O amor cobre uma multidão de pecados.', ref: '1 Pedro 4:8' },
+  { text: 'Renovai-vos pelo espírito da vossa mente.', ref: 'Efésios 4:23' },
+  { text: 'Não vos canseis de fazer o bem.', ref: '2 Tessalonicenses 3:13' },
+  { text: 'Tudo é possível àquele que crê.', ref: 'Marcos 9:23' },
+  { text: 'Não pelo poder, mas pelo meu Espírito.', ref: 'Zacarias 4:6' },
+  { text: 'O Senhor pelejará por vós.', ref: 'Êxodo 14:14' },
+  { text: 'O meu auxílio vem do Senhor.', ref: 'Salmos 121:2' },
+  { text: 'Ainda que eu andasse pelo vale da sombra, não temeria mal algum.', ref: 'Salmos 23:4' },
+  { text: 'Esperai no Senhor; sede fortes.', ref: 'Salmos 27:14' },
+];
+
+function getVerseOfDay(date: Date): { text: string; ref: string } {
+  // Dia do ano (1-365/366) — determinístico, igual o dia todo
+  const start = new Date(date.getFullYear(), 0, 0);
+  const diff = date.getTime() - start.getTime();
+  const dayOfYear = Math.floor(diff / 86_400_000);
+  return VERSES[dayOfYear % VERSES.length];
+}
 
 /* ───────────────────────────────────────────────────────────────
    Atalhos principais — 4 cards
@@ -371,17 +417,28 @@ export default function VisaoGeralPage() {
             }
           </p>
 
-          {/* Streak badge (mock — depois liga em dado real) */}
-          <div className={`inline-flex items-center gap-2 mt-4 px-3 py-1.5 rounded-full text-xs font-semibold border shadow-sm ${
-            sal.period === 'night'
-              ? 'bg-white/10 border-white/20 text-white'
-              : 'bg-card border-border text-foreground'
-          }`}>
-            <span className="w-6 h-6 rounded-md bg-gradient-to-br from-amber-400 to-orange-500 grid place-items-center flicker">
-              <Flame size={12} className="text-white" />
-            </span>
-            <span>Bom trabalho — você está em ritmo</span>
-          </div>
+          {/* Onda 17.4 — Versiculo do dia, rotaciona por day-of-year.
+              Substituiu o badge mock "Bom trabalho — você está em ritmo". */}
+          {now && (() => {
+            const verse = getVerseOfDay(now);
+            return (
+              <div className={`inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border shadow-sm max-w-xl ${
+                sal.period === 'night'
+                  ? 'bg-white/10 border-white/20 text-white'
+                  : 'bg-card border-border text-foreground'
+              }`}>
+                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-amber-400 to-orange-500 grid place-items-center flex-none shadow">
+                  <BookOpen size={14} className="text-white" />
+                </span>
+                <span className="leading-snug">
+                  <span className="italic">&ldquo;{verse.text}&rdquo;</span>
+                  <span className={`block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic ${sal.period === 'night' ? 'text-white/60' : 'text-muted-foreground'}`}>
+                    — {verse.ref}
+                  </span>
+                </span>
+              </div>
+            );
+          })()}
         </section>
 
         {/* ─── Atalhos principais ─── */}
