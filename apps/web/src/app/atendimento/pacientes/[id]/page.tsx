@@ -458,11 +458,24 @@ function PacienteFichaInner() {
       {/* Onda 14.1 — Modal de exclusao com preview detalhado das dependencias */}
       {deletePermanentOpen && (
         <div
-          className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
+          // Onda 17.16 — overlay com blur. Em modo neon, bg-black/50
+          // em cima de fundo ja dark ficava preto demais. Trocado pra
+          // backdrop-blur-md + opacidade menor — respeita o tema e
+          // ainda destaca o modal.
+          className="fixed inset-0 z-50 bg-background/70 backdrop-blur-md flex items-center justify-center p-4"
           onClick={() => !deletingPermanent && setDeletePermanentOpen(false)}
         >
           <div
-            className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+            // Onda 17.16 — fundo SOLIDO pra escapar do backdrop-filter
+            // do .bg-card no tema neon (que torna o card translucido
+            // e deixa o conteudo de tras vazar). Inline style ganha
+            // de qualquer regra de tema (incl. clay/neon/solid).
+            className="border border-border rounded-xl shadow-2xl max-w-2xl w-full overflow-hidden flex flex-col max-h-[90vh]"
+            style={{
+              background: 'hsl(var(--card))',
+              backdropFilter: 'none',
+              WebkitBackdropFilter: 'none',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             <div className="p-5 border-b border-border bg-red-500/10 shrink-0">
