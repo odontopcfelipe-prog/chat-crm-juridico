@@ -950,7 +950,7 @@ export default function FinanceiroPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground">Financeiro</h1>
-              <p className="text-xs text-muted-foreground">Gestao de receitas, despesas e inadimplencia</p>
+              <p className="text-xs text-muted-foreground">Boletos, receitas e despesas da clinica</p>
             </div>
           </div>
 
@@ -961,7 +961,7 @@ export default function FinanceiroPage() {
               onChange={e => setFilterLawyerId(e.target.value)}
               className="px-3 py-2 text-xs bg-card border border-border rounded-xl focus:outline-none"
             >
-              <option value="">Todos os advogados</option>
+              <option value="">Todos os dentistas</option>
               {lawyers.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           )}
@@ -1149,42 +1149,10 @@ export default function FinanceiroPage() {
               </div>
             )}
 
-            {/* KPI Grid — Despesas e Saldo */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-              <KpiCard
-                icon={TrendingDown}
-                label="Despesas Pagas"
-                value={fmt(summary.totalExpenses)}
-                color="text-orange-400"
-                bgColor="bg-orange-500/15"
-              />
-              <KpiCard
-                icon={Clock}
-                label="Contas a Pagar"
-                value={fmt(summary.totalPayable)}
-                color="text-rose-400"
-                bgColor="bg-rose-500/15"
-              />
-              <KpiCard
-                icon={Receipt}
-                label="Saldo"
-                value={fmt(summary.totalRevenue - summary.totalExpenses)}
-                color={summary.totalRevenue - summary.totalExpenses >= 0 ? 'text-emerald-400' : 'text-red-400'}
-                bgColor={summary.totalRevenue - summary.totalExpenses >= 0 ? 'bg-emerald-500/15' : 'bg-red-500/15'}
-              />
-              {(() => {
-                const projected = summary.totalRevenue + summary.totalReceivable - summary.totalExpenses - summary.totalPayable;
-                return (
-                  <KpiCard
-                    icon={Target}
-                    label="Total Projetado Mês"
-                    value={fmt(projected)}
-                    color={projected >= 0 ? 'text-violet-400' : 'text-red-400'}
-                    bgColor={projected >= 0 ? 'bg-violet-500/15' : 'bg-red-500/15'}
-                  />
-                );
-              })()}
-            </div>
+            {/* Onda 16 — KPIs de despesa removidos do Resumo. Despesas tem
+                aba dedicada com agrupamento por vencimento (Vencidas/Hoje/
+                A vencer/Pagas), evita duplicar info. Saldo + projeção
+                seguem disponíveis no widget "Resumo do Periodo" abaixo. */}
 
             {/* Info do advogado filtrado */}
             {effectiveLawyerId && (
