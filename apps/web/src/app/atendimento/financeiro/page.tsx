@@ -11,6 +11,9 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+// Onda 16 — abas novas do sistema financeiro completo
+import BoletosTab from './components/BoletosTab';
+import PacientesSummaryTab from './components/PacientesSummaryTab';
 
 /** Formata número de processo no padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO */
 const formatCNJ = (num: string | null | undefined): string => {
@@ -62,10 +65,46 @@ interface Transaction {
   } | null;
 }
 
+/**
+ * Onda 16 — KPIs odontologicos vindos de GET /financeiro/dashboard.
+ * Soma PaymentGatewayCharge (sinal/entrada/parcelas) + transactions.
+ */
+interface DashboardData {
+  recebido_no_periodo: { value: number; count: number };
+  a_receber_total: { value: number; count: number };
+  atrasado: { value: number; count: number; dias_medio: number };
+  a_vencer_7d: { value: number; count: number };
+  cashflow_30d: { date: string; value: number }[];
+  proximos_vencimentos: {
+    id: string;
+    kind: string | null;
+    amount: number;
+    due_date: string;
+    status: string;
+    days_overdue: number;
+    boleto_url: string | null;
+    patient: { id: string; name: string | null; phone: string | null } | null;
+  }[];
+  top_atrasos: {
+    id: string;
+    kind: string | null;
+    amount: number;
+    due_date: string;
+    status: string;
+    days_overdue: number;
+    boleto_url: string | null;
+    patient: { id: string; name: string | null; phone: string | null } | null;
+  }[];
+  now: string;
+}
+
 /* ──────────────────────────────────────────────────────────────
    Constants
 ────────────────────────────────────────────────────────────── */
-const TABS = ['Resumo', 'Receitas', 'Despesas', 'Cobrancas', 'Processos', 'Clientes', 'Inadimplencia', 'Log'] as const;
+// Onda 16 — TABS reorganizadas pra foco odontologico.
+// Removidas (codigo preservado, so nao listadas): Cobrancas, Processos,
+// Clientes, Inadimplencia — substituidas por Boletos + Pacientes.
+const TABS = ['Resumo', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -769,6 +808,8 @@ export default function FinanceiroPage() {
   const [asaasBalance, setAsaasBalance] = useState<number | null>(null);
 
   const [summary, setSummary] = useState<FinancialSummary | null>(null);
+  // Onda 16 — dashboard odontologico (charges + transactions)
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
   const [receitas, setReceitas] = useState<Transaction[]>([]);
   const [despesas, setDespesas] = useState<Transaction[]>([]);
   const [overdue, setOverdue] = useState<Transaction[]>([]);
@@ -807,17 +848,33 @@ export default function FinanceiroPage() {
     const { startDate, endDate } = getPeriodRange(period);
     const lawyerParam = effectiveLawyerId || undefined;
     try {
-      const [sumRes, recRes, despRes] = await Promise.all([
+      // Defensivo: dashboard novo pode falhar enquanto deploy nao subiu;
+      // resto da pagina nao deve quebrar. Promise.allSettled + fallback.
+      const [sumRes, recRes, despRes, dashRes] = await Promise.allSettled([
         api.get('/financeiro/summary', { params: { startDate, endDate, lawyerId: lawyerParam } }),
         api.get('/financeiro/transactions', { params: { type: 'RECEITA', startDate, endDate, limit: 100, lawyerId: lawyerParam } }),
         api.get('/financeiro/transactions', { params: { type: 'DESPESA', startDate, endDate, limit: 100, lawyerId: lawyerParam } }),
+        api.get('/financeiro/dashboard', { params: { startDate, endDate, dentistId: lawyerParam } }),
       ]);
-      setSummary(sumRes.data);
 
-      const recRows = Array.isArray(recRes.data) ? recRes.data : recRes.data.data || [];
-      const despRows = Array.isArray(despRes.data) ? despRes.data : despRes.data.data || [];
+      if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data);
+
+      const recRows =
+        recRes.status === 'fulfilled'
+          ? Array.isArray(recRes.value.data) ? recRes.value.data : recRes.value.data.data || []
+          : [];
+      const despRows =
+        despRes.status === 'fulfilled'
+          ? Array.isArray(despRes.value.data) ? despRes.value.data : despRes.value.data.data || []
+          : [];
       setReceitas(recRows);
       setDespesas(despRows);
+
+      if (dashRes.status === 'fulfilled') {
+        setDashboard(dashRes.value.data);
+      } else {
+        setDashboard(null);
+      }
 
       // Overdue: receitas pendentes com due_date no passado
       const now = new Date();
@@ -842,10 +899,8 @@ export default function FinanceiroPage() {
     Resumo: BarChart3,
     Receitas: TrendingUp,
     Despesas: TrendingDown,
-    Cobrancas: CreditCard,
-    Processos: Receipt,
-    Clientes: Users,
-    Inadimplencia: AlertTriangle,
+    Boletos: CreditCard,
+    Pacientes: Users,
     Log: FileText,
   };
 
@@ -966,7 +1021,7 @@ export default function FinanceiroPage() {
                 }`}
               >
                 <Icon className="w-3 h-3 shrink-0 hidden md:inline-block" />
-                {t === 'Inadimplencia' ? 'Inadimplencia' : t === 'Cobrancas' ? 'Cobrancas' : t}
+                {t}
               </button>
             );
           })}
@@ -991,37 +1046,108 @@ export default function FinanceiroPage() {
 
         {tab === 'Resumo' && summary && (
           <div className="space-y-5">
-            {/* KPI Grid — Receitas */}
+            {/* KPI Grid — Onda 16: 4 KPIs do funil financeiro odontologico.
+                Fonte: GET /financeiro/dashboard (agrega charges + transactions).
+                Fallback pro summary legado quando dashboard nao subiu ainda. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiCard
                 icon={DollarSign}
-                label="Total Contratado"
-                value={fmt(summary.totalRevenue + summary.totalReceivable)}
-                color="text-blue-400"
-                bgColor="bg-blue-500/15"
-              />
-              <KpiCard
-                icon={TrendingUp}
-                label="Recebido"
-                value={fmt(summary.totalRevenue)}
+                label={dashboard ? `Recebido (${dashboard.recebido_no_periodo.count})` : 'Recebido'}
+                value={fmt(dashboard?.recebido_no_periodo.value ?? summary.totalRevenue)}
                 color="text-emerald-400"
                 bgColor="bg-emerald-500/15"
               />
               <KpiCard
                 icon={Clock}
-                label="A Receber"
-                value={fmt(summary.totalReceivable)}
-                color="text-amber-400"
-                bgColor="bg-amber-500/15"
+                label={dashboard ? `A receber (${dashboard.a_receber_total.count})` : 'A Receber'}
+                value={fmt(dashboard?.a_receber_total.value ?? summary.totalReceivable)}
+                color="text-blue-400"
+                bgColor="bg-blue-500/15"
               />
               <KpiCard
                 icon={AlertTriangle}
-                label="Atrasado"
-                value={fmt(summary.totalOverdue)}
+                label={
+                  dashboard
+                    ? `Atrasado (${dashboard.atrasado.count}${dashboard.atrasado.dias_medio > 0 ? ` · ${dashboard.atrasado.dias_medio}d` : ''})`
+                    : 'Atrasado'
+                }
+                value={fmt(dashboard?.atrasado.value ?? summary.totalOverdue)}
                 color="text-red-400"
                 bgColor="bg-red-500/15"
               />
+              <KpiCard
+                icon={TrendingUp}
+                label={dashboard ? `Vencem 7d (${dashboard.a_vencer_7d.count})` : 'A vencer 7d'}
+                value={fmt(dashboard?.a_vencer_7d.value ?? 0)}
+                color="text-amber-400"
+                bgColor="bg-amber-500/15"
+              />
             </div>
+
+            {/* Widget Top atrasos + Próximos vencimentos (lado a lado) */}
+            {dashboard && (dashboard.top_atrasos.length > 0 || dashboard.proximos_vencimentos.length > 0) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {/* Top atrasos */}
+                {dashboard.top_atrasos.length > 0 && (
+                  <div className="bg-card border border-red-500/20 rounded-xl p-4">
+                    <h3 className="text-sm font-bold text-red-400 mb-3 flex items-center gap-2">
+                      <AlertTriangle size={14} />
+                      Top atrasos ({dashboard.top_atrasos.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {dashboard.top_atrasos.slice(0, 5).map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
+                          className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-bold text-red-400 shrink-0">{c.days_overdue}d</span>
+                            <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
+                          </div>
+                          <span className="text-xs font-bold text-red-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-red-400 hover:underline mt-3">
+                      Ver todos →
+                    </button>
+                  </div>
+                )}
+
+                {/* Proximos vencimentos */}
+                {dashboard.proximos_vencimentos.length > 0 && (
+                  <div className="bg-card border border-amber-500/20 rounded-xl p-4">
+                    <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
+                      <Clock size={14} />
+                      Próximos vencimentos (7d)
+                    </h3>
+                    <div className="space-y-2">
+                      {dashboard.proximos_vencimentos.slice(0, 5).map((c) => {
+                        const dt = new Date(c.due_date);
+                        const days = Math.ceil((dt.getTime() - Date.now()) / 86400000);
+                        return (
+                          <button
+                            key={c.id}
+                            onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
+                            className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className={`text-xs font-bold shrink-0 ${days <= 3 ? 'text-red-400' : 'text-amber-400'}`}>{days}d</span>
+                              <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
+                            </div>
+                            <span className="text-xs font-bold text-amber-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-amber-400 hover:underline mt-3">
+                      Ver todos →
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
             {/* KPI Grid — Despesas e Saldo */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
@@ -1225,17 +1351,14 @@ export default function FinanceiroPage() {
           );
         })()}
 
-        {/* ─── TAB: Processos (financeiro por caso) ─── */}
-        {tab === 'Processos' && <ProcessosFinanceiroTab lawyerId={effectiveLawyerId} />}
+        {/* ─── TAB: Boletos (Onda 16) — todos os PaymentGatewayCharge ─── */}
+        {tab === 'Boletos' && <BoletosTab dentistId={effectiveLawyerId || undefined} />}
 
-        {/* ─── TAB: Cobrancas (Asaas) ─── */}
-        {tab === 'Cobrancas' && <CobrancasAsaasTab lawyerId={effectiveLawyerId} />}
+        {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
+        {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveLawyerId || undefined} />}
 
-        {/* ─── TAB: Clientes (CRM ↔ Asaas) ─── */}
-        {tab === 'Clientes' && <ClientesSyncTab />}
-
-        {/* ─── TAB: Inadimplencia ─── */}
-        {tab === 'Inadimplencia' && (
+        {/* ─── TAB: Inadimplencia (legado, oculta na Onda 16 — mantido pra rollback rapido) ─── */}
+        {(tab as any) === 'Inadimplencia' && (
           <div className="space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-sm font-bold text-foreground flex items-center gap-2">

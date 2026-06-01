@@ -11,6 +11,7 @@ import {
   Request,
 } from '@nestjs/common';
 import { FinanceiroService } from './financeiro.service';
+import { FinanceiroChargesService } from './financeiro-charges.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CreateTransactionDto,
@@ -24,6 +25,7 @@ import {
 export class FinanceiroController {
   constructor(
     private readonly service: FinanceiroService,
+    private readonly chargesService: FinanceiroChargesService,
   ) {}
 
   // ─── Transactions ──────────────────────────────────────
@@ -169,4 +171,68 @@ export class FinanceiroController {
   // ─── Tax / Impostos ────────────────────────────────────────
   // Módulo de imposto sobre honorário (IRPF do advogado) removido na transição
   // odonto. A Fase 4+ vai reimplementar IRPJ/ISS para clínica.
+
+  // ─── Dashboard Odontologico (Onda 16) ──────────────────────
+  // Endpoints que agregam PaymentGatewayCharge (sinal/entrada/parcelas) para
+  // a tela financeira principal. Separado do summary legado (que mexe com
+  // FinancialTransaction + LeadHonorarioPayment juridicos).
+
+  @Get('dashboard')
+  getDashboard(
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('dentistId') dentistId: string,
+    @Request() req: any,
+  ) {
+    return this.chargesService.getDashboard({
+      tenantId: req.user.tenant_id,
+      startDate,
+      endDate,
+      dentistId,
+    });
+  }
+
+  @Get('charges')
+  findCharges(
+    @Query('status') status: string,
+    @Query('statusGroup') statusGroup: string,
+    @Query('kind') kind: string,
+    @Query('billingType') billingType: string,
+    @Query('patientId') patientId: string,
+    @Query('dentistId') dentistId: string,
+    @Query('startDate') startDate: string,
+    @Query('endDate') endDate: string,
+    @Query('limit') limit: string,
+    @Query('offset') offset: string,
+    @Request() req: any,
+  ) {
+    return this.chargesService.findCharges({
+      tenantId: req.user.tenant_id,
+      status,
+      statusGroup: statusGroup as any,
+      kind,
+      billingType,
+      patientId,
+      dentistId,
+      startDate,
+      endDate,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      offset: offset ? parseInt(offset, 10) : undefined,
+    });
+  }
+
+  @Get('patients-summary')
+  getPatientsSummary(
+    @Query('orderBy') orderBy: string,
+    @Query('dentistId') dentistId: string,
+    @Query('limit') limit: string,
+    @Request() req: any,
+  ) {
+    return this.chargesService.getPatientsSummary({
+      tenantId: req.user.tenant_id,
+      dentistId,
+      orderBy: orderBy as any,
+      limit: limit ? parseInt(limit, 10) : undefined,
+    });
+  }
 }
