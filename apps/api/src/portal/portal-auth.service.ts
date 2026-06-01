@@ -88,6 +88,27 @@ export class PortalAuthService {
   }
 
   /**
+   * Normaliza telefone pro formato internacional sem '+' que a Evolution
+   * exige (55 + DDD + numero). Onda 17.12.
+   *
+   *  - "82998578143"         -> "5582998578143"   (sem 55, com 9)
+   *  - "8298578143"          -> "558298578143"    (sem 55, fixo)
+   *  - "5582998578143"       -> "5582998578143"   (ja com 55)
+   *  - "+55 (82) 99857-8143" -> "5582998578143"   (com mascara/+)
+   *
+   * Retorna null se o numero nao bate em nenhum formato BR.
+   */
+  private normalizeBRPhone(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const digits = String(raw).replace(/\D/g, '');
+    if (digits.length === 13 && digits.startsWith('55')) return digits;
+    if (digits.length === 12 && digits.startsWith('55')) return digits;
+    if (digits.length === 11) return `55${digits}`;
+    if (digits.length === 10) return `55${digits}`;
+    return null;
+  }
+
+  /**
    * Dispara mensagem WhatsApp via Evolution. Resolve instance do tenant
    * (primeira ativa). Best-effort: nunca derruba o fluxo de criacao do
    * token — falhas viram dispatch.status=FAILED.
@@ -99,6 +120,23 @@ export class PortalAuthService {
     link: string,
     purpose: 'GENERIC' | 'ANAMNESE' = 'GENERIC',
   ): Promise<{ status: 'SENT' | 'FAILED'; reason?: string }> {
+    // Onda 17.12 — Normaliza telefone ANTES de chamar Evolution.
+    // Evolution exige formato internacional (55+DDD+numero). Quando o
+    // cadastro tem so "82998578143" (sem 55), a Evolution rejeita com
+    // 400 Bad Request. Esta foi a causa raiz do "Bad Request" reportado
+    // — o cadastro estava certo, so faltava o 55 na hora de enviar.
+    const normalizedPhone = this.normalizeBRPhone(phone);
+    if (!normalizedPhone) {
+      this.logger.warn(`[Portal] [evolution-skip] Telefone invalido: "${phone}"`);
+      return {
+        status: 'FAILED',
+        reason: `Telefone "${phone}" sem formato BR valido. Edite o cadastro do paciente.`,
+      };
+    }
+    if (normalizedPhone !== phone) {
+      this.logger.log(`[Portal] [phone-normalize] "${phone}" -> "${normalizedPhone}"`);
+    }
+
     try {
       const cfg = await this.settings.getWhatsAppConfig();
       if (!cfg.apiUrl || !cfg.apiKey) {
