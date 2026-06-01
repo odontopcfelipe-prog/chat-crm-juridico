@@ -118,6 +118,62 @@ function OrcamentosPageInner() {
     return list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter);
   }, [list, dentistFilter]);
 
+  // Onda 15 (etapa 19.6) — Stats CALCULADAS NO CLIENTE a partir da lista
+  // carregada. Antes dependia do endpoint /quotes/dashboard, que tinha
+  // bug de roteamento (route order) e quando falhava deixava todos os
+  // cards invisiveis. Computando aqui: cards sempre aparecem se houver
+  // pelo menos 1 orcamento carregado, independente do backend.
+  // OBS: respeita o filtro de dentista pra dar uma visao por profissional.
+  const computedStats = useMemo<DashboardStats | null>(() => {
+    if (list.length === 0) return null;
+    const source = filteredList; // respeita filtro de dentista
+    const byStatus: Record<string, { count: number; total: number }> = {
+      DRAFT: { count: 0, total: 0 },
+      SENT: { count: 0, total: 0 },
+      ACCEPTED: { count: 0, total: 0 },
+      REJECTED: { count: 0, total: 0 },
+      EXPIRED: { count: 0, total: 0 },
+    };
+    let pipelineValue = 0;
+    let revenueAccepted = 0;
+    let expiringSoon = 0;
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    for (const q of source) {
+      const value = Number(q.total_value) || 0;
+      if (byStatus[q.status]) {
+        byStatus[q.status].count += 1;
+        byStatus[q.status].total += value;
+      }
+      if (q.status === 'SENT') {
+        pipelineValue += value;
+        if (q.valid_until) {
+          const expiry = new Date(q.valid_until).getTime();
+          if (expiry - now > 0 && expiry - now <= sevenDaysMs) {
+            expiringSoon += 1;
+          }
+        }
+      }
+      if (q.status === 'ACCEPTED') {
+        revenueAccepted += value;
+      }
+    }
+    const decided = byStatus.ACCEPTED.count + byStatus.REJECTED.count;
+    const conversionRate = decided > 0 ? byStatus.ACCEPTED.count / decided : null;
+    return {
+      byStatus,
+      total_count: source.length,
+      pipeline_value: pipelineValue,
+      revenue_accepted: revenueAccepted,
+      conversion_rate: conversionRate,
+      expiring_soon: expiringSoon,
+    };
+  }, [list, filteredList]);
+
+  // Stats finais: prioriza o backend (mais detalhado, ex: agregacao por
+  // periodo de 30d) e cai pro calculado se backend nao respondeu.
+  const displayStats = stats || computedStats;
+
   // Quotes agrupados por dentista, ordenados por total. Respeita o filtro
   // de dentista (se nenhum: mostra todos os grupos; se filtrado: 1 grupo).
   const groupedByDentist = useMemo(() => {
@@ -216,49 +272,49 @@ function OrcamentosPageInner() {
 
           Breakdown completo por status segue disponivel via os chips de
           filtro abaixo. */}
-      {stats && (
+      {displayStats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           <FunnelCard
             icon={DollarSign}
             label="Pipeline em fechamento"
-            value={formatBRL(stats.byStatus.SENT?.total ?? 0)}
+            value={formatBRL(displayStats.byStatus.SENT?.total ?? 0)}
             colorClass="emerald"
           />
           <FunnelCard
             icon={FileText}
             label="Aguardando resposta"
-            value={stats.byStatus.SENT?.count ?? 0}
+            value={displayStats.byStatus.SENT?.count ?? 0}
             colorClass="blue"
           />
           <FunnelCard
             icon={Clock}
             label="Vencem em 7 dias"
-            value={stats.expiring_soon}
-            colorClass={stats.expiring_soon > 0 ? 'amber' : 'gray'}
-            highlight={stats.expiring_soon > 0}
+            value={displayStats.expiring_soon}
+            colorClass={displayStats.expiring_soon > 0 ? 'amber' : 'gray'}
+            highlight={displayStats.expiring_soon > 0}
           />
           <FunnelCard
             icon={AlertTriangle}
             label="Já expiraram"
-            value={stats.byStatus.EXPIRED?.count ?? 0}
-            sub={(stats.byStatus.EXPIRED?.count ?? 0) > 0 ? formatBRL(stats.byStatus.EXPIRED?.total ?? 0) : undefined}
-            colorClass={(stats.byStatus.EXPIRED?.count ?? 0) > 0 ? 'red' : 'gray'}
+            value={displayStats.byStatus.EXPIRED?.count ?? 0}
+            sub={(displayStats.byStatus.EXPIRED?.count ?? 0) > 0 ? formatBRL(displayStats.byStatus.EXPIRED?.total ?? 0) : undefined}
+            colorClass={(displayStats.byStatus.EXPIRED?.count ?? 0) > 0 ? 'red' : 'gray'}
           />
           <FunnelCard
             icon={TrendingUp}
-            label="Conversão (30d)"
-            value={stats.conversion_rate !== null ? `${(stats.conversion_rate * 100).toFixed(0)}%` : '—'}
+            label="Conversão"
+            value={displayStats.conversion_rate !== null ? `${(displayStats.conversion_rate * 100).toFixed(0)}%` : '—'}
             colorClass="violet"
           />
         </div>
       )}
 
       {/* Aviso de expirando em breve */}
-      {stats && stats.expiring_soon > 0 && (
+      {displayStats && displayStats.expiring_soon > 0 && (
         <div className="mb-4 p-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 text-sm">
           <AlertTriangle size={16} className="text-amber-600 shrink-0" />
           <span className="text-amber-700">
-            <strong>{stats.expiring_soon}</strong> orçamento(s) enviado(s) expiram nos próximos 7 dias.
+            <strong>{displayStats.expiring_soon}</strong> orçamento(s) enviado(s) expiram nos próximos 7 dias.
             Considere reenviar pra cobrar resposta.
           </span>
           <button
