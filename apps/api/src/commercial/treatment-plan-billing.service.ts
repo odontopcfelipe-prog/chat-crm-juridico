@@ -345,38 +345,104 @@ export class TreatmentPlanBillingService {
         installmentValue: options.installmentValue,
       });
       this.logger.log(
-        `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} | ` +
+        `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} ` +
+        `(installment ${installmentsAsaas.installment}) | ` +
         `${options.installmentCount}x R$ ${options.installmentValue} = R$ ${totalInstallments}`,
       );
 
-      const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
-        data: {
-          tenant_id: tenantId,
-          treatment_plan_id: planId,
-          kind: 'INSTALLMENT',
-          gateway: 'ASAAS',
-          external_id: installmentsAsaas.id,
-          customer_external_id: customer.external_id,
-          billing_type: 'BOLETO',
-          amount: totalInstallments,
+      // Onda 15 (etapa 16.5) — Em vez de armazenar 1 charge "umbrella" com
+      // o total (que vinha como 1 linha so no Financeiro), busca os N filhos
+      // do Asaas e cria N PaymentGatewayCharge individuais. Cada um com sua
+      // due_date + boleto_url + nossoNumero proprios, pra o paciente ter as
+      // 10 linhas no Financeiro com 2a via direta de cada parcela.
+      let children: any[] = [];
+      if (installmentsAsaas.installment) {
+        try {
+          const listResp = await this.asaas.listCharges({
+            installment: installmentsAsaas.installment,
+            limit: 100,
+          });
+          children = listResp?.data ?? [];
+        } catch (err: any) {
+          this.logger.warn(
+            `[FINANCING] Falha ao listar parcelas filhas do installment ` +
+            `${installmentsAsaas.installment}: ${err?.message || err}`,
+          );
+        }
+      }
+
+      if (children.length === options.installmentCount) {
+        // Caminho feliz: cria N registros individuais
+        for (const child of children) {
+          await this.prisma.paymentGatewayCharge.create({
+            data: {
+              tenant_id: tenantId,
+              treatment_plan_id: planId,
+              kind: 'INSTALLMENT',
+              gateway: 'ASAAS',
+              external_id: child.id,
+              customer_external_id: customer.external_id,
+              billing_type: 'BOLETO',
+              amount: child.value ?? options.installmentValue,
+              // child.dueDate vem como "YYYY-MM-DD"; parseLocalDate anti-TZ.
+              due_date: child.dueDate ? parseLocalDate(child.dueDate) : installmentsFirstDue,
+              status: child.status || 'PENDING',
+              description: `Parcela ${child.installmentNumber ?? '?'}/${options.installmentCount} — ` +
+                `${plan.patient.name} [plan:${planId}]`,
+              boleto_url: child.bankSlipUrl || null,
+              boleto_barcode: child.nossoNumero || null,
+              invoice_url: child.invoiceUrl || null,
+            },
+          });
+        }
+        this.logger.log(
+          `[FINANCING] ${children.length} parcelas individuais salvas no DB pra plan ${planId}.`,
+        );
+        created.push({
+          kind: 'parcelado_individual',
+          count: children.length,
+          first_due_date: installmentsFirstDue,
+          installment_count: options.installmentCount,
+          installment_value: options.installmentValue,
+          total: totalInstallments,
+        });
+      } else {
+        // Fallback: nao conseguiu listar filhos do Asaas (talvez API instavel,
+        // ou retornou contagem inesperada). Salva 1 charge "umbrella" como
+        // antes, pra nao perder a referencia do parcelado no DB.
+        this.logger.warn(
+          `[FINANCING] Listagem de filhos retornou ${children.length} ` +
+          `(esperava ${options.installmentCount}) — salvando 1 umbrella charge como fallback.`,
+        );
+        const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
+          data: {
+            tenant_id: tenantId,
+            treatment_plan_id: planId,
+            kind: 'INSTALLMENT',
+            gateway: 'ASAAS',
+            external_id: installmentsAsaas.id,
+            customer_external_id: customer.external_id,
+            billing_type: 'BOLETO',
+            amount: totalInstallments,
+            due_date: installmentsFirstDue,
+            status: installmentsAsaas.status || 'PENDING',
+            description: `Parcelado (${options.installmentCount}x) — ${plan.patient.name} [plan:${planId}]`,
+            boleto_url: installmentsAsaas.bankSlipUrl || null,
+            boleto_barcode: installmentsAsaas.nossoNumero || null,
+            invoice_url: installmentsAsaas.invoiceUrl || null,
+          },
+        });
+        created.push({
+          kind: 'parcelado',
+          charge: installmentsCharge,
+          boleto_url: installmentsAsaas.bankSlipUrl,
+          barcode: installmentsAsaas.nossoNumero,
           due_date: installmentsFirstDue,
-          status: installmentsAsaas.status || 'PENDING',
-          description: `Parcelado (${options.installmentCount}x) — ${plan.patient.name} [plan:${planId}]`,
-          boleto_url: installmentsAsaas.bankSlipUrl || null,
-          boleto_barcode: installmentsAsaas.nossoNumero || null,
-          invoice_url: installmentsAsaas.invoiceUrl || null,
-        },
-      });
-      created.push({
-        kind: 'parcelado',
-        charge: installmentsCharge,
-        boleto_url: installmentsAsaas.bankSlipUrl,
-        barcode: installmentsAsaas.nossoNumero,
-        due_date: installmentsFirstDue,
-        amount: totalInstallments,
-        installment_count: options.installmentCount,
-        installment_value: options.installmentValue,
-      });
+          amount: totalInstallments,
+          installment_count: options.installmentCount,
+          installment_value: options.installmentValue,
+        });
+      }
     }
 
     return {
