@@ -710,7 +710,10 @@ export function Sidebar() {
       icon: <Network size={14} strokeWidth={2.5} />,
       items: [
         allItems.crm,          // Kanban CRM (movido pra dentro do grupo)
-        allItems.orcamentos,   // Orcamentos (atalho — tambem aparece em Financeiro)
+        // Onda 15 (etapa 20) — Orcamentos removido do CRM (era duplicado
+        // com o grupo Financeiro). Fica so em Financeiro pra evitar
+        // confusao. Pra restaurar: descomenta a linha abaixo.
+        // allItems.orcamentos,   // Orcamentos
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
         allItems.returnAlerts, // Retornos
         allItems.followup,     // Follow-up IA (admin)
