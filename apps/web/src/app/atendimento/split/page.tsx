@@ -424,7 +424,13 @@ function SplitPageInner() {
                   return (
                     <iframe
                       key={leadId}
-                      src={`/atendimento/chat/${leadId}`}
+                      // Onda 17.21 — ?chatonly=1 ativa modo "chat puro"
+                      // (sem sidebar, sem header global). Layout.tsx ja
+                      // suporta isso ha tempos via isChatOnly. Sem essa
+                      // flag o iframe carrega a app inteira (com side
+                      // menu duplicado) e/ou eh redirecionado pro
+                      // layout root.
+                      src={`/atendimento/chat/${leadId}?chatonly=1`}
                       className="w-full h-full border-0"
                       title={`Conversa ${slotId}`}
                     />
