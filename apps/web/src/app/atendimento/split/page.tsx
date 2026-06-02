@@ -22,6 +22,7 @@ import { Suspense, useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { ArrowLeft, X, Plus, Search, RefreshCw, PanelLeftClose, PanelLeftOpen, Check } from 'lucide-react';
 import api from '@/lib/api';
+import ChatPane from './components/ChatPane';
 
 interface ConversationLite {
   id: string;
@@ -402,7 +403,6 @@ function SplitPageInner() {
                   const conv = convById(slotId);
                   const leadId = getLeadId(conv);
                   if (!leadId) {
-                    // Lista de conversations ainda carregando OU id orphan
                     return (
                       <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
                         {loading ? (
@@ -421,20 +421,11 @@ function SplitPageInner() {
                       </div>
                     );
                   }
-                  return (
-                    <iframe
-                      key={leadId}
-                      // Onda 17.21 — ?chatonly=1 ativa modo "chat puro"
-                      // (sem sidebar, sem header global). Layout.tsx ja
-                      // suporta isso ha tempos via isChatOnly. Sem essa
-                      // flag o iframe carrega a app inteira (com side
-                      // menu duplicado) e/ou eh redirecionado pro
-                      // layout root.
-                      src={`/atendimento/chat/${leadId}?chatonly=1`}
-                      className="w-full h-full border-0"
-                      title={`Conversa ${slotId}`}
-                    />
-                  );
+                  // Onda 17.22 — ChatPane substitui iframe.
+                  // Sem mais peso de carregar Next.js inteiro, sem
+                  // hydration mismatch, sem sockets duplicados.
+                  // Componente React real que compartilha SocketProvider.
+                  return <ChatPane key={leadId} leadId={leadId} />;
                 })()}
               </div>
             </div>
