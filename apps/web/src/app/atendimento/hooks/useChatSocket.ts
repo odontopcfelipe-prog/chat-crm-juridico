@@ -49,7 +49,15 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
 
   const { socket: sharedSocket } = useSocket();
   const socketRef = useRef<Socket | null>(null);
+  // Onda 17.24 — refs nomeados dos handlers pra cleanup remover SOMENTE
+  // o handler desta instancia, nao todos os listeners do evento.
+  // Sem isso, multiplos slots do split mantinham só o ultimo listener
+  // funcionando — mensagens enviadas nao apareciam em outros slots.
   const reconnectHandlerRef = useRef<(() => void) | null>(null);
+  const newMessageHandlerRef = useRef<((msg: any) => void) | null>(null);
+  const messageUpdateHandlerRef = useRef<((msg: any) => void) | null>(null);
+  const messageReactionHandlerRef = useRef<((data: any) => void) | null>(null);
+  const contactPresenceHandlerRef = useRef<((data: any) => void) | null>(null);
 
   // Sincroniza ref para componentes que consomem socketRef
   useEffect(() => { socketRef.current = sharedSocket; }, [sharedSocket]);
@@ -90,21 +98,31 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
             })
             .catch(swallow('sync history Evolution — fallback eh ler so as msgs locais'));
 
-          // Registrar listeners no socket compartilhado
+          // Registrar listeners no socket compartilhado.
+          // Onda 17.24 — CRITICO: handlers PRECISAM ser nomeados (refs)
+          // pra que o cleanup remova so o NOSSO listener, nao o de outros
+          // componentes (ex: outros slots do split, ChatClient standalone,
+          // page.tsx principal). socket.off(evt) sem callback removia TODOS,
+          // fazendo mensagens enviadas nao aparecerem no chat de outros slots.
           if (sharedSocket) {
             sharedSocket.emit('join_conversation', convo.id);
 
             // Re-join conversation room after reconnect when state recovery doesn't apply
-            reconnectHandlerRef.current = () => {
+            const reconnectHandler = () => {
               if (!(sharedSocket as any).recovered) {
                 sharedSocket.emit('join_conversation', convo.id);
               }
             };
-            sharedSocket.on('connect', reconnectHandlerRef.current);
+            reconnectHandlerRef.current = reconnectHandler;
+            sharedSocket.on('connect', reconnectHandler);
 
             // Som NÃO toca aqui — SocketProvider já toca via incoming_message_notification
 
-            sharedSocket.on('newMessage', (msg: any) => {
+            const onNewMessage = (msg: any) => {
+              // Filtra: so processa mensagens dESTA conversa (cada hook pode
+              // ter o seu convoId distinto, mas socket eh global)
+              if (msg.conversation_id && msg.conversation_id !== convo.id) return;
+
               const addMsg = () => setMessages(prev => {
                 const exists = prev.some((m: any) => m.id === msg.id || (m.external_message_id && m.external_message_id === msg.external_message_id));
                 if (exists) return prev;
@@ -121,19 +139,30 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
               } else {
                 addMsg();
               }
-            });
+            };
+            newMessageHandlerRef.current = onNewMessage;
+            sharedSocket.on('newMessage', onNewMessage);
 
-            sharedSocket.on('messageUpdate', (updatedMsg: any) => {
+            const onMessageUpdate = (updatedMsg: any) => {
+              if (updatedMsg.conversation_id && updatedMsg.conversation_id !== convo.id) return;
               setMessages(prev => prev.map((m: any) => m.id === updatedMsg.id ? { ...m, ...updatedMsg } : m));
-            });
+            };
+            messageUpdateHandlerRef.current = onMessageUpdate;
+            sharedSocket.on('messageUpdate', onMessageUpdate);
 
-            sharedSocket.on('messageReaction', (data: { messageId: string; reactions: any[] }) => {
+            const onMessageReaction = (data: { messageId: string; reactions: any[]; conversation_id?: string }) => {
+              if (data.conversation_id && data.conversation_id !== convo.id) return;
               setMessages(prev => prev.map((m: any) => m.id === data.messageId ? { ...m, reactions: data.reactions } : m));
-            });
+            };
+            messageReactionHandlerRef.current = onMessageReaction;
+            sharedSocket.on('messageReaction', onMessageReaction);
 
-            sharedSocket.on('contact_presence', (data: { presence: string }) => {
+            const onContactPresence = (data: { presence: string; conversation_id?: string }) => {
+              if (data.conversation_id && data.conversation_id !== convo.id) return;
               setContactPresence(data.presence);
-            });
+            };
+            contactPresenceHandlerRef.current = onContactPresence;
+            sharedSocket.on('contact_presence', onContactPresence);
           }
         }
       } catch (e: any) {
@@ -146,15 +175,28 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
 
     fetchData();
     return () => {
+      // Onda 17.24 — Cleanup: remove SO o nosso handler, nao todos.
       if (sharedSocket) {
         if (reconnectHandlerRef.current) {
           sharedSocket.off('connect', reconnectHandlerRef.current);
           reconnectHandlerRef.current = null;
         }
-        sharedSocket.off('newMessage');
-        sharedSocket.off('messageUpdate');
-        sharedSocket.off('messageReaction');
-        sharedSocket.off('contact_presence');
+        if (newMessageHandlerRef.current) {
+          sharedSocket.off('newMessage', newMessageHandlerRef.current);
+          newMessageHandlerRef.current = null;
+        }
+        if (messageUpdateHandlerRef.current) {
+          sharedSocket.off('messageUpdate', messageUpdateHandlerRef.current);
+          messageUpdateHandlerRef.current = null;
+        }
+        if (messageReactionHandlerRef.current) {
+          sharedSocket.off('messageReaction', messageReactionHandlerRef.current);
+          messageReactionHandlerRef.current = null;
+        }
+        if (contactPresenceHandlerRef.current) {
+          sharedSocket.off('contact_presence', contactPresenceHandlerRef.current);
+          contactPresenceHandlerRef.current = null;
+        }
       }
     };
   }, [leadId, router, currentUserId, sharedSocket]);
