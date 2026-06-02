@@ -2388,6 +2388,10 @@ export default function Dashboard() {
             mode={splitMode as 4 | 6}
             conversations={conversations.map((c) => ({
               id: c.id,
+              // Onda 17.23 — leadId necessario pro ChatPane (useChatSocket
+              // chama /conversations/lead/:id). Sem isso o slot fica em
+              // "Conversa sem leadId" porque o tipo nao expunha o campo.
+              leadId: (c as any).leadId || (c as any).lead_id,
               contact_name: c.contactName,
               contact_phone: c.contactPhone,
               last_msg_preview: c.lastMessage,

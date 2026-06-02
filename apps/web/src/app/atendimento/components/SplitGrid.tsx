@@ -20,13 +20,23 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Plus, Search, X } from 'lucide-react';
+import ChatPane from '../split/components/ChatPane';
 
 export interface SplitConversationLite {
   id: string;
+  // Onda 17.23 — lead_id necessario pra ChatPane (useChatSocket espera leadId).
+  leadId?: string;
+  lead_id?: string;
   contact_name?: string | null;
   contact_phone?: string | null;
   last_msg_preview?: string | null;
   unread_count?: number;
+}
+
+/** Resolve lead_id de varios campos possiveis do DTO. */
+function getLeadId(c: SplitConversationLite | undefined): string | null {
+  if (!c) return null;
+  return c.leadId || c.lead_id || null;
 }
 
 const EMPTY_SLOT = 'EMPTY';
@@ -171,7 +181,9 @@ export default function SplitGrid({ mode, conversations }: Props) {
                 )}
               </div>
 
-              {/* Conteudo: iframe da conversa OU botao de selecao */}
+              {/* Conteudo: ChatPane da conversa OU botao de selecao.
+                  Onda 17.23 — substitui iframe (que tinha hydration mismatch
+                  + sockets duplicados) por componente React real. */}
               <div className="flex-1 overflow-hidden relative">
                 {isEmpty ? (
                   <button
@@ -181,14 +193,24 @@ export default function SplitGrid({ mode, conversations }: Props) {
                     <Plus size={32} strokeWidth={1.5} className="opacity-50" />
                     <span className="text-sm font-medium">Selecionar conversa</span>
                   </button>
-                ) : (
-                  <iframe
-                    key={slotId}
-                    src={`/atendimento/chat/${slotId}?chatonly=1`}
-                    className="w-full h-full border-0"
-                    title={`Conversa ${slotId}`}
-                  />
-                )}
+                ) : (() => {
+                  const conv = convById(slotId);
+                  const leadId = getLeadId(conv);
+                  if (!leadId) {
+                    return (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                        <span className="text-xs text-amber-500">Conversa sem leadId</span>
+                        <button
+                          onClick={() => clearSlot(idx)}
+                          className="text-[11px] underline hover:text-foreground"
+                        >
+                          Remover slot
+                        </button>
+                      </div>
+                    );
+                  }
+                  return <ChatPane key={leadId} leadId={leadId} />;
+                })()}
               </div>
             </div>
           );
