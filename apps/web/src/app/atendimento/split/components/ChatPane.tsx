@@ -103,8 +103,16 @@ export default function ChatPane({ leadId, compact = false }: Props) {
     const localText = text.trim();
     setText('');
     try {
-      await api.post('/messages/send', { conversationId: convoId, text: localText });
-      // Mensagem chega pelo socket — não precisa otimismo aqui
+      const res = await api.post('/messages/send', { conversationId: convoId, text: localText });
+      // Onda 17.25 — Otimismo: adiciona mensagem ao state imediatamente,
+      // sem esperar o socket. Se o socket entregar de volta, o dedup por
+      // id em useChatSocket previne duplicacao.
+      if (res.data?.id) {
+        setMessages(prev => {
+          if (prev.some((m: any) => m.id === res.data.id)) return prev;
+          return [...prev, res.data];
+        });
+      }
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Falha ao enviar');
       setText(localText); // restaura
@@ -112,7 +120,7 @@ export default function ChatPane({ leadId, compact = false }: Props) {
       setSending(false);
       requestAnimationFrame(() => inputRef.current?.focus());
     }
-  }, [text, sending, convoId]);
+  }, [text, sending, convoId, setMessages]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -149,15 +157,24 @@ export default function ChatPane({ leadId, compact = false }: Props) {
     const file = e.target.files?.[0];
     if (!file || !convoId) return;
     setUploadingFile(true);
+    // Onda 17.25 — Endpoint correto eh /messages/send-file (nao
+    // /send-media). Confirmado contra ChatClient.tsx:184 e
+    // messages.controller.ts:126.
     const formData = new FormData();
     formData.append('file', file);
     formData.append('conversationId', convoId);
     try {
-      await api.post('/messages/send-media', formData, {
+      const res = await api.post('/messages/send-file', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
-    } catch {
-      showError('Falha no upload');
+      if (res.data?.id) {
+        setMessages(prev => {
+          if (prev.some((m: any) => m.id === res.data.id)) return prev;
+          return [...prev, res.data];
+        });
+      }
+    } catch (err: any) {
+      showError(err?.response?.data?.message || 'Falha ao enviar arquivo');
     } finally {
       setUploadingFile(false);
       if (fileInputRef.current) fileInputRef.current.value = '';
@@ -281,16 +298,37 @@ export default function ChatPane({ leadId, compact = false }: Props) {
                       : 'bg-card border border-border text-foreground rounded-bl-sm'
                   }`}
                 >
-                  {msg.text ? (
+                  {/* Onda 17.25 — renderizacao basica de midia.
+                      Imagens: thumbnail clicavel (abre em nova aba).
+                      Audio/doc: rotulo (preview completo so na tela cheia). */}
+                  {msg.type === 'image' && msg.media ? (
+                    <a
+                      href={`/api/media/${msg.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="block"
+                    >
+                      <img
+                        src={`/api/media/${msg.id}`}
+                        alt="imagem"
+                        className="max-w-[180px] max-h-[180px] rounded-md object-cover"
+                        loading="lazy"
+                      />
+                    </a>
+                  ) : msg.text ? (
                     <span className="whitespace-pre-wrap break-words">{msg.text}</span>
                   ) : msg.type === 'audio' ? (
                     <span className="italic opacity-70">🎤 Áudio</span>
-                  ) : msg.type === 'image' ? (
-                    <span className="italic opacity-70">🖼️ Imagem</span>
+                  ) : msg.type === 'video' ? (
+                    <span className="italic opacity-70">🎥 Vídeo</span>
                   ) : msg.type === 'document' ? (
-                    <span className="italic opacity-70">📄 Documento</span>
+                    <span className="italic opacity-70">📄 {msg.media?.original_name || 'Documento'}</span>
                   ) : (
                     <span className="italic opacity-70">[{msg.type || 'msg'}]</span>
+                  )}
+                  {/* Caption embaixo da imagem */}
+                  {msg.type === 'image' && msg.text && (
+                    <p className="mt-1 whitespace-pre-wrap break-words text-xs">{msg.text}</p>
                   )}
                   <div className={`text-[9px] mt-0.5 ${isOut ? 'text-primary-foreground/60 text-right' : 'text-muted-foreground'}`}>
                     {time}
