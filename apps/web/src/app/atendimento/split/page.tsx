@@ -25,6 +25,14 @@ import api from '@/lib/api';
 
 interface ConversationLite {
   id: string;
+  // Onda 17.18 — lead_id e o que a /atendimento/chat/[id] espera no
+  // params.id pra fazer GET /conversations/lead/:id. Sem isso o iframe
+  // carregava em branco ("Nenhuma mensagem", sem nome, sem botoes).
+  // Backend ja retorna em /conversations (campo leadId no DTO, alem
+  // de lead.id no objeto aninhado).
+  lead_id?: string;
+  leadId?: string;
+  lead?: { id: string; name?: string | null; phone?: string | null };
   contact_name: string | null;
   contact_phone: string | null;
   last_msg_preview?: string | null;
@@ -33,6 +41,14 @@ interface ConversationLite {
 }
 
 const EMPTY_SLOT = 'EMPTY';
+
+/** Onda 17.18 — Resolve lead_id de um item de conversa. O DTO do
+ *  /conversations envia em multiplos lugares (leadId, lead_id, lead.id);
+ *  pegamos o primeiro disponivel pra ser resiliente. */
+function getLeadId(c: ConversationLite | undefined): string | null {
+  if (!c) return null;
+  return c.lead_id || c.leadId || c.lead?.id || null;
+}
 
 // Next.js 16 exige <Suspense> em pages que usam useSearchParams() porque o
 // search params nao existe durante prerender estatico. Wrapper externo +
@@ -368,7 +384,11 @@ function SplitPageInner() {
                 )}
               </div>
 
-              {/* Conteudo: iframe da conversa OU picker */}
+              {/* Conteudo: iframe da conversa OU picker.
+                  Onda 17.18 — a /atendimento/chat/[id] espera lead_id
+                  no params.id pra chamar GET /conversations/lead/:id.
+                  Slot armazena conversation_id, então resolve o
+                  lead_id correspondente aqui antes de montar a URL. */}
               <div className="flex-1 overflow-hidden relative">
                 {isEmpty ? (
                   <button
@@ -378,14 +398,38 @@ function SplitPageInner() {
                     <Plus size={32} strokeWidth={1.5} className="opacity-50" />
                     <span className="text-sm font-medium">Selecionar conversa</span>
                   </button>
-                ) : (
-                  <iframe
-                    key={slotId}
-                    src={`/atendimento/chat/${slotId}`}
-                    className="w-full h-full border-0"
-                    title={`Conversa ${slotId}`}
-                  />
-                )}
+                ) : (() => {
+                  const conv = convById(slotId);
+                  const leadId = getLeadId(conv);
+                  if (!leadId) {
+                    // Lista de conversations ainda carregando OU id orphan
+                    return (
+                      <div className="w-full h-full flex flex-col items-center justify-center gap-2 text-muted-foreground">
+                        {loading ? (
+                          <span className="text-xs">Carregando conversa…</span>
+                        ) : (
+                          <>
+                            <span className="text-xs text-amber-500">Conversa não encontrada</span>
+                            <button
+                              onClick={() => clearSlot(idx)}
+                              className="text-[11px] underline hover:text-foreground"
+                            >
+                              Remover slot
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    );
+                  }
+                  return (
+                    <iframe
+                      key={leadId}
+                      src={`/atendimento/chat/${leadId}`}
+                      className="w-full h-full border-0"
+                      title={`Conversa ${slotId}`}
+                    />
+                  );
+                })()}
               </div>
             </div>
           );
