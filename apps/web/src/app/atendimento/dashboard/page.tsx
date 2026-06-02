@@ -23,6 +23,7 @@ import {
   UserPlus, FileText, Calendar, Target,
   Calendar as CalendarIcon, CreditCard, CheckCircle2, MessageCircle,
   Check, BookOpen, Sparkles,
+  Users, LayoutGrid, Wallet, // Onda 17.17 — atalhos de secao
 } from 'lucide-react';
 import api from '@/lib/api';
 import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
@@ -131,10 +132,22 @@ const PRIMARY_ACTIONS = [
 ] as const;
 
 const SECONDARY_ACTIONS = [
+  // Acoes operacionais do dia a dia
   { label: 'Agenda do dia', href: '/atendimento/agenda', icon: CalendarIcon },
   { label: 'Registrar pagamento', href: '/atendimento/financeiro', icon: CreditCard },
   { label: 'Confirmar consultas', href: '/atendimento/agenda', icon: CheckCircle2 },
   { label: 'Lembrete no WhatsApp', href: '/atendimento', icon: MessageCircle },
+] as const;
+
+// Onda 17.17 — Atalhos pra as secoes principais do sistema. Separado
+// das SECONDARY_ACTIONS (que sao "acoes") pra dar clareza: aqui sao
+// "ir para a tela X". Aparece numa linha propria abaixo, com um label
+// "Ir para" pra distinguir.
+const SECTION_SHORTCUTS = [
+  { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users },
+  { label: 'CRM', href: '/atendimento/crm', icon: LayoutGrid },
+  { label: 'WhatsApp', href: '/atendimento', icon: MessageCircle },
+  { label: 'Financeiro', href: '/atendimento/financeiro', icon: Wallet },
 ] as const;
 
 // Onda 17.14 — Paleta alinhada com tema do sistema (ciano/azul da
@@ -516,6 +529,28 @@ export default function VisaoGeralPage() {
               </Link>
             );
           })}
+        </section>
+
+        {/* ─── Atalhos de secao (Onda 17.17) ─── */}
+        <section className="space-y-2">
+          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Ir para
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {SECTION_SHORTCUTS.map((a) => {
+              const Icon = a.icon;
+              return (
+                <Link
+                  key={a.label}
+                  href={a.href}
+                  className="inline-flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs md:text-sm font-semibold text-foreground shadow-sm hover:shadow hover:-translate-y-0.5 hover:text-sky-600 dark:hover:text-sky-400 transition-all"
+                >
+                  <Icon size={15} className="text-sky-500 dark:text-sky-400" />
+                  {a.label}
+                </Link>
+              );
+            })}
+          </div>
         </section>
 
         {/* ─── Grid 2 colunas: Afazeres + Anotacoes ─── */}
