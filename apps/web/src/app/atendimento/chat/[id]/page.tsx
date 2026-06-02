@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useEffect, useState, useRef, useMemo, useCallback, use } from 'react';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft, Send, Bot, BotOff, Download, Mic, FileText, Paperclip, X, CheckCheck, Check, Eye, XCircle, Trash2, Reply, Pencil, UserCheck, ChevronDown, CornerUpLeft, ClipboardList } from 'lucide-react';
 import { AudioPlayer } from '@/components/AudioPlayer';
@@ -30,7 +30,13 @@ type ChatRenderItem =
   | { kind: 'sep'; label: string; key: string }
   | { kind: 'msg'; msg: any; idx: number };
 
-export default function ChatPage({ params }: { params: { id: string } }) {
+export default function ChatPage({ params }: { params: Promise<{ id: string }> }) {
+  // Onda 17.19 — Next.js 16 muda `params` pra Promise/thenable.
+  // Acessar `params.id` direto retorna undefined (ou warning em dev).
+  // Causa raiz do bug "iframe carrega vazio": api.get(`/conversations/lead/${params.id}`)
+  // virava `/conversations/lead/undefined` -> array vazio -> tela em branco.
+  // Fix: usar React.use() pra unwrap a Promise (forma idiomatica do Next 15/16).
+  const resolvedParams = use(params);
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [text, setText] = useState('');
@@ -422,7 +428,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
 
     const fetchData = async () => {
       try {
-        const convoRes = await api.get(`/conversations/lead/${params.id}`);
+        const convoRes = await api.get(`/conversations/lead/${resolvedParams.id}`);
         if (convoRes.data && convoRes.data.length > 0) {
           const convo = convoRes.data[0];
           setLead(convo.lead);
@@ -472,7 +478,7 @@ export default function ChatPage({ params }: { params: { id: string } }) {
     return () => {
       if (pauseTimerRef.current) clearTimeout(pauseTimerRef.current);
     };
-  }, [params.id, router]);
+  }, [resolvedParams.id, router]);
 
   // ── Socket listeners via shared socket ──────────────────────────────────
   // Depends on sharedSocket (from SocketProvider) and convoId (set by fetchData above).
