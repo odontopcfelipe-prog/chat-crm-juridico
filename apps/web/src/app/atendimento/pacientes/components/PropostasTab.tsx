@@ -3206,6 +3206,15 @@ function PropostaPainel({
   const [pixModalOpen, setPixModalOpen] = useState(false);
   // Vencimento do PIX (opcional). Vazio = 24h default Asaas.
   const [customPixDueDate, setCustomPixDueDate] = useState<string>('');
+  // Onda 17.32.16 — Modo de pagamento no modal PIX:
+  //  - PIX: comportamento original (gera QR Code Asaas)
+  //  - CASH: paciente paga em maos (cria registro CASH + mark-cash-received,
+  //    sem cobranca Asaas)
+  //  - MIXED: divide entre PIX e Especie (gera 2 cobrancas: 1 PIX no Asaas
+  //    + 1 CASH local com baixa imediata)
+  const [pixModalMode, setPixModalMode] = useState<'PIX' | 'CASH' | 'MIXED'>('PIX');
+  // Valor em ESPECIE no modo MIXED. O valor PIX = pixCalc.finalValue - este.
+  const [pixModalSplitCash, setPixModalSplitCash] = useState<number>(0);
   // Onda 17.32.9 — Data de vencimento do sinal de fechamento (editavel no
   // timeline do Step 3). Default = hoje. Quando vazio, backend usa hoje.
   const [customSinalDueDate, setCustomSinalDueDate] = useState<string>(() => {
@@ -3508,6 +3517,83 @@ function PropostaPainel({
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
       showError(e?.response?.data?.message || e?.message || 'Erro ao gerar PIX');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
+
+  // Onda 17.32.16 — Emit pra modo CASH (paciente paga total em especie)
+  // do modal PIX. Cria registro CASH + mark-cash-received. Nao gera boleto
+  // nem QR Asaas. Resultado: cobranca registrada como recebida no Asaas.
+  const handleEmitPixCash = async (totalValue: number) => {
+    if (!detail || totalValue <= 0) return;
+    const ok = window.confirm(
+      `Registrar R$ ${fmtBRL(totalValue)} como recebido em espécie?\n\n` +
+      `Confirme que o paciente entregou o dinheiro em mãos. ` +
+      `Isso cria o registro e já dá baixa automática.`,
+    );
+    if (!ok) return;
+    setQuickActionLoading('cash');
+    try {
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, {
+        signalValue: totalValue,
+        signalMethod: 'CASH',
+        restValue: 0,
+        parts: ['SIGNAL'],
+      });
+      const cashCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+        || (emitData?.charges ?? [])[0];
+      if (!cashCharge?.id) {
+        showError('Falha ao criar registro em espécie.');
+        return;
+      }
+      if (cashCharge.gateway !== 'CASH') {
+        const tipo = cashCharge.billing_type || cashCharge.gateway || 'PIX/BOLETO';
+        showError(`Já existe cobrança via ${tipo}. Cancele antes de usar espécie.`);
+        return;
+      }
+      if (!cashCharge.received_in_cash) {
+        await api.post(`/charges/${cashCharge.id}/mark-cash-received`);
+      }
+      showSuccess(`R$ ${fmtBRL(totalValue)} registrado como recebido em espécie.`);
+      onReload?.();
+      setPixModalOpen(false);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao registrar espécie');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
+
+  // Onda 17.32.16 — Emit pra modo MIXED (parte PIX + parte espécie) do modal PIX.
+  // Cria 2 cobrancas via emit-down-payment: SIGNAL=CASH + REST=PIX.
+  // Depois marca a CASH como recebida. PIX fica aguardando pagamento (QR aberto).
+  const handleEmitPixMixed = async (cashAmount: number, pixAmount: number) => {
+    if (!detail || cashAmount <= 0 || pixAmount <= 0) {
+      showError('Defina valores > 0 pra PIX e Espécie.');
+      return;
+    }
+    setQuickActionLoading('pix');
+    try {
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, {
+        signalValue: cashAmount,
+        signalMethod: 'CASH',
+        restValue: pixAmount,
+        restMethod: 'PIX',
+        parts: ['SIGNAL', 'REST'],
+      });
+      const charges = emitData?.charges ?? [];
+      const cashCharge = charges.find((c: any) => c.kind === 'SINAL' || c.gateway === 'CASH');
+      if (cashCharge?.id && cashCharge.gateway === 'CASH' && !cashCharge.received_in_cash) {
+        await api.post(`/charges/${cashCharge.id}/mark-cash-received`);
+      }
+      showSuccess(`Cobranças geradas: R$ ${fmtBRL(cashAmount)} em espécie + R$ ${fmtBRL(pixAmount)} via PIX.`);
+      onReload?.();
+      setPixModalOpen(false);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao emitir cobranças');
     } finally {
       setQuickActionLoading(null);
     }
@@ -3967,7 +4053,23 @@ function PropostaPainel({
                 pixCalc={pixCalc}
                 customPixDueDate={customPixDueDate}
                 onChangeCustomPixDueDate={setCustomPixDueDate}
+                mode={pixModalMode}
+                onChangeMode={setPixModalMode}
+                splitCash={pixModalSplitCash}
+                onChangeSplitCash={setPixModalSplitCash}
+                quickActionsLoading={quickActionLoading}
                 onEmitir={() => {
+                  if (pixModalMode === 'CASH') {
+                    void handleEmitPixCash(pixCalc.finalValue);
+                    return;
+                  }
+                  if (pixModalMode === 'MIXED') {
+                    const cashAmount = pixModalSplitCash;
+                    const pixAmount = pixCalc.finalValue - cashAmount;
+                    void handleEmitPixMixed(cashAmount, pixAmount);
+                    return;
+                  }
+                  // PIX puro: comportamento original
                   setPixModalOpen(false);
                   onApproveAndBill({
                     customDownPayment: 0,
@@ -5224,6 +5326,11 @@ function PixCobrancaUnificadaModal({
   pixCalc,
   customPixDueDate,
   onChangeCustomPixDueDate,
+  mode,
+  onChangeMode,
+  splitCash,
+  onChangeSplitCash,
+  quickActionsLoading,
   onEmitir,
   onClose,
   onSend,
@@ -5234,10 +5341,26 @@ function PixCobrancaUnificadaModal({
   pixCalc: { finalValue: number; savedValue: number; extraInterest: number; downPaymentValue: number; installmentValue: number };
   customPixDueDate: string;
   onChangeCustomPixDueDate: (v: string) => void;
+  mode: 'PIX' | 'CASH' | 'MIXED';
+  onChangeMode: (v: 'PIX' | 'CASH' | 'MIXED') => void;
+  splitCash: number;
+  onChangeSplitCash: (v: number) => void;
+  quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
   onEmitir: () => void;
   onClose: () => void;
   onSend?: () => void;
 }) {
+  // Onda 17.32.16 — Validacao do modo MIXED: valor em especie nao pode
+  // passar do total. Valor PIX = total - cash.
+  const splitCashClamped = Math.max(0, Math.min(splitCash, pixCalc.finalValue));
+  const splitPix = pixCalc.finalValue - splitCashClamped;
+  const splitCashText = splitCashClamped > 0 ? `R$ ${fmtBRL(splitCashClamped)}` : '';
+  const handleSplitCashChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const num = digits === '' ? 0 : Number(digits) / 100;
+    onChangeSplitCash(Math.min(num, pixCalc.finalValue));
+  };
+  const canEmitMixed = mode !== 'MIXED' || (splitCashClamped > 0 && splitPix > 0);
   const todayLabel = (() => {
     const d = new Date();
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
@@ -5345,42 +5468,122 @@ function PixCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Step 1: Vencimento do PIX (opcional) */}
+              {/* Step 1: Como o paciente vai pagar */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
                     1
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Vencimento do PIX</p>
+                    <p className="text-sm font-bold text-foreground">Como o paciente vai pagar?</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Opcional · Asaas mantém o QR Code válido até esta data
+                      PIX (QR Code) · Espécie (em mãos) · Misto (parte PIX + parte espécie)
                     </p>
                   </div>
-                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded">
-                    Opcional
-                  </span>
                 </div>
-                <div className="flex items-center gap-3 flex-wrap">
-                  <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
-                    <Clock size={12} className="text-emerald-600" />
-                    Expira em:
-                  </label>
-                  <input
-                    type="date"
-                    value={customPixDueDate}
-                    onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
-                    className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                  />
-                  {!customPixDueDate && (
-                    <span className="text-[10px] text-muted-foreground italic">
-                      vazio = 24h após emissão (padrão Asaas)
-                    </span>
-                  )}
+
+                {/* 3 botoes: PIX / Especie / Misto */}
+                <div className="grid grid-cols-3 gap-2 mb-3">
+                  {([
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code Asaas' },
+                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR' },
+                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie' },
+                  ]).map((m) => {
+                    const isActive = mode === m.key;
+                    return (
+                      <button
+                        key={m.key}
+                        type="button"
+                        onClick={() => onChangeMode(m.key)}
+                        className={`flex flex-col items-center justify-center gap-1 px-3 py-3 rounded-md border-2 text-center transition-colors ${
+                          isActive
+                            ? 'border-emerald-500 bg-emerald-500/10'
+                            : 'border-border bg-card hover:bg-accent/40'
+                        }`}
+                      >
+                        <span className="text-lg">{m.emoji}</span>
+                        <span className={`text-sm font-bold ${isActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>
+                          {m.label}
+                        </span>
+                        <span className="text-[10px] text-muted-foreground">{m.desc}</span>
+                      </button>
+                    );
+                  })}
                 </div>
+
+                {/* Conteudo conforme modo selecionado */}
+                {mode === 'PIX' && (
+                  <div className="flex items-center gap-3 flex-wrap pt-3 border-t border-border">
+                    <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
+                      <Clock size={12} className="text-emerald-600" />
+                      Vencimento do PIX:
+                    </label>
+                    <input
+                      type="date"
+                      value={customPixDueDate}
+                      onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
+                      className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                    />
+                    {!customPixDueDate && (
+                      <span className="text-[10px] text-muted-foreground italic">
+                        vazio = 24h após emissão (padrão Asaas)
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {mode === 'CASH' && (
+                  <div className="pt-3 border-t border-border bg-emerald-500/5 -mx-4 px-4 py-3 -mb-4 rounded-b-xl">
+                    <p className="text-xs text-foreground flex items-start gap-1.5">
+                      <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
+                      <span>
+                        Ao confirmar, o sistema cria o registro <strong>R$ {fmtBRL(pixCalc.finalValue)}</strong> como recebido em espécie hoje. Sem QR Code, sem boleto, sem Asaas.
+                      </span>
+                    </p>
+                  </div>
+                )}
+
+                {mode === 'MIXED' && (
+                  <div className="pt-3 border-t border-border space-y-2.5">
+                    <p className="text-[11px] text-muted-foreground">
+                      Divida a forma de pagamento. Soma deve ser <strong className="text-foreground tabular-nums">R$ {fmtBRL(pixCalc.finalValue)}</strong>.
+                    </p>
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[11px] font-semibold text-foreground flex items-center gap-1.5 mb-1">
+                          <span>💵</span>
+                          Em espécie (R$):
+                        </label>
+                        <input
+                          type="text"
+                          value={splitCashText}
+                          onChange={(e) => handleSplitCashChange(e.target.value)}
+                          placeholder="R$ 0,00"
+                          inputMode="numeric"
+                          className="w-full text-sm font-bold tabular-nums px-3 py-2 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                        />
+                      </div>
+                      <div>
+                        <label className="text-[11px] font-semibold text-foreground flex items-center gap-1.5 mb-1">
+                          <span>📱</span>
+                          Em PIX (R$):
+                        </label>
+                        <p className="w-full text-sm font-bold tabular-nums px-3 py-2 rounded-md border border-dashed border-border bg-muted/30 text-right text-foreground">
+                          R$ {fmtBRL(splitPix)}
+                        </p>
+                      </div>
+                    </div>
+                    {(splitCashClamped <= 0 || splitPix <= 0) && (
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 flex items-center gap-1">
+                        <AlertTriangle size={10} />
+                        Defina valor em espécie maior que 0 e menor que o total
+                      </p>
+                    )}
+                  </div>
+                )}
               </div>
 
-              {/* Step 2: Plano de cobranca (timeline) — so 1 linha */}
+              {/* Step 2: Plano de cobranca (timeline adaptado ao modo) */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
@@ -5389,32 +5592,58 @@ function PixCobrancaUnificadaModal({
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Quando o PIX é cobrado
+                      {mode === 'PIX' ? 'Quando o PIX é cobrado' :
+                       mode === 'CASH' ? 'Recebimento em espécie' :
+                       '2 cobranças: PIX + espécie'}
                     </p>
                   </div>
                 </div>
-                <div className="relative pl-7">
-                  <div className="absolute left-[10px] top-2 w-px h-4 bg-emerald-500/30" />
-                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                <div className="relative pl-7 space-y-3">
+                  <div className="absolute left-[10px] top-2 bottom-2 w-px bg-emerald-500/30" />
+
+                  {/* Linha 1: PIX (se PIX puro ou MIXED) */}
+                  {(mode === 'PIX' || mode === 'MIXED') && (
+                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">PIX à vista</p>
+                        <p className="text-[11px] text-muted-foreground">QR Code gerado hoje</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
+                          <Clock size={9} />
+                          {todayLabel}
+                        </span>
+                        <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                          R$ {fmtBRL(mode === 'MIXED' ? splitPix : pixCalc.finalValue)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground">PIX à vista</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        QR Code gerado hoje · paciente paga em segundos
-                      </p>
+                  )}
+
+                  {/* Linha 2: Espécie (se CASH puro ou MIXED) */}
+                  {(mode === 'CASH' || mode === 'MIXED') && (
+                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">Recebido em espécie</p>
+                        <p className="text-[11px] text-muted-foreground">Em mãos · baixa automática ao emitir</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
+                          <Clock size={9} />
+                          {todayLabel}
+                        </span>
+                        <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                          R$ {fmtBRL(mode === 'MIXED' ? splitCashClamped : pixCalc.finalValue)}
+                        </p>
+                      </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
-                        <Clock size={9} />
-                        {todayLabel}
-                      </span>
-                      <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                        R$ {fmtBRL(pixCalc.finalValue)}
-                      </p>
-                    </div>
-                  </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -5439,16 +5668,22 @@ function PixCobrancaUnificadaModal({
                 </div>
                 <div className="flex items-center justify-between gap-2 pt-2">
                   <span className="text-muted-foreground text-xs">Forma</span>
-                  <span className="font-semibold text-foreground text-xs">PIX à vista</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground text-xs">Vencimento</span>
                   <span className="font-semibold text-foreground text-xs">
-                    {customPixDueDate
-                      ? new Date(customPixDueDate).toLocaleDateString('pt-BR')
-                      : '24h após emissão'}
+                    {mode === 'PIX' ? 'PIX à vista' :
+                     mode === 'CASH' ? 'Espécie (em mãos)' :
+                     `Misto · PIX R$ ${fmtBRL(splitPix)} + Espécie R$ ${fmtBRL(splitCashClamped)}`}
                   </span>
                 </div>
+                {mode === 'PIX' && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-xs">Vencimento</span>
+                    <span className="font-semibold text-foreground text-xs">
+                      {customPixDueDate
+                        ? new Date(customPixDueDate).toLocaleDateString('pt-BR')
+                        : '24h após emissão'}
+                    </span>
+                  </div>
+                )}
               </div>
 
               <div className="mt-4 pt-4 border-t border-border">
@@ -5465,9 +5700,10 @@ function PixCobrancaUnificadaModal({
               <button
                 type="button"
                 onClick={onEmitir}
-                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                disabled={!canEmitMixed || !!quickActionsLoading}
+                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
               >
-                <Check size={16} strokeWidth={3} />
+                {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
                 Emitir cobrança
               </button>
 
@@ -5489,11 +5725,13 @@ function PixCobrancaUnificadaModal({
                   Ambiente seguro
                 </p>
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  PIX emitido via Asaas. QR Code valido por 24h ou ate a data
-                  configurada. Idempotente — nao re-emite se ja existir.
+                  {mode === 'PIX' && 'PIX emitido via Asaas. QR Code válido por 24h ou até a data configurada.'}
+                  {mode === 'CASH' && 'Recebimento em espécie registrado localmente. Sem cobrança Asaas, com baixa automática.'}
+                  {mode === 'MIXED' && 'Gera 2 cobranças: PIX (Asaas) + Espécie (baixa automática).'}
+                  {' '}Idempotente — não re-emite se já existir.
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {['Asaas', 'PIX'].map((b) => (
+                  {(mode === 'CASH' ? ['Espécie'] : mode === 'MIXED' ? ['Asaas', 'PIX', 'Espécie'] : ['Asaas', 'PIX']).map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
