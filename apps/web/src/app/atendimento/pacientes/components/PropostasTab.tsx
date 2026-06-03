@@ -3175,6 +3175,12 @@ function PropostaPainel({
   const [pixModalOpen, setPixModalOpen] = useState(false);
   // Vencimento do PIX (opcional). Vazio = 24h default Asaas.
   const [customPixDueDate, setCustomPixDueDate] = useState<string>('');
+  // Onda 17.32.9 — Data de vencimento do sinal de fechamento (editavel no
+  // timeline do Step 3). Default = hoje. Quando vazio, backend usa hoje.
+  const [customSinalDueDate, setCustomSinalDueDate] = useState<string>(() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  });
   // Onda 17.31 — Atalhos rapidos: receber em especie / gerar PIX QR / gerar Boleto.
   // quickActionLoading bloqueia os botoes durante a chamada.
   // quickPixDialog mostra o modal do QR code apos a criacao da cobranca PIX.
@@ -3876,6 +3882,8 @@ function PropostaPainel({
                 onChangeCustomEntradaDueDate={setCustomEntradaDueDate}
                 customInstallmentsStartDate={customInstallmentsStartDate}
                 onChangeCustomInstallmentsStartDate={setCustomInstallmentsStartDate}
+                customSinalDueDate={customSinalDueDate}
+                onChangeCustomSinalDueDate={setCustomSinalDueDate}
                 requiresCreditCheck={requiresCC}
                 onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
                 onMarkCashReceived={handleQuickCashEntry}
@@ -4520,6 +4528,8 @@ function BoletoCobrancaUnificadaModal({
   onChangeCustomEntradaDueDate,
   customInstallmentsStartDate,
   onChangeCustomInstallmentsStartDate,
+  customSinalDueDate,
+  onChangeCustomSinalDueDate,
   requiresCreditCheck,
   onToggleRequiresCreditCheck,
   onMarkCashReceived,
@@ -4545,6 +4555,8 @@ function BoletoCobrancaUnificadaModal({
   onChangeCustomEntradaDueDate: (v: string) => void;
   customInstallmentsStartDate: string;
   onChangeCustomInstallmentsStartDate: (v: string) => void;
+  customSinalDueDate: string;
+  onChangeCustomSinalDueDate: (v: string) => void;
   requiresCreditCheck: boolean;
   onToggleRequiresCreditCheck?: (value: boolean) => void;
   onMarkCashReceived?: () => Promise<void>;
@@ -4908,10 +4920,13 @@ function BoletoCobrancaUnificadaModal({
                       </div>
                     </div>
                     <div className="text-right shrink-0">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
-                        <Clock size={9} />
-                        {todayLabel}
-                      </span>
+                      {/* Onda 17.32.9 — data do sinal editavel */}
+                      <input
+                        type="date"
+                        value={customSinalDueDate}
+                        onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
+                        className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                      />
                       {/* Onda 17.32.8 — valor editavel direto no timeline */}
                       <input
                         type="text"
