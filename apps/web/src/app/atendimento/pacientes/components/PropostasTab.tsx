@@ -4800,7 +4800,7 @@ function BoletoCobrancaUnificadaModal({
                         key={opt.key}
                         type="button"
                         onClick={() => onSelectParcelas(opt)}
-                        className={`w-full grid grid-cols-[60px_1fr_auto_28px] gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
+                        className={`w-full grid grid-cols-[60px_1fr_28px] gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
                           isActive ? 'bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-accent/40'
                         }`}
                       >
@@ -4817,14 +4817,6 @@ function BoletoCobrancaUnificadaModal({
                               juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}
                             </span>
                           )}
-                        </span>
-                        <span className="text-right">
-                          <span className="text-[10px] uppercase text-muted-foreground tracking-wide block leading-tight">
-                            Total boletos
-                          </span>
-                          <span className="text-xs font-semibold tabular-nums text-foreground">
-                            R$ {fmtBRL(c.finalValue - c.downPaymentValue)}
-                          </span>
                         </span>
                         <span className="flex items-center justify-center">
                           <span className={`w-4 h-4 rounded-full border-2 transition-colors ${
