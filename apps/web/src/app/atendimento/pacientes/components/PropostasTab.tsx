@@ -3790,22 +3790,21 @@ function PropostaPainel({
           </button>
         )}
 
-        {/* Onda 17.32.21 — Subtotal da proposta com visual mais elegante:
-            border verde clarinho, bg-emerald-500/5, label uppercase em
-            verde forte, info secundaria em verde clarinho, valor grande
-            em verde escuro. */}
-        <div className="mt-4 px-4 py-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between gap-3 flex-wrap">
+        {/* Onda 17.32.21 — Subtotal da proposta MUITO evidenciado:
+            border verde grossa, bg verde mais saturado, label e valor
+            grandes, shadow sutil pra dar peso visual. */}
+        <div className="mt-5 px-6 py-5 rounded-xl border-2 border-emerald-500/40 bg-emerald-500/10 shadow-sm flex items-center justify-between gap-4 flex-wrap">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-bold">
+            <p className="text-sm uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-extrabold">
               Subtotal da proposta
             </p>
-            <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 font-medium mt-0.5">
+            <p className="text-sm text-emerald-700/80 dark:text-emerald-400/80 font-medium mt-1">
               {hasPartialApproval && pendingValue > 0
                 ? <>itens aprovados · R$ {fmtBRL(pendingValue)} em aberto não incluídos</>
                 : <>{detail.items.length} {detail.items.length === 1 ? 'procedimento incluído' : 'procedimentos incluídos'}</>}
             </p>
           </div>
-          <p className="text-2xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+          <p className="text-4xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400 leading-none">
             R$ {fmtBRL(total)}
           </p>
         </div>
