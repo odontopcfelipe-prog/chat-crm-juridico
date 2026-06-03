@@ -6030,16 +6030,21 @@ function CartaoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Step 3: Plano de cobranca (timeline com sinal + entrada se houver + cartao) */}
+              {/* Step 3: Plano de cobranca (timeline com sinal + entrada).
+                  Onda 17.32.25 — Aparece SO se ha entrada. Sem entrada, o
+                  cartao paga integral e nao tem o que mostrar aqui. Cartao
+                  nao aparece no timeline porque ele e gerado depois quando
+                  o paciente abre o link Asaas (nao tem "data marcada"). */}
+              {hasEntry && (
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
                     3
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
+                    <p className="text-sm font-bold text-foreground">Plano de cobrança da entrada</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Como o pagamento é processado
+                      Cobranças que vão direto pro Asaas · cartão é processado separado pelo link
                     </p>
                   </div>
                 </div>
@@ -6150,31 +6155,12 @@ function CartaoCobrancaUnificadaModal({
                     </div>
                   )}
 
-                  {/* Cartao */}
-                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-sky-500 bg-background flex items-center justify-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground">
-                        Cartão de crédito · {activeOpt?.installments || 1}x
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Link Asaas gerado · paciente preenche cartão na página segura · você acompanha pelo painel
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
-                        <Clock size={9} />
-                        {todayLabel}
-                      </span>
-                      <p className="text-base font-bold tabular-nums text-sky-700 dark:text-sky-400">
-                        R$ {fmtBRL((activeCalc?.finalValue ?? total) - customDownPayment)}
-                      </p>
-                    </div>
-                  </div>
+                  {/* Onda 17.32.25 — Linha do Cartao removida. Operador ja
+                      configurou parcelas no Step 2 acima; cartao e processado
+                      separado quando paciente abre o link Asaas. */}
                 </div>
               </div>
+              )}
 
               {/* Bandeiras aceitas */}
               <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap pl-1">
