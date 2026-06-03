@@ -3877,12 +3877,14 @@ function PropostaPainel({
                 onGenerateBoleto={handleQuickBoletoEntry}
                 quickActionsLoading={quickActionLoading}
                 onSelectParcelas={(opt) => {
-                  setBoletoModalOpen(false);
-                  // Mesma logica do CardBoletoParcelado: a vista / VIP aplica
-                  // direto; parcelado >= 2x abre a consulta de credito.
+                  // Onda 17.32.6 — Click na parcela apenas SELECIONA agora.
+                  // Modal so fecha quando precisa abrir o credit-check (que
+                  // ocupa a tela). Senao o operador continua no modal pra
+                  // ajustar mais coisas e clicar "Emitir cobranca" no fim.
                   if (opt.key === 'boleto-avista' || !requiresCC) {
                     onChangePayment(opt.key);
                   } else {
+                    setBoletoModalOpen(false);
                     onOpenCreditCheckForParcelas({
                       installments: opt.installments,
                       customDownPayment,
@@ -4751,50 +4753,10 @@ function BoletoCobrancaUnificadaModal({
                   </div>
                 )}
 
-                {/* Onda 17.32.4 — Acao contextual baseada no metodo escolhido.
-                    Em vez de 2 botoes soltos ("Ja recebi" + "Gerar PIX"),
-                    mostra UM botao grande que reflete a forma selecionada:
-                    - PIX     → 📱 Gerar PIX QR Code
-                    - BOLETO  → 🧾 Gerar Boleto
-                    - CASH    → 💵 Já recebi em espécie  */}
-                {customDownPayment > 0 && (() => {
-                  const cfg = {
-                    PIX: {
-                      label: 'Gerar PIX QR Code',
-                      emoji: '📱',
-                      key: 'pix' as const,
-                      handler: onGeneratePixQr,
-                      colorCls: 'bg-sky-500 hover:bg-sky-600 text-white border-sky-500',
-                    },
-                    BOLETO: {
-                      label: 'Gerar Boleto da entrada',
-                      emoji: '🧾',
-                      key: 'boleto' as const,
-                      handler: onGenerateBoleto,
-                      colorCls: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600',
-                    },
-                    CASH: {
-                      label: 'Já recebi em espécie',
-                      emoji: '💵',
-                      key: 'cash' as const,
-                      handler: onMarkCashReceived,
-                      colorCls: 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600',
-                    },
-                  }[customSignalMethod];
-                  if (!cfg?.handler) return null;
-                  const isLoading = quickActionsLoading === cfg.key;
-                  return (
-                    <button
-                      type="button"
-                      onClick={() => { void cfg.handler!(); }}
-                      disabled={!!quickActionsLoading}
-                      className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-bold border-2 disabled:opacity-50 transition-colors ${cfg.colorCls}`}
-                    >
-                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : <span>{cfg.emoji}</span>}
-                      {cfg.label}
-                    </button>
-                  );
-                })()}
+                {/* Onda 17.32.6 — Botao "Gerar X" removido. Agora as escolhas
+                    (entrada, metodo, vencimento, parcelas) ficam acumuladas
+                    e tudo e emitido de uma vez quando o operador clica
+                    "Emitir cobranca" na sidebar. */}
               </div>
 
               {/* ── Step 2: Como pagar o restante ─────────────────── */}
@@ -5038,31 +5000,17 @@ function BoletoCobrancaUnificadaModal({
                 Emitir cobrança
               </button>
 
-              <div className="mt-2 grid grid-cols-2 gap-2">
-                {onGeneratePixQr && (
-                  <button
-                    type="button"
-                    onClick={() => { void onGeneratePixQr(); }}
-                    disabled={!!quickActionsLoading || customDownPayment <= 0}
-                    className="px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
-                    title={customDownPayment <= 0 ? 'Defina a entrada primeiro' : 'Gerar PIX QR Code da entrada'}
-                  >
-                    <DollarSign size={12} />
-                    PIX
-                  </button>
-                )}
-                {onSend && (
-                  <button
-                    type="button"
-                    onClick={onSend}
-                    className="px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
-                    title="Enviar link da proposta no WhatsApp"
-                  >
-                    <MessageSquare size={12} />
-                    WhatsApp
-                  </button>
-                )}
-              </div>
+              {onSend && (
+                <button
+                  type="button"
+                  onClick={onSend}
+                  className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  title="Enviar link da proposta no WhatsApp pra ele revisar antes"
+                >
+                  <MessageSquare size={12} />
+                  Enviar link no WhatsApp
+                </button>
+              )}
 
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
