@@ -3596,6 +3596,26 @@ function PropostaPainel({
               : `+ ${remainingItems.length} outros itens · clique pra expandir`}
           </button>
         )}
+
+        {/* Onda 17.32.2 — Total evidenciado da proposta. Soma somente o
+            que esta nesta versao (aprovados, se houver aprovacao parcial;
+            todos os itens, caso contrario). Em caso de aprovacao parcial,
+            mostra tambem o que ficou em aberto pra contexto. */}
+        <div className="mt-3 pt-3 border-t-2 border-emerald-500/30 bg-emerald-500/5 -mx-1 px-3 py-2 rounded-md flex items-baseline justify-between gap-3 flex-wrap">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold">
+              {hasPartialApproval ? 'Subtotal aprovado' : 'Total da proposta'}
+            </p>
+            {hasPartialApproval && pendingValue > 0 && (
+              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">
+                + R$ {fmtBRL(pendingValue)} em aberto ({pendingItems.length} {pendingItems.length === 1 ? 'item' : 'itens'})
+              </p>
+            )}
+          </div>
+          <p className="text-xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+            R$ {fmtBRL(total)}
+          </p>
+        </div>
       </div>
 
       {/* Onda 15 (etapa 7) — Entrada opcional + datas foram movidas pra DENTRO
