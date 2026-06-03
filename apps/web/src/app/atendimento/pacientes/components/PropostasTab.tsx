@@ -4967,57 +4967,98 @@ function BoletoCobrancaUnificadaModal({
                 Confira antes de emitir
               </p>
 
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground text-xs">Valor do tratamento</span>
-                  <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(total)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-muted-foreground text-xs">Entrada</span>
-                  <span className="font-semibold tabular-nums text-foreground">
-                    {entradaSummary > 0 ? `R$ ${fmtBRL(entradaSummary)}` : '— R$ 0,00'}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-2 pb-3 border-b border-border">
-                  <span className="text-muted-foreground text-xs">Restante</span>
-                  <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(restanteSummary)}</span>
-                </div>
-                <div className="flex items-center justify-between gap-2 pt-2">
-                  <span className="text-muted-foreground text-xs">Forma escolhida</span>
-                  <span className="font-semibold text-foreground text-xs">{formaLabel}</span>
-                </div>
-                {activeCalc && activeCalc.savedValue > 0 && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground text-xs">Desconto à vista</span>
-                    <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                      − R$ {fmtBRL(activeCalc.savedValue)}
-                    </span>
+              {/* Onda 17.32.12 — Plano de cobranca detalhado.
+                  Sem total/restante/forma — mostra as cobrancas que VAO SER
+                  GERADAS quando o operador clicar "Emitir cobranca". Cada
+                  linha = uma charge no Asaas. */}
+              {(() => {
+                const fmtDate = (iso: string) => {
+                  if (!iso) return 'hoje';
+                  try {
+                    const d = new Date(iso + 'T00:00:00');
+                    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                  } catch { return iso; }
+                };
+                const methodLabel = (m: typeof customSignalMethod) =>
+                  m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                const methodColor = (m: typeof customSignalMethod) =>
+                  m === 'PIX' ? 'text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30' :
+                  m === 'BOLETO' ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                  'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+                const lines: Array<{
+                  label: string;
+                  method: string;
+                  methodCls: string;
+                  date: string;
+                  value: number;
+                }> = [];
+                if (sinalValor > 0) {
+                  lines.push({
+                    label: 'Sinal de fechamento',
+                    method: methodLabel(customSignalMethod),
+                    methodCls: methodColor(customSignalMethod),
+                    date: fmtDate(customSinalDueDate),
+                    value: sinalValor,
+                  });
+                }
+                if (entradaBoletoValor > 0) {
+                  lines.push({
+                    label: 'Entrada (boleto)',
+                    method: 'Boleto',
+                    methodCls: methodColor('BOLETO'),
+                    date: customEntradaDueDate ? fmtDate(customEntradaDueDate) : 'hoje',
+                    value: entradaBoletoValor,
+                  });
+                }
+                if (parcelasValor > 0 && activeOption) {
+                  const installments = activeOption.installments || 1;
+                  const installmentValue = activeCalc?.installmentValue || parcelasValor;
+                  lines.push({
+                    label: isAVista
+                      ? 'Boleto à vista'
+                      : `${installments}x boletos · R$ ${fmtBRL(installmentValue)}/mês`,
+                    method: 'Boleto',
+                    methodCls: methodColor('BOLETO'),
+                    date: customInstallmentsStartDate ? fmtDate(customInstallmentsStartDate) : 'hoje',
+                    value: parcelasValor,
+                  });
+                }
+                if (lines.length === 0) {
+                  return (
+                    <p className="text-xs text-muted-foreground italic">
+                      Configure a entrada e escolha uma forma de pagamento pra ver o plano de cobrança.
+                    </p>
+                  );
+                }
+                return (
+                  <div className="space-y-3">
+                    <p className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
+                      Plano de cobrança
+                    </p>
+                    {lines.map((line, idx) => (
+                      <div key={idx} className="border border-border rounded-lg p-3 bg-card hover:bg-accent/20 transition-colors">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <p className="text-xs font-semibold text-foreground leading-tight">
+                            {line.label}
+                          </p>
+                          <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${line.methodCls} shrink-0`}>
+                            {line.method}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+                            <Clock size={9} />
+                            {line.date}
+                          </span>
+                          <span className="text-sm font-bold tabular-nums text-foreground">
+                            R$ {fmtBRL(line.value)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                )}
-                {activeCalc && activeCalc.extraInterest > 0 && (
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-muted-foreground text-xs">Juros</span>
-                    <span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">
-                      + R$ {fmtBRL(activeCalc.extraInterest)}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-4 pt-4 border-t border-border">
-                <p className="text-xs text-muted-foreground mb-1">Total final</p>
-                <p className="text-[10px] text-muted-foreground">
-                  {isAVista ? 'pagamento imediato, sem juros' : `${activeOption?.installments || 1}x parcelas`}
-                </p>
-                <p className="text-2xl font-extrabold tabular-nums text-foreground mt-1">
-                  R$ {fmtBRL(activeCalc?.finalValue ?? total)}
-                </p>
-                {activeCalc && activeCalc.savedValue > 0 && (
-                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
-                    economia de R$ {fmtBRL(activeCalc.savedValue)}
-                  </p>
-                )}
-              </div>
+                );
+              })()}
 
               <button
                 type="button"
