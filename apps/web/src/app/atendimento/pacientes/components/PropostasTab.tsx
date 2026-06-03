@@ -3940,39 +3940,12 @@ function PropostaPainel({
               )}
             </div>
 
-            {/* Onda 17.32 — Pro Boleto, a entrada + plano de cobranca agora
-                vivem DENTRO do BoletoCobrancaUnificadaModal (consolidado).
-                Pro Cartao, mantemos o painel inline ate reformar o modal
-                de Cartao com o mesmo design unificado. */}
-            {sel === 'cartao' && (
-              <div className="mt-3 space-y-3">
-                <DownPaymentInput
-                  total={total}
-                  value={customDownPayment}
-                  onChange={setCustomDownPayment}
-                  onMarkCashReceived={handleQuickCashEntry}
-                  onGeneratePixQr={handleQuickPixQrEntry}
-                  quickActionsLoading={quickActionLoading}
-                />
-                {customDownPayment > 0 && (
-                  <SignalDatesInput
-                    totalEntrada={customDownPayment}
-                    signalValue={customSignalValue}
-                    signalMethod={customSignalMethod}
-                    entradaDueDate={customEntradaDueDate}
-                    installmentsStartDate={customInstallmentsStartDate}
-                    onChangeSignalValue={setCustomSignalValue}
-                    onChangeSignalMethod={setCustomSignalMethod}
-                    onChangeEntradaDueDate={setCustomEntradaDueDate}
-                    onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
-                    quoteId={detail.id}
-                    canEmit={true}
-                  />
-                )}
-              </div>
-            )}
+            {/* Onda 17.32.19 — Painel inline DownPaymentInput + SignalDatesInput
+                removido por completo. Entrada/sinal/datas agora vivem DENTRO
+                dos modais "Cobranca do tratamento" de cada forma (Boleto, PIX,
+                Cartao), sem duplicacao na tela principal. */}
             <p className="text-[11px] text-muted-foreground mt-2">
-              ⓘ Cartão e boleto: clique no card pra escolher as parcelas · a opção escolhida fica exposta na face do card.
+              ⓘ Clique em qualquer card pra abrir a tela de cobrança (configure entrada, sinal, datas e emita).
             </p>
 
             {/* Abas de parcelamento (modais) abertas pelos cards de Cartao/Boleto */}
