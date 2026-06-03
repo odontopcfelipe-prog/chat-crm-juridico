@@ -3939,15 +3939,27 @@ function PropostaPainel({
                 options={options.cartao}
                 total={total}
                 activePaymentKey={activePaymentKey}
+                customDownPayment={customDownPayment}
+                onChangeCustomDownPayment={setCustomDownPayment}
+                customSignalValue={customSignalValue}
+                onChangeCustomSignalValue={setCustomSignalValue}
+                customSignalMethod={customSignalMethod}
+                onChangeCustomSignalMethod={setCustomSignalMethod}
+                customSinalDueDate={customSinalDueDate}
+                onChangeCustomSinalDueDate={setCustomSinalDueDate}
+                customEntradaDueDate={customEntradaDueDate}
+                onChangeCustomEntradaDueDate={setCustomEntradaDueDate}
+                customRestMethod={customRestMethod}
+                onChangeCustomRestMethod={setCustomRestMethod}
                 onSelectParcelas={(key) => { onChangePayment(key); }}
                 onEmitir={() => {
                   setCartaoModalOpen(false);
                   onApproveAndBill({
-                    customDownPayment: 0,
-                    customSignalValue: 0,
-                    customSignalMethod: 'PIX',
-                    customEntradaDueDate: '',
-                    customInstallmentsStartDate: '',
+                    customDownPayment,
+                    customSignalValue,
+                    customSignalMethod,
+                    customEntradaDueDate,
+                    customInstallmentsStartDate,
                   });
                 }}
                 onClose={() => setCartaoModalOpen(false)}
@@ -5730,6 +5742,18 @@ function CartaoCobrancaUnificadaModal({
   options,
   total,
   activePaymentKey,
+  customDownPayment,
+  onChangeCustomDownPayment,
+  customSignalValue,
+  onChangeCustomSignalValue,
+  customSignalMethod,
+  onChangeCustomSignalMethod,
+  customSinalDueDate,
+  onChangeCustomSinalDueDate,
+  customEntradaDueDate,
+  onChangeCustomEntradaDueDate,
+  customRestMethod,
+  onChangeCustomRestMethod,
   onSelectParcelas,
   onEmitir,
   onClose,
@@ -5739,14 +5763,45 @@ function CartaoCobrancaUnificadaModal({
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
+  customDownPayment: number;
+  onChangeCustomDownPayment: (v: number) => void;
+  customSignalValue: number;
+  onChangeCustomSignalValue: (v: number) => void;
+  customSignalMethod: 'PIX' | 'BOLETO' | 'CASH';
+  onChangeCustomSignalMethod: (v: 'PIX' | 'BOLETO' | 'CASH') => void;
+  customSinalDueDate: string;
+  onChangeCustomSinalDueDate: (v: string) => void;
+  customEntradaDueDate: string;
+  onChangeCustomEntradaDueDate: (v: string) => void;
+  customRestMethod: 'PIX' | 'BOLETO' | 'CASH';
+  onChangeCustomRestMethod: (v: 'PIX' | 'BOLETO' | 'CASH') => void;
   onSelectParcelas: (key: string) => void;
   onEmitir: () => void;
   onClose: () => void;
   onSend?: () => void;
 }) {
-  // Opcao ativa do cartao (ou primeira como default)
+  // Onda 17.32.24 — Opcao ativa do cartao + calculo das parcelas considerando
+  // entrada (total - customDownPayment vai pro cartao). Se nao tem entrada,
+  // funciona igual antes (cartao paga integral).
   const activeOpt = options.find((o) => o.key === activePaymentKey) || options[0];
-  const activeCalc = activeOpt ? applyPaymentOption(total, activeOpt, 0) : null;
+  const activeCalc = activeOpt ? applyPaymentOption(total, activeOpt, customDownPayment) : null;
+  // Splits da entrada (sinal hoje + restante boleto/pix/cash em data X)
+  const sinalValor = Math.min(customSignalValue, customDownPayment);
+  const entradaRestoValor = Math.max(0, customDownPayment - sinalValor);
+  const hasEntry = customDownPayment > 0;
+  const pctOfTotal = hasEntry ? Math.round((customDownPayment / total) * 100) : 0;
+  const entradaText = hasEntry ? `R$ ${fmtBRL(customDownPayment)}` : '';
+  const handleEntradaChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const num = digits === '' ? 0 : Number(digits) / 100;
+    onChangeCustomDownPayment(num);
+  };
+  const pctBtns: Array<{ label: string; value: number | 'clear' }> = [
+    { label: 'Sem entrada', value: 'clear' },
+    { label: '20%', value: 20 },
+    { label: '30%', value: 30 },
+    { label: '50%', value: 50 },
+  ];
   const todayLabel = (() => {
     const d = new Date();
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
@@ -5817,7 +5872,7 @@ function CartaoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Card destacado azul Cartao */}
+              {/* Card destacado azul Cartao — agora reflete (total - entrada) */}
               {activeOpt && activeCalc && (
                 <div className="rounded-xl border-2 border-sky-500 bg-sky-500/10 p-5">
                   <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
@@ -5841,6 +5896,7 @@ function CartaoCobrancaUnificadaModal({
                           )}
                         </div>
                         <p className="text-xs text-muted-foreground mt-1">
+                          {hasEntry && <>entrada R$ {fmtBRL(customDownPayment)} + </>}
                           {activeOpt.installments}x de R$ {fmtBRL(activeCalc.installmentValue)} · processado pelo Asaas
                         </p>
                       </div>
@@ -5850,7 +5906,7 @@ function CartaoCobrancaUnificadaModal({
                         Total no cartão
                       </div>
                       <div className="text-3xl font-extrabold tabular-nums text-sky-700 dark:text-sky-400">
-                        R$ {fmtBRL(activeCalc.finalValue)}
+                        R$ {fmtBRL(activeCalc.finalValue - customDownPayment)}
                       </div>
                       {activeCalc.extraInterest > 0 && (
                         <div className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
@@ -5862,25 +5918,85 @@ function CartaoCobrancaUnificadaModal({
                 </div>
               )}
 
-              {/* Step 1: Em quantas parcelas */}
+              {/* Step 1: Entrada (opcional) — Onda 17.32.24 */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
                     1
                   </div>
                   <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Entrada</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Caso o paciente pague algo agora (PIX/Boleto/Espécie) e use o cartão só pro restante
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                    Opcional
+                  </span>
+                </div>
+
+                {/* Botoes de % */}
+                <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                  {pctBtns.map((b) => {
+                    const isActive = b.value === 'clear' ? customDownPayment === 0 : pctOfTotal === b.value;
+                    return (
+                      <button
+                        key={b.label}
+                        type="button"
+                        onClick={() => {
+                          if (b.value === 'clear') onChangeCustomDownPayment(0);
+                          else onChangeCustomDownPayment(Math.round(total * (b.value / 100)));
+                        }}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-md border transition-colors ${
+                          isActive
+                            ? 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-card hover:bg-accent/40 text-foreground'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Input do valor */}
+                <div className="flex items-center gap-3 flex-wrap">
+                  <input
+                    type="text"
+                    value={entradaText}
+                    onChange={(e) => handleEntradaChange(e.target.value)}
+                    placeholder="R$ 0"
+                    inputMode="numeric"
+                    className="w-36 text-sm font-semibold tabular-nums px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/30"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Vai pro cartão:{' '}
+                    <strong className="text-foreground tabular-nums">R$ {fmtBRL(Math.max(0, total - customDownPayment))}</strong>
+                  </p>
+                </div>
+              </div>
+
+              {/* Step 2: Em quantas parcelas */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Em quantas parcelas?</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Escolha o parcelamento · paciente preenche os dados do cartão na página segura do Asaas
+                      {hasEntry
+                        ? <>Parcelas em cima de <strong className="text-foreground">R$ {fmtBRL(total - customDownPayment)}</strong> (após entrada)</>
+                        : <>Escolha o parcelamento · paciente preenche os dados do cartão na página segura do Asaas</>}
                     </p>
                   </div>
                 </div>
 
-                {/* Lista de parcelas com radio */}
+                {/* Lista de parcelas com radio — Onda 17.32.24: usa customDownPayment */}
                 <div className="max-h-[280px] overflow-y-auto rounded-md border border-border">
                   {options.map((opt) => {
                     const isActive = activePaymentKey === opt.key;
-                    const c = applyPaymentOption(total, opt, 0);
+                    const c = applyPaymentOption(total, opt, customDownPayment);
                     const hasInterest = (opt.interestRate ?? 0) > 0;
                     return (
                       <button
@@ -5914,11 +6030,11 @@ function CartaoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Step 2: Como o paciente paga */}
+              {/* Step 3: Plano de cobranca (timeline com sinal + entrada se houver + cartao) */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
-                    2
+                    3
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
@@ -5927,7 +6043,114 @@ function CartaoCobrancaUnificadaModal({
                     </p>
                   </div>
                 </div>
-                <div className="relative pl-7">
+                <div className="relative pl-7 space-y-3">
+                  <div className="absolute left-[10px] top-2 bottom-2 w-px bg-sky-500/30" />
+
+                  {/* Sinal de fechamento (se entrada > 0) */}
+                  {sinalValor > 0 && (
+                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-sky-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">Sinal de fechamento</p>
+                        <p className="text-[11px] text-muted-foreground">
+                          Cobrado hoje via {customSignalMethod === 'PIX' ? 'PIX' : customSignalMethod === 'BOLETO' ? 'boleto' : 'espécie'}
+                        </p>
+                        <div className="flex items-center gap-1 mt-1.5">
+                          {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                            const isActive = customSignalMethod === m;
+                            const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => onChangeCustomSignalMethod(m)}
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                  isActive
+                                    ? 'border-sky-600 bg-sky-500/15 text-sky-800 dark:text-sky-400'
+                                    : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <input
+                          type="date"
+                          value={customSinalDueDate}
+                          onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
+                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
+                        />
+                        <input
+                          type="text"
+                          value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
+                          onChange={(e) => {
+                            const digits = e.target.value.replace(/\D/g, '');
+                            const num = digits === '' ? 0 : Number(digits) / 100;
+                            onChangeCustomSignalValue(Math.min(num, customDownPayment));
+                          }}
+                          placeholder="R$ 0,00"
+                          inputMode="numeric"
+                          className="w-28 text-sm font-bold tabular-nums px-2 py-1 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-sky-500/30"
+                        />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Entrada (resto da entrada apos sinal) */}
+                  {entradaRestoValor > 0 && (
+                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-sky-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">
+                          Entrada <span className="text-red-600">*</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
+                        <div className="flex items-center gap-1 mt-1.5">
+                          {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                            const isActive = customRestMethod === m;
+                            const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => onChangeCustomRestMethod(m)}
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                  isActive
+                                    ? 'border-sky-600 bg-sky-500/15 text-sky-800 dark:text-sky-400'
+                                    : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                      <div className="shrink-0 flex items-center gap-2">
+                        <input
+                          type="date"
+                          value={customEntradaDueDate}
+                          onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                          required
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
+                        />
+                        <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
+                          R$ {fmtBRL(entradaRestoValor)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Cartao */}
                   <div className="relative flex items-start justify-between gap-3 flex-wrap">
                     <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-sky-500 bg-background flex items-center justify-center">
                       <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
@@ -5946,7 +6169,7 @@ function CartaoCobrancaUnificadaModal({
                         {todayLabel}
                       </span>
                       <p className="text-base font-bold tabular-nums text-sky-700 dark:text-sky-400">
-                        R$ {fmtBRL(activeCalc?.finalValue ?? total)}
+                        R$ {fmtBRL((activeCalc?.finalValue ?? total) - customDownPayment)}
                       </p>
                     </div>
                   </div>
@@ -5974,35 +6197,76 @@ function CartaoCobrancaUnificadaModal({
                 Confira antes de emitir
               </p>
 
-              <div className="space-y-3">
-                <p className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
-                  Plano de cobrança
-                </p>
-                <div className="border border-border rounded-lg p-3 bg-card">
-                  <div className="flex items-start justify-between gap-2 mb-1.5">
-                    <p className="text-xs font-semibold text-foreground leading-tight">
-                      Cartão · {activeOpt?.installments || 1}x
+              {/* Plano de cobranca dinamico: sinal + entrada + cartao */}
+              {(() => {
+                const fmtDateLocal = (iso: string) => {
+                  if (!iso) return 'hoje';
+                  try {
+                    const d = new Date(iso + 'T00:00:00');
+                    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+                  } catch { return iso; }
+                };
+                const methodLabel = (m: 'PIX' | 'BOLETO' | 'CASH') =>
+                  m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                const methodCls = (m: 'PIX' | 'BOLETO' | 'CASH') =>
+                  m === 'PIX' ? 'text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30' :
+                  m === 'BOLETO' ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30' :
+                  'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+                const lines: Array<{ label: string; method: string; methodCls: string; date: string; value: number }> = [];
+                if (sinalValor > 0) {
+                  lines.push({
+                    label: 'Sinal de fechamento',
+                    method: methodLabel(customSignalMethod),
+                    methodCls: methodCls(customSignalMethod),
+                    date: fmtDateLocal(customSinalDueDate),
+                    value: sinalValor,
+                  });
+                }
+                if (entradaRestoValor > 0) {
+                  lines.push({
+                    label: 'Entrada',
+                    method: methodLabel(customRestMethod),
+                    methodCls: methodCls(customRestMethod),
+                    date: customEntradaDueDate ? fmtDateLocal(customEntradaDueDate) : 'hoje',
+                    value: entradaRestoValor,
+                  });
+                }
+                lines.push({
+                  label: `Cartão · ${activeOpt?.installments || 1}x`,
+                  method: 'Cartão',
+                  methodCls: 'text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30',
+                  date: todayLabel,
+                  value: (activeCalc?.finalValue ?? total) - customDownPayment,
+                });
+                return (
+                  <div className="space-y-3">
+                    <p className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
+                      Plano de cobrança
                     </p>
-                    <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30 shrink-0">
-                      Cartão
-                    </span>
+                    {lines.map((line, idx) => (
+                      <div key={idx} className="border border-border rounded-lg p-3 bg-card">
+                        <div className="flex items-start justify-between gap-2 mb-1.5">
+                          <p className="text-xs font-semibold text-foreground leading-tight">
+                            {line.label}
+                          </p>
+                          <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${line.methodCls} shrink-0`}>
+                            {line.method}
+                          </span>
+                        </div>
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+                            <Clock size={9} />
+                            {line.date}
+                          </span>
+                          <span className="text-sm font-bold tabular-nums text-foreground">
+                            R$ {fmtBRL(line.value)}
+                          </span>
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                  <div className="flex items-baseline justify-between gap-2">
-                    <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
-                      <Clock size={9} />
-                      {todayLabel}
-                    </span>
-                    <span className="text-sm font-bold tabular-nums text-foreground">
-                      R$ {fmtBRL(activeCalc?.finalValue ?? total)}
-                    </span>
-                  </div>
-                  {activeCalc && (
-                    <p className="text-[10px] text-muted-foreground mt-1 text-right">
-                      {activeOpt?.installments}x de R$ {fmtBRL(activeCalc.installmentValue)}
-                    </p>
-                  )}
-                </div>
-              </div>
+                );
+              })()}
 
               <button
                 type="button"
