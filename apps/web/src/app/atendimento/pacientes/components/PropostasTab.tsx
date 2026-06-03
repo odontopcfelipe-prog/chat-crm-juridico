@@ -3728,39 +3728,50 @@ function PropostaPainel({
       )}
       */}
 
-      {/* Items list — Onda 11.1: items aprovados ficam com check verde + opacity */}
+      {/* Onda 17.32.20 — Lista de itens em cards individuais com check verde
+          redondo, espacamento generoso e visual mais limpo (semelhante a
+          proposta apresentavel ao paciente). */}
       <div className="mb-4">
-        <p className="text-[11px] font-semibold text-foreground mb-2 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-3 flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-emerald-500" />
           O que está incluído
         </p>
-        <ul className="space-y-1">
+        <ul className="space-y-1.5">
           {(itemsExpanded ? itemsSorted : topItems).map((it) => {
             const isApproved = !!it.approved_at;
-            // Onda 11.1 — quando ha aprovacao parcial, items pendentes ficam
-            // sinalizados como "em aberto" (badge amber) mas totalmente legiveis.
-            // Aprovados recebem check verde. Sem aprovacao parcial, tudo normal.
             const isOutOfProposal = hasPartialApproval && !isApproved;
             return (
               <li
                 key={it.id}
-                className="flex items-baseline justify-between text-xs py-1 border-b border-border/30 last:border-0"
+                className={`flex items-center justify-between gap-3 px-3 py-2.5 rounded-md border transition-colors ${
+                  isOutOfProposal
+                    ? 'border-amber-500/30 bg-amber-500/5'
+                    : 'border-border bg-card hover:bg-accent/20'
+                }`}
               >
-                <span className="text-foreground truncate pr-2 flex items-center gap-1.5">
-                  {isApproved && hasPartialApproval && (
-                    <Check size={11} className="text-emerald-600 shrink-0" aria-label="aprovado" />
-                  )}
-                  <span>{it.procedure.name}</span>
-                  {it.notes && (
-                    <span className="text-muted-foreground"> · {it.notes}</span>
-                  )}
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <span className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${
+                    isOutOfProposal ? 'bg-amber-500/15' : 'bg-emerald-500/15'
+                  }`}>
+                    <Check
+                      size={13}
+                      className={isOutOfProposal ? 'text-amber-700' : 'text-emerald-700'}
+                      strokeWidth={3}
+                    />
+                  </span>
+                  <span className="text-sm text-foreground font-medium truncate">
+                    {it.procedure.name}
+                    {it.notes && (
+                      <span className="text-muted-foreground font-normal"> · {it.notes}</span>
+                    )}
+                  </span>
                   {isOutOfProposal && (
-                    <span className="text-[9px] text-amber-700 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0">
+                    <span className="text-[10px] text-amber-700 font-semibold bg-amber-500/10 px-1.5 py-0.5 rounded-full shrink-0">
                       em aberto
                     </span>
                   )}
-                </span>
-                <span className="text-muted-foreground tabular-nums shrink-0">
+                </div>
+                <span className="text-sm font-semibold tabular-nums text-foreground shrink-0">
                   R$ {fmtBRL(Number(it.total_price))}
                 </span>
               </li>
@@ -3771,7 +3782,7 @@ function PropostaPainel({
           <button
             type="button"
             onClick={onToggleItems}
-            className="text-[11px] text-primary hover:underline mt-1.5"
+            className="w-full text-xs text-primary hover:bg-primary/5 font-semibold mt-2 py-2 rounded-md text-center transition-colors"
           >
             {itemsExpanded
               ? '− mostrar menos'
