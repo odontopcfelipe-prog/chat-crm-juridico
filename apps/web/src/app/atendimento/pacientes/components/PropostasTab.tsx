@@ -4744,36 +4744,20 @@ function BoletoCobrancaUnificadaModal({
                   </p>
                 </div>
 
-                {/* Metodo do sinal: PIX / Boleto / Especie */}
-                {customDownPayment > 0 && (
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
-                      const isActive = customSignalMethod === m;
-                      const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
-                      const Icon = m === 'PIX' ? DollarSign : m === 'BOLETO' ? Building2 : Wallet;
-                      return (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => onChangeCustomSignalMethod(m)}
-                          className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-md border-2 text-sm font-semibold transition-colors ${
-                            isActive
-                              ? 'border-foreground bg-foreground text-background'
-                              : 'border-border bg-card hover:bg-accent/40 text-foreground'
-                          }`}
-                        >
-                          <Icon size={14} />
-                          {label}
-                        </button>
-                      );
-                    })}
+                {/* Onda 17.32.11 — Botoes PIX/Boleto/Especie removidos do Step 1.
+                    Conceito: o Step 1 so define o VALOR da entrada. O metodo
+                    de pagamento e propriedade do SINAL (parte da entrada paga
+                    no fechamento) e vive no Step 3 (timeline). O restante da
+                    entrada SEMPRE vira boleto. */}
+                {customDownPayment > 0 && customSignalValue > 0 && customSignalValue < customDownPayment && (
+                  <div className="text-[11px] text-muted-foreground bg-muted/30 px-3 py-2 rounded-md flex items-start gap-2">
+                    <span className="text-amber-600 mt-0.5">ℹ</span>
+                    <span>
+                      Sinal de R$ <strong className="text-foreground tabular-nums">{fmtBRL(customSignalValue)}</strong> via {customSignalMethod === 'PIX' ? 'PIX' : customSignalMethod === 'BOLETO' ? 'boleto' : 'espécie'} +
+                      restante R$ <strong className="text-foreground tabular-nums">{fmtBRL(customDownPayment - customSignalValue)}</strong> em boleto · ajuste no Step 3 abaixo
+                    </span>
                   </div>
                 )}
-
-                {/* Onda 17.32.6 — Botao "Gerar X" removido. Agora as escolhas
-                    (entrada, metodo, vencimento, parcelas) ficam acumuladas
-                    e tudo e emitido de uma vez quando o operador clica
-                    "Emitir cobranca" na sidebar. */}
               </div>
 
               {/* ── Step 2: Como pagar o restante ─────────────────── */}
