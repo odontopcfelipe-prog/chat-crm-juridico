@@ -6069,16 +6069,27 @@ function CartaoCobrancaUnificadaModal({
                 </button>
               )}
 
+              {/* Asaas Tap CTA — disponivel apos emitir */}
+              <div className="mt-4 p-3 rounded-lg bg-sky-500/5 border border-sky-500/20">
+                <p className="text-[11px] font-semibold text-sky-800 dark:text-sky-300 flex items-center gap-1.5 mb-1">
+                  <span>📱</span>
+                  Asaas Tap (cartão presencial)
+                </p>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Depois de emitir, vai aparecer o botão "Cobrar com Asaas Tap" pra processar o cartão pelo celular Android da recepção (NFC). Aproxime o cartão e pronto — sem maquininha.
+                </p>
+              </div>
+
               <div className="mt-4 pt-4 border-t border-border">
                 <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
                   <ShieldCheck size={12} />
                   Ambiente seguro
                 </p>
                 <p className="text-[10px] text-muted-foreground leading-snug">
-                  Pagamento processado pelo Asaas + PagBank. Paciente preenche os dados do cartão em página segura hospedada (PCI-DSS).
+                  Pagamento processado pelo Asaas + PagBank. Paciente preenche os dados do cartão em página segura hospedada (PCI-DSS) — ou paga presencialmente via Asaas Tap.
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {['Asaas', 'PagBank', 'Visa', 'Master'].map((b) => (
+                  {['Asaas', 'PagBank', 'Visa', 'Master', 'Tap'].map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
@@ -8003,6 +8014,9 @@ function ChargesGeneratedDialog({
   onSendWhatsApp: () => void;
 }) {
   const [pixQrDialog, setPixQrDialog] = useState<null | { qrCode: string; copyPaste: string; amount: number; invoiceUrl?: string; title: string }>(null);
+  // Onda 17.32.18 — Dialog "Cobrar com Asaas Tap" mostra instrucoes pro
+  // operador processar o cartao no app Asaas do celular Android.
+  const [asaasTapDialog, setAsaasTapDialog] = useState<null | { chargeId: string; asaasChargeId: string; amount: number; invoiceUrl: string | null }>(null);
   const fmtDate = (iso: string | null) => {
     if (!iso) return '—';
     try {
@@ -8069,6 +8083,7 @@ function ChargesGeneratedDialog({
               const bt = charge.billing_type;
               const isPix = bt === 'PIX';
               const isBoleto = bt === 'BOLETO';
+              const isCartao = bt === 'CREDIT_CARD';
               const isCash = bt === 'CASH' || charge.gateway === 'CASH';
               const hasQr = isPix && charge.pix_qr_code;
               const link = charge.invoice_url || charge.boleto_url || null;
@@ -8126,6 +8141,22 @@ function ChargesGeneratedDialog({
                         Abrir 2ª via
                       </button>
                     )}
+                    {isCartao && (
+                      <button
+                        type="button"
+                        onClick={() => setAsaasTapDialog({
+                          chargeId: charge.id,
+                          asaasChargeId: charge.gateway_charge_id || charge.external_id || charge.id,
+                          amount: Number(charge.amount),
+                          invoiceUrl: charge.invoice_url || null,
+                        })}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 transition-colors inline-flex items-center gap-1.5"
+                        title="Cobre o cartão pelo app Asaas Tap (NFC do celular Android da recepção)"
+                      >
+                        <span>📱</span>
+                        Cobrar com Asaas Tap
+                      </button>
+                    )}
                     {isCash && (
                       <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 px-2 py-1">
                         <Check size={11} strokeWidth={3} />
@@ -8180,6 +8211,167 @@ function ChargesGeneratedDialog({
           onClose={() => setPixQrDialog(null)}
         />
       )}
+      {asaasTapDialog && (
+        <AsaasTapDialog
+          asaasChargeId={asaasTapDialog.asaasChargeId}
+          amount={asaasTapDialog.amount}
+          invoiceUrl={asaasTapDialog.invoiceUrl}
+          onClose={() => setAsaasTapDialog(null)}
+        />
+      )}
+    </ModalPortal>
+  );
+}
+
+/** Onda 17.32.18 — Dialog "Cobrar com Asaas Tap".
+ *  Asaas nao tem deep-link publico documentado pra abrir uma cobranca
+ *  especifica no app Tap. Solucao pragmatica:
+ *  - Mostra ID da cobranca + valor + instrucoes claras
+ *  - Botoes pra COPIAR o ID (operador busca no app)
+ *  - Botao pra abrir a pagina Asaas (paciente pode pagar pelo celular dele
+ *    tambem como fallback). */
+function AsaasTapDialog({
+  asaasChargeId,
+  amount,
+  invoiceUrl,
+  onClose,
+}: {
+  asaasChargeId: string;
+  amount: number;
+  invoiceUrl: string | null;
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(asaasChargeId);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch { /* swallow */ }
+  };
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-[60] bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+        <div
+          className="bg-card border border-border rounded-xl shadow-2xl max-w-md w-full overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="p-5 border-b border-border bg-gradient-to-r from-sky-500/15 to-sky-500/5 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-sky-800 dark:text-sky-300 flex items-center gap-2">
+                <span>📱</span>
+                Cobrar com Asaas Tap
+              </h3>
+              <p className="text-2xl font-extrabold tabular-nums text-sky-700 dark:text-sky-400 mt-1">
+                R$ {fmtBRL(amount)}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md transition-colors shrink-0"
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          <div className="p-5 space-y-4">
+            {/* Instrucoes passo a passo */}
+            <div>
+              <p className="text-[11px] uppercase tracking-wide font-bold text-muted-foreground mb-2">
+                Como cobrar agora
+              </p>
+              <ol className="space-y-2 text-xs text-foreground">
+                <li className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold flex items-center justify-center shrink-0">1</span>
+                  <span>Pegue o <strong>celular Android com NFC</strong> da recepção</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold flex items-center justify-center shrink-0">2</span>
+                  <span>Abra o app <strong>Asaas</strong> → menu <strong>Vendas</strong> ou <strong>Cobranças</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold flex items-center justify-center shrink-0">3</span>
+                  <span>Procure pelo <strong>ID da cobrança</strong> abaixo (ou pelo valor R$ {fmtBRL(amount)})</span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold flex items-center justify-center shrink-0">4</span>
+                  <span>Toque em <strong>"Receber" → "Cartão de crédito" → "Tap to Pay"</strong></span>
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="w-5 h-5 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 text-[10px] font-bold flex items-center justify-center shrink-0">5</span>
+                  <span><strong>Aproxime o cartão do paciente</strong> no celular (NFC) ou peça pra ele aproximar o próprio celular se tiver Apple Pay/Google Pay</span>
+                </li>
+              </ol>
+            </div>
+
+            {/* ID da cobranca pra copiar */}
+            <div className="bg-muted/30 border border-border rounded-md p-3">
+              <p className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground mb-1">
+                ID da cobrança no Asaas
+              </p>
+              <div className="flex items-center gap-2">
+                <code className="flex-1 text-xs font-mono text-foreground bg-card border border-border rounded px-2 py-1.5 truncate">
+                  {asaasChargeId}
+                </code>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className={`text-xs font-semibold px-3 py-1.5 rounded-md border transition-colors inline-flex items-center gap-1.5 shrink-0 ${
+                    copied
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-sky-500/10 text-sky-700 dark:text-sky-400 border-sky-500/30 hover:bg-sky-500/20'
+                  }`}
+                >
+                  {copied ? <Check size={11} strokeWidth={3} /> : null}
+                  {copied ? 'Copiado!' : 'Copiar'}
+                </button>
+              </div>
+            </div>
+
+            {/* Alternativa: link pra paciente pagar no celular dele */}
+            {invoiceUrl && (
+              <div className="border-t border-border pt-3">
+                <p className="text-[11px] font-semibold text-foreground mb-1.5 flex items-center gap-1.5">
+                  <span>🔗</span>
+                  Alternativa: paciente paga pelo celular dele
+                </p>
+                <a
+                  href={invoiceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors w-full justify-center"
+                >
+                  <Eye size={11} />
+                  Abrir página de pagamento
+                </a>
+              </div>
+            )}
+
+            {/* Aviso */}
+            <p className="text-[10px] text-muted-foreground bg-amber-500/5 border border-amber-500/20 rounded-md px-2.5 py-2 flex items-start gap-1.5">
+              <span className="text-amber-700 mt-0.5">ⓘ</span>
+              <span>
+                <strong>Asaas Tap é gratuito</strong> e não precisa de maquininha. Ative em <em>Asaas → Receba na Hora → Asaas Tap</em>.
+                Requer Android 10+ com NFC.
+              </span>
+            </p>
+          </div>
+
+          {/* Rodape */}
+          <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-end">
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs font-semibold px-4 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
     </ModalPortal>
   );
 }
