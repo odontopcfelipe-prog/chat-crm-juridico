@@ -3737,9 +3737,11 @@ function PropostaPainel({
               )}
             </div>
 
-            {/* Entrada + plano — abaixo, so ao escolher Cartao/Boleto.
-                O SELETOR de parcelas vive na aba (modal) aberta pelo card. */}
-            {(sel === 'cartao' || sel === 'boleto') && (
+            {/* Onda 17.32 — Pro Boleto, a entrada + plano de cobranca agora
+                vivem DENTRO do BoletoCobrancaUnificadaModal (consolidado).
+                Pro Cartao, mantemos o painel inline ate reformar o modal
+                de Cartao com o mesmo design unificado. */}
+            {sel === 'cartao' && (
               <div className="mt-3 space-y-3">
                 <DownPaymentInput
                   total={total}
@@ -3762,8 +3764,6 @@ function PropostaPainel({
                     onChangeInstallmentsStartDate={setCustomInstallmentsStartDate}
                     quoteId={detail.id}
                     canEmit={true}
-                    installmentCount={sel === 'boleto' && boletoDisplayOpt && boletoDisplayOpt.key !== 'boleto-avista' ? boletoDisplayOpt.installments : undefined}
-                    installmentValue={sel === 'boleto' && boletoDisplayOpt && boletoDisplayOpt.key !== 'boleto-avista' && boletoDisplayCalc ? boletoDisplayCalc.installmentValue : undefined}
                   />
                 )}
               </div>
