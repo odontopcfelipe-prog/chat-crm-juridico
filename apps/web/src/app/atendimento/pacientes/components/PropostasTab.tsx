@@ -3790,22 +3790,22 @@ function PropostaPainel({
           </button>
         )}
 
-        {/* Onda 17.32.2 — Total evidenciado da proposta. Soma somente o
-            que esta nesta versao (aprovados, se houver aprovacao parcial;
-            todos os itens, caso contrario). Em caso de aprovacao parcial,
-            mostra tambem o que ficou em aberto pra contexto. */}
-        <div className="mt-3 pt-3 border-t-2 border-emerald-500/30 bg-emerald-500/5 -mx-1 px-3 py-2 rounded-md flex items-baseline justify-between gap-3 flex-wrap">
+        {/* Onda 17.32.21 — Subtotal da proposta com visual mais elegante:
+            border verde clarinho, bg-emerald-500/5, label uppercase em
+            verde forte, info secundaria em verde clarinho, valor grande
+            em verde escuro. */}
+        <div className="mt-4 px-4 py-3.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 flex items-center justify-between gap-3 flex-wrap">
           <div className="min-w-0">
-            <p className="text-[11px] uppercase tracking-wide text-muted-foreground font-bold">
-              {hasPartialApproval ? 'Subtotal aprovado' : 'Total da proposta'}
+            <p className="text-[11px] uppercase tracking-wider text-emerald-700 dark:text-emerald-400 font-bold">
+              Subtotal da proposta
             </p>
-            {hasPartialApproval && pendingValue > 0 && (
-              <p className="text-[10px] text-amber-700 dark:text-amber-400 font-medium mt-0.5">
-                + R$ {fmtBRL(pendingValue)} em aberto ({pendingItems.length} {pendingItems.length === 1 ? 'item' : 'itens'})
-              </p>
-            )}
+            <p className="text-[11px] text-emerald-700/80 dark:text-emerald-400/80 font-medium mt-0.5">
+              {hasPartialApproval && pendingValue > 0
+                ? <>itens aprovados · R$ {fmtBRL(pendingValue)} em aberto não incluídos</>
+                : <>{detail.items.length} {detail.items.length === 1 ? 'procedimento incluído' : 'procedimentos incluídos'}</>}
+            </p>
           </div>
-          <p className="text-xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+          <p className="text-2xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
             R$ {fmtBRL(total)}
           </p>
         </div>
