@@ -99,26 +99,49 @@ export default function ChatPane({ leadId, compact = false }: Props) {
 
   const handleSend = useCallback(async () => {
     if (!text.trim() || sending || !convoId) return;
-    setSending(true);
     const localText = text.trim();
     setText('');
+    setSending(true);
+
+    // Onda 17.26 — Otimismo VERDADEIRO: msg aparece IMEDIATAMENTE no
+    // chat com id temporario + status 'enviando'. POST roda em
+    // background. Quando volta, troca a tmp pelo objeto real.
+    // Sensacao "WhatsApp Web": digita, da enter, ve aparecer no ato.
+    const tmpId = `tmp_${Date.now()}`;
+    const tmpMsg = {
+      id: tmpId,
+      direction: 'out',
+      type: 'text',
+      text: localText,
+      created_at: new Date().toISOString(),
+      status: 'enviando',
+    };
+    setMessages((prev) => [...prev, tmpMsg]);
+    requestAnimationFrame(() => inputRef.current?.focus());
+
     try {
       const res = await api.post('/messages/send', { conversationId: convoId, text: localText });
-      // Onda 17.25 — Otimismo: adiciona mensagem ao state imediatamente,
-      // sem esperar o socket. Se o socket entregar de volta, o dedup por
-      // id em useChatSocket previne duplicacao.
+      // Substitui a temporaria pelo objeto real (que tem id de verdade
+      // do banco). Se o socket entregar a mesma msg depois, dedup por id
+      // em useChatSocket previne dup.
       if (res.data?.id) {
-        setMessages(prev => {
-          if (prev.some((m: any) => m.id === res.data.id)) return prev;
-          return [...prev, res.data];
-        });
+        setMessages((prev) =>
+          prev.map((m: any) => (m.id === tmpId ? res.data : m)),
+        );
+      } else {
+        // Backend nao devolveu id — marca como enviado mesmo assim
+        setMessages((prev) =>
+          prev.map((m: any) => (m.id === tmpId ? { ...m, status: 'enviado' } : m)),
+        );
       }
     } catch (err: any) {
+      // Marca a tmp como erro (visivel pro operador, sem sumir do chat)
+      setMessages((prev) =>
+        prev.map((m: any) => (m.id === tmpId ? { ...m, status: 'erro' } : m)),
+      );
       showError(err?.response?.data?.message || 'Falha ao enviar');
-      setText(localText); // restaura
     } finally {
       setSending(false);
-      requestAnimationFrame(() => inputRef.current?.focus());
     }
   }, [text, sending, convoId, setMessages]);
 
@@ -330,8 +353,16 @@ export default function ChatPane({ leadId, compact = false }: Props) {
                   {msg.type === 'image' && msg.text && (
                     <p className="mt-1 whitespace-pre-wrap break-words text-xs">{msg.text}</p>
                   )}
-                  <div className={`text-[9px] mt-0.5 ${isOut ? 'text-primary-foreground/60 text-right' : 'text-muted-foreground'}`}>
+                  <div className={`text-[9px] mt-0.5 flex items-center gap-1 ${isOut ? 'text-primary-foreground/60 justify-end' : 'text-muted-foreground'}`}>
                     {time}
+                    {/* Onda 17.26 — status do envio:
+                        enviando = relogio, erro = vermelho, demais = ticks */}
+                    {isOut && msg.status === 'enviando' && (
+                      <span className="opacity-70" title="Enviando...">⏱</span>
+                    )}
+                    {isOut && msg.status === 'erro' && (
+                      <span className="text-red-300" title="Falhou ao enviar">⚠</span>
+                    )}
                     {isOut && msg.status === 'lido' && ' ✓✓'}
                     {isOut && msg.status === 'entregue' && ' ✓✓'}
                     {isOut && msg.status === 'enviado' && ' ✓'}
