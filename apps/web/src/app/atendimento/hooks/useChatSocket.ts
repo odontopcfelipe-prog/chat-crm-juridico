@@ -76,7 +76,26 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
           setConvoId(convo.id);
           setConvoStatus(convo.status || 'ABERTO');
           setAiMode(!!convo.ai_mode);
+          // Onda 17.28 — Inicia com as ultimas 100 que vem na rota lead,
+          // depois faz fetch separado de 500 (limite max do backend) em
+          // ordem asc pra mostrar TODO o historico no chat. Antes mostrava
+          // so 100 ultimas, faltando mensagens entre dias.
           setMessages(convo.messages || []);
+          api.get(`/messages/conversation/${convo.id}?limit=500`)
+            .then((r) => {
+              const list = r.data?.data || r.data || [];
+              if (Array.isArray(list) && list.length > 0) {
+                // backend retorna desc (mais recente primeiro), revertemos
+                // pra asc (cronologico) pra renderizar bottom-up
+                const sorted = [...list].sort((a, b) => {
+                  const ta = new Date(a.created_at || 0).getTime();
+                  const tb = new Date(b.created_at || 0).getTime();
+                  return ta - tb;
+                });
+                setMessages(sorted);
+              }
+            })
+            .catch(swallow('full message history — fallback eh usar so as 100 ultimas'));
           setSpecialty(convo.specialty || null);
           setAssignedDentist(convo.assigned_dentist || null);
           setOriginAssignedUserId(convo.origin_assigned_user_id || null);
