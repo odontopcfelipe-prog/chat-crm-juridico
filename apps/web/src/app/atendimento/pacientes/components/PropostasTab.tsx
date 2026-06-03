@@ -4727,9 +4727,8 @@ function BoletoCobrancaUnificadaModal({
                   })}
                 </div>
 
-                {/* Input + restante + (vencimento, quando metodo=BOLETO).
-                    Tudo na MESMA linha do valor da entrada: input | resta para
-                    pagamento | (date push pra direita via ml-auto). */}
+                {/* Input + restante. Vencimento do boleto vive APENAS no Step 3
+                    (timeline) pra evitar duplicacao. */}
                 <div className="flex items-center gap-3 flex-wrap mb-3">
                   <input
                     type="text"
@@ -4743,28 +4742,6 @@ function BoletoCobrancaUnificadaModal({
                     Resta para o pagamento:{' '}
                     <strong className="text-foreground tabular-nums">R$ {fmtBRL(Math.max(0, total - customDownPayment))}</strong>
                   </p>
-                  {/* Onda 17.32.5 — Vencimento do boleto da entrada.
-                      So aparece pra metodo=BOLETO. Vazio = hoje (default backend).
-                      ml-auto empurra pra direita, mantendo na mesma linha do valor. */}
-                  {customDownPayment > 0 && customSignalMethod === 'BOLETO' && (
-                    <div className="ml-auto flex items-center gap-2">
-                      <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
-                        <Clock size={12} className="text-amber-600" />
-                        Vencimento do boleto:
-                      </label>
-                      <input
-                        type="date"
-                        value={customEntradaDueDate}
-                        onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                        className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                      />
-                      {!customEntradaDueDate && (
-                        <span className="text-[10px] text-muted-foreground italic">
-                          vazio = hoje
-                        </span>
-                      )}
-                    </div>
-                  )}
                 </div>
 
                 {/* Metodo do sinal: PIX / Boleto / Especie */}
