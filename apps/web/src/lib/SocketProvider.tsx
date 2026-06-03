@@ -96,12 +96,31 @@ export function SocketProvider({ children, pathname }: SocketProviderProps) {
       timeout: 10000,
     });
 
+    // Onda 17.30 — Debounce do banner "Conexao perdida".
+    // Antes: qualquer reconnect breve (>1s) ja mostrava o banner amarelo,
+    // mesmo se a reconexao acontecesse em <500ms (caso comum em redes
+    // moveis, deploys com connectionStateRecovery, etc).
+    // Agora: setConnected(false) so dispara depois de 3s ininterruptos
+    // sem conexao. Reconnects rapidos passam invisiveis.
+    let disconnectTimer: ReturnType<typeof setTimeout> | null = null;
     s.on('connect', () => {
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
       setConnected(true);
       if (uid) s.emit('join_user', uid);
     });
 
-    s.on('disconnect', () => setConnected(false));
+    s.on('disconnect', () => {
+      // Espera 3s antes de mostrar o banner. Se reconectar nesse meio
+      // tempo, o handler de 'connect' acima cancela o timer.
+      if (disconnectTimer) clearTimeout(disconnectTimer);
+      disconnectTimer = setTimeout(() => {
+        setConnected(false);
+        disconnectTimer = null;
+      }, 3000);
+    });
 
     // ─── Notificação centralizada de nova mensagem ───────────────
     // ÚNICO ponto que toca som para incoming_message_notification.
@@ -230,6 +249,11 @@ export function SocketProvider({ children, pathname }: SocketProviderProps) {
           navigator.sendBeacon(`${apiUrl}/diagnostics/socket-logout`, body);
         }
       } catch {}
+      // Onda 17.30 — limpa o timer do debounce pra evitar leak
+      if (disconnectTimer) {
+        clearTimeout(disconnectTimer);
+        disconnectTimer = null;
+      }
       s.disconnect();
       setSocket(null);
       setConnected(false);
