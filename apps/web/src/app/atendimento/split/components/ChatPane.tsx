@@ -134,6 +134,9 @@ export default function ChatPane({ leadId, compact = false }: Props) {
           prev.map((m: any) => (m.id === tmpId ? { ...m, status: 'enviado' } : m)),
         );
       }
+      // Onda 17.27 — Se conversa estava fechada, marca como ABERTO
+      // localmente. Backend reabre na hora pela regra do messages.service.
+      if (convoStatus !== 'ABERTO') setConvoStatus('ABERTO');
     } catch (err: any) {
       // Marca a tmp como erro (visivel pro operador, sem sumir do chat)
       setMessages((prev) =>
@@ -143,7 +146,7 @@ export default function ChatPane({ leadId, compact = false }: Props) {
     } finally {
       setSending(false);
     }
-  }, [text, sending, convoId, setMessages]);
+  }, [text, sending, convoId, convoStatus, setMessages, setConvoStatus]);
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -374,8 +377,20 @@ export default function ChatPane({ leadId, compact = false }: Props) {
         )}
       </div>
 
-      {/* ─── INPUT ─── */}
-      {!isClosed ? (
+      {/* ─── BANNER DE CONVERSA FECHADA ─── */}
+      {/* Onda 17.27 — Conversa fechada NAO bloqueia mais o input.
+          Operador pode enviar e o backend reabre automaticamente
+          (mesma logica do recebimento Evolution que reabre conversa
+          FECHADA quando paciente responde). Operador ve banner so
+          como alerta visual. */}
+      {isClosed && (
+        <div className="border-t border-amber-500/30 bg-amber-500/10 px-3 py-1.5 text-[10px] text-amber-700 dark:text-amber-300 text-center">
+          ⚠ Conversa fechada · enviar mensagem reabre automaticamente
+        </div>
+      )}
+
+      {/* ─── INPUT (sempre disponivel) ─── */}
+      {true ? (
         <div className="border-t border-border bg-card p-2">
           <div className="flex items-end gap-1">
             <input
@@ -422,11 +437,11 @@ export default function ChatPane({ leadId, compact = false }: Props) {
             ) : null}
           </div>
         </div>
-      ) : (
-        <div className="border-t border-border bg-muted/30 p-3 text-center text-xs text-muted-foreground">
-          Conversa fechada
-        </div>
-      )}
+      ) : null}
+
+      {/* Onda 17.27 — Apos enviar, se conversa estava fechada, marca
+          como ABERTO localmente (o backend ja reabriu). */}
+      {/* Esse bloco fica fora do JSX condicional pra nao gerar warning */}
     </div>
   );
 }
