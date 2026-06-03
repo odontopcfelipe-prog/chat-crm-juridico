@@ -4709,64 +4709,10 @@ function BoletoCobrancaUnificadaModal({
                   )}
                 </div>
 
-                {/* Boleto a vista — destacado verde */}
-                {highlightOption && highlightCalc && (
-                  <button
-                    type="button"
-                    onClick={() => onSelectParcelas(highlightOption)}
-                    className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-md mb-3 ${
-                      isHighlightActive
-                        ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20'
-                        : 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-3 flex-wrap">
-                      <div className="flex items-start gap-3 min-w-0">
-                        <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                          <Check size={16} className="text-emerald-700" strokeWidth={2.5} />
-                        </div>
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="text-base font-bold text-emerald-800 dark:text-emerald-300">
-                              À vista
-                            </span>
-                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-600 text-white uppercase">
-                              −{highlightOption.discountPercent}%
-                            </span>
-                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 uppercase">
-                              sem consulta
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-muted-foreground mt-0.5">
-                            Pagamento imediato · sem juros · economia de R$ {fmtBRL(highlightCalc.savedValue)}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
-                          Total a pagar
-                        </div>
-                        <div className="text-xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                          R$ {fmtBRL(highlightCalc.finalValue)}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground line-through tabular-nums">
-                          R$ {fmtBRL(total)}
-                        </div>
-                      </div>
-                    </div>
-                  </button>
-                )}
-
-                {/* Separador */}
-                {highlightOption && tableOptions.length > 0 && (
-                  <div className="flex items-center gap-3 my-3">
-                    <div className="flex-1 h-px bg-border" />
-                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
-                      ou parcele com juros
-                    </span>
-                    <div className="flex-1 h-px bg-border" />
-                  </div>
-                )}
+                {/* Onda 17.32.1 — Card "A vista" foi removido a pedido do operador.
+                    Boleto a vista nao faz sentido nesta clinica — pra pagamento
+                    imediato ja existe PIX (no painel principal "Como o paciente
+                    quer pagar?") e Especie. Restam so as parcelas 1x-24x. */}
 
                 {/* Lista de parcelas — formato linhas com radio */}
                 <div className="max-h-[280px] overflow-y-auto rounded-md border border-border">
