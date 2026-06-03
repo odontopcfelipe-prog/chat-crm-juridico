@@ -4507,11 +4507,9 @@ function BoletoCobrancaUnificadaModal({
     return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
   })();
 
-  // Onda 17.32 — Botoes de % rapidos (Sem entrada, 10, 15, 20, 30, 50).
+  // Onda 17.32 — Botoes de % rapidos. Operador pediu pra remover Sem entrada,
+  // 10% e 15% (entrada minima da clinica e 20%). Restam 20/30/50.
   const pctBtns: Array<{ label: string; value: number | 'clear' }> = [
-    { label: 'Sem entrada', value: 'clear' },
-    { label: '10%', value: 10 },
-    { label: '15%', value: 15 },
     { label: '20%', value: 20 },
     { label: '30%', value: 30 },
     { label: '50%', value: 50 },
