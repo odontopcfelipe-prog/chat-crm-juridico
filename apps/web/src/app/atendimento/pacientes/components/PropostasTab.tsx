@@ -2144,7 +2144,7 @@ function DownPaymentInput({
           Equivalente a usar o "Plano de cobrança da entrada" detalhado com
           uma única forma — mas em 1 clique. */}
       {hasEntry && (onMarkCashReceived || onGeneratePixQr) && (
-        <div className="mt-3 pt-3 border-t border-amber-500/20 flex flex-wrap gap-2">
+        <div className="mt-3 pt-3 border-t border-amber-500/20 flex flex-wrap gap-2 justify-end">
           {onMarkCashReceived && (
             <button
               type="button"
