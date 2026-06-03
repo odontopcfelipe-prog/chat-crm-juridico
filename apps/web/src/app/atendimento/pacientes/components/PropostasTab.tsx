@@ -19,9 +19,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Loader2, DollarSign, ChevronRight, Layers, AlertTriangle, Check, Flame,
+  Loader2, DollarSign, ChevronRight, ChevronLeft, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft,
-  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -3784,11 +3784,27 @@ function PropostaPainel({
               />
             )}
             {boletoModalOpen && (
-              <BoletoInstallmentsModal
+              <BoletoCobrancaUnificadaModal
+                detail={detail}
                 options={options.parcelado}
                 total={total}
                 activePaymentKey={activePaymentKey}
-                onSelect={(opt) => {
+                customDownPayment={customDownPayment}
+                onChangeCustomDownPayment={setCustomDownPayment}
+                customSignalValue={customSignalValue}
+                onChangeCustomSignalValue={setCustomSignalValue}
+                customSignalMethod={customSignalMethod}
+                onChangeCustomSignalMethod={setCustomSignalMethod}
+                customEntradaDueDate={customEntradaDueDate}
+                onChangeCustomEntradaDueDate={setCustomEntradaDueDate}
+                customInstallmentsStartDate={customInstallmentsStartDate}
+                onChangeCustomInstallmentsStartDate={setCustomInstallmentsStartDate}
+                requiresCreditCheck={requiresCC}
+                onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
+                onMarkCashReceived={handleQuickCashEntry}
+                onGeneratePixQr={handleQuickPixQrEntry}
+                quickActionsLoading={quickActionLoading}
+                onSelectParcelas={(opt) => {
                   setBoletoModalOpen(false);
                   // Mesma logica do CardBoletoParcelado: a vista / VIP aplica
                   // direto; parcelado >= 2x abre a consulta de credito.
@@ -3805,10 +3821,18 @@ function PropostaPainel({
                     });
                   }
                 }}
+                onEmitir={() => {
+                  setBoletoModalOpen(false);
+                  onApproveAndBill({
+                    customDownPayment,
+                    customSignalValue,
+                    customSignalMethod,
+                    customEntradaDueDate,
+                    customInstallmentsStartDate,
+                  });
+                }}
                 onClose={() => setBoletoModalOpen(false)}
-                requiresCreditCheck={requiresCC}
-                onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
-                customDownPayment={customDownPayment}
+                onSend={onSend}
               />
             )}
           </div>
@@ -4365,302 +4389,645 @@ function CardBoletoParcelado({
         </div>
       </button>
 
-      {/* Onda 14.4 — Modal de tabela com 1x ate 24x, igual ao do cartao */}
-      {open && (
-        <BoletoInstallmentsModal
-          options={options}
-          total={total}
-          activePaymentKey={activePaymentKey}
-          onSelect={handleSelectInstallment}
-          onClose={() => setOpen(false)}
-          requiresCreditCheck={requiresCreditCheck}
-          customDownPayment={customDownPayment}
-        />
-      )}
+      {/* Onda 17.32 — CardBoletoParcelado e dead code (substituido pelo painel
+          de comparacao "Como o paciente quer pagar?" no PropostaPainel). O modal
+          antigo BoletoInstallmentsModal foi reformado pro BoletoCobrancaUnificadaModal
+          que vive direto no PropostaPainel — este branch nao precisa mais. */}
     </div>
   );
 }
 
-/** Onda 14.4 — Modal premium pra escolher parcelas do Boleto.
- *  Estilo igual ao CartaoInstallmentsModal. Click numa linha >= 2x dispara
- *  consulta de credito (Banco PASSOS). */
-function BoletoInstallmentsModal({
+/** Onda 17.32 — Modal "Cobranca do tratamento" unificada.
+ *  Consolida em uma unica tela tudo que antes ficava espalhado:
+ *  - Entrada (input + atalhos de % + metodo PIX/Boleto/Especie + atalhos rapidos)
+ *  - Como pagar o restante (boleto a vista destacado + lista de parcelas)
+ *  - Plano de cobranca (timeline visual sinal/entrada/parcelas)
+ *  + Sidebar com Resumo da cobranca + CTA "Emitir cobranca". */
+function BoletoCobrancaUnificadaModal({
+  detail,
   options,
   total,
   activePaymentKey,
-  onSelect,
-  onClose,
+  customDownPayment,
+  onChangeCustomDownPayment,
+  customSignalValue,
+  onChangeCustomSignalValue,
+  customSignalMethod,
+  onChangeCustomSignalMethod,
+  customEntradaDueDate,
+  onChangeCustomEntradaDueDate,
+  customInstallmentsStartDate,
+  onChangeCustomInstallmentsStartDate,
   requiresCreditCheck,
   onToggleRequiresCreditCheck,
-  customDownPayment = 0,
+  onMarkCashReceived,
+  onGeneratePixQr,
+  quickActionsLoading,
+  onSelectParcelas,
+  onEmitir,
+  onClose,
+  onSend,
 }: {
+  detail: QuoteDetailLite;
   options: PaymentOption[];
   total: number;
   activePaymentKey: string;
-  /** Onda 14.25 — agora recebe a opcao inteira pra distinguir boleto-avista
-   *  (key especifica, sem credit-check) das demais. */
-  onSelect: (opt: PaymentOption) => void;
-  onClose: () => void;
-  /** Onda 14.26 — quando false, exibe "consulta dispensada" em vez de
-   *  "exige consulta" nas linhas parcelados. UI apenas — logica de
-   *  application esta no handleSelectInstallment do CardBoletoParcelado. */
+  customDownPayment: number;
+  onChangeCustomDownPayment: (v: number) => void;
+  customSignalValue: number;
+  onChangeCustomSignalValue: (v: number) => void;
+  customSignalMethod: 'PIX' | 'BOLETO' | 'CASH';
+  onChangeCustomSignalMethod: (v: 'PIX' | 'BOLETO' | 'CASH') => void;
+  customEntradaDueDate: string;
+  onChangeCustomEntradaDueDate: (v: string) => void;
+  customInstallmentsStartDate: string;
+  onChangeCustomInstallmentsStartDate: (v: string) => void;
   requiresCreditCheck: boolean;
-  /** Onda 15 (etapa 9) — toggle da consulta de credito agora vive DENTRO
-   *  do modal do boleto (operador liga/desliga a exigencia aqui). */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
-  /** Onda 14.29 — entrada opcional pra recalcular parcelas em cada linha */
-  customDownPayment?: number;
+  onMarkCashReceived?: () => Promise<void>;
+  onGeneratePixQr?: () => Promise<void>;
+  quickActionsLoading?: 'cash' | 'pix' | null;
+  onSelectParcelas: (opt: PaymentOption) => void;
+  /** CTA principal "Emitir cobranca" da sidebar — chama approve-and-bill. */
+  onEmitir: () => void;
+  onClose: () => void;
+  /** Botao "WhatsApp" da sidebar — manda link da proposta pro paciente. */
+  onSend?: () => void;
 }) {
-  // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais
-  // (1x..24x parcelado). A primeira fica num bloco verde grande acima da
-  // tabela, as outras seguem na lista normal com badge "exige consulta".
+  // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais.
   const highlightOption = options.find((o) => o.isAVistaHighlight);
   const tableOptions = options.filter((o) => !o.isAVistaHighlight);
-  // Onda 14.29 — Boleto a vista IGNORA entrada custom (pagamento imediato).
   const highlightCalc = highlightOption ? applyPaymentOption(total, highlightOption, 0) : null;
   const isHighlightActive = !!highlightOption && activePaymentKey === highlightOption.key;
+
+  // Onda 17.32 — Forma escolhida na sidebar.
+  // Se nenhuma das opcoes do boleto esta ativa, default = boleto a vista (forma natural).
+  const activeOption = options.find((o) => o.key === activePaymentKey)
+    || highlightOption
+    || tableOptions[0];
+  const activeCalc = activeOption ? applyPaymentOption(total, activeOption, customDownPayment) : null;
+  const isAVista = !!activeOption?.isAVistaHighlight;
+  const formaLabel = !activeOption
+    ? '—'
+    : activeOption.isAVistaHighlight
+    ? 'À vista (boleto)'
+    : `Boleto ${activeOption.installments}x`;
+  const showDownPaymentSummary = !isAVista && customDownPayment > 0;
+  const entradaSummary = showDownPaymentSummary ? customDownPayment : 0;
+  const restanteSummary = activeCalc ? activeCalc.finalValue - entradaSummary : total;
+
+  // Etapa "Plano de cobranca" (Step 3): sinal de fechamento (PIX hoje) +
+  // entrada (boleto, data configuravel) + parcelas (1a data configuravel).
+  const sinalValor = customSignalValue;
+  const entradaBoletoValor = Math.max(0, customDownPayment - customSignalValue);
+  const parcelasValor = activeCalc ? activeCalc.finalValue - customDownPayment : 0;
+
+  const todayLabel = (() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  })();
+
+  // Onda 17.32 — Botoes de % rapidos (Sem entrada, 10, 15, 20, 30, 50).
+  const pctBtns: Array<{ label: string; value: number | 'clear' }> = [
+    { label: 'Sem entrada', value: 'clear' },
+    { label: '10%', value: 10 },
+    { label: '15%', value: 15 },
+    { label: '20%', value: 20 },
+    { label: '30%', value: 30 },
+    { label: '50%', value: 50 },
+  ];
+  const pctOfTotal = customDownPayment > 0 ? Math.round((customDownPayment / total) * 100) : 0;
+
+  // Input controlado pra entrada (mesmo padrao do DownPaymentInput original).
+  const entradaText = customDownPayment > 0 ? `R$ ${fmtBRL(customDownPayment)}` : '';
+  const handleEntradaChange = (raw: string) => {
+    const digits = raw.replace(/\D/g, '');
+    const num = digits === '' ? 0 : Number(digits) / 100;
+    onChangeCustomDownPayment(num);
+  };
+
   return (
     <ModalPortal>
-    <div
-      className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
-      onClick={onClose}
-    >
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl max-w-5xl w-full overflow-hidden flex flex-col max-h-[90vh]"
-        onClick={(e) => e.stopPropagation()}
+        className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto"
+        onClick={onClose}
       >
-        {/* Header destacado com gradient amber */}
-        <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-amber-500/10 to-amber-500/5">
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <div className="flex items-center gap-2 mb-1">
-                <div className="w-9 h-9 rounded-lg bg-amber-500/15 flex items-center justify-center">
-                  <Building2 size={18} className="text-amber-700" />
-                </div>
-                <h3 className="text-base font-bold text-foreground">
-                  Boleto · Financiamento Banco PASSOS
-                </h3>
-              </div>
-              <p className="text-xs text-muted-foreground ml-11">
-                Escolha em quantas parcelas deseja pagar
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md transition-colors"
-              aria-label="Fechar"
-            >
-              <X size={18} />
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2 mt-3 ml-11 flex-wrap">
-            <span className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
-              Aceitamos:
-            </span>
-            {['Banco do Brasil', 'Bradesco', 'Itaú', 'Caixa', 'Santander'].map((b) => (
-              <span
-                key={b}
-                className="text-[10px] px-2 py-0.5 rounded border border-border bg-card text-foreground font-medium"
+        <div
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-6xl w-[calc(100%-2rem)] my-6 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header — breadcrumb + titulo + status badge */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-0.5 p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                aria-label="Voltar"
+                title="Voltar"
               >
-                {b}
+                <ChevronLeft size={18} />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-foreground leading-tight">
+                  Cobrança do tratamento
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › Cobrança
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-500/15 text-amber-700 dark:text-amber-400 border border-amber-500/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                Rascunho · não emitido
               </span>
-            ))}
+            </div>
           </div>
-        </div>
 
-        {/* Resumo do valor */}
-        <div className="px-6 py-3 bg-muted/20 border-b border-border flex items-baseline justify-between gap-3">
-          <span className="text-[11px] uppercase tracking-wide text-muted-foreground font-semibold">
-            Valor total
-          </span>
-          <span className="text-lg font-bold tabular-nums text-foreground">
-            R$ {fmtBRL(total)}
-          </span>
-        </div>
-
-        {/* Onda 15 (etapa 9) — Opção de consulta de crédito dentro do modal.
-            Operador liga/desliga a exigência aqui mesmo, antes de escolher as
-            parcelas. Off = aplica direto sem consulta (operador assume risco). */}
-        {onToggleRequiresCreditCheck && (
-          <div className="px-6 py-3 border-b border-border flex items-center justify-between gap-3">
-            <label className="text-xs font-medium text-foreground flex items-center gap-2 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={requiresCreditCheck}
-                onChange={(e) => onToggleRequiresCreditCheck(e.target.checked)}
-                className="w-4 h-4 rounded border-border accent-amber-600 cursor-pointer"
-              />
-              <span>
-                Exigir consulta de crédito ao parcelar
-                {!requiresCreditCheck && <span className="text-amber-700 italic"> · operador assume risco</span>}
-              </span>
-            </label>
-            {!requiresCreditCheck && (
-              <span className="text-[10px] text-amber-700 font-semibold px-2 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 shrink-0">
-                consulta dispensada
-              </span>
-            )}
-          </div>
-        )}
-
-        {/* Onda 14.25 — Boleto à vista destacado (verde, grande, separado).
-            10% desconto, sem juros, sem consulta de credito — pagamento
-            imediato. Aplicacao direta sem credit-check. */}
-        {highlightOption && highlightCalc && (
-          <button
-            type="button"
-            onClick={() => onSelect(highlightOption)}
-            className={`m-4 p-4 rounded-lg border-2 text-left transition-all hover:shadow-md ${
-              isHighlightActive
-                ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20'
-                : 'border-emerald-500/50 bg-emerald-500/5 hover:bg-emerald-500/10'
-            }`}
-          >
-            <div className="flex items-center justify-between gap-3 flex-wrap">
-              <div className="flex items-start gap-3 min-w-0">
-                <div className="w-10 h-10 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
-                  <Check size={18} className="text-emerald-700" strokeWidth={2.5} />
-                </div>
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-lg font-bold text-emerald-800 dark:text-emerald-300">
-                      Boleto à vista
-                    </span>
-                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white uppercase tracking-wide">
-                      −{highlightOption.discountPercent}%
-                    </span>
-                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-700 border border-emerald-500/30">
-                      sem consulta
-                    </span>
+          {/* Body em 2 colunas: principal (steps) + sidebar (resumo + CTA) */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0">
+            {/* ─── Coluna principal ─────────────────────────────────── */}
+            <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
+              {/* Banner valor total (escuro) */}
+              <div className="rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+                    <Building2 size={20} className="text-white" />
                   </div>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Pagamento imediato · sem juros · economia de R$ {fmtBRL(highlightCalc.savedValue)}
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
+                      Valor total do tratamento
+                    </p>
+                    <p className="text-xs text-white/80 truncate">
+                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-extrabold tabular-nums">
+                    R$ {fmtBRL(total)}
+                  </p>
+                  <p className="text-[11px] text-white/60">à vista ou em até 24x</p>
+                </div>
+              </div>
+
+              {/* ── Step 1: Entrada ───────────────────────────────── */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    1
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Entrada</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Quanto o paciente paga no fechamento — sem juros
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                    Opcional
+                  </span>
+                </div>
+
+                {/* Botoes de % */}
+                <div className="flex items-center gap-1.5 flex-wrap mb-3">
+                  {pctBtns.map((b) => {
+                    const isActive = b.value === 'clear' ? customDownPayment === 0 : pctOfTotal === b.value;
+                    return (
+                      <button
+                        key={b.label}
+                        type="button"
+                        onClick={() => {
+                          if (b.value === 'clear') onChangeCustomDownPayment(0);
+                          else onChangeCustomDownPayment(Math.round(total * (b.value / 100)));
+                        }}
+                        className={`text-xs font-semibold px-3 py-1.5 rounded-md border transition-colors ${
+                          isActive
+                            ? 'border-foreground bg-foreground text-background'
+                            : 'border-border bg-card hover:bg-accent/40 text-foreground'
+                        }`}
+                      >
+                        {b.label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Input + restante */}
+                <div className="flex items-center gap-3 flex-wrap mb-3">
+                  <input
+                    type="text"
+                    value={entradaText}
+                    onChange={(e) => handleEntradaChange(e.target.value)}
+                    placeholder="R$ 0"
+                    inputMode="numeric"
+                    className="w-36 text-sm font-semibold tabular-nums px-3 py-2 rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-foreground/30"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Resta para o pagamento:{' '}
+                    <strong className="text-foreground tabular-nums">R$ {fmtBRL(Math.max(0, total - customDownPayment))}</strong>
                   </p>
                 </div>
+
+                {/* Metodo do sinal: PIX / Boleto / Especie */}
+                {customDownPayment > 0 && (
+                  <div className="grid grid-cols-3 gap-2 mb-3">
+                    {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                      const isActive = customSignalMethod === m;
+                      const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                      const Icon = m === 'PIX' ? DollarSign : m === 'BOLETO' ? Building2 : Wallet;
+                      return (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => onChangeCustomSignalMethod(m)}
+                          className={`flex items-center justify-center gap-2 px-3 py-2.5 rounded-md border-2 text-sm font-semibold transition-colors ${
+                            isActive
+                              ? 'border-foreground bg-foreground text-background'
+                              : 'border-border bg-card hover:bg-accent/40 text-foreground'
+                          }`}
+                        >
+                          <Icon size={14} />
+                          {label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Atalhos rapidos */}
+                {customDownPayment > 0 && (onMarkCashReceived || onGeneratePixQr) && (
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {onMarkCashReceived && (
+                      <button
+                        type="button"
+                        onClick={() => { void onMarkCashReceived(); }}
+                        disabled={!!quickActionsLoading}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+                      >
+                        {quickActionsLoading === 'cash' ? <Loader2 size={12} className="animate-spin" /> : <span>💵</span>}
+                        Já recebi em espécie
+                      </button>
+                    )}
+                    {onGeneratePixQr && (
+                      <button
+                        type="button"
+                        onClick={() => { void onGeneratePixQr(); }}
+                        disabled={!!quickActionsLoading}
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 disabled:opacity-50 transition-colors"
+                      >
+                        {quickActionsLoading === 'pix' ? <Loader2 size={12} className="animate-spin" /> : <span>📱</span>}
+                        Gerar PIX QR Code
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
-              <div className="text-right shrink-0">
-                <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold mb-0.5">
-                  Total a pagar
+
+              {/* ── Step 2: Como pagar o restante ─────────────────── */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Como pagar o restante</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Escolha à vista com desconto ou parcelado
+                    </p>
+                  </div>
+                  {onToggleRequiresCreditCheck && (
+                    <label className="text-[11px] flex items-center gap-1.5 text-muted-foreground cursor-pointer select-none shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={requiresCreditCheck}
+                        onChange={(e) => onToggleRequiresCreditCheck(e.target.checked)}
+                        className="w-3.5 h-3.5 rounded border-border accent-amber-600 cursor-pointer"
+                      />
+                      consulta de crédito
+                    </label>
+                  )}
                 </div>
-                <div className="text-2xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                  R$ {fmtBRL(highlightCalc.finalValue)}
+
+                {/* Boleto a vista — destacado verde */}
+                {highlightOption && highlightCalc && (
+                  <button
+                    type="button"
+                    onClick={() => onSelectParcelas(highlightOption)}
+                    className={`w-full p-4 rounded-lg border-2 text-left transition-all hover:shadow-md mb-3 ${
+                      isHighlightActive
+                        ? 'border-emerald-500 bg-emerald-500/10 ring-2 ring-emerald-500/20'
+                        : 'border-emerald-500/40 bg-emerald-500/5 hover:bg-emerald-500/10'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-start gap-3 min-w-0">
+                        <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                          <Check size={16} className="text-emerald-700" strokeWidth={2.5} />
+                        </div>
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-base font-bold text-emerald-800 dark:text-emerald-300">
+                              À vista
+                            </span>
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-emerald-600 text-white uppercase">
+                              −{highlightOption.discountPercent}%
+                            </span>
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 uppercase">
+                              sem consulta
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-muted-foreground mt-0.5">
+                            Pagamento imediato · sem juros · economia de R$ {fmtBRL(highlightCalc.savedValue)}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                          Total a pagar
+                        </div>
+                        <div className="text-xl font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                          R$ {fmtBRL(highlightCalc.finalValue)}
+                        </div>
+                        <div className="text-[11px] text-muted-foreground line-through tabular-nums">
+                          R$ {fmtBRL(total)}
+                        </div>
+                      </div>
+                    </div>
+                  </button>
+                )}
+
+                {/* Separador */}
+                {highlightOption && tableOptions.length > 0 && (
+                  <div className="flex items-center gap-3 my-3">
+                    <div className="flex-1 h-px bg-border" />
+                    <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
+                      ou parcele com juros
+                    </span>
+                    <div className="flex-1 h-px bg-border" />
+                  </div>
+                )}
+
+                {/* Lista de parcelas — formato linhas com radio */}
+                <div className="max-h-[280px] overflow-y-auto rounded-md border border-border">
+                  {tableOptions.map((opt) => {
+                    const isActive = activePaymentKey === opt.key;
+                    const c = applyPaymentOption(total, opt, customDownPayment);
+                    const hasInterest = (opt.interestRate ?? 0) > 0;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => onSelectParcelas(opt)}
+                        className={`w-full grid grid-cols-[60px_1fr_auto_28px] gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
+                          isActive ? 'bg-amber-500/10 hover:bg-amber-500/15' : 'hover:bg-accent/40'
+                        }`}
+                      >
+                        <span className={`text-base tabular-nums ${isActive ? 'font-bold text-amber-800' : 'font-semibold text-foreground'}`}>
+                          {opt.installments}x
+                        </span>
+                        <span className="text-xs tabular-nums">
+                          <strong className={isActive ? 'text-amber-800' : 'text-foreground'}>
+                            R$ {fmtBRL(c.installmentValue)}
+                          </strong>
+                          <span className="text-muted-foreground">/mês</span>
+                          {hasInterest && (
+                            <span className="block text-[10px] text-amber-700 leading-tight mt-0.5">
+                              juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}
+                            </span>
+                          )}
+                        </span>
+                        <span className="text-right">
+                          <span className="text-[10px] uppercase text-muted-foreground tracking-wide block leading-tight">
+                            Total boletos
+                          </span>
+                          <span className="text-xs font-semibold tabular-nums text-foreground">
+                            R$ {fmtBRL(c.finalValue - c.downPaymentValue)}
+                          </span>
+                        </span>
+                        <span className="flex items-center justify-center">
+                          <span className={`w-4 h-4 rounded-full border-2 transition-colors ${
+                            isActive ? 'border-amber-500 bg-amber-500' : 'border-border'
+                          }`} />
+                        </span>
+                      </button>
+                    );
+                  })}
                 </div>
-                <div className="text-[11px] text-muted-foreground line-through tabular-nums">
-                  R$ {fmtBRL(total)}
+              </div>
+
+              {/* ── Step 3: Plano de cobranca (timeline) ──────────── */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    3
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Quando cada boleto é gerado e vence
+                    </p>
+                  </div>
+                </div>
+
+                <div className="relative pl-7 space-y-4">
+                  {/* Linha vertical do timeline */}
+                  <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
+
+                  {/* Sinal de fechamento */}
+                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">Sinal de fechamento</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Cobrado hoje via {customSignalMethod === 'PIX' ? 'PIX' : customSignalMethod === 'BOLETO' ? 'boleto' : 'espécie'}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
+                        <Clock size={9} />
+                        {todayLabel}
+                      </span>
+                      <p className="text-sm font-bold tabular-nums text-foreground">
+                        R$ {fmtBRL(sinalValor)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Entrada (boleto restante da entrada) */}
+                  {entradaBoletoValor > 0 && (
+                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-semibold text-foreground">Entrada (boleto)</p>
+                        <p className="text-[11px] text-muted-foreground">Vencimento configurável</p>
+                      </div>
+                      <div className="text-right shrink-0">
+                        <input
+                          type="date"
+                          value={customEntradaDueDate}
+                          onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                        />
+                        <p className="text-sm font-bold tabular-nums text-foreground">
+                          R$ {fmtBRL(entradaBoletoValor)}
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Parcelas / Boleto a vista */}
+                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        {isAVista ? 'Boleto à vista' : `${activeOption?.installments || 1}x boletos`}
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        {isAVista ? 'Pagamento único' : 'Próximas vencem a cada 30 dias'}
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      {!isAVista && (
+                        <input
+                          type="date"
+                          value={customInstallmentsStartDate}
+                          onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
+                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                        />
+                      )}
+                      <p className="text-sm font-bold tabular-nums text-foreground">
+                        R$ {fmtBRL(parcelasValor)}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-            {isHighlightActive && (
-              <div className="mt-2 pt-2 border-t border-emerald-500/30 flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700">
-                <Check size={11} strokeWidth={3} />
-                Selecionado
+
+            {/* ─── Sidebar — Resumo + CTA ───────────────────────────── */}
+            <aside className="bg-card border-l border-border p-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+              <h3 className="text-base font-bold text-foreground">Resumo da cobrança</h3>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Confira antes de emitir
+              </p>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs">Valor do tratamento</span>
+                  <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(total)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs">Entrada</span>
+                  <span className="font-semibold tabular-nums text-foreground">
+                    {entradaSummary > 0 ? `R$ ${fmtBRL(entradaSummary)}` : '— R$ 0,00'}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 pb-3 border-b border-border">
+                  <span className="text-muted-foreground text-xs">Restante</span>
+                  <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(restanteSummary)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <span className="text-muted-foreground text-xs">Forma escolhida</span>
+                  <span className="font-semibold text-foreground text-xs">{formaLabel}</span>
+                </div>
+                {activeCalc && activeCalc.savedValue > 0 && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-xs">Desconto à vista</span>
+                    <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                      − R$ {fmtBRL(activeCalc.savedValue)}
+                    </span>
+                  </div>
+                )}
+                {activeCalc && activeCalc.extraInterest > 0 && (
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-muted-foreground text-xs">Juros</span>
+                    <span className="font-semibold tabular-nums text-amber-700 dark:text-amber-400">
+                      + R$ {fmtBRL(activeCalc.extraInterest)}
+                    </span>
+                  </div>
+                )}
               </div>
-            )}
-          </button>
-        )}
 
-        {/* Separador "ou parcele" */}
-        {highlightOption && (
-          <div className="px-6 -mt-2 mb-2 flex items-center gap-3">
-            <div className="flex-1 h-px bg-border" />
-            <span className="text-[10px] uppercase tracking-widest text-muted-foreground font-semibold">
-              ou parcele com juros
-            </span>
-            <div className="flex-1 h-px bg-border" />
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-xs text-muted-foreground mb-1">Total final</p>
+                <p className="text-[10px] text-muted-foreground">
+                  {isAVista ? 'pagamento imediato, sem juros' : `${activeOption?.installments || 1}x parcelas`}
+                </p>
+                <p className="text-2xl font-extrabold tabular-nums text-foreground mt-1">
+                  R$ {fmtBRL(activeCalc?.finalValue ?? total)}
+                </p>
+                {activeCalc && activeCalc.savedValue > 0 && (
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
+                    economia de R$ {fmtBRL(activeCalc.savedValue)}
+                  </p>
+                )}
+              </div>
+
+              <button
+                type="button"
+                onClick={onEmitir}
+                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+              >
+                <Check size={16} strokeWidth={3} />
+                Emitir cobrança
+              </button>
+
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {onGeneratePixQr && (
+                  <button
+                    type="button"
+                    onClick={() => { void onGeneratePixQr(); }}
+                    disabled={!!quickActionsLoading || customDownPayment <= 0}
+                    className="px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 disabled:opacity-50 transition-colors"
+                    title={customDownPayment <= 0 ? 'Defina a entrada primeiro' : 'Gerar PIX QR Code da entrada'}
+                  >
+                    <DollarSign size={12} />
+                    PIX
+                  </button>
+                )}
+                {onSend && (
+                  <button
+                    type="button"
+                    onClick={onSend}
+                    className="px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    title="Enviar link da proposta no WhatsApp"
+                  >
+                    <MessageSquare size={12} />
+                    WhatsApp
+                  </button>
+                )}
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
+                  <ShieldCheck size={12} />
+                  Ambiente seguro
+                </p>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Boletos e PIX emitidos via Asaas. Análise de crédito (parcelamentos) via Serasa Crediscore. Sinal/entrada são idempotentes — não re-emite se já existir.
+                </p>
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {['Asaas', 'Serasa Crediscore', 'PIX'].map((b) => (
+                    <span
+                      key={b}
+                      className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
+                    >
+                      {b}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </aside>
           </div>
-        )}
-
-        {/* Cabeçalho da tabela.
-            Onda 14.57 — coluna direita mostra "Total dos boletos" (soma das
-            parcelas sem entrada). Antes incluia entrada e ficava artificialmente
-            alto comparado ao Valor Total do tratamento. Entrada segue visivel
-            na linha do meio ("entrada R$ X +..."). */}
-        <div className="grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-2 text-[10px] uppercase tracking-wide text-muted-foreground font-bold border-b border-border bg-muted/10">
-          <span>Parcelas</span>
-          <span>Valor de cada parcela</span>
-          <span className="text-right">Total dos boletos</span>
-        </div>
-
-        {/* Linhas — Onda 14.25: filtradas, sem boleto-avista (renderizado acima destacado) */}
-        <ul className="flex-1 min-h-0 overflow-y-auto">
-          {tableOptions.map((opt) => {
-            const isActive = activePaymentKey === opt.key;
-            // Onda 14.29 — entrada custom sobrescreve downPaymentPercent default
-            const c = applyPaymentOption(total, opt, customDownPayment);
-            const hasInterest = (opt.interestRate ?? 0) > 0;
-            return (
-              <li key={opt.key}>
-                <button
-                  type="button"
-                  onClick={() => onSelect(opt)}
-                  className={`w-full grid grid-cols-[80px_1fr_auto] gap-4 px-6 py-3 text-left transition-colors border-b border-border/40 last:border-0 ${
-                    isActive
-                      ? 'bg-amber-500/10 hover:bg-amber-500/15'
-                      : 'hover:bg-accent/40'
-                  }`}
-                >
-                  <span className={`text-base tabular-nums ${isActive ? 'font-bold text-amber-800' : 'font-medium text-foreground'}`}>
-                    {opt.installments}x
-                    {opt.sublabel && (
-                      <span className="block text-[9px] text-muted-foreground font-medium uppercase tracking-wide">
-                        {opt.sublabel}
-                      </span>
-                    )}
-                  </span>
-                  <span className="text-sm tabular-nums">
-                    {c.downPaymentValue > 0 && (
-                      <span className="text-[10px] text-muted-foreground block leading-tight">
-                        entrada R$ {fmtBRL(c.downPaymentValue)} +
-                      </span>
-                    )}
-                    de{' '}
-                    <strong className={isActive ? 'text-amber-800' : 'text-foreground'}>
-                      R$ {fmtBRL(c.installmentValue)}
-                    </strong>{' '}
-                    {hasInterest ? (
-                      <span className="text-amber-700 text-xs font-medium">com juros</span>
-                    ) : (
-                      <span className="text-emerald-700 text-xs font-medium">sem juros</span>
-                    )}
-                    {/* Onda 14.26 — texto adapta conforme requires_credit_check
-                        da venda: padrao mostra "exige consulta", quando dispensado
-                        mostra "consulta dispensada" em verde. */}
-                    {requiresCreditCheck ? (
-                      <span className="block text-[10px] text-amber-700 italic mt-0.5">
-                        exige consulta de crédito ⓘ
-                      </span>
-                    ) : (
-                      <span className="block text-[10px] text-emerald-700 italic mt-0.5">
-                        consulta dispensada · aplica direto
-                      </span>
-                    )}
-                  </span>
-                  {/* Onda 14.57 — exibe apenas a soma das parcelas (sem
-                      entrada). Antes era c.finalValue (entrada + parcelas)
-                      e ficava artificialmente alto vs o Valor Total do topo. */}
-                  <span className="text-sm tabular-nums text-right text-muted-foreground">
-                    R$ {fmtBRL(c.finalValue - c.downPaymentValue)}
-                  </span>
-                </button>
-              </li>
-            );
-          })}
-        </ul>
-
-        {/* Rodapé */}
-        <div className="px-6 py-3 bg-muted/20 border-t border-border space-y-1">
-          <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
-            <ShieldCheck size={11} className="text-emerald-700" />
-            Boletos emitidos via Asaas · Análise de crédito via Serasa Crediscore
-          </p>
-          <p className="text-[10px] text-muted-foreground">
-            Boleto à vista: 10% de desconto, sem consulta · 1x (30 dias) a 24x: juros 1,5%/mês, exige consulta · entrada de 20% a partir de 12x
-          </p>
         </div>
       </div>
-    </div>
     </ModalPortal>
   );
 }
