@@ -3471,6 +3471,8 @@ function PropostaPainel({
   // Onda 17.32.3 — Atalho "Gerar Boleto" da entrada. Mesmo padrao dos
   // outros (PIX/CASH) mas com signalMethod=BOLETO. Abre a 2a via (URL
   // do boleto Asaas) numa aba nova pra operador entregar/imprimir.
+  // signalDueDate vem de customEntradaDueDate (operador escolheu no Step 1).
+  // Se vazio, backend usa hoje como default.
   const handleQuickBoletoEntry = async () => {
     if (!detail || customDownPayment <= 0) return;
     setQuickActionLoading('boleto');
@@ -3481,6 +3483,9 @@ function PropostaPainel({
         restValue: 0,
         parts: ['SIGNAL'],
       };
+      if (customEntradaDueDate) {
+        boletoBody.signalDueDate = customEntradaDueDate;
+      }
       const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, boletoBody);
       const boletoCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
         || (emitData?.charges ?? [])[0];
@@ -4719,6 +4724,28 @@ function BoletoCobrancaUnificadaModal({
                         </button>
                       );
                     })}
+                  </div>
+                )}
+
+                {/* Onda 17.32.5 — Vencimento do boleto da entrada.
+                    So aparece pra metodo=BOLETO. Vazio = hoje (default backend). */}
+                {customDownPayment > 0 && customSignalMethod === 'BOLETO' && (
+                  <div className="mb-3 flex items-center gap-3 flex-wrap">
+                    <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
+                      <Clock size={12} className="text-amber-600" />
+                      Vencimento do boleto:
+                    </label>
+                    <input
+                      type="date"
+                      value={customEntradaDueDate}
+                      onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                      className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                    />
+                    {!customEntradaDueDate && (
+                      <span className="text-[10px] text-muted-foreground italic">
+                        vazio = hoje
+                      </span>
+                    )}
                   </div>
                 )}
 
