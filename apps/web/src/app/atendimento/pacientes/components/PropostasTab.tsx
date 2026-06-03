@@ -999,6 +999,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   const [approveBillOpen, setApproveBillOpen] = useState(false);
   const [approveBillResult, setApproveBillResult] = useState<ApproveAndBillResult | null>(null);
   const [approvingBill, setApprovingBill] = useState(false);
+  // Onda 17.32.15 — Dialog "Cobrancas geradas" pos-emissao.
+  // Apos approveAndBill / apply-financing resolverem, busca as charges
+  // criadas e abre esse dialog com acoes por charge (QR/2a via/WhatsApp).
+  const [chargesGeneratedDialog, setChargesGeneratedDialog] = useState<{
+    open: boolean;
+    charges: any[];
+  } | null>(null);
 
   // Onda 14.5 — Aprovar proposta + gerar cobranca direta
   const approveAndBill = useCallback(async (extras?: {
@@ -1147,12 +1154,23 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         }
         if (extras?.customEntradaDueDate) applyBody.entrada_due_date = extras.customEntradaDueDate;
         if (extras?.customInstallmentsStartDate) applyBody.installments_start_date = extras.customInstallmentsStartDate;
-        await api.post(`/quotes/${selectedDetail.id}/apply-financing`, applyBody);
+        const { data: financingData } = await api.post<{ plan_id: string; charges?: any[] }>(`/quotes/${selectedDetail.id}/apply-financing`, applyBody);
         showSuccess(
           isCashSignal
             ? 'Sinal em espécie registrado + entrada e parcelas geradas.'
             : 'Proposta aprovada e boletos gerados (consulta dispensada).',
         );
+        // Onda 17.32.15 — Pos-emissao: busca charges recem-criadas do plano
+        // e abre dialog com elas + acoes (QR, 2a via, WhatsApp).
+        try {
+          const planId = financingData?.plan_id;
+          if (planId) {
+            const { data: planCharges } = await api.get(`/commercial/treatment-plans/${planId}/charges`);
+            if (Array.isArray(planCharges) && planCharges.length > 0) {
+              setChargesGeneratedDialog({ open: true, charges: planCharges });
+            }
+          }
+        } catch (e) { /* swallow — dialog e bonus */ }
         load();
       } catch (err: unknown) {
         const e = err as { response?: { data?: { message?: string } }; message?: string };
@@ -1680,6 +1698,19 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             setApproveBillOpen(false);
             setApproveBillResult(null);
             setSelectedId(null); // fecha o painel (quote ja foi aceito)
+          }}
+        />
+      )}
+
+      {/* Onda 17.32.15 — Dialog "Cobrancas geradas" pos-emissao */}
+      {chargesGeneratedDialog?.open && (
+        <ChargesGeneratedDialog
+          charges={chargesGeneratedDialog.charges}
+          onClose={() => setChargesGeneratedDialog(null)}
+          onSendWhatsApp={() => {
+            if (selectedDetail) {
+              sendToPatient();
+            }
           }}
         />
       )}
@@ -7370,6 +7401,203 @@ function BonusDialog({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Onda 17.32.15 — Dialog "Cobrancas geradas" apos Emitir cobranca.
+ *  Lista cada charge criada (sinal/entrada/parcelas) com acoes:
+ *  - PIX com QR: botao "Mostrar QR" abre modal interno
+ *  - Boleto: botao "Abrir 2a via" (abre invoice_url numa aba)
+ *  - Especie: badge "Recebido em maos" (sem acao)
+ *  - "Enviar via WhatsApp" pro link do boleto/PIX. */
+function ChargesGeneratedDialog({
+  charges,
+  onClose,
+  onSendWhatsApp,
+}: {
+  charges: any[];
+  onClose: () => void;
+  onSendWhatsApp: () => void;
+}) {
+  const [pixQrDialog, setPixQrDialog] = useState<null | { qrCode: string; copyPaste: string; amount: number; invoiceUrl?: string; title: string }>(null);
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return '—';
+    try {
+      const d = new Date(iso);
+      return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+    } catch { return iso; }
+  };
+  const kindLabel = (kind: string | null) =>
+    kind === 'SINAL' ? 'Sinal de fechamento' :
+    kind === 'ENTRADA' ? 'Entrada' :
+    kind === 'PARCELA' ? 'Parcela' :
+    'Cobrança';
+  const statusLabel = (status: string | null) => {
+    const s = (status || '').toUpperCase();
+    if (s === 'PAID' || s === 'CONFIRMED' || s === 'RECEIVED' || s === 'RECEIVED_IN_CASH') return 'Pago';
+    if (s === 'PENDING') return 'Aguardando pagamento';
+    if (s === 'OVERDUE') return 'Vencido';
+    if (s === 'CANCELLED') return 'Cancelado';
+    return status || 'Aguardando';
+  };
+  const statusCls = (status: string | null) => {
+    const s = (status || '').toUpperCase();
+    if (s === 'PAID' || s === 'CONFIRMED' || s === 'RECEIVED' || s === 'RECEIVED_IN_CASH')
+      return 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-500/30';
+    if (s === 'OVERDUE') return 'bg-red-500/10 text-red-700 dark:text-red-400 border-red-500/30';
+    if (s === 'CANCELLED') return 'bg-muted text-muted-foreground border-border';
+    return 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-500/30';
+  };
+  const methodColor = (bt: string | null) =>
+    bt === 'PIX' ? 'text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30' :
+    bt === 'BOLETO' ? 'text-amber-700 dark:text-amber-400 bg-amber-500/10 border-amber-500/30' :
+    'text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto" onClick={onClose}>
+        <div
+          className="bg-card border border-border rounded-xl shadow-2xl max-w-2xl w-[calc(100%-2rem)] my-6 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-border bg-gradient-to-r from-emerald-500/10 to-emerald-500/5 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+                <Check size={16} className="text-emerald-700" strokeWidth={3} />
+                Cobranças geradas
+              </h3>
+              <p className="text-[11px] text-muted-foreground mt-1">
+                {charges.length} {charges.length === 1 ? 'cobrança gerada' : 'cobranças geradas'} no Asaas · envie pro paciente
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-muted-foreground hover:text-foreground p-1.5 -mr-1 hover:bg-accent/50 rounded-md transition-colors shrink-0"
+              aria-label="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
+
+          {/* Lista de charges */}
+          <div className="p-5 space-y-3 max-h-[60vh] overflow-y-auto">
+            {charges.map((charge) => {
+              const bt = charge.billing_type;
+              const isPix = bt === 'PIX';
+              const isBoleto = bt === 'BOLETO';
+              const isCash = bt === 'CASH' || charge.gateway === 'CASH';
+              const hasQr = isPix && charge.pix_qr_code;
+              const link = charge.invoice_url || charge.boleto_url || null;
+              return (
+                <div key={charge.id} className="border border-border rounded-lg p-3 bg-background hover:bg-accent/10 transition-colors">
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-foreground">{kindLabel(charge.kind)}</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Vence em {fmtDate(charge.due_date)}
+                      </p>
+                    </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0">
+                      <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border ${methodColor(bt)}`}>
+                        {bt || (isCash ? 'Espécie' : '—')}
+                      </span>
+                      <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded border ${statusCls(charge.status)}`}>
+                        {statusLabel(charge.status)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-baseline justify-between gap-2 mb-2">
+                    <span className="text-xs text-muted-foreground">Valor</span>
+                    <span className="text-lg font-extrabold tabular-nums text-foreground">
+                      R$ {fmtBRL(Number(charge.amount || 0))}
+                    </span>
+                  </div>
+
+                  {/* Acoes */}
+                  <div className="flex items-center gap-2 flex-wrap pt-2 border-t border-border/40">
+                    {hasQr && (
+                      <button
+                        type="button"
+                        onClick={() => setPixQrDialog({
+                          qrCode: charge.pix_qr_code,
+                          copyPaste: charge.pix_copy_paste || '',
+                          amount: Number(charge.amount),
+                          invoiceUrl: charge.invoice_url,
+                          title: `${kindLabel(charge.kind)} · PIX`,
+                        })}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <span>📱</span>
+                        Mostrar QR Code
+                      </button>
+                    )}
+                    {isBoleto && link && (
+                      <button
+                        type="button"
+                        onClick={() => window.open(link, '_blank', 'noopener,noreferrer')}
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/30 hover:bg-amber-500/20 transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <span>🧾</span>
+                        Abrir 2ª via
+                      </button>
+                    )}
+                    {isCash && (
+                      <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 px-2 py-1">
+                        <Check size={11} strokeWidth={3} />
+                        Registrado em espécie
+                      </span>
+                    )}
+                    {link && !isCash && (
+                      <a
+                        href={link}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs font-semibold px-3 py-1.5 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors inline-flex items-center gap-1.5"
+                      >
+                        <Eye size={11} />
+                        Abrir cobrança
+                      </a>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Rodape */}
+          <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={onSendWhatsApp}
+              className="text-xs font-semibold px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 transition-colors"
+              title="Envia mensagem WhatsApp com o link das cobranças"
+            >
+              <MessageSquare size={12} />
+              Enviar tudo no WhatsApp
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="text-xs font-semibold px-4 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
+      </div>
+      {pixQrDialog && (
+        <PixQrDialog
+          qrCode={pixQrDialog.qrCode}
+          copyPaste={pixQrDialog.copyPaste}
+          amount={pixQrDialog.amount}
+          invoiceUrl={pixQrDialog.invoiceUrl}
+          title={pixQrDialog.title}
+          onClose={() => setPixQrDialog(null)}
+        />
+      )}
+    </ModalPortal>
   );
 }
 
