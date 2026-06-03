@@ -2,6 +2,8 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { Server as SocketIOServer } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
+import Redis from 'ioredis';
 import { JwtService } from '@nestjs/jwt';
 import { ChatGateway } from './gateway/chat.gateway';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
@@ -109,6 +111,34 @@ async function bootstrap() {
       skipMiddlewares: true,
     },
   });
+
+  // Onda 17.29 — Redis adapter pra Socket.io.
+  // Sem adapter, o Socket.io guarda rooms/listeners EM MEMORIA do processo.
+  // Quando o container chatcrm-stack_api reinicia (qualquer deploy), todas
+  // as conexoes caem porque cada cliente perde o "estado distribuido"
+  // imediatamente. Com Redis adapter:
+  //   - Rooms ficam num pub/sub Redis (sobrevive a reinicio do app)
+  //   - Permite escalar a API horizontalmente (N replicas dividem rooms)
+  //   - Cliente reconecta + recovery em <2s em vez de instavel
+  // Gracioso: se REDIS_HOST nao for setado (dev local), usa in-memory
+  // como antes (sem adapter).
+  if (process.env.REDIS_HOST) {
+    try {
+      const redisHost = process.env.REDIS_HOST;
+      const redisPort = parseInt(process.env.REDIS_PORT || '6379', 10);
+      const redisPassword = process.env.REDIS_PASSWORD || undefined;
+      const pubClient = new Redis({ host: redisHost, port: redisPort, password: redisPassword, maxRetriesPerRequest: null });
+      const subClient = pubClient.duplicate();
+      pubClient.on('error', (e) => logger.error(`[Socket.io Redis pub] ${e.message}`));
+      subClient.on('error', (e) => logger.error(`[Socket.io Redis sub] ${e.message}`));
+      io.adapter(createAdapter(pubClient, subClient));
+      logger.log(`[Socket.io] Redis adapter ativo (${redisHost}:${redisPort}) — conexoes sobrevivem a reinicio`);
+    } catch (err: any) {
+      logger.error(`[Socket.io] Falha ao iniciar Redis adapter (${err.message}) — usando in-memory fallback`);
+    }
+  } else {
+    logger.warn('[Socket.io] REDIS_HOST nao definido — usando adapter in-memory (conexoes caem ao reiniciar)');
+  }
 
   chatGateway.server = io;
 
