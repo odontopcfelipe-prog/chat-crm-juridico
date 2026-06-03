@@ -4886,7 +4886,10 @@ function BoletoCobrancaUnificadaModal({
                         type="date"
                         value={customSinalDueDate}
                         onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
-                        className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
+                        required
+                        className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                          customSinalDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
+                        }`}
                       />
                       <input
                         type="text"
@@ -4910,15 +4913,20 @@ function BoletoCobrancaUnificadaModal({
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
                       </div>
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">Entrada (boleto)</p>
-                        <p className="text-[11px] text-muted-foreground">Vencimento configurável</p>
+                        <p className="text-sm font-semibold text-foreground">
+                          Entrada (boleto) <span className="text-red-600">*</span>
+                        </p>
+                        <p className="text-[11px] text-muted-foreground">Vencimento obrigatório</p>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         <input
                           type="date"
                           value={customEntradaDueDate}
                           onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
+                          required
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
                         />
                         <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
                           R$ {fmtBRL(entradaBoletoValor)}
@@ -4935,9 +4943,10 @@ function BoletoCobrancaUnificadaModal({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground">
                         {isAVista ? 'Boleto à vista' : `${activeOption?.installments || 1}x boletos`}
+                        {!isAVista && <span className="text-red-600"> *</span>}
                       </p>
                       <p className="text-[11px] text-muted-foreground">
-                        {isAVista ? 'Pagamento único' : 'Próximas vencem a cada 30 dias'}
+                        {isAVista ? 'Pagamento único' : 'Data da 1ª parcela obrigatória · próximas a cada 30 dias'}
                       </p>
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
@@ -4946,7 +4955,10 @@ function BoletoCobrancaUnificadaModal({
                           type="date"
                           value={customInstallmentsStartDate}
                           onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
-                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
+                          required
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customInstallmentsStartDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
                         />
                       ) : (
                         <span className="w-[120px]" />
@@ -5060,14 +5072,45 @@ function BoletoCobrancaUnificadaModal({
                 );
               })()}
 
-              <button
-                type="button"
-                onClick={onEmitir}
-                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
-              >
-                <Check size={16} strokeWidth={3} />
-                Emitir cobrança
-              </button>
+              {/* Onda 17.32.13 — Valida datas obrigatorias antes de emitir.
+                  Backend tem defaults (hoje pra sinal, +30d pra parcelas) mas
+                  operador preferiu obrigar configuracao explicita pra evitar
+                  vencimentos errados em producao. */}
+              {(() => {
+                const missing: string[] = [];
+                if (sinalValor > 0 && !customSinalDueDate) missing.push('data do sinal');
+                if (entradaBoletoValor > 0 && !customEntradaDueDate) missing.push('data da entrada (boleto)');
+                if (parcelasValor > 0 && !isAVista && !customInstallmentsStartDate) missing.push('data da 1ª parcela');
+                const canEmit = missing.length === 0 && (sinalValor > 0 || parcelasValor > 0);
+                return (
+                  <>
+                    {missing.length > 0 && (
+                      <div className="mt-4 p-2.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-700 dark:text-red-400 flex items-start gap-1.5">
+                        <AlertTriangle size={12} className="mt-0.5 shrink-0" />
+                        <span>
+                          Preencha {missing.length === 1 ? 'a' : 'as'} <strong>{missing.join(', ')}</strong> {missing.length === 1 ? 'no' : 'nos'} timeline acima.
+                        </span>
+                      </div>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (missing.length > 0) {
+                          showError(`Preencha: ${missing.join(', ')}`);
+                          return;
+                        }
+                        onEmitir();
+                      }}
+                      disabled={!canEmit}
+                      title={!canEmit ? 'Configure entrada, parcelas e datas pra emitir' : 'Gerar todas as cobranças no Asaas'}
+                      className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                    >
+                      <Check size={16} strokeWidth={3} />
+                      Emitir cobrança
+                    </button>
+                  </>
+                );
+              })()}
 
               {onSend && (
                 <button
