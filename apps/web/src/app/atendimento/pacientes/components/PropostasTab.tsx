@@ -3170,6 +3170,11 @@ function PropostaPainel({
   // passa a expor a quantidade selecionada na propria face.
   const [cartaoModalOpen, setCartaoModalOpen] = useState(false);
   const [boletoModalOpen, setBoletoModalOpen] = useState(false);
+  // Onda 17.32.7 — Modal PIX unificado (mesmo template do Boleto, voltado
+  // pra geracao do PIX). Abre ao clicar no card "PIX ou dinheiro".
+  const [pixModalOpen, setPixModalOpen] = useState(false);
+  // Vencimento do PIX (opcional). Vazio = 24h default Asaas.
+  const [customPixDueDate, setCustomPixDueDate] = useState<string>('');
   // Onda 17.31 — Atalhos rapidos: receber em especie / gerar PIX QR / gerar Boleto.
   // quickActionLoading bloqueia os botoes durante a chamada.
   // quickPixDialog mostra o modal do QR code apos a criacao da cobranca PIX.
@@ -3711,7 +3716,8 @@ function PropostaPainel({
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
               {/* PIX ou dinheiro */}
               {pixCalc && (
-                <button type="button" onClick={() => onChangePayment(pixOpt.key)}
+                <button type="button"
+                  onClick={() => { if (sel !== 'pix') onChangePayment(pixOpt.key); setPixModalOpen(true); }}
                   className={`text-left p-4 rounded-xl border-2 transition-colors ${
                     sel === 'pix'
                       ? 'border-emerald-500 bg-emerald-500/10'
@@ -3906,6 +3912,28 @@ function PropostaPainel({
                   });
                 }}
                 onClose={() => setBoletoModalOpen(false)}
+                onSend={onSend}
+              />
+            )}
+            {pixModalOpen && pixCalc && pixOpt && (
+              <PixCobrancaUnificadaModal
+                detail={detail}
+                total={total}
+                pixOption={pixOpt}
+                pixCalc={pixCalc}
+                customPixDueDate={customPixDueDate}
+                onChangeCustomPixDueDate={setCustomPixDueDate}
+                onEmitir={() => {
+                  setPixModalOpen(false);
+                  onApproveAndBill({
+                    customDownPayment: 0,
+                    customSignalValue: 0,
+                    customSignalMethod: 'PIX',
+                    customEntradaDueDate: customPixDueDate,
+                    customInstallmentsStartDate: '',
+                  });
+                }}
+                onClose={() => setPixModalOpen(false)}
                 onSend={onSend}
               />
             )}
@@ -5014,6 +5042,305 @@ function BoletoCobrancaUnificadaModal({
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                   {['Asaas', 'Serasa Crediscore', 'PIX'].map((b) => (
+                    <span
+                      key={b}
+                      className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
+                    >
+                      {b}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
+/** Onda 17.32.7 — Modal "Cobranca do tratamento" voltado pra geracao do PIX.
+ *  Mesma estrutura visual do BoletoCobrancaUnificadaModal mas simplificado:
+ *  PIX e a vista, sem entrada/parcelas/credit-check. So mostra o valor com
+ *  desconto + vencimento opcional + CTA "Emitir cobranca" que dispara
+ *  approve-and-bill com billingType=PIX. */
+function PixCobrancaUnificadaModal({
+  detail,
+  total,
+  pixOption,
+  pixCalc,
+  customPixDueDate,
+  onChangeCustomPixDueDate,
+  onEmitir,
+  onClose,
+  onSend,
+}: {
+  detail: QuoteDetailLite;
+  total: number;
+  pixOption: PaymentOption;
+  pixCalc: { finalValue: number; savedValue: number; extraInterest: number; downPaymentValue: number; installmentValue: number };
+  customPixDueDate: string;
+  onChangeCustomPixDueDate: (v: string) => void;
+  onEmitir: () => void;
+  onClose: () => void;
+  onSend?: () => void;
+}) {
+  const todayLabel = (() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  })();
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto"
+        onClick={onClose}
+      >
+        <div
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header — igual ao Boleto pra manter padrao */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-0.5 p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                aria-label="Voltar"
+                title="Voltar"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-foreground leading-tight">
+                  Cobrança do tratamento
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › PIX à vista
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                Rascunho · não emitido
+              </span>
+            </div>
+          </div>
+
+          {/* Body em 2 colunas */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0">
+            <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
+              {/* Banner valor total escuro */}
+              <div className="rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+                    <DollarSign size={20} className="text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
+                      Valor total do tratamento
+                    </p>
+                    <p className="text-xs text-white/80 truncate">
+                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-extrabold tabular-nums">
+                    R$ {fmtBRL(total)}
+                  </p>
+                  <p className="text-[11px] text-white/60">pague à vista via PIX com desconto</p>
+                </div>
+              </div>
+
+              {/* Card destacado verde PIX */}
+              <div className="rounded-xl border-2 border-emerald-500 bg-emerald-500/10 p-5">
+                <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                  <div className="flex items-start gap-3 min-w-0">
+                    <div className="w-11 h-11 rounded-full bg-emerald-500/20 flex items-center justify-center shrink-0">
+                      <Check size={20} className="text-emerald-700" strokeWidth={2.5} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-xl font-bold text-emerald-800 dark:text-emerald-300">
+                          PIX à vista
+                        </span>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-600 text-white uppercase">
+                          −{pixOption.discountPercent}%
+                        </span>
+                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 uppercase">
+                          melhor opção
+                        </span>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Pagamento imediato · sem juros · economia de R$ {fmtBRL(pixCalc.savedValue)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                      Total a pagar
+                    </div>
+                    <div className="text-3xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+                      R$ {fmtBRL(pixCalc.finalValue)}
+                    </div>
+                    <div className="text-xs text-muted-foreground line-through tabular-nums">
+                      R$ {fmtBRL(total)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Step 1: Vencimento do PIX (opcional) */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    1
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Vencimento do PIX</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Opcional · Asaas mantém o QR Code válido até esta data
+                    </p>
+                  </div>
+                  <span className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                    Opcional
+                  </span>
+                </div>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
+                    <Clock size={12} className="text-emerald-600" />
+                    Expira em:
+                  </label>
+                  <input
+                    type="date"
+                    value={customPixDueDate}
+                    onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
+                    className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                  {!customPixDueDate && (
+                    <span className="text-[10px] text-muted-foreground italic">
+                      vazio = 24h após emissão (padrão Asaas)
+                    </span>
+                  )}
+                </div>
+              </div>
+
+              {/* Step 2: Plano de cobranca (timeline) — so 1 linha */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Quando o PIX é cobrado
+                    </p>
+                  </div>
+                </div>
+                <div className="relative pl-7">
+                  <div className="absolute left-[10px] top-2 w-px h-4 bg-emerald-500/30" />
+                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">PIX à vista</p>
+                      <p className="text-[11px] text-muted-foreground">
+                        QR Code gerado hoje · paciente paga em segundos
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
+                        <Clock size={9} />
+                        {todayLabel}
+                      </span>
+                      <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+                        R$ {fmtBRL(pixCalc.finalValue)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Sidebar — Resumo + CTA */}
+            <aside className="bg-card border-l border-border p-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+              <h3 className="text-base font-bold text-foreground">Resumo da cobrança</h3>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Confira antes de emitir
+              </p>
+
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs">Valor do tratamento</span>
+                  <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(total)}</span>
+                </div>
+                <div className="flex items-center justify-between gap-2 pb-3 border-b border-border">
+                  <span className="text-muted-foreground text-xs">Desconto PIX</span>
+                  <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
+                    − R$ {fmtBRL(pixCalc.savedValue)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 pt-2">
+                  <span className="text-muted-foreground text-xs">Forma</span>
+                  <span className="font-semibold text-foreground text-xs">PIX à vista</span>
+                </div>
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-muted-foreground text-xs">Vencimento</span>
+                  <span className="font-semibold text-foreground text-xs">
+                    {customPixDueDate
+                      ? new Date(customPixDueDate).toLocaleDateString('pt-BR')
+                      : '24h após emissão'}
+                  </span>
+                </div>
+              </div>
+
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-xs text-muted-foreground">Total final</p>
+                <p className="text-[10px] text-muted-foreground">pagamento imediato, sem juros</p>
+                <p className="text-2xl font-extrabold tabular-nums text-foreground mt-1">
+                  R$ {fmtBRL(pixCalc.finalValue)}
+                </p>
+                <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
+                  economia de R$ {fmtBRL(pixCalc.savedValue)}
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={onEmitir}
+                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+              >
+                <Check size={16} strokeWidth={3} />
+                Emitir cobrança
+              </button>
+
+              {onSend && (
+                <button
+                  type="button"
+                  onClick={onSend}
+                  className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  title="Enviar link da proposta no WhatsApp pra ele revisar antes"
+                >
+                  <MessageSquare size={12} />
+                  Enviar link no WhatsApp
+                </button>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
+                  <ShieldCheck size={12} />
+                  Ambiente seguro
+                </p>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  PIX emitido via Asaas. QR Code valido por 24h ou ate a data
+                  configurada. Idempotente — nao re-emite se ja existir.
+                </p>
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {['Asaas', 'PIX'].map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
