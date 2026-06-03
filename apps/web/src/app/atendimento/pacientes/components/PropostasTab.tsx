@@ -4513,7 +4513,7 @@ function BoletoCobrancaUnificadaModal({
         onClick={onClose}
       >
         <div
-          className="bg-background border border-border rounded-xl shadow-2xl max-w-6xl w-[calc(100%-2rem)] my-6 overflow-hidden"
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header — breadcrumb + titulo + status badge */}
