@@ -4919,22 +4919,20 @@ function BoletoCobrancaUnificadaModal({
                         })}
                       </div>
                     </div>
-                    <div className="text-right shrink-0">
-                      {/* Onda 17.32.9 — data do sinal editavel */}
+                    {/* Onda 17.32.10 — data + valor lado a lado (mesma linha) */}
+                    <div className="shrink-0 flex items-center gap-2">
                       <input
                         type="date"
                         value={customSinalDueDate}
                         onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
-                        className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                        className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
                       />
-                      {/* Onda 17.32.8 — valor editavel direto no timeline */}
                       <input
                         type="text"
                         value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
                         onChange={(e) => {
                           const digits = e.target.value.replace(/\D/g, '');
                           const num = digits === '' ? 0 : Number(digits) / 100;
-                          // Clamp ao customDownPayment (sinal nao pode ser maior que entrada).
                           onChangeCustomSignalValue(Math.min(num, customDownPayment));
                         }}
                         placeholder="R$ 0,00"
@@ -4954,14 +4952,14 @@ function BoletoCobrancaUnificadaModal({
                         <p className="text-sm font-semibold text-foreground">Entrada (boleto)</p>
                         <p className="text-[11px] text-muted-foreground">Vencimento configurável</p>
                       </div>
-                      <div className="text-right shrink-0">
+                      <div className="shrink-0 flex items-center gap-2">
                         <input
                           type="date"
                           value={customEntradaDueDate}
                           onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
                         />
-                        <p className="text-sm font-bold tabular-nums text-foreground">
+                        <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
                           R$ {fmtBRL(entradaBoletoValor)}
                         </p>
                       </div>
@@ -4981,16 +4979,18 @@ function BoletoCobrancaUnificadaModal({
                         {isAVista ? 'Pagamento único' : 'Próximas vencem a cada 30 dias'}
                       </p>
                     </div>
-                    <div className="text-right shrink-0">
-                      {!isAVista && (
+                    <div className="shrink-0 flex items-center gap-2">
+                      {!isAVista ? (
                         <input
                           type="date"
                           value={customInstallmentsStartDate}
                           onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
-                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground mb-1 block ml-auto"
+                          className="text-[11px] px-2 py-1 rounded border border-border bg-background text-foreground"
                         />
+                      ) : (
+                        <span className="w-[120px]" />
                       )}
-                      <p className="text-sm font-bold tabular-nums text-foreground">
+                      <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
                         R$ {fmtBRL(parcelasValor)}
                       </p>
                     </div>
