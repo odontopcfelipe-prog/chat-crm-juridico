@@ -5426,11 +5426,11 @@ function PixCobrancaUnificadaModal({
                         <span className="text-xl font-bold text-emerald-800 dark:text-emerald-300">
                           PIX à vista
                         </span>
-                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-600 text-white uppercase">
+                        <span className="text-sm font-extrabold px-2.5 py-1 rounded-md bg-emerald-600 text-white uppercase tracking-wide">
                           −{pixOption.discountPercent}%
                         </span>
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-emerald-500/15 text-emerald-700 border border-emerald-500/30 uppercase">
-                          melhor opção
+                        <span className="text-sm font-bold px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 uppercase tracking-wide">
+                          Melhor opção
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
