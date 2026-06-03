@@ -3181,6 +3181,9 @@ function PropostaPainel({
     const d = new Date();
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
   });
+  // Onda 17.32.14 — Metodo da entrada (resto = customDownPayment - sinal).
+  // Default = BOLETO (caso mais comum). Pode ser PIX/CASH tambem.
+  const [customRestMethod, setCustomRestMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('BOLETO');
   // Onda 17.31 — Atalhos rapidos: receber em especie / gerar PIX QR / gerar Boleto.
   // quickActionLoading bloqueia os botoes durante a chamada.
   // quickPixDialog mostra o modal do QR code apos a criacao da cobranca PIX.
@@ -3884,6 +3887,8 @@ function PropostaPainel({
                 onChangeCustomInstallmentsStartDate={setCustomInstallmentsStartDate}
                 customSinalDueDate={customSinalDueDate}
                 onChangeCustomSinalDueDate={setCustomSinalDueDate}
+                customRestMethod={customRestMethod}
+                onChangeCustomRestMethod={setCustomRestMethod}
                 requiresCreditCheck={requiresCC}
                 onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
                 onMarkCashReceived={handleQuickCashEntry}
@@ -4530,6 +4535,8 @@ function BoletoCobrancaUnificadaModal({
   onChangeCustomInstallmentsStartDate,
   customSinalDueDate,
   onChangeCustomSinalDueDate,
+  customRestMethod,
+  onChangeCustomRestMethod,
   requiresCreditCheck,
   onToggleRequiresCreditCheck,
   onMarkCashReceived,
@@ -4557,6 +4564,8 @@ function BoletoCobrancaUnificadaModal({
   onChangeCustomInstallmentsStartDate: (v: string) => void;
   customSinalDueDate: string;
   onChangeCustomSinalDueDate: (v: string) => void;
+  customRestMethod: 'PIX' | 'BOLETO' | 'CASH';
+  onChangeCustomRestMethod: (v: 'PIX' | 'BOLETO' | 'CASH') => void;
   requiresCreditCheck: boolean;
   onToggleRequiresCreditCheck?: (value: boolean) => void;
   onMarkCashReceived?: () => Promise<void>;
@@ -4906,7 +4915,7 @@ function BoletoCobrancaUnificadaModal({
                     </div>
                   </div>
 
-                  {/* Entrada (boleto restante da entrada) */}
+                  {/* Entrada (resto da entrada apos o sinal) — metodo editavel */}
                   {entradaBoletoValor > 0 && (
                     <div className="relative flex items-start justify-between gap-3 flex-wrap">
                       <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
@@ -4914,9 +4923,30 @@ function BoletoCobrancaUnificadaModal({
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-semibold text-foreground">
-                          Entrada (boleto) <span className="text-red-600">*</span>
+                          Entrada <span className="text-red-600">*</span>
                         </p>
-                        <p className="text-[11px] text-muted-foreground">Vencimento obrigatório</p>
+                        <p className="text-[11px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
+                        {/* Onda 17.32.14 — metodo da entrada editavel */}
+                        <div className="flex items-center gap-1 mt-1.5">
+                          {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                            const isActive = customRestMethod === m;
+                            const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                            return (
+                              <button
+                                key={m}
+                                type="button"
+                                onClick={() => onChangeCustomRestMethod(m)}
+                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                  isActive
+                                    ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
+                                    : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                                }`}
+                              >
+                                {label}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
                         <input
@@ -5015,9 +5045,9 @@ function BoletoCobrancaUnificadaModal({
                 }
                 if (entradaBoletoValor > 0) {
                   lines.push({
-                    label: 'Entrada (boleto)',
-                    method: 'Boleto',
-                    methodCls: methodColor('BOLETO'),
+                    label: 'Entrada',
+                    method: methodLabel(customRestMethod),
+                    methodCls: methodColor(customRestMethod),
                     date: customEntradaDueDate ? fmtDate(customEntradaDueDate) : 'hoje',
                     value: entradaBoletoValor,
                   });
