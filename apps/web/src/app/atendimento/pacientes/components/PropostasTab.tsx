@@ -1567,6 +1567,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           // configurou no painel (pra PDF/whatsapp mostrarem a oferta).
           onChooseAsProposal={(opts) => selectedId && chooseAsProposal(selectedId, opts)}
           onUnchooseAsProposal={() => selectedId && unchooseAsProposal(selectedId)}
+          // Onda 17.31 — recarga pos-atalhos (espécie / PIX QR) recarrega
+          // a lista E o detalhe do quote selecionado.
+          onReload={() => {
+            load();
+            if (selectedId) {
+              api.get<QuoteDetailLite>(`/quotes/${selectedId}`)
+                .then(({ data }) => setSelectedDetail(data))
+                .catch(() => { /* swallow — load() ja atualiza a lista */ });
+            }
+          }}
         />
       )}
 
@@ -2014,10 +2024,22 @@ function DownPaymentInput({
   total,
   value,
   onChange,
+  onMarkCashReceived,
+  onGeneratePixQr,
+  quickActionsLoading,
 }: {
   total: number;
   value: number;
   onChange: (v: number) => void;
+  /** Onda 17.31 — Atalho "💵 Já recebi em espécie": cria charge CASH +
+   *  mark-cash-received num clique só. Só renderiza se callback existe. */
+  onMarkCashReceived?: () => Promise<void>;
+  /** Onda 17.31 — Atalho "📱 Gerar PIX QR": cria charge PIX da entrada
+   *  e mostra QR Code (modal PixQrDialog) pro paciente escanear. */
+  onGeneratePixQr?: () => Promise<void>;
+  /** Booleano enquanto alguma das 2 acoes esta processando. Desabilita
+   *  os botoes pra evitar duplo clique. */
+  quickActionsLoading?: 'cash' | 'pix' | null;
 }) {
   // Onda 14.29 (fix) — Input fully controlled pelo parent. Antes tinhamos
   // state local `text` + useEffect pra sincronizar com value, o que disparava
@@ -2116,6 +2138,47 @@ function DownPaymentInput({
           )}
         </div>
       </div>
+
+      {/* Onda 17.31 — Atalhos rápidos: receber em espécie OU gerar PIX QR.
+          Aparecem só quando valor > 0 e o parent passa os callbacks.
+          Equivalente a usar o "Plano de cobrança da entrada" detalhado com
+          uma única forma — mas em 1 clique. */}
+      {hasEntry && (onMarkCashReceived || onGeneratePixQr) && (
+        <div className="mt-3 pt-3 border-t border-amber-500/20 flex flex-wrap gap-2">
+          {onMarkCashReceived && (
+            <button
+              type="button"
+              onClick={() => { void onMarkCashReceived(); }}
+              disabled={!!quickActionsLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
+              title="Cria o registro CASH e da baixa automatica. Use quando o paciente ja pagou em maos."
+            >
+              {quickActionsLoading === 'cash' ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <span>💵</span>
+              )}
+              Já recebi em espécie
+            </button>
+          )}
+          {onGeneratePixQr && (
+            <button
+              type="button"
+              onClick={() => { void onGeneratePixQr(); }}
+              disabled={!!quickActionsLoading}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 disabled:opacity-50 transition-colors"
+              title="Gera cobranca PIX no Asaas e mostra QR Code pro paciente escanear na hora."
+            >
+              {quickActionsLoading === 'pix' ? (
+                <Loader2 size={12} className="animate-spin" />
+              ) : (
+                <span>📱</span>
+              )}
+              Gerar PIX QR Code
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -3020,6 +3083,7 @@ function PropostaPainel({
   onToggleRequiresCreditCheck,
   onChooseAsProposal,
   onUnchooseAsProposal,
+  onReload,
 }: {
   loading: boolean;
   detail: QuoteDetailLite | null;
@@ -3032,6 +3096,10 @@ function PropostaPainel({
   onAjustar: () => void;
   onSend: () => void;
   sending: boolean;
+  /** Onda 17.31 — Recarrega lista de quotes + selectedDetail no parent.
+   *  Usado pelos atalhos de entrada (espécie / PIX QR) pra refletir o
+   *  status atualizado da cobrança imediatamente. */
+  onReload?: () => void;
   /** Onda 10 — abre dialog pra registrar a oferta atual como contraproposta */
   onSaveCounter: () => void;
   /** Onda 12 — abre dialog de credit-check do Financiamento Banco PASSOS */
@@ -3102,6 +3170,16 @@ function PropostaPainel({
   // passa a expor a quantidade selecionada na propria face.
   const [cartaoModalOpen, setCartaoModalOpen] = useState(false);
   const [boletoModalOpen, setBoletoModalOpen] = useState(false);
+  // Onda 17.31 — Atalhos rapidos no DownPaymentInput: receber em especie
+  // OU gerar PIX QR. quickActionLoading bloqueia os 2 botoes durante a chamada.
+  // quickPixDialog mostra o modal do QR code apos a criacao da cobranca PIX.
+  const [quickActionLoading, setQuickActionLoading] = useState<'cash' | 'pix' | null>(null);
+  const [quickPixDialog, setQuickPixDialog] = useState<null | {
+    qrCode: string;
+    copyPaste: string;
+    amount: number;
+    invoiceUrl?: string;
+  }>(null);
   const detailIdRef = useRef<string | null>(null);
 
   // Restaura valor ao trocar de quote ou recarregar
@@ -3277,6 +3355,118 @@ function PropostaPainel({
     ? Math.max(0, Math.round((new Date(detail.valid_until).getTime() - Date.now()) / 86400000))
     : null;
   /* eslint-enable react-hooks/purity */
+
+  // ─── Onda 17.31 — Atalhos rapidos no DownPaymentInput ──────────────
+  // Quando customDownPayment > 0, dois botoes aparecem embaixo do input:
+  //  - 💵 "Ja recebi em especie": cria charge CASH + mark-cash-received
+  //  - 📱 "Gerar PIX QR": cria charge PIX e abre modal com QR Code
+  // Os 2 reusam POST /quotes/:id/emit-down-payment com parts=['SIGNAL'] e
+  // restValue=0 (toda a entrada vira sinal — sem boleto adicional).
+  // Idempotencia do backend protege contra clique duplo (retorna a charge
+  // existente em vez de criar nova).
+  const handleQuickCashEntry = async () => {
+    if (!detail || customDownPayment <= 0) return;
+    const ok = window.confirm(
+      `Registrar entrada R$ ${fmtBRL(customDownPayment)} como recebida em espécie?\n\n` +
+      `Confirme que o paciente entregou o dinheiro em mãos. ` +
+      `Isso cria o registro e já dá baixa automática.`,
+    );
+    if (!ok) return;
+    setQuickActionLoading('cash');
+    try {
+      const cashBody: any = {
+        signalValue: customDownPayment,
+        signalMethod: 'CASH',
+        restValue: 0,
+        parts: ['SIGNAL'],
+      };
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, cashBody);
+      const cashCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+        || (emitData?.charges ?? [])[0];
+      if (!cashCharge?.id) {
+        showError('Falha ao criar registro da entrada em espécie.');
+        return;
+      }
+      // Mesma guarda do SignalDatesInput: se ja existe sinal PIX/BOLETO,
+      // backend devolve ele e nao um CASH — espécie nao pode dar baixa em
+      // cobranca Asaas existente. Operador precisa cancelar antes.
+      if (cashCharge.gateway !== 'CASH') {
+        const tipo = cashCharge.billing_type || cashCharge.gateway || 'PIX/BOLETO';
+        showError(
+          `Já existe uma entrada emitida via ${tipo} no Asaas. ` +
+          `Para registrar em espécie, cancele essa cobrança primeiro (aba Financeiro).`,
+        );
+        return;
+      }
+      const wasAlreadyReceived = !!cashCharge.received_in_cash;
+      if (!wasAlreadyReceived) {
+        await api.post(`/charges/${cashCharge.id}/mark-cash-received`);
+      }
+      showSuccess(
+        wasAlreadyReceived
+          ? 'Entrada em espécie já estava registrada como recebida.'
+          : `Entrada R$ ${fmtBRL(customDownPayment)} registrada como recebida em espécie.`,
+      );
+      onReload?.();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao registrar espécie');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
+
+  const handleQuickPixQrEntry = async () => {
+    if (!detail || customDownPayment <= 0) return;
+    setQuickActionLoading('pix');
+    try {
+      const pixBody: any = {
+        signalValue: customDownPayment,
+        signalMethod: 'PIX',
+        restValue: 0,
+        parts: ['SIGNAL'],
+      };
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, pixBody);
+      const pixCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+        || (emitData?.charges ?? [])[0];
+      if (!pixCharge?.id) {
+        showError('Falha ao criar cobrança PIX da entrada.');
+        return;
+      }
+      // Se ja existe um CASH registrado, o backend devolve ele — nao da
+      // pra ter o QR. Avisa o operador.
+      if (pixCharge.billing_type !== 'PIX' || !pixCharge.pix_qr_code) {
+        // Pode ser que o Asaas ainda nao retornou o QR (raro), ou que
+        // ja exista uma cobranca de outro tipo. Tenta abrir a 2a via.
+        const link = pixCharge.invoice_url || null;
+        if (link) {
+          if (typeof window !== 'undefined') window.open(link, '_blank', 'noopener,noreferrer');
+          showSuccess('Cobrança aberta em nova aba (2ª via)');
+        } else {
+          showError('Cobrança criada mas QR Code ainda não disponível. Tente abrir a 2ª via no Financeiro.');
+        }
+        onReload?.();
+        return;
+      }
+      setQuickPixDialog({
+        qrCode: pixCharge.pix_qr_code as string,
+        copyPaste: (pixCharge.pix_copy_paste as string) || '',
+        amount: Number(pixCharge.amount),
+        invoiceUrl: (pixCharge.invoice_url as string) || undefined,
+      });
+      showSuccess(
+        emitData?.idempotent
+          ? 'PIX da entrada já estava emitido — abrindo QR Code'
+          : 'PIX da entrada gerado — mostre o QR Code pro paciente',
+      );
+      onReload?.();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao gerar PIX');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
 
   return (
     <div className={`bg-card border-2 rounded-xl p-4 ${cfg?.selectedBorderCls || 'border-border'}`}>
@@ -3555,6 +3745,9 @@ function PropostaPainel({
                   total={total}
                   value={customDownPayment}
                   onChange={setCustomDownPayment}
+                  onMarkCashReceived={handleQuickCashEntry}
+                  onGeneratePixQr={handleQuickPixQrEntry}
+                  quickActionsLoading={quickActionLoading}
                 />
                 {customDownPayment > 0 && (
                   <SignalDatesInput
@@ -3743,6 +3936,20 @@ function PropostaPainel({
 
       {/* Onda 10 — Histórico de contrapropostas (parseado de notes) */}
       <CounterProposalsHistory notes={detail.notes} />
+
+      {/* Onda 17.31 — Modal QR Code do PIX gerado pelo atalho "Gerar PIX QR".
+          Reusa o mesmo componente PixQrDialog usado em outros pontos do
+          fluxo de cobranca. */}
+      {quickPixDialog && (
+        <PixQrDialog
+          qrCode={quickPixDialog.qrCode}
+          copyPaste={quickPixDialog.copyPaste}
+          amount={quickPixDialog.amount}
+          invoiceUrl={quickPixDialog.invoiceUrl}
+          title="Entrada via PIX"
+          onClose={() => setQuickPixDialog(null)}
+        />
+      )}
     </div>
   );
 }
