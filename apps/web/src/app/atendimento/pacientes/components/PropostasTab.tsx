@@ -2039,7 +2039,7 @@ function DownPaymentInput({
   onGeneratePixQr?: () => Promise<void>;
   /** Booleano enquanto alguma das 2 acoes esta processando. Desabilita
    *  os botoes pra evitar duplo clique. */
-  quickActionsLoading?: 'cash' | 'pix' | null;
+  quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
 }) {
   // Onda 14.29 (fix) — Input fully controlled pelo parent. Antes tinhamos
   // state local `text` + useEffect pra sincronizar com value, o que disparava
@@ -3170,10 +3170,10 @@ function PropostaPainel({
   // passa a expor a quantidade selecionada na propria face.
   const [cartaoModalOpen, setCartaoModalOpen] = useState(false);
   const [boletoModalOpen, setBoletoModalOpen] = useState(false);
-  // Onda 17.31 — Atalhos rapidos no DownPaymentInput: receber em especie
-  // OU gerar PIX QR. quickActionLoading bloqueia os 2 botoes durante a chamada.
+  // Onda 17.31 — Atalhos rapidos: receber em especie / gerar PIX QR / gerar Boleto.
+  // quickActionLoading bloqueia os botoes durante a chamada.
   // quickPixDialog mostra o modal do QR code apos a criacao da cobranca PIX.
-  const [quickActionLoading, setQuickActionLoading] = useState<'cash' | 'pix' | null>(null);
+  const [quickActionLoading, setQuickActionLoading] = useState<'cash' | 'pix' | 'boleto' | null>(null);
   const [quickPixDialog, setQuickPixDialog] = useState<null | {
     qrCode: string;
     copyPaste: string;
@@ -3463,6 +3463,52 @@ function PropostaPainel({
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
       showError(e?.response?.data?.message || e?.message || 'Erro ao gerar PIX');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
+
+  // Onda 17.32.3 — Atalho "Gerar Boleto" da entrada. Mesmo padrao dos
+  // outros (PIX/CASH) mas com signalMethod=BOLETO. Abre a 2a via (URL
+  // do boleto Asaas) numa aba nova pra operador entregar/imprimir.
+  const handleQuickBoletoEntry = async () => {
+    if (!detail || customDownPayment <= 0) return;
+    setQuickActionLoading('boleto');
+    try {
+      const boletoBody: any = {
+        signalValue: customDownPayment,
+        signalMethod: 'BOLETO',
+        restValue: 0,
+        parts: ['SIGNAL'],
+      };
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, boletoBody);
+      const boletoCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+        || (emitData?.charges ?? [])[0];
+      if (!boletoCharge?.id) {
+        showError('Falha ao criar boleto da entrada.');
+        return;
+      }
+      // Idempotencia: se ja existe sinal PIX/CASH, devolve ele em vez de criar boleto
+      if (boletoCharge.billing_type !== 'BOLETO') {
+        const tipo = boletoCharge.billing_type || boletoCharge.gateway || 'PIX/CASH';
+        showError(
+          `Já existe uma entrada emitida via ${tipo}. Cancele essa cobrança primeiro pra emitir boleto.`,
+        );
+        return;
+      }
+      const link = boletoCharge.invoice_url || boletoCharge.boleto_url || null;
+      if (link && typeof window !== 'undefined') {
+        window.open(link, '_blank', 'noopener,noreferrer');
+      }
+      showSuccess(
+        emitData?.idempotent
+          ? 'Boleto da entrada já estava emitido — abrindo 2ª via'
+          : 'Boleto da entrada gerado — abrindo pra impressão/envio',
+      );
+      onReload?.();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao gerar boleto');
     } finally {
       setQuickActionLoading(null);
     }
@@ -3823,6 +3869,7 @@ function PropostaPainel({
                 onToggleRequiresCreditCheck={onToggleRequiresCreditCheck}
                 onMarkCashReceived={handleQuickCashEntry}
                 onGeneratePixQr={handleQuickPixQrEntry}
+                onGenerateBoleto={handleQuickBoletoEntry}
                 quickActionsLoading={quickActionLoading}
                 onSelectParcelas={(opt) => {
                   setBoletoModalOpen(false);
@@ -4442,6 +4489,7 @@ function BoletoCobrancaUnificadaModal({
   onToggleRequiresCreditCheck,
   onMarkCashReceived,
   onGeneratePixQr,
+  onGenerateBoleto,
   quickActionsLoading,
   onSelectParcelas,
   onEmitir,
@@ -4466,7 +4514,8 @@ function BoletoCobrancaUnificadaModal({
   onToggleRequiresCreditCheck?: (value: boolean) => void;
   onMarkCashReceived?: () => Promise<void>;
   onGeneratePixQr?: () => Promise<void>;
-  quickActionsLoading?: 'cash' | 'pix' | null;
+  onGenerateBoleto?: () => Promise<void>;
+  quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
   onSelectParcelas: (opt: PaymentOption) => void;
   /** CTA principal "Emitir cobranca" da sidebar — chama approve-and-bill. */
   onEmitir: () => void;
@@ -4673,33 +4722,50 @@ function BoletoCobrancaUnificadaModal({
                   </div>
                 )}
 
-                {/* Atalhos rapidos */}
-                {customDownPayment > 0 && (onMarkCashReceived || onGeneratePixQr) && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {onMarkCashReceived && (
-                      <button
-                        type="button"
-                        onClick={() => { void onMarkCashReceived(); }}
-                        disabled={!!quickActionsLoading}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        {quickActionsLoading === 'cash' ? <Loader2 size={12} className="animate-spin" /> : <span>💵</span>}
-                        Já recebi em espécie
-                      </button>
-                    )}
-                    {onGeneratePixQr && (
-                      <button
-                        type="button"
-                        onClick={() => { void onGeneratePixQr(); }}
-                        disabled={!!quickActionsLoading}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold bg-sky-500/10 text-sky-700 dark:text-sky-400 border border-sky-500/30 hover:bg-sky-500/20 disabled:opacity-50 transition-colors"
-                      >
-                        {quickActionsLoading === 'pix' ? <Loader2 size={12} className="animate-spin" /> : <span>📱</span>}
-                        Gerar PIX QR Code
-                      </button>
-                    )}
-                  </div>
-                )}
+                {/* Onda 17.32.4 — Acao contextual baseada no metodo escolhido.
+                    Em vez de 2 botoes soltos ("Ja recebi" + "Gerar PIX"),
+                    mostra UM botao grande que reflete a forma selecionada:
+                    - PIX     → 📱 Gerar PIX QR Code
+                    - BOLETO  → 🧾 Gerar Boleto
+                    - CASH    → 💵 Já recebi em espécie  */}
+                {customDownPayment > 0 && (() => {
+                  const cfg = {
+                    PIX: {
+                      label: 'Gerar PIX QR Code',
+                      emoji: '📱',
+                      key: 'pix' as const,
+                      handler: onGeneratePixQr,
+                      colorCls: 'bg-sky-500 hover:bg-sky-600 text-white border-sky-500',
+                    },
+                    BOLETO: {
+                      label: 'Gerar Boleto da entrada',
+                      emoji: '🧾',
+                      key: 'boleto' as const,
+                      handler: onGenerateBoleto,
+                      colorCls: 'bg-amber-600 hover:bg-amber-700 text-white border-amber-600',
+                    },
+                    CASH: {
+                      label: 'Já recebi em espécie',
+                      emoji: '💵',
+                      key: 'cash' as const,
+                      handler: onMarkCashReceived,
+                      colorCls: 'bg-emerald-600 hover:bg-emerald-700 text-white border-emerald-600',
+                    },
+                  }[customSignalMethod];
+                  if (!cfg?.handler) return null;
+                  const isLoading = quickActionsLoading === cfg.key;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => { void cfg.handler!(); }}
+                      disabled={!!quickActionsLoading}
+                      className={`w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md text-sm font-bold border-2 disabled:opacity-50 transition-colors ${cfg.colorCls}`}
+                    >
+                      {isLoading ? <Loader2 size={14} className="animate-spin" /> : <span>{cfg.emoji}</span>}
+                      {cfg.label}
+                    </button>
+                  );
+                })()}
               </div>
 
               {/* ── Step 2: Como pagar o restante ─────────────────── */}
