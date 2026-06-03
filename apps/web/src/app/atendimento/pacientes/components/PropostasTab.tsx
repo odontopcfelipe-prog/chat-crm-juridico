@@ -3850,102 +3850,76 @@ function PropostaPainel({
                 Boleto ABREM a aba de parcelamento (modal) ao clicar; ao escolher,
                 a face do card passa a expor a quantidade de parcelas selecionada. */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
-              {/* PIX ou dinheiro */}
+              {/* PIX ou dinheiro — Onda 17.32.22: cards sem valores, so dentro do modal */}
               {pixCalc && (
                 <button type="button"
                   onClick={() => { if (sel !== 'pix') onChangePayment(pixOpt.key); setPixModalOpen(true); }}
-                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
                     sel === 'pix'
                       ? 'border-emerald-500 bg-emerald-500/10'
                       : 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
                   }`}>
-                  <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-2 flex-wrap">
-                    PIX ou dinheiro
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <DollarSign size={16} className="text-emerald-700" />
+                    <p className="text-sm font-bold text-foreground">PIX ou dinheiro</p>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">Melhor opção</span>
-                    {sel === 'pix' && <Check size={12} className="text-emerald-600" />}
+                    {sel === 'pix' && <Check size={14} className="text-emerald-600 ml-auto" strokeWidth={3} />}
+                  </div>
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                    Pagamento à vista com desconto · sem juros
                   </p>
-                  <p className="text-2xl font-extrabold tabular-nums text-emerald-700">R$ {fmtBRL(pixCalc.finalValue)}</p>
-                  <p className="text-[11px] text-emerald-700 font-medium mt-1">↓ economiza R$ {fmtBRL(pixCalc.savedValue)} (-{pixOpt.discountPercent}%)</p>
+                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
+                    Clique pra configurar e emitir
+                    <ChevronRight size={11} />
+                  </p>
                 </button>
               )}
 
-              {/* Cartão de crédito — clique abre a aba de parcelas */}
+              {/* Cartão de crédito — clique abre o modal */}
               {cartaoDisplayCalc && cartaoDisplayOpt && (
                 <button type="button"
                   onClick={() => { if (sel !== 'cartao') onChangePayment(cartaoDisplayOpt.key); setCartaoModalOpen(true); }}
-                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
                     sel === 'cartao'
                       ? 'border-blue-500 bg-blue-500/10'
                       : 'border-border bg-card hover:bg-accent/40'
                   }`}>
-                  {sel === 'cartao' ? (
-                    <>
-                      <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
-                        <DollarSign size={13} className="text-blue-600" />
-                        Cartão · {cartaoDisplayOpt.installments}x
-                        <Check size={12} className="text-blue-600" />
-                      </p>
-                      {cartaoDisplayCalc.downPaymentValue > 0 && (
-                        <p className="text-[10px] text-muted-foreground mb-0.5">entrada R$ {fmtBRL(cartaoDisplayCalc.downPaymentValue)} +</p>
-                      )}
-                      <p className="text-2xl font-extrabold tabular-nums text-blue-700">{cartaoDisplayOpt.installments}x de R$ {fmtBRL(cartaoDisplayCalc.installmentValue)}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">
-                        total R$ {fmtBRL(cartaoDisplayCalc.finalValue)} · {cartaoDisplayCalc.extraInterest > 0 ? <span className="text-amber-700 font-semibold">+R$ {fmtBRL(cartaoDisplayCalc.extraInterest)} juros</span> : <span className="text-emerald-700 font-semibold">sem juros</span>} · <span className="text-blue-600 font-semibold">trocar ▾</span>
-                      </p>
-                    </>
-                  ) : (
-                    <>
-                      <p className="text-xs font-semibold text-foreground mb-1">Cartão de crédito</p>
-                      <p className="text-2xl font-extrabold tabular-nums text-foreground">R$ {fmtBRL(cartaoDisplayCalc.finalValue)}</p>
-                      <p className="text-[11px] text-muted-foreground mt-1">até 6x sem juros · clique pra escolher ▾</p>
-                    </>
-                  )}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <DollarSign size={16} className="text-blue-600" />
+                    <p className="text-sm font-bold text-foreground">Cartão de crédito</p>
+                    {sel === 'cartao' && <Check size={14} className="text-blue-600 ml-auto" strokeWidth={3} />}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-medium">
+                    Parcele em até 6x sem juros · Visa, Master, Elo, Amex
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
+                    Clique pra escolher parcelas e emitir
+                    <ChevronRight size={11} />
+                  </p>
                 </button>
               )}
 
-              {/* Boleto financiado — clique abre a aba de parcelas */}
+              {/* Boleto financiado — clique abre o modal */}
               {boletoDisplayCalc && boletoDisplayOpt && (
                 <button type="button"
                   onClick={() => setBoletoModalOpen(true)}
-                  className={`text-left p-4 rounded-xl border-2 transition-colors ${
+                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
                     sel === 'boleto'
                       ? 'border-amber-500 bg-amber-500/10'
                       : 'border-border bg-card hover:bg-accent/40'
                   }`}>
-                  {sel === 'boleto' ? (
-                    boletoDisplayOpt.key === 'boleto-avista' ? (
-                      <>
-                        <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
-                          <Building2 size={13} className="text-amber-600" />
-                          Boleto · à vista
-                          <Check size={12} className="text-amber-600" />
-                        </p>
-                        <p className="text-2xl font-extrabold tabular-nums text-amber-700">R$ {fmtBRL(boletoDisplayCalc.finalValue)}</p>
-                        <p className="text-[11px] text-muted-foreground mt-1">à vista · <span className="text-emerald-700 font-semibold">sem juros</span> · <span className="text-amber-700 font-semibold">trocar ▾</span></p>
-                      </>
-                    ) : (
-                      <>
-                        <p className="text-xs font-semibold text-foreground mb-1 flex items-center gap-1.5">
-                          <Building2 size={13} className="text-amber-600" />
-                          Boleto · {boletoDisplayOpt.installments}x
-                          <Check size={12} className="text-amber-600" />
-                        </p>
-                        {boletoDisplayCalc.downPaymentValue > 0 && (
-                          <p className="text-[10px] text-muted-foreground mb-0.5">entrada R$ {fmtBRL(boletoDisplayCalc.downPaymentValue)} +</p>
-                        )}
-                        <p className="text-2xl font-extrabold tabular-nums text-amber-700">{boletoDisplayOpt.installments}x de R$ {fmtBRL(boletoDisplayCalc.installmentValue)}<span className="text-sm font-bold">/mês</span></p>
-                        <p className="text-[11px] text-muted-foreground mt-1">
-                          total R$ {fmtBRL(boletoDisplayCalc.finalValue)}{boletoDisplayCalc.extraInterest > 0 ? <> · <span className="text-amber-700 font-semibold">+R$ {fmtBRL(boletoDisplayCalc.extraInterest)} juros</span></> : ''} · <span className="text-amber-700 font-semibold">trocar ▾</span>
-                        </p>
-                      </>
-                    )
-                  ) : (
-                    <>
-                      <p className="text-xs font-semibold text-foreground mb-1">Boleto financiado</p>
-                      <p className="text-2xl font-extrabold tabular-nums text-amber-700">R$ {fmtBRL(boletoDisplayCalc.finalValue)}</p>
-                      <p className="text-[11px] text-amber-700 mt-1">parcele em 1x a 24x · clique pra escolher ▾</p>
-                    </>
-                  )}
+                  <div className="flex items-center gap-2 mb-2 flex-wrap">
+                    <Building2 size={16} className="text-amber-600" />
+                    <p className="text-sm font-bold text-foreground">Boleto financiado</p>
+                    {sel === 'boleto' && <Check size={14} className="text-amber-600 ml-auto" strokeWidth={3} />}
+                  </div>
+                  <p className="text-xs text-muted-foreground font-medium">
+                    Parcele em 1x a 24x · entrada + parcelas mensais
+                  </p>
+                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
+                    Clique pra configurar e emitir
+                    <ChevronRight size={11} />
+                  </p>
                 </button>
               )}
             </div>
