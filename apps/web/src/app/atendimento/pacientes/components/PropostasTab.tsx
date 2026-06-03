@@ -3977,13 +3977,24 @@ function PropostaPainel({
 
             {/* Abas de parcelamento (modais) abertas pelos cards de Cartao/Boleto */}
             {cartaoModalOpen && (
-              <CartaoInstallmentsModal
+              <CartaoCobrancaUnificadaModal
+                detail={detail}
                 options={options.cartao}
                 total={total}
                 activePaymentKey={activePaymentKey}
-                onSelect={(key) => { onChangePayment(key); setCartaoModalOpen(false); }}
+                onSelectParcelas={(key) => { onChangePayment(key); }}
+                onEmitir={() => {
+                  setCartaoModalOpen(false);
+                  onApproveAndBill({
+                    customDownPayment: 0,
+                    customSignalValue: 0,
+                    customSignalMethod: 'PIX',
+                    customEntradaDueDate: '',
+                    customInstallmentsStartDate: '',
+                  });
+                }}
                 onClose={() => setCartaoModalOpen(false)}
-                customDownPayment={customDownPayment}
+                onSend={onSend}
               />
             )}
             {boletoModalOpen && (
@@ -5751,6 +5762,340 @@ function PixCobrancaUnificadaModal({
 
 /** Onda 10 — renderiza historico de contrapropostas parseado de Quote.notes.
  *  Onda 11 — destaca a "última oferta" em card separado acima do historico. */
+/** Onda 17.32.17 — Modal "Cobranca do tratamento" voltado pra Cartao de credito.
+ *  Mesmo template visual do BoletoCobranca/PixCobranca, adaptado:
+ *  - Sem entrada (cartao e pagamento integral)
+ *  - 1x ate 12x sem juros (configuracao da clinica)
+ *  - Asaas retorna invoice_url (paciente preenche cartao na pagina hospedada)
+ *  - CTA "Emitir cobranca" chama approve-and-bill com CREDIT_CARD. */
+function CartaoCobrancaUnificadaModal({
+  detail,
+  options,
+  total,
+  activePaymentKey,
+  onSelectParcelas,
+  onEmitir,
+  onClose,
+  onSend,
+}: {
+  detail: QuoteDetailLite;
+  options: PaymentOption[];
+  total: number;
+  activePaymentKey: string;
+  onSelectParcelas: (key: string) => void;
+  onEmitir: () => void;
+  onClose: () => void;
+  onSend?: () => void;
+}) {
+  // Opcao ativa do cartao (ou primeira como default)
+  const activeOpt = options.find((o) => o.key === activePaymentKey) || options[0];
+  const activeCalc = activeOpt ? applyPaymentOption(total, activeOpt, 0) : null;
+  const todayLabel = (() => {
+    const d = new Date();
+    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  })();
+  return (
+    <ModalPortal>
+      <div
+        className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center overflow-y-auto"
+        onClick={onClose}
+      >
+        <div
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden min-h-[85vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-6 py-4 border-b border-border flex items-start justify-between gap-3">
+            <div className="flex items-start gap-3 min-w-0">
+              <button
+                type="button"
+                onClick={onClose}
+                className="mt-0.5 p-1.5 rounded-md hover:bg-accent/50 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+                aria-label="Voltar"
+                title="Voltar"
+              >
+                <ChevronLeft size={18} />
+              </button>
+              <div className="min-w-0">
+                <h2 className="text-lg font-bold text-foreground leading-tight">
+                  Cobrança do tratamento
+                </h2>
+                <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                  Propostas › {detail.title || `Orçamento #${detail.quote_number || ''}`} › Cartão de crédito
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-sky-500/15 text-sky-700 dark:text-sky-400 border border-sky-500/30 flex items-center gap-1.5">
+                <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                Rascunho · não emitido
+              </span>
+            </div>
+          </div>
+
+          {/* Body 2 cols */}
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 flex-1">
+            {/* ─── Coluna principal ─────────────────────────────────── */}
+            <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
+              {/* Banner valor total escuro */}
+              <div className="rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3 min-w-0">
+                  <div className="w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center shrink-0">
+                    <DollarSign size={20} className="text-white" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[11px] text-white/60 uppercase tracking-wide font-semibold">
+                      Valor total do tratamento
+                    </p>
+                    <p className="text-xs text-white/80 truncate">
+                      {detail.title || 'Tratamento'} · {detail.items.length} {detail.items.length === 1 ? 'procedimento' : 'procedimentos'}
+                    </p>
+                  </div>
+                </div>
+                <div className="text-right shrink-0">
+                  <p className="text-2xl font-extrabold tabular-nums">
+                    R$ {fmtBRL(total)}
+                  </p>
+                  <p className="text-[11px] text-white/60">parcele em até 6x sem juros</p>
+                </div>
+              </div>
+
+              {/* Card destacado azul Cartao */}
+              {activeOpt && activeCalc && (
+                <div className="rounded-xl border-2 border-sky-500 bg-sky-500/10 p-5">
+                  <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div className="w-11 h-11 rounded-full bg-sky-500/20 flex items-center justify-center shrink-0">
+                        <DollarSign size={20} className="text-sky-700" strokeWidth={2.5} />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-xl font-bold text-sky-800 dark:text-sky-300">
+                            Cartão · {activeOpt.installments}x
+                          </span>
+                          {(activeOpt.interestRate ?? 0) === 0 ? (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-emerald-600 text-white uppercase">
+                              sem juros
+                            </span>
+                          ) : (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-md bg-amber-600 text-white uppercase">
+                              com juros
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-muted-foreground mt-1">
+                          {activeOpt.installments}x de R$ {fmtBRL(activeCalc.installmentValue)} · processado pelo Asaas
+                        </p>
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">
+                        Total no cartão
+                      </div>
+                      <div className="text-3xl font-extrabold tabular-nums text-sky-700 dark:text-sky-400">
+                        R$ {fmtBRL(activeCalc.finalValue)}
+                      </div>
+                      {activeCalc.extraInterest > 0 && (
+                        <div className="text-[11px] text-amber-700 dark:text-amber-400 font-semibold">
+                          +R$ {fmtBRL(activeCalc.extraInterest)} juros
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Step 1: Em quantas parcelas */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    1
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Em quantas parcelas?</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Escolha o parcelamento · paciente preenche os dados do cartão na página segura do Asaas
+                    </p>
+                  </div>
+                </div>
+
+                {/* Lista de parcelas com radio */}
+                <div className="max-h-[280px] overflow-y-auto rounded-md border border-border">
+                  {options.map((opt) => {
+                    const isActive = activePaymentKey === opt.key;
+                    const c = applyPaymentOption(total, opt, 0);
+                    const hasInterest = (opt.interestRate ?? 0) > 0;
+                    return (
+                      <button
+                        key={opt.key}
+                        type="button"
+                        onClick={() => onSelectParcelas(opt.key)}
+                        className={`w-full grid grid-cols-[60px_1fr_28px] gap-3 px-3 py-2.5 text-left transition-colors border-b border-border/40 last:border-0 ${
+                          isActive ? 'bg-sky-500/10 hover:bg-sky-500/15' : 'hover:bg-accent/40'
+                        }`}
+                      >
+                        <span className={`text-base tabular-nums ${isActive ? 'font-bold text-sky-700' : 'font-semibold text-foreground'}`}>
+                          {opt.installments}x
+                        </span>
+                        <span className="text-xs tabular-nums">
+                          <strong className={isActive ? 'text-sky-700' : 'text-foreground'}>
+                            R$ {fmtBRL(c.installmentValue)}
+                          </strong>
+                          <span className="text-muted-foreground">/parcela</span>
+                          <span className={`block text-[10px] leading-tight mt-0.5 ${hasInterest ? 'text-amber-700' : 'text-emerald-700'}`}>
+                            {hasInterest ? `juros ${((opt.interestRate ?? 0) * 100).toFixed(2)}%/mês` : 'sem juros'}
+                          </span>
+                        </span>
+                        <span className="flex items-center justify-center">
+                          <span className={`w-4 h-4 rounded-full border-2 transition-colors ${
+                            isActive ? 'border-sky-500 bg-sky-500' : 'border-border'
+                          }`} />
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Step 2: Como o paciente paga */}
+              <div className="rounded-xl border border-border bg-card p-4">
+                <div className="flex items-center gap-3 mb-3">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
+                    <p className="text-[11px] text-muted-foreground">
+                      Como o pagamento é processado
+                    </p>
+                  </div>
+                </div>
+                <div className="relative pl-7">
+                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
+                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-sky-500 bg-background flex items-center justify-center">
+                      <span className="w-1.5 h-1.5 rounded-full bg-sky-500" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-semibold text-foreground">
+                        Cartão de crédito · {activeOpt?.installments || 1}x
+                      </p>
+                      <p className="text-[11px] text-muted-foreground">
+                        Link Asaas gerado · paciente preenche cartão na página segura · você acompanha pelo painel
+                      </p>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
+                        <Clock size={9} />
+                        {todayLabel}
+                      </span>
+                      <p className="text-base font-bold tabular-nums text-sky-700 dark:text-sky-400">
+                        R$ {fmtBRL(activeCalc?.finalValue ?? total)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bandeiras aceitas */}
+              <div className="text-[11px] text-muted-foreground flex items-center gap-2 flex-wrap pl-1">
+                <span className="font-semibold uppercase tracking-wide text-[10px]">Aceitamos:</span>
+                {['Visa', 'Mastercard', 'Elo', 'Hipercard', 'American Express'].map((b) => (
+                  <span
+                    key={b}
+                    className="text-[10px] px-2 py-0.5 rounded border border-border bg-card text-foreground font-medium"
+                  >
+                    {b}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            {/* ─── Sidebar ─────────────────────────────────────────── */}
+            <aside className="bg-card border-l border-border p-5 lg:sticky lg:top-0 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+              <h3 className="text-base font-bold text-foreground">Resumo da cobrança</h3>
+              <p className="text-[11px] text-muted-foreground mb-4">
+                Confira antes de emitir
+              </p>
+
+              <div className="space-y-3">
+                <p className="text-[10px] uppercase tracking-wide font-bold text-muted-foreground">
+                  Plano de cobrança
+                </p>
+                <div className="border border-border rounded-lg p-3 bg-card">
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <p className="text-xs font-semibold text-foreground leading-tight">
+                      Cartão · {activeOpt?.installments || 1}x
+                    </p>
+                    <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border text-sky-700 dark:text-sky-400 bg-sky-500/10 border-sky-500/30 shrink-0">
+                      Cartão
+                    </span>
+                  </div>
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="text-[10px] text-muted-foreground inline-flex items-center gap-1">
+                      <Clock size={9} />
+                      {todayLabel}
+                    </span>
+                    <span className="text-sm font-bold tabular-nums text-foreground">
+                      R$ {fmtBRL(activeCalc?.finalValue ?? total)}
+                    </span>
+                  </div>
+                  {activeCalc && (
+                    <p className="text-[10px] text-muted-foreground mt-1 text-right">
+                      {activeOpt?.installments}x de R$ {fmtBRL(activeCalc.installmentValue)}
+                    </p>
+                  )}
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={onEmitir}
+                disabled={!activeOpt}
+                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+              >
+                <Check size={16} strokeWidth={3} />
+                Emitir cobrança
+              </button>
+
+              {onSend && (
+                <button
+                  type="button"
+                  onClick={onSend}
+                  className="mt-2 w-full px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                  title="Enviar link da proposta no WhatsApp pra o paciente revisar"
+                >
+                  <MessageSquare size={12} />
+                  Enviar link no WhatsApp
+                </button>
+              )}
+
+              <div className="mt-4 pt-4 border-t border-border">
+                <p className="text-[11px] font-semibold text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5 mb-1">
+                  <ShieldCheck size={12} />
+                  Ambiente seguro
+                </p>
+                <p className="text-[10px] text-muted-foreground leading-snug">
+                  Pagamento processado pelo Asaas + PagBank. Paciente preenche os dados do cartão em página segura hospedada (PCI-DSS).
+                </p>
+                <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                  {['Asaas', 'PagBank', 'Visa', 'Master'].map((b) => (
+                    <span
+                      key={b}
+                      className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"
+                    >
+                      {b}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
 function CounterProposalsHistory({ notes }: { notes: string | null }) {
   const entries = useMemo(() => parseCounterProposals(notes), [notes]);
   if (entries.length === 0) return null;
