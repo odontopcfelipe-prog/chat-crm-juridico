@@ -101,7 +101,10 @@ const TABS = [
   // Operational
   { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
   { id: 'odontogram',     label: 'Avaliação',       icon: Activity,    group: 'operational' as const },
-  { id: 'quotes',         label: 'Orçamentos',      icon: DollarSign,  group: 'operational' as const },
+  // Onda 17.32.23 — Aba "Orçamentos" removida. Fluxo enxuto: Avaliação cria itens,
+  // Propostas exibe versões agrupadas (urgente/essencial/completo) com configuração
+  // de cobrança direto no painel. Componente OrcamentoTab + endpoints continuam
+  // existindo (são consumidos por outras telas) — apenas a aba sumiu do menu.
   { id: 'proposals',      label: 'Propostas',       icon: Layers,      group: 'operational' as const },
   { id: 'financial',      label: 'Financeiro',      icon: DollarSign,  group: 'operational' as const },
   // Onda 5e v38 — Tratamento: procedimentos fechados (de quotes ACCEPTED),
@@ -766,7 +769,8 @@ function PacienteFichaInner() {
             setHistoryInitialFilter(types);
             setTab('timeline');
           }}
-          onGoToQuotes={() => setTab('quotes')}
+          // Onda 17.32.23 — Aba Orçamentos removida, redireciona pra Propostas
+          onGoToQuotes={() => setTab('proposals')}
           // Onda 14.54 — callbacks pro snapshot clinico (odontograma + evolucao)
           // na Visao Geral. Click leva pra aba correspondente.
           onGoToOdontogram={() => setTab('odontogram')}
@@ -794,24 +798,14 @@ function PacienteFichaInner() {
       {tab === 'esthetic' && <EsteticaFacialTab patientId={patient.id} />}
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
-      {tab === 'quotes' && (
-        <OrcamentoTab
-          patientId={patient.id}
-          initialQuoteId={searchParams?.get('quote') || undefined}
-          autoOpenAddItem={searchParams?.get('add') === '1'}
-        />
-      )}
+      {/* Onda 17.32.23 — Aba "Orçamentos" removida (fluxo enxuto: tudo em Propostas) */}
       {tab === 'proposals' && (
         <PropostasTab
           patientId={patient.id}
-          onOpenQuoteDetail={(quoteId) => {
-            // Onda 8 — Click num card da aba Propostas navega pro detalhe
-            // do orcamento na aba Orcamentos. Reusa fluxo existente (sem
-            // duplicar UI de aprovacao/edicao).
-            // Onda 8.2 — setTab primeiro (state-first) + router.push (nao
-            // replace) pra back button do browser voltar pra Propostas.
-            setTab('quotes');
-            router.push(`/atendimento/pacientes/${patient.id}?tab=quotes&quote=${quoteId}`);
+          onOpenQuoteDetail={() => {
+            // Onda 17.32.23 — Sem aba Orçamentos. Tudo (ajuste, aprovação,
+            // cobrança) acontece dentro da própria aba Propostas. Mantemos
+            // a prop pra compatibilidade mas sem navegação.
           }}
           // Onda 14.23 — dialog "Nova proposta" tem empty state que precisa
           // mandar o operador pra aba Avaliacao quando nao ha orcamentos.
@@ -1317,12 +1311,12 @@ function ResumoClinicoCard({
           tooltip="Ver no Histórico"
           onClick={() => onGoToHistory(new Set(['appointment', 'procedure', 'return']))}
         />
-        {/* Orçamentos — click abre aba Orçamentos */}
+        {/* Orçamentos — click abre aba Propostas (aba Orçamentos foi removida em 17.32.23) */}
         <ClickableCounter
           label="Orçamentos"
           value={patient._count?.quotes ?? 0}
           enabled={(patient._count?.quotes ?? 0) > 0}
-          tooltip="Ver na aba Orçamentos"
+          tooltip="Ver nas Propostas"
           onClick={onGoToQuotes}
         />
         {patient.referred_by_patient && (
