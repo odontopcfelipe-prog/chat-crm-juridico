@@ -4875,7 +4875,7 @@ function BoletoCobrancaUnificadaModal({
                   {/* Linha vertical do timeline */}
                   <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
 
-                  {/* Sinal de fechamento */}
+                  {/* Sinal de fechamento — valor + metodo EDITAVEIS */}
                   <div className="relative flex items-start justify-between gap-3 flex-wrap">
                     <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -4883,17 +4883,49 @@ function BoletoCobrancaUnificadaModal({
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground">Sinal de fechamento</p>
                       <p className="text-[11px] text-muted-foreground">
-                        Cobrado hoje via {customSignalMethod === 'PIX' ? 'PIX' : customSignalMethod === 'BOLETO' ? 'boleto' : 'espécie'}
+                        Cobrado hoje · método configurado abaixo
                       </p>
+                      {/* Onda 17.32.8 — metodo editavel direto no timeline */}
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                          const isActive = customSignalMethod === m;
+                          const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => onChangeCustomSignalMethod(m)}
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                isActive
+                                  ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
+                                  : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
                     </div>
                     <div className="text-right shrink-0">
                       <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
                         <Clock size={9} />
                         {todayLabel}
                       </span>
-                      <p className="text-sm font-bold tabular-nums text-foreground">
-                        R$ {fmtBRL(sinalValor)}
-                      </p>
+                      {/* Onda 17.32.8 — valor editavel direto no timeline */}
+                      <input
+                        type="text"
+                        value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          const num = digits === '' ? 0 : Number(digits) / 100;
+                          // Clamp ao customDownPayment (sinal nao pode ser maior que entrada).
+                          onChangeCustomSignalValue(Math.min(num, customDownPayment));
+                        }}
+                        placeholder="R$ 0,00"
+                        inputMode="numeric"
+                        className="w-28 text-sm font-bold tabular-nums px-2 py-1 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      />
                     </div>
                   </div>
 
