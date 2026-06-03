@@ -4615,7 +4615,7 @@ function BoletoCobrancaUnificadaModal({
         onClick={onClose}
       >
         <div
-          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden"
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden min-h-[85vh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header — breadcrumb + titulo + status badge */}
@@ -4648,7 +4648,7 @@ function BoletoCobrancaUnificadaModal({
           </div>
 
           {/* Body em 2 colunas: principal (steps) + sidebar (resumo + CTA) */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 flex-1">
             {/* ─── Coluna principal ─────────────────────────────────── */}
             <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
               {/* Banner valor total (escuro) */}
@@ -5096,7 +5096,7 @@ function PixCobrancaUnificadaModal({
         onClick={onClose}
       >
         <div
-          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden"
+          className="bg-background border border-border rounded-xl shadow-2xl max-w-[1600px] w-[calc(100%-2rem)] my-6 overflow-hidden min-h-[85vh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header — igual ao Boleto pra manter padrao */}
@@ -5129,7 +5129,7 @@ function PixCobrancaUnificadaModal({
           </div>
 
           {/* Body em 2 colunas */}
-          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0">
+          <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 flex-1">
             <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
               {/* Banner valor total escuro */}
               <div className="rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 flex items-center justify-between gap-3 flex-wrap">
