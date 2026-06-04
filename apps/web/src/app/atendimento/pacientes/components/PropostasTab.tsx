@@ -627,40 +627,37 @@ interface VariantConfig {
 }
 
 const PRIORITY_CONFIG: Record<Priority, VariantConfig> = {
+  // Onda 17.32.33 — Cores mais saturadas pra cards "acesos" mesmo nao-selecionados.
+  // Operador pediu pra todos terem cor cheia (antes ficavam apagados).
   URGENTE: {
     label: 'Urgente',
     description: 'só o que dói ou bloqueia o resto',
     icon: <Flame size={14} />,
-    borderCls: 'border-red-500/30 hover:border-red-500/60',
-    bgCls: 'bg-red-500/5',
-    iconCls: 'text-red-700',
-    // Onda 14.36 — Removido ring-2 dos selected pra evitar desproporcao
-    // visual entre cards. Antes o card selected ficava com halo externo
-    // (ring) que dava sensacao de ser "maior" que os outros. Agora todos
-    // usam mesmo sistema: border-2 + bg-color. Destaque vem de bg + cor
-    // de borda mais opaca.
+    borderCls: 'border-red-500/50 hover:border-red-500',
+    bgCls: 'bg-red-500/10',
+    iconCls: 'text-red-700 dark:text-red-400',
     selectedBorderCls: 'border-red-500',
-    selectedBgCls: 'bg-red-500/10',
+    selectedBgCls: 'bg-red-500/15',
   },
   ESSENCIAL: {
     label: 'Essencial',
     description: 'só o que não pode esperar — sem estética opcional',
     icon: <AlertTriangle size={14} />,
-    borderCls: 'border-amber-500/30 hover:border-amber-500/60',
-    bgCls: 'bg-amber-500/5',
-    iconCls: 'text-amber-700',
+    borderCls: 'border-amber-500/50 hover:border-amber-500',
+    bgCls: 'bg-amber-500/10',
+    iconCls: 'text-amber-700 dark:text-amber-400',
     selectedBorderCls: 'border-amber-500',
-    selectedBgCls: 'bg-amber-500/10',
+    selectedBgCls: 'bg-amber-500/15',
   },
   COMPLETO: {
     label: 'Completo',
     description: 'plano ideal — todos os procedimentos sugeridos',
     icon: <Check size={14} />,
-    borderCls: 'border-emerald-500/30 hover:border-emerald-500/60',
-    bgCls: 'bg-emerald-500/5',
-    iconCls: 'text-emerald-700',
+    borderCls: 'border-emerald-500/50 hover:border-emerald-500',
+    bgCls: 'bg-emerald-500/10',
+    iconCls: 'text-emerald-700 dark:text-emerald-400',
     selectedBorderCls: 'border-emerald-500',
-    selectedBgCls: 'bg-emerald-500/10',
+    selectedBgCls: 'bg-emerald-500/15',
   },
 };
 
@@ -673,12 +670,11 @@ const LIVRE_CONFIG: VariantConfig = {
   label: 'Versão livre',
   description: 'variação extra sem prioridade fixa',
   icon: <Layers size={14} />,
-  borderCls: 'border-sky-500/30 hover:border-sky-500/60',
-  bgCls: 'bg-sky-500/5',
-  iconCls: 'text-sky-700',
-  // Onda 14.36 — sem ring (vide comentario em PRIORITY_CONFIG)
+  borderCls: 'border-sky-500/50 hover:border-sky-500',
+  bgCls: 'bg-sky-500/10',
+  iconCls: 'text-sky-700 dark:text-sky-400',
   selectedBorderCls: 'border-sky-500',
-  selectedBgCls: 'bg-sky-500/10',
+  selectedBgCls: 'bg-sky-500/15',
 };
 
 /** Resolve config pra qualquer CardVariant. */
@@ -1896,7 +1892,7 @@ function PropostaCard({
           : selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
-      } ${dimmed ? 'opacity-50 grayscale hover:opacity-100 hover:grayscale-0' : ''}`}
+      }`}
     >
       {/* Onda 17.32.32 — Badges sticker no topo (saem PRA FORA do card).
           Visual mais destacado igual ao design do operador. */}
