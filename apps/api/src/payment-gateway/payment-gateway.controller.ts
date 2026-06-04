@@ -8,12 +8,15 @@ import {
   Param,
   Query,
   Req,
+  Res,
   Logger,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { PaymentGatewayService } from './payment-gateway.service';
 import { CreateChargeDto, CreateBatchChargesDto, CreateInstallmentChargeDto } from './payment-gateway.dto';
 import { AsaasClient } from './asaas/asaas-client';
 import { PrismaService } from '../prisma/prisma.service';
+import { Public } from '../auth/decorators/public.decorator';
 
 @Controller('payment-gateway')
 export class PaymentGatewayController {
@@ -26,6 +29,52 @@ export class PaymentGatewayController {
   ) {}
 
   // ─── ROTAS FIXAS PRIMEIRO (antes de :param) ─────────────
+
+  /**
+   * Onda 17.32.49 — Proxy de PDFs do boleto e paginas do Asaas pra
+   * permitir embed em iframe dentro do nosso sistema. Boletos/PIX do
+   * Asaas vem com X-Frame-Options: DENY ou SAMEORIGIN, o que bloqueia
+   * iframe direto. Esse proxy faz fetch server-side e retorna sem o
+   * header X-Frame.
+   *
+   * Seguranca: whitelist de hosts (so dominio asaas.com). Endpoint
+   * publico porque iframe nao consegue mandar Authorization header,
+   * e como so faz GET em URLs Asaas o risco de SSRF eh nulo.
+   */
+  @Public()
+  @Get('proxy-asaas')
+  async proxyAsaas(@Query('url') url: string, @Res() res: Response) {
+    if (!url) {
+      return res.status(400).send('Missing url query');
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(url);
+    } catch {
+      return res.status(400).send('Invalid url');
+    }
+    const allowedHosts = ['www.asaas.com', 'asaas.com', 'sandbox.asaas.com'];
+    if (!allowedHosts.includes(parsed.hostname)) {
+      return res.status(403).send(`Host not allowed: ${parsed.hostname}`);
+    }
+    try {
+      const upstream = await fetch(url, { redirect: 'follow' });
+      if (!upstream.ok) {
+        return res.status(upstream.status).send(`Upstream ${upstream.status}`);
+      }
+      const contentType = upstream.headers.get('content-type') || 'application/octet-stream';
+      const buf = Buffer.from(await upstream.arrayBuffer());
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Cache-Control', 'private, max-age=300');
+      // Garante que iframe possa carregar (remove X-Frame e CSP frame-ancestors)
+      res.removeHeader('X-Frame-Options');
+      res.removeHeader('Content-Security-Policy');
+      return res.send(buf);
+    } catch (err: any) {
+      this.logger.error(`[proxy-asaas] ${err?.message}`);
+      return res.status(502).send(`Upstream error: ${err?.message || 'unknown'}`);
+    }
+  }
 
   @Get('balance')
   async getBalance() {

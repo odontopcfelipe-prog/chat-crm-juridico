@@ -1176,6 +1176,15 @@ function ChargeViewerModal({
   const url = p.method === 'BOLETO'
     ? (p.boletoUrl || p.invoiceUrl)
     : (p.invoiceUrl || p.boletoUrl);
+  // Onda 17.32.49 — URL pra embed no iframe: passa pelo proxy do backend
+  // pra remover o X-Frame-Options do Asaas (que bloqueia iframe direto).
+  // Cai pra URL direta se NEXT_PUBLIC_API_URL nao estiver definido.
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
+  const embedUrl: string | undefined = url
+    ? (apiBase
+        ? `${apiBase}/payment-gateway/proxy-asaas?url=${encodeURIComponent(url)}`
+        : url)
+    : undefined;
   const label = (() => {
     if (p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind)) return 'Sinal de fechamento';
     if (p.kind === 'ENTRADA') return 'Entrada';
@@ -1225,14 +1234,15 @@ function ChargeViewerModal({
             <X size={18} />
           </button>
         </div>
-        {/* Conteudo: iframe ou msg sem-url */}
-        <div className="flex-1 overflow-hidden bg-muted/10 min-h-[400px]">
+        {/* Conteudo: iframe via proxy ou msg sem-url */}
+        <div className="flex-1 overflow-hidden bg-muted/10 min-h-[500px]">
           {url ? (
             <iframe
-              src={url}
+              src={embedUrl}
               className="w-full h-full border-0"
               title={`${label} — ${methodLabel}`}
-              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+              // sem sandbox — proxy ja retorna conteudo limpo, e o PDF
+              // do Asaas precisa de scripts/forms pra renderizar links
             />
           ) : (
             <div className="h-full flex items-center justify-center p-8 text-center">
