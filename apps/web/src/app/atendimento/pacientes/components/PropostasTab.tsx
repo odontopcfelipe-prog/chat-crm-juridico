@@ -4089,13 +4089,17 @@ function PropostaPainel({
                 onChangeCustomRestMethod={setCustomRestMethod}
                 onSelectParcelas={(key) => { onChangePayment(key); }}
                 onEmitir={() => {
+                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
+                  // Cobranca so e criada quando operador clica "Encaminhar ao
+                  // financeiro" no rodape do PropostaPainel.
                   setCartaoModalOpen(false);
-                  onApproveAndBill({
-                    customDownPayment,
-                    customSignalValue,
-                    customSignalMethod,
-                    customEntradaDueDate,
-                    customInstallmentsStartDate,
+                  onChooseAsProposal?.({
+                    payment_key: activePaymentKey || null,
+                    down_payment: customDownPayment > 0 ? customDownPayment : 0,
+                    signal_value: customSignalValue > 0 ? customSignalValue : null,
+                    signal_method: customSignalValue > 0 ? customSignalMethod : null,
+                    entrada_due_date: customEntradaDueDate || null,
+                    installments_start_date: customInstallmentsStartDate || null,
                   });
                 }}
                 onClose={() => setCartaoModalOpen(false)}
@@ -4148,13 +4152,17 @@ function PropostaPainel({
                   }
                 }}
                 onEmitir={() => {
+                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
+                  // Cobranca so e criada quando operador clica "Encaminhar ao
+                  // financeiro" no rodape do PropostaPainel.
                   setBoletoModalOpen(false);
-                  onApproveAndBill({
-                    customDownPayment,
-                    customSignalValue,
-                    customSignalMethod,
-                    customEntradaDueDate,
-                    customInstallmentsStartDate,
+                  onChooseAsProposal?.({
+                    payment_key: activePaymentKey || null,
+                    down_payment: customDownPayment > 0 ? customDownPayment : 0,
+                    signal_value: customSignalValue > 0 ? customSignalValue : null,
+                    signal_method: customSignalValue > 0 ? customSignalMethod : null,
+                    entrada_due_date: customEntradaDueDate || null,
+                    installments_start_date: customInstallmentsStartDate || null,
                   });
                 }}
                 onClose={() => setBoletoModalOpen(false)}
@@ -4175,6 +4183,11 @@ function PropostaPainel({
                 onChangeSplitCash={setPixModalSplitCash}
                 quickActionsLoading={quickActionLoading}
                 onEmitir={() => {
+                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
+                  // Cobranca so e criada quando operador clica "Encaminhar ao
+                  // financeiro" no rodape do PropostaPainel.
+                  // Excecao: modos CASH e MIXED do PIX ja foram desenhados pra
+                  // emitir direto (paciente esta presente). Mantemos esse fluxo.
                   if (pixModalMode === 'CASH') {
                     void handleEmitPixCash(pixCalc.finalValue);
                     return;
@@ -4185,14 +4198,15 @@ function PropostaPainel({
                     void handleEmitPixMixed(cashAmount, pixAmount);
                     return;
                   }
-                  // PIX puro: comportamento original
+                  // PIX puro: salva como proposta (sem emitir)
                   setPixModalOpen(false);
-                  onApproveAndBill({
-                    customDownPayment: 0,
-                    customSignalValue: 0,
-                    customSignalMethod: 'PIX',
-                    customEntradaDueDate: customPixDueDate,
-                    customInstallmentsStartDate: '',
+                  onChooseAsProposal?.({
+                    payment_key: pixOpt.key,
+                    down_payment: 0,
+                    signal_value: null,
+                    signal_method: null,
+                    entrada_due_date: customPixDueDate || null,
+                    installments_start_date: null,
                   });
                 }}
                 onClose={() => setPixModalOpen(false)}
@@ -4310,11 +4324,27 @@ function PropostaPainel({
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
         </button>
-        {/* Onda 17.32.26 — Botao "Aprovar e cobrar" verde removido do rodape.
-            Era redundante com os "Emitir cobranca" laranja dos modais novos
-            de cada forma de pagamento (Boleto/PIX/Cartao) e fazia operador
-            emitir sem configurar entrada/datas. Agora o fluxo unico passa
-            pelos cards "Configurar e emitir" (Onda 17.32.26). */}
+        {/* Onda 17.32.36 — Botao "Encaminhar ao financeiro" volta com novo nome
+            e significado: a proposta precisa estar SALVA primeiro (chosen).
+            Click cria todas as cobrancas no Asaas e move a proposta da aba
+            "Plano de tratamento" pra aba "Financeiro" do paciente. */}
+        {detail.is_chosen_proposal && (
+          <button
+            type="button"
+            onClick={() => onApproveAndBill({
+              customDownPayment,
+              customSignalValue,
+              customSignalMethod,
+              customEntradaDueDate,
+              customInstallmentsStartDate,
+            })}
+            className="text-xs px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 flex items-center gap-1.5 font-bold shadow-sm"
+            title="Cria todas as cobranças no Asaas (sinal, entrada, parcelas) e move a proposta pra aba Financeiro do paciente"
+          >
+            <Send size={12} />
+            Encaminhar ao financeiro
+          </button>
+        )}
       </div>
 
       {/* Onda 13 — Bônus de fechamento (ativos e expirados) */}
@@ -5379,11 +5409,11 @@ function BoletoCobrancaUnificadaModal({
                         onEmitir();
                       }}
                       disabled={!canEmit}
-                      title={!canEmit ? 'Configure entrada, parcelas e datas pra emitir' : 'Gerar todas as cobranças no Asaas'}
-                      className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                      title={!canEmit ? 'Configure entrada, parcelas e datas pra salvar' : 'Salva esta forma de pagamento como a escolhida pra apresentar ao paciente. Cobranças no Asaas só serão criadas quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
+                      className="mt-4 w-full px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
                     >
                       <Check size={16} strokeWidth={3} />
-                      Emitir cobrança
+                      Salvar proposta
                     </button>
                   </>
                 );
@@ -5815,10 +5845,13 @@ function PixCobrancaUnificadaModal({
                 type="button"
                 onClick={onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
-                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                title={mode === 'PIX' ? 'Salva PIX como forma escolhida. Cobrança no Asaas só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.' : 'Registra recebimento em espécie agora (gera charge CASH).'}
+                className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
+                  mode === 'PIX' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-orange-600 hover:bg-orange-700'
+                }`}
               >
                 {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                Emitir cobrança
+                {mode === 'PIX' ? 'Salvar proposta' : 'Emitir cobrança'}
               </button>
 
               {onSend && (
@@ -6392,10 +6425,11 @@ function CartaoCobrancaUnificadaModal({
                 type="button"
                 onClick={onEmitir}
                 disabled={!activeOpt}
-                className="mt-4 w-full px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                title="Salva Cartão como forma escolhida. Link Asaas só será gerado quando o operador clicar 'Encaminhar ao financeiro' no rodapé."
+                className="mt-4 w-full px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
               >
                 <Check size={16} strokeWidth={3} />
-                Emitir cobrança
+                Salvar proposta
               </button>
 
               {onSend && (
