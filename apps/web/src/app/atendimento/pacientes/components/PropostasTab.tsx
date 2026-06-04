@@ -2735,33 +2735,48 @@ interface ContractMinimal {
   cancelled_at: string | null;
 }
 
-function ContratoCard({ quoteId }: { quoteId: string }) {
+interface QuoteWithSigners {
+  patient: { id: string; name: string; phone: string | null };
+  created_by: { id: string; name: string } | null;
+}
+
+function ContratoCard({
+  quoteId,
+  proposalLabel,
+  paymentFormLabel,
+  total,
+}: {
+  quoteId: string;
+  proposalLabel?: string;
+  paymentFormLabel?: string;
+  total?: number;
+}) {
   const [contract, setContract] = useState<ContractMinimal | null>(null);
+  const [quote, setQuote] = useState<QuoteWithSigners | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [selectedDocs, setSelectedDocs] = useState<Set<string>>(
     () => new Set(CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id)),
   );
-  // Onda 14.35 — Card colapsavel. Comeca recolhido pra nao poluir o painel
-  // (operador pode passar bastante tempo configurando pagamento antes de
-  // pensar em contrato). Clica no header pra expandir.
-  const [expanded, setExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const { data } = await api.get<ContractMinimal | null>(`/quotes/${quoteId}/contract`);
+      const [contractRes, quoteRes] = await Promise.all([
+        api.get<ContractMinimal | null>(`/quotes/${quoteId}/contract`).catch(() => ({ data: null as ContractMinimal | null })),
+        api.get<QuoteWithSigners>(`/quotes/${quoteId}`).catch(() => ({ data: null as QuoteWithSigners | null })),
+      ]);
+      const data = contractRes.data;
       if (data) {
         setContract(data);
-        // Sincroniza checkboxes com docs ja persistidos
         const persisted = Array.isArray(data.selected_documents) ? data.selected_documents : [];
         const coreIds = CONTRACT_DOCUMENTS.filter((d) => d.core).map((d) => d.id);
         setSelectedDocs(new Set([...coreIds, ...persisted]));
       } else {
         setContract(null);
       }
+      setQuote(quoteRes.data);
     } catch {
-      // Sem contrato e estado valido (operador ainda nao criou)
       setContract(null);
     } finally {
       setLoading(false);
@@ -2840,254 +2855,296 @@ function ContratoCard({ quoteId }: { quoteId: string }) {
     );
   }
 
-  // ── ESTADO: SEM CONTRATO — picker de documentos + criar ─────────
-  if (!contract) {
-    const extrasSelected = Array.from(selectedDocs).filter(
-      (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
-    ).length;
-    const totalSelected = CONTRACT_DOCUMENTS.filter((d) => d.core).length + extrasSelected;
-    return (
-      <div className="mb-3 rounded-lg border border-border bg-card overflow-hidden">
-        {/* Onda 14.35 — Header clicavel pra expandir/colapsar */}
-        <button
-          type="button"
-          onClick={() => setExpanded((v) => !v)}
-          className="w-full px-3 py-2.5 flex items-center justify-between gap-2 hover:bg-accent/30 transition-colors text-left"
-        >
-          <p className="text-xs font-semibold flex items-center gap-1.5">
-            <FileText size={13} className="text-amber-700" />
-            Contrato de tratamento
-            <span className="text-[10px] font-normal text-muted-foreground italic">
-              · {expanded ? 'escolha os documentos pra assinatura' : 'clique pra escolher os documentos'}
-            </span>
-          </p>
-          <div className="flex items-center gap-2 shrink-0">
-            <span className="text-[10px] text-muted-foreground">
-              {totalSelected} documentos selecionados
-            </span>
-            <ChevronDown
-              size={14}
-              className={`text-muted-foreground transition-transform ${expanded ? 'rotate-180' : ''}`}
-            />
-          </div>
-        </button>
-
-        {/* Onda 14.35 — Conteudo so visivel quando expandido */}
-        {!expanded ? null : (
-        <div className="px-3 pb-3 pt-1 border-t border-border/40">
-
-        {/* Onda 14.31 — Agrupado em 3 secoes: core (sempre incluso), termos
-            gerais (opcionais) e termos por procedimento (modelos da clinica). */}
-        {(['CORE', 'GERAL', 'PROCEDIMENTO'] as const).map((section) => {
-          const docs = CONTRACT_DOCUMENTS.filter((d) =>
-            section === 'CORE' ? d.core : d.category === section,
-          );
-          if (docs.length === 0) return null;
-          const sectionLabel = {
-            CORE: 'Sempre incluídos',
-            GERAL: 'Termos gerais',
-            PROCEDIMENTO: 'Termos por procedimento',
-          }[section];
-          return (
-            <div key={section} className="mb-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold mb-1.5">
-                {sectionLabel}
-              </p>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
-                {docs.map((doc) => {
-                  const isChecked = selectedDocs.has(doc.id);
-                  const isCore = !!doc.core;
-                  return (
-                    <label
-                      key={doc.id}
-                      className={`flex items-start gap-2 p-2 rounded border text-[11px] cursor-pointer transition-colors ${
-                        isChecked
-                          ? isCore
-                            ? 'bg-muted/40 border-border opacity-80'
-                            : 'bg-amber-500/5 border-amber-500/40'
-                          : 'border-border bg-card hover:bg-accent/30'
-                      } ${isCore ? 'cursor-not-allowed' : ''}`}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        disabled={isCore || busy}
-                        onChange={() => toggleDoc(doc.id)}
-                        className="w-3.5 h-3.5 mt-0.5 rounded border-border accent-amber-600 shrink-0"
-                      />
-                      <div className="min-w-0 flex-1">
-                        <p className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
-                          {doc.label}
-                          {isCore && (
-                            <span className="text-[9px] font-normal px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-700 uppercase tracking-wide">
-                              sempre incluso
-                            </span>
-                          )}
-                        </p>
-                        <p className="text-muted-foreground leading-tight text-[10px]">{doc.description}</p>
-                      </div>
-                    </label>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={createContract}
-            disabled={busy}
-            className="text-xs px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 inline-flex items-center gap-1.5 font-semibold"
-          >
-            {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-            Criar contrato
-          </button>
-        </div>
-        </div>
-        )}
-      </div>
-    );
-  }
-
-  // ── ESTADO: COM CONTRATO — mostra status + acoes ────────────────
-  const statusLabel: Record<ContractMinimal['status'], { label: string; cls: string }> = {
-    DRAFT: { label: 'Pronto pra enviar', cls: 'bg-muted text-muted-foreground' },
-    SENT: { label: 'Aguardando paciente', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300' },
-    OPENED: { label: 'Paciente abriu', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-300' },
-    PATIENT_SIGNED: { label: 'Paciente assinou', cls: 'bg-sky-100 text-sky-800 dark:bg-sky-950/30 dark:text-sky-300' },
-    SIGNED: { label: 'Assinado por ambos', cls: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-300' },
-    EXPIRED: { label: 'Expirado', cls: 'bg-muted text-muted-foreground' },
-    CANCELLED: { label: 'Cancelado', cls: 'bg-destructive/10 text-destructive' },
+  // ── Helpers do redesign Onda 17.32.27 ──────────────────────────────
+  const initials = (name: string | undefined | null) => {
+    if (!name) return '??';
+    const parts = name.trim().split(/\s+/);
+    if (parts.length === 0) return '??';
+    if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
   };
-  const status = contract.skipped
-    ? { label: 'Pulado (operador dispensou)', cls: 'bg-amber-100 text-amber-800 dark:bg-amber-950/30 dark:text-amber-300' }
-    : statusLabel[contract.status];
-  const docsCount = (contract.selected_documents?.length ?? 0)
-    + CONTRACT_DOCUMENTS.filter((d) => d.core).length;
-  const isTerminal = contract.skipped || contract.status === 'SIGNED' || contract.status === 'CANCELLED' || contract.status === 'EXPIRED';
+  const fmtPhone = (phone: string | null | undefined) => {
+    if (!phone) return '';
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length === 13 && digits.startsWith('55')) {
+      return `(${digits.slice(2, 4)}) ${digits.slice(4, 9)}-${digits.slice(9)}`;
+    }
+    if (digits.length === 11) {
+      return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+    }
+    return phone;
+  };
+  const patientName = quote?.patient?.name || 'Paciente';
+  const patientPhone = fmtPhone(quote?.patient?.phone);
+  const dentistName = quote?.created_by?.name || 'Dentista responsável';
+  const totalCoreDocs = CONTRACT_DOCUMENTS.filter((d) => d.core).length;
+  const totalAvailableDocs = CONTRACT_DOCUMENTS.length;
+  const selectedDocsCount = selectedDocs.size;
+  // Status pill no header
+  const statusInfo = !contract
+    ? { label: 'NÃO ENVIADO', cls: 'bg-muted text-muted-foreground border-border' }
+    : contract.status === 'SIGNED'
+    ? { label: 'ASSINADO', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' }
+    : contract.status === 'PATIENT_SIGNED'
+    ? { label: 'AGUARDANDO CLÍNICA', cls: 'bg-sky-500/15 text-sky-700 dark:text-sky-400 border-sky-500/30' }
+    : contract.status === 'SENT' || contract.status === 'OPENED'
+    ? { label: 'ENVIADO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' }
+    : contract.status === 'CANCELLED' || contract.status === 'EXPIRED'
+    ? { label: contract.status === 'EXPIRED' ? 'EXPIRADO' : 'CANCELADO', cls: 'bg-muted text-muted-foreground border-border' }
+    : { label: 'NÃO ENVIADO', cls: 'bg-muted text-muted-foreground border-border' };
+  // Stepper
+  const stepMontar = !!contract;
+  const stepEnviar = !!contract && contract.status !== 'DRAFT';
+  const stepAssinar = contract?.status === 'SIGNED' || contract?.status === 'PATIENT_SIGNED';
+  const currentStep = !contract ? 1 : (contract.status === 'DRAFT' ? 2 : 3);
+  // Signer status
+  const patientSignerStatus = contract?.status === 'SIGNED' || contract?.status === 'PATIENT_SIGNED'
+    ? { label: 'ASSINOU', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' }
+    : { label: 'AGUARDANDO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
+  const dentistSignerStatus = contract?.status === 'SIGNED'
+    ? { label: 'ASSINOU', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' }
+    : { label: 'AGUARDANDO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
 
+  // ── Render unificado (estado sem contrato e com contrato) ──────────
+  const totalLabel = total !== undefined ? `R$ ${fmtBRL(total)}` : '—';
+  const isTerminal = contract?.skipped || contract?.status === 'SIGNED' || contract?.status === 'CANCELLED' || contract?.status === 'EXPIRED';
   return (
-    <div className={`mb-3 p-3 rounded-lg border ${
-      contract.status === 'SIGNED'
-        ? 'border-emerald-500/40 bg-emerald-500/5'
-        : contract.status === 'CANCELLED' || contract.status === 'EXPIRED'
-        ? 'border-border bg-muted/20'
-        : 'border-amber-500/40 bg-amber-500/5'
-    }`}>
-      <div className="flex items-center justify-between gap-2 mb-1.5 flex-wrap">
-        <p className="text-xs font-semibold flex items-center gap-1.5">
-          <FileText size={13} className="text-amber-700" />
-          Contrato de tratamento
-          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.cls}`}>
-            {status.label}
-          </span>
-        </p>
-        <span className="text-[10px] text-muted-foreground">
-          {docsCount} documentos
-          {contract.sent_at && (
-            <> · enviado {new Date(contract.sent_at).toLocaleDateString('pt-BR')}</>
-          )}
-        </span>
+    <div className="mb-4 rounded-xl border border-border bg-card overflow-hidden">
+      {/* Header */}
+      <div className="px-5 py-4 border-b border-border flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3 min-w-0 flex-1">
+          <div className="w-11 h-11 rounded-xl bg-violet-500/15 flex items-center justify-center shrink-0">
+            <FileText size={20} className="text-violet-700 dark:text-violet-400" />
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-base font-bold text-foreground">Contrato de tratamento</h3>
+              <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full border ${statusInfo.cls}`}>
+                {statusInfo.label}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Gerado para: <strong className="text-foreground">{proposalLabel || 'Proposta'}</strong>
+              {paymentFormLabel && <> · <strong className="text-foreground">{paymentFormLabel}</strong></>}
+              {' · '}<strong className="text-foreground tabular-nums">{totalLabel}</strong>
+            </p>
+          </div>
+        </div>
+
+        {/* Stepper */}
+        <div className="flex items-center gap-2 shrink-0">
+          <StepPill n={1} label="Montar" active={currentStep === 1} done={stepMontar} />
+          <span className="w-4 h-px bg-border" />
+          <StepPill n={2} label="Enviar" active={currentStep === 2} done={stepEnviar} />
+          <span className="w-4 h-px bg-border" />
+          <StepPill n={3} label="Assinar" active={currentStep === 3} done={stepAssinar} />
+        </div>
       </div>
 
-      {/* Link do ClickSign se disponivel */}
-      {contract.signing_url && (
-        <div className="mb-2 p-1.5 bg-sky-500/5 border border-sky-500/30 rounded text-[10px] flex items-center gap-2">
-          <Send size={10} className="text-sky-700 shrink-0" />
-          <a
-            href={contract.signing_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sky-700 hover:underline truncate flex-1"
-            title={contract.signing_url}
-          >
-            {contract.signing_url}
-          </a>
-          <button
-            type="button"
-            onClick={() => {
-              navigator.clipboard.writeText(contract.signing_url || '');
-              showSuccess('Link copiado');
-            }}
-            className="px-1.5 py-0.5 rounded border border-sky-300 hover:bg-sky-100 shrink-0"
-          >
-            copiar
-          </button>
+      {/* Body 2 colunas */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 divide-y lg:divide-y-0 lg:divide-x divide-border">
+        {/* Coluna esquerda: Documentos do pacote */}
+        <div className="p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
+              Documentos do pacote
+            </p>
+            <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-violet-500/10 text-violet-700 dark:text-violet-400 border border-violet-500/20">
+              {selectedDocsCount} DE {totalAvailableDocs}
+            </span>
+          </div>
+          <ul className="space-y-2 max-h-[260px] overflow-y-auto">
+            {CONTRACT_DOCUMENTS.slice(0, 5).map((doc) => {
+              const isChecked = selectedDocs.has(doc.id);
+              const isCore = !!doc.core;
+              return (
+                <li key={doc.id}>
+                  <label className={`flex items-center gap-2.5 cursor-pointer ${isCore ? 'cursor-not-allowed' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={isChecked}
+                      disabled={isCore || busy || !!contract}
+                      onChange={() => toggleDoc(doc.id)}
+                      className="w-4 h-4 rounded border-border accent-violet-600"
+                    />
+                    <span className="text-sm text-foreground flex-1">{doc.label}</span>
+                    {isCore && (
+                      <span className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30">
+                        Obrigatório
+                      </span>
+                    )}
+                  </label>
+                </li>
+              );
+            })}
+          </ul>
         </div>
-      )}
 
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <button
-          type="button"
-          onClick={() => previewPdf(contract.id)}
-          className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent inline-flex items-center gap-1"
-        >
-          <Eye size={10} /> Pré-visualizar PDF
-        </button>
-
-        {!isTerminal && contract.status === 'DRAFT' && (
-          <>
+        {/* Coluna direita: Quem vai assinar */}
+        <div className="p-5">
+          <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-3">
+            Quem vai assinar
+          </p>
+          <div className="space-y-2.5">
+            {/* Paciente */}
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-400 font-bold text-xs flex items-center justify-center shrink-0">
+                {initials(patientName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground truncate">{patientName}</p>
+                <p className="text-[11px] text-muted-foreground truncate">
+                  Paciente{patientPhone ? ` · ${patientPhone}` : ''}
+                </p>
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${patientSignerStatus.cls} shrink-0`}>
+                {patientSignerStatus.label}
+              </span>
+            </div>
+            {/* Dentista */}
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-zinc-500/15 text-zinc-700 dark:text-zinc-400 font-bold text-xs flex items-center justify-center shrink-0">
+                {initials(dentistName)}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold text-foreground truncate">Dr(a). {dentistName}</p>
+                <p className="text-[11px] text-muted-foreground truncate">Dentista responsável</p>
+              </div>
+              <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${dentistSignerStatus.cls} shrink-0`}>
+                {dentistSignerStatus.label}
+              </span>
+            </div>
             <button
               type="button"
-              onClick={() => action('send-clicksign')}
-              disabled={busy}
-              className="text-[11px] px-2 py-1 rounded bg-sky-600 text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1 font-medium"
+              className="text-xs text-violet-700 dark:text-violet-400 font-semibold hover:underline flex items-center gap-1 mt-1"
+              title="Em breve: adicionar terceiro (responsável financeiro) ao contrato"
+              disabled
             >
-              <Send size={10} /> Enviar via ClickSign
+              <Plus size={12} />
+              Adicionar responsável financeiro
             </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Footer */}
+      <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+        <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
+          <ShieldCheck size={12} />
+          Assinatura com validade jurídica via ClickSign · ICP-Brasil
+        </p>
+        <div className="flex items-center gap-2 flex-wrap">
+          {contract && (
             <button
               type="button"
-              onClick={() => action('send')}
-              disabled={busy}
-              className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
+              onClick={() => previewPdf(contract.id)}
+              className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
             >
-              Manual
+              <Eye size={12} />
+              Pré-visualizar PDF
             </button>
-          </>
-        )}
-
-        {!isTerminal && contract.status === 'PATIENT_SIGNED' && (
-          <button
-            type="button"
-            onClick={() => action('sign-clinic')}
-            disabled={busy}
-            className="text-[11px] px-2 py-1 rounded bg-emerald-600 text-white hover:opacity-90 disabled:opacity-50 inline-flex items-center gap-1 font-medium"
-          >
-            <Check size={10} /> Clínica assinar
-          </button>
-        )}
-
-        {!isTerminal && contract.status !== 'DRAFT' && contract.status !== 'PATIENT_SIGNED' && (
-          <button
-            type="button"
-            onClick={() => action('sign-patient')}
-            disabled={busy}
-            className="text-[11px] px-2 py-1 rounded border border-border hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1"
-          >
-            Marcar paciente assinou
-          </button>
-        )}
-
-        {!isTerminal && (
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm('Cancelar contrato atual? Você pode criar um novo depois.')) {
-                action('cancel');
-              }
-            }}
-            disabled={busy}
-            className="ml-auto text-[11px] px-2 py-1 rounded border border-border hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 inline-flex items-center gap-1"
-          >
-            <X size={10} /> Cancelar
-          </button>
-        )}
+          )}
+          {!contract && (
+            <button
+              type="button"
+              onClick={createContract}
+              disabled={busy}
+              className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+              Criar contrato
+            </button>
+          )}
+          {contract && !isTerminal && contract.status === 'DRAFT' && (
+            <>
+              <button
+                type="button"
+                onClick={() => action('send')}
+                disabled={busy}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <Pencil size={12} />
+                Assinar presencial
+              </button>
+              <button
+                type="button"
+                onClick={() => action('send-clicksign')}
+                disabled={busy}
+                className="text-xs font-bold px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center gap-1.5 shadow-sm transition-colors disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
+                Enviar via ClickSign
+              </button>
+            </>
+          )}
+          {contract && !isTerminal && contract.status === 'PATIENT_SIGNED' && (
+            <button
+              type="button"
+              onClick={() => action('sign-clinic')}
+              disabled={busy}
+              className="text-xs font-bold px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+            >
+              <Check size={12} />
+              Clínica assinar
+            </button>
+          )}
+          {contract && contract.signing_url && (
+            <button
+              type="button"
+              onClick={() => {
+                navigator.clipboard.writeText(contract.signing_url || '');
+                showSuccess('Link copiado');
+              }}
+              className="text-xs font-semibold px-3 py-2 rounded-md border border-sky-500/30 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-400 inline-flex items-center gap-1.5 transition-colors"
+              title={contract.signing_url}
+            >
+              <Send size={12} />
+              Copiar link ClickSign
+            </button>
+          )}
+          {contract && !isTerminal && (
+            <button
+              type="button"
+              onClick={() => {
+                if (window.confirm('Cancelar contrato atual? Você pode criar um novo depois.')) {
+                  action('cancel');
+                }
+              }}
+              disabled={busy}
+              className="text-xs px-2 py-2 rounded-md border border-border hover:bg-destructive/10 hover:text-destructive disabled:opacity-50 inline-flex items-center gap-1 text-muted-foreground"
+              title="Cancelar contrato"
+            >
+              <X size={12} />
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
 }
+
+/** Pill numerado do stepper do contrato (Montar/Enviar/Assinar) */
+function StepPill({ n, label, active, done }: { n: number; label: string; active: boolean; done: boolean }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <span
+        className={`w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold border-2 ${
+          done
+            ? 'bg-emerald-600 border-emerald-600 text-white'
+            : active
+            ? 'bg-violet-600 border-violet-600 text-white'
+            : 'bg-card border-border text-muted-foreground'
+        }`}
+      >
+        {done ? <Check size={10} strokeWidth={3} /> : n}
+      </span>
+      <span className={`text-[11px] font-semibold ${done ? 'text-emerald-700 dark:text-emerald-400' : active ? 'text-violet-700 dark:text-violet-400' : 'text-muted-foreground'}`}>
+        {label}
+      </span>
+    </div>
+  );
+}
+
 
 // ─── Painel inline: proposta selecionada com pagamento + acoes ──────
 // Onda 9 — renderiza abaixo dos cards quando alguma versao esta selecionada.
@@ -4102,7 +4159,19 @@ function PropostaPainel({
           Onda 14.34 — Agora aparece em DRAFT/SENT tambem (nao so ACCEPTED).
           Operador pode preparar o contrato durante a negociacao — assinatura
           NAO e mais obrigatoria pra aprovar/cobrar (gate desativado em 14.34). */}
-      <ContratoCard quoteId={detail.id} />
+      <ContratoCard
+        quoteId={detail.id}
+        proposalLabel={cfg?.label || getQuoteDisplayName(detail) || 'Proposta'}
+        paymentFormLabel={(() => {
+          if (!activePaymentKey) return 'Pendente';
+          const opt = [...options.avista, ...options.cartao, ...options.parcelado].find((o) => o.key === activePaymentKey);
+          if (!opt) return 'Pendente';
+          if (opt.variant === 'avista') return 'PIX/dinheiro';
+          if (opt.variant === 'cartao') return `Cartão ${opt.installments}x`;
+          return `Boleto ${opt.installments}x`;
+        })()}
+        total={total}
+      />
 
       {/* Onda 14.28 — Removido: resumo "voce esta oferecendo" e botoes
           "Ajustar" / "Salvar contraproposta" (pedido do operador).
