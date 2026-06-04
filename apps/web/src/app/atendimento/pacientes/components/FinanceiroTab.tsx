@@ -278,62 +278,99 @@ export default function FinanceiroTab({ patientId }: Props) {
     );
   }
 
+  // Onda 17.32.35 — Conta ativos (proposta com pelo menos 1 charge nao paga)
+  const activeCount = acceptedQuotes.filter((q) => {
+    const qCharges = charges.filter((c: any) => c.quote_id === q.id);
+    return qCharges.some((c: any) => {
+      const s = (c.status || '').toUpperCase();
+      return s !== 'PAID' && s !== 'RECEIVED' && s !== 'CONFIRMED' && s !== 'RECEIVED_IN_CASH' && s !== 'CANCELLED';
+    });
+  }).length;
+  const contractsCount = acceptedQuotes.length;
+
   return (
     <div className="space-y-4">
-      {/* Onda 14.15 — Header com indicador de sincronizacao */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <p className="text-[10px] text-muted-foreground italic flex items-center gap-1.5">
-          <Clock size={10} />
-          Atualiza automaticamente a cada 30s · webhook Asaas em tempo real
-        </p>
+      {/* Header — Onda 17.32.35: visual mais rico igual ao design proposto */}
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+            </span>
+            Webhook Asaas em tempo real
+          </span>
+          <span className="text-[11px] text-muted-foreground">· atualiza a cada 30s</span>
+        </div>
         <button
           type="button"
           onClick={load}
           disabled={loading}
-          className="text-[10px] text-primary hover:underline disabled:opacity-50"
+          className="text-[11px] text-primary hover:underline disabled:opacity-50"
           title="Atualizar agora"
         >
           {loading ? <Loader2 size={11} className="animate-spin inline" /> : '↻ Atualizar agora'}
         </button>
       </div>
 
-      {/* Resumo financeiro do paciente */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <SummaryCard
-          label="Total contratado"
-          value={fmtBRL(summary.total)}
-          icon={<DollarSign size={14} className="text-muted-foreground" />}
-        />
-        <SummaryCard
-          label="Já recebido"
-          value={fmtBRL(summary.paid)}
-          icon={<Check size={14} className="text-emerald-600" />}
-          highlight="emerald"
-        />
-        <SummaryCard
-          label="Em aberto"
-          value={fmtBRL(summary.pending)}
-          icon={<Clock size={14} className="text-blue-600" />}
-          highlight="blue"
-        />
-        <SummaryCard
-          label="Atrasado"
-          value={fmtBRL(summary.overdue)}
-          icon={<AlertTriangle size={14} className="text-red-600" />}
-          highlight={summary.overdue > 0 ? 'red' : undefined}
-        />
+      {/* Resumo do paciente */}
+      <div>
+        <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-2">
+          Resumo do paciente
+          <span className="ml-2 font-normal normal-case text-muted-foreground">
+            {contractsCount} {contractsCount === 1 ? 'contrato' : 'contratos'} · {activeCount} {activeCount === 1 ? 'ativo' : 'ativo(s)'}
+          </span>
+        </p>
+
+        {/* 4 KPIs grandes */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <BigKpiCard
+            label="Total contratado"
+            value={fmtBRL(summary.total)}
+            icon={<DollarSign size={14} />}
+            tone="neutral"
+          />
+          <BigKpiCard
+            label="Já recebido"
+            value={fmtBRL(summary.paid)}
+            icon={<Check size={14} />}
+            tone="emerald"
+          />
+          <BigKpiCard
+            label="Em aberto"
+            value={fmtBRL(summary.pending)}
+            icon={<Clock size={14} />}
+            tone="amber"
+          />
+          <BigKpiCard
+            label="Atrasado"
+            value={fmtBRL(summary.overdue)}
+            icon={<AlertTriangle size={14} />}
+            tone={summary.overdue > 0 ? 'red' : 'neutral'}
+          />
+        </div>
       </div>
 
-      {/* Onda 14.16 — Cards expansíveis por proposta aceita.
-          Substitui as 2 seções separadas (Aprovados + Cobranças geradas)
-          por 1 card rico por proposta com tudo dentro (mini-cards de
-          status, barra de progresso, lista de parcelas com pagamentos).
-          Status atualizado em tempo real pelo webhook Asaas + polling 30s. */}
-      {acceptedQuotes.length > 0 && (
-        <div>
-          <p className="text-xs font-bold uppercase tracking-wide text-foreground mb-2">
-            Propostas aceitas
-          </p>
+      {/* Bloco "Contratos & tratamentos" */}
+      <div>
+        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+          <div className="flex items-center gap-2">
+            <Receipt size={16} className="text-orange-600" />
+            <h2 className="text-base font-bold text-foreground">Contratos & tratamentos</h2>
+          </div>
+          <button
+            type="button"
+            onClick={() => { /* TODO: implementar fluxo de novo contrato */ }}
+            className="text-xs font-bold text-orange-600 hover:bg-orange-500/10 px-3 py-2 rounded-md inline-flex items-center gap-1.5 transition-colors border border-orange-500/30"
+            title="Em breve: criar novo contrato direto pelo Financeiro"
+          >
+            <span className="text-base leading-none">+</span>
+            Novo contrato
+          </button>
+        </div>
+
+        {/* Onda 14.16 — Cards expansíveis por proposta aceita */}
+        {acceptedQuotes.length > 0 ? (
           <div className="space-y-3">
             {acceptedQuotes.map((q, idx) => (
               <ProposalFinancialCard
@@ -346,8 +383,12 @@ export default function FinanceiroTab({ patientId }: Props) {
               />
             ))}
           </div>
-        </div>
-      )}
+        ) : (
+          <p className="text-xs text-muted-foreground italic px-3 py-4 border border-dashed border-border rounded-md text-center">
+            Nenhum contrato ativo ainda. Quando uma proposta for aceita e o contrato assinado, aparece aqui.
+          </p>
+        )}
+      </div>
 
       {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
       {detailQuoteId && (
@@ -1477,6 +1518,34 @@ function ChargeRow({ charge: c }: { charge: Charge }) {
         )}
       </div>
     </li>
+  );
+}
+
+/** Onda 17.32.35 — Card KPI grande pro topo do FinanceiroTab.
+ *  Maior, com cores mais saturadas + valor grande pra impacto visual.
+ *  Toneles: neutral (cinza) · emerald (verde) · amber (laranja) · red (vermelho). */
+function BigKpiCard({
+  label, value, icon, tone,
+}: {
+  label: string;
+  value: string;
+  icon: React.ReactNode;
+  tone: 'neutral' | 'emerald' | 'amber' | 'red';
+}) {
+  const styles = {
+    neutral: { border: 'border-border', bg: 'bg-card', icon: 'text-muted-foreground', text: 'text-foreground', label: 'text-muted-foreground' },
+    emerald: { border: 'border-emerald-500/30', bg: 'bg-emerald-500/5', icon: 'text-emerald-700 dark:text-emerald-400', text: 'text-emerald-700 dark:text-emerald-400', label: 'text-emerald-700 dark:text-emerald-400' },
+    amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/5', icon: 'text-amber-700 dark:text-amber-400', text: 'text-amber-700 dark:text-amber-400', label: 'text-amber-700 dark:text-amber-400' },
+    red: { border: 'border-red-500/30', bg: 'bg-red-500/5', icon: 'text-red-700 dark:text-red-400', text: 'text-red-700 dark:text-red-400', label: 'text-red-700 dark:text-red-400' },
+  }[tone];
+  return (
+    <div className={`border-2 ${styles.border} ${styles.bg} rounded-xl p-4`}>
+      <div className="flex items-center gap-1.5 mb-2">
+        <span className={styles.icon}>{icon}</span>
+        <p className={`text-[10px] uppercase tracking-wider font-bold ${styles.label}`}>{label}</p>
+      </div>
+      <p className={`text-2xl font-extrabold tabular-nums ${styles.text}`}>R$ {value}</p>
+    </div>
   );
 }
 
