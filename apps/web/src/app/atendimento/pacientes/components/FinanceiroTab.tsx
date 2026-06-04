@@ -757,22 +757,39 @@ function ProposalFinancialCard({
         });
       }
     }
-    // Onda 17.32.44 — Ordenacao logica: Sinal primeiro, depois Entrada,
-    // depois Parcelas (por numero crescente). Antes a ordem dependia da
-    // sequencia de criacao das charges no Asaas (caos).
+    // Onda 17.32.45 — Ordenacao logica em camadas:
+    //  1. KIND: Sinal -> Entrada -> Parcelas (operador ve o "começo" do
+    //     contrato no topo, parcelas longas embaixo).
+    //  2. METODO: dentro de PARCELAS, agrupa por metodo de pagamento
+    //     (PIX juntas, BOLETO juntas, CARTAO juntas). Antes vinha
+    //     intercalado e o operador se perdia.
+    //  3. CHARGE: mesmo metodo, agrupa parcelas da mesma cobranca pai
+    //     (ex: 1 boleto parcelado em 5x fica com as 5 parcelas em
+    //     sequencia, sem que outra charge se misture).
+    //  4. NUMERO: dentro da mesma charge, ordem natural 1/5, 2/5, ...
     const kindOrder = (k: string | null | undefined): number => {
       if (k === 'SINAL') return 0;
       if (k === 'ENTRADA') return 1;
       return 2; // PARCELA (default)
     };
+    const methodOrder = (m: string | null | undefined): number => {
+      // PIX = 0 (instantaneo), BOLETO = 1, CREDIT_CARD = 2, outros = 3
+      if (m === 'PIX') return 0;
+      if (m === 'BOLETO') return 1;
+      if (m === 'CREDIT_CARD') return 2;
+      return 3;
+    };
     list.sort((a, b) => {
       const ka = kindOrder(a.kind);
       const kb = kindOrder(b.kind);
       if (ka !== kb) return ka - kb;
-      // Mesmo kind: ordena por data de vencimento
-      const da = a.dueDate ? new Date(a.dueDate).getTime() : 0;
-      const db = b.dueDate ? new Date(b.dueDate).getTime() : 0;
-      if (da !== db) return da - db;
+      // Mesmo kind: agrupa por metodo (PIX juntas, BOLETO juntas, ...)
+      const ma = methodOrder(a.method);
+      const mb = methodOrder(b.method);
+      if (ma !== mb) return ma - mb;
+      // Mesmo metodo: mantem parcelas da mesma cobranca pai juntas
+      if (a.chargeId !== b.chargeId) return a.chargeId.localeCompare(b.chargeId);
+      // Mesma charge: ordem natural pelo numero da parcela
       return a.number - b.number;
     });
     // Marca a primeira não-paga como "próxima" (apos ordenacao)
