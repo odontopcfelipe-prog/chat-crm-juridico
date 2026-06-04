@@ -1167,6 +1167,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             }
           }
         } catch (e) { /* swallow — dialog e bonus */ }
+        // Onda 17.32.37 — Apos encaminhar ao financeiro, fecha o painel
+        // (quote vira ACCEPTED e some do filtro DRAFT/SENT).
+        setSelectedId(null);
         load();
       } catch (err: unknown) {
         const e = err as { response?: { data?: { message?: string } }; message?: string };
@@ -1239,6 +1242,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       setApproveBillResult(data);
       setApproveBillOpen(true);
       showSuccess('Proposta aprovada e cobrança gerada!');
+      // Onda 17.32.37 — fecha painel: quote vira ACCEPTED e some do PropostasTab
+      setSelectedId(null);
       load(); // refresh lista
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string }; status?: number }; code?: string; name?: string; message?: string };
@@ -1322,12 +1327,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
 
   // Filtra DRAFT/SENT/ACCEPTED (aceitos continuam visiveis pra operador
   // acompanhar status + gerar cobranca se faltou).
-  // Onda 14.7 — antes filtrava so DRAFT/SENT; ACCEPTED sumia da lista,
-  // confundindo o operador apos clicar "Aprovar e cobrar".
+  // Onda 17.32.37 — Volta a filtrar apenas DRAFT/SENT. ACCEPTED some
+  // automaticamente quando o operador clica "Encaminhar ao financeiro"
+  // (apply-financing → quote vira ACCEPTED), aparecendo so na aba Financeiro.
+  // Operador nao precisa mais clicar "remover desta aba" manualmente.
   const grouped = useMemo(() => {
     const eligible = quotes.filter(
       (q) =>
-        (q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED') &&
+        (q.status === 'DRAFT' || q.status === 'SENT') &&
         // Onda 14.21 — esconde quotes que o operador clicou "remover" da aba
         // Propostas. Continuam intactas em Avaliacao/Orcamentos/Financeiro.
         // visible_in_proposals === false explicitamente. undefined/true = visivel.
