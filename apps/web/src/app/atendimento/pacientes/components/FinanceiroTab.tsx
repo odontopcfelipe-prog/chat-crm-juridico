@@ -224,19 +224,38 @@ export default function FinanceiroTab({ patientId }: Props) {
     }
 
     // 3. Charges Asaas (fluxo novo via approveAndBill)
-    //    Status sincronizado pelo webhook (PaymentGatewayCharge.status)
+    //    Status sincronizado pelo webhook (PaymentGatewayCharge.status).
+    //
+    //    Onda 17.32.51 — Antes contava SO PENDING/OVERDUE/RECEIVED/CONFIRMED,
+    //    e charges com status intermediario (AWAITING_RISK_ANALYSIS,
+    //    ANTICIPATED, DUNNING_*, CHARGEBACK_*, etc) caiam num "buraco" e a
+    //    soma nao batia com o Total contratado. Agora: tudo que nao eh
+    //    paga/cancelada/estornada conta como "Em aberto" — garantindo
+    //    paid + pending + overdue = total ativo.
     for (const c of charges) {
       const amt = Number(c.amount);
-      if (c.status === 'RECEIVED' || c.status === 'CONFIRMED') {
+      const st = c.status;
+      // Canceladas/estornadas nao contam
+      if (st === 'DELETED' || st === 'REFUNDED') continue;
+      // Pagas
+      if (st === 'RECEIVED' || st === 'CONFIRMED' || st === 'RECEIVED_IN_CASH') {
         paid += amt;
-      } else if (c.status === 'OVERDUE') {
-        overdue += amt;
-      } else if (c.status === 'PENDING') {
-        pending += amt;
+        continue;
       }
-      // DELETED/REFUNDED nao contam (canceladas/estornadas)
+      // Atrasadas
+      if (st === 'OVERDUE') {
+        overdue += amt;
+        continue;
+      }
+      // Tudo o resto conta como "Em aberto" (PENDING + estados intermediarios)
+      pending += amt;
     }
-    return { total, paid, pending, overdue };
+    // Onda 17.32.51 — "A gerar" = valor do contrato que ainda nao tem
+    // charge correspondente no Asaas (ex: proposta aceita mas algumas
+    // parcelas ainda nao foram emitidas, ou desconto/juros diferente
+    // do calculo padrao). Sempre >= 0.
+    const aGerar = Math.max(0, total - paid - pending - overdue);
+    return { total, paid, pending, overdue, aGerar };
   }, [installments, charges, acceptedQuotes]);
 
   const markPaid = async (id: string) => {
@@ -329,6 +348,10 @@ export default function FinanceiroTab({ patientId }: Props) {
           <BigKpiCard
             label="Total contratado"
             value={fmtBRL(summary.total)}
+            // Onda 17.32.51 — mostra "+ Rxxx a gerar" quando ha gap entre
+            // o valor do contrato e a soma das charges ativas (Asaas nao
+            // emitiu todas as cobrancas ainda, ou ha desconto/juros).
+            subValue={summary.aGerar > 0.5 ? `+ ${fmtBRL(summary.aGerar)} a gerar` : undefined}
             icon={<DollarSign size={14} />}
             tone="neutral"
           />
@@ -1512,10 +1535,11 @@ function ChargeRow({ charge: c }: { charge: Charge }) {
  *  Toneles: neutral (cinza) · emerald (verde) · amber (laranja) · red (vermelho).
  *  Onda 17.32.42 — Fix bug "R$ R$": value JA vem com prefixo "R$" do chamador. */
 function BigKpiCard({
-  label, value, icon, tone,
+  label, value, subValue, icon, tone,
 }: {
   label: string;
   value: string;
+  subValue?: string;
   icon: React.ReactNode;
   tone: 'neutral' | 'emerald' | 'amber' | 'red';
 }) {
@@ -1534,6 +1558,9 @@ function BigKpiCard({
         <p className={`text-[10px] uppercase tracking-wider font-bold ${styles.label}`}>{label}</p>
       </div>
       <p className={`text-2xl font-extrabold tabular-nums ${styles.text}`}>R$ {cleanValue}</p>
+      {subValue && (
+        <p className="text-[10px] mt-1 text-muted-foreground tabular-nums">{subValue}</p>
+      )}
     </div>
   );
 }
