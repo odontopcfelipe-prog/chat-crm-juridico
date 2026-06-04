@@ -714,12 +714,47 @@ function ProposalFinancialCard({
   }, [quoteDetail, quote.id]);
 
   // Charges filtradas pelo planId real (depois de carregado)
-  const relatedCharges = useMemo(() => {
+  const relatedChargesRaw = useMemo(() => {
     if (!planId) return initialRelatedCharges;
     return allCharges.filter((c) =>
       c.description?.includes(`plan:${planId}`),
     );
   }, [allCharges, planId, initialRelatedCharges]);
+
+  // Onda 17.32.53 — Dedup de charges duplicadas. Quando "Encaminhar ao
+  // financeiro" eh clicado mais de uma vez antes do backend confirmar,
+  // a idempotencia do createSimpleCharge as vezes nao previne (race
+  // condition). Resultado: 2-3 charges identicas (mesmo billing_type,
+  // amount e due_date) pra mesma proposta. Aqui agrupa pela "chave de
+  // identidade da cobranca" e mantem so a mais antiga (a "valida").
+  // As duplicatas ficam contabilizadas em `dupCharges` pra mostrar
+  // aviso no header.
+  const { relatedCharges, dupChargesCount } = useMemo(() => {
+    const byKey = new Map<string, Charge>();
+    const dups: Charge[] = [];
+    // Ordena por created_at ASC pra manter a mais antiga
+    const sorted = [...relatedChargesRaw].sort((a, b) =>
+      new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    );
+    for (const c of sorted) {
+      // Chave: tipo + valor + vencimento + kind (sinal vs entrada vs parcela)
+      const key = `${c.billing_type}|${Number(c.amount).toFixed(2)}|${c.due_date}|${c.kind || ''}`;
+      if (byKey.has(key)) {
+        // Duplicata — mantém apenas se a "vencedora" foi cancelada
+        const winner = byKey.get(key)!;
+        const winnerCancelled = winner.status === 'DELETED' || winner.status === 'REFUNDED';
+        if (winnerCancelled) {
+          byKey.set(key, c); // troca pela viva
+          dups.push(winner);
+        } else {
+          dups.push(c); // marca a nova como duplicata
+        }
+      } else {
+        byKey.set(key, c);
+      }
+    }
+    return { relatedCharges: Array.from(byKey.values()), dupChargesCount: dups.length };
+  }, [relatedChargesRaw]);
 
   // Onda 14.17 — pré-carrega sub_installments no mount (não só ao expandir)
   // pra calcular barra de progresso + agregado no header colapsado.
@@ -981,6 +1016,18 @@ function ProposalFinancialCard({
             <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border ${headerStatus.cls}`}>
               {headerStatus.label}
             </span>
+            {/* Onda 17.32.53 — Aviso de cobrancas duplicadas (cliques
+                multiplos no "Encaminhar ao financeiro" historicamente).
+                As duplicatas estao escondidas mas continuam no Asaas. */}
+            {dupChargesCount > 0 && (
+              <span
+                className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30 inline-flex items-center gap-1"
+                title={`${dupChargesCount} cobranca(s) duplicada(s) escondidas. Cancele no Asaas pra limpar.`}
+              >
+                <AlertTriangle size={9} />
+                {dupChargesCount} dup.
+              </span>
+            )}
           </div>
           <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
             {contract?.signed_at ? `Assinado ${fmtDate(contract.signed_at)} · ` : `Aceito ${fmtDate(quote.accepted_at)} · `}
