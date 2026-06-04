@@ -15,7 +15,7 @@
  *  5. Painel fecha, toast de sucesso
  */
 import { useEffect, useState } from 'react';
-import { Calendar, X, Loader2, User, Stethoscope, MapPin, Bell, FileText, Clock } from 'lucide-react';
+import { Calendar, X, Loader2, User, Stethoscope, MapPin, FileText, Clock } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -56,14 +56,18 @@ const APPT_TYPES = [
 
 const DURATIONS = [15, 30, 45, 60, 90, 120];
 
-const REMINDERS = [
-  { minutes: 0, label: 'Sem lembrete' },
-  { minutes: 15, label: '15 min antes' },
-  { minutes: 30, label: '30 min antes' },
-  { minutes: 60, label: '1 hora antes' },
-  { minutes: 120, label: '2 horas antes' },
-  { minutes: 1440, label: '1 dia antes' },
+// Onda 17.32.57 — Fallback de antecedencias caso a config global nao
+// responda (ex: sem rede ou tenant novo sem GlobalSetting salva).
+// Em condicoes normais, vem do endpoint /calendar/reminders/config.
+const DEFAULT_REMINDER_FALLBACK = [
+  { minutes_before: 1440, channel: 'WHATSAPP' }, // 1 dia antes
+  { minutes_before: 60, channel: 'WHATSAPP' },   // 1 hora antes
 ];
+
+interface ReminderAntecedencia {
+  minutes: number;
+  channel?: string;
+}
 
 export function AgendaPanel({
   open,
@@ -86,7 +90,10 @@ export function AgendaPanel({
   const [dentistId, setDentistId] = useState<string>('');
   const [procedureId, setProcedureId] = useState<string>('');
   const [roomId, setRoomId] = useState<string>('');
-  const [reminderMinutes, setReminderMinutes] = useState<number>(60);
+  // Onda 17.32.57 — Lembretes vem da config global (admin define em
+  // /atendimento/settings/lembretes). Operador nao escolhe no agendamento
+  // rapido — fica automatico conforme programado.
+  const [reminderDefaults, setReminderDefaults] = useState<Array<{ minutes_before: number; channel: string }>>(DEFAULT_REMINDER_FALLBACK);
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
 
@@ -96,7 +103,7 @@ export function AgendaPanel({
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loadingLists, setLoadingLists] = useState(false);
 
-  // Carrega listas ao abrir
+  // Carrega listas + config de lembretes ao abrir
   useEffect(() => {
     if (!open) return;
     setLoadingLists(true);
@@ -104,8 +111,12 @@ export function AgendaPanel({
       api.get<Specialist[]>('/users?role=DENTISTA'),
       api.get<Procedure[]>('/procedures'),
       api.get<Room[]>('/rooms'),
+      // Onda 17.32.57 — Config global de antecedencias de lembrete
+      // (admin gerencia em /atendimento/settings). Aplicado automaticamente
+      // a todo evento criado por aqui.
+      api.get<any>('/calendar/reminders/config'),
     ])
-      .then(([dResp, pResp, rResp]) => {
+      .then(([dResp, pResp, rResp, cResp]) => {
         if (dResp.status === 'fulfilled') {
           const data: any = dResp.value.data;
           setDentists(Array.isArray(data) ? data : (data?.data || []));
@@ -117,6 +128,18 @@ export function AgendaPanel({
         if (rResp.status === 'fulfilled') {
           const data: any = rResp.value.data;
           setRooms(Array.isArray(data) ? data : (data?.data || []));
+        }
+        if (cResp.status === 'fulfilled') {
+          const data: any = cResp.value.data;
+          const list: ReminderAntecedencia[] = Array.isArray(data?.default_antecedencias)
+            ? data.default_antecedencias
+            : [];
+          if (list.length > 0) {
+            setReminderDefaults(list.map((r) => ({
+              minutes_before: r.minutes,
+              channel: r.channel || 'WHATSAPP',
+            })));
+          }
         }
       })
       .finally(() => setLoadingLists(false));
@@ -173,8 +196,10 @@ export function AgendaPanel({
       if (patientId) payload.patient_id = patientId;
       else if (leadId) payload.lead_id = leadId;
       if (roomId) payload.location = rooms.find((r) => r.id === roomId)?.name || undefined;
-      if (reminderMinutes > 0) {
-        payload.reminders = [{ minutes_before: reminderMinutes, channel: 'WHATSAPP' }];
+      // Onda 17.32.57 — Lembretes automaticos: usa a config global do tenant
+      // (default_antecedencias). Sem campo no formulario.
+      if (reminderDefaults.length > 0) {
+        payload.reminders = reminderDefaults;
       }
 
       await api.post('/calendar/events', payload);
@@ -358,22 +383,6 @@ export function AgendaPanel({
             <option value="">{loadingLists ? 'Carregando...' : '(opcional)'}</option>
             {rooms.map((r) => (
               <option key={r.id} value={r.id}>{r.name}</option>
-            ))}
-          </select>
-        </div>
-
-        {/* Lembrete */}
-        <div>
-          <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 flex items-center gap-1">
-            <Bell size={10} /> Lembrete
-          </label>
-          <select
-            value={reminderMinutes}
-            onChange={(e) => setReminderMinutes(Number(e.target.value))}
-            className="w-full px-3 py-2 text-sm border border-border rounded-md bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-          >
-            {REMINDERS.map((r) => (
-              <option key={r.minutes} value={r.minutes}>{r.label}</option>
             ))}
           </select>
         </div>
