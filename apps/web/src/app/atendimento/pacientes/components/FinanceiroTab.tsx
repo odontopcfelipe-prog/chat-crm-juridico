@@ -351,44 +351,13 @@ export default function FinanceiroTab({ patientId }: Props) {
         </div>
       </div>
 
-      {/* Bloco "Contratos & tratamentos" */}
-      <div>
-        <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
-          <div className="flex items-center gap-2">
-            <Receipt size={16} className="text-orange-600" />
-            <h2 className="text-base font-bold text-foreground">Contratos & tratamentos</h2>
-          </div>
-          <button
-            type="button"
-            onClick={() => { /* TODO: implementar fluxo de novo contrato */ }}
-            className="text-xs font-bold text-orange-600 hover:bg-orange-500/10 px-3 py-2 rounded-md inline-flex items-center gap-1.5 transition-colors border border-orange-500/30"
-            title="Em breve: criar novo contrato direto pelo Financeiro"
-          >
-            <span className="text-base leading-none">+</span>
-            Novo contrato
-          </button>
-        </div>
-
-        {/* Onda 14.16 — Cards expansíveis por proposta aceita */}
-        {acceptedQuotes.length > 0 ? (
-          <div className="space-y-3">
-            {acceptedQuotes.map((q, idx) => (
-              <ProposalFinancialCard
-                key={q.id}
-                index={idx + 1}
-                quote={q}
-                allCharges={charges}
-                patientId={patientId}
-                onOpenDetail={() => setDetailQuoteId(q.id)}
-              />
-            ))}
-          </div>
-        ) : (
-          <p className="text-xs text-muted-foreground italic px-3 py-4 border border-dashed border-border rounded-md text-center">
-            Nenhum contrato ativo ainda. Quando uma proposta for aceita e o contrato assinado, aparece aqui.
-          </p>
-        )}
-      </div>
+      <ContratosTratamentosBloco
+        acceptedQuotes={acceptedQuotes}
+        charges={charges}
+        patientId={patientId}
+        onOpenDetail={(id) => setDetailQuoteId(id)}
+        onNewContract={() => { /* TODO Onda 17.32.42: dialog de novo contrato */ }}
+      />
 
       {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
       {detailQuoteId && (
@@ -1523,7 +1492,8 @@ function ChargeRow({ charge: c }: { charge: Charge }) {
 
 /** Onda 17.32.35 — Card KPI grande pro topo do FinanceiroTab.
  *  Maior, com cores mais saturadas + valor grande pra impacto visual.
- *  Toneles: neutral (cinza) · emerald (verde) · amber (laranja) · red (vermelho). */
+ *  Toneles: neutral (cinza) · emerald (verde) · amber (laranja) · red (vermelho).
+ *  Onda 17.32.42 — Fix bug "R$ R$": value JA vem com prefixo "R$" do chamador. */
 function BigKpiCard({
   label, value, icon, tone,
 }: {
@@ -1538,13 +1508,115 @@ function BigKpiCard({
     amber: { border: 'border-amber-500/30', bg: 'bg-amber-500/5', icon: 'text-amber-700 dark:text-amber-400', text: 'text-amber-700 dark:text-amber-400', label: 'text-amber-700 dark:text-amber-400' },
     red: { border: 'border-red-500/30', bg: 'bg-red-500/5', icon: 'text-red-700 dark:text-red-400', text: 'text-red-700 dark:text-red-400', label: 'text-red-700 dark:text-red-400' },
   }[tone];
+  // Sanitiza prefixo "R$" duplicado caso chamador ja tenha colocado.
+  const cleanValue = value.replace(/^R\$\s*/, '');
   return (
     <div className={`border-2 ${styles.border} ${styles.bg} rounded-xl p-4`}>
       <div className="flex items-center gap-1.5 mb-2">
         <span className={styles.icon}>{icon}</span>
         <p className={`text-[10px] uppercase tracking-wider font-bold ${styles.label}`}>{label}</p>
       </div>
-      <p className={`text-2xl font-extrabold tabular-nums ${styles.text}`}>R$ {value}</p>
+      <p className={`text-2xl font-extrabold tabular-nums ${styles.text}`}>R$ {cleanValue}</p>
+    </div>
+  );
+}
+
+/** Onda 17.32.42 — Bloco "Contratos & tratamentos" com tabs Todos/Ativos/Quitados
+ *  + botão "+ Novo contrato". Filtra acceptedQuotes pelas charges associadas:
+ *   - Ativos: pelo menos uma charge nao paga
+ *   - Quitados: todas as charges pagas (ou nao tem charge)
+ *   - Todos: ambos */
+function ContratosTratamentosBloco({
+  acceptedQuotes,
+  charges,
+  patientId,
+  onOpenDetail,
+  onNewContract,
+}: {
+  acceptedQuotes: AcceptedQuote[];
+  charges: Charge[];
+  patientId: string;
+  onOpenDetail: (id: string) => void;
+  onNewContract: () => void;
+}) {
+  const [tab, setTab] = useState<'todos' | 'ativos' | 'quitados'>('todos');
+
+  const isPaidStatus = (s: string | null | undefined) => {
+    const x = (s || '').toUpperCase();
+    return x === 'PAID' || x === 'RECEIVED' || x === 'CONFIRMED' || x === 'RECEIVED_IN_CASH';
+  };
+
+  const filtered = useMemo(() => {
+    return acceptedQuotes.filter((q) => {
+      const qCharges = charges.filter((c: any) => c.quote_id === q.id);
+      if (qCharges.length === 0) {
+        // Sem charges = considera ativo (precisa cobrar)
+        return tab === 'todos' || tab === 'ativos';
+      }
+      const allPaid = qCharges.every((c: any) => isPaidStatus(c.status));
+      if (tab === 'ativos') return !allPaid;
+      if (tab === 'quitados') return allPaid;
+      return true;
+    });
+  }, [acceptedQuotes, charges, tab]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
+        <div className="flex items-center gap-2">
+          <Receipt size={16} className="text-orange-600" />
+          <h2 className="text-base font-bold text-foreground">Contratos &amp; tratamentos</h2>
+          {/* Tabs */}
+          <div className="flex items-center gap-1 ml-2">
+            {(['todos', 'ativos', 'quitados'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => setTab(t)}
+                className={`text-[11px] font-bold uppercase tracking-wide px-3 py-1.5 rounded-md transition-colors ${
+                  tab === t
+                    ? 'bg-foreground text-background'
+                    : 'border border-border bg-card text-muted-foreground hover:bg-accent/40'
+                }`}
+              >
+                {t === 'todos' ? 'Todos' : t === 'ativos' ? 'Ativos' : 'Quitados'}
+              </button>
+            ))}
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={onNewContract}
+          className="text-xs font-bold text-orange-600 hover:bg-orange-500/10 px-3 py-2 rounded-md inline-flex items-center gap-1.5 transition-colors border border-orange-500/30"
+          title="Em breve: criar novo contrato direto pelo Financeiro"
+        >
+          <span className="text-base leading-none">+</span>
+          Novo contrato
+        </button>
+      </div>
+
+      {filtered.length > 0 ? (
+        <div className="space-y-3">
+          {filtered.map((q, idx) => (
+            <ProposalFinancialCard
+              key={q.id}
+              index={idx + 1}
+              quote={q}
+              allCharges={charges}
+              patientId={patientId}
+              onOpenDetail={() => onOpenDetail(q.id)}
+            />
+          ))}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground italic px-3 py-4 border border-dashed border-border rounded-md text-center">
+          {tab === 'todos'
+            ? 'Nenhum contrato ativo ainda. Quando uma proposta for aceita e o contrato assinado, aparece aqui.'
+            : tab === 'ativos'
+            ? 'Nenhum contrato ativo. Todos os contratos deste paciente estão quitados.'
+            : 'Nenhum contrato quitado ainda.'}
+        </p>
+      )}
     </div>
   );
 }
