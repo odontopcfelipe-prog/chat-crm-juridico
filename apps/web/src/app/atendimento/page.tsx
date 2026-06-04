@@ -35,6 +35,8 @@ import ContratoTrabalhistaModal from '@/components/modals/ContratoTrabalhistaMod
 import { InboxSidebar } from './components/InboxSidebar';
 import { ChatHeader } from './components/ChatHeader';
 import { NotesPanel } from './components/NotesPanel';
+// Onda 17.32.56 — Painel de agendamento dentro da conversa
+import { AgendaPanel } from './components/AgendaPanel';
 // Onda 14.55 — split grid embedavel (em vez de pagina separada /atendimento/split)
 import SplitGrid from './components/SplitGrid';
 
@@ -1750,6 +1752,8 @@ export default function Dashboard() {
   // State para o EventModal (Novo Evento / Tarefa)
   const [showEventModal, setShowEventModal] = useState<{ leadId: string; conversationId: string } | null>(null);
   const [eventModalUsers, setEventModalUsers] = useState<UserOption[]>([]);
+  // Onda 17.32.56 — Painel lateral de agendamento (sem sair da conversa)
+  const [agendaPanelOpen, setAgendaPanelOpen] = useState(false);
 
   // Abre o modal de criação de evento/tarefa vinculado ao lead do chat atual
   const openTaskModal = async () => {
@@ -2449,6 +2453,7 @@ export default function Dashboard() {
               onSetClientPanelLeadId={setClientPanelLeadId}
               onLightbox={setLightbox}
               onCreateTask={openTaskModal}
+              onCreateAppointment={() => setAgendaPanelOpen(true)}
               onSyncHistory={async () => {
                 if (!selectedId) return;
                 try {
@@ -3854,6 +3859,19 @@ export default function Dashboard() {
           />
         </div>,
         document.body
+      )}
+
+      {/* Onda 17.32.56 — Painel lateral de agendamento (slide-in direita) */}
+      {selected && (
+        <AgendaPanel
+          open={agendaPanelOpen}
+          onClose={() => setAgendaPanelOpen(false)}
+          leadId={selected.leadId || null}
+          patientId={(selected as any).patientId || null}
+          contactName={selected.contactName || 'Contato'}
+          contactPhone={selected.contactPhone || null}
+          conversationId={selectedId}
+        />
       )}
     </div>
   );

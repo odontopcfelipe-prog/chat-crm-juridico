@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw } from 'lucide-react';
+import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw, Calendar } from 'lucide-react';
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
@@ -68,6 +68,8 @@ export interface ChatHeaderProps {
   onSetClientPanelLeadId: (id: string | null) => void;
   onLightbox: (url: string) => void;
   onCreateTask: () => void;
+  // Onda 17.32.56 — Atalho de agendamento dentro da conversa
+  onCreateAppointment?: () => void;
   onSyncHistory?: () => void;
   contactPresence?: string;
   // Task management
@@ -120,6 +122,7 @@ export function ChatHeader({
   onSetClientPanelLeadId,
   onLightbox,
   onCreateTask,
+  onCreateAppointment,
   onSyncHistory,
   contactPresence,
   activeTask,
@@ -387,6 +390,18 @@ export function ChatHeader({
             >
               <ClipboardList size={16} />
               Tarefa
+            </button>
+          )}
+          {/* Onda 17.32.56 — Atalho de agendamento. Abre painel lateral
+              a direita sem fechar a conversa. */}
+          {selected?.leadId && isRealConvo && !isClosed && onCreateAppointment && (
+            <button
+              onClick={onCreateAppointment}
+              title="Agendar atendimento (abre painel sem sair da conversa)"
+              className="px-3 py-2 text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors flex items-center gap-2"
+            >
+              <Calendar size={16} />
+              Agendar
             </button>
           )}
         </div>
