@@ -118,6 +118,48 @@ export class LeadsController {
     return this.leadsService.ensurePatient(id, req.user?.tenant_id);
   }
 
+  /**
+   * Onda 17.32.58 — Promove Lead -> Cliente manualmente.
+   *
+   * Usado quando operador quer mover o contato pra aba "Clientes" sem
+   * passar pelo fluxo padrao (encaminhar ao financeiro / pagamento).
+   * Casos comuns: paciente pagou em dinheiro fora do Asaas, cliente
+   * recorrente que voltou, etc.
+   *
+   * Resolve patient via lead -> patient (cria se necessario via
+   * ensurePatient) e chama graduateLeadToClient.
+   */
+  @Post(':id/promote-to-client')
+  async promoteToClient(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    const userId = req.user?.id;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    // Garante que o paciente existe (best-effort — se ja existe, retorna)
+    const patient = await this.leadsService.ensurePatient(id, tenantId);
+    if (!patient?.id) {
+      return { ok: false, error: 'Nao foi possivel criar/encontrar paciente vinculado' };
+    }
+    return this.leadsService.graduateLeadToClient(patient.id, tenantId, userId);
+  }
+
+  /**
+   * Onda 17.32.58 — Demove Cliente -> Lead manualmente (reverte a
+   * promocao). Usado quando operador marcou cliente por engano.
+   */
+  @Post(':id/demote-to-lead')
+  async demoteToLead(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    const patient = await this.leadsService['prisma'].patient.findFirst({
+      where: { lead_id: id, tenant_id: tenantId },
+      select: { id: true },
+    });
+    if (!patient?.id) {
+      return { ok: false, error: 'Paciente nao encontrado pra esse lead' };
+    }
+    return this.leadsService.demoteLeadFromClient(patient.id, tenantId);
+  }
+
   @Delete(':id/memory')
   resetMemory(@Param('id') id: string, @Request() req: any) {
     return this.leadsService.resetMemory(id, req.user?.tenant_id);

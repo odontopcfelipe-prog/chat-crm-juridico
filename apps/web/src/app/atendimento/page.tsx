@@ -2454,6 +2454,26 @@ export default function Dashboard() {
               onLightbox={setLightbox}
               onCreateTask={openTaskModal}
               onCreateAppointment={() => setAgendaPanelOpen(true)}
+              onPromoteToClient={async () => {
+                if (!selected?.leadId) return;
+                if (!confirm(`Marcar ${selected.contactName || 'esse contato'} como cliente?\n\nEle vai mover pra aba "Clientes" no WhatsApp e a IA passa pro modo Pos-Venda.`)) return;
+                try {
+                  await api.post(`/leads/${selected.leadId}/promote-to-client`);
+                  showSuccess('Contato promovido a cliente');
+                } catch (err: any) {
+                  showError(err?.response?.data?.message || 'Falha ao promover a cliente');
+                }
+              }}
+              onDemoteToLead={async () => {
+                if (!selected?.leadId) return;
+                if (!confirm(`Reverter ${selected.contactName || 'esse cliente'} pra Lead?\n\nEle volta pra aba "Leads" e a IA volta pro modo Comercial.`)) return;
+                try {
+                  await api.post(`/leads/${selected.leadId}/demote-to-lead`);
+                  showSuccess('Contato voltou pra Lead');
+                } catch (err: any) {
+                  showError(err?.response?.data?.message || 'Falha ao reverter');
+                }
+              }}
               onSyncHistory={async () => {
                 if (!selectedId) return;
                 try {

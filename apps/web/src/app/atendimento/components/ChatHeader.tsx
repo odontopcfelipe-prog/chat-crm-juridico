@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw, Calendar } from 'lucide-react';
+import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw, Calendar, UserPlus, UserMinus } from 'lucide-react';
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
@@ -70,6 +70,9 @@ export interface ChatHeaderProps {
   onCreateTask: () => void;
   // Onda 17.32.56 — Atalho de agendamento dentro da conversa
   onCreateAppointment?: () => void;
+  // Onda 17.32.58 — Promover/demover Lead<->Cliente manualmente
+  onPromoteToClient?: () => void;
+  onDemoteToLead?: () => void;
   onSyncHistory?: () => void;
   contactPresence?: string;
   // Task management
@@ -123,6 +126,8 @@ export function ChatHeader({
   onLightbox,
   onCreateTask,
   onCreateAppointment,
+  onPromoteToClient,
+  onDemoteToLead,
   onSyncHistory,
   contactPresence,
   activeTask,
@@ -390,6 +395,33 @@ export function ChatHeader({
             >
               <ClipboardList size={16} />
               Tarefa
+            </button>
+          )}
+          {/* Onda 17.32.58 — Promover Lead -> Cliente manualmente.
+              Aparece quando NAO eh cliente ainda. Usado em casos onde
+              o operador quer mover pra "Clientes" sem passar pelo
+              encaminhar ao financeiro / pagamento (ex: pagou em dinheiro
+              fora do Asaas). */}
+          {selected?.leadId && isRealConvo && !isClosed && !selected?.isClient && onPromoteToClient && (
+            <button
+              onClick={onPromoteToClient}
+              title="Marcar como cliente manualmente (move pra aba Clientes)"
+              className="px-3 py-2 text-sm font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2"
+            >
+              <UserPlus size={16} />
+              → Cliente
+            </button>
+          )}
+          {/* Onda 17.32.58 — Demover Cliente -> Lead (reverte promocao
+              manual). Aparece SO se ja eh cliente. */}
+          {selected?.leadId && isRealConvo && !isClosed && selected?.isClient && onDemoteToLead && (
+            <button
+              onClick={onDemoteToLead}
+              title="Voltar pra Lead (reverter promocao a cliente)"
+              className="px-3 py-2 text-sm font-semibold text-muted-foreground bg-muted/30 border border-border rounded-xl hover:bg-muted/60 transition-colors flex items-center gap-2"
+            >
+              <UserMinus size={16} />
+              → Lead
             </button>
           )}
           {/* Onda 17.32.56 — Atalho de agendamento. Abre painel lateral
