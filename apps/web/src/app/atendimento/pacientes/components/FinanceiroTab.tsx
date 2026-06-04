@@ -1079,14 +1079,16 @@ function ProposalFinancialCard({
           </button>
           {/* Onda 17.32.54 — Validar tratamento: navega pra dashboard de
               validacoes onde o dentista atesta os procedimentos como
-              clinicamente executados. */}
+              clinicamente executados. Estilo destacado (verde-azulado)
+              pra ser obvio que existe. */}
           <Link
             href="/atendimento/validacoes"
             onClick={(e) => e.stopPropagation()}
-            className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center justify-center"
-            title="Validar tratamento (atestar execucao clinica)"
+            className="px-2.5 py-1.5 rounded-md border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
+            title="Validar execucao clinica do tratamento"
           >
-            <Shield size={14} />
+            <Shield size={12} />
+            Validar
           </Link>
         </div>
       </div>
