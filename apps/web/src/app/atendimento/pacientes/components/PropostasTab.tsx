@@ -2697,6 +2697,22 @@ interface ContractDocument {
   category?: 'GERAL' | 'PROCEDIMENTO';
 }
 
+/** Onda 17.32.30 — IDs com PDF oficial disponivel pra pre-visualizacao.
+ *  Deve bater com EXTRA_DOCUMENT_PDF_MAP do backend. */
+const DOCS_WITH_TEMPLATE = new Set<string>([
+  'USO_IMAGEM',
+  'CLAREAMENTO',
+  'FACETAS_RESINA',
+  'LAMINADOS_CERAMICOS',
+  'PROTESE',
+  'ENDODONTIA_ADULTO',
+  'ENDODONTIA_MENOR',
+  'EXTRACAO_ADULTO',
+  'EXTRACAO_MENOR',
+  'IMPLANTE',
+  'RESTAURACAO',
+]);
+
 const CONTRACT_DOCUMENTS: ContractDocument[] = [
   // ── Core (sempre incluídos) ──
   { id: 'CONTRATO_PRINCIPAL', label: 'Contrato principal', description: 'qualificação, objeto, valor e cláusulas específicas', core: true },
@@ -2827,6 +2843,22 @@ function ContratoCard({
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao gerar PDF');
+    }
+  };
+
+  // Onda 17.32.30 — Pre-visualiza o PDF de um termo (clareamento, facetas...)
+  // direto do diretorio contract-templates do servidor. Permite o operador
+  // ler o conteudo antes de marcar o checkbox.
+  const previewTemplate = async (docId: string, label: string) => {
+    try {
+      const res = await api.get(`/commercial/contract-templates/${docId}/pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || `Não foi possível abrir "${label}"`);
     }
   };
 
@@ -2974,9 +3006,10 @@ function ContratoCard({
                     {docs.map((doc) => {
                       const isChecked = selectedDocs.has(doc.id);
                       const isCore = !!doc.core;
+                      const hasTemplate = DOCS_WITH_TEMPLATE.has(doc.id);
                       return (
-                        <li key={doc.id}>
-                          <label className={`flex items-center gap-2.5 ${isCore || !!contract ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                        <li key={doc.id} className="flex items-center gap-2">
+                          <label className={`flex items-center gap-2.5 flex-1 ${isCore || !!contract ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
                             <input
                               type="checkbox"
                               checked={isChecked}
@@ -2991,6 +3024,20 @@ function ContratoCard({
                               </span>
                             )}
                           </label>
+                          {/* Onda 17.32.30 — Botao de olho pra pre-visualizar o
+                              PDF oficial do termo. So aparece se ha PDF cadastrado
+                              no servidor pra esse docId. */}
+                          {hasTemplate && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.preventDefault(); void previewTemplate(doc.id, doc.label); }}
+                              className="p-1.5 rounded-md text-muted-foreground hover:bg-violet-500/10 hover:text-violet-700 dark:hover:text-violet-400 transition-colors shrink-0"
+                              title={`Ler o ${doc.label}`}
+                              aria-label={`Ler ${doc.label}`}
+                            >
+                              <Eye size={13} />
+                            </button>
+                          )}
                         </li>
                       );
                     })}

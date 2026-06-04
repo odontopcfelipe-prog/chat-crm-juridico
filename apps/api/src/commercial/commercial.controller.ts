@@ -1081,4 +1081,24 @@ export class CommercialController {
     res.setHeader('Content-Disposition', `inline; filename="contrato-${id.substring(0, 8)}.pdf"`);
     res.send(buffer);
   }
+
+  /**
+   * Onda 17.32.30 — Serve o PDF de um template de termo (clareamento,
+   * facetas, implante, etc) direto do diretorio contract-templates/.
+   * Permite o operador PRE-VISUALIZAR o termo antes de marcar o checkbox,
+   * pra saber o que cada termo cobre.
+   *
+   * Whitelist via EXTRA_DOCUMENT_PDF_MAP (no servico) — nao da pra acessar
+   * arquivos arbitrarios fora do mapeamento.
+   */
+  @Get('contract-templates/:docId/pdf')
+  async previewContractTemplate(
+    @Param('docId') docId: string,
+    @Res() res: Response,
+  ) {
+    const buffer = await this.contractPdfService.readTemplatePdf(docId);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="termo-${docId.toLowerCase()}.pdf"`);
+    res.send(buffer);
+  }
 }

@@ -52,6 +52,28 @@ export class ContractPdfService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * Onda 17.32.30 — Le o PDF de um template (termo) direto do disco.
+   * Usado pelo endpoint GET /commercial/contract-templates/:docId/pdf
+   * pra operador pre-visualizar o termo antes de marcar o checkbox.
+   *
+   * Whitelist via EXTRA_DOCUMENT_PDF_MAP — protege contra path traversal:
+   * docId deve estar mapeado, senao lanca NotFoundException.
+   */
+  async readTemplatePdf(docId: string): Promise<Buffer> {
+    const filename = EXTRA_DOCUMENT_PDF_MAP[docId];
+    if (!filename) {
+      throw new NotFoundException(`Template '${docId}' não disponível pra visualização.`);
+    }
+    const fullPath = path.join(this.templatesDir, filename);
+    try {
+      return await fs.readFile(fullPath);
+    } catch (e: any) {
+      this.logger.warn(`[readTemplatePdf] Arquivo nao encontrado: ${fullPath} (${e?.message})`);
+      throw new NotFoundException(`Template '${docId}' ainda nao foi carregado no servidor.`);
+    }
+  }
+
+  /**
    * Gera o PDF do contrato. Inclui dados do paciente, items do quote,
    * valor total, forma de pagamento e clausulas especificas da especialidade.
    * Retorna buffer pra ser entregue como application/pdf.

@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Onda 15 — Preview dos 4 temas futuristas</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Inter', system-ui, sans-serif; }
+  body { padding: 24px; background: #0a0a0a; color: #fff; }
+  h1 { font-size: 22px; margin-bottom: 4px; color: #fff; }
+  .sub { color: #888; margin-bottom: 24px; font-size: 13px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 1100px) { .grid { grid-template-columns: 1fr; } }
+
+  .theme-card {
+    border-radius: 16px; padding: 24px; min-height: 520px;
+    border: 1px solid rgba(255,255,255,0.08);
+    overflow: hidden; position: relative;
+  }
+  .theme-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 1.5px; margin-bottom: 4px; opacity: 0.6;
+  }
+  .theme-name {
+    font-size: 28px; font-weight: 800; margin-bottom: 24px;
+  }
+
+  /* Componentes demo */
+  .demo-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .demo-label { font-size: 11px; opacity: 0.55; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px; font-weight: 600; }
+
+  .btn { display: inline-flex; align-items: center; gap: 8px; padding: 10px 18px; border-radius: 10px;
+         font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; border: none;
+         position: relative; overflow: hidden; }
+
+  /* Card demo */
+  .card-demo {
+    padding: 16px; border-radius: 12px; margin-bottom: 12px;
+  }
+  .card-demo .stat { font-size: 28px; font-weight: 800; margin-bottom: 4px; }
+  .card-demo .stat-label { font-size: 12px; opacity: 0.7; }
+  .badge { display: inline-block; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 700; }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * TEMA 1: NOTURNO GOLD
+   * ═══════════════════════════════════════════════════════════════ */
+  .t-noturno {
+    --bg-primary: #000000;
+    --bg-secondary: #0c0c0c;
+    --bg-elevated: #1e1e1e;
+    --text-primary: #f5f5f5;
+    --text-secondary: #c8c8c8;
+    --text-muted: #888;
+    --accent-primary: #d4a35a;
+    --accent-glow: 212, 163, 90;
+    --gradient-bg: radial-gradient(ellipse at top, #1a1208 0%, #000000 65%);
+    --gradient-accent: linear-gradient(135deg, #a1773d 0%, #eae2a1 100%);
+    --glass-bg: rgba(212, 163, 90, 0.08);
+    --glass-border: rgba(212, 163, 90, 0.28);
+    background: var(--gradient-bg);
+    color: var(--text-primary);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * TEMA 2: CYBER VIOLET
+   * ═══════════════════════════════════════════════════════════════ */
+  .t-cyber {
+    --bg-primary: #0a0118;
+    --bg-secondary: #150529;
+    --bg-elevated: #2a1450;
+    --text-primary: #f0e9ff;
+    --text-secondary: #c4b5fd;
+    --text-muted: #8b7cb0;
+    --accent-primary: #8b5cf6;
+    --accent-glow: 139, 92, 246;
+    --gradient-bg: radial-gradient(ellipse at top, #1e0a3c 0%, #0a0118 70%);
+    --gradient-accent: linear-gradient(135deg, #8b5cf6 0%, #06b6d4 100%);
+    --glass-bg: rgba(139, 92, 246, 0.10);
+    --glass-border: rgba(139, 92, 246, 0.38);
+    background: var(--gradient-bg);
+    color: var(--text-primary);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * TEMA 3: GLACIER
+   * ═══════════════════════════════════════════════════════════════ */
+  .t-glacier {
+    --bg-primary: #f0f9ff;
+    --bg-secondary: #ffffff;
+    --bg-elevated: #ffffff;
+    --text-primary: #0c1e30;
+    --text-secondary: #1e3a5f;
+    --text-muted: #5b7a9a;
+    --accent-primary: #0ea5e9;
+    --accent-glow: 14, 165, 233;
+    --gradient-bg: linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 50%, #ffffff 100%);
+    --gradient-accent: linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%);
+    --glass-bg: rgba(14, 165, 233, 0.08);
+    --glass-border: rgba(14, 165, 233, 0.28);
+    background: var(--gradient-bg);
+    color: var(--text-primary);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * TEMA 4: CORAL SUNRISE
+   * ═══════════════════════════════════════════════════════════════ */
+  .t-coral {
+    --bg-primary: #fff7ed;
+    --bg-secondary: #ffffff;
+    --bg-elevated: #ffffff;
+    --text-primary: #2d1208;
+    --text-secondary: #5c2a14;
+    --text-muted: #8b5a40;
+    --accent-primary: #f97316;
+    --accent-glow: 249, 115, 22;
+    --gradient-bg: linear-gradient(180deg, #ffedd5 0%, #fff7ed 50%, #ffffff 100%);
+    --gradient-accent: linear-gradient(135deg, #f97316 0%, #ec4899 100%);
+    --glass-bg: rgba(249, 115, 22, 0.08);
+    --glass-border: rgba(249, 115, 22, 0.32);
+    background: var(--gradient-bg);
+    color: var(--text-primary);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * VARIANTES DE BOTÃO (consomem as CSS vars do tema)
+   * ═══════════════════════════════════════════════════════════════ */
+
+  /* default — gradient + glow permanente */
+  .btn-default {
+    color: #fff;
+    background: var(--gradient-accent);
+    box-shadow:
+      0 0 12px rgba(var(--accent-glow), 0.40),
+      0 0 26px rgba(var(--accent-glow), 0.20);
+  }
+  .btn-default:hover {
+    filter: brightness(1.10);
+    box-shadow:
+      0 0 18px rgba(var(--accent-glow), 0.65),
+      0 0 42px rgba(var(--accent-glow), 0.35);
+  }
+
+  /* neon — pulse animado */
+  .btn-neon {
+    color: #fff;
+    background: var(--gradient-accent);
+    animation: neon-pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes neon-pulse {
+    0%, 100% { box-shadow: 0 0 14px rgba(var(--accent-glow), 0.55), 0 0 32px rgba(var(--accent-glow), 0.30); }
+    50%      { box-shadow: 0 0 22px rgba(var(--accent-glow), 0.75), 0 0 48px rgba(var(--accent-glow), 0.45); }
+  }
+
+  /* outline — glass card com borda neon */
+  .btn-outline {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    border: 1px solid var(--glass-border);
+    color: var(--text-primary);
+    box-shadow: inset 0 0 8px rgba(var(--accent-glow), 0.10);
+  }
+  .btn-outline:hover {
+    border-color: rgba(var(--accent-glow), 0.55);
+    box-shadow:
+      0 0 12px rgba(var(--accent-glow), 0.35),
+      inset 0 0 10px rgba(var(--accent-glow), 0.15);
+  }
+
+  /* ghost — 100% transparente, glow só hover */
+  .btn-ghost {
+    background: transparent;
+    color: var(--text-primary);
+  }
+  .btn-ghost:hover {
+    background: var(--glass-bg);
+    backdrop-filter: blur(12px);
+    box-shadow: 0 0 8px rgba(var(--accent-glow), 0.25);
+  }
+
+  /* secondary — glass surface neutra */
+  .btn-secondary {
+    background: color-mix(in srgb, var(--bg-secondary) 70%, transparent);
+    backdrop-filter: blur(10px);
+    color: var(--text-primary);
+    border: 1px solid var(--glass-border);
+  }
+
+  /* destructive — vermelho fixo + glow */
+  .btn-destructive {
+    background: #dc2626; color: #fff;
+    box-shadow: 0 0 10px rgba(239,68,68,0.4), 0 0 22px rgba(239,68,68,0.2);
+  }
+  .btn-destructive:hover {
+    background: #b91c1c;
+    box-shadow: 0 0 14px rgba(239,68,68,0.65), 0 0 30px rgba(239,68,68,0.35);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+   * GLASS CARD
+   * ═══════════════════════════════════════════════════════════════ */
+  .glass-card {
+    background: var(--glass-bg);
+    backdrop-filter: blur(14px) saturate(140%);
+    border: 1px solid var(--glass-border);
+    border-radius: 12px;
+  }
+
+  /* Gradient text */
+  .gradient-text {
+    background: var(--gradient-accent);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    color: transparent;
+    font-weight: 900;
+  }
+
+  /* Neon glow text */
+  .neon-text {
+    color: var(--accent-primary);
+    text-shadow:
+      0 0 6px rgba(var(--accent-glow), 0.45),
+      0 0 14px rgba(var(--accent-glow), 0.25);
+  }
+</style>
+</head>
+<body>
+  <h1>Onda 15 — 4 temas futuristas (preview offline)</h1>
+  <p class="sub">Botões com gradient + glow permanente. Cards com glassmorphism. Body com gradient fixo. Passe o mouse nos botões pra ver o hover.</p>
+
+  <div class="grid">
+
+    <!-- ══ NOTURNO GOLD ══ -->
+    <div class="theme-card t-noturno">
+      <div class="theme-label">Tema 1 · Dark</div>
+      <div class="theme-name"><span class="gradient-text">Noturno Gold</span></div>
+
+      <div class="demo-label">Stat card (glass)</div>
+      <div class="glass-card card-demo">
+        <div class="stat gradient-text">R$ 47.890</div>
+        <div class="stat-label">Faturamento do mês</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn btn-default">Salvar</button>
+        <button class="btn btn-neon">Confirmar</button>
+        <button class="btn btn-outline">Cancelar</button>
+        <button class="btn btn-ghost">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn btn-secondary">Filtros</button>
+        <button class="btn btn-destructive">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto neon</div>
+      <p class="neon-text" style="font-size: 18px; font-weight: 700;">PACIENTE CONFIRMADO</p>
+    </div>
+
+    <!-- ══ CYBER VIOLET ══ -->
+    <div class="theme-card t-cyber">
+      <div class="theme-label">Tema 2 · Dark</div>
+      <div class="theme-name"><span class="gradient-text">Cyber Violet</span></div>
+
+      <div class="demo-label">Stat card (glass)</div>
+      <div class="glass-card card-demo">
+        <div class="stat gradient-text">128</div>
+        <div class="stat-label">Consultas esta semana</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn btn-default">Salvar</button>
+        <button class="btn btn-neon">Confirmar</button>
+        <button class="btn btn-outline">Cancelar</button>
+        <button class="btn btn-ghost">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn btn-secondary">Filtros</button>
+        <button class="btn btn-destructive">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto neon</div>
+      <p class="neon-text" style="font-size: 18px; font-weight: 700;">SISTEMA ONLINE</p>
+    </div>
+
+    <!-- ══ GLACIER ══ -->
+    <div class="theme-card t-glacier">
+      <div class="theme-label">Tema 3 · Light</div>
+      <div class="theme-name"><span class="gradient-text">Glacier</span></div>
+
+      <div class="demo-label">Stat card (glass)</div>
+      <div class="glass-card card-demo">
+        <div class="stat gradient-text">94%</div>
+        <div class="stat-label">Taxa de comparecimento</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn btn-default">Salvar</button>
+        <button class="btn btn-neon">Confirmar</button>
+        <button class="btn btn-outline">Cancelar</button>
+        <button class="btn btn-ghost">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn btn-secondary">Filtros</button>
+        <button class="btn btn-destructive">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto neon</div>
+      <p class="neon-text" style="font-size: 18px; font-weight: 700;">AGENDA SINCRONIZADA</p>
+    </div>
+
+    <!-- ══ CORAL SUNRISE ══ -->
+    <div class="theme-card t-coral">
+      <div class="theme-label">Tema 4 · Light</div>
+      <div class="theme-name"><span class="gradient-text">Coral Sunrise</span></div>
+
+      <div class="demo-label">Stat card (glass)</div>
+      <div class="glass-card card-demo">
+        <div class="stat gradient-text">12 novos</div>
+        <div class="stat-label">Leads esta semana</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn btn-default">Salvar</button>
+        <button class="btn btn-neon">Confirmar</button>
+        <button class="btn btn-outline">Cancelar</button>
+        <button class="btn btn-ghost">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn btn-secondary">Filtros</button>
+        <button class="btn btn-destructive">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto neon</div>
+      <p class="neon-text" style="font-size: 18px; font-weight: 700;">PAGAMENTO RECEBIDO</p>
+    </div>
+
+  </div>
+
+  <h1 style="margin-top:48px">Onda 15.1 — Toggle Clássico vs Futurista (mesmo tema)</h1>
+  <p class="sub">O usuário escolhe a INTENSIDADE visual sem mudar de cor. Comparação no tema <b>Cyber Violet</b>:</p>
+
+  <div class="grid">
+    <!-- ── CYBER VIOLET — MODO CLÁSSICO ── -->
+    <div class="theme-card t-cyber" style="background: var(--bg-primary);">
+      <div class="theme-label">Estilo · Clássico</div>
+      <div class="theme-name" style="color: var(--text-primary)">Cyber Violet · ERP</div>
+
+      <div class="demo-label">Stat card (sólido)</div>
+      <div class="card-demo" style="background: var(--bg-secondary); border: 1px solid var(--border-default); backdrop-filter: none;">
+        <div class="stat" style="color: var(--accent-primary)">128</div>
+        <div class="stat-label">Consultas esta semana</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn" style="background: var(--accent-primary); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Salvar</button>
+        <button class="btn" style="background: var(--accent-primary); color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Confirmar</button>
+        <button class="btn" style="background: transparent; color: var(--text-primary); border: 1px solid var(--border-default);">Cancelar</button>
+        <button class="btn" style="background: transparent; color: var(--text-primary);">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn" style="background: var(--bg-tertiary); color: var(--text-primary); border: 1px solid var(--border-subtle);">Filtros</button>
+        <button class="btn" style="background: #dc2626; color: #fff; box-shadow: 0 1px 2px rgba(0,0,0,0.1);">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto</div>
+      <p style="color: var(--accent-primary); font-size: 18px; font-weight: 700;">SISTEMA ONLINE</p>
+    </div>
+
+    <!-- ── CYBER VIOLET — MODO FUTURISTA ── -->
+    <div class="theme-card t-cyber">
+      <div class="theme-label">Estilo · Futurista</div>
+      <div class="theme-name"><span class="gradient-text">Cyber Violet · Neon</span></div>
+
+      <div class="demo-label">Stat card (glass)</div>
+      <div class="glass-card card-demo">
+        <div class="stat gradient-text">128</div>
+        <div class="stat-label">Consultas esta semana</div>
+      </div>
+
+      <div class="demo-label">Botões</div>
+      <div class="demo-row">
+        <button class="btn btn-default">Salvar</button>
+        <button class="btn btn-neon">Confirmar</button>
+        <button class="btn btn-outline">Cancelar</button>
+        <button class="btn btn-ghost">Voltar</button>
+      </div>
+      <div class="demo-row">
+        <button class="btn btn-secondary">Filtros</button>
+        <button class="btn btn-destructive">Excluir</button>
+      </div>
+
+      <div class="demo-label" style="margin-top:16px">Texto neon</div>
+      <p class="neon-text" style="font-size: 18px; font-weight: 700;">SISTEMA ONLINE</p>
+    </div>
+  </div>
+
+  <p style="margin-top: 32px; color: #666; font-size: 12px; text-align: center;">
+    Preview standalone — usa o mesmo CSS que foi commitado em apps/web/src/app/globals.css e button.tsx.
+    No sistema real, o usuário troca entre Clássico/Futurista no menu Aparência da sidebar.
+    Disponível em http://localhost:3000 ou sistema.institutoodontopassos.com.br assim que VPS terminar de buildar.
+  </p>
+</body>
+</html>
