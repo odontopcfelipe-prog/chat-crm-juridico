@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
+  ClipboardList,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -654,6 +655,11 @@ function ProposalFinancialCard({
   // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
   // dentro do proprio sistema, sem precisar mandar pro paciente ver.
   const [viewerParcela, setViewerParcela] = useState<ParcelaItem | null>(null);
+  // Onda 17.32.52 — Modais separados pros 2 botoes do header:
+  //   - icone FileText: PDF do contrato assinado (ClickSign)
+  //   - icone ClipboardList: lista de procedimentos solicitados
+  const [showContract, setShowContract] = useState(false);
+  const [showProcedures, setShowProcedures] = useState(false);
   const [subInstallmentsByCharge, setSubInstallmentsByCharge] = useState<
     Record<string, SubInstallment[]>
   >({});
@@ -1005,21 +1011,23 @@ function ProposalFinancialCard({
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
+          {/* Onda 17.32.52 — Contrato assinado (PDF / link ClickSign) */}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenDetail(); }}
+            onClick={(e) => { e.stopPropagation(); setShowContract(true); }}
             className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
-            title="Ver detalhe completo"
+            title="Contrato assinado"
           >
             <FileText size={14} />
           </button>
+          {/* Onda 17.32.52 — Lista de procedimentos solicitados pelo orcamento */}
           <button
             type="button"
-            onClick={(e) => { e.stopPropagation(); onOpenDetail(); }}
+            onClick={(e) => { e.stopPropagation(); setShowProcedures(true); }}
             className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
-            title="Mais opções"
+            title="Procedimentos solicitados"
           >
-            <span className="font-bold tracking-wider text-xs leading-none">⋯</span>
+            <ClipboardList size={14} />
           </button>
         </div>
       </div>
@@ -1029,6 +1037,23 @@ function ProposalFinancialCard({
         <ChargeViewerModal
           parcela={viewerParcela}
           onClose={() => setViewerParcela(null)}
+        />
+      )}
+      {/* Onda 17.32.52 — Modal: PDF do contrato assinado / link ClickSign */}
+      {showContract && (
+        <ContractDocModal
+          contract={contract}
+          loading={loadingContract}
+          onClose={() => setShowContract(false)}
+        />
+      )}
+      {/* Onda 17.32.52 — Modal: lista de procedimentos solicitados pelo orcamento */}
+      {showProcedures && (
+        <ProceduresListModal
+          quoteDetail={quoteDetail}
+          loading={loadingQuoteDetail}
+          quoteName={priorityLabel}
+          onClose={() => setShowProcedures(false)}
         />
       )}
       {/* Body expansível — Onda 17.32.43: lista de parcelas no estilo da referencia */}
@@ -1363,6 +1388,260 @@ function ChargeViewerModal({
             </a>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Onda 17.32.52 — Modal do contrato assinado (PDF do ClickSign ou
+ *  link de assinatura). Mostra mini-timeline de etapas (Enviado /
+ *  Paciente assinou / Clinica assinou / Finalizado). */
+function ContractDocModal({
+  contract,
+  loading,
+  onClose,
+}: {
+  contract: ContractInfo | null;
+  loading: boolean;
+  onClose: () => void;
+}) {
+  const statusInfo = contract ? (() => {
+    if (contract.skipped) return { label: 'Pulado', cls: 'bg-muted text-muted-foreground border-border' };
+    switch (contract.status) {
+      case 'SIGNED': return { label: '✓ Assinado', cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30' };
+      case 'PATIENT_SIGNED': return { label: 'Paciente assinou', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30' };
+      case 'OPENED': return { label: 'Paciente abriu', cls: 'bg-blue-500/15 text-blue-700 border-blue-500/30' };
+      case 'SENT': return { label: 'Enviado', cls: 'bg-blue-500/15 text-blue-700 border-blue-500/30' };
+      case 'DRAFT': return { label: 'Rascunho', cls: 'bg-muted text-muted-foreground border-border' };
+      case 'EXPIRED': return { label: 'Expirou', cls: 'bg-red-500/15 text-red-700 border-red-500/30' };
+      case 'CANCELLED': return { label: 'Cancelado', cls: 'bg-muted text-muted-foreground border-border' };
+      default: return { label: contract.status, cls: 'bg-muted text-muted-foreground border-border' };
+    }
+  })() : null;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/30 shrink-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold text-foreground inline-flex items-center gap-2">
+                <FileText size={14} className="text-muted-foreground" />
+                Contrato assinado
+              </h2>
+              {statusInfo && (
+                <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border ${statusInfo.cls}`}>
+                  {statusInfo.label}
+                </span>
+              )}
+            </div>
+            {contract?.template_type && (
+              <p className="text-[11px] text-muted-foreground">
+                {contract.template_type.replace(/_/g, ' ').toLowerCase()}
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {/* Conteudo */}
+        <div className="flex-1 overflow-auto bg-muted/10">
+          {loading ? (
+            <div className="h-full flex items-center justify-center p-8 text-muted-foreground">
+              <Loader2 size={16} className="animate-spin mr-2" />
+              Carregando contrato...
+            </div>
+          ) : !contract ? (
+            <div className="h-full flex items-center justify-center p-8 text-center">
+              <div className="max-w-sm">
+                <AlertTriangle size={48} className="mx-auto mb-3 text-amber-600" />
+                <p className="text-base font-bold text-foreground mb-1">
+                  Sem contrato criado
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Nenhum contrato foi criado pra essa proposta ainda. Pra gerar
+                  um contrato ClickSign, vai na aba <strong>Plano de tratamento</strong>{' '}
+                  e use o botao "Criar contrato".
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="p-5 space-y-4">
+              {/* Mini-timeline */}
+              <div>
+                <p className="text-[11px] uppercase tracking-wider font-bold text-foreground mb-2">
+                  Etapas
+                </p>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <ContractStepCard label="Enviado" done={!!contract.sent_at} date={contract.sent_at} />
+                  <ContractStepCard label="Paciente assinou" done={!!contract.patient_signed_at} date={contract.patient_signed_at} />
+                  <ContractStepCard label="Clinica assinou" done={!!contract.clinic_signed_at} date={contract.clinic_signed_at} />
+                  <ContractStepCard label="Finalizado" done={!!contract.signed_at || contract.skipped} date={contract.signed_at} />
+                </div>
+              </div>
+              {/* Acoes */}
+              <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-border">
+                {contract.pdf_url && (
+                  <a
+                    href={contract.pdf_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-bold px-3 py-2 rounded-md bg-sky-600 hover:bg-sky-700 text-white inline-flex items-center gap-2 transition-colors"
+                  >
+                    <ExternalLink size={14} />
+                    Abrir PDF do contrato
+                  </a>
+                )}
+                {contract.signing_url && contract.status !== 'SIGNED' && !contract.skipped && (
+                  <a
+                    href={contract.signing_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-sm font-semibold px-3 py-2 rounded-md border border-amber-500/40 bg-amber-500/10 text-amber-700 hover:bg-amber-500/20 inline-flex items-center gap-2 transition-colors"
+                  >
+                    <ExternalLink size={14} />
+                    Link de assinatura
+                  </a>
+                )}
+                {!contract.pdf_url && !contract.signing_url && (
+                  <p className="text-xs text-muted-foreground italic">
+                    Sem PDF ou link disponivel ainda — o ClickSign envia o PDF
+                    apos a assinatura final.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ContractStepCard({ label, done, date }: { label: string; done: boolean; date: string | null }) {
+  return (
+    <div
+      className={`flex flex-col gap-0.5 px-2 py-2 rounded border text-[11px] ${
+        done
+          ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-800 dark:text-emerald-300'
+          : 'bg-muted/30 border-border text-muted-foreground'
+      }`}
+    >
+      <span className="flex items-center gap-1 font-semibold">
+        {done ? <Check size={11} strokeWidth={3} /> : <Clock size={11} />}
+        {label}
+      </span>
+      {date && <span className="text-[10px] opacity-80">{fmtDate(date)}</span>}
+    </div>
+  );
+}
+
+/** Onda 17.32.52 — Modal de procedimentos solicitados do orcamento.
+ *  Lista cada item com nome, dente FDI (se houver), quantidade, dentista
+ *  (se houver) e valor. Soma o total no rodape. */
+function ProceduresListModal({
+  quoteDetail,
+  loading,
+  quoteName,
+  onClose,
+}: {
+  quoteDetail: QuoteFullDetail | null;
+  loading: boolean;
+  quoteName: string;
+  onClose: () => void;
+}) {
+  const total = quoteDetail?.items.reduce((s, it) => s + Number(it.total_price), 0) || 0;
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/30 shrink-0">
+          <div className="min-w-0 flex-1">
+            <h2 className="text-sm font-bold text-foreground inline-flex items-center gap-2">
+              <ClipboardList size={14} className="text-muted-foreground" />
+              Procedimentos solicitados
+            </h2>
+            <p className="text-[11px] text-muted-foreground">
+              {quoteName}
+              {quoteDetail?.items?.length ? ` · ${quoteDetail.items.length} ${quoteDetail.items.length === 1 ? 'item' : 'itens'}` : ''}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {/* Lista de procedimentos */}
+        <div className="flex-1 overflow-auto bg-muted/10">
+          {loading ? (
+            <div className="h-full flex items-center justify-center p-8 text-muted-foreground">
+              <Loader2 size={16} className="animate-spin mr-2" />
+              Carregando procedimentos...
+            </div>
+          ) : !quoteDetail?.items?.length ? (
+            <div className="h-full flex items-center justify-center p-8 text-center">
+              <p className="text-sm text-muted-foreground italic">
+                Nenhum procedimento listado nesse orcamento.
+              </p>
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {quoteDetail.items.map((it) => {
+                const approved = !!it.approved_at;
+                return (
+                  <li key={it.id} className="px-4 py-3 flex items-start gap-3">
+                    <div className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 mt-0.5 ${
+                      approved ? 'bg-emerald-500/10 text-emerald-700' : 'bg-muted text-muted-foreground'
+                    }`}>
+                      {approved ? <Check size={13} strokeWidth={3} /> : <Clock size={13} />}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-bold text-foreground">{it.procedure.name}</p>
+                      <div className="flex items-center gap-2 flex-wrap text-[11px] text-muted-foreground mt-0.5">
+                        {it.tooth_fdi && <span>Dente {it.tooth_fdi}</span>}
+                        {it.quantity > 1 && <span>· {it.quantity}x</span>}
+                        {it.dentist?.name && <span>· {it.dentist.name}</span>}
+                        {!approved && <span className="text-amber-700">· aguardando aprovacao</span>}
+                      </div>
+                    </div>
+                    <p className="text-sm font-bold tabular-nums text-foreground shrink-0">
+                      {fmtBRL(Number(it.total_price))}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+        {/* Footer com total */}
+        {quoteDetail?.items?.length ? (
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0">
+            <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total solicitado</span>
+            <span className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(total)}</span>
+          </div>
+        ) : null}
       </div>
     </div>
   );
