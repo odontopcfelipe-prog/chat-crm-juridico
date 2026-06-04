@@ -2849,9 +2849,12 @@ function ContratoCard({
   // Onda 17.32.30 — Pre-visualiza o PDF de um termo (clareamento, facetas...)
   // direto do diretorio contract-templates do servidor. Permite o operador
   // ler o conteudo antes de marcar o checkbox.
+  // Onda 17.32.31 — rota correta e /contract-templates (sem /commercial/),
+  // alinhado com /contracts/:id/preview-pdf (commercial.controller usa
+  // @Controller() sem prefixo).
   const previewTemplate = async (docId: string, label: string) => {
     try {
-      const res = await api.get(`/commercial/contract-templates/${docId}/pdf`, { responseType: 'blob' });
+      const res = await api.get(`/contract-templates/${docId}/pdf`, { responseType: 'blob' });
       const blob = new Blob([res.data], { type: 'application/pdf' });
       const url = URL.createObjectURL(blob);
       window.open(url, '_blank', 'noopener,noreferrer');
