@@ -1888,11 +1888,11 @@ function PropostaCard({
       data-dimmed={dimmed ? '1' : '0'}
       className={`p-4 rounded-xl border-2 text-left transition-all hover:shadow-md group relative flex flex-col h-full w-full ${
         isChosen
-          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30'
+          ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/30 shadow-lg'
           : selected
           ? `${cfg.selectedBorderCls} ${cfg.selectedBgCls}`
           : `${cfg.borderCls} ${cfg.bgCls}`
-      }`}
+      } ${dimmed ? 'opacity-40 grayscale hover:opacity-90 hover:grayscale-0' : ''}`}
     >
       {/* Onda 17.32.34 — Badges sticker removidas (AGUARDANDO PACIENTE / SELECIONADO
           / ATUAL / ACEITO). Status agora e visivel via cor do border + footer
