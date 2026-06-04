@@ -1178,13 +1178,34 @@ function ChargeViewerModal({
     : (p.invoiceUrl || p.boletoUrl);
   // Onda 17.32.49 — URL pra embed no iframe: passa pelo proxy do backend
   // pra remover o X-Frame-Options do Asaas (que bloqueia iframe direto).
-  // Cai pra URL direta se NEXT_PUBLIC_API_URL nao estiver definido.
   const apiBase = process.env.NEXT_PUBLIC_API_URL || '';
-  const embedUrl: string | undefined = url
-    ? (apiBase
-        ? `${apiBase}/payment-gateway/proxy-asaas?url=${encodeURIComponent(url)}`
-        : url)
+  const proxyUrl: string | undefined = url && apiBase
+    ? `${apiBase}/payment-gateway/proxy-asaas?url=${encodeURIComponent(url)}`
     : undefined;
+  // Onda 17.32.50 — Verifica se o proxy responde 2xx antes de embed.
+  // Se o backend nao tem a rota (404) ou erro, mostra fallback claro
+  // ("Abrir em nova aba") em vez de exibir o JSON de erro dentro do
+  // iframe (UX terrivel).
+  const [embedState, setEmbedState] = useState<'checking' | 'ok' | 'fail'>(
+    'checking',
+  );
+  useEffect(() => {
+    if (!proxyUrl) {
+      setEmbedState('fail');
+      return;
+    }
+    let cancelled = false;
+    // HEAD pra detectar 404 sem baixar PDF inteiro
+    fetch(proxyUrl, { method: 'HEAD' })
+      .then((r) => {
+        if (cancelled) return;
+        setEmbedState(r.ok ? 'ok' : 'fail');
+      })
+      .catch(() => {
+        if (!cancelled) setEmbedState('fail');
+      });
+    return () => { cancelled = true; };
+  }, [proxyUrl]);
   const label = (() => {
     if (p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind)) return 'Sinal de fechamento';
     if (p.kind === 'ENTRADA') return 'Entrada';
@@ -1234,17 +1255,9 @@ function ChargeViewerModal({
             <X size={18} />
           </button>
         </div>
-        {/* Conteudo: iframe via proxy ou msg sem-url */}
+        {/* Conteudo: iframe via proxy, fallback ou msg sem-url */}
         <div className="flex-1 overflow-hidden bg-muted/10 min-h-[500px]">
-          {url ? (
-            <iframe
-              src={embedUrl}
-              className="w-full h-full border-0"
-              title={`${label} — ${methodLabel}`}
-              // sem sandbox — proxy ja retorna conteudo limpo, e o PDF
-              // do Asaas precisa de scripts/forms pra renderizar links
-            />
-          ) : (
+          {!url ? (
             <div className="h-full flex items-center justify-center p-8 text-center">
               <div>
                 <AlertTriangle size={32} className="mx-auto mb-2 text-amber-600" />
@@ -1256,6 +1269,51 @@ function ChargeViewerModal({
                   Pode ser que a cobranca ainda nao foi processada ou foi
                   cancelada.
                 </p>
+              </div>
+            </div>
+          ) : embedState === 'checking' ? (
+            <div className="h-full flex items-center justify-center p-8 text-center">
+              <div className="text-muted-foreground inline-flex items-center gap-2">
+                <Loader2 size={16} className="animate-spin" />
+                Carregando visualizacao...
+              </div>
+            </div>
+          ) : embedState === 'ok' && proxyUrl ? (
+            <iframe
+              src={proxyUrl}
+              className="w-full h-full border-0"
+              title={`${label} — ${methodLabel}`}
+            />
+          ) : (
+            // Onda 17.32.50 — Fallback quando proxy nao responde
+            // (deploy do API antigo, sem a rota /proxy-asaas, ou erro
+            // de rede). Mostra CTA grande pra abrir em nova aba.
+            <div className="h-full flex items-center justify-center p-8 text-center">
+              <div className="max-w-sm">
+                {p.method === 'BOLETO' ? (
+                  <Building2 size={48} className="mx-auto mb-3 text-amber-600" />
+                ) : p.method === 'PIX' ? (
+                  <DollarSign size={48} className="mx-auto mb-3 text-sky-600" />
+                ) : (
+                  <CreditCard size={48} className="mx-auto mb-3 text-blue-600" />
+                )}
+                <p className="text-base font-bold text-foreground mb-1">
+                  {p.method === 'BOLETO' ? 'Boleto pronto' : p.method === 'PIX' ? 'PIX pronto pra pagar' : 'Cobranca gerada'}
+                </p>
+                <p className="text-xs text-muted-foreground mb-4">
+                  A visualizacao embutida nao esta disponivel no momento.
+                  Use o botao abaixo pra abrir o {p.method === 'BOLETO' ? 'PDF do boleto' : 'QR code / link de pagamento'} numa
+                  nova aba.
+                </p>
+                <a
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-sm font-bold px-4 py-2 rounded-md bg-sky-600 hover:bg-sky-700 text-white inline-flex items-center gap-2 transition-colors"
+                >
+                  <ExternalLink size={14} />
+                  Abrir {p.method === 'BOLETO' ? 'boleto' : 'cobranca'} em nova aba
+                </a>
               </div>
             </div>
           )}
