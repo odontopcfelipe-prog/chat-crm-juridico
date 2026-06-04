@@ -3983,14 +3983,22 @@ function PropostaPainel({
                   <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium flex-1">
                     Pagamento à vista com desconto · sem juros
                   </p>
-                  {sel === 'pix' && (
-                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Proposta salva
-                    </p>
-                  )}
-                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-emerald-600 group-hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-colors">
-                    {sel === 'pix' ? 'Reabrir cobrança' : 'Configurar e emitir'}
-                    <ChevronRight size={12} strokeWidth={3} />
+                  <span className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-md text-white font-extrabold shadow-sm transition-colors uppercase tracking-wider ${
+                    sel === 'pix'
+                      ? 'bg-emerald-700 text-sm'
+                      : 'bg-emerald-600 group-hover:bg-emerald-700 text-xs'
+                  }`}>
+                    {sel === 'pix' ? (
+                      <>
+                        <Check size={14} strokeWidth={3} />
+                        Proposta salva
+                      </>
+                    ) : (
+                      <>
+                        Configurar e emitir
+                        <ChevronRight size={12} strokeWidth={3} />
+                      </>
+                    )}
                   </span>
                 </button>
               )}
@@ -4011,14 +4019,22 @@ function PropostaPainel({
                   <p className="text-xs text-muted-foreground font-medium flex-1">
                     Parcele em até 6x sem juros · Visa, Master, Elo, Amex
                   </p>
-                  {sel === 'cartao' && (
-                    <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Proposta salva
-                    </p>
-                  )}
-                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors">
-                    {sel === 'cartao' ? 'Reabrir cobrança' : 'Configurar e emitir'}
-                    <ChevronRight size={12} strokeWidth={3} />
+                  <span className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-md text-white font-extrabold shadow-sm transition-colors uppercase tracking-wider ${
+                    sel === 'cartao'
+                      ? 'bg-blue-700 text-sm'
+                      : 'bg-blue-600 group-hover:bg-blue-700 text-xs'
+                  }`}>
+                    {sel === 'cartao' ? (
+                      <>
+                        <Check size={14} strokeWidth={3} />
+                        Proposta salva
+                      </>
+                    ) : (
+                      <>
+                        Configurar e emitir
+                        <ChevronRight size={12} strokeWidth={3} />
+                      </>
+                    )}
                   </span>
                 </button>
               )}
@@ -4039,14 +4055,22 @@ function PropostaPainel({
                   <p className="text-xs text-muted-foreground font-medium flex-1">
                     Parcele em 1x a 24x · entrada + parcelas mensais
                   </p>
-                  {sel === 'boleto' && (
-                    <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Proposta salva
-                    </p>
-                  )}
-                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-amber-600 group-hover:bg-amber-700 text-white text-xs font-bold shadow-sm transition-colors">
-                    {sel === 'boleto' ? 'Reabrir cobrança' : 'Configurar e emitir'}
-                    <ChevronRight size={12} strokeWidth={3} />
+                  <span className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-md text-white font-extrabold shadow-sm transition-colors uppercase tracking-wider ${
+                    sel === 'boleto'
+                      ? 'bg-amber-700 text-sm'
+                      : 'bg-amber-600 group-hover:bg-amber-700 text-xs'
+                  }`}>
+                    {sel === 'boleto' ? (
+                      <>
+                        <Check size={14} strokeWidth={3} />
+                        Proposta salva
+                      </>
+                    ) : (
+                      <>
+                        Configurar e emitir
+                        <ChevronRight size={12} strokeWidth={3} />
+                      </>
+                    )}
                   </span>
                 </button>
               )}
