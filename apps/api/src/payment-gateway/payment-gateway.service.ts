@@ -1063,6 +1063,12 @@ export class PaymentGatewayService {
       } catch (e: any) {
         this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre exclusão: ${e.message}`);
       }
+
+      // Onda 17.32.55 — Se TODAS as charges ativas do paciente foram
+      // canceladas/refundadas, demove Lead de volta (volta pra aba
+      // "Leads" no WhatsApp + IA volta pro modo comercial).
+      // Best-effort: nao bloqueia o webhook se falhar.
+      this.tryDemoteLeadIfAllChargesCancelled(charge);
     }
 
     // Emitir update generico de status
@@ -1555,5 +1561,64 @@ export class PaymentGatewayService {
     } catch {
       // LeadsService pode nao estar carregado em testes — ignorar silenciosamente
     }
+  }
+
+  /**
+   * Onda 17.32.55 — Quando uma charge eh cancelada/refundada, checa se
+   * TODAS as charges ativas do mesmo paciente (via customer_external_id)
+   * foram canceladas. Se sim, demove o Lead de volta (volta pra "Leads"
+   * no WhatsApp + IA volta a modo comercial).
+   *
+   * Best-effort: nao aguarda, nao bloqueia o webhook.
+   */
+  private tryDemoteLeadIfAllChargesCancelled(charge: {
+    id: string;
+    tenant_id: string | null;
+    customer_external_id: string | null;
+  }): void {
+    if (!charge.tenant_id || !charge.customer_external_id) return;
+    const tenantId = charge.tenant_id;
+    const customerExternalId = charge.customer_external_id;
+    (async () => {
+      try {
+        // 1. Conta charges do paciente que ainda estao ATIVAS (nao
+        //    canceladas/refundadas). Se houver alguma, mantem cliente.
+        const activeCount = await this.prisma.paymentGatewayCharge.count({
+          where: {
+            tenant_id: tenantId,
+            customer_external_id: customerExternalId,
+            status: { notIn: ['DELETED', 'REFUNDED'] },
+          },
+        });
+        if (activeCount > 0) {
+          this.logger.log(
+            `[DEMOTE-CHECK] Customer ${customerExternalId} ainda tem ${activeCount} charge(s) ativa(s) — mantem cliente`,
+          );
+          return;
+        }
+        // 2. Todas canceladas — busca o patient_id via customer
+        const customer = await this.prisma.paymentGatewayCustomer.findFirst({
+          where: { external_id: customerExternalId, gateway: 'ASAAS' },
+          select: { lead_id: true },
+        });
+        if (!customer?.lead_id) return;
+        const patient = await this.prisma.patient.findFirst({
+          where: { lead_id: customer.lead_id, tenant_id: tenantId },
+          select: { id: true },
+        });
+        if (!patient?.id) return;
+        // 3. Demove
+        const leadsService = this.moduleRef.get(LeadsService, { strict: false });
+        if (!leadsService) return;
+        const res = await leadsService.demoteLeadFromClient(patient.id, tenantId);
+        if (res?.ok && !res.alreadyLead) {
+          this.logger.log(
+            `[DEMOTE] Lead ${res.leadId} demovido a lead (todas charges canceladas)`,
+          );
+        }
+      } catch (err: any) {
+        this.logger.warn(`[DEMOTE-CHECK] Falhou: ${err?.message}`);
+      }
+    })();
   }
 }

@@ -1023,6 +1023,77 @@ export class LeadsService {
     return { ok: true, leadId: lead.id, stageFinalized };
   }
 
+  /**
+   * Onda 17.32.55 — Demove um cliente de volta a Lead.
+   *
+   * Usado quando TODAS as cobrancas ativas do paciente sao canceladas/
+   * estornadas (operador cancelou no Asaas, ou refund). Reverte:
+   *   - is_client=false, became_client_at=null
+   *   - stage volta pra NEGOCIACAO (ou o que era antes — best-effort, nao
+   *     temos historico facil de qual stage estava ANTES do FINALIZADO).
+   *     Usa NEGOCIACAO como default sensato.
+   *   - Religa IA em modo COMERCIAL (volta pra negociacao)
+   *
+   * Idempotente: se ja eh is_client=false, retorna sem efeito.
+   */
+  async demoteLeadFromClient(
+    patientId: string,
+    tenantId: string,
+  ): Promise<{ ok: boolean; leadId?: string; alreadyLead?: boolean }> {
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { id: true, tenant_id: true, lead_id: true },
+    });
+    if (!patient) return { ok: false };
+    if (patient.tenant_id !== tenantId) return { ok: false };
+    if (!patient.lead_id) return { ok: false };
+
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: patient.lead_id },
+      select: { id: true, is_client: true, stage: true },
+    });
+    if (!lead) return { ok: false };
+    if (!lead.is_client) {
+      return { ok: true, leadId: lead.id, alreadyLead: true };
+    }
+
+    await this.prisma.lead.update({
+      where: { id: lead.id },
+      data: {
+        is_client: false,
+        became_client_at: null,
+        // Volta pra NEGOCIACAO so se estava em FINALIZADO (efeito da
+        // graduacao). Se ja estava em outro stage, preserva — operador
+        // pode ter mudado manualmente.
+        ...(lead.stage === 'FINALIZADO' ? {
+          stage: 'NEGOCIACAO',
+          stage_entered_at: new Date(),
+        } : {}),
+      },
+    });
+
+    this.logger.log(
+      `[CLIENT→LEAD] Lead ${lead.id} (patient ${patientId}) demovido a lead (is_client=false)`,
+    );
+
+    // Religa IA em modo COMERCIAL se estava em POS_VENDA (volta pra
+    // negociacao). Se operador colocou MANUAL, respeita.
+    this.prisma.conversation.updateMany({
+      where: {
+        lead_id: lead.id,
+        ai_mode_source: 'POS_VENDA',
+      },
+      data: {
+        ai_mode_source: 'COMERCIAL',
+        // Mantem ai_mode como estava
+      },
+    }).catch((err) =>
+      this.logger.warn(`[CLIENT→LEAD] Falha ao reverter ai_mode_source: ${err.message}`),
+    );
+
+    return { ok: true, leadId: lead.id };
+  }
+
   async resetMemory(id: string, tenantId?: string): Promise<{ ok: boolean }> {
     if (tenantId) {
       const lead = await this.prisma.lead.findUnique({ where: { id }, select: { tenant_id: true } });

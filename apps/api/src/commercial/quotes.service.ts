@@ -786,6 +786,17 @@ export class QuotesService {
         `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
       );
 
+      // Onda 17.32.55 — Promove Lead -> Cliente assim que encaminha pro
+      // financeiro (antes era so quando 1a parcela pagava via webhook).
+      // Best-effort: nao bloqueia o approveAndBill se falhar. Cascade
+      // automatico em graduateLeadToClient:
+      //   - is_client=true, became_client_at=now()
+      //   - conversa migra pra aba "Clientes" no WhatsApp em tempo real
+      //   - IA muda pra modo "Pos-Venda" (skill 'Acompanhamento')
+      //   - stage do lead vira FINALIZADO (best-effort, pode falhar)
+      // Idempotente: se ja for cliente, retorna alreadyClient=true sem efeito.
+      this.tryGraduateLeadToClientByQuote(quoteId, tenantId, userId);
+
       return { quote_id: quoteId, ...result };
     } catch (err: any) {
       // Loga stack completo no servidor
@@ -825,6 +836,50 @@ export class QuotesService {
    * Se faltar lead_id, tenta vincular um lead existente pelo telefone,
    * ou cria um lead "fantasma" minimo so pra associar (sem stage especifico).
    */
+  /**
+   * Onda 17.32.55 — Helper que dispara graduateLeadToClient via LeadsService
+   * obtido lazy do ModuleRef (evita ciclo de injecao). Best-effort: nao
+   * aguarda promise (.then/.catch silencioso), nao bloqueia o caller.
+   *
+   * Resolve o patient_id a partir do quote (e ai segue pra patient.lead_id
+   * dentro do graduateLeadToClient).
+   */
+  private tryGraduateLeadToClientByQuote(
+    quoteId: string,
+    tenantId: string,
+    userId: string,
+  ): void {
+    this.prisma.quote.findUnique({
+      where: { id: quoteId },
+      select: { patient_id: true },
+    })
+      .then((q) => {
+        if (!q?.patient_id) return;
+        try {
+          const leadsService = this.moduleRef.get(LeadsService, { strict: false });
+          if (!leadsService) return;
+          leadsService
+            .graduateLeadToClient(q.patient_id, tenantId, userId)
+            .then((res) => {
+              if (res?.ok && !res.alreadyClient) {
+                this.logger.log(
+                  `[QUOTE→CLIENT] Lead ${res.leadId} promovido a cliente via approveAndBill ` +
+                  `(quote ${quoteId}, patient ${q.patient_id})`,
+                );
+              }
+            })
+            .catch((err: any) =>
+              this.logger.warn(
+                `[QUOTE→CLIENT] Hook falhou pra quote ${quoteId}: ${err?.message}`,
+              ),
+            );
+        } catch {
+          // LeadsService pode nao estar disponivel — ignora silenciosamente
+        }
+      })
+      .catch(() => { /* findUnique falhou — best effort, ignora */ });
+  }
+
   private async ensurePatientReadyForBilling(patientId: string, tenantId: string) {
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
