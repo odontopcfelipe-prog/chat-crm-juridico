@@ -1426,7 +1426,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             <Layers size={18} className="text-orange-600" />
           </div>
           <div>
-            <h2 className="text-base font-bold text-foreground">Versões do plano</h2>
+            <h2 className="text-base font-bold text-foreground">Plano de tratamento</h2>
             <p className="text-xs text-muted-foreground">
               Do mais enxuto ao mais completo · clique num card pra abrir a proposta com as formas de pagamento
             </p>
