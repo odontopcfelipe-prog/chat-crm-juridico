@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 import { PatientSearch } from '@/components/PatientSearch';
@@ -209,7 +209,12 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           pelos iframes do Split View pra mostrar so a aba de conversa. */}
       {!isChatOnly && (
         <div className="hidden md:flex">
-          <Sidebar />
+          {/* Suspense necessario porque Sidebar usa useSearchParams() (atalho
+              "Propostas" com ?status=SENT). Sem boundary, Next.js falha em
+              prerender static pages que herdam esse layout. */}
+          <Suspense fallback={<div className="w-16 shrink-0 border-r border-border bg-card" />}>
+            <Sidebar />
+          </Suspense>
         </div>
       )}
 

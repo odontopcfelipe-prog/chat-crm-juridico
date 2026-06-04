@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
-  Receipt, Send, Building2, Copy,
+  Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -61,6 +61,8 @@ interface Charge {
   pix_qr_code?: string | null;
   pix_copy_paste?: string | null;
   created_at: string;
+  /** Onda 17.32.43 — Tipo da charge no plano: SINAL / ENTRADA / PARCELA / etc. */
+  kind?: 'SINAL' | 'ENTRADA' | 'PARCELA' | string | null;
 }
 
 interface Installment {
@@ -569,6 +571,8 @@ interface ParcelaItem {
   boletoUrl: string | null;
   invoiceUrl: string | null;
   isNext: boolean; // primeira não-paga
+  /** Onda 17.32.43 — Tipo (SINAL / ENTRADA / PARCELA) pra label no card. */
+  kind?: string | null;
 }
 
 /** Onda 14.51 — detalhe expandido do quote (procedimentos + negociacao escolhida) */
@@ -608,50 +612,6 @@ interface ContractInfo {
   clinic_signed_at: string | null;
   signing_url: string | null;
   pdf_url: string | null;
-}
-
-/** Onda 14.51 — converte payment_key salvo no quote em label humano */
-function formatPaymentKey(key: string | null | undefined): string {
-  if (!key) return 'Sem forma escolhida';
-  if (key === 'pix') return 'PIX à vista (10% desc.)';
-  if (key === 'boleto-avista') return 'Boleto à vista (10% desc.)';
-  const cartaoMatch = key.match(/^cartao-(\d+)x$/);
-  if (cartaoMatch) {
-    const n = parseInt(cartaoMatch[1], 10);
-    return `${n}x no cartão${n <= 6 ? ' (sem juros)' : ' (com juros PagBank)'}`;
-  }
-  const parcMatch = key.match(/^parcelado-(\d+)x$/);
-  if (parcMatch) {
-    const n = parseInt(parcMatch[1], 10);
-    return `${n}x no boleto${n >= 12 ? ' (com entrada 20%)' : ''}`;
-  }
-  return key;
-}
-
-/** Onda 14.51 — label + classe Tailwind pro status do contrato */
-function formatContractStatus(
-  status: string,
-  skipped: boolean,
-): { label: string; cls: string } {
-  if (skipped) return { label: 'Pulado', cls: 'bg-muted text-muted-foreground' };
-  switch (status) {
-    case 'SIGNED':
-      return { label: '✓ Assinado', cls: 'bg-emerald-500/15 text-emerald-700' };
-    case 'PATIENT_SIGNED':
-      return { label: 'Paciente assinou', cls: 'bg-amber-500/15 text-amber-700' };
-    case 'OPENED':
-      return { label: 'Paciente abriu', cls: 'bg-blue-500/15 text-blue-700' };
-    case 'SENT':
-      return { label: 'Enviado', cls: 'bg-blue-500/15 text-blue-700' };
-    case 'DRAFT':
-      return { label: 'Rascunho', cls: 'bg-muted text-muted-foreground' };
-    case 'EXPIRED':
-      return { label: 'Expirou', cls: 'bg-red-500/15 text-red-700' };
-    case 'CANCELLED':
-      return { label: 'Cancelado', cls: 'bg-muted text-muted-foreground' };
-    default:
-      return { label: status, cls: 'bg-muted text-muted-foreground' };
-  }
 }
 
 function ProposalFinancialCard({
@@ -776,6 +736,7 @@ function ProposalFinancialCard({
             boletoUrl: s.boleto_url,
             invoiceUrl: s.invoice_url,
             isNext: false,
+            kind: c.kind || 'PARCELA',
           });
         }
       } else {
@@ -792,6 +753,7 @@ function ProposalFinancialCard({
           boletoUrl: c.boleto_url || null,
           invoiceUrl: c.invoice_url || null,
           isNext: false,
+          kind: c.kind || null,
         });
       }
     }
@@ -855,475 +817,275 @@ function ProposalFinancialCard({
     return `parcelado em ${agg.totalCount}× · ${agg.pagasCount} de ${agg.totalCount} pagas`;
   })();
 
+  // Onda 17.32.43 — Helper: tipo de pagamento legivel ("Boleto financiado",
+  // "Cartao de credito · 6x sem juros", "PIX a vista", etc) derivado do
+  // chosen_payment_key OU do billing_type dominante das charges.
+  const paymentFormLabel = (() => {
+    const key = quoteDetail?.chosen_payment_key || '';
+    if (key.startsWith('parcelado-') || key === 'boleto-avista') {
+      const installments = Number(key.split('-')[1]) || 1;
+      const entry = Number(quoteDetail?.chosen_down_payment || 0) > 0 ? 'entrada + ' : '';
+      return `Boleto financiado · ${entry}${installments}×`;
+    }
+    if (key.startsWith('cartao-')) {
+      const installments = Number(key.split('-')[1]) || 1;
+      return `Cartão de crédito · ${installments}× sem juros`;
+    }
+    if (key === 'pix' || key === 'pix-avista') return 'PIX à vista';
+    // Fallback pelo billing type dominante
+    const bt = relatedCharges[0]?.billing_type;
+    if (bt === 'BOLETO') return 'Boleto';
+    if (bt === 'PIX') return 'PIX';
+    if (bt === 'CREDIT_CARD') return 'Cartão de crédito';
+    return 'Cobrança';
+  })();
+
+  // Onda 17.32.43 — Status compacto no header (ATRASADO / EM DIA / QUITADO).
+  // Baseado no estado da proxima parcela e do total pago.
+  const headerStatus = (() => {
+    if (agg.pct >= 100 && agg.contratado > 0) {
+      return { label: 'QUITADO', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' };
+    }
+    const hasOverdue = parcelas.some((p) => {
+      const isUnpaid = p.status !== 'RECEIVED' && p.status !== 'CONFIRMED' && p.status !== 'DELETED' && p.status !== 'REFUNDED';
+      if (!isUnpaid) return false;
+      const dueMs = p.dueDate ? new Date(p.dueDate).getTime() : 0;
+      return dueMs && dueMs < Date.now();
+    });
+    if (hasOverdue) {
+      return { label: 'ATRASADO', cls: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30' };
+    }
+    if (agg.totalCount === 0) {
+      return { label: 'SEM COBRANÇA', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
+    }
+    return { label: 'EM DIA', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' };
+  })();
+
+  // Onda 17.32.43 — Cor do priority pra inline no titulo.
+  const priorityLabel = (() => {
+    const p = (quote.priority || '').toUpperCase();
+    if (p === 'URGENTE') return 'Urgente';
+    if (p === 'ESSENCIAL') return 'Essencial';
+    if (p === 'COMPLETO') return 'Completo';
+    return quote.title || 'Plano';
+  })();
+
+  // Onda 17.32.43 — Procedimento dominante (mais frequente) pra subtitle.
+  const dominantProcedure = (() => {
+    if (!quoteDetail?.items?.length) return null;
+    const counts = new Map<string, number>();
+    for (const it of quoteDetail.items) {
+      const name = it.procedure.name;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    let best = '';
+    let max = 0;
+    counts.forEach((cnt, name) => {
+      if (cnt > max) { max = cnt; best = name; }
+    });
+    return best;
+  })();
+
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
-      {/* Header — sempre visível. Onda 14.17: barra de progresso colapsada. */}
-      <button
-        type="button"
-        onClick={() => setExpanded((v) => !v)}
-        className="w-full px-4 py-3 hover:bg-accent/30 transition-colors text-left"
-      >
-        <div className="flex items-start justify-between gap-3 flex-wrap">
-          <div className="flex items-start gap-3 min-w-0 flex-1">
-            {/* Onda 14.18 — identificador unificado (#NNN). Fallback pra
-                indice local quando legado sem quote_number. */}
-            <span
-              className="text-xs font-mono font-semibold text-primary mt-0.5"
-              title="Numero do orcamento (global da clinica)"
-            >
+      {/* Header colapsavel — Onda 17.32.43 visual da referencia */}
+      <div className="grid grid-cols-[auto_1fr_minmax(140px,200px)_auto_auto] gap-3 items-center px-4 py-3 hover:bg-accent/30 transition-colors">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="text-muted-foreground hover:text-foreground p-1 -ml-1 rounded transition-colors"
+          aria-label={expanded ? 'Recolher' : 'Expandir'}
+        >
+          {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
+        </button>
+
+        <div className="min-w-0">
+          <div className="flex items-baseline gap-2 flex-wrap">
+            <span className="text-sm font-bold text-foreground">Contrato</span>
+            <span className="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
               {getQuoteNumberBadge(quote) || `#${index}`}
             </span>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-bold text-foreground">
-                  {getQuoteDisplayName(quote)}
-                </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${statusBadge.cls}`}>
-                  {statusBadge.label}
-                </span>
-              </div>
-              {/* Onda 14.17 — Barra de progresso compacta no header (sempre visível) */}
-              {agg.contratado > 0 && (
-                <div className="mt-2 mb-1 max-w-md">
-                  <div className="w-full bg-muted h-1.5 rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
-                      style={{ width: `${Math.min(agg.pct, 100)}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-              <p className="text-[11px] text-muted-foreground">
-                {agg.totalCount === 0
-                  ? `Aceito em ${fmtDate(quote.accepted_at || quote.created_at)} · ${subtitle}`
-                  : (
-                    <>
-                      <span className="tabular-nums">
-                        {fmtBRL(agg.recebido)} / {fmtBRL(agg.contratado)}
-                      </span>
-                      {nextParcela && (
-                        <> · próx. vence {fmtDate(nextParcela.dueDate).slice(0, 5)}</>
-                      )}
-                      {agg.pct >= 100 && <> · ✓ quitado</>}
-                    </>
-                  )}
-              </p>
-            </div>
+            <span className="text-sm text-muted-foreground">·</span>
+            <span className="text-sm font-bold text-foreground">{priorityLabel}</span>
+            <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border ${headerStatus.cls}`}>
+              {headerStatus.label}
+            </span>
           </div>
-          <div className="text-right">
-            <p className="text-sm font-bold tabular-nums">
-              {fmtBRL(agg.contratado)}
-            </p>
-            {agg.pct > 0 && (
-              <p className="text-[10px] text-emerald-700 font-semibold">
-                {agg.pct}% pago
-              </p>
-            )}
-          </div>
-          <span className="text-muted-foreground self-center">
-            {expanded ? '▴' : '▾'}
-          </span>
+          <p className="text-[11px] text-muted-foreground mt-0.5 truncate">
+            {contract?.signed_at ? `Assinado ${fmtDate(contract.signed_at)} · ` : `Aceito ${fmtDate(quote.accepted_at)} · `}
+            {paymentFormLabel}
+            {dominantProcedure && ` · ${dominantProcedure}`}
+            {quoteDetail?.items?.length ? ` · ${quoteDetail.items.length} itens` : ''}
+          </p>
         </div>
-      </button>
 
-      {/* Body expansível */}
+        <div>
+          <div className="flex items-baseline justify-between gap-2 mb-1">
+            <span className="text-[10px] text-muted-foreground">pago</span>
+            <span className={`text-[11px] font-bold tabular-nums ${agg.pct >= 100 ? 'text-emerald-700' : agg.pct > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
+              {agg.pct}%
+            </span>
+          </div>
+          <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
+            <div
+              className="h-full bg-emerald-600 transition-all"
+              style={{ width: `${Math.min(agg.pct, 100)}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="text-right shrink-0">
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold">Total</p>
+          <p className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(agg.contratado)}</p>
+        </div>
+
+        <div className="flex items-center gap-1 shrink-0">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenDetail(); }}
+            className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
+            title="Ver detalhe completo"
+          >
+            <FileText size={14} />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpenDetail(); }}
+            className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
+            title="Mais opções"
+          >
+            <span className="font-bold tracking-wider text-xs leading-none">⋯</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Body expansível — Onda 17.32.43: lista de parcelas no estilo da referencia */}
       {expanded && (
-        <div className="border-t border-border p-4 space-y-4 bg-muted/10">
-          {/* Mini-cards de resumo */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
-            <MiniSummary label="Contratado" value={fmtBRL(agg.contratado)} />
-            <MiniSummary label="Recebido" value={fmtBRL(agg.recebido)} tone="emerald" />
-            <MiniSummary label="Em aberto" value={fmtBRL(agg.emAberto)} tone="blue" />
-            <MiniSummary label="A vencer" value={fmtBRL(agg.aVencer)} />
-          </div>
-
-          {/* Barra de progresso */}
-          {agg.contratado > 0 && (
-            <div>
-              <div className="flex items-center justify-between text-[11px] mb-1">
-                <span className="text-muted-foreground">Recebimento</span>
-                <span className="text-foreground font-semibold tabular-nums">
-                  {fmtBRL(agg.recebido)} / {fmtBRL(agg.contratado)}
-                </span>
-              </div>
-              <div className="w-full bg-muted h-2 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all"
-                  style={{ width: `${Math.min(agg.pct, 100)}%` }}
+        <div className="border-t border-border bg-muted/5">
+          {loadingSubs || loadingQuoteDetail ? (
+            <div className="py-6 flex items-center justify-center text-[11px] text-muted-foreground">
+              <Loader2 size={12} className="animate-spin mr-1.5" />
+              Carregando parcelas...
+            </div>
+          ) : parcelas.length === 0 ? (
+            <div className="px-4 py-4 text-[11px] text-amber-800 bg-amber-500/5 border-y border-amber-500/30">
+              ⚠ Sem cobrança gerada ainda — aprove a proposta na aba Plano de tratamento pra gerar.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border">
+              {parcelas.map((p, idx) => (
+                <ParcelaLinha
+                  key={idx}
+                  parcela={p}
+                  onRegistrar={() => onOpenDetail()}
+                  onReenviar={() => onOpenDetail()}
                 />
-              </div>
-            </div>
+              ))}
+            </ul>
           )}
-
-          {/* Onda 14.51 — Procedimentos (items do quote).
-              Listagem completa pro operador conferir o que foi acordado
-              sem precisar abrir o modal. */}
-          {quoteDetail && quoteDetail.items.length > 0 && (
-            <div>
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground mb-1.5 flex items-center gap-1.5">
-                <Receipt size={11} className="text-muted-foreground" />
-                Procedimentos ({quoteDetail.items.length})
-              </p>
-              <ul className="border border-border rounded-md overflow-hidden divide-y divide-border/40 bg-card">
-                {quoteDetail.items.map((it) => {
-                  const isApproved = !!it.approved_at;
-                  return (
-                    <li
-                      key={it.id}
-                      className="px-3 py-1.5 flex items-center gap-2 flex-wrap text-[11px]"
-                    >
-                      {isApproved && (
-                        <Check size={11} className="text-emerald-600 shrink-0" />
-                      )}
-                      <span className="text-foreground flex-1 min-w-0 truncate">
-                        {it.procedure.name}
-                        {it.tooth_fdi && (
-                          <span className="text-muted-foreground">
-                            {' '}· Dente {it.tooth_fdi}
-                          </span>
-                        )}
-                        {it.quantity > 1 && (
-                          <span className="text-muted-foreground"> · {it.quantity}x</span>
-                        )}
-                      </span>
-                      {it.dentist?.name && (
-                        <span className="text-[10px] text-muted-foreground hidden sm:inline">
-                          {it.dentist.name}
-                        </span>
-                      )}
-                      <span className="font-bold tabular-nums">
-                        {fmtBRL(Number(it.total_price))}
-                      </span>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          )}
-
-          {/* Onda 14.51 — Negociacao aceita (chosen_payment_key + entrada).
-              Mostra a forma de pagamento que o paciente escolheu/aceitou.
-              Esse e o "contrato comercial" mesmo (separado da assinatura). */}
-          {quoteDetail && (quoteDetail.chosen_payment_key || Number(quoteDetail.chosen_down_payment) > 0) && (
-            <div className="border border-amber-500/30 bg-amber-500/5 rounded-md p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-amber-800 mb-1.5 flex items-center gap-1.5">
-                <Check size={11} />
-                Negociação aceita
-              </p>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
-                <div>
-                  <p className="text-[10px] text-muted-foreground">Forma de pagamento</p>
-                  <p className="font-semibold text-foreground">
-                    {formatPaymentKey(quoteDetail.chosen_payment_key)}
-                  </p>
-                </div>
-                {Number(quoteDetail.chosen_down_payment) > 0 && (
-                  <div>
-                    <p className="text-[10px] text-muted-foreground">Entrada</p>
-                    <p className="font-semibold text-foreground tabular-nums">
-                      {fmtBRL(Number(quoteDetail.chosen_down_payment))}
-                    </p>
-                  </div>
-                )}
-              </div>
-            </div>
-          )}
-
-          {/* Onda 14.51 — Contrato assinado (ClickSign / manual).
-              Estados: nao criado / DRAFT / SENT / OPENED / PATIENT_SIGNED /
-              SIGNED / SKIPPED / EXPIRED / CANCELLED. */}
-          <div>
-            <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground mb-1.5 flex items-center gap-1.5">
-              <Building2 size={11} className="text-muted-foreground" />
-              Contrato
-            </p>
-            {loadingContract ? (
-              <div className="text-[11px] text-muted-foreground flex items-center gap-1.5 py-1">
-                <Loader2 size={11} className="animate-spin" />
-                Carregando contrato...
-              </div>
-            ) : contract ? (
-              <div className="border border-border rounded-md p-3 bg-card space-y-2">
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span
-                      className={`text-[10px] px-2 py-0.5 rounded-full font-semibold ${
-                        formatContractStatus(contract.status, contract.skipped).cls
-                      }`}
-                    >
-                      {formatContractStatus(contract.status, contract.skipped).label}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">
-                      {contract.template_type.replace(/_/g, ' ').toLowerCase()}
-                    </span>
-                  </div>
-                  {contract.signed_at && (
-                    <span className="text-[11px] text-emerald-700 font-semibold">
-                      Assinado em {fmtDate(contract.signed_at)}
-                    </span>
-                  )}
-                </div>
-                {/* Mini-timeline de eventos do contrato */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[10px]">
-                  <ContractStep
-                    label="Enviado"
-                    done={!!contract.sent_at}
-                    date={contract.sent_at}
-                  />
-                  <ContractStep
-                    label="Paciente assinou"
-                    done={!!contract.patient_signed_at}
-                    date={contract.patient_signed_at}
-                  />
-                  <ContractStep
-                    label="Clínica assinou"
-                    done={!!contract.clinic_signed_at}
-                    date={contract.clinic_signed_at}
-                  />
-                  <ContractStep
-                    label="Finalizado"
-                    done={!!contract.signed_at || contract.skipped}
-                    date={contract.signed_at}
-                  />
-                </div>
-                {/* Ações rápidas: link de assinatura + PDF */}
-                {(contract.signing_url || contract.pdf_url) && (
-                  <div className="flex items-center gap-3 pt-1 border-t border-border/40 text-[11px]">
-                    {contract.signing_url && contract.status !== 'SIGNED' && !contract.skipped && (
-                      <a
-                        href={contract.signing_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline font-medium inline-flex items-center gap-1"
-                      >
-                        <ExternalLink size={10} />
-                        Abrir link de assinatura
-                      </a>
-                    )}
-                    {contract.pdf_url && (
-                      <a
-                        href={contract.pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-primary hover:underline font-medium inline-flex items-center gap-1"
-                      >
-                        <ExternalLink size={10} />
-                        PDF do contrato
-                      </a>
-                    )}
-                  </div>
-                )}
-              </div>
-            ) : (
-              <div className="text-[11px] text-muted-foreground italic px-3 py-2 border border-dashed border-border rounded-md">
-                Nenhum contrato criado pra essa proposta. Operador pode gerar
-                pela aba Propostas (botão "Criar contrato").
-              </div>
-            )}
-          </div>
-
-          {/* Lista de parcelas — atualizacao em tempo real via webhook Asaas */}
-          <div>
-            <div className="flex items-center justify-between mb-1.5">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-foreground flex items-center gap-1.5">
-                <CreditCard size={11} className="text-muted-foreground" />
-                Pagamentos ({agg.totalCount})
-              </p>
-              <button
-                type="button"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onOpenDetail();
-                }}
-                className="text-[10px] text-primary hover:underline"
-              >
-                Ver detalhe completo →
-              </button>
-            </div>
-
-            {loadingSubs || loadingQuoteDetail ? (
-              <div className="py-4 flex items-center justify-center text-[11px] text-muted-foreground">
-                <Loader2 size={12} className="animate-spin mr-1.5" />
-                Carregando parcelas...
-              </div>
-            ) : parcelas.length === 0 ? (
-              <div className="bg-amber-500/5 border border-amber-500/30 rounded-md px-3 py-2 text-[11px] text-amber-800">
-                ⚠ Sem cobrança gerada ainda — aprove a proposta na aba Propostas pra gerar.
-              </div>
-            ) : (
-              <ul className="border border-border rounded-md overflow-hidden divide-y divide-border/40">
-                {parcelas.map((p, idx) => (
-                  <ParcelaRow key={idx} parcela={p} />
-                ))}
-              </ul>
-            )}
-          </div>
         </div>
       )}
     </div>
   );
-
-  // Helper interno
-  function MiniSummary({
-    label,
-    value,
-    tone,
-  }: {
-    label: string;
-    value: string;
-    tone?: 'emerald' | 'blue';
-  }) {
-    const cls =
-      tone === 'emerald' ? 'text-emerald-700' :
-      tone === 'blue' ? 'text-blue-700' :
-      'text-foreground';
-    return (
-      <div className="bg-card border border-border rounded-md p-2.5">
-        <p className="text-[10px] text-muted-foreground font-semibold mb-0.5">{label}</p>
-        <p className={`text-sm font-bold tabular-nums ${cls}`}>{value}</p>
-      </div>
-    );
-  }
 }
 
-/** Onda 14.51 — Mini-step da timeline do contrato.
- *  Marca cada etapa como done/pending com data abaixo (se houver). */
-function ContractStep({
-  label,
-  done,
-  date,
+/** Onda 17.32.43 — Linha de parcela no estilo da referencia do operador.
+ *  Cada linha mostra icone colorido por tipo + label/status + vencimento +
+ *  valor + 2 botoes (Reenviar/Cobrar agora + Registrar). */
+function ParcelaLinha({
+  parcela: p,
+  onRegistrar,
+  onReenviar,
 }: {
-  label: string;
-  done: boolean;
-  date: string | null;
+  parcela: ParcelaItem;
+  onRegistrar: () => void;
+  onReenviar: () => void;
 }) {
+  const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
+  const isOverdue = !isPaid && p.dueDate && new Date(p.dueDate).getTime() < Date.now();
+  const isCancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
+  const isSinal = p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind);
+  // Status badge
+  const status = (() => {
+    if (isCancelled) return { label: 'CANCELADA', cls: 'bg-muted text-muted-foreground border-border' };
+    if (isPaid) return { label: 'PAGA', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' };
+    if (isOverdue) return { label: 'VENCIDO', cls: 'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/30' };
+    if (p.isNext) return { label: 'EM ABERTO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
+    return { label: 'AGENDADA', cls: 'bg-muted/50 text-muted-foreground border-border' };
+  })();
+  // Label da parcela
+  const label = isSinal
+    ? 'Sinal de fechamento'
+    : p.kind === 'ENTRADA'
+    ? 'Entrada'
+    : `Parcela ${p.number} de ${p.totalCount}`;
+  // Metodo legivel
+  const methodLabel = (() => {
+    if (p.method === 'PIX') return 'PIX';
+    if (p.method === 'BOLETO') return 'Boleto';
+    if (p.method === 'CREDIT_CARD') return 'Cartão';
+    return p.method || '—';
+  })();
+  // Cor do icone
+  const iconBg = isSinal
+    ? 'bg-emerald-500/10 text-emerald-700'
+    : p.method === 'PIX'
+    ? 'bg-sky-500/10 text-sky-700'
+    : p.method === 'BOLETO'
+    ? 'bg-amber-500/10 text-amber-700'
+    : p.method === 'CREDIT_CARD'
+    ? 'bg-blue-500/10 text-blue-700'
+    : 'bg-muted text-muted-foreground';
+  const Icon = isSinal ? Receipt : p.method === 'PIX' ? DollarSign : Building2;
   return (
-    <div
-      className={`flex flex-col gap-0.5 px-2 py-1.5 rounded border ${
-        done
-          ? 'bg-emerald-500/5 border-emerald-500/30 text-emerald-800'
-          : 'bg-muted/30 border-border text-muted-foreground'
-      }`}
-    >
-      <span className="flex items-center gap-1 font-semibold">
-        {done ? <Check size={9} strokeWidth={3} /> : <Clock size={9} />}
-        {label}
-      </span>
-      {date && <span className="text-[9px] opacity-80">{fmtDate(date)}</span>}
-    </div>
-  );
-}
-
-function ParcelaRow({ parcela: p }: { parcela: ParcelaItem }) {
-  const paid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
-  const overdue = p.status === 'OVERDUE';
-  const cancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
-  // Onda 14.52 — botao "Reenviar" so faz sentido em parcelas nao pagas/canceladas
-  const canResend = !paid && !cancelled;
-  const [resending, setResending] = useState(false);
-
-  const statusLabel =
-    paid ? 'Pago' :
-    overdue ? 'Vencido' :
-    cancelled ? 'Cancelado' :
-    'Pendente';
-  const statusCls =
-    paid ? 'bg-emerald-500/15 text-emerald-700' :
-    overdue ? 'bg-red-500/15 text-red-700' :
-    cancelled ? 'bg-muted text-muted-foreground' :
-    'bg-blue-500/15 text-blue-700';
-
-  const methodLabel = p.method === 'PIX' ? '⇗ PIX' :
-    p.method === 'BOLETO' ? '🏛 Boleto' :
-    p.method === 'CREDIT_CARD' ? '💳 Cartão' :
-    p.method;
-
-  const dueText = paid
-    ? `Pago em ${fmtDate(p.paymentDate)}`
-    : `Vence ${fmtDate(p.dueDate)}${p.isNext ? ' · próxima' : ''}`;
-
-  // Onda 14.52 — Reenvia cobranca via WhatsApp pro paciente
-  const handleResend = async () => {
-    if (resending) return;
-    setResending(true);
-    try {
-      const { data } = await api.post<{ ok: boolean; instance: string }>(
-        `/payment-gateway/charges/${p.chargeId}/resend-whatsapp`,
-      );
-      showSuccess(`Cobrança reenviada via WhatsApp (${data.instance})`);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao reenviar cobrança');
-    } finally {
-      setResending(false);
-    }
-  };
-
-  return (
-    <li className={`px-3 py-2 flex items-center gap-2 flex-wrap text-xs ${
-      p.isNext ? 'bg-blue-500/5 border-l-2 border-blue-500' : ''
-    } ${cancelled ? 'opacity-60' : ''}`}>
-      <span className="font-mono font-bold text-foreground text-[11px] min-w-[44px]">
-        {p.number}/{p.totalCount}
-      </span>
-      <span className="text-foreground">{methodLabel}</span>
-      <span className="text-muted-foreground text-[11px]">{dueText}</span>
-      <span className="ml-auto flex items-center gap-2">
-        <span className="font-bold tabular-nums">{fmtBRL(p.value)}</span>
-        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${statusCls}`}>
-          {statusLabel}
+    <li className="px-4 py-3 grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 items-center hover:bg-accent/20 transition-colors">
+      <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
+        <Icon size={18} />
+      </div>
+      <div className="min-w-0">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-sm font-bold text-foreground">{label}</span>
+          <span className={`text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border ${status.cls}`}>
+            {status.label}
+          </span>
+        </div>
+        <p className="text-[11px] text-muted-foreground">
+          Vencimento {fmtDate(p.dueDate)} · via {methodLabel}
+        </p>
+      </div>
+      <p className="text-sm font-bold tabular-nums text-foreground text-right shrink-0">
+        {fmtBRL(p.value)}
+      </p>
+      {!isPaid && !isCancelled && (
+        <button
+          type="button"
+          onClick={onReenviar}
+          className={`text-xs font-semibold px-3 py-1.5 rounded-md border inline-flex items-center gap-1.5 transition-colors ${
+            isOverdue
+              ? 'border-red-500/40 bg-red-500/5 text-red-700 dark:text-red-400 hover:bg-red-500/15'
+              : 'border-border bg-card text-foreground hover:bg-accent/40'
+          }`}
+        >
+          <Send size={11} />
+          {isOverdue ? 'Cobrar agora' : 'Reenviar'}
+        </button>
+      )}
+      {isPaid && (
+        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 px-2 py-1.5">
+          <Check size={12} strokeWidth={3} />
+          Pago
         </span>
-        {/* Onda 15 (etapa 16.6) — botao "Abrir boleto"/"Abrir cobrança" visivel.
-            Antes era um "↗" minusculo, facil de ignorar. Quando ha boletoUrl
-            (PDF direto) abre como Boleto; senao, abre o invoice_url (Asaas
-            hospedado). Cor amber pra boleto, sky pra link generico. */}
-        {p.boletoUrl ? (
-          <a
-            href={p.boletoUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-amber-500/50 text-amber-800 hover:bg-amber-500/10 font-semibold"
-            title="Abrir PDF do boleto"
-          >
-            <ExternalLink size={9} />
-            Boleto
-          </a>
-        ) : p.invoiceUrl ? (
-          <a
-            href={p.invoiceUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded-md border border-sky-500/50 text-sky-800 hover:bg-sky-500/10 font-semibold"
-            title="Abrir página de pagamento (Asaas)"
-          >
-            <ExternalLink size={9} />
-            Abrir
-          </a>
-        ) : null}
-        {/* Onda 14.52 — Reenviar via WhatsApp.
-            So aparece em parcelas nao pagas/canceladas. */}
-        {canResend && (
-          <button
-            type="button"
-            onClick={handleResend}
-            disabled={resending}
-            className="text-[10px] px-2 py-0.5 rounded-md font-semibold border border-emerald-500/30 bg-emerald-500/10 text-emerald-800 hover:bg-emerald-500/20 disabled:opacity-50 transition-colors inline-flex items-center gap-1"
-            title="Reenviar link de pagamento via WhatsApp"
-          >
-            {resending ? (
-              <>
-                <Loader2 size={9} className="animate-spin" />
-                Enviando...
-              </>
-            ) : (
-              <>
-                <Send size={9} />
-                Reenviar
-              </>
-            )}
-          </button>
-        )}
-      </span>
+      )}
+      <button
+        type="button"
+        onClick={onRegistrar}
+        disabled={isPaid || isCancelled}
+        className="text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+        title={isPaid ? 'Pagamento já registrado' : 'Marcar como recebido (PIX/Espécie)'}
+      >
+        <Check size={11} />
+        Registrar
+      </button>
     </li>
   );
 }
