@@ -1894,31 +1894,9 @@ function PropostaCard({
           : `${cfg.borderCls} ${cfg.bgCls}`
       }`}
     >
-      {/* Onda 17.32.32 — Badges sticker no topo (saem PRA FORA do card).
-          Visual mais destacado igual ao design do operador. */}
-      {isChosen && (
-        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-amber-500 text-amber-950 text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
-          <Clock size={10} strokeWidth={3} />
-          AGUARDANDO PACIENTE
-        </span>
-      )}
-      {selected && !isChosen && (
-        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
-          <Check size={10} strokeWidth={3} />
-          SELECIONADO
-        </span>
-      )}
-      {isSent && !selected && !isChosen && (
-        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-orange-500 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md border-2 border-card">
-          ATUAL
-        </span>
-      )}
-      {isAccepted && !isChosen && !selected && (
-        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
-          <Check size={10} strokeWidth={3} />
-          ACEITO
-        </span>
-      )}
+      {/* Onda 17.32.34 — Badges sticker removidas (AGUARDANDO PACIENTE / SELECIONADO
+          / ATUAL / ACEITO). Status agora e visivel via cor do border + footer
+          do card (botao "Selecionado" verde / "Ver proposta" outline). */}
 
       {/* Onda 11 — Badge "N propostas" quando ha contrapropostas registradas */}
       {(quote.counter_proposals_count ?? 0) > 0 && (
