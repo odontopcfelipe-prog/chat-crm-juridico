@@ -15,7 +15,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
-  Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText,
+  Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -628,6 +628,9 @@ function ProposalFinancialCard({
   onOpenDetail: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
+  // dentro do proprio sistema, sem precisar mandar pro paciente ver.
+  const [viewerParcela, setViewerParcela] = useState<ParcelaItem | null>(null);
   const [subInstallmentsByCharge, setSubInstallmentsByCharge] = useState<
     Record<string, SubInstallment[]>
   >({});
@@ -994,6 +997,13 @@ function ProposalFinancialCard({
         </div>
       </div>
 
+      {/* Onda 17.32.46 — Modal pra ver boleto/QR PIX in-place */}
+      {viewerParcela && (
+        <ChargeViewerModal
+          parcela={viewerParcela}
+          onClose={() => setViewerParcela(null)}
+        />
+      )}
       {/* Body expansível — Onda 17.32.43: lista de parcelas no estilo da referencia */}
       {expanded && (
         <div className="border-t border-border bg-muted/5">
@@ -1012,6 +1022,7 @@ function ProposalFinancialCard({
                 <ParcelaLinha
                   key={idx}
                   parcela={p}
+                  onView={() => setViewerParcela(p)}
                   onRegistrar={() => onOpenDetail()}
                   onReenviar={() => onOpenDetail()}
                 />
@@ -1026,13 +1037,15 @@ function ProposalFinancialCard({
 
 /** Onda 17.32.43 — Linha de parcela no estilo da referencia do operador.
  *  Cada linha mostra icone colorido por tipo + label/status + vencimento +
- *  valor + 2 botoes (Reenviar/Cobrar agora + Registrar). */
+ *  valor + 3 botoes (Ver boleto/QR + Reenviar/Cobrar + Registrar). */
 function ParcelaLinha({
   parcela: p,
+  onView,
   onRegistrar,
   onReenviar,
 }: {
   parcela: ParcelaItem;
+  onView: () => void;
   onRegistrar: () => void;
   onReenviar: () => void;
 }) {
@@ -1111,6 +1124,19 @@ function ParcelaLinha({
           Pago
         </span>
       )}
+      {/* Onda 17.32.46 — Ver boleto PDF ou QR PIX in-place (modal). So mostra
+          quando tem URL associada (cancelada/paga em dinheiro nao tem). */}
+      {(p.boletoUrl || p.invoiceUrl) && !isCancelled && (
+        <button
+          type="button"
+          onClick={onView}
+          className="text-xs font-semibold px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 inline-flex items-center gap-1.5 transition-colors"
+          title={p.method === 'PIX' ? 'Ver QR code PIX' : p.method === 'BOLETO' ? 'Ver PDF do boleto' : 'Ver cobrança'}
+        >
+          <Eye size={11} />
+          Ver
+        </button>
+      )}
       <button
         type="button"
         onClick={onRegistrar}
@@ -1122,6 +1148,125 @@ function ParcelaLinha({
         Registrar
       </button>
     </li>
+  );
+}
+
+/** Onda 17.32.46 — Modal pra ver boleto PDF ou pagina PIX (com QR code).
+ *  Carrega o iframe direto da URL hospedada pelo Asaas (boletoUrl pra PDF
+ *  do boleto; invoiceUrl pra pagina PIX com QR + Pix Copia e Cola).
+ *  Botao "Abrir em nova aba" caso o iframe seja bloqueado por X-Frame.
+ *  Botao "Copiar link" pra mandar pro paciente fora do sistema.
+ */
+function ChargeViewerModal({
+  parcela: p,
+  onClose,
+}: {
+  parcela: ParcelaItem;
+  onClose: () => void;
+}) {
+  // Onda 17.32.46 — Pra BOLETO, prefere boletoUrl (PDF direto). Pra PIX e
+  // CARTAO, prefere invoiceUrl (pagina hospedada que mostra QR/dados).
+  const url = p.method === 'BOLETO'
+    ? (p.boletoUrl || p.invoiceUrl)
+    : (p.invoiceUrl || p.boletoUrl);
+  const label = (() => {
+    if (p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind)) return 'Sinal de fechamento';
+    if (p.kind === 'ENTRADA') return 'Entrada';
+    return `Parcela ${p.number} de ${p.totalCount}`;
+  })();
+  const methodLabel = p.method === 'PIX' ? 'PIX'
+    : p.method === 'BOLETO' ? 'Boleto'
+    : p.method === 'CREDIT_CARD' ? 'Cartão'
+    : (p.method || '—');
+  const handleCopy = async () => {
+    if (!url) return;
+    try {
+      await navigator.clipboard.writeText(url);
+      showSuccess('Link copiado pra area de transferencia');
+    } catch {
+      showError('Nao foi possivel copiar');
+    }
+  };
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/30 shrink-0">
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h2 className="text-sm font-bold text-foreground">{label}</h2>
+              <span className="text-[10px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded border border-sky-500/30 bg-sky-500/10 text-sky-700 dark:text-sky-400">
+                {methodLabel}
+              </span>
+            </div>
+            <p className="text-[11px] text-muted-foreground">
+              Vencimento {fmtDate(p.dueDate)} · {fmtBRL(p.value)}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        {/* Conteudo: iframe ou msg sem-url */}
+        <div className="flex-1 overflow-hidden bg-muted/10 min-h-[400px]">
+          {url ? (
+            <iframe
+              src={url}
+              className="w-full h-full border-0"
+              title={`${label} — ${methodLabel}`}
+              sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
+            />
+          ) : (
+            <div className="h-full flex items-center justify-center p-8 text-center">
+              <div>
+                <AlertTriangle size={32} className="mx-auto mb-2 text-amber-600" />
+                <p className="text-sm font-semibold text-foreground mb-1">
+                  Link nao disponivel
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  Essa parcela nao tem URL de boleto ou pagina Asaas associada.
+                  Pode ser que a cobranca ainda nao foi processada ou foi
+                  cancelada.
+                </p>
+              </div>
+            </div>
+          )}
+        </div>
+        {/* Footer com acoes */}
+        {url && (
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0">
+            <button
+              type="button"
+              onClick={handleCopy}
+              className="text-xs font-semibold px-3 py-1.5 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 inline-flex items-center gap-1.5 transition-colors"
+            >
+              <Copy size={11} />
+              Copiar link
+            </button>
+            <a
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs font-semibold px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 inline-flex items-center gap-1.5 transition-colors"
+            >
+              <ExternalLink size={11} />
+              Abrir em nova aba
+            </a>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
