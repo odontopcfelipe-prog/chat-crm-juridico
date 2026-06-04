@@ -3845,16 +3845,20 @@ function PropostaPainel({
         const requiresCC = detail.requires_credit_check !== false;
         return (
           <div className="mb-5">
-            <p className="text-sm font-bold text-foreground mb-2">Como o paciente quer pagar?</p>
-            {/* Onda 15 (etapa 8) — 3 cards. PIX seleciona direto. Cartao e
-                Boleto ABREM a aba de parcelamento (modal) ao clicar; ao escolher,
-                a face do card passa a expor a quantidade de parcelas selecionada. */}
+            {/* Onda 17.32.26 — Headline + subtitulo deixam claro que e nos cards
+                que se configura/emite a cobranca (em vez de procurar botao fora). */}
+            <div className="mb-3">
+              <p className="text-sm font-bold text-foreground">Configure a cobrança</p>
+              <p className="text-[11px] text-muted-foreground mt-0.5">
+                Clique numa forma de pagamento pra definir entrada, datas e emitir as cobranças
+              </p>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
               {/* PIX ou dinheiro — Onda 17.32.22: cards sem valores, so dentro do modal */}
               {pixCalc && (
                 <button type="button"
                   onClick={() => { if (sel !== 'pix') onChangePayment(pixOpt.key); setPixModalOpen(true); }}
-                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
                     sel === 'pix'
                       ? 'border-emerald-500 bg-emerald-500/10'
                       : 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
@@ -3863,15 +3867,19 @@ function PropostaPainel({
                     <DollarSign size={16} className="text-emerald-700" />
                     <p className="text-sm font-bold text-foreground">PIX ou dinheiro</p>
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">Melhor opção</span>
-                    {sel === 'pix' && <Check size={14} className="text-emerald-600 ml-auto" strokeWidth={3} />}
                   </div>
-                  <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium">
+                  <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium flex-1">
                     Pagamento à vista com desconto · sem juros
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
-                    Clique pra configurar e emitir
-                    <ChevronRight size={11} />
-                  </p>
+                  {sel === 'pix' && (
+                    <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
+                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                    </p>
+                  )}
+                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-emerald-600 group-hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-colors">
+                    {sel === 'pix' ? 'Reabrir cobrança' : 'Configurar e emitir'}
+                    <ChevronRight size={12} strokeWidth={3} />
+                  </span>
                 </button>
               )}
 
@@ -3879,7 +3887,7 @@ function PropostaPainel({
               {cartaoDisplayCalc && cartaoDisplayOpt && (
                 <button type="button"
                   onClick={() => { if (sel !== 'cartao') onChangePayment(cartaoDisplayOpt.key); setCartaoModalOpen(true); }}
-                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
                     sel === 'cartao'
                       ? 'border-blue-500 bg-blue-500/10'
                       : 'border-border bg-card hover:bg-accent/40'
@@ -3887,15 +3895,19 @@ function PropostaPainel({
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <DollarSign size={16} className="text-blue-600" />
                     <p className="text-sm font-bold text-foreground">Cartão de crédito</p>
-                    {sel === 'cartao' && <Check size={14} className="text-blue-600 ml-auto" strokeWidth={3} />}
                   </div>
-                  <p className="text-xs text-muted-foreground font-medium">
+                  <p className="text-xs text-muted-foreground font-medium flex-1">
                     Parcele em até 6x sem juros · Visa, Master, Elo, Amex
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
-                    Clique pra escolher parcelas e emitir
-                    <ChevronRight size={11} />
-                  </p>
+                  {sel === 'cartao' && (
+                    <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
+                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                    </p>
+                  )}
+                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors">
+                    {sel === 'cartao' ? 'Reabrir cobrança' : 'Configurar e emitir'}
+                    <ChevronRight size={12} strokeWidth={3} />
+                  </span>
                 </button>
               )}
 
@@ -3903,7 +3915,7 @@ function PropostaPainel({
               {boletoDisplayCalc && boletoDisplayOpt && (
                 <button type="button"
                   onClick={() => setBoletoModalOpen(true)}
-                  className={`text-left p-5 rounded-xl border-2 transition-colors ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
                     sel === 'boleto'
                       ? 'border-amber-500 bg-amber-500/10'
                       : 'border-border bg-card hover:bg-accent/40'
@@ -3911,15 +3923,19 @@ function PropostaPainel({
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <Building2 size={16} className="text-amber-600" />
                     <p className="text-sm font-bold text-foreground">Boleto financiado</p>
-                    {sel === 'boleto' && <Check size={14} className="text-amber-600 ml-auto" strokeWidth={3} />}
                   </div>
-                  <p className="text-xs text-muted-foreground font-medium">
+                  <p className="text-xs text-muted-foreground font-medium flex-1">
                     Parcele em 1x a 24x · entrada + parcelas mensais
                   </p>
-                  <p className="text-[11px] text-muted-foreground mt-2 flex items-center gap-1">
-                    Clique pra configurar e emitir
-                    <ChevronRight size={11} />
-                  </p>
+                  {sel === 'boleto' && (
+                    <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
+                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                    </p>
+                  )}
+                  <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-amber-600 group-hover:bg-amber-700 text-white text-xs font-bold shadow-sm transition-colors">
+                    {sel === 'boleto' ? 'Reabrir cobrança' : 'Configurar e emitir'}
+                    <ChevronRight size={12} strokeWidth={3} />
+                  </span>
                 </button>
               )}
             </div>
@@ -3928,9 +3944,17 @@ function PropostaPainel({
                 removido por completo. Entrada/sinal/datas agora vivem DENTRO
                 dos modais "Cobranca do tratamento" de cada forma (Boleto, PIX,
                 Cartao), sem duplicacao na tela principal. */}
-            <p className="text-[11px] text-muted-foreground mt-2">
-              ⓘ Clique em qualquer card pra abrir a tela de cobrança (configure entrada, sinal, datas e emita).
-            </p>
+            {/* Onda 17.32.26 — Empty state explicativo enquanto nenhuma forma
+                foi selecionada. Some quando operador escolhe uma opcao. */}
+            {!sel && (
+              <div className="mt-3 p-3 rounded-md border border-dashed border-border bg-muted/30 flex items-start gap-2">
+                <span className="text-base">👆</span>
+                <div className="text-[11px] text-muted-foreground leading-snug">
+                  <p className="font-semibold text-foreground mb-0.5">Comece escolhendo a forma</p>
+                  Clique numa das 3 opções acima pra configurar <strong>entrada, sinal, datas</strong> e <strong>emitir as cobranças</strong> no Asaas — tudo numa tela só.
+                </div>
+              </div>
+            )}
 
             {/* Abas de parcelamento (modais) abertas pelos cards de Cartao/Boleto */}
             {cartaoModalOpen && (
@@ -4162,25 +4186,11 @@ function PropostaPainel({
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
         </button>
-        {/* Onda 14.5 — Aprovar proposta + gerar cobranca real.
-            Onda 15 (etapa 16) — passa estado da entrada/sinal/datas pro
-            handler, pra dar suporte ao "parcelado com consulta dispensada"
-            (chama apply-financing direto no parent). */}
-        <button
-          type="button"
-          onClick={() => onApproveAndBill({
-            customDownPayment,
-            customSignalValue,
-            customSignalMethod,
-            customEntradaDueDate,
-            customInstallmentsStartDate,
-          })}
-          className="text-xs px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 flex items-center gap-1.5 font-semibold shadow-sm"
-          title="Fecha o orçamento e gera cobrança PIX/Cartão/Boleto no Asaas"
-        >
-          <Check size={12} />
-          Aprovar e cobrar
-        </button>
+        {/* Onda 17.32.26 — Botao "Aprovar e cobrar" verde removido do rodape.
+            Era redundante com os "Emitir cobranca" laranja dos modais novos
+            de cada forma de pagamento (Boleto/PIX/Cartao) e fazia operador
+            emitir sem configurar entrada/datas. Agora o fluxo unico passa
+            pelos cards "Configurar e emitir" (Onda 17.32.26). */}
       </div>
 
       {/* Onda 13 — Bônus de fechamento (ativos e expirados) */}
