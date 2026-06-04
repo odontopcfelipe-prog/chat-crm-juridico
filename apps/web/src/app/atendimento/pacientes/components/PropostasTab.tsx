@@ -3007,7 +3007,9 @@ function ContratoCard({
             Quem vai assinar
           </p>
           <div className="space-y-2.5">
-            {/* Paciente */}
+            {/* Onda 17.32.29 — Apenas o paciente assina. Clinica/dentista
+                nao precisam assinar digitalmente (assinatura do quote/plano
+                no sistema ja registra autoria da clinica). */}
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-full bg-violet-500/15 text-violet-700 dark:text-violet-400 font-bold text-xs flex items-center justify-center shrink-0">
                 {initials(patientName)}
@@ -3020,19 +3022,6 @@ function ContratoCard({
               </div>
               <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${patientSignerStatus.cls} shrink-0`}>
                 {patientSignerStatus.label}
-              </span>
-            </div>
-            {/* Dentista */}
-            <div className="flex items-center gap-3">
-              <div className="w-9 h-9 rounded-full bg-zinc-500/15 text-zinc-700 dark:text-zinc-400 font-bold text-xs flex items-center justify-center shrink-0">
-                {initials(dentistName)}
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-semibold text-foreground truncate">Dr(a). {dentistName}</p>
-                <p className="text-[11px] text-muted-foreground truncate">Dentista responsável</p>
-              </div>
-              <span className={`text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded border ${dentistSignerStatus.cls} shrink-0`}>
-                {dentistSignerStatus.label}
               </span>
             </div>
             <button
