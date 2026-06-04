@@ -757,7 +757,25 @@ function ProposalFinancialCard({
         });
       }
     }
-    // Marca a primeira não-paga como "próxima"
+    // Onda 17.32.44 — Ordenacao logica: Sinal primeiro, depois Entrada,
+    // depois Parcelas (por numero crescente). Antes a ordem dependia da
+    // sequencia de criacao das charges no Asaas (caos).
+    const kindOrder = (k: string | null | undefined): number => {
+      if (k === 'SINAL') return 0;
+      if (k === 'ENTRADA') return 1;
+      return 2; // PARCELA (default)
+    };
+    list.sort((a, b) => {
+      const ka = kindOrder(a.kind);
+      const kb = kindOrder(b.kind);
+      if (ka !== kb) return ka - kb;
+      // Mesmo kind: ordena por data de vencimento
+      const da = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+      const db = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+      if (da !== db) return da - db;
+      return a.number - b.number;
+    });
+    // Marca a primeira não-paga como "próxima" (apos ordenacao)
     const firstUnpaidIdx = list.findIndex(
       (p) => p.status !== 'RECEIVED' && p.status !== 'CONFIRMED'
         && p.status !== 'DELETED' && p.status !== 'REFUNDED',
