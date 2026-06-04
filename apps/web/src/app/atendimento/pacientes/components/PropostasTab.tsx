@@ -5565,7 +5565,10 @@ function ArchiveQuotesDialog({
   onClose: () => void;
   onArchive: (ids: string[]) => Promise<void>;
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(quotes.map((q) => q.id)));
+  // Onda 17.32.40 — Operador tem que MARCAR ativamente cada um que quer
+  // arquivar. Default = nenhum selecionado (so arquiva com autorizacao
+  // explicita pra cada versao).
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [submitting, setSubmitting] = useState(false);
   const toggle = (id: string) => {
     setSelected((prev) => {
@@ -5645,33 +5648,48 @@ function ArchiveQuotesDialog({
           </div>
 
           {/* Aviso */}
-          <div className="px-5 py-2 bg-amber-500/5 border-t border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+          <div className="px-5 py-2.5 bg-amber-500/5 border-t border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
             <AlertTriangle size={12} className="shrink-0 mt-0.5" />
             <span>
-              <strong>Arquivar:</strong> some do "Plano de tratamento" e fica em
-              <em> Financeiro › Orçamentos arquivados</em> por 30 dias. Você pode desarquivar quando quiser.
+              <strong>Só arquiva o que você marcar acima.</strong> Arquivados somem de
+              "Plano de tratamento" e ficam em <em>Orçamentos › Arquivado</em> por 30 dias.
+              Você pode desarquivar quando quiser.
             </span>
           </div>
 
-          {/* Rodape */}
+          {/* Rodape — CTA principal e MANTER (mais seguro). Arquivar so com selecao explicita. */}
           <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
-            <button
-              type="button"
-              onClick={onClose}
-              disabled={submitting}
-              className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-50"
-            >
-              Manter todos em Propostas
-            </button>
-            <button
-              type="button"
-              onClick={handleConfirm}
-              disabled={submitting || selected.size === 0}
-              className="text-xs font-bold px-3 py-2 rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white inline-flex items-center gap-1.5 transition-colors"
-            >
-              {submitting ? <Loader2 size={12} className="animate-spin" /> : <Layers size={12} />}
-              Arquivar {selected.size > 0 ? `(${selected.size})` : ''}
-            </button>
+            {selected.size === 0 ? (
+              <button
+                type="button"
+                onClick={onClose}
+                disabled={submitting}
+                className="text-xs font-bold px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 ml-auto"
+              >
+                <Check size={12} strokeWidth={3} />
+                Manter todos em Propostas
+              </button>
+            ) : (
+              <>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  disabled={submitting}
+                  className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirm}
+                  disabled={submitting}
+                  className="text-xs font-bold px-3 py-2 rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white inline-flex items-center gap-1.5 transition-colors"
+                >
+                  {submitting ? <Loader2 size={12} className="animate-spin" /> : <Layers size={12} />}
+                  Arquivar {selected.size} {selected.size === 1 ? 'orçamento' : 'orçamentos'}
+                </button>
+              </>
+            )}
           </div>
         </div>
       </div>
