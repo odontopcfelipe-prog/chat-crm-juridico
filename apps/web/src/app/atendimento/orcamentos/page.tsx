@@ -236,16 +236,17 @@ function OrcamentosPageInner() {
     setLoading(true);
     try {
       const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
+      if (statusFilter && statusFilter !== 'ARCHIVED') params.set('status', statusFilter);
       if (search.trim()) params.set('search', search.trim());
       params.set('limit', '200');
-      // Onda 15 (etapa 19.2) — Promise.allSettled em vez de Promise.all
-      // pra evitar que UM endpoint quebrado (ex: /quotes/dashboard caindo
-      // no roteador errado e devolvendo 404) zere a tela inteira. Lista e
-      // stats sao independentes — a lista deve aparecer mesmo se as stats
-      // falharem (e o operador ve so um aviso suave em vez de tela vazia).
+      // Onda 17.32.39 — Filtro especial "ARCHIVED" puxa do endpoint
+      // /quotes/archived (que retorna por archived_at, nao por status).
+      // Demais filtros continuam batendo no /quotes regular.
+      const listEndpoint = statusFilter === 'ARCHIVED'
+        ? '/quotes/archived'
+        : `/quotes?${params}`;
       const [listRes, statsRes] = await Promise.allSettled([
-        api.get<Quote[]>(`/quotes?${params}`),
+        api.get<Quote[]>(listEndpoint),
         api.get<DashboardStats>('/quotes/dashboard'),
       ]);
       if (listRes.status === 'fulfilled') {
@@ -373,19 +374,30 @@ function OrcamentosPageInner() {
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-            {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED'] as const).map((s) => (
-              <button
-                key={s || 'TODOS'}
-                onClick={() => setStatusFilter(s)}
-                className={`px-3 py-1.5 rounded text-xs font-medium ${
-                  statusFilter === s
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:text-foreground'
-                }`}
-              >
-                {s ? STATUS_LABEL[s as Quote['status']] : 'Todos'}
-              </button>
-            ))}
+            {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'ARCHIVED'] as const).map((s) => {
+              // Onda 17.32.39 — filtro "Arquivado" puxa de /quotes/archived
+              const label = s === 'ARCHIVED'
+                ? 'Arquivado'
+                : s
+                ? STATUS_LABEL[s as Quote['status']]
+                : 'Todos';
+              const isArchived = s === 'ARCHIVED';
+              return (
+                <button
+                  key={s || 'TODOS'}
+                  onClick={() => setStatusFilter(s)}
+                  className={`px-3 py-1.5 rounded text-xs font-medium ${
+                    statusFilter === s
+                      ? isArchived
+                        ? 'bg-amber-600 text-white'
+                        : 'bg-primary text-primary-foreground'
+                      : 'text-muted-foreground hover:text-foreground'
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
           </div>
           <div className="relative flex-1 max-w-md">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -515,7 +527,9 @@ function OrcamentosPageInner() {
         <div className="p-12 text-center bg-card border border-border rounded-xl">
           <DollarSign size={28} className="mx-auto mb-2 text-muted-foreground/50" />
           <p className="text-sm text-muted-foreground">
-            Nenhum orçamento {statusFilter ? `${STATUS_LABEL[statusFilter as Quote['status']].toLowerCase()}` : ''} encontrado.
+            {statusFilter === 'ARCHIVED'
+              ? 'Nenhum orçamento arquivado. Quando você encaminha uma proposta ao financeiro, o sistema pergunta se quer arquivar as outras versões em aberto.'
+              : `Nenhum orçamento ${statusFilter ? STATUS_LABEL[statusFilter as Quote['status']].toLowerCase() : ''} encontrado.`}
           </p>
         </div>
       ) : viewMode === 'list' ? (
