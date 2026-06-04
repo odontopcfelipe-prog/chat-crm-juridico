@@ -426,6 +426,24 @@ export class CommercialController {
     return this.quotesService.unmarkChosenProposal(id, user.tenant_id);
   }
 
+  /** Onda 17.32.38 — Arquivar orçamento (some de Propostas, vai pra Financeiro). */
+  @Post('quotes/:id/archive')
+  archiveQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.archiveQuote(id, user.tenant_id, user.id);
+  }
+
+  /** Onda 17.32.38 — Desarquivar orçamento (volta pra Propostas). */
+  @Post('quotes/:id/unarchive')
+  unarchiveQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
+    return this.quotesService.unarchiveQuote(id, user.tenant_id);
+  }
+
+  /** Onda 17.32.38 — Lista orçamentos arquivados do tenant. */
+  @Get('quotes/archived')
+  listArchivedQuotes(@Authenticated() user: AuthUser) {
+    return this.quotesService.listArchivedQuotes(user.tenant_id);
+  }
+
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
 
   /** Lista TODOS os orcamentos do tenant (pagina /atendimento/orcamentos) */

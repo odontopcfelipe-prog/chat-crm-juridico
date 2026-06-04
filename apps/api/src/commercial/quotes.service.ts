@@ -494,6 +494,54 @@ export class QuotesService {
     return this.findOne(quoteId, tenantId);
   }
 
+  /** Onda 17.32.38 — Arquiva uma proposta. Some da aba "Plano de tratamento"
+   *  mas continua visivel em /atendimento/financeiro/orcamentos-arquivados.
+   *  Valida 30 dias e calculada na UI (data atual - archived_at). */
+  async archiveQuote(quoteId: string, tenantId: string, userId: string) {
+    await this.findOne(quoteId, tenantId); // valida tenant ownership
+    await this.prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        archived_at: new Date(),
+        archived_by_user_id: userId,
+      },
+    });
+    this.logger.log(`[Quote ${quoteId}] ARQUIVADO por user ${userId}`);
+    return this.findOne(quoteId, tenantId);
+  }
+
+  /** Onda 17.32.38 — Desarquiva uma proposta. Volta a aparecer em "Plano de tratamento". */
+  async unarchiveQuote(quoteId: string, tenantId: string) {
+    await this.findOne(quoteId, tenantId);
+    await this.prisma.quote.update({
+      where: { id: quoteId },
+      data: {
+        archived_at: null,
+        archived_by_user_id: null,
+      },
+    });
+    this.logger.log(`[Quote ${quoteId}] DESARQUIVADO`);
+    return this.findOne(quoteId, tenantId);
+  }
+
+  /** Onda 17.32.38 — Lista todos os orcamentos arquivados do tenant.
+   *  Usado pela pagina /atendimento/financeiro/orcamentos-arquivados. */
+  async listArchivedQuotes(tenantId: string) {
+    return this.prisma.quote.findMany({
+      where: {
+        archived_at: { not: null },
+        deleted_at: null,
+        patient: { tenant_id: tenantId },
+      },
+      orderBy: { archived_at: 'desc' },
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+        archived_by: { select: { id: true, name: true } },
+        _count: { select: { items: true } },
+      },
+    });
+  }
+
   /**
    * Onda 10 — Salva contraproposta como linha estruturada em Quote.notes.
    *

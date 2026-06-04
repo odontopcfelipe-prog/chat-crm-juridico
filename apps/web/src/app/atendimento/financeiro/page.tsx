@@ -6,7 +6,7 @@ import {
   DollarSign, TrendingUp, TrendingDown, AlertTriangle, Clock, Target,
   Plus, X, Search, Loader2, Phone, MessageSquare,
   ArrowUpDown, ChevronDown, ChevronRight, Trash2, Pencil, Check, Handshake,
-  BarChart3, Receipt, CreditCard, Ban, Users, Link2, Unlink, ExternalLink, FileText,
+  BarChart3, Receipt, CreditCard, Ban, Users, Link2, Unlink, ExternalLink, FileText, Archive,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -14,6 +14,7 @@ import { useRole } from '@/lib/useRole';
 // Onda 16 — abas novas do sistema financeiro completo
 import BoletosTab from './components/BoletosTab';
 import PacientesSummaryTab from './components/PacientesSummaryTab';
+import ArchivedQuotesTab from './components/ArchivedQuotesTab';
 
 /** Formata número de processo no padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO */
 const formatCNJ = (num: string | null | undefined): string => {
@@ -120,7 +121,8 @@ interface DashboardData {
 // Onda 16 — TABS reorganizadas pra foco odontologico.
 // Removidas (codigo preservado, so nao listadas): Cobrancas, Processos,
 // Clientes, Inadimplencia — substituidas por Boletos + Pacientes.
-const TABS = ['Resumo', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Log'] as const;
+// Onda 17.32.38 — Tab "Arquivados" pra orcamentos arquivados pos-encaminhamento.
+const TABS = ['Resumo', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Arquivados', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -917,6 +919,7 @@ export default function FinanceiroPage() {
     Despesas: TrendingDown,
     Boletos: CreditCard,
     Pacientes: Users,
+    Arquivados: Archive,
     Log: FileText,
   };
 
@@ -1389,6 +1392,9 @@ export default function FinanceiroPage() {
 
         {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
         {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveLawyerId || undefined} />}
+
+        {/* ─── TAB: Arquivados (Onda 17.32.38) — orçamentos arquivados pós-encaminhamento ─── */}
+        {tab === 'Arquivados' && <ArchivedQuotesTab />}
 
         {/* ─── TAB: Inadimplencia (legado, oculta na Onda 16 — mantido pra rollback rapido) ─── */}
         {(tab as any) === 'Inadimplencia' && (

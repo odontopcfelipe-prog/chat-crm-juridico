@@ -57,6 +57,9 @@ interface QuoteListItem {
   quote_number?: number;
   /** Onda 14.21 — false esconde da aba Propostas (mantem nas demais abas). */
   visible_in_proposals?: boolean;
+  /** Onda 17.32.38 — Arquivado em (DateTime ISO). Quando preenchido, some
+   *  da aba "Plano de tratamento" e fica em /financeiro/orcamentos-arquivados. */
+  archived_at?: string | null;
   /** Onda 14.33 — marca a proposta "escolhida pra apresentar ao paciente".
    *  So uma por paciente por vez. Card destacado, demais esmaecidos. */
   is_chosen_proposal?: boolean;
@@ -1002,6 +1005,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     open: boolean;
     charges: any[];
   } | null>(null);
+  // Onda 17.32.38 — Dialog "Arquivar versoes em aberto" pos-encaminhar.
+  // Lista quotes DRAFT/SENT do MESMO paciente (exceto o ACCEPTED recem-criado)
+  // pra operador escolher quais arquivar. Os nao marcados continuam em Propostas.
+  const [archiveDialog, setArchiveDialog] = useState<{
+    quotes: QuoteListItem[];
+    acceptedQuoteId: string;
+  } | null>(null);
 
   // Onda 14.5 — Aprovar proposta + gerar cobranca direta
   const approveAndBill = useCallback(async (extras?: {
@@ -1170,6 +1180,21 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         // Onda 17.32.37 — Apos encaminhar ao financeiro, fecha o painel
         // (quote vira ACCEPTED e some do filtro DRAFT/SENT).
         setSelectedId(null);
+        // Onda 17.32.38 — Pergunta se quer arquivar as outras versoes em aberto
+        // (mesmo paciente, DRAFT/SENT, nao arquivadas, exceto a que acabou de
+        // virar ACCEPTED).
+        const otherOpenQuotes = quotes.filter((q) =>
+          q.id !== selectedDetail.id &&
+          (q.status === 'DRAFT' || q.status === 'SENT') &&
+          !q.archived_at &&
+          q.visible_in_proposals !== false,
+        );
+        if (otherOpenQuotes.length > 0) {
+          setArchiveDialog({
+            quotes: otherOpenQuotes,
+            acceptedQuoteId: selectedDetail.id,
+          });
+        }
         load();
       } catch (err: unknown) {
         const e = err as { response?: { data?: { message?: string } }; message?: string };
@@ -1244,6 +1269,19 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       showSuccess('Proposta aprovada e cobrança gerada!');
       // Onda 17.32.37 — fecha painel: quote vira ACCEPTED e some do PropostasTab
       setSelectedId(null);
+      // Onda 17.32.38 — pergunta arquivamento das outras versoes em aberto
+      const otherOpenQuotes = quotes.filter((q) =>
+        q.id !== selectedDetail.id &&
+        (q.status === 'DRAFT' || q.status === 'SENT') &&
+        !q.archived_at &&
+        q.visible_in_proposals !== false,
+      );
+      if (otherOpenQuotes.length > 0) {
+        setArchiveDialog({
+          quotes: otherOpenQuotes,
+          acceptedQuoteId: selectedDetail.id,
+        });
+      }
       load(); // refresh lista
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string }; status?: number }; code?: string; name?: string; message?: string };
@@ -1338,7 +1376,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         // Onda 14.21 — esconde quotes que o operador clicou "remover" da aba
         // Propostas. Continuam intactas em Avaliacao/Orcamentos/Financeiro.
         // visible_in_proposals === false explicitamente. undefined/true = visivel.
-        q.visible_in_proposals !== false,
+        q.visible_in_proposals !== false &&
+        // Onda 17.32.38 — quotes arquivados aparecem so em /financeiro/orcamentos-arquivados
+        !q.archived_at,
     );
     const m = new Map<Priority | 'NONE', QuoteListItem[]>();
     for (const q of eligible) {
@@ -1739,6 +1779,27 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           onSendWhatsApp={() => {
             if (selectedDetail) {
               sendToPatient();
+            }
+          }}
+        />
+      )}
+
+      {/* Onda 17.32.38 — Dialog "Arquivar versoes em aberto" pos-encaminhar */}
+      {archiveDialog && (
+        <ArchiveQuotesDialog
+          quotes={archiveDialog.quotes}
+          onClose={() => setArchiveDialog(null)}
+          onArchive={async (ids) => {
+            try {
+              await Promise.all(
+                ids.map((id) => api.post(`/quotes/${id}/archive`)),
+              );
+              showSuccess(`${ids.length} ${ids.length === 1 ? 'orçamento arquivado' : 'orçamentos arquivados'}`);
+              setArchiveDialog(null);
+              load();
+            } catch (err: unknown) {
+              const e = err as { response?: { data?: { message?: string } } };
+              showError(e?.response?.data?.message || 'Erro ao arquivar orçamentos');
             }
           }}
         />
@@ -5482,6 +5543,135 @@ function BoletoCobrancaUnificadaModal({
                 </div>
               </div>
             </aside>
+          </div>
+        </div>
+      </div>
+    </ModalPortal>
+  );
+}
+
+/** Onda 17.32.38 — Dialog "Arquivar versoes em aberto" pos-encaminhar.
+ *  Aparece quando o operador encaminha uma proposta ao financeiro e o
+ *  paciente tem outras versoes (Urgente/Essencial nao escolhidas) em aberto.
+ *  Operador escolhe quais arquivar: arquivadas somem da aba "Plano de
+ *  tratamento" e vao pra /atendimento/financeiro/orcamentos-arquivados,
+ *  validas por 30 dias. As nao marcadas continuam em Propostas. */
+function ArchiveQuotesDialog({
+  quotes,
+  onClose,
+  onArchive,
+}: {
+  quotes: QuoteListItem[];
+  onClose: () => void;
+  onArchive: (ids: string[]) => Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(new Set(quotes.map((q) => q.id)));
+  const [submitting, setSubmitting] = useState(false);
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const handleConfirm = async () => {
+    if (selected.size === 0) {
+      onClose();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onArchive(Array.from(selected));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+  const fmtTotal = (v: string | number) => {
+    const n = typeof v === 'string' ? Number(v) : v;
+    return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  };
+  return (
+    <ModalPortal>
+      <div className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4" onClick={onClose}>
+        <div
+          className="bg-card border border-border rounded-xl shadow-2xl max-w-lg w-full overflow-hidden"
+          onClick={(e) => e.stopPropagation()}
+        >
+          {/* Header */}
+          <div className="px-5 py-4 border-b border-border bg-gradient-to-r from-amber-500/10 to-amber-500/5">
+            <h3 className="text-base font-bold text-foreground flex items-center gap-2">
+              <Layers size={16} className="text-amber-700" />
+              Arquivar versões em aberto?
+            </h3>
+            <p className="text-[11px] text-muted-foreground mt-1">
+              A proposta foi encaminhada ao financeiro. O paciente tem {quotes.length} {quotes.length === 1 ? 'outra versão' : 'outras versões'} em aberto. Quais quer arquivar?
+            </p>
+          </div>
+
+          {/* Lista */}
+          <div className="p-5 space-y-2 max-h-[60vh] overflow-y-auto">
+            {quotes.map((q) => {
+              const isChecked = selected.has(q.id);
+              return (
+                <label
+                  key={q.id}
+                  className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
+                    isChecked
+                      ? 'border-amber-500/50 bg-amber-500/5'
+                      : 'border-border bg-card hover:bg-accent/30'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => toggle(q.id)}
+                    className="w-4 h-4 rounded border-border accent-amber-600 shrink-0"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-foreground truncate flex items-center gap-1.5">
+                      <span className="font-mono text-xs text-primary">
+                        {getQuoteNumberBadge(q) || ''}
+                      </span>
+                      <span className="truncate">{getQuoteDisplayName(q)}</span>
+                    </p>
+                    <p className="text-[11px] text-muted-foreground">
+                      {q.priority || 'Sem prioridade'} · R$ {fmtTotal(q.total_value)} · {q._count?.items || 0} {q._count?.items === 1 ? 'item' : 'itens'}
+                    </p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+
+          {/* Aviso */}
+          <div className="px-5 py-2 bg-amber-500/5 border-t border-amber-500/20 text-[11px] text-amber-800 dark:text-amber-300 flex items-start gap-1.5">
+            <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+            <span>
+              <strong>Arquivar:</strong> some do "Plano de tratamento" e fica em
+              <em> Financeiro › Orçamentos arquivados</em> por 30 dias. Você pode desarquivar quando quiser.
+            </span>
+          </div>
+
+          {/* Rodape */}
+          <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-50"
+            >
+              Manter todos em Propostas
+            </button>
+            <button
+              type="button"
+              onClick={handleConfirm}
+              disabled={submitting || selected.size === 0}
+              className="text-xs font-bold px-3 py-2 rounded-md bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white inline-flex items-center gap-1.5 transition-colors"
+            >
+              {submitting ? <Loader2 size={12} className="animate-spin" /> : <Layers size={12} />}
+              Arquivar {selected.size > 0 ? `(${selected.size})` : ''}
+            </button>
           </div>
         </div>
       </div>

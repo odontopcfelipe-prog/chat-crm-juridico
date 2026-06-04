@@ -8,84 +8,84 @@ datasource db {
 }
 
 model Tenant {
-  id                        String                   @id @default(uuid())
-  name                      String
-  conversations             Conversation[]
-  leads                     Lead[]
-  tasks                     Task[]
-  users                     User[]
-  inboxes                   Inbox[]
-  instances                 Instance[]
-  calendar_events           CalendarEvent[]
-  appointment_types         AppointmentType[]
-  holidays                  Holiday[]
-  schedule_blocks           ScheduleBlock[]
-  ai_chats                  AiChat[]
-  pipelines                 Pipeline[]
-  followup_sequences        FollowupSequence[]
-  financial_transactions    FinancialTransaction[]
-  financial_categories      FinancialCategory[]
-  payment_gateway_customers PaymentGatewayCustomer[]
-  payment_gateway_charges   PaymentGatewayCharge[]
-  notas_fiscais             NotaFiscal[]
-  broadcast_jobs            BroadcastJob[]
-  lead_honorarios           LeadHonorario[]
-  notifications             Notification[]
-  memories                  Memory[]
-  lead_profiles             LeadProfile[]
-  organization_profile      OrganizationProfile?
+  id                          String                      @id @default(uuid())
+  name                        String
+  conversations               Conversation[]
+  leads                       Lead[]
+  tasks                       Task[]
+  users                       User[]
+  inboxes                     Inbox[]
+  instances                   Instance[]
+  calendar_events             CalendarEvent[]
+  appointment_types           AppointmentType[]
+  holidays                    Holiday[]
+  schedule_blocks             ScheduleBlock[]
+  ai_chats                    AiChat[]
+  pipelines                   Pipeline[]
+  followup_sequences          FollowupSequence[]
+  financial_transactions      FinancialTransaction[]
+  financial_categories        FinancialCategory[]
+  payment_gateway_customers   PaymentGatewayCustomer[]
+  payment_gateway_charges     PaymentGatewayCharge[]
+  notas_fiscais               NotaFiscal[]
+  broadcast_jobs              BroadcastJob[]
+  lead_honorarios             LeadHonorario[]
+  notifications               Notification[]
+  memories                    Memory[]
+  lead_profiles               LeadProfile[]
+  organization_profile        OrganizationProfile?
   // Odontologia (Fase 2)
-  patients                  Patient[]
-  specialties               Specialty[]
-  procedures                Procedure[]
-  anamnesis_templates       AnamnesisTemplate[]
+  patients                    Patient[]
+  specialties                 Specialty[]
+  procedures                  Procedure[]
+  anamnesis_templates         AnamnesisTemplate[]
   // Onda 3.2 — sugestoes de procedimento por estado clinico
   state_procedure_suggestions StateProcedureSuggestion[]
   // Estetica facial + estoque (Fase 6)
-  suppliers                 Supplier[]
-  products                  Product[]
-  stock_movements           StockMovement[]
-  esthetic_applications     EstheticApplication[]
-  adverse_reactions         AdverseReaction[]
+  suppliers                   Supplier[]
+  products                    Product[]
+  stock_movements             StockMovement[]
+  esthetic_applications       EstheticApplication[]
+  adverse_reactions           AdverseReaction[]
   // Onda 5 (Fase 25) — manutencoes/recall
-  maintenance_tasks         MaintenanceTask[]
+  maintenance_tasks           MaintenanceTask[]
   // Agenda evoluida (Fase 7)
-  rooms                     Room[]
-  appointment_markers       AppointmentMarker[]
-  return_alerts             ReturnAlert[]
+  rooms                       Room[]
+  appointment_markers         AppointmentMarker[]
+  return_alerts               ReturnAlert[]
   // Comissoes + metas (Fase 8)
-  commission_rules          CommissionRule[]
-  commissions               Commission[]
-  goals                     Goal[]
+  commission_rules            CommissionRule[]
+  commissions                 Commission[]
+  goals                       Goal[]
   // Regua de cobranca (Fase 11)
-  installments              Installment[]
+  installments                Installment[]
   // Portal do paciente (Fase 13)
-  portal_tokens             PortalToken[]
+  portal_tokens               PortalToken[]
   // Multi-unidade (Fase 15)
-  clinics                   Clinic[]
+  clinics                     Clinic[]
   // Smile/Face Design (Fase 16)
-  smile_simulations         SmileSimulation[]
+  smile_simulations           SmileSimulation[]
   // Radiologia (Fase 17)
-  radiography_providers     RadiographyProvider[]
-  radiography_exams         RadiographyExam[]
+  radiography_providers       RadiographyProvider[]
+  radiography_exams           RadiographyExam[]
   // Tags / segmentacao (Fase 20)
-  patient_tags              PatientTag[]
+  patient_tags                PatientTag[]
   // Indicacao premiada (Fase 21)
-  referrals                 Referral[]
-  referral_rule             ReferralRule?
+  referrals                   Referral[]
+  referral_rule               ReferralRule?
   // Onda 2 orcamentos (Fase 24)
-  quote_templates           QuoteTemplate[]
-  quote_coupons             QuoteCoupon[]
+  quote_templates             QuoteTemplate[]
+  quote_coupons               QuoteCoupon[]
   // Pos-atendimento (Fase 26)
-  post_care_surveys         PostCareSurvey[]
+  post_care_surveys           PostCareSurvey[]
   // Marketing — Influenciadores
-  influencers               Influencer[]
-  influencer_msg_templates  InfluencerMessageTemplate[]
-  influencer_schedules      InfluencerSchedule[]
-  influencer_message_logs   InfluencerMessageLog[]
+  influencers                 Influencer[]
+  influencer_msg_templates    InfluencerMessageTemplate[]
+  influencer_schedules        InfluencerSchedule[]
+  influencer_message_logs     InfluencerMessageLog[]
   // Programa de Afiliado (Onda 5e v34, Fase 25)
-  affiliate_referrals       AffiliateReferral[]
-  affiliate_withdrawals     AffiliateWithdrawal[]
+  affiliate_referrals         AffiliateReferral[]
+  affiliate_withdrawals       AffiliateWithdrawal[]
 }
 
 model User {
@@ -138,6 +138,7 @@ model User {
   clinical_notes_authored       ClinicalNote[]         @relation("ClinicalNoteAuthor")
   quotes_created                Quote[]                @relation("QuoteCreator")
   quotes_deleted                Quote[]                @relation("QuoteDeleter")
+  quotes_archived               Quote[]                @relation("QuoteArchiver")
   // Onda 14.24 — contratos criados e eventos de contrato disparados
   contracts_created             Contract[]             @relation("ContractCreator")
   contract_events_triggered     ContractEvent[]        @relation("ContractEventTrigger")
@@ -172,17 +173,17 @@ model User {
 }
 
 model Lead {
-  id                  String   @id @default(uuid())
+  id                  String         @id @default(uuid())
   tenant_id           String?
   name                String?
-  phone               String   @unique
+  phone               String         @unique
   email               String?
   origin              String?
   // Pipeline dinâmico (Fase 1). `stage` String é legado — será deprecado
   // quando todos os leads tiverem stage_id populado. Enquanto isso,
   // ambos coexistem e o stage String é fonte de verdade para código legado.
-  stage               String   @default("NOVO")
-  stage_entered_at    DateTime @default(now())
+  stage               String         @default("NOVO")
+  stage_entered_at    DateTime       @default(now())
   pipeline_id         String?
   stage_id            String?
   pipeline            Pipeline?      @relation(fields: [pipeline_id], references: [id], onDelete: SetNull)
@@ -190,8 +191,8 @@ model Lead {
   loss_reason         String?
   profile_picture_url String?
   tags                String[]
-  created_at          DateTime @default(now())
-  updated_at          DateTime @updatedAt
+  created_at          DateTime       @default(now())
+  updated_at          DateTime       @updatedAt
 
   // ─── Separação Lead vs Cliente ────────────────────────────
   // Quando true: lead se tornou cliente (contrato assinado/FINALIZADO)
@@ -556,50 +557,50 @@ model Instance {
 // etapas via tool `move_to_stage`.
 
 model Pipeline {
-  id          String          @id @default(uuid())
+  id          String   @id @default(uuid())
   tenant_id   String?
-  name        String          // "Odontologia", "Estética Facial"
-  slug        String          // "odonto", "estetica" — usado pela IA pra classificar
-  description String?         // Contexto pra a IA entender quando usar esse funil
-  color       String?         // hex visual (#3b82f6)
-  is_default  Boolean         @default(false)
-  is_active   Boolean         @default(true)
-  position    Int             @default(0)
-  created_at  DateTime        @default(now())
-  updated_at  DateTime        @updatedAt
+  name        String // "Odontologia", "Estética Facial"
+  slug        String // "odonto", "estetica" — usado pela IA pra classificar
+  description String? // Contexto pra a IA entender quando usar esse funil
+  color       String? // hex visual (#3b82f6)
+  is_default  Boolean  @default(false)
+  is_active   Boolean  @default(true)
+  position    Int      @default(0)
+  created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
-  tenant      Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  stages      PipelineStage[]
-  leads       Lead[]
+  tenant Tenant?         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  stages PipelineStage[]
+  leads  Lead[]
 
   @@unique([tenant_id, slug])
   @@index([tenant_id])
 }
 
 model PipelineStage {
-  id            String   @id @default(uuid())
-  pipeline_id   String
-  name          String   // "Qualificando", "Aguardando documentos"
-  slug          String   // "qualificando" — usado pela IA
-  color         String?  // hex (#3b82f6)
-  emoji         String?  // 🔍 📋 📅
-  description   String?  // Descreve QUANDO a IA deve mover o lead pra essa etapa
-  position      Int      @default(0)
-  is_initial    Boolean  @default(false) // lead novo cai aqui
-  is_won        Boolean  @default(false) // converteu (ex: FINALIZADO)
-  is_lost       Boolean  @default(false) // perdeu (ex: PERDIDO)
+  id                    String   @id @default(uuid())
+  pipeline_id           String
+  name                  String // "Qualificando", "Aguardando documentos"
+  slug                  String // "qualificando" — usado pela IA
+  color                 String? // hex (#3b82f6)
+  emoji                 String? // 🔍 📋 📅
+  description           String? // Descreve QUANDO a IA deve mover o lead pra essa etapa
+  position              Int      @default(0)
+  is_initial            Boolean  @default(false) // lead novo cai aqui
+  is_won                Boolean  @default(false) // converteu (ex: FINALIZADO)
+  is_lost               Boolean  @default(false) // perdeu (ex: PERDIDO)
   // Oculta a coluna no Kanban CRM. Usado pra "graduar" leads que sairam
   // do funil de captacao e foram pro funil de Fechamentos (orcamento criado).
   // Continuam visiveis em /atendimento/fechamentos pelo Quote vinculado.
-  is_hidden_from_kanban Boolean @default(false)
+  is_hidden_from_kanban Boolean  @default(false)
   // Auto-ações disparadas ao entrar nessa etapa.
   // Formato: [{ type: "create_drive_folder" }, { type: "enroll_followup", sequence_id: "..." }]
-  auto_actions  Json?
-  created_at    DateTime @default(now())
-  updated_at    DateTime @updatedAt
+  auto_actions          Json?
+  created_at            DateTime @default(now())
+  updated_at            DateTime @updatedAt
 
-  pipeline      Pipeline @relation(fields: [pipeline_id], references: [id], onDelete: Cascade)
-  leads         Lead[]   @relation("CurrentStage")
+  pipeline Pipeline @relation(fields: [pipeline_id], references: [id], onDelete: Cascade)
+  leads    Lead[]   @relation("CurrentStage")
 
   @@unique([pipeline_id, slug])
   @@index([pipeline_id])
@@ -640,8 +641,6 @@ model LpEvent {
   @@index([event_type])
 }
 
-
-
 model TaskComment {
   id         String   @id @default(uuid())
   task_id    String
@@ -667,9 +666,6 @@ model TaskChecklistItem {
 
   @@index([task_id])
 }
-
-
-
 
 // ===============================================
 // Follow-up IA — Sequências e Envios
@@ -887,17 +883,17 @@ model CalendarEvent {
 }
 
 model EventReminder {
-  id             String        @id @default(uuid())
-  event_id       String
-  event          CalendarEvent @relation(fields: [event_id], references: [id], onDelete: Cascade)
-  minutes_before Int // 15, 30, 60, 1440 (1 dia)
-  channel        String        @default("PUSH") // PUSH, WHATSAPP, EMAIL
-  sent_at        DateTime?
+  id                  String        @id @default(uuid())
+  event_id            String
+  event               CalendarEvent @relation(fields: [event_id], references: [id], onDelete: Cascade)
+  minutes_before      Int // 15, 30, 60, 1440 (1 dia)
+  channel             String        @default("PUSH") // PUSH, WHATSAPP, EMAIL
+  sent_at             DateTime?
   // Onda 5e v24 (Fase 25, Onda B) — motivo de falha do envio.
   // Capturado pelo worker quando Evolution API retorna erro
   // (telefone invalido, sem WhatsApp, instance offline, etc).
   // Mostrado na UI da aba Lembretes pro operador investigar.
-  last_error     String?
+  last_error          String?
   // Onda 5e v25 (Fase 25, Onda C) — Delivery tracking via webhook
   // messages.update do Evolution. external_message_id liga o reminder
   // a Message correspondente; webhook atualiza delivered_at quando
@@ -1047,24 +1043,17 @@ model CalendarEventComment {
 // Case Documents (documentos organizados por caso)
 // ===============================================
 
-
 // ===============================================
 // Case Deadlines (prazos processuais)
 // ===============================================
-
 
 // ===============================================
 // Case Petitions (petições jurídicas com editor)
 // ===============================================
 
-
-
 // ===============================================
 // Legal Templates (banco de peças / modelos)
 // ===============================================
-
-
-
 
 // ===============================================
 // Honorários Negociados (fase de negociação/lead)
@@ -1204,19 +1193,19 @@ model AutomationRule {
 // ===============================================
 
 model FinancialTransaction {
-  id                String    @id @default(uuid())
-  tenant_id         String?
-  type              String // RECEITA, DESPESA
-  category          String // HONORARIO, CONSULTA, CUSTAS_JUDICIAIS, PERICIA, DESLOCAMENTO, ESCRITORIO, OUTRO
-  description       String
-  amount            Decimal
-  date              DateTime  @default(now()) // data da transação
-  due_date          DateTime? // vencimento (para receitas/despesas futuras)
-  paid_at           DateTime? // quando foi efetivamente pago/recebido
-  payment_method    String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
-  status            String    @default("PENDENTE") // PENDENTE, PAGO, CANCELADO
-  reference_id      String? // ID externo (gateway, NFS-e, etc.)
-  notes             String?
+  id                 String    @id @default(uuid())
+  tenant_id          String?
+  type               String // RECEITA, DESPESA
+  category           String // HONORARIO, CONSULTA, CUSTAS_JUDICIAIS, PERICIA, DESLOCAMENTO, ESCRITORIO, OUTRO
+  description        String
+  amount             Decimal
+  date               DateTime  @default(now()) // data da transação
+  due_date           DateTime? // vencimento (para receitas/despesas futuras)
+  paid_at            DateTime? // quando foi efetivamente pago/recebido
+  payment_method     String? // PIX, BOLETO, CARTAO, DINHEIRO, TRANSFERENCIA
+  status             String    @default("PENDENTE") // PENDENTE, PAGO, CANCELADO
+  reference_id       String? // ID externo (gateway, NFS-e, etc.)
+  notes              String?
   visible_to_dentist Boolean   @default(true) // Se false, dentista não vê esta despesa
 
   // Recorrência
@@ -1357,10 +1346,10 @@ model PaymentGatewayCharge {
 // ===============================================
 
 model NotaFiscal {
-  id                   String  @id @default(uuid())
-  tenant_id            String?
-  transaction_id       String? @unique // 1:1 com FinancialTransaction
-  lead_id              String?
+  id             String  @id @default(uuid())
+  tenant_id      String?
+  transaction_id String? @unique // 1:1 com FinancialTransaction
+  lead_id        String?
 
   // NFS-e data
   numero             String?
@@ -1401,7 +1390,6 @@ model NotaFiscal {
 // ===============================================
 // Controle Tributário — Carnê-Leão / DARF
 // ===============================================
-
 
 model ConversationNote {
   id              String   @id @default(uuid())
@@ -1640,7 +1628,7 @@ model Patient {
   emergency_contact_phone String?
 
   // Responsavel legal (menores de idade ou idosos com curador)
-  is_minor       Boolean  @default(false)
+  is_minor       Boolean @default(false)
   guardian_name  String?
   guardian_cpf   String?
   guardian_phone String?
@@ -1657,63 +1645,63 @@ model Patient {
   last_visit_at  DateTime?
 
   // Notas administrativas (nao clinicas — nao e prontuario)
-  notes      String?
+  notes String?
 
   // Programa de Afiliado (Onda 5e v34, Fase 25)
   // Paciente vira parceiro: recebe 3% de cada tratamento fechado por
   // indicacao dele. Saldo acumula e pode ser sacado (PIX/dinheiro) ou
   // usado como credito em tratamentos proprios.
-  is_affiliate             Boolean  @default(false)
-  affiliate_code           String?  // codigo unico de divulgacao (ex: "ANDRELUSTOSA")
-  affiliate_commission_pct Decimal  @default(3) @db.Decimal(5, 2)
+  is_affiliate             Boolean @default(false)
+  affiliate_code           String? // codigo unico de divulgacao (ex: "ANDRELUSTOSA")
+  affiliate_commission_pct Decimal @default(3) @db.Decimal(5, 2)
   affiliate_notes          String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  tenant                Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  lead                  Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
-  primary_dentist       User?                 @relation("PrimaryDentist", fields: [primary_dentist_id], references: [id], onDelete: SetNull)
+  tenant                   Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  lead                     Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
+  primary_dentist          User?                 @relation("PrimaryDentist", fields: [primary_dentist_id], references: [id], onDelete: SetNull)
   // Indicacoes: paciente A indica paciente B
-  referred_by_patient   Patient?              @relation("PatientReferrals", fields: [referred_by_id], references: [id], onDelete: SetNull)
-  referrals             Patient[]             @relation("PatientReferrals")
-  allergies             PatientAllergy[]
-  medications           PatientMedication[]
-  anamneses             Anamnesis[]
-  medical_record        MedicalRecord?
-  odontogram            Odontogram?
-  clinical_images       ClinicalImage[]
-  consents              ConsentRecord[]
-  quotes                Quote[]
-  treatment_plans       TreatmentPlan[]
-  appointments          CalendarEvent[]       @relation("PatientAppointments")
+  referred_by_patient      Patient?              @relation("PatientReferrals", fields: [referred_by_id], references: [id], onDelete: SetNull)
+  referrals                Patient[]             @relation("PatientReferrals")
+  allergies                PatientAllergy[]
+  medications              PatientMedication[]
+  anamneses                Anamnesis[]
+  medical_record           MedicalRecord?
+  odontogram               Odontogram?
+  clinical_images          ClinicalImage[]
+  consents                 ConsentRecord[]
+  quotes                   Quote[]
+  treatment_plans          TreatmentPlan[]
+  appointments             CalendarEvent[]       @relation("PatientAppointments")
   // Estetica facial (Fase 6)
-  esthetic_applications EstheticApplication[]
-  adverse_reactions     AdverseReaction[]
+  esthetic_applications    EstheticApplication[]
+  adverse_reactions        AdverseReaction[]
   // Onda 5 (Fase 25) — manutencoes/recall
-  maintenance_tasks     MaintenanceTask[]
+  maintenance_tasks        MaintenanceTask[]
   // Agenda evoluida (Fase 7)
-  return_alerts         ReturnAlert[]
+  return_alerts            ReturnAlert[]
   // Comissoes (Fase 8)
-  commissions           Commission[]
+  commissions              Commission[]
   // Regua de cobranca (Fase 11)
-  installments          Installment[]
+  installments             Installment[]
   // Portal do paciente (Fase 13)
-  portal_tokens         PortalToken[]
+  portal_tokens            PortalToken[]
   // Smile/Face Design (Fase 16)
-  smile_simulations     SmileSimulation[]
+  smile_simulations        SmileSimulation[]
   // Radiologia (Fase 17)
-  radiography_exams     RadiographyExam[]
+  radiography_exams        RadiographyExam[]
   // Tags / segmentacao (Fase 20)
-  tags                  PatientTagOnPatient[]
+  tags                     PatientTagOnPatient[]
   // Indicacao premiada (Fase 21)
-  referrals_given       Referral[]            @relation("ReferralsGiven")
-  referral_received     Referral?             @relation("ReferralReceived")
+  referrals_given          Referral[]            @relation("ReferralsGiven")
+  referral_received        Referral?             @relation("ReferralReceived")
   // Pos-atendimento (Fase 26)
-  post_care_surveys     PostCareSurvey[]
+  post_care_surveys        PostCareSurvey[]
   // Programa de Afiliado (Onda 5e v34, Fase 25)
-  affiliate_referrals_made AffiliateReferral[]    @relation("AffiliateReferrer")
-  affiliate_referrals_via  AffiliateReferral[]    @relation("AffiliateReferred")
+  affiliate_referrals_made AffiliateReferral[]   @relation("AffiliateReferrer")
+  affiliate_referrals_via  AffiliateReferral[]   @relation("AffiliateReferred")
   affiliate_withdrawals    AffiliateWithdrawal[]
   // Influenciador (Onda 5e v35) — cadastro de marketing tambem e Patient (1:1 opcional)
   influencer_profile       Influencer?
@@ -1734,9 +1722,9 @@ model Patient {
 model PatientTag {
   id          String   @id @default(uuid())
   tenant_id   String
-  name        String   // "VIP", "Alergia critica", "Sem revisao 6m", etc
-  color       String?  // hex "#ef4444" — cor do badge
-  description String?  // tooltip explicativo (opcional)
+  name        String // "VIP", "Alergia critica", "Sem revisao 6m", etc
+  color       String? // hex "#ef4444" — cor do badge
+  description String? // tooltip explicativo (opcional)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
@@ -1779,18 +1767,18 @@ model PatientTagOnPatient {
 //  CANCELLED — paciente B nao seguiu / desistiu / cancelou plano
 
 model Referral {
-  id           String  @id @default(uuid())
-  tenant_id    String
-  referrer_id  String  // Patient que indicou
-  referred_id  String  @unique // Patient indicado (1 indicacao por paciente novo)
+  id          String @id @default(uuid())
+  tenant_id   String
+  referrer_id String // Patient que indicou
+  referred_id String @unique // Patient indicado (1 indicacao por paciente novo)
 
   status       String  @default("PENDING") // PENDING | EARNED | PAID | EXPIRED | CANCELLED
   reward_value Decimal @default(0) @db.Decimal(10, 2) // Valor do cashback
 
   // Datas do ciclo
-  earned_at    DateTime? // Quando virou EARNED (plano fechado)
-  paid_at      DateTime? // Quando admin marcou como PAID
-  expires_at   DateTime? // Calculado de ReferralRule.expiration_days
+  earned_at  DateTime? // Quando virou EARNED (plano fechado)
+  paid_at    DateTime? // Quando admin marcou como PAID
+  expires_at DateTime? // Calculado de ReferralRule.expiration_days
 
   // Vinculo opcional ao plano que disparou o EARNED
   triggering_plan_id String?
@@ -1809,14 +1797,14 @@ model Referral {
 }
 
 model ReferralRule {
-  id                       String  @id @default(uuid())
-  tenant_id                String  @unique // 1 regra por tenant
-  enabled                  Boolean @default(true)
-  default_reward_value     Decimal @default(50) @db.Decimal(10, 2) // R$ por indicação que fecha
-  expiration_days          Int     @default(180) // Validade do cashback após EARNED
-  notes                    String?
-  created_at               DateTime @default(now())
-  updated_at               DateTime @updatedAt
+  id                   String   @id @default(uuid())
+  tenant_id            String   @unique // 1 regra por tenant
+  enabled              Boolean  @default(true)
+  default_reward_value Decimal  @default(50) @db.Decimal(10, 2) // R$ por indicação que fecha
+  expiration_days      Int      @default(180) // Validade do cashback após EARNED
+  notes                String?
+  created_at           DateTime @default(now())
+  updated_at           DateTime @updatedAt
 
   tenant Tenant @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
 }
@@ -1828,40 +1816,40 @@ model ReferralRule {
 // existentes (Patient/Lead/Referral) — relacionamentos com pacientes/leads
 // gerados podem ser adicionados depois sem migração destrutiva.
 model Influencer {
-  id              String   @id @default(uuid())
-  tenant_id       String
+  id        String @id @default(uuid())
+  tenant_id String
 
   // Contato
-  name            String
-  handle          String?  // @ principal (instagram/tiktok), sem o @
-  phone           String?
-  email           String?
+  name   String
+  handle String? // @ principal (instagram/tiktok), sem o @
+  phone  String?
+  email  String?
 
   // Plataforma e audiência
-  platform        String?  // INSTAGRAM | TIKTOK | YOUTUBE | OUTRO
-  followers       Int?     // nº seguidores na plataforma principal
-  niche           String?  // odonto, lifestyle, fitness, beleza, etc.
+  platform  String? // INSTAGRAM | TIKTOK | YOUTUBE | OUTRO
+  followers Int? // nº seguidores na plataforma principal
+  niche     String? // odonto, lifestyle, fitness, beleza, etc.
 
   // Modelo financeiro acordado
-  commission_type  String?  // PERCENTUAL | FIXO | PERMUTA
+  commission_type  String? // PERCENTUAL | FIXO | PERMUTA
   commission_value Decimal? @db.Decimal(10, 2) // % ou R$ (depende do tipo)
-  coupon_code      String?  // código de desconto associado (rastreio)
+  coupon_code      String? // código de desconto associado (rastreio)
 
   // Operacional
-  status          String   @default("ATIVO") // ATIVO | PAUSADO | INATIVO
-  notes           String?
+  status String  @default("ATIVO") // ATIVO | PAUSADO | INATIVO
+  notes  String?
 
   // Onda 5e v35 — influenciador também vira Patient (auto-criado/vinculado no
   // create() do InfluencersService). Permite ficha clínica, agendamento e
   // sistema de afiliado unificados. ON DELETE SET NULL: remover o paciente
   // não cascateia pro influenciador — vínculo é apenas conveniência.
-  patient_id      String?  @unique
+  patient_id String? @unique
 
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  tenant       Tenant                  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  patient      Patient?                @relation(fields: [patient_id], references: [id], onDelete: SetNull)
+  tenant       Tenant                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient      Patient?               @relation(fields: [patient_id], references: [id], onDelete: SetNull)
   message_logs InfluencerMessageLog[]
 
   @@unique([tenant_id, coupon_code]) // cupom único por tenant (quando preenchido)
@@ -1884,16 +1872,16 @@ model Influencer {
 model AffiliateReferral {
   id          String  @id @default(uuid())
   tenant_id   String
-  referrer_id String  // Patient afiliado (recebe a comissao)
-  referred_id String  // Patient indicado (gerou a comissao)
+  referrer_id String // Patient afiliado (recebe a comissao)
+  referred_id String // Patient indicado (gerou a comissao)
   quote_id    String? // Quote que gerou (rastreabilidade)
 
-  treatment_value  Decimal @db.Decimal(10, 2)  // valor total do tratamento fechado
-  commission_pct   Decimal @db.Decimal(5, 2)   // % aplicado (snapshot — default 3%)
-  commission_value Decimal @db.Decimal(10, 2)  // valor calculado da comissao
+  treatment_value  Decimal @db.Decimal(10, 2) // valor total do tratamento fechado
+  commission_pct   Decimal @db.Decimal(5, 2) // % aplicado (snapshot — default 3%)
+  commission_value Decimal @db.Decimal(10, 2) // valor calculado da comissao
 
   status     String   @default("creditado") // creditado | pendente | cancelado
-  closed_at  DateTime @default(now())       // quando o tratamento foi fechado
+  closed_at  DateTime @default(now()) // quando o tratamento foi fechado
   notes      String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1908,22 +1896,22 @@ model AffiliateReferral {
 }
 
 model AffiliateWithdrawal {
-  id              String   @id @default(uuid())
-  tenant_id       String
-  patient_id      String   // Patient afiliado solicitando saque
+  id         String @id @default(uuid())
+  tenant_id  String
+  patient_id String // Patient afiliado solicitando saque
 
-  amount          Decimal  @db.Decimal(10, 2)
-  method          String   // PIX | DINHEIRO | CREDITO_TRATAMENTO
-  pix_key         String?  // chave PIX (quando method=PIX)
-  status          String   @default("solicitado") // solicitado | pago | recusado
+  amount  Decimal @db.Decimal(10, 2)
+  method  String // PIX | DINHEIRO | CREDITO_TRATAMENTO
+  pix_key String? // chave PIX (quando method=PIX)
+  status  String  @default("solicitado") // solicitado | pago | recusado
 
-  requested_at    DateTime @default(now())
+  requested_at    DateTime  @default(now())
   paid_at         DateTime?
-  paid_by_user_id String?  // user (admin/financeiro) que confirmou pagamento
+  paid_by_user_id String? // user (admin/financeiro) que confirmou pagamento
 
-  notes           String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  notes      String?
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   tenant  Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   patient Patient @relation(fields: [patient_id], references: [id], onDelete: Cascade)
@@ -1948,57 +1936,57 @@ model AffiliateWithdrawal {
 // ============================================================================
 
 model InfluencerMessageTemplate {
-  id          String   @id @default(uuid())
-  tenant_id   String
+  id        String @id @default(uuid())
+  tenant_id String
 
-  name        String   // nome operacional ("Lembrete semanal de postagem")
-  body        String   @db.Text // texto com variáveis {{nome}} {{handle}} {{cupom}}
+  name String // nome operacional ("Lembrete semanal de postagem")
+  body String @db.Text // texto com variáveis {{nome}} {{handle}} {{cupom}}
 
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  tenant    Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  tenant    Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   schedules InfluencerSchedule[]
 
   @@index([tenant_id])
 }
 
 model InfluencerSchedule {
-  id              String   @id @default(uuid())
-  tenant_id       String
+  id        String @id @default(uuid())
+  tenant_id String
 
-  name            String   // nome da campanha ("Lembrete sextou")
-  template_id     String
-  active          Boolean  @default(true)
+  name        String // nome da campanha ("Lembrete sextou")
+  template_id String
+  active      Boolean @default(true)
 
   // ONCE = envia 1 vez em run_at; RECURRING = usa recurrence + hora
-  schedule_type   String   // ONCE | RECURRING
+  schedule_type String // ONCE | RECURRING
 
   // ONCE
-  run_at          DateTime?
+  run_at DateTime?
 
   // RECURRING (campos mutuamente exclusivos por tipo de recorrência)
-  recurrence      String?  // DAILY | WEEKLY | MONTHLY
-  weekdays        Int[]    @default([]) // 0=dom..6=sab — só WEEKLY
-  day_of_month    Int?     // 1-31 — só MONTHLY
-  hour            Int?     // 0-23 — RECURRING
-  minute          Int?     // 0-59 — RECURRING
+  recurrence   String? // DAILY | WEEKLY | MONTHLY
+  weekdays     Int[]   @default([]) // 0=dom..6=sab — só WEEKLY
+  day_of_month Int? // 1-31 — só MONTHLY
+  hour         Int? // 0-23 — RECURRING
+  minute       Int? // 0-59 — RECURRING
 
   // Destinatários (combinação aditiva: filtros + lista manual)
   filter_status        String[] @default([]) // ATIVO | PAUSADO | INATIVO
   filter_platform      String[] @default([]) // INSTAGRAM | TIKTOK | YOUTUBE | OUTRO
-  filter_niche         String?               // contém texto (case-insensitive)
+  filter_niche         String? // contém texto (case-insensitive)
   manual_recipient_ids String[] @default([]) // IDs específicos
 
   // Estado de execução
-  last_run_at     DateTime?
-  next_run_at     DateTime? // o cron usa esse campo pra escolher quem disparar
+  last_run_at DateTime?
+  next_run_at DateTime? // o cron usa esse campo pra escolher quem disparar
 
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
-  tenant   Tenant                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  template InfluencerMessageTemplate  @relation(fields: [template_id], references: [id], onDelete: Restrict)
+  tenant   Tenant                    @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  template InfluencerMessageTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
   logs     InfluencerMessageLog[]
 
   @@index([tenant_id, active, next_run_at])
@@ -2006,21 +1994,21 @@ model InfluencerSchedule {
 }
 
 model InfluencerMessageLog {
-  id              String   @id @default(uuid())
-  tenant_id       String
-  schedule_id     String
-  influencer_id   String
+  id            String @id @default(uuid())
+  tenant_id     String
+  schedule_id   String
+  influencer_id String
 
   // Idempotência: combinação única (schedule, destinatário, ocorrência planejada)
-  scheduled_for   DateTime // a hora pra qual estava planejado o disparo
+  scheduled_for DateTime // a hora pra qual estava planejado o disparo
 
-  status          String   // SENT | FAILED | SKIPPED
-  sent_at         DateTime?
-  sent_text       String?  @db.Text
-  external_id     String?  // id retornado pelo Evolution (auditoria)
-  error_message   String?
+  status        String // SENT | FAILED | SKIPPED
+  sent_at       DateTime?
+  sent_text     String?   @db.Text
+  external_id   String? // id retornado pelo Evolution (auditoria)
+  error_message String?
 
-  created_at      DateTime @default(now())
+  created_at DateTime @default(now())
 
   tenant     Tenant             @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   schedule   InfluencerSchedule @relation(fields: [schedule_id], references: [id], onDelete: Cascade)
@@ -2118,8 +2106,8 @@ model Procedure {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  tenant                Tenant                @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  specialty             Specialty?            @relation(fields: [specialty_id], references: [id], onDelete: SetNull)
+  tenant                Tenant                     @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  specialty             Specialty?                 @relation(fields: [specialty_id], references: [id], onDelete: SetNull)
   quote_items           QuoteItem[]
   treatment_plan_items  TreatmentPlanItem[]
   // Fase 6
@@ -2127,9 +2115,9 @@ model Procedure {
   esthetic_applications EstheticApplication[]
   // Onda 5 (Fase 25) — manutencoes geradas a partir desse procedimento
   maintenance_tasks     MaintenanceTask[]
-  adverse_reactions     AdverseReaction[]     @relation("ProcedureAdverseReactions")
+  adverse_reactions     AdverseReaction[]          @relation("ProcedureAdverseReactions")
   // Fase 8 — comissoes
-  commissions           Commission[]          @relation("CommissionProcedure")
+  commissions           Commission[]               @relation("CommissionProcedure")
   // Onda 2 orcamentos (Fase 24)
   quote_template_items  QuoteTemplateItem[]
   // Onda 3.2 — sugestoes automaticas vinculadas a este procedimento
@@ -2178,37 +2166,37 @@ model AnamnesisTemplate {
 /// (default 2h). Resposta do paciente eh capturada pelo webhook do Evolution
 /// e classificada por sentimento — respostas NEGATIVE notificam admins.
 model PostCareSurvey {
-  id                   String  @id @default(uuid())
-  tenant_id            String
-  patient_id           String
-  appointment_id       String? @unique // 1 survey por consulta
-  dentist_id           String?
+  id                String  @id @default(uuid())
+  tenant_id         String
+  patient_id        String
+  appointment_id    String? @unique // 1 survey por consulta
+  dentist_id        String?
   /// Resumo do procedimento (vindo do CalendarEvent.title) usado no template
-  procedure_summary    String?
+  procedure_summary String?
 
   /// Quando o job de envio deve disparar (start_at + delay)
-  trigger_at           DateTime
-  sent_at              DateTime?
+  trigger_at DateTime
+  sent_at    DateTime?
   /// PENDING | SENT | RESPONDED | FAILED | SKIPPED
-  status               String   @default("PENDING")
+  status     String    @default("PENDING")
 
   /// 1-5 ou 1-10 se mencionado pelo paciente na resposta (regex)
-  score                Int?
+  score        Int?
   /// POSITIVE | NEGATIVE | NEUTRAL — analisado por keywords pt-BR
-  sentiment            String?
+  sentiment    String?
   /// Texto livre da resposta do paciente
-  comment              String?
-  responded_at         DateTime?
+  comment      String?
+  responded_at DateTime?
   /// Quando os admins foram notificados (sentiment NEGATIVE)
-  escalated_at         DateTime?
+  escalated_at DateTime?
 
   /// ID da mensagem no Evolution (pra rastrear na conversa)
   evolution_message_id String?
   /// Erro do disparo (se houver)
   last_error           String?
 
-  created_at           DateTime @default(now())
-  updated_at           DateTime @updatedAt
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
 
   tenant      Tenant         @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   patient     Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
@@ -2236,20 +2224,20 @@ model Anamnesis {
 
   // ─── Prova eletronica de preenchimento (Fase 26) ────────────────
   /// "STAFF" (equipe preencheu) | "PATIENT_PORTAL" (paciente preencheu via portal)
-  submitted_via       String?
-  submitted_ip        String?
+  submitted_via        String?
+  submitted_ip         String?
   submitted_user_agent String?
   /// Snapshot do termo de consentimento aceito (preserva texto original)
-  consent_text        String?
-  consent_accepted_at DateTime?
+  consent_text         String?
+  consent_accepted_at  DateTime?
   /// "TYPED_NAME" | "DRAWN"
-  signature_method    String?
+  signature_method     String?
   /// Nome digitado ou data-url base64 da assinatura desenhada
-  signature_data      String?
+  signature_data       String?
   /// Selfie capturada no momento do consent (data-url JPEG comprimido) — prova facial
-  selfie_data         String?
+  selfie_data          String?
   /// SHA-256 hex de answers + ip + ua + timestamp + signature_data + selfie_data — fingerprint de integridade
-  audit_hash          String?
+  audit_hash           String?
 
   patient  Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
   template AnamnesisTemplate @relation(fields: [template_id], references: [id], onDelete: Restrict)
@@ -2463,7 +2451,7 @@ model Quote {
   /// Onda 3.9 — Nome customizavel pelo operador (ex: "Reabilitacao superior",
   /// "Canal + coroa 36"). Independente da closing_category derivada por
   /// procedimento. Frontend mostra como titulo do card no Odontograma.
-  title       String?
+  title String?
 
   status      String    @default("DRAFT") // "DRAFT"|"SENT"|"ACCEPTED"|"REJECTED"|"EXPIRED"
   valid_until DateTime?
@@ -2471,7 +2459,7 @@ model Quote {
   /// Onda 6 — prioridade clinica definida pelo dentista na aba Avaliacao:
   /// "COMPLETO" (default, tratamento completo) | "ESSENCIAL" (importante) |
   /// "URGENTE" (urgencia). Recepcao usa pra priorizar fechamento.
-  priority    String?
+  priority String?
 
   /// Onda 14.21 — Visibilidade na aba Propostas. Quando false, o quote
   /// some do scroll horizontal da aba Propostas mas continua intacto em
@@ -2514,16 +2502,16 @@ model Quote {
   /// Onda 14.58 — Sinal de fechamento. Parte da entrada que o paciente paga
   /// na hora do fechamento (R$). Default 0 = sem sinal (entrada unica).
   /// Cobrado via PIX ou Boleto a vista conforme chosen_signal_method.
-  chosen_signal_value  Decimal? @default(0) @db.Decimal(10, 2)
+  chosen_signal_value            Decimal?  @default(0) @db.Decimal(10, 2)
   /// Onda 14.58 — Metodo de pagamento do sinal: 'PIX' ou 'BOLETO'.
   /// Null = nao aplicavel (sem sinal). Operador escolhe na hora do
   /// fechamento (PIX gera link/QR imediato, Boleto vence hoje).
-  chosen_signal_method String?
+  chosen_signal_method           String?
   /// Onda 14.58 — Data de vencimento do boleto da entrada (resto apos
   /// sinal). Default null = imediato (mesmo dia do fechamento, comportamento
   /// legado). Quando configurado, eh quando o paciente deve pagar a entrada
   /// nao-sinal (geralmente fim do mes de fechamento).
-  chosen_entrada_due_date DateTime? @db.Date
+  chosen_entrada_due_date        DateTime? @db.Date
   /// Onda 14.58 — Data de inicio das parcelas (1a parcela vence aqui).
   /// Default null = +30 dias da entrada (comportamento legado). Configuravel
   /// pelo operador quando quer dar mais folego ao paciente (ex: 60 dias).
@@ -2559,7 +2547,7 @@ model Quote {
   portal_last_viewed_at DateTime?
 
   // Onda 2 (Fase 24) — Cupom aplicado
-  coupon_id        String?
+  coupon_id String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -2570,25 +2558,35 @@ model Quote {
   deleted_by_user_id String?
   deleted_by         User?     @relation("QuoteDeleter", fields: [deleted_by_user_id], references: [id], onDelete: SetNull)
 
-  patient        Patient        @relation(fields: [patient_id], references: [id], onDelete: Cascade)
-  created_by     User           @relation("QuoteCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
-  items          QuoteItem[]
-  treatment_plan TreatmentPlan?
+  /// Onda 17.32.38 — Arquivamento manual pos-encaminhar-ao-financeiro.
+  /// Quando uma proposta vira ACCEPTED, o sistema pergunta se quer arquivar
+  /// as outras versoes em aberto (Urgente/Essencial nao escolhidas). Arquivados:
+  ///   - somem da aba "Plano de tratamento" (PropostasTab filtra archived_at=null)
+  ///   - aparecem em /atendimento/financeiro/orcamentos-arquivados
+  ///   - validos por 30 dias (UI mostra tag "EXPIRADO" depois disso)
+  archived_at         DateTime?
+  archived_by_user_id String?
+  archived_by         User?     @relation("QuoteArchiver", fields: [archived_by_user_id], references: [id], onDelete: SetNull)
+
+  patient              Patient           @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  created_by           User              @relation("QuoteCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
+  items                QuoteItem[]
+  treatment_plan       TreatmentPlan?
   // Fase 8 — comissoes geradas pelos pagamentos deste orcamento
-  commissions    Commission[]   @relation("CommissionQuote")
+  commissions          Commission[]      @relation("CommissionQuote")
   // Fase 11 — parcelas geradas pela aprovacao deste orcamento
-  installments   Installment[]  @relation("QuoteInstallments")
+  installments         Installment[]     @relation("QuoteInstallments")
   // Onda 2 (Fase 24) — Cupom aplicado
-  coupon         QuoteCoupon?   @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
+  coupon               QuoteCoupon?      @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
   // Onda 3 (Fase 24) — Anexos (fotos antes/depois, TCLE, exames, etc)
-  attachments    QuoteAttachment[]
+  attachments          QuoteAttachment[]
   // Onda 3b (Fase 24) — Versionamento + renegociacao
-  versions       QuoteVersion[]
+  versions             QuoteVersion[]
   /// Quando o orcamento foi criado como renegociacao de outro orcamento,
   /// guarda referencia ao "pai". Pega "v3 renegociado de v2 renegociado de v1"
   renegotiated_from_id String?
-  renegotiated_from    Quote?  @relation("QuoteRenegotiation", fields: [renegotiated_from_id], references: [id], onDelete: SetNull)
-  renegotiations       Quote[] @relation("QuoteRenegotiation")
+  renegotiated_from    Quote?            @relation("QuoteRenegotiation", fields: [renegotiated_from_id], references: [id], onDelete: SetNull)
+  renegotiations       Quote[]           @relation("QuoteRenegotiation")
 
   // Onda 4.1 (Fase 25) — Aprovacao parcial:
   // Quando paciente aceita SO ALGUNS items de um orcamento SENT, criamos
@@ -2597,14 +2595,14 @@ model Quote {
   // ("Aprovacao parcial — itens nao selecionados podem virar novo orcamento").
   // Permite fechar venda parcial (60% > 0%) mantendo histórico do que
   // foi proposto vs aceito.
-  accepted_from_id     String?
-  accepted_from        Quote?  @relation("QuotePartialAcceptance", fields: [accepted_from_id], references: [id], onDelete: SetNull)
-  partial_acceptances  Quote[] @relation("QuotePartialAcceptance")
+  accepted_from_id    String?
+  accepted_from       Quote?  @relation("QuotePartialAcceptance", fields: [accepted_from_id], references: [id], onDelete: SetNull)
+  partial_acceptances Quote[] @relation("QuotePartialAcceptance")
 
   // Onda 14.24 — Contrato vinculado (1:1). Criado depois que o quote vai
   // pra ACCEPTED, gate antes de gerar cobranca. Opcional (operador pode
   // pular pra valores baixos). Detalhes no model Contract.
-  contract             Contract?
+  contract Contract?
 
   @@index([patient_id, status])
   @@index([status, valid_until])
@@ -2613,6 +2611,8 @@ model Quote {
   @@index([accepted_from_id])
   // Onda 25.6 — query rapida de "orcamentos deletados nos ultimos 30 dias"
   @@index([deleted_at])
+  // Onda 17.32.38 — query rapida de orcamentos arquivados (lista no Financeiro)
+  @@index([archived_at])
   // Onda 14.18 — index pra calcular MAX(quote_number) por tenant rapidamente
   @@index([quote_number])
 }
@@ -2661,22 +2661,22 @@ model QuoteVersion {
 ///
 /// Storage: FileStorageService grava em quote-attachments/{id}.{ext}
 model QuoteAttachment {
-  id               String   @id @default(uuid())
-  quote_id         String
-  uploaded_by_id   String
+  id             String   @id @default(uuid())
+  quote_id       String
+  uploaded_by_id String
   /// Nome original do arquivo (preservado pra exibir e pra download)
-  filename         String
+  filename       String
   /// MIME type (image/jpeg, application/pdf, etc) — usado pra serve correto
-  mime_type        String
+  mime_type      String
   /// Tamanho em bytes — pra mostrar na UI e bloquear uploads grandes
-  size_bytes       Int
+  size_bytes     Int
   /// Caminho relativo no FileStorage (quote-attachments/{id}.{ext})
-  file_path        String
+  file_path      String
   /// Categoria livre pra agrupar (ex: "Antes/Depois", "Exame", "TCLE")
-  category         String?
+  category       String?
   /// Descricao opcional do que e este anexo
-  description      String?
-  created_at       DateTime @default(now())
+  description    String?
+  created_at     DateTime @default(now())
 
   quote       Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
   uploaded_by User  @relation("QuoteAttachmentUploader", fields: [uploaded_by_id], references: [id], onDelete: Restrict)
@@ -2692,12 +2692,12 @@ model QuoteAttachment {
 /// (ex: "Implante unitario", "Clareamento + 4 facetas") e operador clica
 /// "Usar modelo" no novo orcamento pra puxar todos os items de uma vez.
 model QuoteTemplate {
-  id          String @id @default(uuid())
+  id          String   @id @default(uuid())
   tenant_id   String
   name        String // "Implante unitario completo"
   description String?
   specialty   String? // tag livre: "Implante", "Estetica", "Endodontia"
-  is_active   Boolean @default(true)
+  is_active   Boolean  @default(true)
   created_at  DateTime @default(now())
   updated_at  DateTime @updatedAt
 
@@ -2708,10 +2708,10 @@ model QuoteTemplate {
 }
 
 model QuoteTemplateItem {
-  id           String @id @default(uuid())
+  id           String   @id @default(uuid())
   template_id  String
   procedure_id String
-  quantity     Int     @default(1)
+  quantity     Int      @default(1)
   // unit_price opcional — se setado, sobrescreve base_price do Procedure
   // ao usar o template; se NULL, usa base_price do Procedure no momento.
   unit_price   Decimal? @db.Decimal(10, 2)
@@ -2728,25 +2728,25 @@ model QuoteTemplateItem {
 /// limite de usos. Operador digita o codigo no orcamento e desconto eh
 /// aplicado automaticamente. Audita uso (used_count incrementa).
 model QuoteCoupon {
-  id              String   @id @default(uuid())
+  id              String    @id @default(uuid())
   tenant_id       String
-  code            String   // "FRIEND15", "MARCO10" — case-insensitive
+  code            String // "FRIEND15", "MARCO10" — case-insensitive
   description     String?
   // Tipo de desconto: PERCENT aplica % ao subtotal; FIXED desconta R$ fixo
-  discount_type   String   @default("PERCENT") // PERCENT | FIXED
-  discount_amount Decimal  @db.Decimal(10, 2) // 15 (=15%) OU 250.00 (=R$ 250 off)
+  discount_type   String    @default("PERCENT") // PERCENT | FIXED
+  discount_amount Decimal   @db.Decimal(10, 2) // 15 (=15%) OU 250.00 (=R$ 250 off)
   // Janela de validade
   valid_from      DateTime?
   valid_until     DateTime?
   // Controle de uso
-  max_uses        Int?     // null = ilimitado
-  used_count      Int      @default(0)
-  is_active       Boolean  @default(true)
+  max_uses        Int? // null = ilimitado
+  used_count      Int       @default(0)
+  is_active       Boolean   @default(true)
   // Restricoes opcionais (futuro: minimum_order_value, applicable_specialties)
-  min_order_value Decimal? @db.Decimal(10, 2) // valor minimo do orcamento pra valer
+  min_order_value Decimal?  @db.Decimal(10, 2) // valor minimo do orcamento pra valer
   notes           String?
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+  created_at      DateTime  @default(now())
+  updated_at      DateTime  @updatedAt
 
   tenant Tenant  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
   quotes Quote[]
@@ -2775,7 +2775,7 @@ model QuoteItem {
   //  - Auditoria clinica (quem fez o que)
   // Opcional: orcamentos antigos ficam null. Se dentista for deletado,
   // SetNull pra preservar registro do orcamento.
-  dentist_id  String?
+  dentist_id String?
 
   // Onda 4.2 (Fase 25) — Pagamento POR PROCEDIMENTO.
   // Permite paciente fechar Botox no PIX (a vista 5% off) E Implante em
@@ -2783,8 +2783,8 @@ model QuoteItem {
   // Esteticamente importante (Botox eh rapido + valor menor; Implante eh
   // longo + valor alto — clientes querem pagar de jeitos diferentes).
   // NULL = usa o pagamento default do quote (compat com orcamentos antigos).
-  payment_method      String? // "PIX" | "CASH" | "CARD" | "INSTALLMENTS" | "BOLETO" | "TRANSFER"
-  installments_count  Int? // se payment_method = INSTALLMENTS, quantas vezes (1-24)
+  payment_method     String? // "PIX" | "CASH" | "CARD" | "INSTALLMENTS" | "BOLETO" | "TRANSFER"
+  installments_count Int? // se payment_method = INSTALLMENTS, quantas vezes (1-24)
 
   // Onda 7.2 — Aprovacao parcial in-place. NULL = pendente (paciente nao
   // fechou esse procedimento ainda); com data = aprovado naquele momento.
@@ -2843,9 +2843,9 @@ model Contract {
   /// Onda 14.24 — Operador pode pular contrato pra valores baixos.
   /// Quando true: cobranca liberada sem assinatura. Default false.
   /// O valor do quote no momento da decisao fica em skipped_at_value pra audit.
-  skipped         Boolean   @default(false)
-  skipped_reason  String?
-  skipped_at      DateTime?
+  skipped        Boolean   @default(false)
+  skipped_reason String?
+  skipped_at     DateTime?
 
   /// Onda 14.24 (Fase 2) — id do documento no ClickSign quando integrado.
   /// Fase 1: null (gestao manual).
@@ -2856,21 +2856,21 @@ model Contract {
   pdf_url               String?
 
   /// Timestamps das transicoes de status (audit + UI de sub-timeline)
-  sent_at           DateTime?
-  opened_at         DateTime?
-  patient_signed_at DateTime?
-  clinic_signed_at  DateTime?
-  signed_at         DateTime?
-  expires_at        DateTime?
-  cancelled_at      DateTime?
+  sent_at             DateTime?
+  opened_at           DateTime?
+  patient_signed_at   DateTime?
+  clinic_signed_at    DateTime?
+  signed_at           DateTime?
+  expires_at          DateTime?
+  cancelled_at        DateTime?
   cancellation_reason String?
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
   created_by_user_id String
-  quote      Quote @relation(fields: [quote_id], references: [id], onDelete: Cascade)
-  created_by User  @relation("ContractCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
+  quote              Quote  @relation(fields: [quote_id], references: [id], onDelete: Cascade)
+  created_by         User   @relation("ContractCreator", fields: [created_by_user_id], references: [id], onDelete: Restrict)
 
   events ContractEvent[]
 
@@ -2950,9 +2950,9 @@ model TreatmentPlan {
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
-  patient            Patient             @relation(fields: [patient_id], references: [id], onDelete: Cascade)
-  quote              Quote?              @relation(fields: [quote_id], references: [id], onDelete: SetNull)
-  contract_signature ContractSignature?  @relation(fields: [contract_signature_id], references: [id], onDelete: SetNull)
+  patient            Patient                @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  quote              Quote?                 @relation(fields: [quote_id], references: [id], onDelete: SetNull)
+  contract_signature ContractSignature?     @relation(fields: [contract_signature_id], references: [id], onDelete: SetNull)
   items              TreatmentPlanItem[]
   consents           ConsentRecord[]
   /// Onda 14.59 — charges (sinal+entrada+parcelas) vinculadas a este plan
@@ -3283,22 +3283,22 @@ model MaintenanceTask {
   notes String?
 
   // Tracking de notificacao WhatsApp (worker preenche)
-  reminder_sent_at      DateTime? // quando enviou o lembrete 7d antes
-  reminder_message_id   String? // id Evolution pra cruzar com webhook
+  reminder_sent_at    DateTime? // quando enviou o lembrete 7d antes
+  reminder_message_id String? // id Evolution pra cruzar com webhook
 
   completed_by_user_id String?
   created_by_user_id   String?
   created_at           DateTime @default(now())
   updated_at           DateTime @updatedAt
 
-  tenant                  Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
-  patient                 Patient              @relation(fields: [patient_id], references: [id], onDelete: Cascade)
-  procedure               Procedure?           @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
-  treatment_plan_item     TreatmentPlanItem?   @relation("TPItemMaintenance", fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
-  esthetic_application    EstheticApplication? @relation(fields: [esthetic_application_id], references: [id], onDelete: SetNull)
-  scheduled_event         CalendarEvent?       @relation("MaintenanceTaskEvent", fields: [scheduled_event_id], references: [id], onDelete: SetNull)
-  completed_by            User?                @relation("MaintenanceTaskCompletedBy", fields: [completed_by_user_id], references: [id], onDelete: SetNull)
-  created_by              User?                @relation("MaintenanceTaskCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
+  tenant               Tenant               @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  patient              Patient              @relation(fields: [patient_id], references: [id], onDelete: Cascade)
+  procedure            Procedure?           @relation(fields: [procedure_id], references: [id], onDelete: SetNull)
+  treatment_plan_item  TreatmentPlanItem?   @relation("TPItemMaintenance", fields: [treatment_plan_item_id], references: [id], onDelete: SetNull)
+  esthetic_application EstheticApplication? @relation(fields: [esthetic_application_id], references: [id], onDelete: SetNull)
+  scheduled_event      CalendarEvent?       @relation("MaintenanceTaskEvent", fields: [scheduled_event_id], references: [id], onDelete: SetNull)
+  completed_by         User?                @relation("MaintenanceTaskCompletedBy", fields: [completed_by_user_id], references: [id], onDelete: SetNull)
+  created_by           User?                @relation("MaintenanceTaskCreatedBy", fields: [created_by_user_id], references: [id], onDelete: SetNull)
 
   // Indexes pra queries comuns:
   @@index([tenant_id, due_date]) // dashboard "atrasadas/proximas no tenant"
@@ -3990,36 +3990,36 @@ model RadiographyExam {
 // criar, editar, marcar como notificado, agendar, descartar).
 // ═══════════════════════════════════════════════════════════════════════
 model WaitlistEntry {
-  id              String    @id @default(uuid())
-  tenant_id       String?
-  lead_id         String
-  lead            Lead      @relation(fields: [lead_id], references: [id], onDelete: Cascade)
+  id        String  @id @default(uuid())
+  tenant_id String?
+  lead_id   String
+  lead      Lead    @relation(fields: [lead_id], references: [id], onDelete: Cascade)
 
   // Preferência de dentista — null = qualquer dentista (Orçamentista)
-  dentist_id      String?
-  dentist         User?     @relation("WaitlistDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
+  dentist_id String?
+  dentist    User?   @relation("WaitlistDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
 
   // Preferência de janela de tempo (opcional)
   // Lead pode dizer "qualquer terça à tarde" → preferred_weekday=2, preferred_period='TARDE'
   // Ou "manhã do dia 15" → preferred_date='2026-05-15', preferred_period='MANHA'
   // Ou "qualquer hora a partir de 01/05" → earliest_date='2026-05-01'
-  preferred_date     DateTime? // Data específica (se houver)
-  preferred_weekday  Int?      // 0=dom..6=sab (se quer dia da semana)
-  preferred_period   String?   // 'MANHA' | 'TARDE' | 'NOITE' | 'QUALQUER'
-  earliest_date      DateTime? // Data mínima ('a partir de X')
+  preferred_date    DateTime? // Data específica (se houver)
+  preferred_weekday Int? // 0=dom..6=sab (se quer dia da semana)
+  preferred_period  String? // 'MANHA' | 'TARDE' | 'NOITE' | 'QUALQUER'
+  earliest_date     DateTime? // Data mínima ('a partir de X')
 
   // Status do entry
   // AGUARDANDO → AGENDADO (lead aceitou slot oferecido) | NOTIFICADO (avisado mas não respondeu) | DESISTIU | EXPIROU (passou earliest_date sem vaga)
-  status          String    @default("AGUARDANDO")
-  notes           String?   // Notas internas pro time
-  notified_at     DateTime? // Última vez que foi notificado
-  notify_count    Int       @default(0) // Quantas vezes foi notificado (limita re-spam)
+  status       String    @default("AGUARDANDO")
+  notes        String? // Notas internas pro time
+  notified_at  DateTime? // Última vez que foi notificado
+  notify_count Int       @default(0) // Quantas vezes foi notificado (limita re-spam)
 
-  created_at      DateTime  @default(now())
-  updated_at      DateTime  @updatedAt
-  resolved_at     DateTime? // Timestamp de quando virou AGENDADO/DESISTIU/EXPIROU
+  created_at  DateTime  @default(now())
+  updated_at  DateTime  @updatedAt
+  resolved_at DateTime? // Timestamp de quando virou AGENDADO/DESISTIU/EXPIROU
 
   @@index([tenant_id, status, created_at]) // Listagem filtrada por status (FIFO)
-  @@index([lead_id, status])                // "tem entrada ativa pra esse lead?"
+  @@index([lead_id, status]) // "tem entrada ativa pra esse lead?"
   @@index([dentist_id, status, preferred_date]) // Match quando vagar slot do dentista
 }
