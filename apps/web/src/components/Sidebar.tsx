@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { useRouter, usePathname } from 'next/navigation';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
   LogOut, Users, Briefcase, Settings, Palette, Check,
   MessageSquare, BarChart2, Calendar,
@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone, HandCoins, Square, CircleDashed,
+  Megaphone, HandCoins, Square, CircleDashed, Layers,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -51,7 +51,7 @@ interface NavItem {
   label: string;
   href: string;
   icon: React.ReactNode;
-  match: (p: string) => boolean;
+  match: (p: string, _h?: undefined, searchString?: string) => boolean;
   badge?: number;
   show: boolean;
   /**
@@ -86,6 +86,10 @@ interface NavGroup {
 export function Sidebar() {
   const router = useRouter();
   const pathname = usePathname();
+  // Onda 17.32.41 — search params disponivel pra match de items que dependem
+  // do query string (ex: "Propostas" = /orcamentos?status=SENT).
+  const searchParams = useSearchParams();
+  const searchString = searchParams?.toString() || '';
   const { theme, setTheme } = useTheme();
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const perms = useRole();
@@ -536,10 +540,23 @@ export function Sidebar() {
       label: 'Orçamentos',
       href: '/atendimento/orcamentos',
       icon: <FileText size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/atendimento/orcamentos'),
+      // Onda 17.32.41 — Nao destaca quando query string e status=SENT
+      // (esse caso e do atalho "Propostas").
+      match: (p, _h, search) => p.startsWith('/atendimento/orcamentos') && !(search || '').includes('status=SENT'),
       // Badge mostra orcamentos enviados que expiram em ate 7 dias —
       // ajuda recepcao/dentista a cobrar resposta antes de perder a venda
       badge: quotesExpiringSoon,
+      show: true,
+    },
+    propostas: {
+      // Onda 17.32.41 — Atalho rapido pra "propostas em aberto" = orcamentos
+      // enviados aguardando decisao do paciente. Reaproveita pagina Orcamentos
+      // com filtro inicial SENT.
+      label: 'Propostas',
+      href: '/atendimento/orcamentos?status=SENT',
+      icon: <Layers size={20} strokeWidth={2} />,
+      // Match exato pra "?status=SENT" pra nao competir com Orcamentos no highlight.
+      match: (p, _h, search) => p.startsWith('/atendimento/orcamentos') && (search || '').includes('status=SENT'),
       show: true,
     },
     fechamentos: {
@@ -762,6 +779,7 @@ export function Sidebar() {
       items: [
         allItems.financeiroVisaoGeral, // Onda 17.1 — Visão Geral (KPIs + graficos)
         allItems.orcamentos,           // Orçamentos
+        allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
         // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
       ].filter(i => i.show),
@@ -976,7 +994,7 @@ export function Sidebar() {
               {showItems && (
               <div id={`group-${group.id}-items`} className="flex flex-col gap-0.5">
               {group.items.map((item) => {
-                const isActive = item.match(pathname);
+                const isActive = item.match(pathname, undefined, searchString);
                 const badge = (item as any).badge as number | undefined;
                 return (
                   <div key={item.href}>

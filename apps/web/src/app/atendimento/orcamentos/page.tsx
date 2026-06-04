@@ -12,7 +12,7 @@
  * Métrica de sucesso: clínica aumentar a conversão Quote→TreatmentPlan.
  */
 import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
   AlertTriangle, TrendingUp, Users, List, LayoutGrid,
@@ -90,10 +90,17 @@ export default function OrcamentosPage() {
 
 function OrcamentosPageInner() {
   const router = useRouter();
+  // Onda 17.32.41 — Le ?status= da URL pra pre-selecionar o filtro
+  // (atalho "Propostas" no sidebar abre /atendimento/orcamentos?status=SENT).
+  const searchParams = useSearchParams();
+  const urlStatus = searchParams?.get('status') || '';
   const [list, setList] = useState<Quote[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState<string>('');
+  const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
+  // Mantem filtro em sincro com o URL (quando operador clica entre Orcamentos
+  // e Propostas no sidebar, ou volta/avanca no historico do browser).
+  useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
   const [search, setSearch] = useState('');
   // Onda 15 (etapa 19) — view por dentista + filtro por dentista especifico
   const [viewMode, setViewMode] = useState<'list' | 'by-dentist'>('list');
