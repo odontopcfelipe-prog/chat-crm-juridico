@@ -899,13 +899,17 @@ function ProposalFinancialCard({
     return { label: 'EM DIA', cls: 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/30' };
   })();
 
-  // Onda 17.32.43 — Cor do priority pra inline no titulo.
+  // Onda 17.32.47 — Mostra o nome que o operador colocou no orcamento
+  // (quote.title). So cai pra label de prioridade (Urgente/Essencial/
+  // Completo) se nao houver titulo. Antes priorizava prioridade e o
+  // nome customizado nunca aparecia.
   const priorityLabel = (() => {
+    if (quote.title && quote.title.trim()) return quote.title;
     const p = (quote.priority || '').toUpperCase();
     if (p === 'URGENTE') return 'Urgente';
     if (p === 'ESSENCIAL') return 'Essencial';
     if (p === 'COMPLETO') return 'Completo';
-    return quote.title || 'Plano';
+    return 'Plano';
   })();
 
   // Onda 17.32.43 — Procedimento dominante (mais frequente) pra subtitle.
