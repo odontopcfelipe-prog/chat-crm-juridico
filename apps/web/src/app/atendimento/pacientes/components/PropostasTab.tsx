@@ -3970,11 +3970,11 @@ function PropostaPainel({
               {pixCalc && (
                 <button type="button"
                   onClick={() => { if (sel !== 'pix') onChangePayment(pixOpt.key); setPixModalOpen(true); }}
-                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-all flex flex-col ${
                     sel === 'pix'
-                      ? 'border-emerald-500 bg-emerald-500/10'
+                      ? 'border-emerald-500 bg-emerald-500/10 shadow-lg'
                       : 'border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10'
-                  }`}>
+                  } ${sel && sel !== 'pix' ? 'opacity-40 grayscale hover:opacity-90 hover:grayscale-0' : ''}`}>
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <DollarSign size={16} className="text-emerald-700" />
                     <p className="text-sm font-bold text-foreground">PIX ou dinheiro</p>
@@ -3985,7 +3985,7 @@ function PropostaPainel({
                   </p>
                   {sel === 'pix' && (
                     <p className="text-[10px] text-emerald-700 dark:text-emerald-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                      <Check size={11} strokeWidth={3} /> Proposta salva
                     </p>
                   )}
                   <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-emerald-600 group-hover:bg-emerald-700 text-white text-xs font-bold shadow-sm transition-colors">
@@ -3999,11 +3999,11 @@ function PropostaPainel({
               {cartaoDisplayCalc && cartaoDisplayOpt && (
                 <button type="button"
                   onClick={() => { if (sel !== 'cartao') onChangePayment(cartaoDisplayOpt.key); setCartaoModalOpen(true); }}
-                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-all flex flex-col ${
                     sel === 'cartao'
-                      ? 'border-blue-500 bg-blue-500/10'
+                      ? 'border-blue-500 bg-blue-500/10 shadow-lg'
                       : 'border-border bg-card hover:bg-accent/40'
-                  }`}>
+                  } ${sel && sel !== 'cartao' ? 'opacity-40 grayscale hover:opacity-90 hover:grayscale-0' : ''}`}>
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <DollarSign size={16} className="text-blue-600" />
                     <p className="text-sm font-bold text-foreground">Cartão de crédito</p>
@@ -4013,7 +4013,7 @@ function PropostaPainel({
                   </p>
                   {sel === 'cartao' && (
                     <p className="text-[10px] text-blue-700 dark:text-blue-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                      <Check size={11} strokeWidth={3} /> Proposta salva
                     </p>
                   )}
                   <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-blue-600 group-hover:bg-blue-700 text-white text-xs font-bold shadow-sm transition-colors">
@@ -4027,11 +4027,11 @@ function PropostaPainel({
               {boletoDisplayCalc && boletoDisplayOpt && (
                 <button type="button"
                   onClick={() => setBoletoModalOpen(true)}
-                  className={`group text-left p-5 rounded-xl border-2 transition-colors flex flex-col ${
+                  className={`group text-left p-5 rounded-xl border-2 transition-all flex flex-col ${
                     sel === 'boleto'
-                      ? 'border-amber-500 bg-amber-500/10'
+                      ? 'border-amber-500 bg-amber-500/10 shadow-lg'
                       : 'border-border bg-card hover:bg-accent/40'
-                  }`}>
+                  } ${sel && sel !== 'boleto' ? 'opacity-40 grayscale hover:opacity-90 hover:grayscale-0' : ''}`}>
                   <div className="flex items-center gap-2 mb-2 flex-wrap">
                     <Building2 size={16} className="text-amber-600" />
                     <p className="text-sm font-bold text-foreground">Boleto financiado</p>
@@ -4041,7 +4041,7 @@ function PropostaPainel({
                   </p>
                   {sel === 'boleto' && (
                     <p className="text-[10px] text-amber-700 dark:text-amber-400 font-bold uppercase tracking-wide mt-2 inline-flex items-center gap-1">
-                      <Check size={11} strokeWidth={3} /> Forma selecionada
+                      <Check size={11} strokeWidth={3} /> Proposta salva
                     </p>
                   )}
                   <span className="mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-md bg-amber-600 group-hover:bg-amber-700 text-white text-xs font-bold shadow-sm transition-colors">
