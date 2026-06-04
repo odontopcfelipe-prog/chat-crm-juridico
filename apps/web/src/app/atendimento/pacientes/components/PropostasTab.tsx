@@ -1423,24 +1423,25 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
 
   return (
     <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div>
-          <h2 className="text-sm font-semibold flex items-center gap-2">
-            <Layers size={16} className="text-primary" />
-            Versões do plano
-          </h2>
-          <p className="text-xs text-muted-foreground">
-            do mais apertado pro mais completo · clique num card pra abrir a
-            proposta com formas de pagamento
-          </p>
+      {/* Header — Onda 17.32.32: visual refinado igual ao design proposto */}
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div className="flex items-start gap-3">
+          <div className="w-9 h-9 rounded-lg bg-orange-500/15 flex items-center justify-center shrink-0">
+            <Layers size={18} className="text-orange-600" />
+          </div>
+          <div>
+            <h2 className="text-base font-bold text-foreground">Versões do plano</h2>
+            <p className="text-xs text-muted-foreground">
+              Do mais enxuto ao mais completo · clique num card pra abrir a proposta com as formas de pagamento
+            </p>
+          </div>
         </div>
         <button
           type="button"
           onClick={() => setNewVersionOpen(true)}
-          className="text-xs font-semibold text-primary hover:underline flex items-center gap-1"
+          className="text-xs font-bold text-orange-600 hover:bg-orange-500/10 px-3 py-2 rounded-md inline-flex items-center gap-1.5 transition-colors"
         >
-          <Plus size={14} />
+          <Plus size={14} strokeWidth={3} />
           Nova proposta
         </button>
       </div>
@@ -1501,7 +1502,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           // Se sim, dim todas as outras (exceto a chosen propriamente).
           const chosenEntryId = entries.find((e) => e.quote.is_chosen_proposal)?.quote.id ?? null;
 
-          return entries.map((entry) => {
+          const renderedCards = entries.map((entry) => {
             const isSelected = selectedId === entry.quote.id;
             const isChosen = entry.quote.is_chosen_proposal === true;
             const dimmed = chosenEntryId !== null && entry.quote.id !== chosenEntryId;
@@ -1544,6 +1545,31 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
               </div>
             );
           });
+
+          // Onda 17.32.32 — Card "Criar nova versão" no final do grid.
+          // Aparece sempre, em estilo dashed + ícone + grande pra criar nova proposta.
+          renderedCards.push(
+            <div
+              key="new-version-card"
+              className="snap-start flex-1 basis-[280px] min-w-[260px] max-w-[400px] flex"
+            >
+              <button
+                type="button"
+                onClick={() => setNewVersionOpen(true)}
+                className="w-full p-4 rounded-xl border-2 border-dashed border-border hover:border-orange-500/50 hover:bg-orange-500/5 text-muted-foreground hover:text-orange-700 dark:hover:text-orange-400 transition-all flex flex-col items-center justify-center text-center min-h-[260px] group"
+              >
+                <div className="w-12 h-12 rounded-full border-2 border-current flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Plus size={20} strokeWidth={2.5} />
+                </div>
+                <p className="text-sm font-bold mb-1">Criar nova versão</p>
+                <p className="text-[11px] text-muted-foreground">
+                  a partir de um orçamento
+                </p>
+              </button>
+            </div>
+          );
+
+          return renderedCards;
         })()}
       </div>
 
@@ -1872,37 +1898,30 @@ function PropostaCard({
           : `${cfg.borderCls} ${cfg.bgCls}`
       } ${dimmed ? 'opacity-50 grayscale hover:opacity-100 hover:grayscale-0' : ''}`}
     >
-      {/* Onda 14.33 — Badge "AGUARDANDO PACIENTE" — proposta escolhida.
-          Tem precedencia sobre "atual" / "ACEITO" (raro mas pra clarificar).
-          Onda 14.37 — amarelo solido (antes era azul).
-          Onda 14.39 — Movido pra dentro do card (banner no topo) em vez de
-          absolute. Estava sendo cortado pelo overflow-x-auto do container
-          parent (scroll horizontal cortava o `-right-2`). Banner ocupa
-          width total do card e sempre cabe. */}
+      {/* Onda 17.32.32 — Badges sticker no topo (saem PRA FORA do card).
+          Visual mais destacado igual ao design do operador. */}
       {isChosen && (
-        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-amber-500 text-amber-950 text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-amber-500 text-amber-950 text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
           <Clock size={10} strokeWidth={3} />
           AGUARDANDO PACIENTE
-        </div>
+        </span>
       )}
-
-      {/* Onda 14.50 — Badge "atual" virou banner no topo do card.
-          Antes era pill em -top-2 -right-2 (metade pra fora, era cortado).
-          Agora segue o mesmo padrao do banner "AGUARDANDO PACIENTE" (chosen). */}
+      {selected && !isChosen && (
+        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
+          <Check size={10} strokeWidth={3} />
+          SELECIONADO
+        </span>
+      )}
       {isSent && !selected && !isChosen && (
-        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-orange-500 text-white text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-orange-500 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md border-2 border-card">
           ATUAL
-        </div>
+        </span>
       )}
-
-      {/* Onda 14.7 — Badge "ACEITO" quando quote foi aprovado.
-          Onda 14.50 — Virou banner no topo do card (mesmo padrao de chosen).
-          Antes era pill em -top-2 -right-2 (metade pra fora, era cortado). */}
-      {isAccepted && !isChosen && (
-        <div className="-mx-4 -mt-4 mb-3 px-3 py-1 bg-emerald-600 text-white text-[10px] font-bold flex items-center gap-1.5 rounded-t-xl">
+      {isAccepted && !isChosen && !selected && (
+        <span className="absolute -top-3 left-3 z-10 px-2.5 py-1 rounded-md bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider shadow-md flex items-center gap-1 border-2 border-card">
           <Check size={10} strokeWidth={3} />
           ACEITO
-        </div>
+        </span>
       )}
 
       {/* Onda 11 — Badge "N propostas" quando ha contrapropostas registradas */}
@@ -1941,12 +1960,14 @@ function PropostaCard({
         <Trash2 size={12} />
       </span>
 
-      {/* Header com priority */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className={cfg.iconCls}>{cfg.icon}</span>
-        <h3 className={`text-sm font-bold ${cfg.iconCls}`}>{cfg.label}</h3>
+      {/* Header com priority — Onda 17.32.32: icone num quadrado colorido */}
+      <div className="flex items-center gap-2.5 mb-2">
+        <div className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${cfg.bgCls}`}>
+          <span className={cfg.iconCls}>{cfg.icon}</span>
+        </div>
+        <h3 className={`text-base font-bold ${cfg.iconCls}`}>{cfg.label}</h3>
       </div>
-      <p className="text-[11px] text-muted-foreground mb-3 leading-tight">
+      <p className="text-xs text-muted-foreground mb-3 leading-snug">
         {cfg.description}
       </p>
 
@@ -1990,16 +2011,19 @@ function PropostaCard({
         </div>
       </div>
 
-      {/* Total — quando ha aprovacao parcial, exibe approved_value como destaque
-          (o que paciente ja topou e vai pagar). Pendente vira info secundaria. */}
-      <p className="text-xl font-bold text-foreground">
-        R$ {fmtBRL(total)}
+      {/* Total — Onda 17.32.32: valor MAIS destacado igual o design */}
+      <p className="text-3xl font-extrabold text-foreground tabular-nums leading-none mt-1">
+        R$ {fmtBRL(total).replace(',00', '')}
       </p>
       {hasPartialApproval ? (
-        <p className="text-[11px] text-muted-foreground mt-0.5">
-          <span className="text-emerald-700">já aprovado</span> · + R$ {fmtBRL(pendingValue)} em aberto
+        <p className="text-[11px] text-muted-foreground mt-1.5">
+          <span className="text-emerald-700 font-semibold">aprovado</span> · + R$ {fmtBRL(pendingValue)} em aberto
         </p>
-      ) : null}
+      ) : (
+        <p className="text-[11px] text-muted-foreground mt-1.5 font-mono">
+          {getQuoteNumberBadge(quote) || ''}
+        </p>
+      )}
 
       {/* Diferenca vs Completo */}
       {diffVsCompleto !== null && diffVsCompleto < 0 && (
@@ -2019,21 +2043,18 @@ function PropostaCard({
         </p>
       )}
 
-      {/* Footer: estado de seleção — Onda 12.7: mt-auto pra alinhar todos
-          os footers na mesma linha, "selecionado" maior+verde+bold */}
-      <div className={`mt-auto pt-3 border-t border-border/40 flex items-center justify-between ${
-        selected ? '' : 'text-[11px] text-muted-foreground group-hover:text-foreground'
-      }`}>
+      {/* Footer: botao grande de acao — Onda 17.32.32 */}
+      <div className="mt-auto pt-4">
         {selected ? (
-          <span className="flex items-center gap-1.5 text-base font-bold text-emerald-700">
-            <Check size={18} strokeWidth={2.5} />
+          <span className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-emerald-600 text-white text-sm font-bold shadow-sm">
+            <Check size={16} strokeWidth={3} />
             Selecionado
           </span>
         ) : (
-          <>
-            <span>ver proposta</span>
-            <ChevronDown size={12} />
-          </>
+          <span className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-md border border-border bg-card group-hover:bg-accent/40 text-foreground text-sm font-semibold transition-colors">
+            <span className="w-4 h-4 rounded-full border-2 border-current" />
+            Ver proposta
+          </span>
         )}
       </div>
     </button>
