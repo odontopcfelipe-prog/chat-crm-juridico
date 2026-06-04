@@ -2705,7 +2705,6 @@ const CONTRACT_DOCUMENTS: ContractDocument[] = [
 
   // ── Termos gerais (opcionais) ──
   { id: 'USO_IMAGEM', label: 'Autorização de uso de imagem', description: 'fotos antes/depois, redes sociais, portfólio', category: 'GERAL' },
-  { id: 'GARANTIA', label: 'Garantia estendida (24 meses)', description: 'cobertura ampliada de defeitos técnicos', category: 'GERAL' },
   { id: 'RESPONSAVEL_LEGAL', label: 'Responsável legal', description: 'paciente menor de idade ou incapaz', category: 'GERAL' },
   { id: 'AGENDAMENTO', label: 'Cláusula de agendamento e faltas', description: 'política de cancelamento e remarcação', category: 'GERAL' },
   { id: 'RESCISAO', label: 'Cláusula de rescisão antecipada', description: 'condições pra encerrar contrato antes do fim', category: 'GERAL' },
@@ -2953,31 +2952,53 @@ function ContratoCard({
               {selectedDocsCount} DE {totalAvailableDocs}
             </span>
           </div>
-          <ul className="space-y-2 max-h-[260px] overflow-y-auto">
-            {CONTRACT_DOCUMENTS.slice(0, 5).map((doc) => {
-              const isChecked = selectedDocs.has(doc.id);
-              const isCore = !!doc.core;
+          {/* Onda 17.32.28 — Lista completa agrupada por categoria.
+              CORE (sempre incluso) · GERAL (opcionais) · PROCEDIMENTO (modelos). */}
+          <div className="space-y-3 max-h-[360px] overflow-y-auto pr-1">
+            {(['CORE', 'GERAL', 'PROCEDIMENTO'] as const).map((section) => {
+              const docs = CONTRACT_DOCUMENTS.filter((d) =>
+                section === 'CORE' ? d.core : d.category === section,
+              );
+              if (docs.length === 0) return null;
+              const sectionLabel = {
+                CORE: 'Sempre incluídos',
+                GERAL: 'Termos gerais',
+                PROCEDIMENTO: 'Termos por procedimento',
+              }[section];
               return (
-                <li key={doc.id}>
-                  <label className={`flex items-center gap-2.5 cursor-pointer ${isCore ? 'cursor-not-allowed' : ''}`}>
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      disabled={isCore || busy || !!contract}
-                      onChange={() => toggleDoc(doc.id)}
-                      className="w-4 h-4 rounded border-border accent-violet-600"
-                    />
-                    <span className="text-sm text-foreground flex-1">{doc.label}</span>
-                    {isCore && (
-                      <span className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30">
-                        Obrigatório
-                      </span>
-                    )}
-                  </label>
-                </li>
+                <div key={section}>
+                  <p className="text-[9px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5">
+                    {sectionLabel}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {docs.map((doc) => {
+                      const isChecked = selectedDocs.has(doc.id);
+                      const isCore = !!doc.core;
+                      return (
+                        <li key={doc.id}>
+                          <label className={`flex items-center gap-2.5 ${isCore || !!contract ? 'cursor-not-allowed' : 'cursor-pointer'}`}>
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              disabled={isCore || busy || !!contract}
+                              onChange={() => toggleDoc(doc.id)}
+                              className="w-4 h-4 rounded border-border accent-violet-600 shrink-0"
+                            />
+                            <span className="text-sm text-foreground flex-1 leading-tight">{doc.label}</span>
+                            {isCore && (
+                              <span className="text-[9px] font-bold px-2 py-0.5 rounded uppercase tracking-wide bg-red-500/10 text-red-700 dark:text-red-400 border border-red-500/30 shrink-0">
+                                Obrigatório
+                              </span>
+                            )}
+                          </label>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               );
             })}
-          </ul>
+          </div>
         </div>
 
         {/* Coluna direita: Quem vai assinar */}
