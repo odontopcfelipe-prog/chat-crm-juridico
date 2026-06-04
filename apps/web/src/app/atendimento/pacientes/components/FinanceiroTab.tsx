@@ -16,8 +16,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList,
+  ClipboardList, Shield,
 } from 'lucide-react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 14.18 — identificador unificado entre as 4 abas
@@ -1076,6 +1077,17 @@ function ProposalFinancialCard({
           >
             <ClipboardList size={14} />
           </button>
+          {/* Onda 17.32.54 — Validar tratamento: navega pra dashboard de
+              validacoes onde o dentista atesta os procedimentos como
+              clinicamente executados. */}
+          <Link
+            href="/atendimento/validacoes"
+            onClick={(e) => e.stopPropagation()}
+            className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center justify-center"
+            title="Validar tratamento (atestar execucao clinica)"
+          >
+            <Shield size={14} />
+          </Link>
         </div>
       </div>
 
