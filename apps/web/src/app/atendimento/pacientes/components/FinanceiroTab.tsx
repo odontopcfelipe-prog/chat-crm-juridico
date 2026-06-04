@@ -1090,7 +1090,7 @@ function ParcelaLinha({
     : 'bg-muted text-muted-foreground';
   const Icon = isSinal ? Receipt : p.method === 'PIX' ? DollarSign : Building2;
   return (
-    <li className="px-4 py-3 grid grid-cols-[auto_1fr_auto_auto_auto] gap-3 items-center hover:bg-accent/20 transition-colors">
+    <li className="px-4 py-3 grid grid-cols-[auto_minmax(0,1fr)_auto_auto] gap-3 items-center hover:bg-accent/20 transition-colors">
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${iconBg}`}>
         <Icon size={18} />
       </div>
@@ -1108,49 +1108,52 @@ function ParcelaLinha({
       <p className="text-sm font-bold tabular-nums text-foreground text-right shrink-0">
         {fmtBRL(p.value)}
       </p>
-      {!isPaid && !isCancelled && (
+      {/* Onda 17.32.48 — Grupo de acoes em flex pra nao quebrar linha.
+          Antes cada botao era uma coluna do grid e o 3o botao caia
+          pra linha de baixo. */}
+      <div className="flex items-center gap-1.5 shrink-0 flex-nowrap">
+        {!isPaid && !isCancelled && (
+          <button
+            type="button"
+            onClick={onReenviar}
+            className={`text-xs font-semibold px-3 py-1.5 rounded-md border inline-flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+              isOverdue
+                ? 'border-red-500/40 bg-red-500/5 text-red-700 dark:text-red-400 hover:bg-red-500/15'
+                : 'border-border bg-card text-foreground hover:bg-accent/40'
+            }`}
+          >
+            <Send size={11} />
+            {isOverdue ? 'Cobrar agora' : 'Reenviar'}
+          </button>
+        )}
+        {isPaid && (
+          <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 px-2 py-1.5 whitespace-nowrap">
+            <Check size={12} strokeWidth={3} />
+            Pago
+          </span>
+        )}
+        {(p.boletoUrl || p.invoiceUrl) && !isCancelled && (
+          <button
+            type="button"
+            onClick={onView}
+            className="text-xs font-semibold px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 inline-flex items-center gap-1.5 transition-colors whitespace-nowrap"
+            title={p.method === 'PIX' ? 'Ver QR code PIX' : p.method === 'BOLETO' ? 'Ver PDF do boleto' : 'Ver cobrança'}
+          >
+            <Eye size={11} />
+            Ver
+          </button>
+        )}
         <button
           type="button"
-          onClick={onReenviar}
-          className={`text-xs font-semibold px-3 py-1.5 rounded-md border inline-flex items-center gap-1.5 transition-colors ${
-            isOverdue
-              ? 'border-red-500/40 bg-red-500/5 text-red-700 dark:text-red-400 hover:bg-red-500/15'
-              : 'border-border bg-card text-foreground hover:bg-accent/40'
-          }`}
+          onClick={onRegistrar}
+          disabled={isPaid || isCancelled}
+          className="text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+          title={isPaid ? 'Pagamento já registrado' : 'Marcar como recebido (PIX/Espécie)'}
         >
-          <Send size={11} />
-          {isOverdue ? 'Cobrar agora' : 'Reenviar'}
+          <Check size={11} />
+          Registrar
         </button>
-      )}
-      {isPaid && (
-        <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 px-2 py-1.5">
-          <Check size={12} strokeWidth={3} />
-          Pago
-        </span>
-      )}
-      {/* Onda 17.32.46 — Ver boleto PDF ou QR PIX in-place (modal). So mostra
-          quando tem URL associada (cancelada/paga em dinheiro nao tem). */}
-      {(p.boletoUrl || p.invoiceUrl) && !isCancelled && (
-        <button
-          type="button"
-          onClick={onView}
-          className="text-xs font-semibold px-3 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 text-sky-700 dark:text-sky-400 hover:bg-sky-500/20 inline-flex items-center gap-1.5 transition-colors"
-          title={p.method === 'PIX' ? 'Ver QR code PIX' : p.method === 'BOLETO' ? 'Ver PDF do boleto' : 'Ver cobrança'}
-        >
-          <Eye size={11} />
-          Ver
-        </button>
-      )}
-      <button
-        type="button"
-        onClick={onRegistrar}
-        disabled={isPaid || isCancelled}
-        className="text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-        title={isPaid ? 'Pagamento já registrado' : 'Marcar como recebido (PIX/Espécie)'}
-      >
-        <Check size={11} />
-        Registrar
-      </button>
+      </div>
     </li>
   );
 }
