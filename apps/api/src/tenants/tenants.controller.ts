@@ -139,4 +139,30 @@ export class TenantsController {
   activate(@Param('id') id: string) {
     return this.service.setStatus(id, 'ACTIVE');
   }
+
+  /**
+   * Onda 17.32.80 — Settings POR tenant. Lista todos os overrides
+   * do tenant (com mascara nos valores sensiveis pra nao vazar).
+   * Chaves bem conhecidas:
+   *   - ASAAS_API_KEY, ASAAS_BASE_URL
+   *   - CLICKSIGN_API_TOKEN, CLICKSIGN_BASE_URL, CLICKSIGN_WEBHOOK_TOKEN
+   *   - EVOLUTION_INSTANCE_NAME, EVOLUTION_API_KEY
+   */
+  @Get(':id/settings')
+  async listSettings(@Param('id') id: string) {
+    return this.service.listSettings(id);
+  }
+
+  @Post(':id/settings')
+  async upsertSetting(
+    @Param('id') id: string,
+    @Body() body: { key: string; value: string },
+  ) {
+    return this.service.upsertSetting(id, body.key, body.value);
+  }
+
+  @Post(':id/settings/:key/delete')
+  async deleteSetting(@Param('id') id: string, @Param('key') key: string) {
+    return this.service.deleteSetting(id, key);
+  }
 }

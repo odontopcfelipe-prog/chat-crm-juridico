@@ -514,6 +514,27 @@ model GlobalSetting {
   updated_at DateTime @updatedAt
 }
 
+/// Onda 17.32.80 — SaaS Fase 2: settings POR tenant.
+///
+/// Quando uma chave existe em TenantSetting{tenant_id, key}, ela
+/// SOBRESCREVE o GlobalSetting{key} pra esse tenant. Permite que cada
+/// clinica tenha sua propria conta Asaas, instancia Evolution e
+/// token ClickSign sem compartilhar com outras.
+///
+/// Helper getTenantSetting(key, tenantId) ja faz fallback automatico:
+///   1. Busca TenantSetting{tenant_id, key}
+///   2. Se nao tiver, cai pra GlobalSetting{key}
+///   3. Se nao tiver, cai pra env var (CLICKSIGN_API_TOKEN etc)
+model TenantSetting {
+  tenant_id  String
+  key        String
+  value      String
+  updated_at DateTime @updatedAt
+
+  @@id([tenant_id, key])
+  @@index([tenant_id])
+}
+
 model AiUsage {
   id                String   @id @default(uuid())
   // Onda 2.2 (Fase 25) — tenant_id obrigatorio pra isolar custos por clinica.

@@ -7560,15 +7560,21 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
 
   // ─── Clicksign ──────────────────────────────────────────────────────────────
 
-  async getClicksignConfig() {
-    const baseUrl   = await this.get('CLICKSIGN_BASE_URL');
-    const apiToken  = await this.get('CLICKSIGN_API_TOKEN');
-    const webhookToken = await this.get('CLICKSIGN_WEBHOOK_TOKEN');
+  /**
+   * Onda 17.32.80 — Aceita tenantId opcional. Quando passado, tenta
+   * TenantSetting primeiro (config especifica do tenant), com fallback
+   * pra GlobalSetting (legacy compartilhado) + env var.
+   */
+  async getClicksignConfig(tenantId?: string | null) {
+    const { getTenantSetting } = await import('../tenants/tenant-settings.helper.js');
+    const baseUrl      = await getTenantSetting(this.prisma, 'CLICKSIGN_BASE_URL',      tenantId, 'CLICKSIGN_BASE_URL');
+    const apiToken     = await getTenantSetting(this.prisma, 'CLICKSIGN_API_TOKEN',     tenantId, 'CLICKSIGN_API_TOKEN');
+    const webhookToken = await getTenantSetting(this.prisma, 'CLICKSIGN_WEBHOOK_TOKEN', tenantId, 'CLICKSIGN_WEBHOOK_TOKEN');
     return {
-      baseUrl:       baseUrl      || process.env.CLICKSIGN_BASE_URL      || 'https://sandbox.clicksign.com',
-      apiToken:      apiToken     || process.env.CLICKSIGN_API_TOKEN      || '',
-      webhookToken:  webhookToken || process.env.CLICKSIGN_WEBHOOK_TOKEN  || '',
-      isConfigured:  !!(apiToken  || process.env.CLICKSIGN_API_TOKEN),
+      baseUrl:       baseUrl      || 'https://sandbox.clicksign.com',
+      apiToken:      apiToken     || '',
+      webhookToken:  webhookToken || '',
+      isConfigured:  !!apiToken,
     };
   }
 

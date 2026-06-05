@@ -228,6 +228,46 @@ export class TenantsService {
     }
   }
 
+  /**
+   * Onda 17.32.80 — Lista settings do tenant com mascara pra chaves
+   * sensiveis (nao expoe API tokens completos no GET).
+   */
+  async listSettings(tenantId: string) {
+    const items = await this.prisma.tenantSetting.findMany({
+      where: { tenant_id: tenantId },
+      orderBy: { key: 'asc' },
+    });
+    // Mascara chaves sensiveis: mostra so ultimos 4 chars
+    const SENSITIVE_PATTERNS = [/token/i, /api_key/i, /password/i, /secret/i];
+    return items.map((s) => {
+      const isSensitive = SENSITIVE_PATTERNS.some((re) => re.test(s.key));
+      const masked = isSensitive && s.value.length > 4
+        ? `${'•'.repeat(Math.max(8, s.value.length - 4))}${s.value.slice(-4)}`
+        : s.value;
+      return {
+        key: s.key,
+        value: masked,
+        is_sensitive: isSensitive,
+        updated_at: s.updated_at,
+      };
+    });
+  }
+
+  async upsertSetting(tenantId: string, key: string, value: string) {
+    if (!key || !value) {
+      throw new BadRequestException('key e value sao obrigatorios');
+    }
+    const { setTenantSetting } = await import('./tenant-settings.helper.js');
+    await setTenantSetting(this.prisma, tenantId, key, value);
+    return { ok: true };
+  }
+
+  async deleteSetting(tenantId: string, key: string) {
+    const { deleteTenantSetting } = await import('./tenant-settings.helper.js');
+    await deleteTenantSetting(this.prisma, tenantId, key);
+    return { ok: true };
+  }
+
   async setStatus(id: string, status: string, reason?: string) {
     const data: any = { status };
     if (status === 'SUSPENDED') {
