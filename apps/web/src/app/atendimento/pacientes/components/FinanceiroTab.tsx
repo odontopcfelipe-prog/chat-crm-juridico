@@ -1335,11 +1335,14 @@ function ChargeViewerModal({
   };
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-2 sm:p-4"
       onClick={onClose}
     >
+      {/* Onda 17.32.67 — Modal de visualizar boleto/PIX agora abre em
+          tela grande (95% do viewport) pra facilitar leitura do PDF
+          sem precisar abrir em nova aba. */}
       <div
-        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden"
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-[95vw] h-full max-h-[95vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -1365,7 +1368,7 @@ function ChargeViewerModal({
           </button>
         </div>
         {/* Conteudo: iframe via proxy, fallback ou msg sem-url */}
-        <div className="flex-1 overflow-hidden bg-muted/10 min-h-[500px]">
+        <div className="flex-1 overflow-hidden bg-muted/10 min-h-0">
           {!url ? (
             <div className="h-full flex items-center justify-center p-8 text-center">
               <div>
