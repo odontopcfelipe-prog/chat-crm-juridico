@@ -14,7 +14,67 @@ import {
   Controller, Get, Post, Patch, Param, Body, Query, Req, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { TenantsService } from './tenants.service';
+
+/**
+ * Onda 17.32.85 — Signup publico (rota nao autenticada).
+ *
+ * Permite que qualquer pessoa cadastre uma nova clinica e ja entre em
+ * TRIAL de 14 dias. Cria Tenant + admin user atomicamente. Usuario
+ * pode fazer login direto apos signup.
+ */
+@Controller('signup')
+export class SignupController {
+  constructor(private readonly service: TenantsService) {}
+
+  @Public()
+  @Post()
+  async signup(@Body() body: {
+    clinic_name: string;
+    cpf_cnpj?: string;
+    phone?: string;
+    admin_name: string;
+    admin_email: string;
+    admin_password: string;
+    plan?: string;
+  }) {
+    if (!body.clinic_name?.trim()) {
+      throw new BadRequestException('Nome da clinica eh obrigatorio');
+    }
+    if (!body.admin_name?.trim() || !body.admin_email?.trim() || !body.admin_password) {
+      throw new BadRequestException('Dados do administrador sao obrigatorios');
+    }
+    if (body.admin_password.length < 6) {
+      throw new BadRequestException('Senha precisa ter ao menos 6 caracteres');
+    }
+
+    // Slug auto-gerado a partir do nome
+    const slug = body.clinic_name
+      .toLowerCase()
+      .normalize('NFD').replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)/g, '')
+      .slice(0, 40);
+
+    // Cria com status TRIAL — 14 dias de teste antes de cobrar
+    return this.service.create({
+      name: body.clinic_name.trim(),
+      slug: slug || undefined,
+      cpf_cnpj: body.cpf_cnpj?.replace(/\D/g, '') || undefined,
+      phone: body.phone?.replace(/\D/g, '') || undefined,
+      email: body.admin_email.toLowerCase().trim(),
+      plan: body.plan || 'STARTER',
+      status: 'TRIAL',
+      admin: {
+        name: body.admin_name.trim(),
+        email: body.admin_email.toLowerCase().trim(),
+        password: body.admin_password,
+        phone: body.phone?.replace(/\D/g, ''),
+      },
+    });
+  }
+}
 
 /**
  * Onda 17.32.78 — Endpoint publico (autenticado) pra qualquer user

@@ -157,6 +157,13 @@ export default function LoginPage() {
                     </h2>
                     <div className="w-12 h-1 bg-[#A89048] mt-3 mb-4 rounded-full mx-auto lg:mx-0 shadow-[0_0_10px_rgba(168,144,72,0.5)]" />
                     <p className="text-slate-400 font-medium">Acesse seu painel com segurança</p>
+                    {/* Onda 17.32.85 — Atalho pra signup publico */}
+                    <p className="text-slate-500 text-xs mt-3">
+                      É novo aqui?{' '}
+                      <a href="/cadastrar" className="text-[#A89048] font-bold hover:underline">
+                        Crie sua clínica grátis →
+                      </a>
+                    </p>
                   </div>
 
                   {/* Session expired banner */}
