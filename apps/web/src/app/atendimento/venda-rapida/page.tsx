@@ -16,7 +16,7 @@ import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
-  CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign, Building2,
+  CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -42,7 +42,9 @@ interface CartItem {
   quantity: number;
 }
 
-type BillingType = 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+// Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
+// quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
+type BillingType = 'PIX' | 'CREDIT_CARD';
 
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
@@ -461,7 +463,6 @@ export default function VendaRapidaPage() {
               {([
                 { key: 'PIX' as BillingType, label: 'PIX ou dinheiro', sub: 'à vista · −10%', Icon: DollarSign },
                 { key: 'CREDIT_CARD' as BillingType, label: 'Cartão de crédito', sub: 'até 6x sem juros', Icon: CreditCard },
-                { key: 'BOLETO' as BillingType, label: 'Boleto', sub: '1× a 24×', Icon: Building2 },
               ]).map((m) => {
                 const isActive = billingType === m.key;
                 return (
