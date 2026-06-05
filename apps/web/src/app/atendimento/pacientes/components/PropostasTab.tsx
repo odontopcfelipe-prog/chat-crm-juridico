@@ -4348,29 +4348,34 @@ function PropostaPainel({
                 onChangeSplitCash={setPixModalSplitCash}
                 quickActionsLoading={quickActionLoading}
                 onEmitir={() => {
-                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
-                  // Cobranca so e criada quando operador clica "Encaminhar ao
-                  // financeiro" no rodape do PropostaPainel.
-                  // Excecao: modos CASH e MIXED do PIX ja foram desenhados pra
-                  // emitir direto (paciente esta presente). Mantemos esse fluxo.
-                  if (pixModalMode === 'CASH') {
-                    void handleEmitPixCash(pixCalc.finalValue);
-                    return;
-                  }
-                  if (pixModalMode === 'MIXED') {
-                    const cashAmount = pixModalSplitCash;
-                    const pixAmount = pixCalc.finalValue - cashAmount;
-                    void handleEmitPixMixed(cashAmount, pixAmount);
-                    return;
-                  }
-                  // PIX puro: salva como proposta (sem emitir)
+                  // Onda 17.32.66 — TODOS os modos agora passam pelo
+                  // mesmo fluxo "Salvar proposta" (sem emitir cobranca
+                  // ainda). Cobranca so e criada quando operador clicar
+                  // "Encaminhar ao financeiro" no rodape do PropostaPainel.
+                  // Consistente com Boleto/Cartao.
+                  //
+                  // Antes (17.32.36): CASH e MIXED emitiam direto. Operador
+                  // pediu mudanca pra ficar igual aos outros pagamentos a
+                  // vista — salva primeiro, encaminha depois.
                   setPixModalOpen(false);
+                  let paymentKey: string = pixOpt.key; // 'pix' (default)
+                  let signalValue: number | null = null;
+                  let signalMethod: string | null = null;
+                  if (pixModalMode === 'CASH') {
+                    paymentKey = 'cash-avista';
+                    signalMethod = 'CASH';
+                    signalValue = pixCalc.finalValue;
+                  } else if (pixModalMode === 'MIXED') {
+                    paymentKey = 'pix-mixed-cash';
+                    signalMethod = 'CASH';
+                    signalValue = pixModalSplitCash;
+                  }
                   onChooseAsProposal?.({
-                    payment_key: pixOpt.key,
+                    payment_key: paymentKey,
                     down_payment: 0,
-                    signal_value: null,
-                    signal_method: null,
-                    entrada_due_date: customPixDueDate || null,
+                    signal_value: signalValue,
+                    signal_method: signalMethod,
+                    entrada_due_date: pixModalMode === 'PIX' ? (customPixDueDate || null) : null,
                     installments_start_date: null,
                   });
                 }}
@@ -6153,17 +6158,20 @@ function PixCobrancaUnificadaModal({
                 </p>
               </div>
 
+              {/* Onda 17.32.66 — Todos os modos (PIX/CASH/MIXED) agora
+                  passam pelo mesmo fluxo de "Salvar proposta" pra
+                  consistencia com Boleto e Cartao. As cobrancas sao
+                  emitidas quando o operador clicar "Encaminhar ao
+                  financeiro" no rodape do PropostaPainel. */}
               <button
                 type="button"
                 onClick={onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
-                title={mode === 'PIX' ? 'Salva PIX como forma escolhida. Cobrança no Asaas só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.' : 'Registra recebimento em espécie agora (gera charge CASH).'}
-                className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
-                  mode === 'PIX' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-orange-600 hover:bg-orange-700'
-                }`}
+                title='Salva como forma escolhida. Cobranca so sai quando o operador clicar "Encaminhar ao financeiro" no rodape.'
+                className="mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors bg-emerald-600 hover:bg-emerald-700"
               >
                 {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                {mode === 'PIX' ? 'Salvar proposta' : 'Emitir cobrança'}
+                Salvar proposta
               </button>
 
               {onSend && (
