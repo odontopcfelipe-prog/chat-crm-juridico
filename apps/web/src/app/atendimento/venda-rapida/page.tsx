@@ -17,6 +17,7 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
+  Copy, ExternalLink, ArrowRight,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -111,6 +112,17 @@ export default function VendaRapidaPage() {
   const [billingType, setBillingType] = useState<BillingType>('PIX');
   const [installments, setInstallments] = useState<number>(1);
   const [finishing, setFinishing] = useState(false);
+  // Onda 17.32.70 — Dialog de sucesso com QR PIX ou link de cartao
+  const [successDialog, setSuccessDialog] = useState<{
+    billingType: BillingType;
+    total: number;
+    patientName: string;
+    patientId: string;
+    pixQrCode?: string | null;     // base64 da imagem
+    pixCopyPaste?: string | null;  // payload Pix
+    invoiceUrl?: string | null;    // url Asaas (cartao)
+    boletoUrl?: string | null;     // pdf boleto (nao usado mas mantido pra extensao)
+  } | null>(null);
 
   // Carrega procedimentos
   useEffect(() => {
@@ -221,9 +233,22 @@ export default function VendaRapidaPage() {
         },
       };
       const { data } = await api.post<any>('/commercial/venda-rapida', payload);
-      showSuccess(`Venda finalizada! Cobrança ${data?.charge?.external_id || ''} gerada.`);
-      // Redireciona pra aba financeiro do paciente
-      router.push(`/atendimento/pacientes/${patient.id}?tab=financial`);
+      // Onda 17.32.70 — Abre dialog com QR PIX / link cartao na tela em
+      // vez de redirecionar. Operador pode mostrar o QR direto pro
+      // paciente que ja esta na clinica.
+      setSuccessDialog({
+        billingType,
+        total,
+        patientName: patient.name,
+        patientId: patient.id,
+        pixQrCode: data?.pix?.qrCode || null,
+        pixCopyPaste: data?.pix?.copyPaste || null,
+        invoiceUrl: data?.invoice_url || null,
+        boletoUrl: data?.boleto?.url || null,
+      });
+      // Reseta carrinho pra proxima venda
+      setCart([]);
+      showSuccess('Venda finalizada!');
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Erro ao finalizar venda';
       showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
@@ -567,6 +592,175 @@ export default function VendaRapidaPage() {
             </p>
           </div>
         </aside>
+      </div>
+
+      {/* Onda 17.32.70 — Dialog de sucesso (QR PIX ou link cartao) */}
+      {successDialog && (
+        <SuccessDialog
+          data={successDialog}
+          onClose={() => setSuccessDialog(null)}
+          onGoToPatient={() => {
+            router.push(`/atendimento/pacientes/${successDialog.patientId}?tab=financial`);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Onda 17.32.70 — Dialog de sucesso pos-venda. Mostra QR PIX ou link
+ *  do cartao em tela grande pra operador mostrar pro paciente direto. */
+function SuccessDialog({
+  data,
+  onClose,
+  onGoToPatient,
+}: {
+  data: {
+    billingType: BillingType;
+    total: number;
+    patientName: string;
+    pixQrCode?: string | null;
+    pixCopyPaste?: string | null;
+    invoiceUrl?: string | null;
+  };
+  onClose: () => void;
+  onGoToPatient: () => void;
+}) {
+  const handleCopy = async () => {
+    if (!data.pixCopyPaste) return;
+    try {
+      await navigator.clipboard.writeText(data.pixCopyPaste);
+      showSuccess('Pix Copia e Cola copiado!');
+    } catch {
+      showError('Nao foi possivel copiar');
+    }
+  };
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-2xl max-h-[95vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white px-6 py-4 flex items-center justify-between gap-3 shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+              <CheckCircle2 size={20} strokeWidth={2.5} />
+            </div>
+            <div>
+              <h2 className="text-lg font-extrabold">Venda finalizada!</h2>
+              <p className="text-xs text-white/80">
+                {data.patientName} · R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="p-2 rounded-md hover:bg-white/20 transition-colors"
+            title="Fechar"
+          >
+            <X size={20} />
+          </button>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-auto p-6">
+          {data.billingType === 'PIX' && data.pixQrCode ? (
+            <div className="text-center">
+              <p className="text-sm font-bold text-foreground mb-1">
+                Mostre o QR Code abaixo pro paciente
+              </p>
+              <p className="text-xs text-muted-foreground mb-4">
+                Ele abre o app do banco, aponta a câmera e paga.
+              </p>
+              {/* QR Code em tela grande */}
+              <div className="bg-white p-4 rounded-xl inline-block border-4 border-emerald-500">
+                <img
+                  src={`data:image/png;base64,${data.pixQrCode}`}
+                  alt="QR Code PIX"
+                  className="w-64 h-64 sm:w-80 sm:h-80"
+                />
+              </div>
+              {/* Pix Copia e Cola */}
+              {data.pixCopyPaste && (
+                <div className="mt-4">
+                  <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
+                    Ou use o Pix Copia e Cola
+                  </p>
+                  <div className="bg-muted/30 border border-border rounded-md p-3 flex items-center gap-2">
+                    <code className="text-[11px] text-foreground truncate flex-1 font-mono text-left">
+                      {data.pixCopyPaste}
+                    </code>
+                    <button
+                      type="button"
+                      onClick={handleCopy}
+                      className="text-xs font-bold px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1.5 shrink-0"
+                    >
+                      <Copy size={12} />
+                      Copiar
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground mt-4">
+                Pagamento confirmado automaticamente via webhook do Asaas.
+              </p>
+            </div>
+          ) : data.billingType === 'CREDIT_CARD' && data.invoiceUrl ? (
+            <div className="text-center py-4">
+              <div className="w-16 h-16 rounded-full bg-sky-500/15 text-sky-700 flex items-center justify-center mx-auto mb-3">
+                <CreditCard size={32} />
+              </div>
+              <p className="text-sm font-bold text-foreground mb-1">
+                Link do cartão gerado
+              </p>
+              <p className="text-xs text-muted-foreground mb-4 max-w-sm mx-auto">
+                Abra o link abaixo pra paciente pagar com cartão de crédito (até 6× sem juros).
+              </p>
+              <a
+                href={data.invoiceUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-bold px-4 py-2.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white"
+              >
+                <ExternalLink size={14} />
+                Abrir link de pagamento
+              </a>
+            </div>
+          ) : (
+            <div className="text-center py-6">
+              <CheckCircle2 size={32} className="mx-auto mb-2 text-emerald-600" />
+              <p className="text-sm font-bold text-foreground mb-1">Cobrança gerada</p>
+              <p className="text-xs text-muted-foreground">
+                Veja os detalhes na ficha financeira do paciente.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center gap-2 px-6 py-4 border-t border-border bg-muted/30 shrink-0">
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex-1 text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors inline-flex items-center justify-center gap-1.5"
+          >
+            <Zap size={14} />
+            Nova venda
+          </button>
+          <button
+            type="button"
+            onClick={onGoToPatient}
+            className="flex-1 text-sm font-bold px-3 py-2 rounded-md bg-foreground text-background hover:opacity-90 transition-opacity inline-flex items-center justify-center gap-1.5"
+          >
+            Ver na ficha
+            <ArrowRight size={14} />
+          </button>
+        </div>
       </div>
     </div>
   );
