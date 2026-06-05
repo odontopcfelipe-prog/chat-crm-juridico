@@ -347,6 +347,43 @@ export class PatientsController {
 
   // ─── Avatar / Foto do paciente ────────────────────────────────
 
+  /**
+   * Onda 17.32.62 — Sincroniza foto do WhatsApp pro paciente.
+   * Busca lead.profile_picture_url e faz copia pro nosso S3.
+   * POST /patients/:id/sync-whatsapp-avatar
+   */
+  @Post(':id/sync-whatsapp-avatar')
+  async syncWhatsappAvatar(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const patient = await this.patientsService['prisma'].patient.findUnique({
+      where: { id },
+      select: { lead_id: true, tenant_id: true },
+    });
+    if (!patient) throw new NotFoundException('Paciente nao encontrado');
+    if (patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (!patient.lead_id) {
+      return { ok: false, error: 'Paciente sem lead vinculado (cadastro direto, sem WhatsApp)' };
+    }
+    const lead = await this.patientsService['prisma'].lead.findUnique({
+      where: { id: patient.lead_id },
+      select: { profile_picture_url: true },
+    });
+    if (!lead?.profile_picture_url) {
+      return { ok: false, error: 'Lead sem foto do WhatsApp registrada' };
+    }
+    try {
+      await this.patientsService.copyWhatsappAvatarToPatient(
+        id,
+        tenantId,
+        lead.profile_picture_url,
+      );
+      return { ok: true };
+    } catch (err: any) {
+      return { ok: false, error: err?.message || 'Falha ao copiar foto' };
+    }
+  }
+
   /** Upload da foto: POST /patients/:id/avatar (multipart, campo "file") */
   @Post(':id/avatar')
   @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))

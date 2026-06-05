@@ -481,6 +481,20 @@ export class PatientsService {
       },
     });
 
+    // Onda 17.32.62 — Copia foto do WhatsApp (Evolution CDN -> S3 local).
+    // A URL da Evolution expira em poucas horas; persistimos a imagem no
+    // nosso storage pra que continue funcionando. Best-effort: falha
+    // (timeout, 404, formato invalido) so loga warning, nao quebra a
+    // conversao.
+    if (lead.profile_picture_url) {
+      this.copyWhatsappAvatarToPatient(patient.id, tenantId, lead.profile_picture_url)
+        .catch((err) =>
+          this.logger.warn(
+            `[CONVERT] Falha ao copiar foto WhatsApp pro paciente ${patient.id}: ${err?.message}`,
+          ),
+        );
+    }
+
     // Backfill: vincula CalendarEvents existentes (criados antes da conversão
     // com lead_id apenas) ao novo patient_id. Garante Timeline + Resumo Clínico
     // a mostrar consultas agendadas antes do lead virar paciente.
@@ -887,6 +901,47 @@ export class PatientsService {
    * Salva imagem em filesystem e atualiza avatar_url do paciente.
    * Aceita JPEG/PNG/WebP. Limite 2 MB.
    */
+  /**
+   * Onda 17.32.62 — Baixa a foto do WhatsApp da URL do Evolution
+   * (lead.profile_picture_url) e sobe pro nosso storage via updateAvatar.
+   *
+   * Best-effort, idempotente: chama via .catch() em convertFromLead. Caller
+   * nao precisa esperar. Se o paciente ja tem avatar, sobrescreve com a
+   * versao mais recente do WhatsApp.
+   *
+   * Falhas comuns silenciosas:
+   *  - URL da Evolution expirou (TTL curto)
+   *  - paciente sem foto no WhatsApp (404)
+   *  - mimeType nao suportado (ALLOWED_AVATAR_MIMES)
+   *  - imagem > 2 MB
+   */
+  async copyWhatsappAvatarToPatient(
+    patientId: string,
+    tenantId: string,
+    waUrl: string,
+  ): Promise<void> {
+    // Timeout de 10s pra nao travar o pipeline de conversao
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 10_000);
+    let resp: Response;
+    try {
+      resp = await fetch(waUrl, { signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!resp.ok) {
+      throw new Error(`Evolution CDN respondeu ${resp.status}`);
+    }
+    const contentType = resp.headers.get('content-type') || 'image/jpeg';
+    const arrayBuf = await resp.arrayBuffer();
+    const buffer = Buffer.from(arrayBuf);
+    if (buffer.length === 0) {
+      throw new Error('Imagem vazia');
+    }
+    await this.updateAvatar(patientId, tenantId, buffer, contentType);
+    this.logger.log(`[AVATAR-WA] Foto WhatsApp copiada pro paciente ${patientId} (${buffer.length} bytes, ${contentType})`);
+  }
+
   async updateAvatar(patientId: string, tenantId: string, buffer: Buffer, mimeType: string) {
     await this.assertBelongsToTenant(patientId, tenantId);
 
