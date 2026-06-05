@@ -11,7 +11,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Search, Plus, Building2, Users, HeartPulse, Briefcase, Receipt,
   Pause, Play, Pencil, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
+  ExternalLink,
 } from 'lucide-react';
+import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -268,11 +270,19 @@ export default function AdminTenantsPage() {
                   </div>
                   {/* Acoes */}
                   <div className="flex items-center gap-1 shrink-0">
+                    {/* Onda 17.32.81 — Link pra pagina de detalhe (integracoes etc) */}
+                    <Link
+                      href={`/admin/tenants/${t.id}`}
+                      className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors inline-flex items-center justify-center"
+                      title="Ver detalhe + integracoes"
+                    >
+                      <ExternalLink size={12} />
+                    </Link>
                     <button
                       type="button"
                       onClick={() => setEditing(t)}
                       className="p-2 rounded-md border border-border bg-card hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
-                      title="Editar"
+                      title="Editar dados rapidos"
                     >
                       <Pencil size={12} />
                     </button>
