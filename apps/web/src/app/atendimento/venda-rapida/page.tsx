@@ -732,8 +732,13 @@ function SuccessDialog({
               <p className="text-xs text-muted-foreground mb-4">
                 Ele abre o app do banco, aponta a câmera e paga.
               </p>
-              {/* QR Code em tela grande */}
+              {/* Onda 17.32.74 — Logo PIX oficial (BCB) acima do QR code
+                  pra reforco visual (paciente reconhece o pagamento PIX
+                  imediatamente). SVG inline com cor #32BCAD do BCB. */}
               <div className="bg-white p-4 rounded-xl inline-block border-4 border-emerald-500">
+                <div className="flex items-center justify-center gap-2 mb-3">
+                  <PixLogo />
+                </div>
                 <img
                   src={`data:image/png;base64,${data.pixQrCode}`}
                   alt="QR Code PIX"
@@ -816,6 +821,42 @@ function SuccessDialog({
             <ArrowRight size={14} />
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Onda 17.32.74 — Logo PIX oficial do Banco Central (SVG inline).
+ *
+ * Cor #32BCAD (turquesa do PIX). Reproduz o losango caracteristico
+ * com 4 pontos brancos nos vertices + a palavra "pix" em font
+ * minuscula. Usado acima do QR code pra que o paciente reconheca
+ * instantaneamente que e um pagamento PIX.
+ */
+function PixLogo() {
+  return (
+    <div className="inline-flex items-center gap-3">
+      <svg viewBox="0 0 100 100" className="w-9 h-9" aria-label="Logo PIX">
+        {/* Losango central */}
+        <g fill="#32BCAD">
+          {/* Forma do diamante: 4 triangulos ao redor de um quadrado central */}
+          <path d="M50 10 L70 30 L50 50 L30 30 Z" />
+          <path d="M70 30 L90 50 L70 70 L50 50 Z" />
+          <path d="M50 50 L70 70 L50 90 L30 70 Z" />
+          <path d="M30 30 L50 50 L30 70 L10 50 Z" />
+        </g>
+        {/* Pontos brancos nos vertices */}
+        <g fill="white">
+          <circle cx="50" cy="10" r="2.5" />
+          <circle cx="90" cy="50" r="2.5" />
+          <circle cx="50" cy="90" r="2.5" />
+          <circle cx="10" cy="50" r="2.5" />
+        </g>
+      </svg>
+      <div className="flex flex-col leading-none">
+        <span className="text-3xl font-light text-gray-600 lowercase tracking-tight">pix</span>
+        <span className="text-[8px] text-gray-400 mt-0.5">powered by Banco Central</span>
       </div>
     </div>
   );
