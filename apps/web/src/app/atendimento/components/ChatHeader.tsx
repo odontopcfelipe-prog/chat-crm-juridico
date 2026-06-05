@@ -423,21 +423,9 @@ export function ChatHeader({
               </button>
             );
           })()}
-          {/* Onda 17.32.58 — Promover Lead -> Cliente manualmente.
-              Aparece quando NAO eh cliente ainda. Usado em casos onde
-              o operador quer mover pra "Clientes" sem passar pelo
-              encaminhar ao financeiro / pagamento (ex: pagou em dinheiro
-              fora do Asaas). */}
-          {selected?.leadId && isRealConvo && !isClosed && !selected?.isClient && onPromoteToClient && (
-            <button
-              onClick={onPromoteToClient}
-              title="Marcar como cliente manualmente (move pra aba Clientes)"
-              className="px-3 py-2 text-sm font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2"
-            >
-              <UserPlus size={16} />
-              → Cliente
-            </button>
-          )}
+          {/* Onda 17.32.63 — Botao "→ Cliente" removido do header.
+              Movido pro modal "Editar contato" (botao "Tornar Cliente")
+              pra evitar duplicacao de acoes. */}
           {/* Onda 17.32.58 — Demover Cliente -> Lead (reverte promocao
               manual). Aparece SO se ja eh cliente. */}
           {selected?.leadId && isRealConvo && !isClosed && selected?.isClient && onDemoteToLead && (
