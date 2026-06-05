@@ -1174,7 +1174,14 @@ function ParcelaLinha({
   const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
   const isOverdue = !isPaid && p.dueDate && new Date(p.dueDate).getTime() < Date.now();
   const isCancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
-  const isSinal = p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind);
+  // Onda 17.32.76 — "Sinal de fechamento" SO quando kind eh explicitamente
+  // SINAL. Antes 1 cobranca unica (totalCount=1, kind=null) caia como
+  // "Sinal" tambem — gerava confusao em Venda Rapida e vendas a vista,
+  // que nao tem o conceito de "sinal" (eh a cobranca em si).
+  const isSinal = p.kind === 'SINAL';
+  // Cobranca avulsa unica (venda balcao, pix avulso) — nao parcelada,
+  // sem priority. Mostra como "Pagamento" simples em vez de "Sinal".
+  const isSingleCharge = p.totalCount === 1 && !p.kind;
   // Status badge
   const status = (() => {
     if (isCancelled) return { label: 'CANCELADA', cls: 'bg-muted text-muted-foreground border-border' };
@@ -1183,11 +1190,15 @@ function ParcelaLinha({
     if (p.isNext) return { label: 'EM ABERTO', cls: 'bg-amber-500/15 text-amber-700 dark:text-amber-400 border-amber-500/30' };
     return { label: 'AGENDADA', cls: 'bg-muted/50 text-muted-foreground border-border' };
   })();
-  // Label da parcela
+  // Onda 17.32.76 — Label da parcela. "Sinal de fechamento" so quando
+  // kind eh explicitamente SINAL (pagamento antecipado). Cobranca
+  // unica (Venda Rapida, PIX avulso) vira "Pagamento".
   const label = isSinal
     ? 'Sinal de fechamento'
     : p.kind === 'ENTRADA'
     ? 'Entrada'
+    : isSingleCharge
+    ? 'Pagamento'
     : `Parcela ${p.number} de ${p.totalCount}`;
   // Metodo legivel
   const methodLabel = (() => {
@@ -1196,7 +1207,7 @@ function ParcelaLinha({
     if (p.method === 'CREDIT_CARD') return 'Cartão';
     return p.method || '—';
   })();
-  // Cor do icone
+  // Cor do icone — Sinal: emerald (destacado). Demais: cor do metodo.
   const iconBg = isSinal
     ? 'bg-emerald-500/10 text-emerald-700'
     : p.method === 'PIX'
@@ -1324,9 +1335,12 @@ function ChargeViewerModal({
       });
     return () => { cancelled = true; };
   }, [proxyUrl]);
+  // Onda 17.32.76 — Mesma logica de ParcelaLinha: "Sinal" so quando
+  // kind=SINAL explicito; cobranca unica vira "Pagamento".
   const label = (() => {
-    if (p.kind === 'SINAL' || (p.totalCount === 1 && !p.kind)) return 'Sinal de fechamento';
+    if (p.kind === 'SINAL') return 'Sinal de fechamento';
     if (p.kind === 'ENTRADA') return 'Entrada';
+    if (p.totalCount === 1 && !p.kind) return 'Pagamento';
     return `Parcela ${p.number} de ${p.totalCount}`;
   })();
   const methodLabel = p.method === 'PIX' ? 'PIX'
