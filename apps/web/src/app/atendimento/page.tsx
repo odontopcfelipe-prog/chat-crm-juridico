@@ -37,6 +37,8 @@ import { ChatHeader } from './components/ChatHeader';
 import { NotesPanel } from './components/NotesPanel';
 // Onda 17.32.56 — Painel de agendamento dentro da conversa
 import { AgendaPanel } from './components/AgendaPanel';
+// Onda 17.32.59 — Modal pra cadastrar/editar dados do contato (lead)
+import { CadastrarContatoModal } from './components/CadastrarContatoModal';
 // Onda 14.55 — split grid embedavel (em vez de pagina separada /atendimento/split)
 import SplitGrid from './components/SplitGrid';
 
@@ -1754,6 +1756,8 @@ export default function Dashboard() {
   const [eventModalUsers, setEventModalUsers] = useState<UserOption[]>([]);
   // Onda 17.32.56 — Painel lateral de agendamento (sem sair da conversa)
   const [agendaPanelOpen, setAgendaPanelOpen] = useState(false);
+  // Onda 17.32.59 — Modal de cadastrar/editar dados do contato
+  const [cadastrarContatoOpen, setCadastrarContatoOpen] = useState(false);
 
   // Abre o modal de criação de evento/tarefa vinculado ao lead do chat atual
   const openTaskModal = async () => {
@@ -2454,6 +2458,7 @@ export default function Dashboard() {
               onLightbox={setLightbox}
               onCreateTask={openTaskModal}
               onCreateAppointment={() => setAgendaPanelOpen(true)}
+              onCadastrarContato={() => setCadastrarContatoOpen(true)}
               onPromoteToClient={async () => {
                 if (!selected?.leadId) return;
                 if (!confirm(`Marcar ${selected.contactName || 'esse contato'} como cliente?\n\nEle vai mover pra aba "Clientes" no WhatsApp e a IA passa pro modo Pos-Venda.`)) return;
@@ -3891,6 +3896,21 @@ export default function Dashboard() {
           contactName={selected.contactName || 'Contato'}
           contactPhone={selected.contactPhone || null}
           conversationId={selectedId}
+        />
+      )}
+
+      {/* Onda 17.32.59 — Modal Cadastrar/Editar contato (lead) */}
+      {selected?.leadId && (
+        <CadastrarContatoModal
+          open={cadastrarContatoOpen}
+          onClose={() => setCadastrarContatoOpen(false)}
+          onSaved={() => { /* TODO: refresh nome no header — soft via socket ja vem */ }}
+          leadId={selected.leadId}
+          currentName={selected.contactName}
+          currentEmail={(selected as any).leadEmail || null}
+          currentOrigin={(selected as any).leadOrigin || null}
+          currentTags={(selected as any).leadTags || []}
+          currentPhone={selected.contactPhone}
         />
       )}
     </div>

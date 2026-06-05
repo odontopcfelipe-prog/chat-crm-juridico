@@ -51,6 +51,13 @@ export class UpdateLeadDto {
   @IsArray()
   @IsString({ each: true })
   tags?: string[];
+
+  // Onda 17.32.59 — Origem editavel apos criar lead (atalho "Cadastrar
+  // contato" dentro da conversa permite preencher pra leads que chegaram
+  // por WhatsApp sem origem registrada).
+  @IsOptional()
+  @IsString()
+  origin?: string;
 }
 
 export class UpdateLeadStageDto {

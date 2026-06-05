@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw, Calendar, UserPlus, UserMinus } from 'lucide-react';
+import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, ArrowLeft, ChevronDown, ChevronRight, MoreVertical, Clock, Copy, Check, Tag, Plus, X as XIcon, RefreshCw, Calendar, UserPlus, UserMinus, IdCard } from 'lucide-react';
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
@@ -73,6 +73,8 @@ export interface ChatHeaderProps {
   // Onda 17.32.58 — Promover/demover Lead<->Cliente manualmente
   onPromoteToClient?: () => void;
   onDemoteToLead?: () => void;
+  // Onda 17.32.59 — Cadastrar/editar dados do contato (lead)
+  onCadastrarContato?: () => void;
   onSyncHistory?: () => void;
   contactPresence?: string;
   // Task management
@@ -128,6 +130,7 @@ export function ChatHeader({
   onCreateAppointment,
   onPromoteToClient,
   onDemoteToLead,
+  onCadastrarContato,
   onSyncHistory,
   contactPresence,
   activeTask,
@@ -397,6 +400,29 @@ export function ChatHeader({
               Tarefa
             </button>
           )}
+          {/* Onda 17.32.59 — Cadastrar/editar dados do contato (lead).
+              Quando o lead.name = telefone (nao foi nomeado), botao
+              aparece destacado em laranja com "Cadastrar". Quando ja
+              tem nome real, aparece neutro com "Editar". */}
+          {selected?.leadId && isRealConvo && onCadastrarContato && (() => {
+            const name = selected.contactName || '';
+            const phone = selected.contactPhone || '';
+            const noName = name.replace(/\D/g, '') === phone.replace(/\D/g, '');
+            return (
+              <button
+                onClick={onCadastrarContato}
+                title={noName ? 'Cadastrar contato (preencher nome, email, origem)' : 'Editar dados do contato'}
+                className={`px-3 py-2 text-sm font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
+                  noName
+                    ? 'text-orange-400 bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 animate-pulse'
+                    : 'text-muted-foreground bg-muted/30 border-border hover:bg-muted/60'
+                }`}
+              >
+                <IdCard size={16} />
+                {noName ? 'Cadastrar' : 'Editar'}
+              </button>
+            );
+          })()}
           {/* Onda 17.32.58 — Promover Lead -> Cliente manualmente.
               Aparece quando NAO eh cliente ainda. Usado em casos onde
               o operador quer mover pra "Clientes" sem passar pelo
