@@ -44,6 +44,9 @@ interface AcceptedQuote {
   approved_count?: number;
   pending_count?: number;
   priority?: 'COMPLETO' | 'ESSENCIAL' | 'URGENTE' | null;
+  /** Onda 17.32.75 — notes usado pra detectar contratos criados via
+   *  Venda Rapida historicamente (quando title nao foi setado). */
+  notes?: string | null;
 }
 
 /** Onda 14.9 — cobrancas Asaas geradas pro paciente (PaymentGatewayCharge) */
@@ -968,8 +971,14 @@ function ProposalFinancialCard({
   // (quote.title). So cai pra label de prioridade (Urgente/Essencial/
   // Completo) se nao houver titulo. Antes priorizava prioridade e o
   // nome customizado nunca aparecia.
+  // Onda 17.32.75 — Detecta contratos vindos da Venda Rapida historica
+  // (sem title) pelo padrao do campo `notes`. Garante que tambem
+  // aparece "Venda rapida" mesmo nos contratos criados antes do fix.
   const priorityLabel = (() => {
     if (quote.title && quote.title.trim()) return quote.title;
+    if (quote.notes && /venda\s*r[áa]pida/i.test(quote.notes)) {
+      return 'Venda rápida';
+    }
     const p = (quote.priority || '').toUpperCase();
     if (p === 'URGENTE') return 'Urgente';
     if (p === 'ESSENCIAL') return 'Essencial';
