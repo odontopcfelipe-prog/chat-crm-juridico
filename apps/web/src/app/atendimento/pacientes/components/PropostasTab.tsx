@@ -920,6 +920,38 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // existente (criado na aba Avaliacao). Nao cria DRAFT vazio. Tambem ja
   // garante visible_in_proposals=true pra trazer de volta orcamentos que
   // o operador removeu antes.
+  // Onda 17.32.64 — Cria Quote DRAFT direto + atribui priority. Usado
+  // quando o paciente nao tem nenhum orcamento na aba Avaliacao e o
+  // operador quer criar proposta sem ir la primeiro. Idempotente:
+  // draft-or-create reutiliza DRAFT existente em vez de criar duplicado.
+  const createDraftWithPriority = useCallback(async (priority: Priority | null) => {
+    setCreatingVersion(true);
+    try {
+      // 1. Cria (ou reusa) DRAFT vazio pro paciente
+      const draftResp = await api.post<{ id: string }>(
+        `/commercial/patients/${patientId}/quotes/draft-or-create`,
+      );
+      const newQuoteId = (draftResp.data as any)?.id;
+      if (!newQuoteId) {
+        throw new Error('Backend nao retornou id do orcamento criado');
+      }
+      // 2. Atribui priority + garante visibilidade
+      await api.patch(`/quotes/${newQuoteId}`, {
+        priority,
+        visible_in_proposals: true,
+      });
+      const label = priority ? PRIORITY_CONFIG[priority].label : 'Livre';
+      showSuccess(`Proposta ${label} criada. Adicione os procedimentos pela aba Avaliacao quando puder.`);
+      setNewVersionOpen(false);
+      load();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao criar orcamento');
+    } finally {
+      setCreatingVersion(false);
+    }
+  }, [patientId, load]);
+
   const attachQuoteToPriority = useCallback(async (quoteId: string, priority: Priority | null) => {
     setCreatingVersion(true);
     // Optimistic — atualiza estado local antes do PATCH
@@ -1699,6 +1731,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           loading={creatingVersion}
           onCancel={() => setNewVersionOpen(false)}
           onAttach={attachQuoteToPriority}
+          onCreateDraft={createDraftWithPriority}
           onGoToAvaliacao={() => {
             setNewVersionOpen(false);
             onGoToEvaluation?.();
@@ -6991,6 +7024,7 @@ function NewVersionDialog({
   loading,
   onCancel,
   onAttach,
+  onCreateDraft,
   onGoToAvaliacao,
 }: {
   existingPriorities: Set<Priority>;
@@ -7000,6 +7034,9 @@ function NewVersionDialog({
   onCancel: () => void;
   /** Onda 14.23 — atribui priority a um orcamento existente (PATCH). */
   onAttach: (quoteId: string, priority: Priority | null) => void;
+  /** Onda 17.32.64 — Cria Quote DRAFT direto + atribui priority,
+   *  sem precisar passar pela aba Avaliacao. */
+  onCreateDraft: (priority: Priority | null) => void;
   /** Onda 14.23 — atalho pra criar orcamento na aba Avaliacao. */
   onGoToAvaliacao: () => void;
 }) {
@@ -7154,16 +7191,33 @@ function NewVersionDialog({
                   <Layers size={28} className="mx-auto text-muted-foreground/60 mb-2" />
                   <p className="text-sm font-semibold mb-1">Nenhum orçamento criado ainda</p>
                   <p className="text-xs text-muted-foreground mb-4">
-                    Pra atribuir uma proposta, crie um orçamento primeiro na aba <strong>Avaliação</strong>.
+                    Criar a proposta direto agora ou ir pra aba <strong>Avaliação</strong> primeiro?
                   </p>
-                  <button
-                    type="button"
-                    onClick={onGoToAvaliacao}
-                    className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
-                  >
-                    <ArrowLeft size={12} className="rotate-180" />
-                    Ir para Avaliação
-                  </button>
+                  {/* Onda 17.32.64 — 2 opcoes: criar direto (rapido) ou ir
+                      pra Avaliacao (montar orcamento detalhado primeiro). */}
+                  <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onCreateDraft(selectedPriority)}
+                      disabled={loading}
+                      className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      {loading ? <Loader2 size={12} className="animate-spin" /> : <Plus size={12} />}
+                      Criar orçamento agora
+                    </button>
+                    <button
+                      type="button"
+                      onClick={onGoToAvaliacao}
+                      disabled={loading}
+                      className="text-xs font-semibold text-foreground border border-border bg-card hover:bg-accent/40 px-3 py-2 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+                    >
+                      <ArrowLeft size={12} className="rotate-180" />
+                      Ir para Avaliação
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-muted-foreground mt-3">
+                    "Criar agora" gera proposta vazia — adicione procedimentos depois pela aba Avaliação.
+                  </p>
                 </div>
               ) : (
                 <>
