@@ -45,7 +45,9 @@ interface CartItem {
 
 // Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
 // quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
-type BillingType = 'PIX' | 'CREDIT_CARD';
+// Onda 17.32.71 — CASH (especie/dinheiro) separado de PIX. Backend
+// trata CASH como PIX + receiveInCash (marca como ja paga).
+type BillingType = 'PIX' | 'CASH' | 'CREDIT_CARD';
 
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
@@ -204,7 +206,8 @@ export default function VendaRapidaPage() {
     () => cart.reduce((sum, it) => sum + Number(it.procedure.base_price) * it.quantity, 0),
     [cart],
   );
-  const avistaDiscount = billingType === 'PIX' ? subtotal * 0.10 : 0;
+  // Onda 17.32.71 — Desconto a vista aplica pra PIX E CASH (ambos sao a vista)
+  const avistaDiscount = (billingType === 'PIX' || billingType === 'CASH') ? subtotal * 0.10 : 0;
   const total = subtotal - avistaDiscount;
 
   // Finaliza venda
@@ -229,7 +232,7 @@ export default function VendaRapidaPage() {
           billing_type: billingType,
           value: total,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
-          discount_percent: billingType === 'PIX' ? 10 : 0,
+          discount_percent: (billingType === 'PIX' || billingType === 'CASH') ? 10 : 0,
         },
       };
       const { data } = await api.post<any>('/commercial/venda-rapida', payload);
@@ -486,8 +489,9 @@ export default function VendaRapidaPage() {
             </p>
             <div className="space-y-1.5">
               {([
-                { key: 'PIX' as BillingType, label: 'PIX ou dinheiro', sub: 'à vista · −10%', Icon: DollarSign },
-                { key: 'CREDIT_CARD' as BillingType, label: 'Cartão de crédito', sub: 'até 6x sem juros', Icon: CreditCard },
+                { key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas · −10%', Icon: DollarSign },
+                { key: 'CASH' as BillingType, label: 'Espécie', sub: 'em mãos · −10%', Icon: ShoppingCart },
+                { key: 'CREDIT_CARD' as BillingType, label: 'Cartão', sub: 'até 6x sem juros', Icon: CreditCard },
               ]).map((m) => {
                 const isActive = billingType === m.key;
                 return (
@@ -669,7 +673,20 @@ function SuccessDialog({
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
-          {data.billingType === 'PIX' && data.pixQrCode ? (
+          {data.billingType === 'CASH' ? (
+            <div className="text-center py-4">
+              <div className="w-20 h-20 rounded-full bg-emerald-500/15 text-emerald-700 flex items-center justify-center mx-auto mb-3">
+                <CheckCircle2 size={48} strokeWidth={2} />
+              </div>
+              <p className="text-lg font-extrabold text-foreground mb-1">
+                Recebido em espécie!
+              </p>
+              <p className="text-sm text-muted-foreground max-w-sm mx-auto">
+                Pagamento registrado como recebido. Os procedimentos já
+                aparecem no tratamento do paciente.
+              </p>
+            </div>
+          ) : data.billingType === 'PIX' && data.pixQrCode ? (
             <div className="text-center">
               <p className="text-sm font-bold text-foreground mb-1">
                 Mostre o QR Code abaixo pro paciente

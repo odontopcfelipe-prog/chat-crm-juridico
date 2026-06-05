@@ -33,6 +33,7 @@ import { TreatmentPlansService } from './treatment-plans.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
 import { DownPaymentFlowService } from './down-payment-flow.service';
+import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Authenticated } from '../auth/decorators/authenticated.decorator';
 import type { AuthUser } from '../auth/decorators/authenticated.decorator';
@@ -87,6 +88,9 @@ export class CommercialController {
     private readonly creditCheckService: CreditCheckService,
     private readonly contractsService: ContractsService,
     private readonly contractPdfService: ContractPdfService,
+    // Onda 17.32.71 — usado pra "Venda Rapida com Especie": apos
+    // criar a charge PIX, marca como recebida em dinheiro no Asaas.
+    private readonly asaasClient: AsaasClient,
   ) {}
 
   // ─── Quotes ───────────────────────────────────────────────────
@@ -366,7 +370,10 @@ export class CommercialController {
         unit_price?: number;
       }>;
       payment: {
-        billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+        // Onda 17.32.71 — Adicionado 'CASH' (especie). Backend cria
+        // charge PIX e em seguida chama receiveInCash no Asaas pra
+        // marcar como recebida em dinheiro.
+        billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO' | 'CASH';
         value: number;
         installment_count?: number;
         discount_percent?: number;
@@ -394,21 +401,51 @@ export class CommercialController {
         notes: dto.notes || 'Venda rapida (balcao sem avaliacao)',
       },
     );
+    // Onda 17.32.71 — CASH eh tratado como PIX no Asaas (cria charge
+    // PIX) e depois marca como recebida em dinheiro. Operador nao
+    // precisa mostrar QR — paciente ja pagou em mãos.
+    const isCash = dto.payment.billing_type === 'CASH';
+    const billingTypeForAsaas: 'PIX' | 'CREDIT_CARD' | 'BOLETO' =
+      dto.payment.billing_type === 'CASH'
+        ? 'PIX'
+        : dto.payment.billing_type;
+
     // 2. approveAndBill (aceita + cria plan + gera charge)
     const result = await this.quotesService.approveAndBill(
       quote.id,
       user.tenant_id,
       user.id,
       {
-        billing_type: dto.payment.billing_type,
+        billing_type: billingTypeForAsaas,
         value: Number(dto.payment.value),
         installment_count: dto.payment.installment_count,
       },
     );
+
+    // 3. Se CASH, marca a charge como recebida em dinheiro no Asaas
+    //    (idempotente: se o webhook ja confirmou, retorna sucesso silencioso).
+    if (isCash && result?.charge?.external_id) {
+      try {
+        const today = new Date().toISOString().slice(0, 10);
+        await this.asaasClient.receiveInCash(
+          result.charge.external_id,
+          today,
+          Number(dto.payment.value),
+        );
+      } catch (e: any) {
+        // nao quebra — charge ja foi criada; operador pode marcar
+        // como recebida manualmente depois
+        console.warn(`[VENDA-RAPIDA] receiveInCash falhou pra ${result.charge.external_id}: ${e?.message}`);
+      }
+    }
+
     return {
       ...result,
       quote_id: quote.id,
       quote_number: quote.quote_number,
+      // Onda 17.32.71 — Flag pro frontend saber que ja foi pago e
+      // nao precisa mostrar QR PIX no dialog de sucesso.
+      paid_in_cash: isCash,
     };
   }
 
