@@ -31,8 +31,10 @@ model Tenant {
   trial_ends_at    DateTime? // quando TRIAL expira (fica SUSPENDED)
   suspended_at     DateTime?
   suspended_reason String?
+  // Onda 17.32.87 — @default(now()) + @updatedAt evita NOT NULL error
+  // em prisma db push quando ja ha linhas existentes na tabela
   created_at       DateTime  @default(now())
-  updated_at       DateTime  @updatedAt
+  updated_at       DateTime  @default(now()) @updatedAt
 
   conversations               Conversation[]
   leads                       Lead[]
@@ -532,8 +534,10 @@ model SaasPlan {
   active            Boolean @default(true)
   display_order     Int     @default(0)
 
+  // Onda 17.32.87 — @default(now()) tambem em updated_at evita NOT NULL
+  // error em prisma db push quando ja ha linhas existentes na tabela.
   created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  updated_at DateTime @default(now()) @updatedAt
 
   subscriptions SaasSubscription[]
 }
@@ -562,8 +566,10 @@ model SaasSubscription {
 
   billing_type String @default("BOLETO") // PIX | BOLETO | CREDIT_CARD
 
+  // Onda 17.32.87 — @default(now()) tambem em updated_at evita NOT NULL
+  // error em prisma db push.
   created_at DateTime @default(now())
-  updated_at DateTime @updatedAt
+  updated_at DateTime @default(now()) @updatedAt
 
   plan SaasPlan @relation(fields: [plan_id], references: [id])
 
