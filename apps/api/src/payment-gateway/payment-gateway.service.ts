@@ -58,9 +58,10 @@ export class PaymentGatewayService {
     if (!charge) throw new NotFoundException('Cobranca nao encontrada');
 
     // Refresh do status no Asaas
+    // Onda 17.32.83 — passa tenant_id pra usar settings do tenant
     let asaasCharge: any;
     try {
-      asaasCharge = await this.asaas.getCharge(charge.external_id);
+      asaasCharge = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
     } catch (err: any) {
       this.logger.warn(`[SUB-INSTALLMENTS] Falha refresh charge ${charge.external_id}: ${err.message}`);
       return { parent_status: charge.status, sub_installments: [] };
@@ -76,7 +77,7 @@ export class PaymentGatewayService {
       const list = await this.asaas.listCharges({
         installment: asaasCharge.installment,
         limit: 50,
-      });
+      }, charge.tenant_id);
       let rows = list?.data || [];
 
       // Onda 15 (etapa 16.6) — A listagem do Asaas as vezes nao traz o
@@ -92,7 +93,7 @@ export class PaymentGatewayService {
         await Promise.all(
           missingBoleto.map(async (c: any) => {
             try {
-              const detail = await this.asaas.getCharge(c.id);
+              const detail = await this.asaas.getCharge(c.id, charge.tenant_id);
               c.bankSlipUrl = detail.bankSlipUrl || c.bankSlipUrl;
               c.invoiceUrl = detail.invoiceUrl || c.invoiceUrl;
               c.nossoNumero = detail.nossoNumero || c.nossoNumero;
@@ -384,7 +385,7 @@ export class PaymentGatewayService {
       email: patient.email || undefined,
       phone: patient.phone || undefined,
       externalReference: patient.id,
-    });
+    }, tenantId);
     this.logger.log(`[CUSTOMER] Criado no Asaas para paciente ${patientId}: ${asaasCustomer.id}`);
 
     return this.prisma.paymentGatewayCustomer.create({
@@ -441,13 +442,14 @@ export class PaymentGatewayService {
     }
 
     // Criar customer no Asaas
+    // Onda 17.32.83 — tenantId vem do escopo do metodo (ensureCustomer)
     const asaasCustomer = await this.asaas.createCustomer({
       name: lead.name || 'Sem nome',
       cpfCnpj,
       email: lead.email || undefined,
       phone: lead.phone || undefined,
       externalReference: lead.id,
-    });
+    }, tenantId);
 
     this.logger.log(
       `[CUSTOMER] Criado no Asaas: ${asaasCustomer.id} para lead ${leadId}`,
@@ -521,6 +523,7 @@ export class PaymentGatewayService {
     const honType = (payment as any).lead_honorario?.type || '';
     const typeLabels: Record<string, string> = { CONTRATUAL: 'Contratuais', ENTRADA: 'Entrada', ACORDO: 'Acordo' };
 
+    const effectiveTenantId = tenantId || honTenant;
     const asaasCharge = await this.asaas.createCharge({
       customer: customer.external_id,
       billingType,
@@ -528,13 +531,13 @@ export class PaymentGatewayService {
       dueDate: dueDateStr,
       description: `Honorário ${typeLabels[honType] || honType} - Lead ${lead.name || 'Sem nome'}`.trim(),
       externalReference: leadHonorarioPaymentId,
-    });
+    }, effectiveTenantId);
 
     this.logger.log(`[CHARGE] Criada para lead: ${asaasCharge.id} | ${billingType} | R$ ${Number(payment.amount)} | Venc: ${dueDateStr}`);
 
     let pixData: any = null;
     if (billingType === 'PIX' && asaasCharge.id) {
-      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id, effectiveTenantId); }
       catch (e: any) { this.logger.warn(`[CHARGE] Falha QR Code PIX: ${e.message}`); }
     }
 
@@ -636,7 +639,7 @@ export class PaymentGatewayService {
       `Parcela ${installment.sequence}/${installment.total_count}` +
       ` — ${installment.patient.name}`;
 
-    // Criar cobranca no Asaas
+    // Criar cobranca no Asaas (tenantId vem do escopo)
     const asaasCharge = await this.asaas.createCharge({
       customer: customer.external_id,
       billingType,
@@ -644,7 +647,7 @@ export class PaymentGatewayService {
       dueDate: dueDateStr,
       description,
       externalReference: installmentId,
-    });
+    }, tenantId);
 
     this.logger.log(
       `[CHARGE-INST] Criada no Asaas: ${asaasCharge.id} | ${billingType} | R$ ${value} | Venc: ${dueDateStr}`,
@@ -653,7 +656,7 @@ export class PaymentGatewayService {
     // PIX QR Code (se aplicavel)
     let pixData: any = null;
     if (billingType === 'PIX' && asaasCharge.id) {
-      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id, tenantId); }
       catch (e: any) { this.logger.warn(`[CHARGE-INST] Falha QR Code PIX: ${e.message}`); }
     }
 
@@ -710,7 +713,7 @@ export class PaymentGatewayService {
 
     let asaasData: any = null;
     try {
-      asaasData = await this.asaas.getCharge(charge.external_id);
+      asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
       const mapped = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
       if (mapped !== charge.status) {
         await this.prisma.paymentGatewayCharge.update({
@@ -778,6 +781,7 @@ export class PaymentGatewayService {
     const description = `Honorário ${typeLabels[honorario.type] || honorario.type} - ${honorario.lead.name || 'Lead'} (${installmentCount}x)`.trim();
 
     // Criar cobrança parcelada no Asaas
+    const effectiveTenantId2 = tenantId || honorario.tenant_id || null;
     const asaasCharge = await this.asaas.createCharge({
       customer: customer.external_id,
       billingType,
@@ -787,13 +791,13 @@ export class PaymentGatewayService {
       externalReference: leadHonorarioId,
       installmentCount,
       installmentValue,
-    });
+    }, effectiveTenantId2);
 
     this.logger.log(`[CHARGE] Parcelada criada no Asaas: ${asaasCharge.id} | ${billingType} | ${installmentCount}x R$ ${installmentValue} | Total: R$ ${totalValue}`);
 
     let pixData: any = null;
     if (billingType === 'PIX' && asaasCharge.id) {
-      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id, effectiveTenantId2); }
       catch (e: any) { this.logger.warn(`[CHARGE] Falha QR Code PIX: ${e.message}`); }
     }
 
@@ -1102,7 +1106,7 @@ export class PaymentGatewayService {
 
     for (const charge of pendingCharges) {
       try {
-        const asaasData = await this.asaas.getCharge(charge.external_id);
+        const asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
         const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
 
         if (mappedStatus !== charge.status) {
@@ -1127,7 +1131,7 @@ export class PaymentGatewayService {
   // ─── Settings ──────────────────────────────────────────
 
   async getSettings(tenantId?: string) {
-    const config = await this.asaas.getConfig();
+    const config = await this.asaas.getConfig(tenantId);
 
     return {
       provider: 'ASAAS',
@@ -1152,9 +1156,9 @@ export class PaymentGatewayService {
     let offset = 0;
     const limit = 100;
 
-    // Paginar todos os clientes do Asaas
+    // Paginar todos os clientes do Asaas (usa conta do tenant quando disponivel)
     while (true) {
-      const page = await this.asaas.listCustomers({ offset, limit });
+      const page = await this.asaas.listCustomers({ offset, limit }, tenantId);
       const items = page?.data || [];
       allCustomers = [...allCustomers, ...items];
       if (!page?.hasMore || items.length === 0) break;
@@ -1311,8 +1315,8 @@ export class PaymentGatewayService {
 
   /** Vinculacao manual: conecta um cliente Asaas a um lead do CRM */
   async linkCustomerToLead(asaasCustomerId: string, leadId: string, tenantId?: string) {
-    // Buscar dados do cliente no Asaas
-    const cust = await this.asaas.getCustomer(asaasCustomerId);
+    // Buscar dados do cliente no Asaas (usa tenantId quando disponivel)
+    const cust = await this.asaas.getCustomer(asaasCustomerId, tenantId);
     if (!cust) throw new NotFoundException('Cliente nao encontrado no Asaas');
 
     // Verificar se lead existe

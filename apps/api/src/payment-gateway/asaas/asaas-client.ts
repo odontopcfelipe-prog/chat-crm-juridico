@@ -224,7 +224,7 @@ export class AsaasClient {
     externalReference?: string;
     offset?: number;
     limit?: number;
-  }): Promise<any> {
-    return this.request<any>('GET', '/customers', undefined, params);
+  }, tenantId?: string | null): Promise<any> {
+    return this.request<any>('GET', '/customers', undefined, params, tenantId);
   }
 }

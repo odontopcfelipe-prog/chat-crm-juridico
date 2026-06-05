@@ -23,21 +23,66 @@ export class WhatsappService {
     return normalized;
   }
 
+  /**
+   * Onda 17.32.84 — Resolve qual instance/key/baseUrl da Evolution usar.
+   * Ordem de precedencia:
+   *   1. TenantSetting{tenant_id, key} — config do tenant
+   *   2. GlobalSetting (via WhatsAppConfig) — fallback compartilhado
+   *   3. env vars EVOLUTION_INSTANCE_NAME, EVOLUTION_API_KEY, EVOLUTION_BASE_URL
+   *   4. Default 'whatsapp'
+   */
+  async resolveEvolutionConfig(tenantId?: string | null): Promise<{
+    apiUrl: string;
+    apiKey: string;
+    instanceName: string;
+  }> {
+    const { getTenantSetting } = await import('../tenants/tenant-settings.helper.js');
+    const tInst = await getTenantSetting(this.prisma, 'EVOLUTION_INSTANCE_NAME', tenantId, 'EVOLUTION_INSTANCE_NAME');
+    const tKey  = await getTenantSetting(this.prisma, 'EVOLUTION_API_KEY',       tenantId, 'EVOLUTION_API_KEY');
+    const tUrl  = await getTenantSetting(this.prisma, 'EVOLUTION_BASE_URL',      tenantId, 'EVOLUTION_BASE_URL');
+
+    // Fallback pra GlobalSetting via SettingsService quando tenant nao tem
+    let apiUrl = tUrl;
+    let apiKey = tKey;
+    if (!apiUrl || !apiKey) {
+      const global = await this.settingsService.getWhatsAppConfig();
+      apiUrl = apiUrl || global.apiUrl || '';
+      apiKey = apiKey || global.apiKey || '';
+    }
+    return {
+      apiUrl: apiUrl || '',
+      apiKey: apiKey || '',
+      instanceName: tInst || 'whatsapp',
+    };
+  }
+
   private async request(
     method: 'GET' | 'POST' | 'DELETE',
     path: string,
     body?: any,
     timeoutMs = 15000,
+    tenantId?: string | null,
   ) {
-    const config = await this.settingsService.getWhatsAppConfig();
-    const baseUrl = this.normalizeUrl(config.apiUrl || '');
+    // Onda 17.32.84 — Quando tenantId passado, usa config DO TENANT.
+    // Senao, mantem comportamento legacy (config global compartilhada).
+    let baseUrl: string;
+    let apiKey: string;
+    if (tenantId) {
+      const cfg = await this.resolveEvolutionConfig(tenantId);
+      baseUrl = this.normalizeUrl(cfg.apiUrl);
+      apiKey = cfg.apiKey;
+    } else {
+      const config = await this.settingsService.getWhatsAppConfig();
+      baseUrl = this.normalizeUrl(config.apiUrl || '');
+      apiKey = config.apiKey || '';
+    }
     const url = `${baseUrl}/${path}`;
     try {
       const response = await fetch(url, {
         method,
         headers: {
           'Content-Type': 'application/json',
-          apikey: config.apiKey || '',
+          apikey: apiKey,
         },
         body: body ? JSON.stringify(body) : undefined,
         signal: AbortSignal.timeout(timeoutMs),
@@ -64,11 +109,24 @@ export class WhatsappService {
 
   // --- MENSAGENS ---
 
-  async sendText(number: string, text: string, instanceName?: string, quoted?: { key: { remoteJid: string; fromMe: boolean; id: string }; message: { conversation: string } }) {
-    const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+  /**
+   * Onda 17.32.84 — Aceita tenantId opcional. Quando passado, usa
+   * a instancia Evolution DO TENANT (TenantSetting{EVOLUTION_INSTANCE_NAME}).
+   * Sem tenantId, mantem comportamento legacy.
+   */
+  async sendText(number: string, text: string, instanceName?: string, quoted?: { key: { remoteJid: string; fromMe: boolean; id: string }; message: { conversation: string } }, tenantId?: string | null) {
+    let targetInstance = instanceName;
+    if (!targetInstance) {
+      if (tenantId) {
+        const cfg = await this.resolveEvolutionConfig(tenantId);
+        targetInstance = cfg.instanceName;
+      } else {
+        targetInstance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+      }
+    }
     const payload: any = { number, text };
     if (quoted) payload.quoted = quoted;
-    return this.request('POST', `message/sendText/${targetInstance}`, payload);
+    return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
   }
 
   async deleteForEveryone(instanceName: string, remoteJid: string, externalMessageId: string, fromMe: boolean) {
