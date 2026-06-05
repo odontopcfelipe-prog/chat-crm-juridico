@@ -222,34 +222,66 @@ export default function VendaRapidaPage() {
     }
     setFinishing(true);
     try {
-      const payload = {
-        patient_id: patient.id,
-        items: cart.map((it) => ({
-          procedure_id: it.procedure.id,
-          quantity: it.quantity,
-        })),
-        payment: {
-          billing_type: billingType,
+      // Onda 17.32.72 — Em vez de POST /commercial/venda-rapida (rota
+      // nova que depende de deploy do API), faz 2-3 chamadas em
+      // sequencia usando endpoints que JA EXISTEM:
+      //   1. POST /commercial/patients/:id/quotes   (cria Quote+items)
+      //   2. POST /quotes/:id/approve-and-bill       (aprova + cobra)
+      //   3. POST /payment-gateway/charges/asaas/:asaasId/receive-in-cash
+      //      (so pra CASH — marca como recebida em dinheiro)
+      //
+      // Funciona imediatamente, sem depender de rebuild do API.
+
+      // 1. Cria Quote (com items)
+      const discountPercent = (billingType === 'PIX' || billingType === 'CASH') ? 10 : 0;
+      const { data: quoteData } = await api.post<any>(
+        `/commercial/patients/${patient.id}/quotes`,
+        {
+          items: cart.map((it) => ({
+            procedure_id: it.procedure.id,
+            quantity: it.quantity,
+          })),
+          discount_percent: discountPercent,
+          notes: 'Venda rapida (balcao sem avaliacao)',
+        },
+      );
+      const quoteId = quoteData?.id || quoteData?.quote?.id;
+      if (!quoteId) throw new Error('Falha ao criar orcamento');
+
+      // 2. approveAndBill — cria charge Asaas
+      // Pra CASH, manda PIX (e marca como recebida em dinheiro no passo 3)
+      const isCash = billingType === 'CASH';
+      const { data: billData } = await api.post<any>(
+        `/quotes/${quoteId}/approve-and-bill`,
+        {
+          billing_type: isCash ? 'PIX' : billingType,
           value: total,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
-          discount_percent: (billingType === 'PIX' || billingType === 'CASH') ? 10 : 0,
         },
-      };
-      const { data } = await api.post<any>('/commercial/venda-rapida', payload);
-      // Onda 17.32.70 — Abre dialog com QR PIX / link cartao na tela em
-      // vez de redirecionar. Operador pode mostrar o QR direto pro
-      // paciente que ja esta na clinica.
+      );
+
+      // 3. CASH — receiveInCash imediato pra registrar como recebida
+      const asaasId = billData?.charge?.external_id;
+      if (isCash && asaasId) {
+        try {
+          await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`);
+        } catch (e: any) {
+          console.warn('[VENDA-RAPIDA] receiveInCash falhou:', e?.message);
+          // Nao bloqueia — operador pode marcar manualmente depois
+        }
+      }
+
+      // Onda 17.32.70 — Dialog de sucesso
       setSuccessDialog({
         billingType,
         total,
         patientName: patient.name,
         patientId: patient.id,
-        pixQrCode: data?.pix?.qrCode || null,
-        pixCopyPaste: data?.pix?.copyPaste || null,
-        invoiceUrl: data?.invoice_url || null,
-        boletoUrl: data?.boleto?.url || null,
+        pixQrCode: billData?.pix?.qrCode || null,
+        pixCopyPaste: billData?.pix?.copyPaste || null,
+        invoiceUrl: billData?.invoice_url || null,
+        boletoUrl: billData?.boleto?.url || null,
       });
-      // Reseta carrinho pra proxima venda
       setCart([]);
       showSuccess('Venda finalizada!');
     } catch (err: any) {
