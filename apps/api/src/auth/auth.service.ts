@@ -1,18 +1,45 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ForbiddenException } from '@nestjs/common';
 import { UsersService } from '../users/users.service';
 import { JwtService } from '@nestjs/jwt';
+import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
 
 @Injectable()
 export class AuthService {
   constructor(
     private usersService: UsersService,
-    private jwtService: JwtService
+    private jwtService: JwtService,
+    // Onda 17.32.77 — Pra consultar status do tenant no gate de login
+    private prisma: PrismaService,
   ) {}
 
   async validateUser(email: string, pass: string): Promise<any> {
     const user = await this.usersService.findOne(email);
     if (user && await argon2.verify(user.password_hash, pass)) {
+      // Onda 17.32.77 — Gate SaaS: bloqueia login se tenant suspenso.
+      // SUPER_ADMIN bypassa (precisa entrar pra reativar). Tenant sem id
+      // (legacy) tambem bypassa pra nao quebrar sistema antigo.
+      const roles: string[] = Array.isArray(user.roles) ? user.roles : [];
+      if (!roles.includes('SUPER_ADMIN') && user.tenant_id) {
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: user.tenant_id },
+          select: { status: true, suspended_reason: true, trial_ends_at: true, name: true },
+        });
+        if (tenant?.status === 'SUSPENDED') {
+          throw new ForbiddenException(
+            `Acesso suspenso${tenant.suspended_reason ? `: ${tenant.suspended_reason}` : ''}. Entre em contato com o suporte.`,
+          );
+        }
+        if (tenant?.status === 'DELETED') {
+          throw new ForbiddenException('Conta encerrada. Entre em contato com o suporte.');
+        }
+        // TRIAL expirado vira SUSPENDED implicito
+        if (tenant?.status === 'TRIAL' && tenant.trial_ends_at && tenant.trial_ends_at < new Date()) {
+          throw new ForbiddenException(
+            'Periodo de avaliacao expirado. Entre em contato pra contratar.',
+          );
+        }
+      }
       const { password_hash, ...result } = user;
       return result;
     }

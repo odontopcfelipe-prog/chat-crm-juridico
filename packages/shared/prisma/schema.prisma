@@ -8,8 +8,32 @@ datasource db {
 }
 
 model Tenant {
-  id                          String                      @id @default(uuid())
-  name                        String
+  id   String @id @default(uuid())
+  name String
+
+  // Onda 17.32.77 — Multi-tenant SaaS Fase 1.
+  // Identificacao publica e branding (white-label).
+  slug             String?   @unique // ex: "clinica-passos" -> /t/clinica-passos
+  cpf_cnpj         String? // pra cobranca da mensalidade
+  phone            String?
+  email            String? // contato principal
+  logo_url         String? // exibido em login + sidebar + PDFs
+  theme_color      String? // hex ex: "#3B82F6"
+  custom_domain    String?   @unique // ex: "sistema.clinicapassos.com.br"
+  /// Usuario "dono" (responsavel financeiro do tenant). Quando suspende, ele eh
+  /// avisado. Nao bloqueia delete do User — owner_user_id vira null.
+  owner_user_id    String?
+  // Status do tenant — gate de login + filtros admin
+  /// ACTIVE | TRIAL | SUSPENDED | DELETED
+  status           String    @default("ACTIVE")
+  /// Plano contratado — STARTER | PRO | ENTERPRISE | CUSTOM
+  plan             String    @default("STARTER")
+  trial_ends_at    DateTime? // quando TRIAL expira (fica SUSPENDED)
+  suspended_at     DateTime?
+  suspended_reason String?
+  created_at       DateTime  @default(now())
+  updated_at       DateTime  @updatedAt
+
   conversations               Conversation[]
   leads                       Lead[]
   tasks                       Task[]

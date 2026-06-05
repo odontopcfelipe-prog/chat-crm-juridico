@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { PrismaModule } from './prisma/prisma.module';
+// Onda 17.32.77 — SaaS Fase 1: gestao de Tenants (SUPER_ADMIN)
+import { TenantsModule } from './tenants/tenants.module';
 import { UsersModule } from './users/users.module';
 import { AuthModule } from './auth/auth.module';
 import { LeadsModule } from './leads/leads.module';
@@ -90,6 +92,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
       }),
     }),
     PrismaModule,
+    TenantsModule,
     S3Module,
     UsersModule,
     AuthModule,

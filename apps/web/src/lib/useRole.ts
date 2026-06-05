@@ -2,12 +2,14 @@
 
 import { useMemo } from 'react';
 
-export type AppRole = 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
+// Onda 17.32.77 — SUPER_ADMIN: cross-tenant, ve todos os tenants do SaaS.
+export type AppRole = 'SUPER_ADMIN' | 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'FINANCEIRO';
 
 export interface RoleInfo {
   role: AppRole | null;       // Primeiro role (backward compat)
   roles: AppRole[];           // Todos os roles do usuário
   userId: string | null;
+  isSuperAdmin: boolean;      // Onda 17.32.77 — admin do SaaS (cross-tenant)
   isAdmin: boolean;
   isDentist: boolean;
   isOperador: boolean;
@@ -90,6 +92,7 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
   return {
     role: roles[0] || null,  // Backward compat: primeiro role
     roles,
+    isSuperAdmin: roles.includes('SUPER_ADMIN'),
     userId,
     isAdmin: roles.includes('ADMIN'),
     isDentist,
