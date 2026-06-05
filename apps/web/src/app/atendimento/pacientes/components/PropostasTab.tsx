@@ -1457,42 +1457,82 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // Onda 14.23 — empty state da aba inteira:
     // - Se ja ha orcamentos no paciente (mas nenhum visivel aqui), oferece
     //   atribuir priority via dialog "+ Nova proposta"
-    // - Se nao ha orcamento nenhum, oferece criar na aba Avaliacao primeiro
+    // - Se nao ha orcamento nenhum, oferece criar direto OU ir pra Avaliacao
     const hasAnyQuotes = quotes.some(
       (q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED',
     );
     return (
-      <div className="bg-card border border-border border-dashed rounded-xl p-10 text-center">
-        <Layers size={32} className="mx-auto text-muted-foreground/60 mb-3" />
-        <p className="text-sm font-medium text-foreground mb-1">
-          Nenhuma proposta pra comparar
-        </p>
-        <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
-          {hasAnyQuotes
-            ? <>Você já tem orçamentos criados. Clique em <strong>“+ Nova proposta”</strong> pra atribuir prioridade (Urgente, Essencial, Completo ou Livre).</>
-            : <>Pra criar uma proposta, primeiro crie um orçamento na aba <strong>Avaliação</strong>. Depois venha aqui pra atribuir prioridade.</>
-          }
-        </p>
-        {hasAnyQuotes ? (
-          <button
-            type="button"
-            onClick={() => setNewVersionOpen(true)}
-            className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
-          >
-            <Plus size={14} />
-            Nova proposta
-          </button>
-        ) : (
-          <button
-            type="button"
-            onClick={() => onGoToEvaluation?.()}
-            disabled={!onGoToEvaluation}
-            className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1 disabled:opacity-50"
-          >
-            Ir para Avaliação
-          </button>
+      // Onda 17.32.65 — BUG FIX: envolve em fragment pra renderizar o
+      // <NewVersionDialog> tambem no empty state. Antes o dialog so
+      // existia no return principal, entao clicar "+ Nova proposta"
+      // no empty state nao abria NADA (estado mudava mas o componente
+      // do dialog nem estava na arvore).
+      <>
+        <div className="bg-card border border-border border-dashed rounded-xl p-10 text-center">
+          <Layers size={32} className="mx-auto text-muted-foreground/60 mb-3" />
+          <p className="text-sm font-medium text-foreground mb-1">
+            Nenhuma proposta pra comparar
+          </p>
+          <p className="text-xs text-muted-foreground max-w-md mx-auto mb-4">
+            {hasAnyQuotes
+              ? <>Você já tem orçamentos criados. Clique em <strong>“+ Nova proposta”</strong> pra atribuir prioridade (Urgente, Essencial, Completo ou Livre).</>
+              : <>Crie uma proposta direto agora ou monte o orçamento detalhado na aba <strong>Avaliação</strong> primeiro.</>
+            }
+          </p>
+          {hasAnyQuotes ? (
+            <button
+              type="button"
+              onClick={() => setNewVersionOpen(true)}
+              className="text-xs font-semibold text-primary-foreground bg-primary px-3 py-1.5 rounded-lg hover:opacity-90 inline-flex items-center gap-1"
+            >
+              <Plus size={14} />
+              Nova proposta
+            </button>
+          ) : (
+            // Onda 17.32.65 — Sem orcamentos: oferece criar direto + atalho Avaliacao
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-2">
+              <button
+                type="button"
+                onClick={() => setNewVersionOpen(true)}
+                className="text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+              >
+                <Plus size={12} />
+                Criar proposta agora
+              </button>
+              <button
+                type="button"
+                onClick={() => onGoToEvaluation?.()}
+                disabled={!onGoToEvaluation}
+                className="text-xs font-semibold text-foreground border border-border bg-card hover:bg-accent/40 px-3 py-1.5 rounded-lg disabled:opacity-50 inline-flex items-center gap-1.5"
+              >
+                Ir para Avaliação
+              </button>
+            </div>
+          )}
+        </div>
+        {/* Onda 17.32.65 — Dialog tambem no empty state (estava so no return
+            principal, gerando bug "clica + Nova proposta e nao acontece nada"). */}
+        {newVersionOpen && (
+          <NewVersionDialog
+            existingPriorities={
+              new Set(
+                Array.from(grouped.keys()).filter((k): k is Priority => k !== 'NONE'),
+              )
+            }
+            availableQuotes={quotes.filter((q) =>
+              q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED'
+            )}
+            loading={creatingVersion}
+            onCancel={() => setNewVersionOpen(false)}
+            onAttach={attachQuoteToPriority}
+            onCreateDraft={createDraftWithPriority}
+            onGoToAvaliacao={() => {
+              setNewVersionOpen(false);
+              onGoToEvaluation?.();
+            }}
+          />
         )}
-      </div>
+      </>
     );
   }
 
