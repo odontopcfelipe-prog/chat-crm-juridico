@@ -21,6 +21,8 @@ import { NotificationCenter } from '@/app/atendimento/components/NotificationCen
 // Center quando user clica no sininho.
 // import { NotificationToggle } from '@/components/NotificationToggle';
 import { useRole } from '@/lib/useRole';
+// Onda 17.32.78 — White-label: nome + logo + cor por tenant
+import { useTenant, applyTenantTheme } from '@/lib/useTenant';
 import { THEMES } from '@/components/ThemeSwitcher';
 import { useVisualMode } from '@/components/VisualModeProvider';
 
@@ -93,6 +95,10 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme();
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const perms = useRole();
+  // Onda 17.32.78 — Branding por tenant (white-label).
+  // Aplica theme_color como CSS var no <html> e disponibiliza nome+logo.
+  const tenant = useTenant();
+  useEffect(() => { applyTenantTheme(tenant); }, [tenant]);
 
   // Onda 15.8 — Mapeia o role principal pra label legivel exibida embaixo do
   // nome no rodape da sidebar (estilo LUMEN "Cirurgia-Dentista"). Fallback
@@ -888,37 +894,59 @@ export function Sidebar() {
           className={`flex items-center gap-2.5 shrink-0 cursor-pointer focus:outline-none ${expanded ? '' : 'flex-col'}`}
           aria-label="Página Inicial"
         >
-          {/* Box quadrado com gradient do tema + icone de "dente" (SVG inline
-              porque lucide-react nao tem icone de dente especifico) */}
+          {/* Onda 17.32.78 — White-label: usa logo do tenant se houver,
+              senao mantem o icone de dente padrao da plataforma. */}
           <div
-            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ring-1 ring-primary-foreground/20"
-            style={{
-              background: 'var(--gradient-accent)',
-            }}
+            className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 shadow-lg ring-1 ring-primary-foreground/20 overflow-hidden bg-card"
+            style={tenant?.logo_url ? undefined : { background: 'var(--gradient-accent)' }}
           >
-            <svg
-              width="22"
-              height="22"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className="text-white drop-shadow"
-            >
-              {/* Dente simplificado: 2 raizes + coroa arredondada */}
-              <path d="M12 2C8.5 2 6 4 6 7c0 1.5.5 3 1 4.5.5 1.5.5 3 .5 4.5 0 2 .5 6 2 6 1 0 1.5-2 2-4 .3-1.3.5-2 .5-2s.2.7.5 2c.5 2 1 4 2 4 1.5 0 2-4 2-6 0-1.5 0-3 .5-4.5.5-1.5 1-3 1-4.5 0-3-2.5-5-6-5z" />
-            </svg>
+            {tenant?.logo_url ? (
+              <img
+                src={tenant.logo_url}
+                alt={tenant.name || 'Logo'}
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <svg
+                width="22"
+                height="22"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                className="text-white drop-shadow"
+              >
+                <path d="M12 2C8.5 2 6 4 6 7c0 1.5.5 3 1 4.5.5 1.5.5 3 .5 4.5 0 2 .5 6 2 6 1 0 1.5-2 2-4 .3-1.3.5-2 .5-2s.2.7.5 2c.5 2 1 4 2 4 1.5 0 2-4 2-6 0-1.5 0-3 .5-4.5.5-1.5 1-3 1-4.5 0-3-2.5-5-6-5z" />
+              </svg>
+            )}
           </div>
           {expanded && (
+            // Onda 17.32.78 — White-label: usa nome do tenant se disponivel.
+            // Fallback: "ODONTO SYSTEM" (default da plataforma).
             <div className="flex flex-col items-start leading-none min-w-0">
-              <span className="text-[15px] font-extrabold tracking-tight text-primary-foreground">
-                ODONTO
-              </span>
-              <span className="text-[9px] font-bold tracking-[0.18em] text-primary-foreground/70 mt-0.5">
-                SYSTEM
-              </span>
+              {tenant?.name ? (
+                <>
+                  <span className="text-[15px] font-extrabold tracking-tight text-primary-foreground truncate max-w-[140px]">
+                    {tenant.name.split(' ')[0].toUpperCase()}
+                  </span>
+                  {tenant.name.split(' ').length > 1 && (
+                    <span className="text-[9px] font-bold tracking-[0.18em] text-primary-foreground/70 mt-0.5 truncate max-w-[140px]">
+                      {tenant.name.split(' ').slice(1).join(' ').toUpperCase()}
+                    </span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="text-[15px] font-extrabold tracking-tight text-primary-foreground">
+                    ODONTO
+                  </span>
+                  <span className="text-[9px] font-bold tracking-[0.18em] text-primary-foreground/70 mt-0.5">
+                    SYSTEM
+                  </span>
+                </>
+              )}
             </div>
           )}
         </button>

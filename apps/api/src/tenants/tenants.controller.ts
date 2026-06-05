@@ -11,10 +11,41 @@
  * de um tenant) nao tem acesso.
  */
 import {
-  Controller, Get, Post, Patch, Param, Body, Query, BadRequestException, NotFoundException,
+  Controller, Get, Post, Patch, Param, Body, Query, Req, BadRequestException, NotFoundException,
 } from '@nestjs/common';
 import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
 import { TenantsService } from './tenants.service';
+
+/**
+ * Onda 17.32.78 — Endpoint publico (autenticado) pra qualquer user
+ * consultar dados do PROPRIO tenant (white-label do frontend).
+ * Separado pra nao depender do SuperAdminGuard.
+ */
+@Controller('tenants')
+export class TenantsMeController {
+  constructor(private readonly service: TenantsService) {}
+
+  /** Retorna branding + status do tenant do usuario logado. */
+  @Get('me')
+  async getMyTenant(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) return null;
+    const t = await this.service.findOne(tenantId);
+    if (!t) return null;
+    // Retorna so o necessario pra branding/UI (nao expoe contadores
+    // sensiveis se nao for ADMIN do tenant)
+    return {
+      id: t.id,
+      name: t.name,
+      slug: t.slug,
+      logo_url: t.logo_url,
+      theme_color: t.theme_color,
+      status: t.status,
+      plan: t.plan,
+      trial_ends_at: t.trial_ends_at,
+    };
+  }
+}
 
 interface CreateTenantBody {
   name: string;
