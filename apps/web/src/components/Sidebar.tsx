@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone, HandCoins, Square, CircleDashed, Layers, Zap,
+  Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -496,6 +496,23 @@ export function Sidebar() {
       badge: 'novo',
       show: true,
     },
+    // Onda 17.32.88 — Atalho pro admin SaaS. So aparece se SUPER_ADMIN.
+    adminTenants: {
+      label: 'Admin SaaS',
+      href: '/admin/tenants',
+      icon: <ShieldCheck size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/admin'),
+      show: perms.isSuperAdmin,
+    },
+    billing: {
+      // Onda 17.32.88 — Atalho pra pagina de assinatura (mensalidade)
+      // visivel pra ADMIN do tenant gerenciar seu plano.
+      label: 'Assinatura',
+      href: '/atendimento/billing',
+      icon: <CreditCard size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/billing'),
+      show: perms.isAdmin,
+    },
     crm: {
       // Onda 5e v8 — encurtado de "Leads & CRM" pra "CRM"
       label: 'CRM',
@@ -831,6 +848,8 @@ export function Sidebar() {
       defaultExpanded: false,
       icon: <Settings size={14} strokeWidth={2.5} />,
       items: [
+        allItems.billing,      // Assinatura (Onda 17.32.88 — só pra ADMIN)
+        allItems.adminTenants, // Admin SaaS (Onda 17.32.88 — só SUPER_ADMIN)
         allItems.settings,     // Configuracoes
         allItems.manual,       // Manual
       ].filter(i => i.show),
