@@ -240,6 +240,9 @@ export default function VendaRapidaPage() {
       const { data: quoteData } = await api.post<any>(
         `/patients/${patient.id}/quotes`,
         {
+          // Onda 17.32.73 — title="Venda rápida" pra aparecer no contrato
+          // (aba Financeiro do paciente) em vez do generico "Plano".
+          title: 'Venda rápida',
           items: cart.map((it) => ({
             procedure_id: it.procedure.id,
             quantity: it.quantity,
