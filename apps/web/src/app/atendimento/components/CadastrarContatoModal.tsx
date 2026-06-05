@@ -71,13 +71,20 @@ export function CadastrarContatoModal({
     setSaving(false);
   }, [open, isPhonePlaceholder, currentName, currentEmail, currentOrigin, currentTags]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // Onda 17.32.61 — 3 acoes explicitas no footer:
+  //   1. saveOnly   = atualiza so dados do Lead (aba Leads)
+  //   2. asPatient  = salva + cria Patient (aba Leads + lista de Pacientes)
+  //   3. asClient   = salva + cria Patient + promove a Cliente (aba Clientes)
+  type SaveMode = 'lead-only' | 'patient' | 'client';
+  const [pendingMode, setPendingMode] = useState<SaveMode | null>(null);
+
+  const runSave = async (mode: SaveMode) => {
     if (!name.trim()) {
       showError('Nome eh obrigatorio');
       return;
     }
     setSaving(true);
+    setPendingMode(mode);
     try {
       const tags = tagsText
         .split(',')
@@ -87,31 +94,50 @@ export function CadastrarContatoModal({
       if (email.trim()) payload.email = email.trim();
       if (origin.trim()) payload.origin = origin.trim();
       if (tags.length > 0) payload.tags = tags;
-      // 1. Atualiza dados do Lead
+      // 1. Atualiza Lead (sempre roda)
       await api.patch(`/leads/${leadId}`, payload);
-      // 2. Onda 17.32.60 — Garante que o Patient existe (cria se nao
-      //    existe, retorna o atual se ja existe). NAO altera is_client
-      //    do Lead — operador continua na aba "Leads" do WhatsApp ate
-      //    encaminhar ao financeiro / clicar "→ Cliente".
-      //    Best-effort: se ensurePatient falhar (lead sem dados minimos,
-      //    etc), o lead ja foi salvo no passo 1 — operador eh informado
-      //    mas nao perde o cadastro.
-      try {
-        await api.post(`/leads/${leadId}/ensure-patient`);
-        showSuccess('Contato cadastrado e adicionado em Pacientes');
-      } catch (ensureErr: any) {
-        const ensureMsg = ensureErr?.response?.data?.message;
-        showSuccess('Contato cadastrado (Paciente nao foi criado: ' +
-          (typeof ensureMsg === 'string' ? ensureMsg : 'dados insuficientes') + ')');
+      // 2. Se for paciente ou cliente, cria Patient
+      if (mode === 'patient' || mode === 'client') {
+        try {
+          await api.post(`/leads/${leadId}/ensure-patient`);
+        } catch (ensureErr: any) {
+          const ensureMsg = ensureErr?.response?.data?.message;
+          showError(`Paciente nao foi criado: ${typeof ensureMsg === 'string' ? ensureMsg : 'dados insuficientes'}`);
+          return; // nao prossegue pra Cliente se Patient falhou
+        }
       }
+      // 3. Se for cliente, promove
+      if (mode === 'client') {
+        try {
+          await api.post(`/leads/${leadId}/promote-to-client`);
+        } catch (promoteErr: any) {
+          const promoteMsg = promoteErr?.response?.data?.message;
+          showError(`Promocao a cliente falhou: ${typeof promoteMsg === 'string' ? promoteMsg : 'erro'}`);
+          return;
+        }
+      }
+      // Mensagens distintas por modo
+      const messages: Record<SaveMode, string> = {
+        'lead-only': 'Contato salvo (Lead)',
+        'patient': 'Contato salvo e adicionado em Pacientes',
+        'client': 'Contato promovido a Cliente',
+      };
+      showSuccess(messages[mode]);
       onSaved?.();
       onClose();
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Erro ao cadastrar contato';
-      showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao cadastrar'));
+      const msg = err?.response?.data?.message || 'Erro ao salvar contato';
+      showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao salvar'));
     } finally {
       setSaving(false);
+      setPendingMode(null);
     }
+  };
+
+  // Submit padrao do form (Enter) = salvar so Lead
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    runSave('lead-only');
   };
 
   if (!open) return null;
@@ -217,40 +243,67 @@ export function CadastrarContatoModal({
             />
           </div>
 
-          {/* Aviso de fluxo */}
-          <p className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-3 py-2 mt-2">
-            ℹ Ao salvar, o contato eh adicionado em <strong>/atendimento/pacientes</strong>{' '}
-            (sem virar cliente ainda). Vira <strong>Cliente</strong> automaticamente
-            quando voce encaminhar uma proposta pro financeiro.
-          </p>
+          {/* Aviso de fluxo — explica os 3 botoes do footer */}
+          <div className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-3 py-2 mt-2 space-y-1">
+            <p><strong>Salvar</strong>: so atualiza dados do Lead (continua na aba "Leads").</p>
+            <p><strong>Tornar Paciente</strong>: adiciona em <strong>/pacientes</strong> sem virar cliente.</p>
+            <p><strong>Tornar Cliente</strong>: cria paciente + move pra aba "Clientes" no WhatsApp.</p>
+          </div>
         </div>
 
-        {/* Footer */}
-        <div className="flex items-center gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0">
+        {/* Footer — 3 acoes principais */}
+        <div className="flex items-center gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0 flex-wrap">
           <button
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="flex-1 text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50"
+            className="text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50"
           >
             Cancelar
           </button>
+          {/* Salvar (so Lead) — submit do form (Enter no input dispara isso) */}
           <button
             type="submit"
             disabled={saving || !name.trim()}
-            className="flex-1 text-sm font-bold px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-2"
+            className="text-sm font-semibold px-3 py-2 rounded-md border border-border bg-card text-foreground hover:bg-accent/40 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5"
+            title="So atualiza dados do Lead (nao cria paciente)"
           >
-            {saving ? (
-              <>
-                <Loader2 size={14} className="animate-spin" />
-                Salvando...
-              </>
+            {pendingMode === 'lead-only' ? (
+              <Loader2 size={12} className="animate-spin" />
             ) : (
-              <>
-                <UserPlus size={14} />
-                {isPhonePlaceholder ? 'Cadastrar' : 'Salvar'}
-              </>
+              <UserPlus size={12} />
             )}
+            Salvar
+          </button>
+          {/* Tornar Paciente — salva + cria Patient */}
+          <button
+            type="button"
+            onClick={() => runSave('patient')}
+            disabled={saving || !name.trim()}
+            className="text-sm font-bold px-3 py-2 rounded-md bg-sky-600 hover:bg-sky-700 text-white transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 flex-1 min-w-[140px]"
+            title="Salva dados do Lead e cria Paciente em /atendimento/pacientes"
+          >
+            {pendingMode === 'patient' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <UserPlus size={14} />
+            )}
+            Tornar Paciente
+          </button>
+          {/* Tornar Cliente — salva + cria Patient + promove */}
+          <button
+            type="button"
+            onClick={() => runSave('client')}
+            disabled={saving || !name.trim()}
+            className="text-sm font-bold px-3 py-2 rounded-md bg-violet-600 hover:bg-violet-700 text-white transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 flex-1 min-w-[140px]"
+            title="Salva + cria Paciente + promove a Cliente (move pra aba Clientes do WhatsApp)"
+          >
+            {pendingMode === 'client' ? (
+              <Loader2 size={14} className="animate-spin" />
+            ) : (
+              <UserPlus size={14} />
+            )}
+            Tornar Cliente
           </button>
         </div>
       </form>
