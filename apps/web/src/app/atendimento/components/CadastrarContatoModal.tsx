@@ -87,8 +87,23 @@ export function CadastrarContatoModal({
       if (email.trim()) payload.email = email.trim();
       if (origin.trim()) payload.origin = origin.trim();
       if (tags.length > 0) payload.tags = tags;
+      // 1. Atualiza dados do Lead
       await api.patch(`/leads/${leadId}`, payload);
-      showSuccess('Contato cadastrado');
+      // 2. Onda 17.32.60 — Garante que o Patient existe (cria se nao
+      //    existe, retorna o atual se ja existe). NAO altera is_client
+      //    do Lead — operador continua na aba "Leads" do WhatsApp ate
+      //    encaminhar ao financeiro / clicar "→ Cliente".
+      //    Best-effort: se ensurePatient falhar (lead sem dados minimos,
+      //    etc), o lead ja foi salvo no passo 1 — operador eh informado
+      //    mas nao perde o cadastro.
+      try {
+        await api.post(`/leads/${leadId}/ensure-patient`);
+        showSuccess('Contato cadastrado e adicionado em Pacientes');
+      } catch (ensureErr: any) {
+        const ensureMsg = ensureErr?.response?.data?.message;
+        showSuccess('Contato cadastrado (Paciente nao foi criado: ' +
+          (typeof ensureMsg === 'string' ? ensureMsg : 'dados insuficientes') + ')');
+      }
       onSaved?.();
       onClose();
     } catch (err: any) {
@@ -204,9 +219,9 @@ export function CadastrarContatoModal({
 
           {/* Aviso de fluxo */}
           <p className="text-[11px] text-muted-foreground bg-muted/30 border border-border rounded-md px-3 py-2 mt-2">
-            ℹ Quando voce encaminhar uma proposta pro financeiro, esse contato
-            vira <strong>Cliente</strong> automaticamente e o paciente eh
-            criado em <strong>/atendimento/pacientes</strong>.
+            ℹ Ao salvar, o contato eh adicionado em <strong>/atendimento/pacientes</strong>{' '}
+            (sem virar cliente ainda). Vira <strong>Cliente</strong> automaticamente
+            quando voce encaminhar uma proposta pro financeiro.
           </p>
         </div>
 
