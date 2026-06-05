@@ -3,6 +3,8 @@
 import { useEffect, useState, useRef, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
+// Onda 17.32.86 — Banner global de trial/inadimplencia
+import { TrialBanner } from '@/components/TrialBanner';
 import { PatientSearch } from '@/components/PatientSearch';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
@@ -270,6 +272,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
             </header>
           );
         })()}
+        {/* Onda 17.32.86 — Banner de trial/inadimplencia (sticky no topo
+            do main, abaixo do header global). So aparece se relevante. */}
+        <TrialBanner />
         <main className="flex-1 overflow-hidden">
           {children}
         </main>

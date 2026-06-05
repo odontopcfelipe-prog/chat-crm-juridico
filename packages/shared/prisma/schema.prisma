@@ -514,6 +514,63 @@ model GlobalSetting {
   updated_at DateTime @updatedAt
 }
 
+/// Onda 17.32.86 — SaaS Fase 3b: catalogo de planos SaaS.
+///
+/// Substitui a tabela hardcoded em plan-limits.ts quando estiver
+/// populado. Plans definem nome, preco mensal (BRL), limites de uso.
+model SaasPlan {
+  id                String  @id @default(uuid())
+  slug              String  @unique
+  name              String
+  description       String?
+  price_monthly     Decimal @default(0) @db.Decimal(10, 2)
+  max_users         Int?
+  max_patients      Int?
+  max_inboxes       Int?
+  max_charges_month Int?
+  features_json     String?
+  active            Boolean @default(true)
+  display_order     Int     @default(0)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  subscriptions SaasSubscription[]
+}
+
+/// Onda 17.32.86 — Assinatura SaaS de um tenant.
+///
+/// Tenant assina um SaasPlan via Asaas (mensalidade). Quando webhook
+/// confirma pagamento, atualiza next_charge_date. Cron suspende
+/// quando inadimplente >5 dias.
+model SaasSubscription {
+  id        String @id @default(uuid())
+  tenant_id String @unique
+  plan_id   String
+
+  /// PENDING_PAYMENT | ACTIVE | PAST_DUE | CANCELLED | TRIALING
+  status String @default("PENDING_PAYMENT")
+
+  /// IDs Asaas (do PROPRIO sistema SaaS, nao do tenant)
+  asaas_customer_id     String?
+  asaas_subscription_id String?
+  current_charge_id     String?
+
+  next_charge_date DateTime?
+  last_paid_at     DateTime?
+  cancelled_at     DateTime?
+
+  billing_type String @default("BOLETO") // PIX | BOLETO | CREDIT_CARD
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  plan SaasPlan @relation(fields: [plan_id], references: [id])
+
+  @@index([next_charge_date])
+  @@index([status])
+}
+
 /// Onda 17.32.80 — SaaS Fase 2: settings POR tenant.
 ///
 /// Quando uma chave existe em TenantSetting{tenant_id, key}, ela
