@@ -8,6 +8,7 @@
 import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
+import { getLimitsForPlan, isWithinLimit } from './plan-limits';
 
 @Injectable()
 export class TenantsService {
@@ -162,6 +163,69 @@ export class TenantsService {
     if (data.slug) data.slug = data.slug.toLowerCase();
 
     return this.prisma.tenant.update({ where: { id }, data });
+  }
+
+  /**
+   * Onda 17.32.79 — Uso atual + limites do plano do tenant.
+   * Usado por GET /tenants/me/usage (dashboard) e pelo PlanLimitGuard.
+   */
+  async getUsage(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plan: true, status: true },
+    });
+    if (!tenant) return null;
+    const limits = getLimitsForPlan(tenant.plan);
+
+    // Conta uso atual em paralelo
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+
+    const [users, patients, inboxes, chargesMonth] = await Promise.all([
+      this.prisma.user.count({ where: { tenant_id: tenantId } }),
+      this.prisma.patient.count({ where: { tenant_id: tenantId } }),
+      this.prisma.instance.count({ where: { tenant_id: tenantId } }),
+      this.prisma.paymentGatewayCharge.count({
+        where: { tenant_id: tenantId, created_at: { gte: monthStart } },
+      }),
+    ]);
+
+    return {
+      plan: tenant.plan,
+      status: tenant.status,
+      usage: { users, patients, inboxes, charges_this_month: chargesMonth },
+      limits,
+      // Helper: % de uso por categoria (cap em 100)
+      usage_pct: {
+        users: limits.max_users < 0 ? 0 : Math.min(100, Math.round((users / limits.max_users) * 100)),
+        patients: limits.max_patients < 0 ? 0 : Math.min(100, Math.round((patients / limits.max_patients) * 100)),
+        inboxes: limits.max_inboxes < 0 ? 0 : Math.min(100, Math.round((inboxes / limits.max_inboxes) * 100)),
+        charges_this_month: limits.max_charges_per_month < 0 ? 0 : Math.min(100, Math.round((chargesMonth / limits.max_charges_per_month) * 100)),
+      },
+    };
+  }
+
+  /**
+   * Onda 17.32.79 — Valida se o tenant ainda pode criar um recurso.
+   * Throws ForbiddenException se limite atingido.
+   */
+  async assertCanCreate(tenantId: string, resource: 'user' | 'patient' | 'inbox' | 'charge') {
+    const usage = await this.getUsage(tenantId);
+    if (!usage) return; // sem tenant — nao bloqueia (legacy / dev)
+
+    const map: Record<string, [number, number]> = {
+      user: [usage.usage.users, usage.limits.max_users],
+      patient: [usage.usage.patients, usage.limits.max_patients],
+      inbox: [usage.usage.inboxes, usage.limits.max_inboxes],
+      charge: [usage.usage.charges_this_month, usage.limits.max_charges_per_month],
+    };
+    const [current, max] = map[resource] || [0, -1];
+    if (!isWithinLimit(current, max)) {
+      throw new BadRequestException(
+        `Limite do plano ${usage.plan} atingido pra ${resource} (${current}/${max}). Atualize o plano pra continuar.`,
+      );
+    }
   }
 
   async setStatus(id: string, status: string, reason?: string) {

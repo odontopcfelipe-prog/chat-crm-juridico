@@ -98,6 +98,27 @@ export class UsersService {
   }
 
   async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }): Promise<Omit<User, 'password_hash'>> {
+    // Onda 17.32.79 — Valida limite do plano antes de criar.
+    // Lazy import pra evitar ciclo de dependencia.
+    if (data.tenant_id) {
+      try {
+        const { getLimitsForPlan, isWithinLimit } = await import('../tenants/plan-limits.js');
+        const tenant = await this.prisma.tenant.findUnique({
+          where: { id: data.tenant_id },
+          select: { plan: true },
+        });
+        const limits = getLimitsForPlan(tenant?.plan);
+        const currentUsers = await this.prisma.user.count({ where: { tenant_id: data.tenant_id } });
+        if (!isWithinLimit(currentUsers, limits.max_users)) {
+          throw new Error(
+            `Limite do plano ${tenant?.plan} atingido pra usuarios (${currentUsers}/${limits.max_users}). Atualize o plano pra continuar.`,
+          );
+        }
+      } catch (e: any) {
+        if (e.message?.includes('Limite do plano')) throw new BadRequestException(e.message);
+        // Outros erros nao bloqueiam — best-effort
+      }
+    }
     const password_hash = await argon2.hash(data.password);
     // Normaliza para o enum canônico. Aceita tanto `roles[]` (forma nova) quanto `role` (legado).
     const normalizedRoles = normalizeRoles(data.roles, data.role);

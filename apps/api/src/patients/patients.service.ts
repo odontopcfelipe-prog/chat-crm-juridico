@@ -18,6 +18,25 @@ export class PatientsService {
   async create(tenantId: string, data: Omit<Prisma.PatientUncheckedCreateInput, 'tenant_id'>) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
 
+    // Onda 17.32.79 — Valida limite do plano antes de criar paciente.
+    try {
+      const { getLimitsForPlan, isWithinLimit } = await import('../tenants/plan-limits.js');
+      const tenant = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: { plan: true },
+      });
+      const limits = getLimitsForPlan(tenant?.plan);
+      const currentCount = await this.prisma.patient.count({ where: { tenant_id: tenantId } });
+      if (!isWithinLimit(currentCount, limits.max_patients)) {
+        throw new BadRequestException(
+          `Limite do plano ${tenant?.plan} atingido pra pacientes (${currentCount}/${limits.max_patients}). Atualize o plano pra continuar.`,
+        );
+      }
+    } catch (e: any) {
+      if (e instanceof BadRequestException) throw e;
+      // Outros erros nao bloqueiam — best-effort
+    }
+
     if (data.cpf) {
       const existing = await this.prisma.patient.findUnique({
         where: { tenant_id_cpf: { tenant_id: tenantId, cpf: data.cpf } },

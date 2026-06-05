@@ -45,6 +45,18 @@ export class TenantsMeController {
       trial_ends_at: t.trial_ends_at,
     };
   }
+
+  /**
+   * Onda 17.32.79 — Uso atual + limites do plano. Frontend mostra
+   * barras "X/Y pacientes" no dashboard com sugestao de upgrade
+   * quando ultrapassar 80%.
+   */
+  @Get('me/usage')
+  async getMyUsage(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) return null;
+    return this.service.getUsage(tenantId);
+  }
 }
 
 interface CreateTenantBody {
