@@ -10,7 +10,7 @@ import {
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
-  Megaphone, HandCoins, Square, CircleDashed, Layers,
+  Megaphone, HandCoins, Square, CircleDashed, Layers, Zap,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -52,7 +52,7 @@ interface NavItem {
   href: string;
   icon: React.ReactNode;
   match: (p: string, _h?: undefined, searchString?: string) => boolean;
-  badge?: number;
+  badge?: number | string;
   show: boolean;
   /**
    * Sub-itens mostrados em indent abaixo do item pai quando ele está ativo
@@ -480,6 +480,16 @@ export function Sidebar() {
       badge: unreadTotal,
       show: true,
     },
+    vendaRapida: {
+      // Onda 17.32.68 — Atalho pra venda balcao (procedimentos prontos
+      // sem precisar passar pelo fluxo de avaliacao)
+      label: 'Venda rápida',
+      href: '/atendimento/venda-rapida',
+      icon: <Zap size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/venda-rapida'),
+      badge: 'novo',
+      show: true,
+    },
     crm: {
       // Onda 5e v8 — encurtado de "Leads & CRM" pra "CRM"
       label: 'CRM',
@@ -735,6 +745,7 @@ export function Sidebar() {
       fixed: true,
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
+        allItems.vendaRapida,  // Venda rápida (balcão)
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
       ].filter(i => i.show),

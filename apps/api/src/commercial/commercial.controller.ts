@@ -343,6 +343,76 @@ export class CommercialController {
   }
 
   /**
+   * Onda 17.32.68 — Venda Rapida (balcao sem avaliacao).
+   *
+   * Cria um Quote+Plan+Charge em 1 unica chamada atomica:
+   *   1. Cria Quote com items
+   *   2. Aceita Quote (dispara accept hooks)
+   *   3. approveAndBill (gera cobranca Asaas + cria TreatmentPlan ACTIVE)
+   *
+   * Diferente do fluxo normal, NAO passa pelo modal de avaliacao —
+   * operador escolhe procedimentos prontos e finaliza na hora.
+   * Usado em vendas de balcao: limpeza, clareamento, raspagem,
+   * extracao simples, etc.
+   */
+  @Post('venda-rapida')
+  async vendaRapida(
+    @Body() dto: {
+      patient_id: string;
+      items: Array<{
+        procedure_id: string;
+        quantity?: number;
+        dentist_id?: string;
+        unit_price?: number;
+      }>;
+      payment: {
+        billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
+        value: number;
+        installment_count?: number;
+        discount_percent?: number;
+      };
+      notes?: string;
+    },
+    @Authenticated() user: AuthUser,
+  ) {
+    if (!dto.items || dto.items.length === 0) {
+      throw new Error('Selecione pelo menos 1 procedimento');
+    }
+    // 1. Cria Quote (com items)
+    const quote = await this.quotesService.create(
+      dto.patient_id,
+      user.tenant_id,
+      user.id,
+      {
+        items: dto.items.map((it) => ({
+          procedure_id: it.procedure_id,
+          quantity: it.quantity || 1,
+          dentist_id: it.dentist_id,
+          unit_price: it.unit_price,
+        })),
+        discount_percent: dto.payment.discount_percent || 0,
+        notes: dto.notes || 'Venda rapida (balcao sem avaliacao)',
+      },
+    );
+    // 2. approveAndBill (aceita + cria plan + gera charge)
+    const result = await this.quotesService.approveAndBill(
+      quote.id,
+      user.tenant_id,
+      user.id,
+      {
+        billing_type: dto.payment.billing_type,
+        value: Number(dto.payment.value),
+        installment_count: dto.payment.installment_count,
+      },
+    );
+    return {
+      ...result,
+      quote_id: quote.id,
+      quote_number: quote.quote_number,
+    };
+  }
+
+  /**
    * Onda 12.2 — Aplica financiamento aprovado (chamado pelo botao "Aplicar
    * essa proposta" no modal Banco PASSOS apos credit-check approved).
    *
