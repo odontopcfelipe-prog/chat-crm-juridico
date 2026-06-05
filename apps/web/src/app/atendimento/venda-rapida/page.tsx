@@ -234,8 +234,11 @@ export default function VendaRapidaPage() {
 
       // 1. Cria Quote (com items)
       const discountPercent = (billingType === 'PIX' || billingType === 'CASH') ? 10 : 0;
+      // Onda 17.32.72 — rota eh /patients/:id/quotes (sem prefixo
+      // /commercial/ — confirmado em commercial.controller.ts linha 75:
+      // @Controller() sem argumento).
       const { data: quoteData } = await api.post<any>(
-        `/commercial/patients/${patient.id}/quotes`,
+        `/patients/${patient.id}/quotes`,
         {
           items: cart.map((it) => ({
             procedure_id: it.procedure.id,
