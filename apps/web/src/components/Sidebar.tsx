@@ -11,6 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
+  User, UserCog,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL } from '@/lib/api';
@@ -135,6 +136,12 @@ export function Sidebar() {
   const avatarFileRef = useRef<HTMLInputElement>(null);
   const avatarMenuRef = useRef<HTMLDivElement>(null);
   const avatarBtnRef = useRef<HTMLButtonElement>(null);
+  // Onda 17.32.100 — Menu de USUARIO (Sair, Trocar usuario, Meu perfil).
+  // Separado do menu de FOTO. Antes "Sair" ficava no menu da foto, o que
+  // nao fazia sentido pro usuario (semantica errada).
+  const [showUserMenu, setShowUserMenu] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
+  const userBtnRef = useRef<HTMLButtonElement>(null);
 
   // Carrega avatar do user via fetch autenticado (tag <img> nao envia JWT).
   // userId pode ser null durante boot — hook trata null retornando src=null.
@@ -279,6 +286,22 @@ export function Sidebar() {
       .catch(() => {});
     return () => controller.abort();
   }, [avatarVersion]);
+
+  // Fecha menu de USUARIO ao clicar fora (Onda 17.32.100)
+  useEffect(() => {
+    if (!showUserMenu) return;
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Node;
+      if (
+        userMenuRef.current && !userMenuRef.current.contains(target) &&
+        userBtnRef.current && !userBtnRef.current.contains(target)
+      ) {
+        setShowUserMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showUserMenu]);
 
   // Fecha menu de avatar ao clicar fora
   useEffect(() => {
@@ -1206,14 +1229,29 @@ export function Sidebar() {
           </button>
 
           {expanded && (
-            <div className="flex flex-col min-w-0 flex-1">
-              <span className="text-[13px] font-semibold text-foreground truncate leading-tight">
+            // Onda 17.32.100 — Botao do menu de USUARIO (Sair / Trocar / Perfil).
+            // Antes era um <div> nao-clicavel; "Sair" ficava no menu da foto, o
+            // que nao fazia sentido. Agora o card de nome+cargo eh o trigger
+            // proprio do menu de conta.
+            <button
+              ref={userBtnRef}
+              type="button"
+              onClick={() => setShowUserMenu(v => !v)}
+              className="flex flex-col items-start min-w-0 flex-1 text-left rounded-md px-1 -mx-1 py-0.5 hover:bg-accent/40 transition-colors cursor-pointer focus:outline-none focus:bg-accent/40 group"
+              aria-label="Menu da conta"
+              aria-expanded={showUserMenu}
+            >
+              <span className="text-[13px] font-semibold text-foreground truncate leading-tight w-full inline-flex items-center gap-1">
                 {userName || 'Usuário'}
+                <ChevronDown
+                  size={11}
+                  className={`text-muted-foreground transition-transform ${showUserMenu ? 'rotate-180' : ''} group-hover:text-foreground`}
+                />
               </span>
-              <span className="text-[11px] text-muted-foreground truncate leading-tight">
+              <span className="text-[11px] text-muted-foreground truncate leading-tight w-full">
                 {userCargo || userEmail}
               </span>
-            </div>
+            </button>
           )}
           {/* Onda 5c (Fase 25) — DB status compacto inline ao lado do avatar
               (antes era linha propria com texto "Banco: Online" — ocupava espaço).
@@ -1304,12 +1342,71 @@ export function Sidebar() {
                   Remover foto
                 </button>
               )}
-              <div className="h-px bg-border my-1" />
             </>
           )}
-          {/* Onda 15.8 — Sair movido pra ca (saiu do rodape da sidebar) */}
+          {/* Onda 17.32.100 — Sair foi movido pro menu de USUARIO
+            (no botao do nome+cargo), nao mais aqui no menu da FOTO. */}
+        </div>,
+        document.body
+      )}
+
+      {/* ─── Onda 17.32.100 — Menu de USUARIO (Sair / Trocar / Perfil) ─── */}
+      {mounted && showUserMenu && userBtnRef.current && createPortal(
+        <div
+          ref={userMenuRef}
+          style={{
+            position: 'fixed',
+            bottom: (() => {
+              const rect = userBtnRef.current?.getBoundingClientRect();
+              return rect ? window.innerHeight - rect.top + 8 : 80;
+            })(),
+            left: 12,
+            zIndex: 9999,
+          }}
+          className="bg-card border border-border rounded-xl p-2 flex flex-col gap-0.5 min-w-[220px] shadow-2xl"
+        >
+          {/* Header com nome + email */}
+          <div className="px-3 py-2 border-b border-border mb-1">
+            <p className="text-[13px] font-bold text-foreground truncate">{userName || 'Usuário'}</p>
+            <p className="text-[11px] text-muted-foreground truncate">{userEmail}</p>
+          </div>
+
+          {/* Meu perfil */}
           <button
-            onClick={() => { setShowAvatarMenu(false); localStorage.removeItem('token'); router.push('/atendimento/login'); }}
+            onClick={() => {
+              setShowUserMenu(false);
+              router.push('/atendimento/settings/users');
+            }}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
+          >
+            <User size={14} className="text-muted-foreground shrink-0" />
+            Meu perfil
+          </button>
+
+          {/* Trocar usuario — limpa remembered_email tambem pra abrir
+            o login com email em branco */}
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              localStorage.removeItem('token');
+              localStorage.removeItem('remembered_email');
+              router.push('/atendimento/login');
+            }}
+            className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
+          >
+            <UserCog size={14} className="text-muted-foreground shrink-0" />
+            Trocar de usuário
+          </button>
+
+          <div className="h-px bg-border my-1" />
+
+          {/* Sair — mantem remembered_email pra facilitar voltar */}
+          <button
+            onClick={() => {
+              setShowUserMenu(false);
+              localStorage.removeItem('token');
+              router.push('/atendimento/login');
+            }}
             className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"
           >
             <LogOut size={14} className="shrink-0" />
