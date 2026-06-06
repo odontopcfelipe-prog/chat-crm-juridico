@@ -219,8 +219,8 @@ export function OdontoLanding() {
                 <svg viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true">
                   <defs>
                     <linearGradient id="odlpLineGrad" x1="0" x2="1">
-                      <stop offset="0" stopColor="#C8FF3D" stopOpacity="0.3" />
-                      <stop offset="1" stopColor="#C8FF3D" stopOpacity="1" />
+                      <stop offset="0" stopColor="#A78BFA" stopOpacity="0.5" />
+                      <stop offset="1" stopColor="#34D399" stopOpacity="1" />
                     </linearGradient>
                   </defs>
                   <path
@@ -233,7 +233,7 @@ export function OdontoLanding() {
                   />
                   <path
                     d="M 0 70 L 32 64 L 64 52 L 96 56 L 128 40 L 160 44 L 192 28 L 224 32 L 256 18 L 288 22 L 320 8 L 320 88 L 0 88 Z"
-                    fill="#C8FF3D"
+                    fill="#34D399"
                     fillOpacity="0.08"
                   />
                 </svg>
