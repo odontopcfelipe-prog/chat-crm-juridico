@@ -12,7 +12,7 @@ import Link from 'next/link';
 import {
   Mail, Lock, AlertCircle, Eye, EyeOff,
   MessageSquare, CreditCard, FileSignature, CalendarDays,
-  ShieldCheck, ArrowRight, Sparkles, Loader2,
+  ShieldCheck, ArrowRight, Sparkles, Loader2, ArrowLeft,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 
@@ -116,11 +116,11 @@ export default function LoginPage() {
           />
           <div className="absolute -top-32 -left-32 w-[400px] h-[400px] rounded-full bg-emerald-400/20 blur-[100px] pointer-events-none" />
 
-          {/* Topo */}
+          {/* Topo — link logo aponta pra home / (era /lp) */}
           <div className="relative z-10">
-            <Link href="/lp" className="inline-flex items-center gap-2.5 mb-12 group">
+            <Link href="/" className="inline-flex items-center gap-2.5 mb-12 group">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)] group-hover:scale-110 transition-transform" />
-              <span className="text-base font-black uppercase tracking-tight">Odonto System</span>
+              <span className="text-base font-black uppercase tracking-tight group-hover:text-emerald-300 transition-colors">Odonto System</span>
             </Link>
 
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[11px] font-bold mb-5 backdrop-blur-sm">
@@ -183,19 +183,37 @@ export default function LoginPage() {
         </aside>
 
         {/* ─── Coluna direita — Form ─── */}
-        <main className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12">
-          <div className="w-full max-w-md">
-            {/* Logo mobile */}
-            <div className="lg:hidden text-center mb-6">
-              <Link href="/lp" className="inline-flex items-center gap-2 mb-3">
-                <div className="w-2 h-2 rounded-full bg-violet-600" />
-                <span className="text-sm font-black uppercase tracking-tight text-foreground">Odonto System</span>
-              </Link>
-              <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
-                <Sparkles size={11} />
-                Sistema completo · 24/7
+        <main className="flex-1 flex flex-col p-4 sm:p-8 lg:p-12">
+          {/* Onda 17.32.99 — Botoes de navegacao no topo */}
+          <div className="flex items-center justify-between mb-6 lg:mb-0">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-violet-700 transition-colors group"
+            >
+              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
+              Voltar pra home
+            </Link>
+            <Link
+              href="/cadastrar"
+              className="text-xs font-bold text-muted-foreground hover:text-violet-700 transition-colors"
+            >
+              Criar conta →
+            </Link>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-full max-w-md">
+              {/* Logo mobile */}
+              <div className="lg:hidden text-center mb-6">
+                <Link href="/" className="inline-flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-violet-600" />
+                  <span className="text-sm font-black uppercase tracking-tight text-foreground">Odonto System</span>
+                </Link>
+                <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
+                  <Sparkles size={11} />
+                  Sistema completo · 24/7
+                </div>
               </div>
-            </div>
 
             <div className="mb-7">
               <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
@@ -347,14 +365,15 @@ export default function LoginPage() {
               </div>
             </div>
 
-            <Link
-              href="/cadastrar"
-              className="mt-4 flex items-center justify-center gap-2 w-full h-12 rounded-xl border-2 border-violet-200 hover:border-violet-400 bg-violet-50/50 hover:bg-violet-50 dark:border-violet-800/50 dark:hover:border-violet-700 dark:bg-violet-950/20 dark:hover:bg-violet-950/30 text-violet-700 dark:text-violet-300 font-bold text-sm transition-all group"
-            >
-              <Sparkles size={14} className="group-hover:rotate-12 transition-transform" />
-              Criar clínica grátis · 14 dias
-              <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
-            </Link>
+              <Link
+                href="/cadastrar"
+                className="mt-4 flex items-center justify-center gap-2 w-full h-12 rounded-xl border-2 border-violet-200 hover:border-violet-400 bg-violet-50/50 hover:bg-violet-50 dark:border-violet-800/50 dark:hover:border-violet-700 dark:bg-violet-950/20 dark:hover:bg-violet-950/30 text-violet-700 dark:text-violet-300 font-bold text-sm transition-all group"
+              >
+                <Sparkles size={14} className="group-hover:rotate-12 transition-transform" />
+                Criar clínica grátis · 14 dias
+                <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+              </Link>
+            </div>
           </div>
         </main>
       </div>

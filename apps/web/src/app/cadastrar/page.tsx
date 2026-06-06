@@ -15,7 +15,7 @@ import Link from 'next/link';
 import {
   Loader2, Building2, User, Mail, Lock, IdCard, Phone, CheckCircle2,
   Sparkles, ArrowRight, Zap, MessageSquare, CreditCard, FileSignature,
-  CalendarDays, ShieldCheck,
+  CalendarDays, ShieldCheck, ArrowLeft,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -132,11 +132,11 @@ export default function SignupPage() {
             className="absolute -top-32 -left-32 w-[400px] h-[400px] rounded-full bg-emerald-400/20 blur-[100px] pointer-events-none"
           />
 
-          {/* Logo + tagline topo */}
+          {/* Logo + tagline topo (link pra home — agora /) */}
           <div className="relative z-10">
-            <Link href="/lp" className="inline-flex items-center gap-2.5 mb-12 group">
+            <Link href="/" className="inline-flex items-center gap-2.5 mb-12 group">
               <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)] group-hover:scale-110 transition-transform" />
-              <span className="text-base font-black uppercase tracking-tight">Odonto System</span>
+              <span className="text-base font-black uppercase tracking-tight group-hover:text-emerald-300 transition-colors">Odonto System</span>
             </Link>
 
             <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[11px] font-bold mb-5 backdrop-blur-sm">
@@ -199,19 +199,39 @@ export default function SignupPage() {
         </aside>
 
         {/* ─── Coluna direita — Form ─── */}
-        <main className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12">
-          <div className="w-full max-w-xl">
-            {/* Header do form (mobile mostra logo aqui) */}
-            <div className="lg:hidden text-center mb-6">
-              <Link href="/lp" className="inline-flex items-center gap-2 mb-3">
-                <div className="w-2 h-2 rounded-full bg-violet-600" />
-                <span className="text-sm font-black uppercase tracking-tight text-foreground">Odonto System</span>
-              </Link>
-              <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
-                <Sparkles size={11} />
-                14 dias grátis · sem cartão
+        <main className="flex-1 flex flex-col p-4 sm:p-8 lg:p-12">
+          {/* Onda 17.32.99 — Botao "Voltar pra home" no topo, visivel
+            em desktop e mobile. Antes so o logo era clicavel e nao era
+            obvio. Agora qualquer um sabe como sair. */}
+          <div className="flex items-center justify-between mb-6 lg:mb-0">
+            <Link
+              href="/"
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-muted-foreground hover:text-violet-700 transition-colors group"
+            >
+              <ArrowLeft size={14} className="group-hover:-translate-x-0.5 transition-transform" />
+              Voltar pra home
+            </Link>
+            <Link
+              href="/atendimento/login"
+              className="text-xs font-bold text-muted-foreground hover:text-violet-700 transition-colors"
+            >
+              Já tenho conta →
+            </Link>
+          </div>
+
+          <div className="flex-1 flex items-center justify-center">
+            <div className="w-full max-w-xl">
+              {/* Header do form (mobile mostra logo aqui) */}
+              <div className="lg:hidden text-center mb-6">
+                <Link href="/" className="inline-flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 rounded-full bg-violet-600" />
+                  <span className="text-sm font-black uppercase tracking-tight text-foreground">Odonto System</span>
+                </Link>
+                <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
+                  <Sparkles size={11} />
+                  14 dias grátis · sem cartão
+                </div>
               </div>
-            </div>
 
             <div className="mb-7">
               <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
@@ -392,13 +412,14 @@ export default function SignupPage() {
               </div>
             </form>
 
-            {/* Login link */}
-            <p className="text-center text-xs text-muted-foreground mt-6">
-              Já tem conta?{' '}
-              <Link href="/atendimento/login" className="text-violet-700 font-bold hover:underline">
-                Entrar
-              </Link>
-            </p>
+              {/* Login link */}
+              <p className="text-center text-xs text-muted-foreground mt-6">
+                Já tem conta?{' '}
+                <Link href="/atendimento/login" className="text-violet-700 font-bold hover:underline">
+                  Entrar
+                </Link>
+              </p>
+            </div>
           </div>
         </main>
       </div>
