@@ -206,7 +206,7 @@ export function OdontoLanding() {
           {/* Visual à direita (mockup com gráfico) */}
           <div className="od-hero-visual" data-reveal style={{ ['--od-delay' as string]: '150ms' }}>
             <div className="od-visual-card od-visual-card-big">
-              <span className="od-visual-tag">Faturamento da semana</span>
+              <span className="od-visual-tag">Faturamento · 7d</span>
               <div className="od-visual-bar">
                 <svg viewBox="0 0 320 88" preserveAspectRatio="none" aria-hidden="true">
                   <defs>
@@ -231,21 +231,21 @@ export function OdontoLanding() {
                 </svg>
               </div>
               <div className="od-visual-row">
-                <span>PIX recebido</span>
+                <span>PIX</span>
                 <span className="od-money">R$ 2.480</span>
               </div>
               <div className="od-visual-row">
-                <span>Boleto pago</span>
+                <span>Boleto</span>
                 <span className="od-money">R$ 1.200</span>
               </div>
             </div>
             <div className="od-visual-card od-visual-card-small">
-              <span className="od-visual-tag">Atendimento</span>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginTop: 10 }}>
-                <div style={{ fontSize: 28, fontFamily: 'var(--font-bricolage), system-ui', fontWeight: 800, color: '#FAFAFA' }}>
+              <span className="od-visual-tag">Satisfação</span>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 }}>
+                <div style={{ fontSize: 36, fontFamily: 'var(--font-bricolage), system-ui', fontWeight: 800, color: '#FAFAFA', lineHeight: 1 }}>
                   98%
                 </div>
-                <div style={{ fontSize: 12, color: '#A1A1AA' }}>Satisfação dos pacientes</div>
+                <div style={{ fontSize: 11, color: '#A1A1AA', lineHeight: 1.3 }}>dos pacientes</div>
               </div>
             </div>
           </div>

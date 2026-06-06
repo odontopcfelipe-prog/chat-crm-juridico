@@ -301,12 +301,20 @@
   color: var(--fg);
 }
 
-/* Hero visual (mockup à direita) */
+/* Hero visual (mockup à direita) — Onda 17.32.91:
+   esconde em <960px; em desktop, labels encurtados e nowrap pra
+   nao colidir mesmo em containers estreitos. */
 .odlp .od-hero-visual {
   position: relative;
   aspect-ratio: 1 / 1;
   max-width: 480px;
   margin-left: auto;
+}
+
+@media (max-width: 960px) {
+  .odlp .od-hero-visual {
+    display: none;
+  }
 }
 
 .odlp .od-visual-card {
@@ -319,28 +327,32 @@
 }
 
 .odlp .od-visual-card-big {
-  inset: 8% 0 8% 8%;
-  width: 86%;
+  inset: 6% 4% 6% 0;
+  width: 78%;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 12px;
 }
 
 .odlp .od-visual-card-small {
-  width: 50%;
-  bottom: 0;
+  width: 42%;
+  min-width: 168px;
+  top: 4%;
   right: 0;
+  bottom: auto;
   background: var(--bg-3);
   box-shadow: var(--shadow-lime);
   border-color: rgba(200, 255, 61, 0.18);
+  padding: 16px;
 }
 
 .odlp .od-visual-tag {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--lime);
   font-weight: 700;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.06em;
   text-transform: uppercase;
+  white-space: nowrap;
 }
 
 .odlp .od-visual-row {
@@ -351,6 +363,8 @@
   background: rgba(255, 255, 255, 0.025);
   border-radius: 10px;
   font-size: 13px;
+  white-space: nowrap;
+  gap: 8px;
 }
 
 .odlp .od-visual-row .od-money {
