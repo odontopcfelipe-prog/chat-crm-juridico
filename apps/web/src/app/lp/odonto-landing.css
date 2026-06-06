@@ -1,0 +1,884 @@
+/*
+ * Onda 17.32.90 — Landing page do Odonto System (SaaS).
+ *
+ * TODOS os seletores estao prefixados com .odlp pra NAO vazar pro app
+ * autenticado. Sem isso, o reset/cores quebram /atendimento/* inteiro.
+ *
+ * Tema dark com acento verde-limao, tipografia Bricolage (display)
+ * + Plus Jakarta (corpo), bento grid responsivo.
+ */
+
+/* ─── Variaveis do tema (escopadas em .odlp, nao em :root) ─── */
+.odlp {
+  --bg: #0A0A0A;
+  --bg-2: #111111;
+  --bg-3: #161616;
+  --bg-card: rgba(255, 255, 255, 0.025);
+  --fg: #FAFAFA;
+  --fg-2: #A1A1AA;
+  --fg-3: #71717A;
+  --lime: #C8FF3D;
+  --lime-2: #B4FF00;
+  --lime-soft: rgba(200, 255, 61, 0.12);
+  --lime-glow: rgba(200, 255, 61, 0.35);
+  --border: rgba(255, 255, 255, 0.08);
+  --border-2: rgba(255, 255, 255, 0.14);
+  --radius: 16px;
+  --radius-lg: 24px;
+  --shadow-card: 0 1px 0 rgba(255, 255, 255, 0.04) inset, 0 12px 40px rgba(0, 0, 0, 0.35);
+  --shadow-lime: 0 8px 32px rgba(200, 255, 61, 0.25);
+  --max: 1200px;
+
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+  font-family: var(--font-jakarta), system-ui, -apple-system, sans-serif;
+  font-size: 16px;
+  line-height: 1.55;
+  letter-spacing: -0.005em;
+  -webkit-font-smoothing: antialiased;
+  position: relative;
+  overflow-x: hidden;
+}
+
+/* Reset escopado — NAO vaza pra fora */
+.odlp *,
+.odlp *::before,
+.odlp *::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+.odlp a {
+  color: inherit;
+  text-decoration: none;
+}
+
+.odlp button {
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.odlp img,
+.odlp svg {
+  display: block;
+  max-width: 100%;
+}
+
+.odlp h1, .odlp h2, .odlp h3, .odlp h4,
+.odlp .display {
+  font-family: var(--font-bricolage), system-ui, sans-serif;
+  letter-spacing: -0.025em;
+  line-height: 1.05;
+  font-weight: 700;
+}
+
+/* Background overlay sutil (grid + ruido) */
+.odlp::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+  background-size: 56px 56px;
+  pointer-events: none;
+  z-index: 0;
+  mask-image: radial-gradient(ellipse at top, black 30%, transparent 75%);
+}
+
+/* ─── Container ─── */
+.odlp .od-container {
+  max-width: var(--max);
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+/* ─── Header sticky ─── */
+.odlp .od-header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: rgba(10, 10, 10, 0.7);
+  backdrop-filter: saturate(180%) blur(14px);
+  -webkit-backdrop-filter: saturate(180%) blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.odlp .od-header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 68px;
+}
+
+.odlp .od-logo {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: var(--font-bricolage), system-ui;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-size: 18px;
+}
+
+.odlp .od-logo-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 12px var(--lime-glow);
+}
+
+.odlp .od-nav {
+  display: flex;
+  gap: 28px;
+  align-items: center;
+}
+
+.odlp .od-nav a {
+  font-size: 14px;
+  color: var(--fg-2);
+  font-weight: 500;
+  transition: color 0.15s;
+}
+
+.odlp .od-nav a:hover {
+  color: var(--fg);
+}
+
+.odlp .od-header-cta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+@media (max-width: 768px) {
+  .odlp .od-nav { display: none; }
+}
+
+/* ─── Buttons ─── */
+.odlp .od-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 42px;
+  padding: 0 18px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  letter-spacing: -0.005em;
+  transition: transform 0.12s, background 0.15s, box-shadow 0.15s;
+  white-space: nowrap;
+}
+
+.odlp .od-btn:hover {
+  transform: translateY(-1px);
+}
+
+.odlp .od-btn-primary {
+  background: var(--lime);
+  color: #0A0A0A;
+  box-shadow: var(--shadow-lime);
+}
+
+.odlp .od-btn-primary:hover {
+  background: var(--lime-2);
+  box-shadow: 0 12px 40px var(--lime-glow);
+}
+
+.odlp .od-btn-ghost {
+  background: transparent;
+  border: 1px solid var(--border-2);
+  color: var(--fg);
+}
+
+.odlp .od-btn-ghost:hover {
+  background: rgba(255, 255, 255, 0.04);
+  border-color: var(--fg-2);
+}
+
+.odlp .od-btn-large {
+  height: 52px;
+  padding: 0 24px;
+  font-size: 15px;
+}
+
+/* ─── Hero ─── */
+.odlp .od-hero {
+  padding: 80px 0 64px;
+  position: relative;
+}
+
+.odlp .od-hero-grid {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 56px;
+  align-items: center;
+}
+
+@media (max-width: 960px) {
+  .odlp .od-hero-grid {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+  .odlp .od-hero { padding: 56px 0 48px; }
+}
+
+.odlp .od-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px 6px 10px;
+  border-radius: 999px;
+  background: var(--lime-soft);
+  border: 1px solid rgba(200, 255, 61, 0.25);
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lime);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.odlp .od-badge-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime-glow);
+  animation: odlp-pulse 2s ease-in-out infinite;
+}
+
+@keyframes odlp-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
+.odlp .od-hero h1 {
+  font-size: clamp(38px, 6.2vw, 72px);
+  margin-top: 22px;
+  margin-bottom: 24px;
+}
+
+.odlp .od-hero h1 em {
+  font-style: normal;
+  color: var(--lime);
+  position: relative;
+}
+
+.odlp .od-hero p {
+  font-size: clamp(16px, 1.6vw, 19px);
+  color: var(--fg-2);
+  max-width: 540px;
+  margin-bottom: 36px;
+  line-height: 1.55;
+}
+
+.odlp .od-hero-ctas {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+  margin-bottom: 32px;
+}
+
+.odlp .od-hero-trust {
+  display: flex;
+  gap: 24px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--fg-3);
+  flex-wrap: wrap;
+}
+
+.odlp .od-hero-trust strong {
+  color: var(--fg);
+}
+
+/* Hero visual (mockup à direita) */
+.odlp .od-hero-visual {
+  position: relative;
+  aspect-ratio: 1 / 1;
+  max-width: 480px;
+  margin-left: auto;
+}
+
+.odlp .od-visual-card {
+  position: absolute;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-card);
+  padding: 18px;
+}
+
+.odlp .od-visual-card-big {
+  inset: 8% 0 8% 8%;
+  width: 86%;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.odlp .od-visual-card-small {
+  width: 50%;
+  bottom: 0;
+  right: 0;
+  background: var(--bg-3);
+  box-shadow: var(--shadow-lime);
+  border-color: rgba(200, 255, 61, 0.18);
+}
+
+.odlp .od-visual-tag {
+  font-size: 11px;
+  color: var(--lime);
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.odlp .od-visual-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.025);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.odlp .od-visual-row .od-money {
+  color: var(--lime);
+  font-weight: 700;
+  font-family: var(--font-bricolage), system-ui;
+}
+
+.odlp .od-visual-bar {
+  width: 100%;
+  height: 88px;
+  background:
+    linear-gradient(180deg, var(--lime-soft) 0%, transparent 80%);
+  border-radius: 12px;
+  position: relative;
+  overflow: hidden;
+}
+
+.odlp .od-visual-bar svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ─── Section header ─── */
+.odlp .od-section {
+  padding: 96px 0;
+  position: relative;
+}
+
+@media (max-width: 768px) {
+  .odlp .od-section { padding: 64px 0; }
+}
+
+.odlp .od-section-header {
+  text-align: center;
+  max-width: 720px;
+  margin: 0 auto 56px;
+}
+
+.odlp .od-eyebrow {
+  display: inline-block;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--lime);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  margin-bottom: 12px;
+}
+
+.odlp .od-section-header h2 {
+  font-size: clamp(30px, 4.5vw, 48px);
+  margin-bottom: 16px;
+}
+
+.odlp .od-section-header p {
+  font-size: 17px;
+  color: var(--fg-2);
+}
+
+/* ─── Bento Grid (features) ─── */
+.odlp .od-bento {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: 180px;
+  gap: 16px;
+}
+
+@media (max-width: 960px) {
+  .odlp .od-bento {
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: 200px;
+  }
+}
+
+.odlp .od-bento-item {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 28px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  transition: transform 0.2s, border-color 0.2s, background 0.2s;
+}
+
+.odlp .od-bento-item:hover {
+  transform: translateY(-3px);
+  border-color: var(--border-2);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.odlp .od-bento-icon {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--lime-soft);
+  border: 1px solid rgba(200, 255, 61, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--lime);
+}
+
+.odlp .od-bento-title {
+  font-family: var(--font-bricolage), system-ui;
+  font-weight: 700;
+  font-size: 22px;
+  margin-top: 16px;
+}
+
+.odlp .od-bento-desc {
+  font-size: 14px;
+  color: var(--fg-2);
+  margin-top: 8px;
+  line-height: 1.5;
+}
+
+.odlp .od-bento-big   { grid-column: span 3; grid-row: span 2; }
+.odlp .od-bento-med   { grid-column: span 3; }
+.odlp .od-bento-small { grid-column: span 2; }
+
+@media (max-width: 960px) {
+  .odlp .od-bento-big   { grid-column: span 2; grid-row: span 2; }
+  .odlp .od-bento-med   { grid-column: span 2; }
+  .odlp .od-bento-small { grid-column: span 1; }
+}
+
+.odlp .od-bento-big .od-bento-title { font-size: 30px; }
+
+/* ─── Stats ─── */
+.odlp .od-stats {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  padding: 36px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+
+@media (max-width: 768px) {
+  .odlp .od-stats {
+    grid-template-columns: repeat(2, 1fr);
+    padding: 24px;
+  }
+}
+
+.odlp .od-stat {
+  text-align: center;
+}
+
+.odlp .od-stat-num {
+  font-family: var(--font-bricolage), system-ui;
+  font-weight: 700;
+  font-size: clamp(34px, 4vw, 56px);
+  color: var(--lime);
+  line-height: 1;
+  letter-spacing: -0.02em;
+}
+
+.odlp .od-stat-label {
+  color: var(--fg-2);
+  font-size: 13px;
+  margin-top: 8px;
+  font-weight: 500;
+}
+
+/* ─── Marquee de integracoes ─── */
+.odlp .od-marquee {
+  overflow: hidden;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-2);
+  padding: 24px 0;
+  mask-image: linear-gradient(90deg, transparent 0, black 8%, black 92%, transparent 100%);
+}
+
+.odlp .od-marquee-track {
+  display: flex;
+  gap: 48px;
+  width: max-content;
+  animation: odlp-marquee 30s linear infinite;
+}
+
+.odlp .od-marquee-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 20px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--fg-2);
+  white-space: nowrap;
+}
+
+.odlp .od-marquee-item-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--lime);
+}
+
+@keyframes odlp-marquee {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* ─── Planos ─── */
+.odlp .od-plans {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 20px;
+}
+
+@media (max-width: 960px) {
+  .odlp .od-plans { grid-template-columns: 1fr; }
+}
+
+.odlp .od-plan {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  transition: border-color 0.2s, transform 0.2s;
+}
+
+.odlp .od-plan:hover {
+  border-color: var(--border-2);
+  transform: translateY(-3px);
+}
+
+.odlp .od-plan-featured {
+  background: linear-gradient(180deg, rgba(200, 255, 61, 0.06) 0%, var(--bg-2) 100%);
+  border-color: rgba(200, 255, 61, 0.28);
+  box-shadow: var(--shadow-lime);
+}
+
+.odlp .od-plan-tag {
+  position: absolute;
+  top: -12px;
+  right: 24px;
+  background: var(--lime);
+  color: #0A0A0A;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 4px 12px;
+  border-radius: 999px;
+}
+
+.odlp .od-plan-name {
+  font-family: var(--font-bricolage), system-ui;
+  font-weight: 700;
+  font-size: 22px;
+  margin-bottom: 4px;
+}
+
+.odlp .od-plan-desc {
+  font-size: 13px;
+  color: var(--fg-3);
+  margin-bottom: 20px;
+}
+
+.odlp .od-plan-price {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-bottom: 24px;
+}
+
+.odlp .od-plan-price-amount {
+  font-family: var(--font-bricolage), system-ui;
+  font-weight: 800;
+  font-size: 48px;
+  line-height: 1;
+  color: var(--fg);
+}
+
+.odlp .od-plan-price-cents {
+  font-size: 16px;
+  color: var(--fg-3);
+}
+
+.odlp .od-plan-price-period {
+  font-size: 14px;
+  color: var(--fg-2);
+}
+
+.odlp .od-plan-features {
+  list-style: none;
+  margin: 0 0 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex-grow: 1;
+}
+
+.odlp .od-plan-features li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 14px;
+  color: var(--fg-2);
+}
+
+.odlp .od-plan-check {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--lime-soft);
+  color: var(--lime);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 1px;
+}
+
+.odlp .od-plan-cta {
+  display: block;
+  text-align: center;
+  height: 46px;
+  line-height: 46px;
+  border-radius: 999px;
+  font-weight: 700;
+  font-size: 14px;
+  border: 1px solid var(--border-2);
+  color: var(--fg);
+  transition: background 0.15s;
+}
+
+.odlp .od-plan-cta:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.odlp .od-plan-featured .od-plan-cta {
+  background: var(--lime);
+  color: #0A0A0A;
+  border-color: var(--lime);
+}
+
+.odlp .od-plan-featured .od-plan-cta:hover {
+  background: var(--lime-2);
+}
+
+/* ─── FAQ ─── */
+.odlp .od-faq {
+  max-width: 760px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.odlp .od-faq-item {
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+
+.odlp .od-faq-summary {
+  padding: 20px 24px;
+  font-weight: 600;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  list-style: none;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.odlp .od-faq-summary::-webkit-details-marker { display: none; }
+
+.odlp .od-faq-summary:hover {
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.odlp .od-faq-summary::after {
+  content: '+';
+  font-size: 22px;
+  color: var(--lime);
+  transition: transform 0.2s;
+  font-weight: 300;
+}
+
+.odlp details[open] > .od-faq-summary::after {
+  transform: rotate(45deg);
+}
+
+.odlp .od-faq-answer {
+  padding: 0 24px 22px;
+  color: var(--fg-2);
+  font-size: 15px;
+  line-height: 1.6;
+}
+
+/* ─── CTA final ─── */
+.odlp .od-final-cta {
+  text-align: center;
+  padding: 80px 32px;
+  background:
+    radial-gradient(ellipse at top, var(--lime-soft) 0%, transparent 60%),
+    var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  position: relative;
+  overflow: hidden;
+}
+
+.odlp .od-final-cta h2 {
+  font-size: clamp(30px, 4.5vw, 52px);
+  margin-bottom: 16px;
+}
+
+.odlp .od-final-cta p {
+  font-size: 18px;
+  color: var(--fg-2);
+  margin-bottom: 32px;
+  max-width: 540px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* ─── Footer ─── */
+.odlp .od-footer {
+  border-top: 1px solid var(--border);
+  padding: 48px 0 32px;
+  margin-top: 64px;
+}
+
+.odlp .od-footer-grid {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr 1fr;
+  gap: 40px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 768px) {
+  .odlp .od-footer-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+}
+
+.odlp .od-footer-desc {
+  font-size: 14px;
+  color: var(--fg-2);
+  margin-top: 14px;
+  max-width: 280px;
+}
+
+.odlp .od-footer-col h4 {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--fg-3);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+.odlp .od-footer-col ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.odlp .od-footer-col a {
+  font-size: 14px;
+  color: var(--fg-2);
+  transition: color 0.15s;
+}
+
+.odlp .od-footer-col a:hover {
+  color: var(--fg);
+}
+
+.odlp .od-footer-bottom {
+  padding-top: 24px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  color: var(--fg-3);
+}
+
+@media (max-width: 640px) {
+  .odlp .od-footer-bottom {
+    flex-direction: column;
+    gap: 12px;
+    text-align: center;
+  }
+}
+
+/* ─── Reveal animations (ativadas pela ilha client) ─── */
+.odlp [data-reveal] {
+  opacity: 0;
+  transform: translateY(20px);
+  transition: opacity 0.7s cubic-bezier(0.16, 1, 0.3, 1), transform 0.7s cubic-bezier(0.16, 1, 0.3, 1);
+  transition-delay: var(--od-delay, 0ms);
+}
+
+.odlp [data-reveal].odlp-revealed {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* Prefere reduzido — desliga animacoes */
+@media (prefers-reduced-motion: reduce) {
+  .odlp [data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .odlp .od-marquee-track { animation: none; }
+  .odlp .od-badge-dot { animation: none; }
+}
