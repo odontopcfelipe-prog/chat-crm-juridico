@@ -9,7 +9,7 @@
  *
  * SEO: pode ser linkada de landing page externa pra captacao.
  */
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
@@ -32,6 +32,19 @@ export default function SignupPage() {
   const [plan, setPlan] = useState('STARTER');
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Onda 17.32.93 — Pre-seleciona o plano via query param ?plan=...
+  // Acessado a partir dos cards de plano da landing /lp.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const raw = params.get('plan');
+    if (!raw) return;
+    const normalized = raw.toUpperCase();
+    if (normalized === 'STARTER' || normalized === 'PRO' || normalized === 'ENTERPRISE') {
+      setPlan(normalized);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

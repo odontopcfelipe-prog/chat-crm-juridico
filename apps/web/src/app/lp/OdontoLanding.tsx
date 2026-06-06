@@ -74,14 +74,14 @@ const MARQUEE = [
   'Relatórios financeiros',
 ];
 
-// ─── Planos (Onda 17.32.92 — precos novos: 60/90/150) ─────────
+// ─── Planos (Onda 17.32.93 — todos com 14 dias trial, signup direto) ──
 const PLANS = [
   {
+    slug: 'starter',
     name: 'Starter',
     desc: 'Pra clínicas pequenas começando',
     price: 60,
     featured: false,
-    cta: 'Começar 14 dias grátis',
     features: [
       'Até 5 usuários',
       'Até 300 pacientes',
@@ -92,11 +92,11 @@ const PLANS = [
     ],
   },
   {
+    slug: 'pro',
     name: 'Pro',
     desc: 'Pra clínicas em crescimento',
     price: 90,
     featured: true,
-    cta: 'Começar 14 dias grátis',
     features: [
       'Tudo do Starter',
       'Até 20 usuários',
@@ -109,11 +109,11 @@ const PLANS = [
     ],
   },
   {
+    slug: 'enterprise',
     name: 'Enterprise',
     desc: 'Pra redes e franquias',
     price: 150,
     featured: false,
-    cta: 'Falar com vendas',
     features: [
       'Tudo do Pro',
       'Usuários ilimitados',
@@ -399,17 +399,11 @@ export function OdontoLanding() {
                     </li>
                   ))}
                 </ul>
-                <Link
-                  href={plan.name === 'Enterprise' ? 'https://wa.me/5582996390799?text=Quero%20saber%20mais%20sobre%20o%20plano%20Enterprise' : '/cadastrar'}
-                  className="od-plan-cta"
-                  {...(plan.name === 'Enterprise' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
-                >
-                  {plan.cta}
+                <Link href={`/cadastrar?plan=${plan.slug}`} className="od-plan-cta">
+                  Começar 14 dias grátis
                 </Link>
                 <span className="od-plan-cta-sub">
-                  {plan.name === 'Enterprise'
-                    ? 'Atendimento humano · resposta em até 24h'
-                    : 'Sem cartão · cancela quando quiser'}
+                  Sem cartão · cancela quando quiser
                 </span>
               </div>
             ))}
