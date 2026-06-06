@@ -14,7 +14,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2, Building2, User, Mail, Lock, IdCard, Phone, CheckCircle2,
-  Sparkles, ArrowRight, Zap,
+  Sparkles, ArrowRight, Zap, MessageSquare, CreditCard, FileSignature,
+  CalendarDays, ShieldCheck,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -107,183 +108,299 @@ export default function SignupPage() {
     }
   };
 
+  // Onda 17.32.95 — Layout reformulado pra ficar com cara de SaaS
+  // profissional: split de 2 colunas, branding + trust signals na
+  // esquerda, form no card limpo a direita.
   return (
-    <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-to-br from-violet-500/5 via-background to-emerald-500/5">
-      <div className="w-full max-w-2xl">
-        {/* Hero */}
-        <div className="text-center mb-6">
-          <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700 mb-3">
-            <Sparkles size={11} />
-            14 dias grátis · sem cartão
-          </div>
-          <h1 className="text-3xl font-extrabold text-foreground">Crie sua clínica em 1 minuto</h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            WhatsApp, prontuário, financeiro e cobrança Asaas tudo no mesmo lugar.
-          </p>
-        </div>
+    <div className="min-h-screen bg-gradient-to-br from-violet-50 via-white to-emerald-50/40 dark:from-violet-950/20 dark:via-background dark:to-emerald-950/10">
+      {/* Glow de fundo */}
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-violet-500/10 blur-[120px] pointer-events-none -z-0" />
 
-        <form
-          onSubmit={handleSubmit}
-          className="bg-card border border-border rounded-2xl shadow-xl overflow-hidden"
-        >
-          {/* Sessao 1: Clinica */}
-          <div className="p-6 border-b border-border">
-            <h2 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-              <Building2 size={14} className="text-violet-600" />
-              Dados da clínica
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField
-                Icon={Building2}
-                label="Nome da clínica *"
-                value={clinicName}
-                onChange={setClinicName}
-                placeholder="Clínica Odontológica Sorriso"
-                required
-              />
-              <FormField
-                Icon={IdCard}
-                label="CPF/CNPJ"
-                value={cpfCnpj}
-                onChange={setCpfCnpj}
-                placeholder="11.222.333/0001-44"
-              />
-              <FormField
-                Icon={Phone}
-                label="Telefone (WhatsApp)"
-                value={phone}
-                onChange={setPhone}
-                placeholder="5582999999999"
-              />
-              <div>
-                <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">
-                  Plano inicial
-                </label>
-                {planFromUrl ? (
-                  // Onda 17.32.94 — Veio da landing: card-resumo do plano,
-                  // sem select. Link discreto pra trocar caso queira.
-                  <div className="flex items-center justify-between gap-2 px-3 py-2.5 border border-violet-500/30 bg-violet-500/5 rounded-md">
-                    <div className="flex items-center gap-2 min-w-0">
-                      <Zap size={14} className="text-violet-600 shrink-0" />
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold text-foreground truncate">
-                          {planInfo.name} <span className="text-violet-700 font-extrabold">R$ {planInfo.price}</span><span className="text-xs font-medium text-muted-foreground">/mês</span>
-                        </div>
-                        <div className="text-[11px] text-muted-foreground truncate">
-                          14 dias grátis · sem cartão
-                        </div>
-                      </div>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setPlanFromUrl(false)}
-                      className="text-[10px] font-bold text-violet-700 hover:underline shrink-0"
-                    >
-                      Trocar
-                    </button>
+      <div className="relative z-10 min-h-screen flex flex-col lg:flex-row">
+        {/* ─── Coluna esquerda — Branding + benefícios ─── */}
+        <aside className="hidden lg:flex lg:w-[42%] xl:w-[40%] flex-col justify-between p-12 xl:p-16 bg-gradient-to-br from-violet-600 via-violet-700 to-violet-900 text-white relative overflow-hidden">
+          {/* Padrão decorativo */}
+          <div
+            className="absolute inset-0 opacity-[0.05] pointer-events-none"
+            style={{
+              backgroundImage:
+                'radial-gradient(circle at 1px 1px, white 1px, transparent 0)',
+              backgroundSize: '24px 24px',
+            }}
+          />
+          <div
+            className="absolute -top-32 -left-32 w-[400px] h-[400px] rounded-full bg-emerald-400/20 blur-[100px] pointer-events-none"
+          />
+
+          {/* Logo + tagline topo */}
+          <div className="relative z-10">
+            <Link href="/lp" className="inline-flex items-center gap-2.5 mb-12 group">
+              <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(52,211,153,0.6)] group-hover:scale-110 transition-transform" />
+              <span className="text-base font-black uppercase tracking-tight">Odonto System</span>
+            </Link>
+
+            <div className="inline-flex items-center gap-2 bg-white/10 border border-white/20 rounded-full px-3 py-1 text-[11px] font-bold mb-5 backdrop-blur-sm">
+              <Sparkles size={11} />
+              14 dias grátis · sem cartão
+            </div>
+
+            <h1 className="text-4xl xl:text-5xl font-black leading-[1.1] mb-5 tracking-tight">
+              Sua clínica online em{' '}
+              <span className="text-emerald-300">1 minuto.</span>
+            </h1>
+
+            <p className="text-base text-violet-100/80 leading-relaxed mb-8 max-w-md">
+              Pacientes, agenda, WhatsApp, cobrança Asaas, contratos digitais —
+              tudo num lugar, na mão da sua equipe.
+            </p>
+
+            {/* Benefícios */}
+            <div className="space-y-3.5">
+              {[
+                { Icon: MessageSquare, label: 'WhatsApp + IA pra atendimento' },
+                { Icon: CreditCard,    label: 'Cobrança Asaas (PIX/boleto/cartão)' },
+                { Icon: FileSignature, label: 'Contratos com ClickSign' },
+                { Icon: CalendarDays,  label: 'Agenda + prontuário completo' },
+              ].map(({ Icon, label }) => (
+                <div key={label} className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center shrink-0">
+                    <Icon size={14} className="text-emerald-300" />
                   </div>
-                ) : (
-                  <>
-                    <select
-                      value={plan}
-                      onChange={(e) => setPlan(e.target.value)}
-                      className="w-full px-3 py-2.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                    >
-                      <option value="STARTER">Starter — R$ 60/mês (até 300 pacientes)</option>
-                      <option value="PRO">Pro — R$ 90/mês (até 3000 pacientes)</option>
-                      <option value="ENTERPRISE">Enterprise — R$ 150/mês (ilimitado)</option>
-                    </select>
-                    <p className="text-[10px] text-muted-foreground mt-1">
-                      Você pode mudar depois. Trial não cobra.
-                    </p>
-                  </>
-                )}
+                  <span className="text-sm font-medium text-violet-50">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Trust signals embaixo */}
+          <div className="relative z-10 mt-12">
+            <div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-white/10">
+              {[
+                { num: '+10', label: 'Anos no mercado' },
+                { num: '98%',  label: 'Satisfação' },
+                { num: '24/7', label: 'Sistema online' },
+              ].map((s) => (
+                <div key={s.label}>
+                  <div className="text-2xl font-black text-emerald-300 leading-none mb-1">
+                    {s.num}
+                  </div>
+                  <div className="text-[11px] text-violet-200/70 font-medium leading-tight">
+                    {s.label}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-3 text-[11px] font-semibold text-violet-100/70">
+              <ShieldCheck size={14} className="text-emerald-300 shrink-0" />
+              <span>Dados criptografados · LGPD-compliant · Sem fidelidade</span>
+            </div>
+          </div>
+        </aside>
+
+        {/* ─── Coluna direita — Form ─── */}
+        <main className="flex-1 flex items-center justify-center p-4 sm:p-8 lg:p-12">
+          <div className="w-full max-w-xl">
+            {/* Header do form (mobile mostra logo aqui) */}
+            <div className="lg:hidden text-center mb-6">
+              <Link href="/lp" className="inline-flex items-center gap-2 mb-3">
+                <div className="w-2 h-2 rounded-full bg-violet-600" />
+                <span className="text-sm font-black uppercase tracking-tight text-foreground">Odonto System</span>
+              </Link>
+              <div className="inline-flex items-center gap-2 bg-violet-500/10 border border-violet-500/30 rounded-full px-3 py-1 text-[11px] font-bold text-violet-700">
+                <Sparkles size={11} />
+                14 dias grátis · sem cartão
               </div>
             </div>
-          </div>
 
-          {/* Sessao 2: Admin */}
-          <div className="p-6 border-b border-border">
-            <h2 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-              <User size={14} className="text-violet-600" />
-              Seus dados de administrador
-            </h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <FormField
-                Icon={User}
-                label="Seu nome *"
-                value={adminName}
-                onChange={setAdminName}
-                placeholder="Dr(a). Fulano de Tal"
-                required
-              />
-              <FormField
-                Icon={Mail}
-                label="Email *"
-                type="email"
-                value={adminEmail}
-                onChange={setAdminEmail}
-                placeholder="admin@clinica.com.br"
-                required
-              />
-              <FormField
-                Icon={Lock}
-                label="Senha *"
-                type="password"
-                value={adminPassword}
-                onChange={setAdminPassword}
-                placeholder="Mínimo 6 caracteres"
-                required
-              />
-            </div>
-            <label className="flex items-start gap-2 mt-3 text-xs text-muted-foreground cursor-pointer">
-              <input
-                type="checkbox"
-                checked={accepted}
-                onChange={(e) => setAccepted(e.target.checked)}
-                className="mt-0.5 shrink-0"
-              />
-              Aceito os <Link href="/termos" className="text-violet-700 hover:underline">termos de uso</Link> e a{' '}
-              <Link href="/privacidade" className="text-violet-700 hover:underline">política de privacidade</Link>
-            </label>
-          </div>
-
-          {/* Footer / CTA */}
-          <div className="p-6 bg-muted/30">
-            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-center">
-              <p className="text-xs text-muted-foreground inline-flex items-start gap-1.5">
-                <CheckCircle2 size={11} className="shrink-0 mt-0.5 text-emerald-600" />
-                <span>
-                  14 dias grátis sem cartão. Após o trial, você escolhe plano e
-                  forma de pagamento.
-                </span>
+            <div className="mb-7">
+              <h2 className="text-2xl sm:text-[28px] font-extrabold text-foreground tracking-tight">
+                Crie sua conta
+              </h2>
+              <p className="text-sm text-muted-foreground mt-1.5">
+                Leva menos de 1 minuto. Comece a usar agora mesmo.
               </p>
-              <button
-                type="submit"
-                disabled={submitting || !accepted}
-                className="text-sm font-bold px-5 py-3 rounded-lg bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              >
-                {submitting ? (
-                  <>
-                    <Loader2 size={14} className="animate-spin" />
-                    Criando sua clínica...
-                  </>
-                ) : (
-                  <>
-                    Começar 14 dias grátis no {planInfo.name}
-                    <ArrowRight size={14} />
-                  </>
-                )}
-              </button>
             </div>
-            <p className="text-[11px] text-center text-muted-foreground mt-4">
+
+            <form
+              onSubmit={handleSubmit}
+              className="bg-card border border-border/70 rounded-2xl shadow-[0_24px_60px_-12px_rgba(0,0,0,0.12)] overflow-hidden"
+            >
+              {/* Plano selecionado (banner top do card) */}
+              {planFromUrl && (
+                <div className="px-6 py-3.5 bg-gradient-to-r from-violet-500/10 via-violet-500/8 to-emerald-500/8 border-b border-violet-500/20 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="w-8 h-8 rounded-lg bg-violet-600 text-white flex items-center justify-center shrink-0">
+                      <Zap size={15} />
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-[11px] uppercase tracking-wider font-bold text-violet-700">Plano escolhido</div>
+                      <div className="text-sm font-bold text-foreground truncate">
+                        {planInfo.name}
+                        <span className="text-violet-700 ml-1.5">R$ {planInfo.price}</span>
+                        <span className="text-xs font-medium text-muted-foreground">/mês</span>
+                        <span className="text-xs font-normal text-muted-foreground ml-2 hidden sm:inline">
+                          · {planInfo.tagline}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPlanFromUrl(false)}
+                    className="text-[11px] font-bold text-violet-700 hover:text-violet-900 hover:underline shrink-0"
+                  >
+                    Trocar
+                  </button>
+                </div>
+              )}
+
+              {/* Seção 1: Clínica */}
+              <div className="p-6 sm:p-7 border-b border-border/60">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">1</span>
+                  <h3 className="text-sm font-bold text-foreground">Sua clínica</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div className="sm:col-span-2">
+                    <FormField
+                      Icon={Building2}
+                      label="Nome da clínica *"
+                      value={clinicName}
+                      onChange={setClinicName}
+                      placeholder="Clínica Odontológica Sorriso"
+                      required
+                    />
+                  </div>
+                  <FormField
+                    Icon={IdCard}
+                    label="CPF/CNPJ"
+                    value={cpfCnpj}
+                    onChange={setCpfCnpj}
+                    placeholder="11.222.333/0001-44"
+                  />
+                  <FormField
+                    Icon={Phone}
+                    label="WhatsApp"
+                    value={phone}
+                    onChange={setPhone}
+                    placeholder="5582999999999"
+                  />
+                  {!planFromUrl && (
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5 flex items-center gap-1">
+                        <Zap size={10} />
+                        Plano inicial
+                      </label>
+                      <select
+                        value={plan}
+                        onChange={(e) => setPlan(e.target.value)}
+                        className="w-full px-3.5 py-3 text-sm border border-border rounded-xl bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-colors"
+                      >
+                        <option value="STARTER">Starter — R$ 60/mês (até 300 pacientes)</option>
+                        <option value="PRO">Pro — R$ 90/mês (até 3000 pacientes)</option>
+                        <option value="ENTERPRISE">Enterprise — R$ 150/mês (ilimitado)</option>
+                      </select>
+                      <p className="text-[11px] text-muted-foreground mt-1.5">
+                        Trial não cobra. Você pode mudar de plano depois.
+                      </p>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Seção 2: Admin */}
+              <div className="p-6 sm:p-7 border-b border-border/60">
+                <div className="flex items-center gap-2 mb-4">
+                  <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">2</span>
+                  <h3 className="text-sm font-bold text-foreground">Seu acesso</h3>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <FormField
+                    Icon={User}
+                    label="Seu nome *"
+                    value={adminName}
+                    onChange={setAdminName}
+                    placeholder="Dr(a). Fulano de Tal"
+                    required
+                  />
+                  <FormField
+                    Icon={Mail}
+                    label="E-mail *"
+                    type="email"
+                    value={adminEmail}
+                    onChange={setAdminEmail}
+                    placeholder="seu@email.com"
+                    required
+                  />
+                  <div className="sm:col-span-2">
+                    <FormField
+                      Icon={Lock}
+                      label="Senha * (mínimo 6 caracteres)"
+                      type="password"
+                      value={adminPassword}
+                      onChange={setAdminPassword}
+                      placeholder="••••••••"
+                      required
+                    />
+                  </div>
+                </div>
+                <label className="flex items-start gap-2.5 mt-4 text-xs text-muted-foreground cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={accepted}
+                    onChange={(e) => setAccepted(e.target.checked)}
+                    className="mt-0.5 shrink-0 w-4 h-4 accent-violet-600 cursor-pointer"
+                  />
+                  <span>
+                    Aceito os{' '}
+                    <Link href="/termos" className="text-violet-700 font-semibold hover:underline">
+                      termos de uso
+                    </Link>{' '}
+                    e a{' '}
+                    <Link href="/privacidade" className="text-violet-700 font-semibold hover:underline">
+                      política de privacidade
+                    </Link>
+                    .
+                  </span>
+                </label>
+              </div>
+
+              {/* CTA */}
+              <div className="p-6 sm:p-7 bg-gradient-to-br from-violet-50 to-emerald-50/50 dark:from-violet-950/30 dark:to-emerald-950/20">
+                <button
+                  type="submit"
+                  disabled={submitting || !accepted}
+                  className="w-full h-12 sm:h-13 rounded-xl bg-violet-600 hover:bg-violet-700 active:bg-violet-800 text-white text-[15px] font-bold inline-flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-[0_8px_24px_-4px_rgba(124,58,237,0.4)] hover:shadow-[0_12px_32px_-4px_rgba(124,58,237,0.5)] hover:-translate-y-0.5 disabled:transform-none disabled:shadow-none"
+                >
+                  {submitting ? (
+                    <>
+                      <Loader2 size={16} className="animate-spin" />
+                      Criando sua clínica...
+                    </>
+                  ) : (
+                    <>
+                      Começar 14 dias grátis no {planInfo.name}
+                      <ArrowRight size={16} />
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-center text-muted-foreground mt-3 flex items-center justify-center gap-1.5">
+                  <CheckCircle2 size={11} className="text-emerald-600" />
+                  Sem cartão · sem fidelidade · cancele quando quiser
+                </p>
+              </div>
+            </form>
+
+            {/* Login link */}
+            <p className="text-center text-xs text-muted-foreground mt-6">
               Já tem conta?{' '}
-              <Link href="/atendimento/login" className="text-violet-700 font-semibold hover:underline">
-                Faça login
+              <Link href="/atendimento/login" className="text-violet-700 font-bold hover:underline">
+                Entrar
               </Link>
             </p>
           </div>
-        </form>
+        </main>
       </div>
     </div>
   );
@@ -302,8 +419,8 @@ function FormField({
 }) {
   return (
     <div>
-      <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 flex items-center gap-1">
-        <Icon size={10} />
+      <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5">
+        <Icon size={11} className="text-violet-500" />
         {label}
       </label>
       <input
@@ -312,7 +429,7 @@ function FormField({
         onChange={(e) => onChange(e.target.value)}
         required={required}
         placeholder={placeholder}
-        className="w-full px-3 py-2.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+        className="w-full h-11 px-3.5 text-sm border border-border rounded-xl bg-background placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-violet-500/30 focus:border-violet-500/50 transition-colors"
       />
     </div>
   );
