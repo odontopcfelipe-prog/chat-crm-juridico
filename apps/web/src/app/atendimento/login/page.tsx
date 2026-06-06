@@ -100,33 +100,32 @@ export default function LoginPage() {
         <div className="w-full max-w-[1100px]">
           <div className="grid gap-8 lg:grid-cols-2 lg:gap-20">
 
-            {/* ── Left — Branding ─────────────────────────────────── */}
+            {/* ── Left — Branding (Onda 17.32.89: neutro pra SaaS) ──── */}
             <div className="hidden flex-col justify-center lg:flex">
               <div className="mb-12">
-                {/* TODO: substituir pelo logo oficial do Instituto Odonto Passos em /public */}
                 <h2 className="text-3xl font-black uppercase tracking-tight text-[#A89048]">
-                  Instituto Odonto Passos
+                  Odonto System
                 </h2>
               </div>
 
               <h1 className="mb-6 text-5xl font-black leading-tight text-white uppercase tracking-tight">
-                Excelência em <br />
+                Sistema completo <br />
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e3c788] via-[#d4b568] to-[#c8aa62]">
-                  Odontologia
+                  pra sua clínica
                 </span>
               </h1>
 
               <p className="mb-10 text-lg text-slate-400 font-medium leading-relaxed max-w-md">
-                Acesse sua plataforma de gestão odontológica.
-                Tecnologia a serviço do seu sorriso.
+                Pacientes, agenda, WhatsApp, cobrança Asaas, contratos
+                ClickSign e relatórios — tudo num lugar.
               </p>
 
               <div className="space-y-5">
                 {[
                   'Gestão Integrada de Pacientes',
-                  'Inteligência Clínica Avançada',
-                  'Ambiente Seguro e Privativo',
-                  'Atendimento Personalizado',
+                  'WhatsApp + IA pra atendimento',
+                  'Cobrança Asaas automatizada',
+                  'Contratos com assinatura digital',
                 ].map((feature, i) => (
                   <div key={i} className="flex items-center gap-4 group">
                     <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#A89048]/10 border border-[#A89048]/30 transition-all group-hover:bg-[#A89048]/20 group-hover:scale-110 shrink-0">
@@ -143,10 +142,10 @@ export default function LoginPage() {
               <div className="w-full max-w-md border border-white/[0.08] bg-[#111111] shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-[2rem] overflow-hidden">
                 <div className="p-8 md:p-12">
 
-                  {/* Mobile logo — TODO: substituir pelo logo oficial quando disponivel */}
+                  {/* Mobile logo (Onda 17.32.89: neutro pra SaaS) */}
                   <div className="mb-10 flex flex-col items-center justify-center lg:hidden">
                     <h2 className="text-2xl font-black uppercase tracking-tight text-[#A89048] text-center">
-                      Instituto Odonto Passos
+                      Odonto System
                     </h2>
                   </div>
 
@@ -180,27 +179,20 @@ export default function LoginPage() {
                     </motion.div>
                   )}
 
-                  {/* Error banner */}
+                  {/* Error banner — Onda 17.32.89:
+                    Removido o "Modo de Demonstração (Bypass)" que dava
+                    pra QUALQUER UM entrar sem senha apos errar a senha.
+                    Era furo de seguranca grave em SaaS comercial. */}
                   {error && (
                     <motion.div
                       initial={{ opacity: 0, scale: 0.95 }}
                       animate={{ opacity: 1, scale: 1 }}
-                      className="mb-6 space-y-3"
+                      className="mb-6"
                     >
                       <div className="flex items-center gap-3 rounded-xl bg-red-500/10 border border-red-500/20 p-4 text-sm text-red-400 font-medium">
                         <AlertCircle className="h-5 w-5 flex-shrink-0" />
                         {error}
                       </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          localStorage.setItem('token', 'mock-dev-token');
-                          router.push('/atendimento');
-                        }}
-                        className="w-full py-2 text-[12px] font-bold text-[#A89048]/80 hover:text-[#A89048] transition-colors underline decoration-[#A89048]/30"
-                      >
-                        Entrar em Modo de Demonstração (Bypass)
-                      </button>
                     </motion.div>
                   )}
 
@@ -215,7 +207,7 @@ export default function LoginPage() {
                         <input
                           autoComplete="email"
                           type="email"
-                          placeholder="nome@andrelustosa.adv.br"
+                          placeholder="seu@email.com"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           required
