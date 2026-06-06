@@ -74,47 +74,55 @@ const MARQUEE = [
   'Relatórios financeiros',
 ];
 
-// ─── Planos ────────────────────────────────────────────────────
+// ─── Planos (Onda 17.32.92 — precos novos: 60/90/150) ─────────
 const PLANS = [
   {
     name: 'Starter',
     desc: 'Pra clínicas pequenas começando',
-    price: 199,
+    price: 60,
     featured: false,
+    cta: 'Começar 14 dias grátis',
     features: [
       'Até 5 usuários',
       'Até 300 pacientes',
       '1 WhatsApp conectado',
-      'Cobranças Asaas',
+      'Cobranças Asaas (PIX/boleto/cartão)',
       'Agenda + prontuário',
+      'Suporte por e-mail',
     ],
   },
   {
     name: 'Pro',
     desc: 'Pra clínicas em crescimento',
-    price: 399,
+    price: 90,
     featured: true,
+    cta: 'Começar 14 dias grátis',
     features: [
       'Tudo do Starter',
       'Até 20 usuários',
-      'Até 3000 pacientes',
+      'Até 3.000 pacientes',
       '3 WhatsApps conectados',
       'ClickSign integrado',
+      'Asaas Tap (cartão presencial)',
       'Relatórios avançados',
+      'Suporte prioritário',
     ],
   },
   {
     name: 'Enterprise',
     desc: 'Pra redes e franquias',
-    price: 999,
+    price: 150,
     featured: false,
+    cta: 'Falar com vendas',
     features: [
       'Tudo do Pro',
       'Usuários ilimitados',
       'Pacientes ilimitados',
       'Até 10 WhatsApps',
-      'Multi-unidade',
-      'Suporte prioritário',
+      'Multi-unidade / franquia',
+      'API + integrações custom',
+      'Onboarding dedicado',
+      'SLA de suporte',
     ],
   },
 ];
@@ -391,9 +399,18 @@ export function OdontoLanding() {
                     </li>
                   ))}
                 </ul>
-                <Link href="/cadastrar" className="od-plan-cta">
-                  Começar com {plan.name}
+                <Link
+                  href={plan.name === 'Enterprise' ? 'https://wa.me/5582996390799?text=Quero%20saber%20mais%20sobre%20o%20plano%20Enterprise' : '/cadastrar'}
+                  className="od-plan-cta"
+                  {...(plan.name === 'Enterprise' ? { target: '_blank', rel: 'noopener noreferrer' } : {})}
+                >
+                  {plan.cta}
                 </Link>
+                <span className="od-plan-cta-sub">
+                  {plan.name === 'Enterprise'
+                    ? 'Atendimento humano · resposta em até 24h'
+                    : 'Sem cartão · cancela quando quiser'}
+                </span>
               </div>
             ))}
           </div>

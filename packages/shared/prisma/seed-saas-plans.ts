@@ -9,12 +9,14 @@
 import { PrismaClient } from '@prisma/client';
 const prisma = new PrismaClient();
 
+// Onda 17.32.92 — Precos reformulados pra revenda: 60/90/150.
+// Posicionamento agressivo pra abrir mercado de clinicas pequenas/medias.
 const PLANS = [
   {
     slug: 'starter',
     name: 'Starter',
     description: 'Pra clínicas pequenas começando',
-    price_monthly: 199,
+    price_monthly: 60,
     max_users: 5,
     max_patients: 300,
     max_inboxes: 1,
@@ -23,8 +25,9 @@ const PLANS = [
       'Até 5 usuários',
       'Até 300 pacientes',
       '1 WhatsApp conectado',
-      'Cobranças Asaas',
+      'Cobranças Asaas (PIX/boleto/cartão)',
       'Agenda + prontuário',
+      'Suporte por e-mail',
     ]),
     display_order: 1,
   },
@@ -32,7 +35,7 @@ const PLANS = [
     slug: 'pro',
     name: 'Pro',
     description: 'Pra clínicas em crescimento',
-    price_monthly: 399,
+    price_monthly: 90,
     max_users: 20,
     max_patients: 3000,
     max_inboxes: 3,
@@ -40,10 +43,12 @@ const PLANS = [
     features_json: JSON.stringify([
       'Tudo do Starter',
       'Até 20 usuários',
-      'Até 3000 pacientes',
+      'Até 3.000 pacientes',
       '3 WhatsApps conectados',
       'ClickSign integrado',
+      'Asaas Tap (cartão presencial)',
       'Relatórios avançados',
+      'Suporte prioritário',
     ]),
     display_order: 2,
   },
@@ -51,7 +56,7 @@ const PLANS = [
     slug: 'enterprise',
     name: 'Enterprise',
     description: 'Pra redes e franquias',
-    price_monthly: 999,
+    price_monthly: 150,
     max_users: -1,
     max_patients: -1,
     max_inboxes: 10,
@@ -61,8 +66,10 @@ const PLANS = [
       'Usuários ilimitados',
       'Pacientes ilimitados',
       'Até 10 WhatsApps',
-      'Multi-unidade',
-      'Suporte prioritário',
+      'Multi-unidade / franquia',
+      'API + integrações custom',
+      'Onboarding dedicado',
+      'SLA de suporte',
     ]),
     display_order: 3,
   },
