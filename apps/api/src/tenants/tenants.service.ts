@@ -64,11 +64,32 @@ export class TenantsService {
     return tenant;
   }
 
+  /**
+   * Onda 17.32.88 — Slugifica de verdade: lowercase, remove acentos,
+   * troca espaços/pontos por hifen, colapsa hifens duplos, trim.
+   * Chamado no create/update pra blindar caller (signup, admin, etc).
+   */
+  private slugify(raw: string | null | undefined): string | null {
+    if (!raw) return null;
+    const s = String(raw)
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')    // remove diacriticos
+      .replace(/[^a-z0-9]+/g, '-')          // tudo nao-alfanum vira hifen
+      .replace(/^-+|-+$/g, '')             // tira hifen das pontas
+      .replace(/--+/g, '-')                // colapsa hifens duplos
+      .slice(0, 40);
+    return s || null;
+  }
+
   async create(body: any) {
+    // Slugifica de verdade (não só lowercase) — Onda 17.32.88
+    if (body.slug) body.slug = this.slugify(body.slug);
+
     // Valida slug unico (se informado)
     if (body.slug) {
       const existing = await this.prisma.tenant.findUnique({
-        where: { slug: body.slug.toLowerCase() },
+        where: { slug: body.slug },
       });
       if (existing) {
         throw new ConflictException('Slug ja em uso');
@@ -89,7 +110,7 @@ export class TenantsService {
       const tenant = await tx.tenant.create({
         data: {
           name: body.name.trim(),
-          slug: body.slug?.toLowerCase() || null,
+          slug: body.slug || null,
           email: body.email || null,
           phone: body.phone || null,
           cpf_cnpj: body.cpf_cnpj || null,
@@ -140,10 +161,15 @@ export class TenantsService {
     const existing = await this.prisma.tenant.findUnique({ where: { id } });
     if (!existing) throw new BadRequestException('Tenant nao encontrado');
 
+    // Slugifica de verdade antes de validar — Onda 17.32.88
+    if (body.slug !== undefined && body.slug !== null) {
+      body.slug = this.slugify(body.slug);
+    }
+
     // Slug unico (se mudou)
     if (body.slug && body.slug !== existing.slug) {
       const conflict = await this.prisma.tenant.findUnique({
-        where: { slug: body.slug.toLowerCase() },
+        where: { slug: body.slug },
       });
       if (conflict) throw new ConflictException('Slug ja em uso');
     }
@@ -160,7 +186,6 @@ export class TenantsService {
     if (body.trial_ends_at !== undefined) {
       data.trial_ends_at = body.trial_ends_at ? new Date(body.trial_ends_at) : null;
     }
-    if (data.slug) data.slug = data.slug.toLowerCase();
 
     return this.prisma.tenant.update({ where: { id }, data });
   }

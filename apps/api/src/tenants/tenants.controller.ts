@@ -49,7 +49,10 @@ export class SignupController {
       throw new BadRequestException('Senha precisa ter ao menos 6 caracteres');
     }
 
-    // Slug auto-gerado a partir do nome
+    // Slug auto-gerado a partir do nome — Onda 17.32.88: usa range
+    // Unicode explicito ̀-ͯ (combining diacritics) em vez de
+    // chars invisiveis. Alem disso, o service tambem slugifica como
+    // rede de seguranca.
     const slug = body.clinic_name
       .toLowerCase()
       .normalize('NFD').replace(/[̀-ͯ]/g, '')
