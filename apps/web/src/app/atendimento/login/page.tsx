@@ -2,7 +2,13 @@
 
 import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { Mail, Lock, AlertCircle, Eye, EyeOff, CheckCircle2 } from 'lucide-react';
+import {
+  Mail, Lock, AlertCircle, Eye, EyeOff,
+  MessageSquare, CreditCard, FileSignature, CalendarDays,
+  ShieldCheck, ArrowRight, Sparkles,
+} from 'lucide-react';
+// CheckCircle2 removido — coluna esquerda agora usa icones por categoria
+// (MessageSquare/CreditCard/FileSignature/CalendarDays) em vez de check generico.
 import { motion } from 'framer-motion';
 import api, { API_BASE_URL } from '@/lib/api';
 
@@ -100,40 +106,73 @@ export default function LoginPage() {
         <div className="w-full max-w-[1100px]">
           <div className="grid gap-8 lg:grid-cols-2 lg:gap-20">
 
-            {/* ── Left — Branding (Onda 17.32.89: neutro pra SaaS) ──── */}
-            <div className="hidden flex-col justify-center lg:flex">
-              <div className="mb-12">
-                <h2 className="text-3xl font-black uppercase tracking-tight text-[#A89048]">
-                  Odonto System
-                </h2>
+            {/* ── Left — Branding (Onda 17.32.96: reformulado SaaS) ──── */}
+            <div className="hidden flex-col justify-between lg:flex">
+              <div>
+                <div className="mb-12 inline-flex items-center gap-2.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-[#A89048] shadow-[0_0_12px_rgba(168,144,72,0.7)]" />
+                  <h2 className="text-2xl font-black uppercase tracking-tight text-[#A89048]">
+                    Odonto System
+                  </h2>
+                </div>
+
+                <div className="inline-flex items-center gap-2 bg-[#A89048]/10 border border-[#A89048]/25 rounded-full px-3 py-1 text-[11px] font-bold text-[#A89048] mb-6 backdrop-blur-sm">
+                  <Sparkles size={11} />
+                  14 dias grátis · sem cartão
+                </div>
+
+                <h1 className="mb-6 text-5xl font-black leading-[1.05] text-white uppercase tracking-tight">
+                  Sistema completo <br />
+                  <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e3c788] via-[#d4b568] to-[#c8aa62]">
+                    pra sua clínica
+                  </span>
+                </h1>
+
+                <p className="mb-10 text-base text-slate-400 font-medium leading-relaxed max-w-md">
+                  Pacientes, agenda, WhatsApp, cobrança Asaas, contratos
+                  ClickSign e relatórios — tudo num lugar.
+                </p>
+
+                <div className="space-y-4">
+                  {[
+                    { Icon: MessageSquare,  label: 'WhatsApp + IA pra atendimento' },
+                    { Icon: CreditCard,     label: 'Cobrança Asaas (PIX/boleto/cartão)' },
+                    { Icon: FileSignature,  label: 'Contratos com ClickSign' },
+                    { Icon: CalendarDays,   label: 'Agenda + prontuário completo' },
+                  ].map(({ Icon, label }) => (
+                    <div key={label} className="flex items-center gap-3 group">
+                      <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#A89048]/10 border border-[#A89048]/25 transition-all group-hover:bg-[#A89048]/20 group-hover:border-[#A89048]/40 shrink-0">
+                        <Icon className="h-4 w-4 text-[#A89048]" strokeWidth={2.2} />
+                      </div>
+                      <span className="text-sm font-semibold text-slate-200 tracking-tight">{label}</span>
+                    </div>
+                  ))}
+                </div>
               </div>
 
-              <h1 className="mb-6 text-5xl font-black leading-tight text-white uppercase tracking-tight">
-                Sistema completo <br />
-                <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#e3c788] via-[#d4b568] to-[#c8aa62]">
-                  pra sua clínica
-                </span>
-              </h1>
-
-              <p className="mb-10 text-lg text-slate-400 font-medium leading-relaxed max-w-md">
-                Pacientes, agenda, WhatsApp, cobrança Asaas, contratos
-                ClickSign e relatórios — tudo num lugar.
-              </p>
-
-              <div className="space-y-5">
-                {[
-                  'Gestão Integrada de Pacientes',
-                  'WhatsApp + IA pra atendimento',
-                  'Cobrança Asaas automatizada',
-                  'Contratos com assinatura digital',
-                ].map((feature, i) => (
-                  <div key={i} className="flex items-center gap-4 group">
-                    <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#A89048]/10 border border-[#A89048]/30 transition-all group-hover:bg-[#A89048]/20 group-hover:scale-110 shrink-0">
-                      <CheckCircle2 className="h-4 w-4 text-[#A89048]" />
+              {/* Stats + trust signal embaixo */}
+              <div className="mt-12">
+                <div className="grid grid-cols-3 gap-4 pb-5 mb-5 border-b border-white/[0.06]">
+                  {[
+                    { num: '+10',   label: 'Anos no mercado' },
+                    { num: '98%',   label: 'Satisfação' },
+                    { num: '24/7',  label: 'Online' },
+                  ].map((s) => (
+                    <div key={s.label}>
+                      <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-[#e3c788] to-[#c8aa62] leading-none mb-1.5">
+                        {s.num}
+                      </div>
+                      <div className="text-[11px] text-slate-500 font-semibold leading-tight tracking-wide">
+                        {s.label}
+                      </div>
                     </div>
-                    <span className="text-slate-300 font-semibold tracking-wide">{feature}</span>
-                  </div>
-                ))}
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-3 text-[11px] font-semibold text-slate-500">
+                  <ShieldCheck size={14} className="text-[#A89048] shrink-0" />
+                  <span>Dados criptografados · LGPD-compliant · Sem fidelidade</span>
+                </div>
               </div>
             </div>
 
@@ -142,27 +181,23 @@ export default function LoginPage() {
               <div className="w-full max-w-md border border-white/[0.08] bg-[#111111] shadow-[0_20px_60px_rgba(0,0,0,0.6)] rounded-[2rem] overflow-hidden">
                 <div className="p-8 md:p-12">
 
-                  {/* Mobile logo (Onda 17.32.89: neutro pra SaaS) */}
-                  <div className="mb-10 flex flex-col items-center justify-center lg:hidden">
-                    <h2 className="text-2xl font-black uppercase tracking-tight text-[#A89048] text-center">
-                      Odonto System
-                    </h2>
+                  {/* Mobile logo (Onda 17.32.96: com bolinha dourada) */}
+                  <div className="mb-8 flex flex-col items-center justify-center lg:hidden">
+                    <div className="inline-flex items-center gap-2">
+                      <div className="w-2 h-2 rounded-full bg-[#A89048] shadow-[0_0_10px_rgba(168,144,72,0.7)]" />
+                      <h2 className="text-xl font-black uppercase tracking-tight text-[#A89048]">
+                        Odonto System
+                      </h2>
+                    </div>
                   </div>
 
                   {/* Heading */}
-                  <div className="mb-10 text-center lg:text-left">
+                  <div className="mb-9 text-center lg:text-left">
                     <h2 className="text-3xl font-black text-white uppercase tracking-tight">
-                      Bem-vindo
+                      Bem-vindo de volta
                     </h2>
                     <div className="w-12 h-1 bg-[#A89048] mt-3 mb-4 rounded-full mx-auto lg:mx-0 shadow-[0_0_10px_rgba(168,144,72,0.5)]" />
-                    <p className="text-slate-400 font-medium">Acesse seu painel com segurança</p>
-                    {/* Onda 17.32.85 — Atalho pra signup publico */}
-                    <p className="text-slate-500 text-xs mt-3">
-                      É novo aqui?{' '}
-                      <a href="/cadastrar" className="text-[#A89048] font-bold hover:underline">
-                        Crie sua clínica grátis →
-                      </a>
-                    </p>
+                    <p className="text-slate-400 font-medium text-sm">Acesse seu painel com segurança</p>
                   </div>
 
                   {/* Session expired banner */}
@@ -290,6 +325,29 @@ export default function LoginPage() {
                       )}
                     </button>
                   </form>
+
+                  {/* Onda 17.32.96 — Divisor "ou" + CTA secundario pra signup.
+                    Antes era so texto solto no heading. Agora vira CTA forte
+                    pra capturar novos clientes no proprio login. */}
+                  <div className="my-6 relative">
+                    <div className="absolute inset-0 flex items-center">
+                      <div className="w-full border-t border-white/[0.06]" />
+                    </div>
+                    <div className="relative flex justify-center">
+                      <span className="bg-[#111111] px-3 text-[10px] font-bold uppercase tracking-widest text-slate-600">
+                        Ainda não tem conta?
+                      </span>
+                    </div>
+                  </div>
+
+                  <a
+                    href="/cadastrar"
+                    className="flex items-center justify-center gap-2 w-full h-12 rounded-xl border border-[#A89048]/30 bg-[#A89048]/5 hover:bg-[#A89048]/10 hover:border-[#A89048]/50 text-[#A89048] font-bold text-sm transition-all group"
+                  >
+                    <Sparkles size={14} className="group-hover:rotate-12 transition-transform" />
+                    Criar clínica grátis — 14 dias
+                    <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+                  </a>
 
                   {/* DB status */}
                   <div className="flex items-center justify-center gap-2 pt-6 mt-6 border-t border-white/5">
