@@ -39,12 +39,15 @@ export const THEMES = [
     dark: true,
   },
   {
-    id: 'glacier',
-    name: 'Glacier',
-    gradient: 'linear-gradient(180deg, #e0f2fe 0%, #f0f9ff 50%, #ffffff 100%)',
-    accent: 'linear-gradient(135deg, #0ea5e9 0%, #06b6d4 100%)',
-    solidBg: '#f0f9ff',
-    color: '#f0f9ff',
+    // Onda 17.32.101 — Tema unificado com /lp, /cadastrar e /login.
+    // Substitui o antigo "Glacier" (azul ciano). Quem tinha glacier
+    // salvo no localStorage migra automatico (alias em globals.css).
+    id: 'violet',
+    name: 'Violet',
+    gradient: 'linear-gradient(180deg, #f3eeff 0%, #faf7ff 50%, #ffffff 100%)',
+    accent: 'linear-gradient(135deg, #7c3aed 0%, #34d399 100%)',
+    solidBg: '#faf7ff',
+    color: '#faf7ff',
     dark: false,
   },
   {
