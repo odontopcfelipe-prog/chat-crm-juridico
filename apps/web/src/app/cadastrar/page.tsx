@@ -14,10 +14,18 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import {
   Loader2, Building2, User, Mail, Lock, IdCard, Phone, CheckCircle2,
-  Sparkles, ArrowRight,
+  Sparkles, ArrowRight, Zap,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+
+// Onda 17.32.94 — Info dos planos pra renderizar badge/CTA quando
+// o usuario chega via /cadastrar?plan=... (link da landing).
+const PLAN_INFO: Record<string, { name: string; price: number; tagline: string }> = {
+  STARTER:    { name: 'Starter',    price: 60,  tagline: 'Clínica pequena começando' },
+  PRO:        { name: 'Pro',        price: 90,  tagline: 'Clínica em crescimento' },
+  ENTERPRISE: { name: 'Enterprise', price: 150, tagline: 'Redes e franquias' },
+};
 
 export default function SignupPage() {
   const router = useRouter();
@@ -30,6 +38,9 @@ export default function SignupPage() {
   const [adminEmail, setAdminEmail] = useState('');
   const [adminPassword, setAdminPassword] = useState('');
   const [plan, setPlan] = useState('STARTER');
+  // Onda 17.32.94 — Quando true, esconde o select e mostra banner do
+  // plano (usuario veio direto dos cards de planos da /lp).
+  const [planFromUrl, setPlanFromUrl] = useState(false);
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
@@ -43,8 +54,11 @@ export default function SignupPage() {
     const normalized = raw.toUpperCase();
     if (normalized === 'STARTER' || normalized === 'PRO' || normalized === 'ENTERPRISE') {
       setPlan(normalized);
+      setPlanFromUrl(true);
     }
   }, []);
+
+  const planInfo = PLAN_INFO[plan] ?? PLAN_INFO.STARTER;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -58,8 +72,9 @@ export default function SignupPage() {
     }
     setSubmitting(true);
     try {
-      // 1. Cria tenant + admin via signup publico
-      await api.post('/signup', {
+      // 1. Cria tenant + admin via signup publico. Captura trial_ends_at
+      // pra mostrar a data exata no toast de boas-vindas.
+      const signupResp = await api.post<{ id: string; trial_ends_at: string | null; name: string }>('/signup', {
         clinic_name: clinicName,
         cpf_cnpj: cpfCnpj || undefined,
         phone: phone || undefined,
@@ -68,6 +83,9 @@ export default function SignupPage() {
         admin_password: adminPassword,
         plan,
       });
+      const trialEnds = signupResp.data?.trial_ends_at
+        ? new Date(signupResp.data.trial_ends_at)
+        : null;
       // 2. Faz login automatico pra entrar no sistema ja autenticado
       const loginResp = await api.post<{ access_token: string }>('/auth/login', {
         email: adminEmail.toLowerCase().trim(),
@@ -76,7 +94,10 @@ export default function SignupPage() {
       if (loginResp.data?.access_token) {
         localStorage.setItem('token', loginResp.data.access_token);
       }
-      showSuccess(`Bem-vindo(a) ao ${clinicName}! Trial de 14 dias iniciado.`);
+      const trialMsg = trialEnds
+        ? `Trial liberado até ${trialEnds.toLocaleDateString('pt-BR')}.`
+        : 'Trial de 14 dias iniciado.';
+      showSuccess(`Bem-vindo(a) ao ${clinicName}! ${trialMsg}`);
       router.push('/atendimento/dashboard');
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Erro no cadastro';
@@ -138,18 +159,45 @@ export default function SignupPage() {
                 <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">
                   Plano inicial
                 </label>
-                <select
-                  value={plan}
-                  onChange={(e) => setPlan(e.target.value)}
-                  className="w-full px-3 py-2.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30"
-                >
-                  <option value="STARTER">Starter (até 300 pacientes)</option>
-                  <option value="PRO">Pro (até 3000 pacientes)</option>
-                  <option value="ENTERPRISE">Enterprise (ilimitado)</option>
-                </select>
-                <p className="text-[10px] text-muted-foreground mt-1">
-                  Você pode mudar depois. Trial não cobra.
-                </p>
+                {planFromUrl ? (
+                  // Onda 17.32.94 — Veio da landing: card-resumo do plano,
+                  // sem select. Link discreto pra trocar caso queira.
+                  <div className="flex items-center justify-between gap-2 px-3 py-2.5 border border-violet-500/30 bg-violet-500/5 rounded-md">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <Zap size={14} className="text-violet-600 shrink-0" />
+                      <div className="min-w-0">
+                        <div className="text-sm font-bold text-foreground truncate">
+                          {planInfo.name} <span className="text-violet-700 font-extrabold">R$ {planInfo.price}</span><span className="text-xs font-medium text-muted-foreground">/mês</span>
+                        </div>
+                        <div className="text-[11px] text-muted-foreground truncate">
+                          14 dias grátis · sem cartão
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setPlanFromUrl(false)}
+                      className="text-[10px] font-bold text-violet-700 hover:underline shrink-0"
+                    >
+                      Trocar
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <select
+                      value={plan}
+                      onChange={(e) => setPlan(e.target.value)}
+                      className="w-full px-3 py-2.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-violet-500/30"
+                    >
+                      <option value="STARTER">Starter — R$ 60/mês (até 300 pacientes)</option>
+                      <option value="PRO">Pro — R$ 90/mês (até 3000 pacientes)</option>
+                      <option value="ENTERPRISE">Enterprise — R$ 150/mês (ilimitado)</option>
+                    </select>
+                    <p className="text-[10px] text-muted-foreground mt-1">
+                      Você pode mudar depois. Trial não cobra.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -222,7 +270,7 @@ export default function SignupPage() {
                   </>
                 ) : (
                   <>
-                    Começar grátis
+                    Começar 14 dias grátis no {planInfo.name}
                     <ArrowRight size={14} />
                   </>
                 )}
