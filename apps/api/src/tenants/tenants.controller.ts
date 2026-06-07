@@ -308,4 +308,19 @@ export class TenantsController {
   async deleteSetting(@Param('id') id: string, @Param('key') key: string) {
     return this.service.deleteSetting(id, key);
   }
+
+  /**
+   * Onda 17.32.111 — Re-popula os defaults (especialidades, tabela de
+   * precos, ficha de anamnese) em TODOS os tenants ativos. Util pra
+   * propagar atualizacoes da tabela base ou recuperar tenants que
+   * foram criados antes do seed automatico.
+   *
+   * Idempotente: upsert por nome — nao duplica nem apaga procedimentos
+   * custom criados pelas clinicas. So SUPER_ADMIN dispara.
+   */
+  @Post('seed-defaults-all')
+  @SuperAdmin()
+  async seedAll() {
+    return this.service.seedDefaultsForAll();
+  }
 }

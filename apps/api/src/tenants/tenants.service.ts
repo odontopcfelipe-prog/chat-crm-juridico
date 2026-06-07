@@ -182,6 +182,49 @@ export class TenantsService {
    * nome). Atualiza procedimentos ja existentes pra preco/duracao
    * base, NAO apaga os procedimentos custom criados pela clinica.
    */
+  /**
+   * Onda 17.32.111 — Roda os defaults em TODOS os tenants ativos
+   * (status != DELETED). Idempotente. Util pra propagar mudancas na
+   * tabela base ou pra recuperar tenants criados antes do seed
+   * automatico.
+   *
+   * Roda 1 a 1 (sequencial) pra logs claros e evitar contencao no
+   * banco. Em cada tenant: try/catch isolado — falha de um nao
+   * derruba o resto.
+   */
+  async seedDefaultsForAll(): Promise<{
+    total: number;
+    success: number;
+    failed: number;
+    results: Array<{ tenant_id: string; name: string; ok: boolean; error?: string; specialties?: number; procedures?: number }>;
+  }> {
+    const tenants = await this.prisma.tenant.findMany({
+      where: { status: { not: 'DELETED' } },
+      select: { id: true, name: true },
+      orderBy: { created_at: 'asc' },
+    });
+    const results = [];
+    let success = 0;
+    let failed = 0;
+    for (const t of tenants) {
+      try {
+        const r = await seedTenantDefaults(this.prisma, t.id);
+        results.push({
+          tenant_id: t.id, name: t.name, ok: true,
+          specialties: r.specialties, procedures: r.procedures,
+        });
+        success++;
+        this.logger.log(`[SEED-ALL] ${t.name}: OK`);
+      } catch (err: any) {
+        results.push({ tenant_id: t.id, name: t.name, ok: false, error: err?.message ?? String(err) });
+        failed++;
+        this.logger.error(`[SEED-ALL] ${t.name}: FALHOU — ${err?.message}`);
+      }
+    }
+    this.logger.log(`[SEED-ALL] Concluido: ${success} OK, ${failed} falhas (${tenants.length} tenants).`);
+    return { total: tenants.length, success, failed, results };
+  }
+
   async seedDefaults(tenantId: string) {
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
     if (!tenant) throw new BadRequestException('Tenant nao encontrado');

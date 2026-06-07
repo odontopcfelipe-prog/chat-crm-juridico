@@ -11,7 +11,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, Search, Plus, Building2, Users, HeartPulse, Briefcase, Receipt,
   Pause, Play, Pencil, X, Save, AlertCircle, CheckCircle2, Calendar, Mail, Phone, IdCard,
-  ExternalLink,
+  ExternalLink, Sparkles,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
@@ -63,6 +63,40 @@ export default function AdminTenantsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('');
   const [newOpen, setNewOpen] = useState(false);
   const [editing, setEditing] = useState<Tenant | null>(null);
+  // Onda 17.32.111 — Bulk seed-defaults em todos os tenants
+  const [seedingAll, setSeedingAll] = useState(false);
+
+  const handleSeedAll = useCallback(async () => {
+    const ok = window.confirm(
+      'Plantar dados padrao em TODOS os tenants?\n\n' +
+      'Cada um vai receber:\n' +
+      '• 9 especialidades odontologicas\n' +
+      '• 30 procedimentos com precos sugeridos\n' +
+      '• Ficha de anamnese completa\n\n' +
+      'Idempotente: nao duplica nem apaga procedimentos custom de ninguem.'
+    );
+    if (!ok) return;
+    setSeedingAll(true);
+    try {
+      const res = await api.post<{
+        total: number; success: number; failed: number;
+        results: Array<{ name: string; ok: boolean; error?: string }>;
+      }>('/tenants/seed-defaults-all');
+      const { total, success, failed, results } = res.data;
+      if (failed === 0) {
+        showSuccess(`Plantado em ${success} de ${total} tenants.`);
+      } else {
+        const falhas = results.filter(r => !r.ok).map(r => r.name).join(', ');
+        showError(`${success} OK / ${failed} falharam (${falhas}). Veja DevTools.`);
+        console.error('[seed-all] falhas:', results.filter(r => !r.ok));
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Erro ao plantar dados padrao';
+      showError(typeof msg === 'string' ? msg : 'Erro');
+    } finally {
+      setSeedingAll(false);
+    }
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -131,14 +165,36 @@ export default function AdminTenantsPage() {
           </h1>
           <p className="text-sm text-muted-foreground">Gerencie clínicas que usam o sistema</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="text-sm font-bold px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center gap-2"
-        >
-          <Plus size={14} />
-          Novo tenant
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Onda 17.32.111 — Bulk seed-defaults em todos os tenants */}
+          <button
+            type="button"
+            onClick={handleSeedAll}
+            disabled={seedingAll}
+            className="text-sm font-bold px-4 py-2 rounded-lg border border-violet-500/40 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-300 inline-flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Planta tabela de preços + ficha de anamnese em todos os tenants ativos. Idempotente."
+          >
+            {seedingAll ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Plantando…
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                Plantar em todos
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="text-sm font-bold px-4 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white inline-flex items-center gap-2"
+          >
+            <Plus size={14} />
+            Novo tenant
+          </button>
+        </div>
       </div>
 
       {/* Mini KPIs */}
