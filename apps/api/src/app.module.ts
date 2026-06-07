@@ -6,6 +6,8 @@ import { PrismaModule } from './prisma/prisma.module';
 import { TenantsModule } from './tenants/tenants.module';
 // Onda 17.32.112 — Anamnese MASTER controlada pelo SUPER_ADMIN
 import { GlobalAnamnesisModule } from './global-anamnesis/global-anamnesis.module';
+// Onda 17.32.116 — Setores + permissoes (Fase 2)
+import { SectorsModule } from './sectors/sectors.module';
 // Onda 17.32.86 — SaaS Fase 3b: cobranca da mensalidade
 import { BillingModule } from './billing/billing.module';
 import { UsersModule } from './users/users.module';
@@ -98,6 +100,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     PrismaModule,
     TenantsModule,
     GlobalAnamnesisModule,
+    SectorsModule,
     BillingModule,
     S3Module,
     UsersModule,

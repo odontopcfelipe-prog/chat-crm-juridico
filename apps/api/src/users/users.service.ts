@@ -141,7 +141,7 @@ export class UsersService {
     return result as any;
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
@@ -157,6 +157,17 @@ export class UsersService {
     if (data.specialties !== undefined) (updateData as any).specialties = { set: data.specialties };
     if (data.cro_number !== undefined) updateData.cro_number = data.cro_number || null;
     if (data.cro_uf !== undefined) updateData.cro_uf = data.cro_uf || null;
+
+    // Onda 17.32.116 — Setor e overrides de permissoes
+    if (data.sector !== undefined) {
+      const allowed = ['recepcao','dentista','crc','financeiro','admin'];
+      if (data.sector && !allowed.includes(data.sector)) {
+        throw new BadRequestException(`Setor invalido: ${data.sector}`);
+      }
+      (updateData as any).sector = data.sector || null;
+    }
+    if (data.extra_grants !== undefined)  (updateData as any).extra_grants  = { set: data.extra_grants };
+    if (data.extra_revokes !== undefined) (updateData as any).extra_revokes = { set: data.extra_revokes };
 
     if (data.inboxIds) {
       updateData.inboxes = {

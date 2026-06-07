@@ -117,8 +117,31 @@ export class UsersController {
 
   @Patch(':id')
   @Roles('ADMIN')
-  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }) {
+  update(@Request() req: any, @Param('id') id: string, @Body() data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[] }) {
     return this.usersService.update(id, data, req.user?.tenant_id);
+  }
+
+  /**
+   * Onda 17.32.116 — Endpoint dedicado pra mudar setor + overrides
+   * de permissoes. ADMIN do tenant pode mudar de qualquer user do
+   * proprio tenant. SUPER_ADMIN pode mudar de qualquer um.
+   */
+  @Patch(':id/sector')
+  @Roles('ADMIN')
+  updateSector(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() data: { sector?: string; extra_grants?: string[]; extra_revokes?: string[] },
+  ) {
+    return this.usersService.update(
+      id,
+      {
+        sector:        data.sector,
+        extra_grants:  data.extra_grants,
+        extra_revokes: data.extra_revokes,
+      },
+      req.user?.tenant_id,
+    );
   }
 
   @Get(':id/interns')

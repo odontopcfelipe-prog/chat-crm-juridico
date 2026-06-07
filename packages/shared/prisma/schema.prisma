@@ -123,6 +123,16 @@ model User {
   password_hash                 String
   roles                         String[]               @default(["OPERADOR"])
   specialties                   String[]               @default([])
+  // Onda 17.32.116 — Setores e permissoes (Fase 2)
+  /// Setor do usuario: 'recepcao' | 'dentista' | 'crc' | 'financeiro' | 'admin'
+  /// Determina home/sidebar default + pacote de permissoes.
+  /// Backfill automatico no boot da API derivando de roles[].
+  sector                        String?
+  /// Permissoes extras alem do pacote default do setor.
+  /// Lista de Permission ('view_financial' | 'manage_users' | ...).
+  extra_grants                  String[]               @default([])
+  /// Permissoes que foram REMOVIDAS do pacote default do setor.
+  extra_revokes                 String[]               @default([])
   cro_number                    String? // Número CRO (Conselho Regional de Odontologia), ex: "CRO-AL 12345"
   cro_uf                        String? // UF do CRO (ex: "AL")
   profile_picture_url           String? // Path relativo no filesystem (profiles/{id}.ext)
