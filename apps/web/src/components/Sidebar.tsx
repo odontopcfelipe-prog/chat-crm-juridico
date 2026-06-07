@@ -22,6 +22,8 @@ import { NotificationCenter } from '@/app/atendimento/components/NotificationCen
 // Center quando user clica no sininho.
 // import { NotificationToggle } from '@/components/NotificationToggle';
 import { useRole } from '@/lib/useRole';
+// Onda 17.32.120 — Filtra sidebar pelas permissoes do setor + overrides
+import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 17.32.78 — White-label: nome + logo + cor por tenant
 import { useTenant, applyTenantTheme } from '@/lib/useTenant';
 import { THEMES } from '@/components/ThemeSwitcher';
@@ -96,6 +98,8 @@ export function Sidebar() {
   const { theme, setTheme } = useTheme();
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const perms = useRole();
+  // Onda 17.32.120 — Permissoes por setor (resolvidas async, fallback otimista)
+  const { hasPermission } = useUserPermissions();
   // Onda 17.32.78 — Branding por tenant (white-label).
   // Aplica theme_color como CSS var no <html> e disponibiliza nome+logo.
   const tenant = useTenant();
@@ -507,7 +511,8 @@ export function Sidebar() {
       icon: <MessageSquare size={20} strokeWidth={2} />,
       match: (p) => p === '/atendimento' || p.startsWith('/atendimento/chat'),
       badge: unreadTotal,
-      show: true,
+      // Onda 17.32.120 — Filtra por permissao de chat
+      show: hasPermission('view_chat'),
     },
     vendaRapida: {
       // Onda 17.32.68 — Atalho pra venda balcao (procedimentos prontos
@@ -682,7 +687,8 @@ export function Sidebar() {
       href: '/atendimento/relatorios',
       icon: <BarChart3 size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/relatorios'),
-      show: true,
+      // Onda 17.32.120 — Filtra pela permissao
+      show: hasPermission('view_reports'),
     },
     minhaRede: {
       label: 'Minha rede',
@@ -714,7 +720,8 @@ export function Sidebar() {
       href: '/atendimento/financeiro/dashboard',
       icon: <BarChart3 size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/financeiro/dashboard'),
-      show: perms.canViewFinanceiro,
+      // Onda 17.32.120 — Filtra pela permissao (financeiro/admin veem)
+      show: hasPermission('view_financial') && perms.canViewFinanceiro,
     },
     financeiro: {
       label: 'Financeiro',
@@ -722,7 +729,8 @@ export function Sidebar() {
       icon: <Wallet size={20} strokeWidth={2} />,
       // Match restrito: nao casa com /financeiro/dashboard nem /financeiro/parcelas
       match: (p) => p === '/atendimento/financeiro' || p.startsWith('/atendimento/financeiro?'),
-      show: perms.canViewFinanceiro,
+      // Onda 17.32.120
+      show: hasPermission('view_financial') && perms.canViewFinanceiro,
     },
     analytics: {
       label: 'Analytics',
@@ -736,14 +744,16 @@ export function Sidebar() {
       href: '/atendimento/influenciadores',
       icon: <Megaphone size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/influenciadores'),
-      show: perms.isAdmin,
+      // Onda 17.32.120 — Marketing/CRM ve, admin tambem
+      show: hasPermission('view_marketing'),
     },
     afiliados: {
       label: 'Afiliados',
       href: '/atendimento/afiliados',
       icon: <HandCoins size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/afiliados'),
-      show: perms.isAdmin,
+      // Onda 17.32.120
+      show: hasPermission('view_marketing'),
     },
     manual: {
       label: 'Manual',
