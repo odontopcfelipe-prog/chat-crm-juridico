@@ -230,19 +230,32 @@ export async function seedTenantDefaults(
     specialtyByName[s.name] = spec.id;
   }
 
-  // 2) Procedimentos — upsert por (tenant_id, name). Atualiza precos
-  //    mesmo se ja existir (mantem em sintonia com a "tabela base").
+  // 2) Procedimentos — Onda 17.32.113: re-seed NAO sobrescreve preco
+  //    nem duracao customizados pelo tenant. Cada clinica gerencia
+  //    sua propria tabela de precos livremente. So o primeiro create
+  //    seeda os defaults; chamadas subsequentes acrescentam apenas o
+  //    que falta. O update so faz "preenchimento defensivo" de
+  //    specialty_id quando estava nulo — nunca toca em base_price
+  //    nem duration_minutes nem nos flags.
   for (const p of DEFAULT_PROCEDURES) {
-    await prisma.procedure.upsert({
+    const existing = await prisma.procedure.findUnique({
       where:  { tenant_id_name: { tenant_id: tenantId, name: p.name } },
-      update: {
-        specialty_id:        specialtyByName[p.specialty],
-        duration_minutes:    p.duration,
-        base_price:          p.price,
-        requires_x_ray:      p.xray ?? false,
-        requires_anesthesia: p.anesthesia ?? false,
-      },
-      create: {
+      select: { id: true, specialty_id: true },
+    });
+    if (existing) {
+      // Procedimento ja existia — preserva tudo do tenant.
+      // So vincula a specialty se ainda estava nula (auto-cura defensiva).
+      if (!existing.specialty_id && specialtyByName[p.specialty]) {
+        await prisma.procedure.update({
+          where: { id: existing.id },
+          data:  { specialty_id: specialtyByName[p.specialty] },
+        });
+      }
+      continue;
+    }
+    // Procedimento novo — cria com defaults.
+    await prisma.procedure.create({
+      data: {
         tenant_id:           tenantId,
         specialty_id:        specialtyByName[p.specialty],
         name:                p.name,
