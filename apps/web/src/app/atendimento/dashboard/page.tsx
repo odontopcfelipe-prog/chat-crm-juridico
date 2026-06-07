@@ -27,6 +27,8 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
+// Onda 17.32.108 — Ceu dinamico atras da saudacao (Modo 1, skill ceu-saudacao)
+import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // O JWT NAO inclui o nome do usuario — payload backend tem so
 // { email, sub, roles, tenant_id }. Pra pegar o nome real, usa o
 // endpoint /users/me. Cacheamos em memoria na primeira carga.
@@ -416,34 +418,45 @@ export default function VisaoGeralPage() {
             Acesso a esse conteudo agora pelo sidebar (Financeiro >
             Visao Geral). Mantem essa tela 100% focada em atalhos. */}
 
-        {/* ─── HERO: saudacao + mascote ─── */}
-        <section className="relative mb-6">
+        {/* ─── HERO: saudacao + mascote (com ceu dinamico de fundo) ───
+          Onda 17.32.108 — SkyBackdrop cobre a faixa do hero como
+          backdrop absoluto. A saudacao + mascote ficam num wrapper
+          com z-index:1 pra renderizar por cima do ceu. */}
+        <section
+          className="relative mb-6 overflow-hidden rounded-3xl px-6 py-7 md:px-8 md:py-9"
+          style={{ minHeight: 180 }}
+        >
+          <SkyBackdrop />
+          <div className="relative z-[1]">
           <ToothMascot />
 
           {/* Eyebrow: data + hora atualizada */}
           {/* Onda 17.15 — Texto usa variaveis do tema (foreground/
               muted-foreground) que ja se adaptam light/dark. Antes
-              forcava text-white em night, ficava ilegivel em light. */}
-          <div className="inline-flex items-center gap-2 text-xs font-semibold mb-2.5 text-muted-foreground">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 pulse-dot" />
+              forcava text-white em night, ficava ilegivel em light.
+              Onda 17.32.108 — Agora sobre ceu colorido: texto ganha
+              text-shadow leve pra legibilidade independente da fase. */}
+          <div className="inline-flex items-center gap-2 text-xs font-semibold mb-2.5 text-white/95 drop-shadow">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 pulse-dot" />
             <span>{dateline}</span>
           </div>
 
           {/* Greeting */}
-          <h1 className="text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight text-foreground">
+          <h1 className="text-3xl md:text-5xl font-serif font-semibold leading-tight tracking-tight text-white drop-shadow-[0_1px_3px_rgba(0,0,0,0.3)]">
             {sal.text},{' '}
-            <span className="italic text-sky-600 dark:text-sky-400">
+            <span className="italic text-amber-200">
               {/* Onda 17.13 — Mostra o nome EXATO do cadastro (primeiro
                   nome), sem prefixo Dr./Dra. Antes acrescentava
                   automaticamente, o que ficava errado pra perfis nao
                   dentistas (Admin, Operador, Recepcao, etc).
-                  Onda 17.14 — Cor sky alinhada com a paleta do tema. */}
+                  Onda 17.32.108 — Cor amber-200 pra contraste sobre
+                  qualquer fase do ceu (manha/tarde/noite). */}
               {userName ? userName.split(' ')[0] : 'visitante'}
             </span>{' '}
             <span className="wave-hand">👋</span>
           </h1>
 
-          <p className="mt-3 text-sm md:text-base max-w-lg text-muted-foreground">
+          <p className="mt-3 text-sm md:text-base max-w-lg text-white/95 drop-shadow">
             {sal.period === 'morning'
               ? <>Bom começo de dia. Aqui estão seus atalhos pra acelerar a rotina.</>
               : sal.period === 'afternoon'
@@ -453,23 +466,26 @@ export default function VisaoGeralPage() {
           </p>
 
           {/* Onda 17.4 — Versiculo do dia, rotaciona por day-of-year.
-              Substituiu o badge mock "Bom trabalho — você está em ritmo". */}
+              Substituiu o badge mock "Bom trabalho — você está em ritmo".
+              Onda 17.32.108 — Glassmorphism (backdrop-blur) pra ficar
+              legivel sobre o ceu sem perder o efeito de profundidade. */}
           {now && (() => {
             const verse = getVerseOfDay(now);
             return (
-              <div className="inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border shadow-sm max-w-xl bg-card border-border text-foreground">
-                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-sky-400 to-cyan-600 grid place-items-center flex-none shadow">
+              <div className="inline-flex items-start gap-2.5 mt-4 px-3 py-2 rounded-xl text-xs md:text-sm font-medium border max-w-xl bg-white/20 border-white/30 text-white backdrop-blur-md shadow-lg">
+                <span className="w-7 h-7 rounded-md bg-gradient-to-br from-amber-300 to-amber-500 grid place-items-center flex-none shadow">
                   <BookOpen size={14} className="text-white" />
                 </span>
                 <span className="leading-snug">
                   <span className="italic">&ldquo;{verse.text}&rdquo;</span>
-                  <span className="block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic text-muted-foreground">
+                  <span className="block text-[10px] md:text-[11px] font-semibold mt-0.5 not-italic text-white/85">
                     — {verse.ref}
                   </span>
                 </span>
               </div>
             );
           })()}
+          </div>
         </section>
 
         {/* ─── Atalhos principais ─── */}
