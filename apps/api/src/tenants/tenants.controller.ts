@@ -167,6 +167,26 @@ export class TenantsMeController {
 
     return this.service.update(tenantId, allowed);
   }
+
+  /**
+   * Onda 17.32.109 — Re-popula os defaults (especialidades + tabela
+   * de precos + ficha de anamnese V3) no tenant logado. Util pra
+   * tenants antigos que ainda nao tinham esses defaults plantados.
+   *
+   * Idempotente: upsert por (tenant_id, nome). Atualiza dados base mas
+   * NAO apaga procedimentos custom criados pela clinica. So ADMIN pode
+   * disparar.
+   */
+  @Post('me/seed-defaults')
+  async seedMyDefaults(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    const roles: string[] = req.user?.roles ?? [];
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('So ADMIN pode plantar defaults');
+    }
+    return this.service.seedDefaults(tenantId);
+  }
 }
 
 interface CreateTenantBody {

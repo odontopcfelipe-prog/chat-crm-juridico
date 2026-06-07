@@ -8,7 +8,9 @@
 import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as argon2 from 'argon2';
-import { getLimitsForPlan, isWithinLimit } from './plan-limits';
+import { getLimitsForPlan, isWithinLimit } from './plan-limits.js';
+// Onda 17.32.109 — Defaults plantados em cada tenant novo
+import { seedTenantDefaults } from '@crm/shared';
 
 @Injectable()
 export class TenantsService {
@@ -142,6 +144,22 @@ export class TenantsService {
         data: { owner_user_id: adminUser.id },
       });
 
+      // Onda 17.32.109 — Popula defaults (especialidades, tabela de
+      // precos com 30 procedimentos, ficha de anamnese V3) DENTRO da
+      // mesma transacao. Se algo falhar, o tenant inteiro eh revertido.
+      // Idempotente: pode rodar de novo manualmente via /tenants/me/seed-defaults.
+      try {
+        const result = await seedTenantDefaults(tx, tenant.id);
+        this.logger.log(
+          `[TENANT-CREATE] Defaults plantados: ${result.specialties} especialidades, ${result.procedures} procedimentos, anamnese V3.`,
+        );
+      } catch (err: any) {
+        this.logger.error(
+          `[TENANT-CREATE] Falha ao plantar defaults: ${err?.message}`,
+        );
+        throw err; // aborta a transacao — tenant nao fica meio-criado
+      }
+
       this.logger.log(
         `[TENANT-CREATE] Tenant "${tenant.name}" (id=${tenant.id}) criado com admin ${adminUser.email}`,
       );
@@ -155,6 +173,23 @@ export class TenantsService {
         },
       };
     });
+  }
+
+  /**
+   * Onda 17.32.109 — Re-roda os defaults pra um tenant existente.
+   * Util pra tenants antigos que ainda nao tem a tabela de precos ou
+   * a ficha de anamnese plantada. Idempotente — upserts em (tenant_id,
+   * nome). Atualiza procedimentos ja existentes pra preco/duracao
+   * base, NAO apaga os procedimentos custom criados pela clinica.
+   */
+  async seedDefaults(tenantId: string) {
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId } });
+    if (!tenant) throw new BadRequestException('Tenant nao encontrado');
+    const result = await seedTenantDefaults(this.prisma, tenantId);
+    this.logger.log(
+      `[TENANT-SEED] ${tenant.name} (${tenantId}): ${result.specialties} especialidades, ${result.procedures} procedimentos, anamnese V3.`,
+    );
+    return result;
   }
 
   async update(id: string, body: any) {
