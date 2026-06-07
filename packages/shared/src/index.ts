@@ -8,3 +8,5 @@ export * from './reminder-config';
 export * from './influencer-schedule-utils';
 // Onda 17.32.109 — Defaults plantados em cada tenant novo
 export * from './tenant-defaults';
+// Onda 17.32.115 — Setores + permissoes (5 setores, ~16 permissoes)
+export * from './sectors.config';
