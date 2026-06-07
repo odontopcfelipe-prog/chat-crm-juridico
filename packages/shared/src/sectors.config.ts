@@ -85,6 +85,27 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Gerencia todos os tenants — so SUPER_ADMIN', group: 'sistema' },
 ];
 
+// ─── Configuracao da home dirigida por setor (skill home-por-setor) ─
+export interface HomeAction {
+  /** Emoji ou letra usada como icone no card */
+  icon: string;
+  label: string;
+  href: string;
+  /** Tom da borda/glow do card */
+  tone?: 'violet' | 'emerald' | 'amber' | 'sky' | 'rose';
+}
+
+export interface HomeConfig {
+  /** Como o setor se chama na saudacao (ex: "Recepcionista") */
+  persona: string;
+  /** Frase curta de contexto exibida abaixo do "Bom dia, X" */
+  subtitle: string;
+  /** Acoes em destaque (3-6 cards no topo) */
+  actions: HomeAction[];
+  /** Afazeres tipicos do setor (lista de strings) */
+  todos: string[];
+}
+
 // ─── Os 5 setores ───────────────────────────────────────────────
 export interface SectorMeta {
   id: Sector;
@@ -96,6 +117,8 @@ export interface SectorMeta {
   backendRoles: string[];
   /** Permissoes default desse setor — pre-marcadas no editar usuario */
   defaultPermissions: Permission[];
+  /** Configuracao da home dirigida por setor */
+  home: HomeConfig;
 }
 
 export const SECTORS: SectorMeta[] = [
@@ -113,6 +136,22 @@ export const SECTORS: SectorMeta[] = [
       // balcao (Venda Rapida) e gera proposta inicial.
       'manage_proposals',
     ],
+    home: {
+      persona: 'Recepcionista',
+      subtitle: 'Recebe paciente, agenda consulta e fecha venda balcao.',
+      actions: [
+        { icon: '👤', label: 'Novo paciente',  href: '/atendimento/pacientes',     tone: 'sky'     },
+        { icon: '📅', label: 'Agendar',        href: '/atendimento/agenda',        tone: 'violet'  },
+        { icon: '⚡', label: 'Venda rapida',   href: '/atendimento/venda-rapida',  tone: 'emerald' },
+        { icon: '💬', label: 'WhatsApp',       href: '/atendimento/whatsapp',      tone: 'amber'   },
+      ],
+      todos: [
+        'Confirmar agendamentos de amanha',
+        'Atender pacientes na recepcao',
+        'Receber pagamentos no balcao',
+        'Atualizar dados de cadastro',
+      ],
+    },
   },
   {
     id: 'dentista',
@@ -127,6 +166,22 @@ export const SECTORS: SectorMeta[] = [
       'view_clinical', 'edit_clinical',
       'manage_proposals',
     ],
+    home: {
+      persona: 'Dentista',
+      subtitle: 'Atenda os pacientes do dia e mantenha o prontuario em dia.',
+      actions: [
+        { icon: '🦷', label: 'Proximo paciente', href: '/atendimento/agenda',     tone: 'violet'  },
+        { icon: '📋', label: 'Anamnese',         href: '/atendimento/pacientes',  tone: 'sky'     },
+        { icon: '💡', label: 'Plano + proposta', href: '/atendimento/orcamentos', tone: 'emerald' },
+        { icon: '💬', label: 'Chat com pacientes', href: '/atendimento/whatsapp', tone: 'amber'  },
+      ],
+      todos: [
+        'Pacientes pra atender hoje',
+        'Anamneses pendentes',
+        'Propostas pra finalizar',
+        'Retornos da semana',
+      ],
+    },
   },
   {
     id: 'crc',
@@ -143,6 +198,22 @@ export const SECTORS: SectorMeta[] = [
       'view_marketing',
       'manage_proposals',
     ],
+    home: {
+      persona: 'CRC',
+      subtitle: 'Central de relacionamento — capta, nutre e fecha leads.',
+      actions: [
+        { icon: '💬', label: 'Mensagens',     href: '/atendimento/whatsapp',      tone: 'violet'  },
+        { icon: '🎯', label: 'Funil CRM',     href: '/atendimento/crm',           tone: 'emerald' },
+        { icon: '🔁', label: 'Follow-up IA',  href: '/atendimento/followup',      tone: 'amber'   },
+        { icon: '📢', label: 'Marketing',     href: '/atendimento/marketing',     tone: 'rose'    },
+      ],
+      todos: [
+        'Mensagens sem resposta',
+        'Follow-ups vencidos',
+        'Leads novos no funil',
+        'Orcamentos pendentes de retorno',
+      ],
+    },
   },
   {
     id: 'financeiro',
@@ -156,6 +227,22 @@ export const SECTORS: SectorMeta[] = [
       'view_financial', 'manage_financial',
       'view_reports',
     ],
+    home: {
+      persona: 'Financeiro',
+      subtitle: 'Cobranças, conciliacao e visao geral do caixa.',
+      actions: [
+        { icon: '💰', label: 'Visao geral',     href: '/atendimento/financeiro',          tone: 'emerald' },
+        { icon: '🧾', label: 'Cobrancas',       href: '/atendimento/financeiro/boletos',  tone: 'violet'  },
+        { icon: '⚠️', label: 'Inadimplencia',   href: '/atendimento/financeiro',          tone: 'amber'   },
+        { icon: '📊', label: 'Relatorios',      href: '/atendimento/relatorios',          tone: 'sky'     },
+      ],
+      todos: [
+        'Boletos que vencem hoje',
+        'Cobrar parcelas atrasadas',
+        'Conciliar entradas Asaas',
+        'Fechar dia / fechamento mensal',
+      ],
+    },
   },
   {
     id: 'admin',
@@ -165,6 +252,22 @@ export const SECTORS: SectorMeta[] = [
     backendRoles: ['ADMIN', 'SUPER_ADMIN'],
     defaultPermissions: PERMISSIONS.map(p => p.key)
       .filter(k => k !== 'admin_saas'), // SUPER_ADMIN ganha admin_saas separado
+    home: {
+      persona: 'Administrador',
+      subtitle: 'Visao completa do tenant. Pendencias, equipe e KPIs.',
+      actions: [
+        { icon: '👥', label: 'Pacientes',  href: '/atendimento/pacientes',  tone: 'violet'  },
+        { icon: '📅', label: 'Agenda',     href: '/atendimento/agenda',     tone: 'sky'     },
+        { icon: '💰', label: 'Financeiro', href: '/atendimento/financeiro', tone: 'emerald' },
+        { icon: '⚙', label: 'Sistema',    href: '/atendimento/settings',   tone: 'amber'   },
+      ],
+      todos: [
+        'Aprovar pendencias da equipe',
+        'Revisar agenda e cobrancas do dia',
+        'Conferir indicadores',
+        'Resolver alertas no painel',
+      ],
+    },
   },
 ];
 
