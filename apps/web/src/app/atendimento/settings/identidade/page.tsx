@@ -10,10 +10,10 @@
  * O nome editado aqui aparece em todos os lugares do sistema que usam
  * o branding do tenant (sidebar, header, contratos PDF, e-mails, etc).
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Mail, Phone, IdCard, Palette, ImageIcon, Globe,
-  Save, Loader2, CheckCircle2, ExternalLink,
+  Save, Loader2, CheckCircle2, ExternalLink, RefreshCw, AlertCircle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -36,6 +36,7 @@ export default function IdentidadeClinicaPage() {
   const role = useRole();
   const [tenant, setTenant] = useState<TenantData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   // Form state
@@ -46,22 +47,48 @@ export default function IdentidadeClinicaPage() {
   const [email, setEmail] = useState('');
   const [cpfCnpj, setCpfCnpj] = useState('');
 
-  useEffect(() => {
-    api.get<TenantData>('/tenants/me')
-      .then(res => {
-        const t = res.data;
-        if (!t) return;
-        setTenant(t);
-        setName(t.name || '');
-        setLogoUrl(t.logo_url || '');
-        setThemeColor(t.theme_color || '#7c3aed');
-        setPhone(t.phone || '');
-        setEmail(t.email || '');
-        setCpfCnpj(t.cpf_cnpj || '');
-      })
-      .catch(() => showError('Não foi possível carregar os dados da clínica'))
-      .finally(() => setLoading(false));
+  // Onda 17.32.105 — carga dos dados extraida pra funcao reutilizavel
+  // pelo botao "Tentar novamente" quando o GET /tenants/me falha.
+  const loadTenant = useCallback(async () => {
+    setLoading(true);
+    setLoadError(null);
+    try {
+      const res = await api.get<TenantData>('/tenants/me');
+      const t = res.data;
+      if (!t) {
+        setLoadError('Sua conta nao tem tenant associado. Faca logout e entre de novo.');
+        return;
+      }
+      setTenant(t);
+      setName(t.name || '');
+      setLogoUrl(t.logo_url || '');
+      setThemeColor(t.theme_color || '#7c3aed');
+      setPhone(t.phone || '');
+      setEmail(t.email || '');
+      setCpfCnpj(t.cpf_cnpj || '');
+    } catch (err: any) {
+      // Loga detalhe pro DevTools — facilita debug em prod sem expor
+      // detalhe pro usuario final.
+      const status = err?.response?.status;
+      const apiMsg = err?.response?.data?.message;
+      console.error('[identidade] GET /tenants/me falhou:', { status, apiMsg, err });
+      setLoadError(
+        status === 401
+          ? 'Sessao expirou. Faca login novamente.'
+          : status === 403
+          ? 'Voce nao tem permissao pra editar a identidade.'
+          : status >= 500
+          ? 'Servidor indisponivel. Tente novamente em instantes.'
+          : 'Nao foi possivel carregar os dados. Tente novamente.'
+      );
+    } finally {
+      setLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadTenant();
+  }, [loadTenant]);
 
   if (!role?.isAdmin && !role?.isSuperAdmin) {
     return (
@@ -125,6 +152,29 @@ export default function IdentidadeClinicaPage() {
           contratos, e-mails e cobranças enviadas aos pacientes.
         </p>
       </div>
+
+      {loadError && (
+        <div className="mb-5 flex items-start gap-3 px-4 py-3 bg-amber-500/10 border border-amber-500/30 rounded-xl">
+          <AlertCircle size={16} className="text-amber-700 mt-0.5 shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-semibold text-amber-900 dark:text-amber-300">
+              {loadError}
+            </p>
+            <p className="text-xs text-amber-700/80 dark:text-amber-200/80 mt-0.5">
+              Você pode preencher manualmente abaixo enquanto isso. Os dados serão salvos no clique do botão.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={loadTenant}
+            disabled={loading}
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-900 dark:text-amber-200 text-xs font-bold transition-colors shrink-0 disabled:opacity-60"
+          >
+            <RefreshCw size={11} className={loading ? 'animate-spin' : ''} />
+            Tentar de novo
+          </button>
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="space-y-5">
         {/* Identidade básica */}
