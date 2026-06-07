@@ -214,6 +214,12 @@ export interface SeedResult {
  * vezes sem duplicar dados (usa upsert por chaves unicas).
  *
  * Aceita transaction client OU PrismaClient diretamente.
+ *
+ * Onda 17.32.114 — A anamnese plantada vem da MASTER (singleton
+ * GlobalAnamnesisTemplate id=1) se existir, senao do
+ * DEFAULT_ANAMNESIS_TEMPLATE do codigo. Isso garante que tenant
+ * novo recebe a versao mais atual do SaaS — se voce editou a
+ * master, todo signup futuro ja nasce com a versao nova.
  */
 export async function seedTenantDefaults(
   prisma: PrismaClient | any,
@@ -267,21 +273,36 @@ export async function seedTenantDefaults(
     });
   }
 
-  // 3) Template de anamnese V3 — upsert por (tenant_id, version=3).
-  //    Desativa versoes antigas pra so haver UMA ativa por vez.
+  // 3) Template de anamnese V3 — Onda 17.32.114:
+  //    Le a anamnese MASTER do banco (GlobalAnamnesisTemplate id=1).
+  //    Se existir, usa o schema dela; senao, cai pro DEFAULT do codigo.
+  //    Garante que tenants novos nasçam sempre com a versao mais
+  //    recente que o SUPER_ADMIN editou.
+  let anamnesisSchema: any = DEFAULT_ANAMNESIS_TEMPLATE;
+  let anamnesisNotes = 'Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.';
+  try {
+    const master = await prisma.globalAnamnesisTemplate?.findUnique?.({ where: { id: 1 } });
+    if (master?.schema) {
+      anamnesisSchema = master.schema;
+      anamnesisNotes = `Sincronizado da Anamnese Master v${master.version}.`;
+    }
+  } catch {
+    // Tabela ainda nao existe (deploy antes do schema novo) — usa default.
+  }
+
   await prisma.anamnesisTemplate.upsert({
     where:  { tenant_id_version: { tenant_id: tenantId, version: 3 } },
     update: {
-      schema: DEFAULT_ANAMNESIS_TEMPLATE as any,
+      schema: anamnesisSchema as any,
       active: true,
-      notes:  'Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.',
+      notes:  anamnesisNotes,
     },
     create: {
       tenant_id: tenantId,
       version:   3,
-      schema:    DEFAULT_ANAMNESIS_TEMPLATE as any,
+      schema:    anamnesisSchema as any,
       active:    true,
-      notes:     'Template V3 odontológico — 9 seções, todos opcionais, gestação condicional ao sexo.',
+      notes:     anamnesisNotes,
     },
   });
   await prisma.anamnesisTemplate.updateMany({
