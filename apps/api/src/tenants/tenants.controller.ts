@@ -201,19 +201,25 @@ interface UpdateTenantBody {
   owner_user_id?: string;
 }
 
+// Onda 17.32.107 — @SuperAdmin() ficava no nivel do controller, o que
+// aplicava o guard em TODAS as rotas — incluindo, por colisao de
+// roteamento, GET /tenants/me (que matchava /tenants/:id antes de cair
+// no TenantsMeController). Agora o guard eh por rota individual:
+// rotas que precisam dele tem @SuperAdmin() explicito; as demais nao.
 @Controller('tenants')
-@SuperAdmin()
 export class TenantsController {
   constructor(private readonly service: TenantsService) {}
 
   /** Lista todos os tenants do SaaS (com contadores e ultimo login). */
   @Get()
+  @SuperAdmin()
   list(@Query('status') status?: string, @Query('q') q?: string) {
     return this.service.list({ status, q });
   }
 
   /** Detalhe + estatisticas de uso. */
   @Get(':id')
+  @SuperAdmin()
   async findOne(@Param('id') id: string) {
     const tenant = await this.service.findOne(id);
     if (!tenant) throw new NotFoundException('Tenant nao encontrado');
@@ -222,6 +228,7 @@ export class TenantsController {
 
   /** Cria tenant + admin inicial atomicamente. */
   @Post()
+  @SuperAdmin()
   create(@Body() body: CreateTenantBody) {
     if (!body.name || !body.name.trim()) {
       throw new BadRequestException('Nome do tenant eh obrigatorio');
@@ -234,18 +241,21 @@ export class TenantsController {
 
   /** Atualiza dados / branding. */
   @Patch(':id')
+  @SuperAdmin()
   update(@Param('id') id: string, @Body() body: UpdateTenantBody) {
     return this.service.update(id, body);
   }
 
   /** Suspende — bloqueia login dos users do tenant. */
   @Post(':id/suspend')
+  @SuperAdmin()
   suspend(@Param('id') id: string, @Body() body: { reason?: string }) {
     return this.service.setStatus(id, 'SUSPENDED', body?.reason);
   }
 
   /** Reativa um tenant suspenso. */
   @Post(':id/activate')
+  @SuperAdmin()
   activate(@Param('id') id: string) {
     return this.service.setStatus(id, 'ACTIVE');
   }
@@ -259,11 +269,13 @@ export class TenantsController {
    *   - EVOLUTION_INSTANCE_NAME, EVOLUTION_API_KEY
    */
   @Get(':id/settings')
+  @SuperAdmin()
   async listSettings(@Param('id') id: string) {
     return this.service.listSettings(id);
   }
 
   @Post(':id/settings')
+  @SuperAdmin()
   async upsertSetting(
     @Param('id') id: string,
     @Body() body: { key: string; value: string },
@@ -272,6 +284,7 @@ export class TenantsController {
   }
 
   @Post(':id/settings/:key/delete')
+  @SuperAdmin()
   async deleteSetting(@Param('id') id: string, @Param('key') key: string) {
     return this.service.deleteSetting(id, key);
   }
