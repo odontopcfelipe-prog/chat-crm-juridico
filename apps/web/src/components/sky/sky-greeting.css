@@ -1,0 +1,214 @@
+/*
+ * Onda 17.32.108 — CSS do ceu dinamico.
+ *
+ * TUDO escopado em .sky-greet pra zero vazamento. NAO adicionar
+ * regras com seletor de elemento solto (a, img, h1) — vazaria.
+ */
+
+/* Container base — o ceu cobre 100% do pai */
+.sky-greet {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  border-radius: inherit;
+}
+
+/* Fundo do ceu (gradient setado inline pelo componente pra animar) */
+.sky-greet .sky-bg {
+  position: absolute;
+  inset: 0;
+  transition: background 2s ease-in-out;
+  z-index: 0;
+}
+
+/* ─── Sol ──────────────────────────────────────────────────────── */
+.sky-greet .sky-sun {
+  position: absolute;
+  width: 64px;
+  height: 64px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, #fff7c2 0%, #ffdf6b 40%, #ffaa3b 75%, #ff7a00 100%);
+  box-shadow:
+    0 0 40px rgba(255, 200, 100, 0.6),
+    0 0 80px rgba(255, 200, 100, 0.35),
+    0 0 120px rgba(255, 200, 100, 0.2);
+  transform: translate(-50%, -50%);
+  transition: left 2s ease, top 2s ease, opacity 1.5s ease;
+  z-index: 2;
+}
+
+/* ─── Lua ──────────────────────────────────────────────────────── */
+.sky-greet .sky-moon {
+  position: absolute;
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, #fdfbf2 0%, #e6e0c8 60%, #c8c0a0 100%);
+  box-shadow:
+    inset -8px -4px 12px rgba(80, 70, 50, 0.35),
+    0 0 32px rgba(220, 215, 180, 0.45),
+    0 0 64px rgba(220, 215, 180, 0.25);
+  transform: translate(-50%, -50%);
+  transition: left 2s ease, top 2s ease, opacity 1.5s ease;
+  z-index: 2;
+}
+
+/* Cratera sutil na lua */
+.sky-greet .sky-moon::after {
+  content: '';
+  position: absolute;
+  top: 22%;
+  left: 55%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: rgba(140, 130, 100, 0.18);
+  box-shadow:
+    -10px 12px 0 -2px rgba(140, 130, 100, 0.14),
+    6px 18px 0 -3px rgba(140, 130, 100, 0.12);
+}
+
+/* ─── Estrelas ────────────────────────────────────────────────── */
+.sky-greet .sky-stars {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  transition: opacity 2s ease;
+}
+
+.sky-greet .sky-star {
+  position: absolute;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 4px rgba(255, 255, 255, 0.8);
+  animation: sky-twinkle 3s ease-in-out infinite;
+}
+
+@keyframes sky-twinkle {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+
+/* ─── Nuvens ──────────────────────────────────────────────────── */
+.sky-greet .sky-clouds {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  transition: opacity 2s ease;
+}
+
+.sky-greet .sky-cloud {
+  position: absolute;
+  width: 96px;
+  height: 28px;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 30px;
+  filter: blur(1px);
+  animation: sky-drift linear infinite;
+}
+
+.sky-greet .sky-cloud::before,
+.sky-greet .sky-cloud::after {
+  content: '';
+  position: absolute;
+  background: rgba(255, 255, 255, 0.85);
+  border-radius: 50%;
+}
+
+.sky-greet .sky-cloud::before {
+  width: 36px;
+  height: 36px;
+  top: -16px;
+  left: 12px;
+}
+
+.sky-greet .sky-cloud::after {
+  width: 28px;
+  height: 28px;
+  top: -12px;
+  left: 50px;
+}
+
+@keyframes sky-drift {
+  from { transform: translateX(-20vw); }
+  to   { transform: translateX(120vw); }
+}
+
+/* ─── Linha de horizonte ──────────────────────────────────────── */
+.sky-greet .sky-horizon {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.35) 50%,
+    transparent 100%
+  );
+  z-index: 3;
+  pointer-events: none;
+}
+
+/* ─── Banner completo (Modo 2 — SkyGreeting default) ──────────── */
+.sky-greet-banner {
+  position: relative;
+  border-radius: 24px;
+  overflow: hidden;
+  min-height: 200px;
+  padding: 32px 28px;
+}
+
+.sky-greet-banner > .sky-greet-content {
+  position: relative;
+  z-index: 5;
+  color: #fff;
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+}
+
+.sky-greet-banner .sg-greet {
+  font-family: 'Fraunces', Georgia, serif;
+  font-weight: 600;
+  font-size: clamp(28px, 4vw, 44px);
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  margin: 0;
+}
+
+.sky-greet-banner .sg-greet em {
+  font-style: italic;
+  color: #ffd76b;
+}
+
+.sky-greet-banner .sg-period {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.18);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(8px);
+  margin-bottom: 10px;
+}
+
+/* Modo escuro/noturno: texto preserva contraste */
+.sky-greet-banner.sg-phase-night .sky-greet-banner > .sky-greet-content,
+.sky-greet-banner.sg-phase-night > .sky-greet-content {
+  color: #f5f0ff;
+}
+
+/* Reduzir movimento se o usuario pediu */
+@media (prefers-reduced-motion: reduce) {
+  .sky-greet .sky-star { animation: none; }
+  .sky-greet .sky-cloud { animation: none; }
+  .sky-greet .sky-bg,
+  .sky-greet .sky-sun,
+  .sky-greet .sky-moon,
+  .sky-greet .sky-stars,
+  .sky-greet .sky-clouds { transition: none; }
+}
