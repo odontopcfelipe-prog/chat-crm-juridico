@@ -29,6 +29,10 @@ import api from '@/lib/api';
 import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
 // Onda 17.32.108 — Ceu dinamico atras da saudacao (Modo 1, skill ceu-saudacao)
 import { SkyBackdrop } from '@/components/sky/SkyGreeting';
+// Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
+import HomeBySector from '@/components/home/HomeBySector';
+import { mapBackendRole, type Sector } from '@crm/shared';
+import { useRole } from '@/lib/useRole';
 // O JWT NAO inclui o nome do usuario — payload backend tem so
 // { email, sub, roles, tenant_id }. Pra pegar o nome real, usa o
 // endpoint /users/me. Cacheamos em memoria na primeira carga.
@@ -252,6 +256,11 @@ export default function VisaoGeralPage() {
   // Hidratacao do horario + nome — evita mismatch SSR/CSR
   const [now, setNow] = useState<Date | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
+  // Onda 17.32.119 — Setor do user logado pra Home por setor
+  const [userSector, setUserSector] = useState<string | null>(null);
+  // Fallback: deriva setor de roles do JWT se /users/me ainda nao retornou
+  const role = useRole();
+  const resolvedSector: Sector = (userSector as Sector) || mapBackendRole(role?.roles ?? []);
   // Onda 17.6 — modal de seleção de paciente pra avaliação
   const [novaAvaliacaoOpen, setNovaAvaliacaoOpen] = useState(false);
   useEffect(() => {
@@ -260,8 +269,12 @@ export default function VisaoGeralPage() {
 
     // Onda 17.5 — busca nome real do usuario via /users/me. JWT nao
     // inclui name no payload, e nao queremos forcar relogin.
+    // Onda 17.32.119 — Tambem captura sector pra Home dirigida por setor.
     api.get('/users/me')
-      .then((r) => setUserName(r.data?.name || null))
+      .then((r) => {
+        setUserName(r.data?.name || null);
+        setUserSector(r.data?.sector || null);
+      })
       .catch(() => {/* falha silenciosa — usa fallback */});
 
     return () => clearInterval(id);
@@ -418,12 +431,24 @@ export default function VisaoGeralPage() {
             Acesso a esse conteudo agora pelo sidebar (Financeiro >
             Visao Geral). Mantem essa tela 100% focada em atalhos. */}
 
-        {/* ─── HERO: saudacao + mascote (com ceu dinamico de fundo) ───
-          Onda 17.32.108 — SkyBackdrop cobre a faixa do hero como
-          backdrop absoluto. A saudacao + mascote ficam num wrapper
-          com z-index:1 pra renderizar por cima do ceu. */}
+        {/* ─── HERO por setor (Onda 17.32.119) ─────────────────────
+          Substitui a saudacao+mascote+versiculo pelo HomeBySector
+          (skill home-por-setor). Cada setor ve persona + actions +
+          afazeres especificos. Reaproveita SkyBackdrop ja em
+          producao via skySlot. Rollback: restaurar o bloco antigo
+          deste commit.
+        */}
+        <HomeBySector
+          sector={resolvedSector}
+          userName={userName ?? undefined}
+          skySlot={<SkyBackdrop />}
+        />
+        {/* Mantem secao legada (saudacao + mascote + versiculo) renderizada
+          escondida pra rollback rapido se quiser voltar — basta substituir
+          a chamada acima por esta. Inicialmente comentada inline pra ficar
+          escondida sem renderizar nada. */}
         <section
-          className="relative mb-6 overflow-hidden rounded-3xl px-6 py-7 md:px-8 md:py-9"
+          className="hidden"
           style={{ minHeight: 180 }}
         >
           <SkyBackdrop />
