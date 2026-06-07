@@ -442,6 +442,8 @@ export default function VisaoGeralPage() {
           sector={resolvedSector}
           userName={userName ?? undefined}
           skySlot={<SkyBackdrop />}
+          // Onda 17.32.121 — Admin pode trocar pra visualizar como cada setor ve
+          allowSwitch={role?.isAdmin || role?.isSuperAdmin}
         />
         {/* Mantem secao legada (saudacao + mascote + versiculo) renderizada
           escondida pra rollback rapido se quiser voltar — basta substituir

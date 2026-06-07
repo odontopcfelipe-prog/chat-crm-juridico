@@ -95,11 +95,35 @@ export interface HomeAction {
   tone?: 'violet' | 'emerald' | 'amber' | 'sky' | 'rose';
 }
 
+/** Pilula de status / KPI exibida logo abaixo do hero */
+export interface HomeHighlight {
+  /** Numero ou texto curto exibido grande */
+  value: string | number;
+  /** Descricao da pilula */
+  label: string;
+  /** Tom visual */
+  tone?: 'violet' | 'emerald' | 'amber' | 'sky' | 'rose';
+}
+
+/** Bloco em destaque (chips/filas/KPIs) — proprio de cada setor */
+export interface HomeHighlightBlock {
+  /** Titulo do bloco (ex: "Agenda de hoje", "Filas do WhatsApp") */
+  title: string;
+  /** Icone do titulo (emoji) */
+  icon: string;
+  /** Chips de KPI */
+  chips: HomeHighlight[];
+  /** Link "ver tudo" no canto direito (opcional) */
+  cta?: { label: string; href: string };
+}
+
 export interface HomeConfig {
   /** Como o setor se chama na saudacao (ex: "Recepcionista") */
   persona: string;
   /** Frase curta de contexto exibida abaixo do "Bom dia, X" */
   subtitle: string;
+  /** Bloco em destaque com chips/KPIs do setor */
+  highlight: HomeHighlightBlock;
   /** Acoes em destaque (3-6 cards no topo) */
   actions: HomeAction[];
   /** Afazeres tipicos do setor (lista de strings) */
@@ -138,7 +162,17 @@ export const SECTORS: SectorMeta[] = [
     ],
     home: {
       persona: 'Recepcionista',
-      subtitle: 'Recebe paciente, agenda consulta e fecha venda balcao.',
+      subtitle: 'Bom trabalho! Organize o dia e mantenha a agenda cheia.',
+      highlight: {
+        title: 'Agenda de hoje',
+        icon: '📅',
+        chips: [
+          { value: 8, label: 'consultas',       tone: 'violet'  },
+          { value: 3, label: 'a confirmar',     tone: 'amber'   },
+          { value: 2, label: 'encaixes livres', tone: 'emerald' },
+        ],
+        cta: { label: 'Abrir agenda do dia', href: '/atendimento/agenda' },
+      },
       actions: [
         { icon: '👤', label: 'Novo paciente',  href: '/atendimento/pacientes',     tone: 'sky'     },
         { icon: '📅', label: 'Agendar',        href: '/atendimento/agenda',        tone: 'violet'  },
@@ -169,6 +203,16 @@ export const SECTORS: SectorMeta[] = [
     home: {
       persona: 'Dentista',
       subtitle: 'Atenda os pacientes do dia e mantenha o prontuario em dia.',
+      highlight: {
+        title: 'Sua agenda clinica',
+        icon: '🦷',
+        chips: [
+          { value: 4,        label: 'pacientes hoje', tone: 'violet'  },
+          { value: '15min',  label: 'proximo',        tone: 'emerald' },
+          { value: 2,        label: 'anamneses pendentes', tone: 'amber' },
+        ],
+        cta: { label: 'Ver minha agenda', href: '/atendimento/agenda' },
+      },
       actions: [
         { icon: '🦷', label: 'Proximo paciente', href: '/atendimento/agenda',     tone: 'violet'  },
         { icon: '📋', label: 'Anamnese',         href: '/atendimento/pacientes',  tone: 'sky'     },
@@ -201,6 +245,16 @@ export const SECTORS: SectorMeta[] = [
     home: {
       persona: 'CRC',
       subtitle: 'Central de relacionamento — capta, nutre e fecha leads.',
+      highlight: {
+        title: 'Filas do WhatsApp',
+        icon: '💬',
+        chips: [
+          { value: 12, label: 'novas conversas',      tone: 'violet'  },
+          { value: 5,  label: 'sem resposta +2h',     tone: 'amber'   },
+          { value: 3,  label: 'follow-ups vencidos',  tone: 'rose'    },
+        ],
+        cta: { label: 'Abrir WhatsApp', href: '/atendimento/whatsapp' },
+      },
       actions: [
         { icon: '💬', label: 'Mensagens',     href: '/atendimento/whatsapp',      tone: 'violet'  },
         { icon: '🎯', label: 'Funil CRM',     href: '/atendimento/crm',           tone: 'emerald' },
@@ -229,7 +283,17 @@ export const SECTORS: SectorMeta[] = [
     ],
     home: {
       persona: 'Financeiro',
-      subtitle: 'Cobranças, conciliacao e visao geral do caixa.',
+      subtitle: 'Cobrancas, conciliacao e visao geral do caixa.',
+      highlight: {
+        title: 'Caixa do dia',
+        icon: '💰',
+        chips: [
+          { value: 'R$ 2.480', label: 'recebido hoje',   tone: 'emerald' },
+          { value: 'R$ 850',   label: 'vencendo hoje',   tone: 'amber'   },
+          { value: 4,          label: 'inadimplentes',   tone: 'rose'    },
+        ],
+        cta: { label: 'Abrir financeiro', href: '/atendimento/financeiro' },
+      },
       actions: [
         { icon: '💰', label: 'Visao geral',     href: '/atendimento/financeiro',          tone: 'emerald' },
         { icon: '🧾', label: 'Cobrancas',       href: '/atendimento/financeiro/boletos',  tone: 'violet'  },
@@ -255,6 +319,16 @@ export const SECTORS: SectorMeta[] = [
     home: {
       persona: 'Administrador',
       subtitle: 'Visao completa do tenant. Pendencias, equipe e KPIs.',
+      highlight: {
+        title: 'Pendencias e indicadores',
+        icon: '👑',
+        chips: [
+          { value: 6,    label: 'pendencias da equipe', tone: 'amber'   },
+          { value: '92%', label: 'comparecimento',      tone: 'emerald' },
+          { value: 2,    label: 'alertas no painel',    tone: 'rose'    },
+        ],
+        cta: { label: 'Ver detalhes', href: '/atendimento/relatorios' },
+      },
       actions: [
         { icon: '👥', label: 'Pacientes',  href: '/atendimento/pacientes',  tone: 'violet'  },
         { icon: '📅', label: 'Agenda',     href: '/atendimento/agenda',     tone: 'sky'     },
