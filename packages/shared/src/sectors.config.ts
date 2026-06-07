@@ -102,13 +102,16 @@ export const SECTORS: SectorMeta[] = [
   {
     id: 'recepcao',
     name: 'Recepcao',
-    description: 'Atende, agenda e cuida do contato inicial com o paciente',
+    description: 'Atende, agenda, faz venda balcao e cuida do contato inicial',
     icon: '🛎️',
     backendRoles: ['OPERADOR'],
     defaultPermissions: [
       'view_patients', 'edit_patients',
       'view_agenda',   'manage_agenda',
       'view_chat',
+      // Onda 17.32.115 (revisao 1): recepcao tambem fecha venda
+      // balcao (Venda Rapida) e gera proposta inicial.
+      'manage_proposals',
     ],
   },
   {
@@ -133,6 +136,9 @@ export const SECTORS: SectorMeta[] = [
     backendRoles: ['COMERCIAL', 'ASSISTANT'],
     defaultPermissions: [
       'view_patients',
+      // Onda 17.32.115 (revisao 1): CRC ve agenda pra sugerir
+      // horarios e conferir disponibilidade dos dentistas.
+      'view_agenda',
       'view_chat',
       'view_marketing',
       'manage_proposals',
