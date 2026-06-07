@@ -18,6 +18,12 @@ export interface TenantBranding {
   slug: string | null;
   logo_url: string | null;
   theme_color: string | null; // hex ex "#7c3aed"
+  // Onda 17.32.104 — Contatos da clinica (vieram do signup ou
+  // /settings/identidade). Usados em headers, recibos, e-mails.
+  phone: string | null;
+  email: string | null;
+  cpf_cnpj: string | null;
+  custom_domain: string | null;
   status: string;
   plan: string;
   trial_ends_at: string | null;

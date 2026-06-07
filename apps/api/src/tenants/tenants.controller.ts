@@ -88,21 +88,28 @@ export class SignupController {
 export class TenantsMeController {
   constructor(private readonly service: TenantsService) {}
 
-  /** Retorna branding + status do tenant do usuario logado. */
+  /** Retorna branding + status + dados de contato do tenant do usuario.
+   * Onda 17.32.104 — Inclui phone/email/cpf_cnpj/custom_domain (antes
+   * faltavam). Sem isso, a pagina /settings/identidade abria com os
+   * campos vazios mesmo depois do usuario ter preenchido no signup.
+   * Campos sensiveis (suspended_reason, owner_user_id, etc) seguem
+   * fora — quem precisa deles eh o SUPER_ADMIN via /admin/tenants. */
   @Get('me')
   async getMyTenant(@Req() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) return null;
     const t = await this.service.findOne(tenantId);
     if (!t) return null;
-    // Retorna so o necessario pra branding/UI (nao expoe contadores
-    // sensiveis se nao for ADMIN do tenant)
     return {
       id: t.id,
       name: t.name,
       slug: t.slug,
       logo_url: t.logo_url,
       theme_color: t.theme_color,
+      phone: t.phone,
+      email: t.email,
+      cpf_cnpj: t.cpf_cnpj,
+      custom_domain: t.custom_domain,
       status: t.status,
       plan: t.plan,
       trial_ends_at: t.trial_ends_at,
