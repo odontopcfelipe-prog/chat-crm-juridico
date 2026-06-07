@@ -524,7 +524,15 @@ export function Sidebar() {
       label: 'Admin SaaS',
       href: '/admin/tenants',
       icon: <ShieldCheck size={20} strokeWidth={2} />,
-      match: (p) => p.startsWith('/admin'),
+      match: (p) => p === '/admin/tenants' || p.startsWith('/admin/tenants/'),
+      show: perms.isSuperAdmin,
+    },
+    // Onda 17.32.112 — Anamnese MASTER do SaaS (controlada por SUPER_ADMIN)
+    anamneseMaster: {
+      label: 'Anamnese master',
+      href: '/admin/anamnese-master',
+      icon: <FileText size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/admin/anamnese-master'),
       show: perms.isSuperAdmin,
     },
     billing: {
@@ -871,10 +879,11 @@ export function Sidebar() {
       defaultExpanded: false,
       icon: <Settings size={14} strokeWidth={2.5} />,
       items: [
-        allItems.billing,      // Assinatura (Onda 17.32.88 — só pra ADMIN)
-        allItems.adminTenants, // Admin SaaS (Onda 17.32.88 — só SUPER_ADMIN)
-        allItems.settings,     // Configuracoes
-        allItems.manual,       // Manual
+        allItems.billing,        // Assinatura (Onda 17.32.88 — só pra ADMIN)
+        allItems.adminTenants,   // Admin SaaS (Onda 17.32.88 — só SUPER_ADMIN)
+        allItems.anamneseMaster, // Anamnese master (Onda 17.32.112 — só SUPER_ADMIN)
+        allItems.settings,       // Configuracoes
+        allItems.manual,         // Manual
       ].filter(i => i.show),
     },
   ].filter(g => g.items.length > 0);

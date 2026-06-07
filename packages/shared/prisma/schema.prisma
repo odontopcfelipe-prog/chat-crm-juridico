@@ -2264,6 +2264,27 @@ model AnamnesisTemplate {
   @@index([tenant_id, active])
 }
 
+/// Onda 17.32.112 — Ficha de anamnese MASTER do SaaS.
+/// Existe apenas 1 registro (singleton, id fixo = 1).
+/// So SUPER_ADMIN edita. Quando salva, propaga em UPSERT pra todos
+/// os tenants (AnamnesisTemplate v3 deles vira espelho desta).
+/// Tenants veem em modo read-only.
+model GlobalAnamnesisTemplate {
+  id      Int  @id @default(1)
+  version Int  @default(1)
+  /// Mesmo schema do AnamnesisTemplate (sections, questions).
+  schema  Json
+  notes   String?
+
+  /// Quem foi o ultimo SUPER_ADMIN que salvou.
+  updated_by_user_id String?
+
+  created_at DateTime @default(now())
+  updated_at DateTime @default(now()) @updatedAt
+
+  @@map("global_anamnesis_template")
+}
+
 // ============================================================================
 // FASE 26 — PESQUISA DE SATISFACAO POS-ATENDIMENTO
 // ============================================================================
