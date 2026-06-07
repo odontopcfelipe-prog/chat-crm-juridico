@@ -5,6 +5,8 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 // Onda 17.32.86 — Banner global de trial/inadimplencia
 import { TrialBanner } from '@/components/TrialBanner';
+// Onda 17.32.102 — Modal de boas-vindas 1x/dia pra tenant em TRIAL
+import { TrialWelcomeModal } from '@/components/TrialWelcomeModal';
 import { PatientSearch } from '@/components/PatientSearch';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
@@ -279,6 +281,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           {children}
         </main>
       </div>
+
+      {/* Onda 17.32.102 — Modal de boas-vindas pra tenant em TRIAL
+          (aparece 1x por dia, fechavel). Renderizado fora do flow do
+          layout pra cobrir tudo via fixed/z-110. */}
+      <TrialWelcomeModal />
 
       {/* ─── Popup de alertas de tarefas (tempo real) ──────── */}
       <TaskAlertPopup />
