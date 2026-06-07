@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, ChevronUp } from 'lucide-react';
+import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, ChevronUp, ShieldCheck, Sparkles } from 'lucide-react';
 import api from '@/lib/api';
+// Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
+import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
 // Onda 5e v10 (Fase 25) — editor de horarios reusavel
 import {
   ScheduleEditor,
@@ -105,11 +107,15 @@ interface UserForm {
   supervisorIds: string[];
   cro_number: string;
   cro_uf: string;
+  // Onda 17.32.117 — Setor + overrides de permissoes
+  sector: Sector | '';
+  extra_grants: Permission[];
+  extra_revokes: Permission[];
 }
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL' };
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', sector: '', extra_grants: [], extra_revokes: [] };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -208,6 +214,10 @@ export default function UsersSettingsPage() {
       supervisorIds: user.supervisors?.map((s: any) => s.id) || [],
       cro_number: user.cro_number || '',
       cro_uf: user.cro_uf || 'AL',
+      // Onda 17.32.117 — Setor + overrides
+      sector: (user.sector || '') as Sector | '',
+      extra_grants:  (user.extra_grants  || []) as Permission[],
+      extra_revokes: (user.extra_revokes || []) as Permission[],
     });
     setSpecialtyInput('');
     setError('');
@@ -272,6 +282,10 @@ export default function UsersSettingsPage() {
           specialties: form.specialties,
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
+          // Onda 17.32.117 — Setor + overrides
+          sector:        form.sector || null,
+          extra_grants:  form.extra_grants,
+          extra_revokes: form.extra_revokes,
         };
         if (form.password) payload.password = form.password;
         await api.patch(`/users/${editingId}`, payload);
@@ -293,6 +307,10 @@ export default function UsersSettingsPage() {
           specialties: form.specialties,
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
+          // Onda 17.32.117 — Setor + overrides
+          sector:        form.sector || null,
+          extra_grants:  form.extra_grants,
+          extra_revokes: form.extra_revokes,
         });
         savedUserId = res.data?.id;
         // Salvar vínculo de supervisores para novo usuário
@@ -496,11 +514,13 @@ export default function UsersSettingsPage() {
         </div>
       </div>
 
-      {/* Modal Criar/Editar */}
+      {/* Modal Criar/Editar — Onda 17.32.117: full-screen (era max-w-md
+        com modal central). Layout em 2 colunas a partir de lg: form
+        a esquerda, setor+permissoes a direita. Mobile vira stack. */}
       {showModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[100] animate-in fade-in duration-200 dark">
-          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full max-w-md mx-4 overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-h-[90vh]">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-border bg-foreground/[0.02] shrink-0">
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] animate-in fade-in duration-200 dark p-2 sm:p-4 lg:p-6">
+          <div className="bg-card border border-border rounded-2xl shadow-2xl w-full h-full mx-auto overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col max-w-[1400px]">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-border bg-foreground/[0.02] shrink-0">
               <h2 className="text-lg font-bold text-foreground tracking-tight">
                 {editingId ? 'Editar Usuário' : 'Novo Usuário'}
               </h2>
@@ -512,7 +532,7 @@ export default function UsersSettingsPage() {
               </button>
             </div>
             <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-6 space-y-4 overflow-y-auto flex-1">
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto flex-1"><div className="space-y-4">
               {error && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-[13px] font-medium">
                   {error}
@@ -780,7 +800,128 @@ export default function UsersSettingsPage() {
                 </div>
               )}
 
-              </div>{/* fim do div scrollável */}
+              </div>{/* fim da coluna 1 — form principal */}
+
+              {/* ─── Coluna 2: Setor + Permissões (Onda 17.32.117) ─── */}
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-bold text-foreground flex items-center gap-2 mb-1">
+                    <ShieldCheck size={14} className="text-violet-600" />
+                    Setor e permissões
+                  </h3>
+                  <p className="text-xs text-muted-foreground">
+                    O setor define qual home/sidebar aparece pra esse usuário
+                    e quais permissões já vêm marcadas. Você pode dar ou
+                    remover permissões individualmente abaixo.
+                  </p>
+                </div>
+
+                {/* Cards dos 5 setores */}
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  {SECTORS.map((s) => {
+                    const selected = form.sector === s.id;
+                    return (
+                      <button
+                        key={s.id}
+                        type="button"
+                        onClick={() => setForm(f => ({ ...f, sector: s.id, extra_grants: [], extra_revokes: [] }))}
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${
+                          selected
+                            ? 'bg-violet-500/10 border-violet-500/50 ring-2 ring-violet-500/20'
+                            : 'bg-card border-border hover:border-violet-500/30'
+                        }`}
+                      >
+                        <div className="text-lg mb-1">{s.icon}</div>
+                        <div className={`text-xs font-bold ${selected ? 'text-violet-700 dark:text-violet-300' : 'text-foreground'}`}>
+                          {s.name}
+                        </div>
+                        <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
+                          {s.description}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Permissões — agrupadas por grupo */}
+                {form.sector && (() => {
+                  const sectorMeta = SECTORS.find(s => s.id === form.sector);
+                  const defaults = new Set(sectorMeta?.defaultPermissions ?? []);
+                  const groups: Record<string, typeof PERMISSIONS> = {};
+                  for (const p of PERMISSIONS) (groups[p.group] ??= []).push(p);
+                  const GROUP_LABEL: Record<string, string> = {
+                    paciente: '👤 Paciente', agenda: '📅 Agenda',
+                    chat: '💬 Chat / WhatsApp', clinico: '🏥 Clínico',
+                    financeiro: '💰 Financeiro', marketing: '📢 Marketing',
+                    sistema: '⚙ Sistema',
+                  };
+                  return (
+                    <div className="space-y-3">
+                      {Object.keys(groups).map(group => (
+                        <div key={group} className="bg-muted/30 rounded-xl p-3 space-y-1.5">
+                          <p className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                            {GROUP_LABEL[group] ?? group}
+                          </p>
+                          {groups[group].map(p => {
+                            const isDefault = defaults.has(p.key);
+                            const granted   = form.extra_grants.includes(p.key);
+                            const revoked   = form.extra_revokes.includes(p.key);
+                            const active    = (isDefault && !revoked) || granted;
+                            // Cor/badge do estado
+                            const stateLabel =
+                              !isDefault && granted ? { text: '+ extra',     cls: 'text-emerald-700 bg-emerald-500/15 border-emerald-500/30' } :
+                              isDefault && revoked  ? { text: '− removida',  cls: 'text-red-700     bg-red-500/15     border-red-500/30'     } :
+                              isDefault             ? { text: 'do setor',    cls: 'text-violet-700  bg-violet-500/10  border-violet-500/20'  } :
+                                                       null;
+                            return (
+                              <label
+                                key={p.key}
+                                className="flex items-start gap-2.5 p-2 rounded-lg hover:bg-card cursor-pointer transition-colors"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={active}
+                                  onChange={(e) => {
+                                    const want = e.target.checked;
+                                    setForm(f => {
+                                      let grants  = f.extra_grants.filter(x => x !== p.key);
+                                      let revokes = f.extra_revokes.filter(x => x !== p.key);
+                                      if (want && !isDefault) grants.push(p.key);
+                                      if (!want && isDefault) revokes.push(p.key);
+                                      return { ...f, extra_grants: grants, extra_revokes: revokes };
+                                    });
+                                  }}
+                                  className="mt-0.5 shrink-0 w-4 h-4 accent-violet-600 cursor-pointer"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="text-xs font-bold text-foreground">{p.label}</span>
+                                    {stateLabel && (
+                                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded border ${stateLabel.cls}`}>
+                                        {stateLabel.text}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <p className="text-[10px] text-muted-foreground leading-tight">{p.description}</p>
+                                </div>
+                              </label>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
+
+                {!form.sector && (
+                  <div className="flex items-center gap-2 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-300">
+                    <Sparkles size={14} className="shrink-0" />
+                    <p className="text-xs">Selecione um setor acima pra ver e ajustar as permissões.</p>
+                  </div>
+                )}
+              </div>
+              </div>{/* fim do grid 2 colunas */}
+
               <div className="flex justify-end space-x-3 px-6 py-4 border-t border-border shrink-0">
                 <button
                   type="button"
