@@ -14,6 +14,7 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Mail, Phone, IdCard, Palette, ImageIcon, Globe,
   Save, Loader2, CheckCircle2, ExternalLink, RefreshCw, AlertCircle,
+  Sparkles, FileText, ClipboardList,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -38,6 +39,9 @@ export default function IdentidadeClinicaPage() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Onda 17.32.110 — Botao "Plantar defaults" pra tenants antigos
+  // que nao tinham tabela de precos e ficha de anamnese inicial.
+  const [seeding, setSeeding] = useState(false);
 
   // Form state
   const [name, setName] = useState('');
@@ -128,6 +132,39 @@ export default function IdentidadeClinicaPage() {
       showError(typeof msg === 'string' ? msg : 'Erro');
     } finally {
       setSaving(false);
+    }
+  };
+
+  // Onda 17.32.110 — Re-roda os defaults (precos + anamnese + especialidades)
+  // pra tenants antigos que nao tinham. Idempotente — nao duplica nem apaga
+  // procedimentos custom que a clinica ja criou.
+  const handleSeedDefaults = async () => {
+    if (seeding) return;
+    const ok = window.confirm(
+      'Plantar dados padrao no seu tenant?\n\n' +
+      'Isso adiciona:\n' +
+      '• 9 especialidades odontologicas\n' +
+      '• Tabela com 30 procedimentos (precos sugeridos)\n' +
+      '• Ficha de anamnese odontologica completa\n\n' +
+      'NAO apaga nem sobrescreve procedimentos que voce ja criou — eh seguro rodar.'
+    );
+    if (!ok) return;
+    setSeeding(true);
+    try {
+      const res = await api.post<{ specialties: number; procedures: number; anamnesis_template: boolean }>(
+        '/tenants/me/seed-defaults',
+      );
+      const d = res.data;
+      showSuccess(
+        `Plantado: ${d.specialties} especialidades, ${d.procedures} procedimentos e ficha de anamnese.`,
+      );
+      // Reload pra refletir na navegacao (procedimentos / anamnese)
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err: any) {
+      const msg = err?.response?.data?.message || 'Erro ao plantar dados padrao';
+      showError(typeof msg === 'string' ? msg : 'Erro');
+    } finally {
+      setSeeding(false);
     }
   };
 
@@ -287,6 +324,80 @@ export default function IdentidadeClinicaPage() {
               </div>
             </div>
           )}
+        </div>
+
+        {/* Onda 17.32.110 — Dados padrao da clinica.
+          Pra tenants que foram criados antes do seed automatico (Onda
+          17.32.109) e ficaram sem tabela de precos e ficha de anamnese
+          inicial, esse botao planta tudo de uma vez. Idempotente —
+          nao apaga procedimentos custom. */}
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">3</span>
+            <h2 className="text-sm font-bold text-foreground">Dados padrão da clínica</h2>
+          </div>
+
+          <p className="text-sm text-muted-foreground mb-4">
+            Adiciona automaticamente uma base inicial pra você começar a usar o sistema sem cadastrar tudo do zero.
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+              <div className="w-8 h-8 rounded-lg bg-violet-600/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                <ClipboardList size={14} className="text-violet-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground">9 especialidades</p>
+                <p className="text-[11px] text-muted-foreground leading-tight">Clínica, Orto, Endo, Implante…</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+              <div className="w-8 h-8 rounded-lg bg-violet-600/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                <Sparkles size={14} className="text-violet-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground">30 procedimentos</p>
+                <p className="text-[11px] text-muted-foreground leading-tight">Com preço base sugerido</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2.5 p-3 rounded-xl bg-violet-500/5 border border-violet-500/15">
+              <div className="w-8 h-8 rounded-lg bg-violet-600/10 border border-violet-500/20 flex items-center justify-center shrink-0">
+                <FileText size={14} className="text-violet-600" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs font-bold text-foreground">Ficha de anamnese</p>
+                <p className="text-[11px] text-muted-foreground leading-tight">9 seções, ~40 perguntas</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="flex items-start gap-2.5 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/20 mb-4">
+            <CheckCircle2 size={14} className="text-emerald-700 mt-0.5 shrink-0" />
+            <p className="text-xs text-emerald-900 dark:text-emerald-300 leading-relaxed">
+              <strong>Seguro pra rodar:</strong> não duplica nem apaga procedimentos
+              que você já criou. Quem tem tabela própria mantém intacto — só
+              acrescenta o que falta.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={handleSeedDefaults}
+            disabled={seeding}
+            className="inline-flex items-center gap-2 px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white text-sm font-bold disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-[0_4px_12px_-2px_rgba(124,58,237,0.4)]"
+          >
+            {seeding ? (
+              <>
+                <Loader2 size={14} className="animate-spin" />
+                Plantando dados padrão…
+              </>
+            ) : (
+              <>
+                <Sparkles size={14} />
+                Plantar dados padrão
+              </>
+            )}
+          </button>
         </div>
 
         {/* Custom domain — só pra Enterprise (futuro) */}
