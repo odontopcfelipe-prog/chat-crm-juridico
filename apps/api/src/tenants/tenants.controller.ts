@@ -11,7 +11,7 @@
  * de um tenant) nao tem acesso.
  */
 import {
-  Controller, Get, Post, Patch, Param, Body, Query, Req, BadRequestException, NotFoundException,
+  Controller, Get, Post, Patch, Param, Body, Query, Req, BadRequestException, ForbiddenException, NotFoundException,
 } from '@nestjs/common';
 import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
 import { Public } from '../auth/decorators/public.decorator';
@@ -119,6 +119,46 @@ export class TenantsMeController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) return null;
     return this.service.getUsage(tenantId);
+  }
+
+  /**
+   * Onda 17.32.103 — ADMIN do tenant edita os proprios dados de
+   * identidade (nome da clinica, logo, cor, contatos).
+   *
+   * Antes so o SUPER_ADMIN do SaaS conseguia editar isso via
+   * /admin/tenants/:id — dono da clinica dependia de pedir suporte.
+   * Agora ele mesmo ajusta direto pelo Configuracoes > Identidade.
+   *
+   * Aceita SO os campos de IDENTIDADE/contato — campos sensiveis
+   * (plan, status, trial_ends_at, owner_user_id) ficam reservados
+   * pro SUPER_ADMIN no admin/tenants/:id. */
+  @Patch('me')
+  async updateMyTenant(@Req() req: any, @Body() body: {
+    name?: string;
+    logo_url?: string | null;
+    theme_color?: string | null;
+    phone?: string | null;
+    email?: string | null;
+    cpf_cnpj?: string | null;
+    custom_domain?: string | null;
+  }) {
+    const tenantId = req.user?.tenant_id;
+    const roles: string[] = req.user?.roles ?? [];
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('So ADMIN pode editar dados da clinica');
+    }
+    // Whitelist explicita — ignora qualquer outro campo no body
+    const allowed: any = {};
+    if (body.name !== undefined)          allowed.name = body.name;
+    if (body.logo_url !== undefined)      allowed.logo_url = body.logo_url;
+    if (body.theme_color !== undefined)   allowed.theme_color = body.theme_color;
+    if (body.phone !== undefined)         allowed.phone = body.phone;
+    if (body.email !== undefined)         allowed.email = body.email;
+    if (body.cpf_cnpj !== undefined)      allowed.cpf_cnpj = body.cpf_cnpj;
+    if (body.custom_domain !== undefined) allowed.custom_domain = body.custom_domain;
+
+    return this.service.update(tenantId, allowed);
   }
 }
 

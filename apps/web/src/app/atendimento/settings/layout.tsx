@@ -37,6 +37,8 @@ const settingsSections: MenuSection[] = [
   {
     title: 'Clínica',
     items: [
+      // Onda 17.32.103 — Identidade da clinica (nome, logo, cor, contatos)
+      { label: 'Identidade da clínica', href: '/atendimento/settings/identidade', icon: Building2 },
       { label: 'Agenda & Horários', href: '/atendimento/settings/office', icon: Calendar },
       { label: 'Salas & Cadeiras', href: '/atendimento/settings/rooms', icon: DoorOpen },
       { label: 'Marcadores de Agenda', href: '/atendimento/settings/appointment-markers', icon: Tag },
