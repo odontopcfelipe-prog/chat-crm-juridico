@@ -177,6 +177,23 @@
   text-decoration: none;
 }
 
+/* Onda 17.32.126 — Indicador discreto de loading do chip real */
+.home-bs .hb-highlight-loading {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--hb-tone-violet);
+  animation: hb-pulse 1.2s ease-in-out infinite;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+
+@keyframes hb-pulse {
+  0%, 100% { opacity: 0.3; transform: scale(0.8); }
+  50%      { opacity: 1;   transform: scale(1.1); }
+}
+
 .home-bs .hb-highlight-cta:hover { text-decoration: underline; }
 
 .home-bs .hb-chips {

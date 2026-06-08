@@ -18,6 +18,8 @@ import {
   getSector, SECTORS,
   type Sector,
 } from '@crm/shared';
+// Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
+import { useHomeHighlights } from '@/lib/useHomeHighlights';
 import './home-por-setor.css';
 
 interface Props {
@@ -57,6 +59,13 @@ export default function HomeBySector({ sector, userName, skySlot, allowSwitch = 
   const greeting = greetingFor(hour);
   const firstName = userName?.trim().split(' ')[0] || 'visitante';
   const isPreview = active !== sector;
+
+  // Onda 17.32.126 — Chips reais via API; cai no mock se falhar/loading
+  const { data: liveHighlights, loading: highlightsLoading } = useHomeHighlights(active);
+  const chips = liveHighlights?.chips?.length
+    ? liveHighlights.chips
+    : meta.home.highlight.chips;
+  const highlightCta = liveHighlights?.cta ?? meta.home.highlight.cta;
 
   return (
     <div className="home-bs" data-sector={meta.id}>
@@ -104,15 +113,18 @@ export default function HomeBySector({ sector, userName, skySlot, allowSwitch = 
           <span className="hb-highlight-title">
             <span aria-hidden="true">{meta.home.highlight.icon}</span>
             {meta.home.highlight.title}
+            {highlightsLoading && !liveHighlights && (
+              <span className="hb-highlight-loading" aria-hidden="true" />
+            )}
           </span>
-          {meta.home.highlight.cta && (
-            <Link href={meta.home.highlight.cta.href} className="hb-highlight-cta">
-              {meta.home.highlight.cta.label} →
+          {highlightCta && (
+            <Link href={highlightCta.href} className="hb-highlight-cta">
+              {highlightCta.label} →
             </Link>
           )}
         </div>
         <div className="hb-chips">
-          {meta.home.highlight.chips.map((c, i) => (
+          {chips.map((c, i) => (
             <div key={i} className="hb-chip" data-tone={c.tone ?? 'violet'}>
               <span className="hb-chip-value">{c.value}</span>
               <span className="hb-chip-label">{c.label}</span>

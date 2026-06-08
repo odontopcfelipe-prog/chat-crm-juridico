@@ -8,6 +8,8 @@ import { TenantsModule } from './tenants/tenants.module';
 import { GlobalAnamnesisModule } from './global-anamnesis/global-anamnesis.module';
 // Onda 17.32.116 — Setores + permissoes (Fase 2)
 import { SectorsModule } from './sectors/sectors.module';
+// Onda 17.32.126 — Chips do bloco em destaque da home por setor
+import { HomeModule } from './home/home.module';
 // Onda 17.32.86 — SaaS Fase 3b: cobranca da mensalidade
 import { BillingModule } from './billing/billing.module';
 import { UsersModule } from './users/users.module';
@@ -101,6 +103,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
     TenantsModule,
     GlobalAnamnesisModule,
     SectorsModule,
+    HomeModule,
     BillingModule,
     S3Module,
     UsersModule,
