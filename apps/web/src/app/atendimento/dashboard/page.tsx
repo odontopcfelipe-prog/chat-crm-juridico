@@ -33,6 +33,8 @@ import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 import HomeBySector from '@/components/home/HomeBySector';
 import { mapBackendRole, type Sector } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
+// Onda 17.32.125 — Lembrete persistente do onboarding pendente
+import { OnboardingPendingBanner } from '@/components/OnboardingPendingBanner';
 // O JWT NAO inclui o nome do usuario — payload backend tem so
 // { email, sub, roles, tenant_id }. Pra pegar o nome real, usa o
 // endpoint /users/me. Cacheamos em memoria na primeira carga.
@@ -430,6 +432,11 @@ export default function VisaoGeralPage() {
         {/* Onda 17.3 — botao "Dashboard completo" removido daqui.
             Acesso a esse conteudo agora pelo sidebar (Financeiro >
             Visao Geral). Mantem essa tela 100% focada em atalhos. */}
+
+        {/* Onda 17.32.125 — Lembrete persistente do onboarding (so
+          aparece pra tenant em TRIAL com etapas pendentes). Clique
+          reabre o OnboardingWizard via window event. */}
+        <OnboardingPendingBanner />
 
         {/* ─── HERO por setor (Onda 17.32.119) ─────────────────────
           Substitui a saudacao+mascote+versiculo pelo HomeBySector

@@ -72,6 +72,20 @@ export function OnboardingWizardLoader() {
     return () => { cancelled = true; };
   }, [tenant, fetchState]);
 
+  // Onda 17.32.125 — Permite reabrir o wizard de qualquer lugar
+  // (ex: banner persistente no menu inicial) via window event.
+  useEffect(() => {
+    const handler = () => {
+      // Refresh estado antes de abrir
+      fetchState().then(() => {
+        try { sessionStorage.removeItem(DISMISS_LOCAL_KEY); } catch {}
+        setOpen(true);
+      });
+    };
+    window.addEventListener('onboarding:open', handler);
+    return () => window.removeEventListener('onboarding:open', handler);
+  }, [fetchState]);
+
   const handleStepUpdate = useCallback(async (step: StepKey, status: 'done' | 'skipped') => {
     try {
       const res = await api.patch<OnboardingState>(
