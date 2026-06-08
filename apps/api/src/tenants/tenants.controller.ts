@@ -169,6 +169,51 @@ export class TenantsMeController {
   }
 
   /**
+   * Onda 17.32.123 — Estado do onboarding do tenant logado.
+   * Calcula auto-detect de WhatsApp/Asaas via TenantSetting:
+   *   - whatsapp = 'done' se EVOLUTION_API_KEY existe
+   *   - asaas    = 'done' se ASAAS_API_KEY existe
+   *   - first_patient = 'done' se ja tem Patient cadastrado
+   *   - team = 'done' se tem mais de 1 User no tenant
+   */
+  @Get('me/onboarding')
+  async getMyOnboarding(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    return this.service.getOnboarding(tenantId);
+  }
+
+  /**
+   * Onda 17.32.123 — Marca uma etapa do onboarding como done/skipped.
+   * Body: { step: 'whatsapp'|'asaas'|'first_patient'|'team', status: 'done'|'skipped' }
+   */
+  @Patch('me/onboarding/step')
+  async patchMyOnboardingStep(
+    @Req() req: any,
+    @Body() body: { step: string; status: 'done' | 'skipped' },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    return this.service.setOnboardingStep(tenantId, body.step, body.status);
+  }
+
+  /** Onda 17.32.123 — Marca wizard como concluído (não reaparece). */
+  @Post('me/onboarding/complete')
+  async completeMyOnboarding(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    return this.service.completeOnboarding(tenantId);
+  }
+
+  /** Onda 17.32.123 — Fecha wizard temporariamente (volta amanhã). */
+  @Post('me/onboarding/dismiss')
+  async dismissMyOnboarding(@Req() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant associado');
+    return this.service.dismissOnboarding(tenantId);
+  }
+
+  /**
    * Onda 17.32.109 — Re-popula os defaults (especialidades + tabela
    * de precos + ficha de anamnese V3) no tenant logado. Util pra
    * tenants antigos que ainda nao tinham esses defaults plantados.

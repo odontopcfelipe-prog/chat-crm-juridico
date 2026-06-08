@@ -235,6 +235,107 @@ export class TenantsService {
     return result;
   }
 
+  /**
+   * Onda 17.32.123 — Estado do onboarding com auto-detect.
+   * Calcula o status real de cada etapa olhando o estado do banco
+   * (TenantSetting, Patient, User count). Atualiza onboarding_state
+   * persistido se mudou pra acelerar consultas futuras.
+   */
+  async getOnboarding(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboarding_state: true },
+    });
+    const persisted = (t?.onboarding_state ?? {}) as Record<string, any>;
+
+    // Auto-detect WhatsApp
+    const evolution = await this.prisma.tenantSetting.findFirst({
+      where: { tenant_id: tenantId, key: { in: ['EVOLUTION_API_KEY', 'EVOLUTION_INSTANCE_NAME'] } },
+    });
+    const whatsappReady = !!evolution;
+
+    // Auto-detect Asaas
+    const asaas = await this.prisma.tenantSetting.findFirst({
+      where: { tenant_id: tenantId, key: 'ASAAS_API_KEY' },
+    });
+    const asaasReady = !!asaas;
+
+    // Auto-detect 1° paciente
+    const patientCount = await this.prisma.patient.count({ where: { tenant_id: tenantId } });
+    const hasPatient = patientCount > 0;
+
+    // Auto-detect equipe (mais de 1 user = convidou alguem)
+    const userCount = await this.prisma.user.count({ where: { tenant_id: tenantId } });
+    const hasTeam = userCount > 1;
+
+    const steps = {
+      whatsapp:      whatsappReady ? 'done' : (persisted.whatsapp      ?? 'pending'),
+      asaas:         asaasReady    ? 'done' : (persisted.asaas         ?? 'pending'),
+      first_patient: hasPatient    ? 'done' : (persisted.first_patient ?? 'pending'),
+      team:          hasTeam       ? 'done' : (persisted.team          ?? 'pending'),
+    };
+
+    return {
+      steps,
+      completed_at: persisted.completed_at ?? null,
+      dismissed_at: persisted.dismissed_at ?? null,
+      // Total de etapas obrigatorias (whatsapp + asaas) que ainda nao
+      // estao done. Frontend usa pra decidir se mostra wizard agora.
+      required_pending: ['whatsapp', 'asaas'].filter(s => (steps as any)[s] !== 'done').length,
+      // Quantas etapas opcionais ainda nao foram tocadas
+      optional_pending: ['first_patient', 'team'].filter(s => (steps as any)[s] === 'pending').length,
+    };
+  }
+
+  async setOnboardingStep(tenantId: string, step: string, status: 'done' | 'skipped') {
+    const allowed = ['whatsapp', 'asaas', 'first_patient', 'team'];
+    if (!allowed.includes(step)) {
+      throw new BadRequestException(`Etapa invalida: ${step}`);
+    }
+    if (status !== 'done' && status !== 'skipped') {
+      throw new BadRequestException(`Status invalido: ${status}`);
+    }
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboarding_state: true },
+    });
+    const state = ((t?.onboarding_state ?? {}) as Record<string, any>);
+    state[step] = status;
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data:  { onboarding_state: state as any },
+    });
+    return this.getOnboarding(tenantId);
+  }
+
+  async completeOnboarding(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboarding_state: true },
+    });
+    const state = ((t?.onboarding_state ?? {}) as Record<string, any>);
+    state.completed_at = new Date().toISOString();
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data:  { onboarding_state: state as any },
+    });
+    return this.getOnboarding(tenantId);
+  }
+
+  async dismissOnboarding(tenantId: string) {
+    const t = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { onboarding_state: true },
+    });
+    const state = ((t?.onboarding_state ?? {}) as Record<string, any>);
+    state.dismissed_at = new Date().toISOString();
+    await this.prisma.tenant.update({
+      where: { id: tenantId },
+      data:  { onboarding_state: state as any },
+    });
+    return this.getOnboarding(tenantId);
+  }
+
   async update(id: string, body: any) {
     const existing = await this.prisma.tenant.findUnique({ where: { id } });
     if (!existing) throw new BadRequestException('Tenant nao encontrado');

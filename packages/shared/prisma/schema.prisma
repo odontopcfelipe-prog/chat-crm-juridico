@@ -31,6 +31,18 @@ model Tenant {
   trial_ends_at    DateTime? // quando TRIAL expira (fica SUSPENDED)
   suspended_at     DateTime?
   suspended_reason String?
+  /// Onda 17.32.123 — Estado do onboarding (wizard de primeira vez).
+  /// Estrutura JSON livre, esquema esperado:
+  ///   {
+  ///     "whatsapp":      "done" | "pending",
+  ///     "asaas":         "done" | "pending",
+  ///     "first_patient": "done" | "skipped" | "pending",
+  ///     "team":          "done" | "skipped" | "pending",
+  ///     "dismissed_at":  ISO timestamp (user fechou wizard sem terminar),
+  ///     "completed_at":  ISO timestamp (user concluiu o wizard)
+  ///   }
+  /// Quando completed_at preenchido, wizard nao reaparece automaticamente.
+  onboarding_state Json      @default("{}")
   // Onda 17.32.87 — @default(now()) + @updatedAt evita NOT NULL error
   // em prisma db push quando ja ha linhas existentes na tabela
   created_at       DateTime  @default(now())
@@ -124,7 +136,7 @@ model User {
   roles                         String[]               @default(["OPERADOR"])
   specialties                   String[]               @default([])
   // Onda 17.32.116 — Setores e permissoes (Fase 2)
-  /// Setor do usuario: 'recepcao' | 'dentista' | 'crc' | 'financeiro' | 'admin'
+  /// Setor do usuario: 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin'
   /// Determina home/sidebar default + pacote de permissoes.
   /// Backfill automatico no boot da API derivando de roles[].
   sector                        String?

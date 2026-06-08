@@ -5,8 +5,10 @@ import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 // Onda 17.32.86 — Banner global de trial/inadimplencia
 import { TrialBanner } from '@/components/TrialBanner';
-// Onda 17.32.102 — Modal de boas-vindas 1x/dia pra tenant em TRIAL
+// Onda 17.32.102 — Modal de boas-vindas 1x/dia pra tenant em TRIAL (legacy)
 import { TrialWelcomeModal } from '@/components/TrialWelcomeModal';
+// Onda 17.32.124 — Wizard fullscreen de onboarding (estilo Windows OOBE)
+import { OnboardingWizardLoader } from '@/components/OnboardingWizardLoader';
 import { PatientSearch } from '@/components/PatientSearch';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
@@ -284,8 +286,14 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
       {/* Onda 17.32.102 — Modal de boas-vindas pra tenant em TRIAL
           (aparece 1x por dia, fechavel). Renderizado fora do flow do
-          layout pra cobrir tudo via fixed/z-110. */}
+          layout pra cobrir tudo via fixed/z-110.
+          Onda 17.32.124 — Quando o OnboardingWizard renderiza (trial +
+          onboarding nao completo), ele suprime o TrialWelcomeModal
+          via z-index maior. */}
       <TrialWelcomeModal />
+      {/* Onda 17.32.124 — Wizard fullscreen de onboarding (1x na vida do
+          tenant — fica dismissable mas sempre volta ate completar). */}
+      <OnboardingWizardLoader />
 
       {/* ─── Popup de alertas de tarefas (tempo real) ──────── */}
       <TaskAlertPopup />
