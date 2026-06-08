@@ -114,12 +114,31 @@ export default function WhatsappIntegrationPage() {
 
   useEffect(() => { fetchNumbers(); }, [fetchNumbers]);
 
-  // Polling discreto enquanto tem QR aberto (refresh a cada 4s)
+  // Onda 17.32.133 — Polling RAPIDO (2s) enquanto QR aberto, pra
+  // detectar conexao logo. Quando fechado, nao polla.
   useEffect(() => {
     if (!qrInstance) return;
-    const t = setInterval(fetchNumbers, 4000);
+    const t = setInterval(fetchNumbers, 2000);
     return () => clearInterval(t);
   }, [qrInstance, fetchNumbers]);
+
+  // Onda 17.32.133 — Quando a instancia do QR vira "conectada",
+  // fecha o modal automaticamente + toast de sucesso.
+  useEffect(() => {
+    if (!qrInstance) return;
+    const me = numbers.find((n) => n.instanceName === qrInstance);
+    if (!me) return;
+    const s = (me.status || '').toLowerCase();
+    const isConnected = ['open', 'connected', 'online', 'authenticated'].includes(s);
+    if (isConnected) {
+      setQrInstance(null);
+      setQrPayload(null);
+      setToast({
+        type: 'success',
+        message: `WhatsApp "${me.displayName}" conectado com sucesso!`,
+      });
+    }
+  }, [numbers, qrInstance]);
 
   const handleConnect = async () => {
     setConnecting(true);
