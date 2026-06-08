@@ -17,9 +17,29 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   MessageSquare, Plus, RefreshCw, Loader2, Trash2, CheckCircle2,
-  AlertCircle, QrCode, Pencil, X, Smartphone,
+  AlertCircle, QrCode, Pencil, X, Smartphone, AlertTriangle,
 } from 'lucide-react';
 import api from '@/lib/api';
+
+interface Toast {
+  type: 'success' | 'error' | 'info';
+  message: string;
+}
+
+/** Traduz mensagem de erro do backend pra algo amigavel. */
+function parseError(e: any): string {
+  const raw = e?.response?.data?.message || e?.response?.data?.error || e?.message || '';
+  if (typeof raw === 'string' && raw.startsWith('Cannot POST')) {
+    return 'O servidor ainda nao reconhece essa funcionalidade. O deploy pode estar em andamento — tente de novo em alguns minutos.';
+  }
+  if (typeof raw === 'string' && raw.startsWith('Cannot GET')) {
+    return 'O servidor ainda nao reconhece essa funcionalidade. O deploy pode estar em andamento — tente de novo em alguns minutos.';
+  }
+  if (e?.response?.status === 403) return 'Sem permissao pra essa acao.';
+  if (e?.response?.status === 404) return 'Recurso nao encontrado no servidor.';
+  if (e?.response?.status >= 500) return 'Erro interno do servidor — tente de novo em alguns segundos.';
+  return raw || 'Algo deu errado. Tente de novo.';
+}
 
 interface MyNumber {
   instanceName: string;
@@ -66,6 +86,18 @@ export default function WhatsappIntegrationPage() {
   const [renaming, setRenaming] = useState<MyNumber | null>(null);
   const [renameValue, setRenameValue] = useState('');
 
+  // Modal "Confirmar remocao"
+  const [confirmDelete, setConfirmDelete] = useState<MyNumber | null>(null);
+  const [deleting, setDeleting] = useState(false);
+
+  // Toast (substitui os alert())
+  const [toast, setToast] = useState<Toast | null>(null);
+  useEffect(() => {
+    if (!toast) return;
+    const t = setTimeout(() => setToast(null), 5000);
+    return () => clearTimeout(t);
+  }, [toast]);
+
   const fetchNumbers = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -102,7 +134,8 @@ export default function WhatsappIntegrationPage() {
       setNewDisplayName('');
       fetchNumbers();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Falha ao criar linha de WhatsApp.');
+      setToast({ type: 'error', message: parseError(e) });
+      setShowConnectModal(false);
     } finally {
       setConnecting(false);
     }
@@ -114,17 +147,22 @@ export default function WhatsappIntegrationPage() {
       setQrInstance(instanceName);
       setQrPayload(res.data);
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Falha ao reconectar.');
+      setToast({ type: 'error', message: parseError(e) });
     }
   };
 
-  const handleDelete = async (instanceName: string, displayName: string) => {
-    if (!confirm(`Remover "${displayName}"? Isso desconecta o WhatsApp e apaga a linha no servidor.`)) return;
+  const handleDelete = async () => {
+    if (!confirmDelete) return;
+    setDeleting(true);
     try {
-      await api.delete(`/whatsapp/my-numbers/${encodeURIComponent(instanceName)}`);
+      await api.delete(`/whatsapp/my-numbers/${encodeURIComponent(confirmDelete.instanceName)}`);
+      setToast({ type: 'success', message: `"${confirmDelete.displayName}" foi removida.` });
+      setConfirmDelete(null);
       fetchNumbers();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Falha ao remover.');
+      setToast({ type: 'error', message: parseError(e) });
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -134,10 +172,11 @@ export default function WhatsappIntegrationPage() {
     if (!trimmed) return;
     try {
       await api.patch(`/whatsapp/my-numbers/${encodeURIComponent(renaming.instanceName)}`, { displayName: trimmed });
+      setToast({ type: 'success', message: 'Apelido atualizado.' });
       setRenaming(null);
       fetchNumbers();
     } catch (e: any) {
-      alert(e?.response?.data?.message || 'Falha ao renomear.');
+      setToast({ type: 'error', message: parseError(e) });
     }
   };
 
@@ -187,7 +226,7 @@ export default function WhatsappIntegrationPage() {
               key={n.instanceName}
               number={n}
               onReconnect={() => handleReconnect(n.instanceName)}
-              onDelete={() => handleDelete(n.instanceName, n.displayName)}
+              onDelete={() => setConfirmDelete(n)}
               onRename={() => { setRenaming(n); setRenameValue(n.displayName); }}
             />
           ))}
@@ -291,6 +330,70 @@ export default function WhatsappIntegrationPage() {
           </div>
         </Modal>
       )}
+
+      {/* Modal: Confirmar remocao */}
+      {confirmDelete && (
+        <Modal onClose={() => !deleting && setConfirmDelete(null)}>
+          <div className="flex items-start gap-3 mb-4">
+            <div className="w-10 h-10 rounded-full bg-rose-500/10 text-rose-500 flex items-center justify-center shrink-0">
+              <AlertTriangle size={20} />
+            </div>
+            <div>
+              <h3 className="text-lg font-bold text-foreground">Remover "{confirmDelete.displayName}"?</h3>
+              <p className="text-sm text-muted-foreground mt-1">
+                O WhatsApp será desconectado e a linha apagada do servidor. As conversas já recebidas
+                ficam guardadas no CRM, mas o número não receberá mais mensagens até reconectar.
+              </p>
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              disabled={deleting}
+              onClick={() => setConfirmDelete(null)}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-muted-foreground hover:bg-muted/40 disabled:opacity-50"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={deleting}
+              onClick={handleDelete}
+              className="bg-rose-500 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-rose-600 disabled:opacity-50"
+            >
+              {deleting ? <Loader2 className="animate-spin" size={16} /> : <Trash2 size={16} />}
+              Remover
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Toast inline (substitui alert()) */}
+      {toast && <ToastBanner toast={toast} onDismiss={() => setToast(null)} />}
+    </div>
+  );
+}
+
+// ─── Toast banner ──────────────────────────────────────────────────
+
+function ToastBanner({ toast, onDismiss }: { toast: Toast; onDismiss: () => void }) {
+  const cls = toast.type === 'success'
+    ? 'bg-emerald-500/95 text-white border-emerald-600'
+    : toast.type === 'error'
+    ? 'bg-rose-500/95 text-white border-rose-600'
+    : 'bg-zinc-800/95 text-white border-zinc-700';
+  const Icon = toast.type === 'success' ? CheckCircle2 : toast.type === 'error' ? AlertCircle : AlertTriangle;
+  return (
+    <div className="fixed bottom-6 right-6 z-[60] max-w-md animate-in slide-in-from-bottom-4 fade-in duration-300">
+      <div className={`${cls} border rounded-2xl shadow-2xl p-4 pr-3 flex items-start gap-3`}>
+        <Icon size={20} className="shrink-0 mt-0.5" />
+        <p className="text-sm font-medium flex-1">{toast.message}</p>
+        <button
+          onClick={onDismiss}
+          className="text-white/70 hover:text-white p-1"
+          aria-label="Fechar"
+        >
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 }
