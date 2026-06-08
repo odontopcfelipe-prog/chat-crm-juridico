@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Delete, Body, Param, UseGuards, Request, Logger } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, Logger, ForbiddenException } from '@nestjs/common';
 import { WhatsappService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SettingsService } from '../settings/settings.service';
@@ -12,6 +12,65 @@ export class WhatsappController {
     private readonly whatsappService: WhatsappService,
     private readonly settingsService: SettingsService,
   ) {}
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Onda 17.32.130 — Endpoints "Conectar via QR" pro tenant
+  //
+  // ADMIN da clinica nao precisa saber nada de Evolution. Clica
+  // "Conectar WhatsApp" -> backend cuida do resto.
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Lista os WhatsApps DESSE tenant. */
+  @Get('my-numbers')
+  async myNumbers(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.listForTenant(tenantId);
+  }
+
+  /** Conecta um novo WhatsApp — cria instancia + retorna QR. */
+  @Post('my-numbers/connect')
+  async connectMyNumber(
+    @Request() req: any,
+    @Body() body: { displayName?: string },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.quickConnect(tenantId, body?.displayName);
+  }
+
+  /** Reconecta uma linha existente (gera novo QR — se cair, reescaneia). */
+  @Post('my-numbers/:name/reconnect')
+  async reconnectMyNumber(@Request() req: any, @Param('name') name: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.reconnectForTenant(tenantId, name);
+  }
+
+  /** Deleta uma linha do tenant (com validacao de ownership). */
+  @Delete('my-numbers/:name')
+  async deleteMyNumber(@Request() req: any, @Param('name') name: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.deleteForTenant(tenantId, name);
+  }
+
+  /** Renomeia o apelido da linha (so display_name; nao mexe na Evolution). */
+  @Patch('my-numbers/:name')
+  async renameMyNumber(
+    @Request() req: any,
+    @Param('name') name: string,
+    @Body() body: { displayName: string },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.renameForTenant(tenantId, name, body?.displayName);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // Endpoints legacy — mantidos pra compat. Os novos clientes (ADMIN
+  // de tenant) usam /my-numbers acima.
+  // ═══════════════════════════════════════════════════════════════════
 
   @Get('instances')
   async listInstances() {

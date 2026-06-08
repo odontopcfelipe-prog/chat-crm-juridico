@@ -357,6 +357,191 @@ export class WhatsappService {
     return this.request('GET', `instance/connectionStatus/${instanceName}`);
   }
 
+  // ═══════════════════════════════════════════════════════════════════
+  // Onda 17.32.130 — UX "Conectar WhatsApp via QR" sem config tecnica
+  //
+  // Tenant nao ve URL/chave/webhook. Backend cria a instancia auto-
+  // maticamente no servidor Evolution global, com naming pattern
+  // derivado do tenant_id. Filtragem por prefixo + override em
+  // TenantSetting pra instancias legacy.
+  // ═══════════════════════════════════════════════════════════════════
+
+  /** Prefixo de instancias do tenant — primeiros 8 chars do uuid sem hifens. */
+  private tenantPrefix(tenantId: string): string {
+    const clean = tenantId.replace(/-/g, '').slice(0, 8).toLowerCase();
+    return `t${clean}`;
+  }
+
+  /** Le o display_name (apelido) salvo em TenantSetting. */
+  private async getInstanceDisplayMap(tenantId: string): Promise<Record<string, string>> {
+    try {
+      const ts = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'WHATSAPP_INSTANCE_NAMES_JSON' } },
+      });
+      if (!ts?.value) return {};
+      return JSON.parse(ts.value);
+    } catch {
+      return {};
+    }
+  }
+
+  /** Salva o display_name em TenantSetting (merge). */
+  private async saveInstanceDisplayName(tenantId: string, instanceName: string, displayName: string): Promise<void> {
+    const map = await this.getInstanceDisplayMap(tenantId);
+    map[instanceName] = displayName;
+    await this.prisma.tenantSetting.upsert({
+      where:  { tenant_id_key: { tenant_id: tenantId, key: 'WHATSAPP_INSTANCE_NAMES_JSON' } },
+      create: { tenant_id: tenantId, key: 'WHATSAPP_INSTANCE_NAMES_JSON', value: JSON.stringify(map) },
+      update: { value: JSON.stringify(map) },
+    });
+  }
+
+  /** Remove display_name (quando deleta a instancia). */
+  private async removeInstanceDisplayName(tenantId: string, instanceName: string): Promise<void> {
+    const map = await this.getInstanceDisplayMap(tenantId);
+    if (!(instanceName in map)) return;
+    delete map[instanceName];
+    await this.prisma.tenantSetting.upsert({
+      where:  { tenant_id_key: { tenant_id: tenantId, key: 'WHATSAPP_INSTANCE_NAMES_JSON' } },
+      create: { tenant_id: tenantId, key: 'WHATSAPP_INSTANCE_NAMES_JSON', value: JSON.stringify(map) },
+      update: { value: JSON.stringify(map) },
+    });
+  }
+
+  /** Le o nome legado (Onda anterior) se existir — pra continuar mostrando instancias antigas do tenant. */
+  private async getLegacyInstanceName(tenantId: string): Promise<string | null> {
+    try {
+      const ts = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'EVOLUTION_INSTANCE_NAME' } },
+      });
+      return ts?.value ?? null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Lista as instancias QUE PERTENCEM A ESSE TENANT:
+   *   - Naming pattern  (instanceName comeca com `t{hash8}-`)
+   *   - Legacy override (TenantSetting EVOLUTION_INSTANCE_NAME)
+   */
+  async listForTenant(tenantId: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const [all, legacy, displayMap] = await Promise.all([
+      this.listInstances().catch(() => []),
+      this.getLegacyInstanceName(tenantId),
+      this.getInstanceDisplayMap(tenantId),
+    ]);
+
+    const mine = (all as any[]).filter((i) => {
+      const name: string = i.instanceName || '';
+      if (name.startsWith(`${prefix}-`)) return true;
+      if (legacy && name === legacy) return true;
+      return false;
+    });
+
+    return mine.map((i) => ({
+      ...i,
+      displayName: displayMap[i.instanceName] || this.guessDisplayName(i.instanceName, prefix),
+      isLegacy: legacy ? i.instanceName === legacy : false,
+    }));
+  }
+
+  /** Pega "Linha 1" de "t1234abcd-1" ou usa o proprio nome se for legacy. */
+  private guessDisplayName(instanceName: string, prefix: string): string {
+    const m = instanceName.match(new RegExp(`^${prefix}-(\\d+)$`));
+    if (m) return `Linha ${m[1]}`;
+    return instanceName; // legacy: mostra o nome cru
+  }
+
+  /**
+   * Conecta um novo WhatsApp pro tenant:
+   *   1. Calcula proximo numero disponivel (1, 2, 3, ...)
+   *   2. Cria a instancia na Evolution (usa config GLOBAL — tenant nao precisa configurar nada)
+   *   3. Salva o apelido em TenantSetting
+   *   4. Retorna QR code pro tenant escanear
+   */
+  async quickConnect(tenantId: string, displayName?: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const existing = await this.listForTenant(tenantId);
+
+    // Acha o proximo numero (vai de 1 em diante, pulando os ja usados)
+    const usedNumbers = existing.map((e) => {
+      const m = e.instanceName?.match(new RegExp(`^${prefix}-(\\d+)$`));
+      return m ? parseInt(m[1], 10) : 0;
+    });
+    const nextN = (usedNumbers.length === 0 ? 0 : Math.max(...usedNumbers)) + 1;
+    const instanceName = `${prefix}-${nextN}`;
+    const finalDisplayName = (displayName || '').trim() || `Linha ${nextN}`;
+
+    this.logger.log(`[quickConnect] Criando instancia ${instanceName} pro tenant ${tenantId} ("${finalDisplayName}")`);
+
+    // Cria a instancia (usa config global automaticamente)
+    await this.createInstance(instanceName);
+
+    // Salva o apelido
+    await this.saveInstanceDisplayName(tenantId, instanceName, finalDisplayName);
+
+    // Busca QR
+    let qr: any = null;
+    try {
+      qr = await this.getConnectCode(instanceName);
+    } catch (e: any) {
+      this.logger.warn(`[quickConnect] QR ainda nao disponivel pra ${instanceName}: ${e?.message}`);
+    }
+
+    return {
+      instanceName,
+      displayName: finalDisplayName,
+      qr,
+    };
+  }
+
+  /**
+   * Deleta uma instancia do tenant. Valida que o instanceName pertence
+   * mesmo ao tenant (naming pattern ou legacy override) — protege contra
+   * tenant A apagar instancia do tenant B.
+   */
+  async deleteForTenant(tenantId: string, instanceName: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const legacy = await this.getLegacyInstanceName(tenantId);
+    const isMine = instanceName.startsWith(`${prefix}-`) || instanceName === legacy;
+    if (!isMine) {
+      throw new BadRequestException('Essa linha de WhatsApp nao pertence a sua clinica');
+    }
+    await this.deleteInstance(instanceName);
+    await this.removeInstanceDisplayName(tenantId, instanceName).catch(() => {});
+    return { ok: true };
+  }
+
+  /**
+   * Reconecta uma instancia ja existente (gera novo QR). Mesma validacao
+   * de ownership do deleteForTenant.
+   */
+  async reconnectForTenant(tenantId: string, instanceName: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const legacy = await this.getLegacyInstanceName(tenantId);
+    const isMine = instanceName.startsWith(`${prefix}-`) || instanceName === legacy;
+    if (!isMine) {
+      throw new BadRequestException('Essa linha de WhatsApp nao pertence a sua clinica');
+    }
+    return this.getConnectCode(instanceName);
+  }
+
+  /** Renomeia o apelido (display_name) — nao mexe na Evolution, so em TenantSetting. */
+  async renameForTenant(tenantId: string, instanceName: string, newDisplayName: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const legacy = await this.getLegacyInstanceName(tenantId);
+    const isMine = instanceName.startsWith(`${prefix}-`) || instanceName === legacy;
+    if (!isMine) {
+      throw new BadRequestException('Essa linha de WhatsApp nao pertence a sua clinica');
+    }
+    const trimmed = newDisplayName.trim();
+    if (!trimmed) throw new BadRequestException('O apelido nao pode ficar vazio');
+    await this.saveInstanceDisplayName(tenantId, instanceName, trimmed);
+    return { ok: true, displayName: trimmed };
+  }
+
   async setWebhook(instanceName: string, url: string, tenantId?: string | null) {
     return this.request('POST', `webhook/set/${instanceName}`, {
       url,

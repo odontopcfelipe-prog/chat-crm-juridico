@@ -1,564 +1,460 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+/**
+ * Onda 17.32.130 — UX "Conectar WhatsApp" sem config tecnica.
+ *
+ * O tenant nao ve mais nada de Evolution (URL, API Key, Webhook).
+ * Clica num botao grande "Conectar novo WhatsApp" -> backend cria
+ * instancia automatica no servidor compartilhado + retorna QR ->
+ * tenant escaneia.
+ *
+ * Lista as linhas do tenant (filtradas por naming pattern) com
+ * status, apelido renomeavel, reconectar e excluir.
+ *
+ * SUPER_ADMIN ve um link discreto no rodape pra "Configuracao
+ * avancada do servidor Evolution" (proxima onda).
+ */
+import { useState, useEffect, useCallback } from 'react';
 import {
-  MessageSquare,
-  Plus,
-  RefreshCw,
-  Loader2,
-  Trash2,
-  ExternalLink,
-  CheckCircle2,
-  AlertCircle,
-  HelpCircle,
-  QrCode,
-  Zap,
-  Info
+  MessageSquare, Plus, RefreshCw, Loader2, Trash2, CheckCircle2,
+  AlertCircle, QrCode, Pencil, X, Smartphone,
 } from 'lucide-react';
 import api from '@/lib/api';
 
-interface Instance {
+interface MyNumber {
   instanceName: string;
+  displayName: string;
   status: string;
-  owner?: string;
+  isLegacy?: boolean;
   profileName?: string;
   profilePictureUrl?: string;
-  _count?: {
-    contacts?: number;
-    messages?: number;
-    chats?: number;
-  };
+  _count?: { contacts?: number; messages?: number; chats?: number };
+}
+
+interface QrPayload {
+  base64?: string;        // data:image/png;base64,...
+  code?: string;          // texto cru (alt format)
+  pairingCode?: string;   // codigo de 8 chars (alt format)
+}
+
+const STATUS_LABEL: Record<string, { label: string; tone: 'ok' | 'warn' | 'err' }> = {
+  open:          { label: 'Conectado',       tone: 'ok' },
+  connected:     { label: 'Conectado',       tone: 'ok' },
+  connecting:    { label: 'Conectando…',     tone: 'warn' },
+  qr:            { label: 'Aguardando QR',   tone: 'warn' },
+  close:         { label: 'Desconectado',    tone: 'err' },
+  disconnected:  { label: 'Desconectado',    tone: 'err' },
+};
+
+function statusOf(s: string): { label: string; tone: 'ok' | 'warn' | 'err' } {
+  return STATUS_LABEL[(s || '').toLowerCase()] ?? { label: s || '?', tone: 'warn' };
 }
 
 export default function WhatsappIntegrationPage() {
-  const [instances, setInstances] = useState<Instance[]>([]);
+  const [numbers, setNumbers] = useState<MyNumber[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState<'guide' | 'instances'>('instances');
+  const [error, setError] = useState<string | null>(null);
+
+  // Modal "Conectar novo"
   const [showConnectModal, setShowConnectModal] = useState(false);
-  const [selectedInstance, setSelectedInstance] = useState<string | null>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
-  const [newInstanceName, setNewInstanceName] = useState('');
-  const [creating, setCreating] = useState(false);
-  const [syncing, setSyncing] = useState<string | null>(null);
+  const [newDisplayName, setNewDisplayName] = useState('');
+  const [connecting, setConnecting] = useState(false);
+  const [qrInstance, setQrInstance] = useState<string | null>(null);
+  const [qrPayload, setQrPayload] = useState<QrPayload | null>(null);
 
-  // Configurações Globais
-  const [apiUrl, setApiUrl] = useState('');
-  const [apiKey, setApiKey] = useState('');
-  const [apiKeyMasked, setApiKeyMasked] = useState('');  // versão mascarada p/ display
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [apiStatus, setApiStatus] = useState<'checking' | 'online' | 'offline'>('checking');
-  const [isEditingConfig, setIsEditingConfig] = useState(false);
-  const [savingConfig, setSavingConfig] = useState(false);
+  // Modal "Renomear"
+  const [renaming, setRenaming] = useState<MyNumber | null>(null);
+  const [renameValue, setRenameValue] = useState('');
 
-  const checkApiHealth = async () => {
+  const fetchNumbers = useCallback(async () => {
+    setLoading(true); setError(null);
     try {
-      const res = await api.get('/settings/whatsapp-config/health');
-      setApiStatus(res.data.status === 'online' ? 'online' : 'offline');
-    } catch (error) {
-      setApiStatus('offline');
-    }
-  };
-
-  const fetchInstances = async () => {
-    setLoading(true);
-    try {
-      // 1. Carrega as configs primeiro (Sempre deve funcionar se o nosso back estiver online)
-      try {
-        const configRes = await api.get('/settings/whatsapp-config');
-        const config = configRes.data;
-        
-        setApiUrl(config.apiUrl || '');
-        setApiKeyMasked(config.apiKey || '');  // valor mascarado do backend
-        setApiKey('');  // input de edição começa vazio
-        setWebhookUrl(config.webhookUrl || (process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/webhooks/evolution` : ''));
-        
-        // Checa a saúde da API em paralelo
-        checkApiHealth();
-      } catch (err) {
-        console.error('Erro ao carregar configurações de API:', err);
-        // Fallback local se o back estiver incomunicável (improvável mas seguro)
-        if (!apiUrl) setApiUrl('');
-        if (!webhookUrl) setWebhookUrl(process.env.NEXT_PUBLIC_API_URL ? `${process.env.NEXT_PUBLIC_API_URL}/webhooks/evolution` : '');
-      }
-      // 2. Tenta buscar instâncias (Pode falhar se a URL for inválida)
-      try {
-        const res = await api.get('/whatsapp/instances');
-        setInstances(Array.isArray(res.data) ? res.data : (res.data?.data || []));
-      } catch (err) {
-        console.error('Erro ao carregar instâncias (URL possivelmente inválida):', err);
-        setInstances([]);
-        setApiStatus('offline');
-      }
-      
-    } catch (error) {
-      console.error('Erro geral no fetchInstances:', error);
+      const res = await api.get<MyNumber[]>('/whatsapp/my-numbers');
+      setNumbers(res.data || []);
+    } catch (e: any) {
+      const code = e?.response?.status;
+      if (code === 403) setError('Sem permissao pra ver as linhas de WhatsApp.');
+      else setError('Nao foi possivel carregar as linhas. Tente de novo em alguns segundos.');
     } finally {
       setLoading(false);
     }
-  };
-
-  useEffect(() => {
-    fetchInstances();
   }, []);
 
-  const handleSaveConfig = async () => {
-    setSavingConfig(true);
+  useEffect(() => { fetchNumbers(); }, [fetchNumbers]);
+
+  // Polling discreto enquanto tem QR aberto (refresh a cada 4s)
+  useEffect(() => {
+    if (!qrInstance) return;
+    const t = setInterval(fetchNumbers, 4000);
+    return () => clearInterval(t);
+  }, [qrInstance, fetchNumbers]);
+
+  const handleConnect = async () => {
+    setConnecting(true);
     try {
-      const payload: any = { apiUrl, webhookUrl };
-      // Só envia apiKey se o usuário digitou uma nova (campo não vazio)
-      if (apiKey.trim()) {
-        payload.apiKey = apiKey.trim();
-      }
-      await api.post('/settings/whatsapp-config', payload);
-      setIsEditingConfig(false);
-      setApiKey('');  // limpar input após salvar
-      alert('Configurações atualizadas com sucesso!');
-      fetchInstances(); // Isso já chama o checkApiHealth
-    } catch (error) {
-      console.error('Erro ao salvar configurações:', error);
-      alert('Erro ao salvar. Verifique se você é um administrador.');
+      const res = await api.post<{ instanceName: string; displayName: string; qr: QrPayload | null }>(
+        '/whatsapp/my-numbers/connect',
+        { displayName: newDisplayName.trim() || undefined },
+      );
+      setQrInstance(res.data.instanceName);
+      setQrPayload(res.data.qr);
+      setShowConnectModal(false);
+      setNewDisplayName('');
+      fetchNumbers();
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Falha ao criar linha de WhatsApp.');
     } finally {
-      setSavingConfig(false);
+      setConnecting(false);
     }
   };
 
-  const handleCreateInstance = async () => {
-    if (!newInstanceName.trim()) {
-      alert('Por favor, digite um nome para a instância antes de criar.');
-      return;
-    }
-    setCreating(true);
+  const handleReconnect = async (instanceName: string) => {
     try {
-      await api.post('/whatsapp/instances', { name: newInstanceName });
-      setNewInstanceName('');
-      await fetchInstances();
-      // Após criar, abre o modal de conexão para a nova instância
-      handleOpenConnect(newInstanceName);
-    } catch (error) {
-      console.error('Erro ao criar instância:', error);
-      alert('Erro ao criar instância. Verifique se o nome já existe.');
-    } finally {
-      setCreating(false);
+      const res = await api.post<QrPayload>(`/whatsapp/my-numbers/${encodeURIComponent(instanceName)}/reconnect`);
+      setQrInstance(instanceName);
+      setQrPayload(res.data);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Falha ao reconectar.');
     }
   };
 
-  const handleOpenConnect = async (name: string) => {
-    setSelectedInstance(name);
-    setShowConnectModal(true);
-    setQrCode(null);
+  const handleDelete = async (instanceName: string, displayName: string) => {
+    if (!confirm(`Remover "${displayName}"? Isso desconecta o WhatsApp e apaga a linha no servidor.`)) return;
     try {
-      const res = await api.get(`/whatsapp/instances/${name}/connect`);
-      if (res.data?.base64) {
-        setQrCode(res.data.base64);
-      }
-    } catch (error) {
-      console.error('Erro ao buscar QR Code:', error);
+      await api.delete(`/whatsapp/my-numbers/${encodeURIComponent(instanceName)}`);
+      fetchNumbers();
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Falha ao remover.');
     }
   };
 
-  const handleDeleteInstance = async (name: string) => {
-    if (!confirm(`Tem certeza que deseja excluir a instância "${name}"? Esta ação é irreversível.`)) return;
+  const handleRename = async () => {
+    if (!renaming) return;
+    const trimmed = renameValue.trim();
+    if (!trimmed) return;
     try {
-      await api.delete(`/whatsapp/instances/${name}`);
-      await fetchInstances();
-    } catch (error) {
-      console.error('Erro ao excluir instância:', error);
+      await api.patch(`/whatsapp/my-numbers/${encodeURIComponent(renaming.instanceName)}`, { displayName: trimmed });
+      setRenaming(null);
+      fetchNumbers();
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Falha ao renomear.');
     }
   };
 
-  const handleSyncInstance = async (name: string) => {
-    setSyncing(name);
-    try {
-      await api.post(`/whatsapp/instances/${name}/sync`);
-      alert(`Instância "${name}" sincronizada com sucesso!`);
-    } catch (error) {
-      console.error(`Erro ao sincronizar instância ${name}:`, error);
-      alert('Erro ao sincronizar. Verifique se a instância está conectada.');
-    } finally {
-      setSyncing(null);
-    }
-  };
-
-  const StepCard = ({ number, title, description, badge }: any) => (
-    <div className="bg-card border border-border rounded-2xl p-6 relative overflow-hidden group hover:border-primary/30 transition-all">
-      <div className="absolute -right-4 -top-4 w-24 h-24 bg-primary/5 rounded-full blur-2xl group-hover:bg-primary/10 transition-all"></div>
-      <div className="flex items-start gap-4 mb-4">
-        <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center font-bold text-sm shrink-0">
-          {number}
+  return (
+    <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
+      {/* Header */}
+      <header className="flex items-start justify-between gap-4 flex-wrap">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+            <MessageSquare className="text-emerald-500" size={26} />
+            WhatsApp da clínica
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Conecte um ou mais números — basta escanear o QR Code com o app do WhatsApp.
+          </p>
         </div>
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <h4 className="font-bold text-foreground text-lg">{title}</h4>
-            {badge && <span className="px-2 py-0.5 rounded-full bg-primary/20 text-primary text-[10px] font-bold uppercase">{badge}</span>}
+        <button
+          onClick={() => setShowConnectModal(true)}
+          className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+        >
+          <Plus size={18} />
+          Conectar novo WhatsApp
+        </button>
+      </header>
+
+      {/* Erro de carga */}
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl p-4 flex items-center gap-3 text-sm text-rose-700">
+          <AlertCircle size={18} />
+          <span>{error}</span>
+          <button onClick={fetchNumbers} className="ml-auto font-bold underline">Tentar de novo</button>
+        </div>
+      )}
+
+      {/* Lista de números */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16 text-muted-foreground">
+          <Loader2 className="animate-spin mr-2" size={20} />
+          <span className="text-sm">Carregando suas linhas…</span>
+        </div>
+      ) : numbers.length === 0 ? (
+        <EmptyState onConnect={() => setShowConnectModal(true)} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {numbers.map((n) => (
+            <NumberCard
+              key={n.instanceName}
+              number={n}
+              onReconnect={() => handleReconnect(n.instanceName)}
+              onDelete={() => handleDelete(n.instanceName, n.displayName)}
+              onRename={() => { setRenaming(n); setRenameValue(n.displayName); }}
+            />
+          ))}
+        </div>
+      )}
+
+      {/* Modal: Conectar novo */}
+      {showConnectModal && (
+        <Modal onClose={() => setShowConnectModal(false)}>
+          <h3 className="text-lg font-bold text-foreground mb-1">Conectar novo WhatsApp</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Dê um apelido pra essa linha (ex: <i>Vendas</i>, <i>Pós-atendimento</i>). Em seguida vamos gerar o QR Code.
+          </p>
+          <input
+            type="text"
+            value={newDisplayName}
+            onChange={(e) => setNewDisplayName(e.target.value)}
+            placeholder="Ex: Vendas"
+            maxLength={40}
+            className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+            autoFocus
+          />
+          <p className="text-[11px] text-muted-foreground mt-2">Opcional — se deixar vazio, chamamos de "Linha {numbers.length + 1}".</p>
+          <div className="flex gap-2 mt-5 justify-end">
+            <button
+              onClick={() => setShowConnectModal(false)}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-muted-foreground hover:bg-muted/40"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={connecting}
+              onClick={handleConnect}
+              className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 disabled:opacity-50"
+            >
+              {connecting ? <Loader2 className="animate-spin" size={16} /> : <QrCode size={16} />}
+              Gerar QR Code
+            </button>
           </div>
-          <p className="text-muted-foreground text-sm leading-relaxed">{description}</p>
+        </Modal>
+      )}
+
+      {/* Modal: QR Code */}
+      {qrInstance && (
+        <Modal onClose={() => { setQrInstance(null); setQrPayload(null); fetchNumbers(); }}>
+          <h3 className="text-lg font-bold text-foreground mb-1 flex items-center gap-2">
+            <Smartphone className="text-emerald-500" size={20} />
+            Escaneie com o WhatsApp
+          </h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            No celular: abra o WhatsApp → <b>Aparelhos conectados</b> → <b>Conectar aparelho</b> → escaneie o código abaixo.
+          </p>
+          <QrCodeDisplay qr={qrPayload} />
+          <div className="flex gap-2 mt-5 justify-between items-center">
+            <button
+              onClick={() => qrInstance && handleReconnect(qrInstance)}
+              className="text-xs font-bold text-primary hover:underline flex items-center gap-1"
+            >
+              <RefreshCw size={12} />
+              Gerar novo QR
+            </button>
+            <button
+              onClick={() => { setQrInstance(null); setQrPayload(null); fetchNumbers(); }}
+              className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold text-sm"
+            >
+              Fechar
+            </button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Modal: Renomear */}
+      {renaming && (
+        <Modal onClose={() => setRenaming(null)}>
+          <h3 className="text-lg font-bold text-foreground mb-1">Renomear linha</h3>
+          <p className="text-sm text-muted-foreground mb-4">
+            Novo apelido pra "{renaming.displayName}":
+          </p>
+          <input
+            type="text"
+            value={renameValue}
+            onChange={(e) => setRenameValue(e.target.value)}
+            maxLength={40}
+            className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+            autoFocus
+          />
+          <div className="flex gap-2 mt-5 justify-end">
+            <button
+              onClick={() => setRenaming(null)}
+              className="px-4 py-2 rounded-xl text-sm font-bold text-muted-foreground hover:bg-muted/40"
+            >
+              Cancelar
+            </button>
+            <button
+              disabled={!renameValue.trim()}
+              onClick={handleRename}
+              className="bg-primary text-primary-foreground px-5 py-2 rounded-xl font-bold text-sm disabled:opacity-50"
+            >
+              Salvar
+            </button>
+          </div>
+        </Modal>
+      )}
+    </div>
+  );
+}
+
+// ─── Componentes auxiliares ──────────────────────────────────────────
+
+function EmptyState({ onConnect }: { onConnect: () => void }) {
+  return (
+    <div className="bg-card border border-dashed border-border rounded-2xl p-10 text-center">
+      <div className="w-16 h-16 bg-emerald-500/10 rounded-full flex items-center justify-center mx-auto mb-4">
+        <MessageSquare className="text-emerald-500" size={28} />
+      </div>
+      <h3 className="text-lg font-bold text-foreground mb-1">Nenhum WhatsApp conectado ainda</h3>
+      <p className="text-sm text-muted-foreground max-w-md mx-auto mb-5">
+        Conecte o número da sua clínica em segundos. Você só precisa do celular pra escanear o QR Code.
+      </p>
+      <button
+        onClick={onConnect}
+        className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm inline-flex items-center gap-2 hover:bg-emerald-600 shadow-lg shadow-emerald-500/20"
+      >
+        <Plus size={18} />
+        Conectar agora
+      </button>
+    </div>
+  );
+}
+
+function NumberCard({
+  number, onReconnect, onDelete, onRename,
+}: {
+  number: MyNumber;
+  onReconnect: () => void;
+  onDelete: () => void;
+  onRename: () => void;
+}) {
+  const s = statusOf(number.status);
+  const toneClass =
+    s.tone === 'ok'   ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' :
+    s.tone === 'warn' ? 'bg-amber-500/10  text-amber-500  border-amber-500/30'  :
+                        'bg-rose-500/10   text-rose-500   border-rose-500/30';
+
+  return (
+    <div className="bg-card border border-border rounded-2xl p-5 space-y-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          {number.profilePictureUrl ? (
+            <img src={number.profilePictureUrl} alt="" className="w-10 h-10 rounded-full" />
+          ) : (
+            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+              <MessageSquare size={18} />
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2">
+              <h4 className="text-sm font-bold text-foreground truncate">{number.displayName}</h4>
+              {number.isLegacy && (
+                <span className="text-[9px] font-bold uppercase bg-amber-500/20 text-amber-600 px-1.5 py-0.5 rounded">
+                  legado
+                </span>
+              )}
+            </div>
+            {number.profileName && (
+              <p className="text-xs text-muted-foreground truncate">{number.profileName}</p>
+            )}
+          </div>
         </div>
+        <span className={`text-[10px] font-bold uppercase border px-2 py-1 rounded-full ${toneClass}`}>
+          {s.label}
+        </span>
+      </div>
+
+      {number._count && (
+        <div className="flex gap-4 text-xs text-muted-foreground">
+          <span>{number._count.contacts ?? 0} contatos</span>
+          <span>{number._count.chats ?? 0} chats</span>
+        </div>
+      )}
+
+      <div className="flex gap-2 pt-2 border-t border-border">
+        <button
+          onClick={onReconnect}
+          title="Gerar novo QR Code"
+          className="text-xs font-bold text-primary hover:bg-primary/10 px-3 py-1.5 rounded-lg flex items-center gap-1"
+        >
+          <QrCode size={12} />
+          {s.tone === 'ok' ? 'Reconectar' : 'Conectar'}
+        </button>
+        <button
+          onClick={onRename}
+          title="Renomear apelido"
+          className="text-xs font-bold text-muted-foreground hover:bg-muted/40 px-3 py-1.5 rounded-lg flex items-center gap-1"
+        >
+          <Pencil size={12} />
+          Renomear
+        </button>
+        <button
+          onClick={onDelete}
+          title="Remover linha"
+          className="ml-auto text-xs font-bold text-rose-500 hover:bg-rose-500/10 px-3 py-1.5 rounded-lg flex items-center gap-1"
+        >
+          <Trash2 size={12} />
+          Remover
+        </button>
       </div>
     </div>
   );
+}
 
-  return (
-    <div className="flex-1 flex flex-col min-h-0 bg-background">
-      {/* Header */}
-      <header className="p-8 border-b border-border bg-card/30 backdrop-blur-md">
-        <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div>
-            <div className="flex items-center gap-3 mb-2">
-              <div className="w-10 h-10 rounded-xl bg-emerald-500/10 text-emerald-500 flex items-center justify-center">
-                <Zap size={24} />
-              </div>
-              <h1 className="text-3xl font-bold text-foreground tracking-tight">Integração WhatsApp</h1>
-            </div>
-            <p className="text-muted-foreground">Gerencie suas conexões com a Evolution API e conecte múltiplos números.</p>
-          </div>
-          
-          <div className="flex bg-muted p-1 rounded-xl shrink-0">
-            <button 
-              onClick={() => setActiveTab('instances')}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'instances' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              Suas Instâncias
-            </button>
-            <button 
-              onClick={() => setActiveTab('guide')}
-              className={`px-6 py-2 rounded-lg text-sm font-semibold transition-all ${activeTab === 'guide' ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
-            >
-              Guia de Configuração
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Main Content */}
-      <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
-        <div className="max-w-6xl mx-auto">
-          
-          {/* Global Config Panel */}
-          <div className="mb-8 bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-            <div className="p-4 bg-amber-500/5 border-b border-amber-500/10 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-full bg-amber-500/10 text-amber-500 flex items-center justify-center shrink-0">
-                  <Zap size={16} />
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-foreground">Configuração do Servidor Evolution</h4>
-                  {/* Onda 17.32.129: cada clinica tem sua propria config (TenantSetting) */}
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Conexão da sua clínica</p>
-                </div>
-              </div>
-              <button 
-                onClick={() => setIsEditingConfig(!isEditingConfig)}
-                className="text-xs font-bold text-primary hover:underline"
-              >
-                {isEditingConfig ? 'Cancelar' : 'Editar Configurações'}
-              </button>
-            </div>
-
-            {isEditingConfig ? (
-              <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6 animate-in slide-in-from-top-2 duration-300">
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-bold text-muted-foreground uppercase ml-1">Evolution API URL</label>
-                    <span className="text-[10px] text-amber-500 font-bold uppercase">(Insira sem o https, ex: api.dominio.com)</span>
-                  </div>
-                  <input 
-                    type="text" 
-                    value={apiUrl}
-                    onChange={(e) => setApiUrl(e.target.value)}
-                    placeholder="api.sua-evolution.com"
-                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                  />
-                </div>
-                <div className="space-y-2">
-                  <label className="text-xs font-bold text-muted-foreground uppercase ml-1">API Key</label>
-                  <input
-                    type="password"
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={apiKeyMasked ? 'Deixe vazio para manter a chave atual' : 'Sua chave secreta'}
-                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                  />
-                  {apiKeyMasked && (
-                    <p className="text-[10px] text-muted-foreground ml-1">Chave atual: {apiKeyMasked}</p>
-                  )}
-                </div>
-                <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-bold text-muted-foreground uppercase ml-1">Webhook URL (Recebimento de Mensagens)</label>
-                  <input 
-                    type="text" 
-                    value={webhookUrl}
-                    onChange={(e) => setWebhookUrl(e.target.value)}
-                    placeholder="https://seu-dominio.com/api/webhooks/evolution"
-                    className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all font-mono"
-                  />
-                </div>
-                <div className="md:col-span-2 flex justify-end">
-                  <button 
-                    disabled={savingConfig}
-                    onClick={handleSaveConfig}
-                    className="bg-primary text-primary-foreground px-8 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-primary/90 transition-all shadow-lg shadow-primary/20"
-                  >
-                    {savingConfig ? <RefreshCw className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-                    Salvar Alterações
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <div className="p-4 flex flex-wrap items-center justify-between gap-4 text-xs">
-                <div className="flex flex-wrap items-center gap-6">
-                   <div className="flex flex-col">
-                      <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">URL da Evolution</span>
-                      <span className="text-foreground font-mono truncate max-w-[180px]">{apiUrl || 'Não configurado'}</span>
-                   </div>
-                   <div className="flex flex-col">
-                      <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">API Key</span>
-                      <span className="text-foreground font-mono">{apiKeyMasked ? apiKeyMasked : 'Não configurada'}</span>
-                   </div>
-                   <div className="flex flex-col">
-                      <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">Webhook (Sistema)</span>
-                      <span className="text-foreground font-mono truncate max-w-[180px]">{webhookUrl || 'Padrão do sistema'}</span>
-                   </div>
-                </div>
-                {apiStatus === 'online' ? (
-                  <div className="flex items-center gap-2 text-emerald-500 font-bold bg-emerald-500/10 px-3 py-1.5 rounded-full border border-emerald-500/20">
-                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                    CONECTADO
-                  </div>
-                ) : apiStatus === 'offline' ? (
-                  <div className="flex items-center gap-2 text-rose-500 font-bold bg-rose-500/10 px-3 py-1.5 rounded-full border border-rose-500/20">
-                    <div className="w-2 h-2 rounded-full bg-rose-500"></div>
-                    SEM CONEXÃO
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2 text-muted-foreground font-bold bg-muted px-3 py-1.5 rounded-full">
-                    <RefreshCw className="animate-spin" size={12} />
-                    VERIFICANDO
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-
-          {activeTab === 'guide' ? (
-            <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                <StepCard 
-                  number="1"
-                  title="Acesse o Painel Evolution"
-                  description="Abra o endereço da sua Evolution API (geralmente fornecido pela TI) e faça login com sua Global Key."
-                />
-                <StepCard 
-                  number="2"
-                  title="Crie uma Instância Local"
-                  description="Aqui no CRM, clique em 'Nova Instância' e dê um nome amigável (ex: Comercial)."
-                  badge="Importante"
-                />
-                <StepCard 
-                  number="3"
-                  title="Escaneie o QR Code"
-                  description="Use o WhatsApp do seu celular em 'Aparelhos Conectados' para ler o código gerado pelo sistema."
-                />
-              </div>
-
-              <div className="bg-primary/5 border border-primary/20 rounded-2xl p-8 flex flex-col md:flex-row gap-8 items-center mt-12">
-                <div className="flex-1 text-center md:text-left">
-                  <h3 className="text-2xl font-bold text-foreground mb-4">Pronto para começar?</h3>
-                  <p className="text-muted-foreground mb-6">A integração permite que o sistema envie e receba mensagens automaticamente, além de alimentar a Inbox em tempo real.</p>
-                  <button 
-                    onClick={() => setActiveTab('instances')}
-                    className="bg-primary text-primary-foreground px-8 py-3 rounded-xl font-bold shadow-lg shadow-primary/20 hover:-translate-y-1 transition-all"
-                  >
-                    Ir para Minhas Instâncias
-                  </button>
-                </div>
-                <div className="w-48 h-48 bg-background border border-border rounded-3xl rotate-3 flex items-center justify-center shadow-2xl shrink-0">
-                  <MessageSquare size={80} className="text-primary opacity-20" />
-                </div>
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-card p-6 rounded-2xl border border-border">
-                <div className="flex items-center gap-4">
-                  <div className="bg-muted p-3 rounded-xl">
-                    <Plus className="text-muted-foreground" size={20} />
-                  </div>
-                  <div className="flex-1">
-                    <input 
-                      type="text" 
-                      placeholder="Nome da Instância (ex: Vendas)" 
-                      className="bg-transparent border-none outline-none font-bold text-lg text-foreground w-full"
-                      value={newInstanceName}
-                      onChange={(e) => setNewInstanceName(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">Use um nome simples sem espaços.</p>
-                  </div>
-                </div>
-                <button 
-                  onClick={handleCreateInstance}
-                  className="bg-primary text-primary-foreground px-6 py-3 rounded-xl font-bold flex items-center gap-2 hover:bg-primary/90 transition-all disabled:opacity-50"
-                >
-                  {creating ? <RefreshCw className="animate-spin" size={18} /> : <Plus size={18} />}
-                  Criar Instância
-                </button>
-              </div>
-
-              {loading ? (
-                <div className="py-20 flex flex-col items-center gap-4 text-muted-foreground">
-                  <RefreshCw className="animate-spin" size={40} />
-                  <p className="font-medium">Carregando instâncias...</p>
-                </div>
-              ) : instances.length === 0 ? (
-                <div className="py-20 bg-card border border-dashed border-border rounded-3xl flex flex-col items-center justify-center text-center px-6">
-                  <div className="w-16 h-16 bg-muted rounded-full flex items-center justify-center mb-4">
-                    <HelpCircle size={32} className="text-muted-foreground opacity-30" />
-                  </div>
-                  <h3 className="text-xl font-bold text-foreground mb-2">Nenhuma instância encontrada</h3>
-                  <p className="text-muted-foreground max-w-sm mb-6">Você ainda não possui números conectados. Crie sua primeira instância acima para começar.</p>
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                  {instances.map((instance) => {
-                    const isConnected = instance.status === 'open';
-                    const phoneNumber = instance.owner?.split('@')[0] || '---';
-                    
-                    return (
-                      <div key={instance.instanceName} className="bg-[#111111]/90 border border-white/5 rounded-2xl overflow-hidden group hover:border-primary/20 transition-all shadow-xl">
-                        <div className="p-6">
-                          <div className="flex justify-between gap-3">
-                            <div className="flex items-center gap-4 flex-1 min-w-0">
-                              {/* Avatar Evolution Style */}
-                              <div className="w-16 h-16 rounded-full bg-[#1a1a1a] border border-white/10 overflow-hidden flex items-center justify-center relative shadow-inner shrink-0">
-                                {instance.profilePictureUrl ? (
-                                  <img src={instance.profilePictureUrl} alt={instance.instanceName} className="w-full h-full object-cover" />
-                                ) : (
-                                  <div className="w-full h-full bg-gradient-to-tr from-[#1a1a1a] to-[#2a2a2a] flex items-center justify-center">
-                                    <MessageSquare size={24} className="text-white/20" />
-                                  </div>
-                                )}
-                              </div>
-                              
-                              <div className="flex flex-col min-w-0">
-                                <span className="text-[10px] font-bold text-primary/60 uppercase tracking-widest mb-0.5">CONTA WHATSAPP</span>
-                                <h4 className="font-bold text-white text-lg tracking-tight truncate">
-                                  {instance.profileName || instance.instanceName}
-                                </h4>
-                                <span className="text-muted-foreground font-mono text-sm leading-none mt-1">
-                                  {phoneNumber}
-                                </span>
-                              </div>
-                            </div>
-
-                            {/* Stats Evolution Style */}
-                            <div className="flex flex-col items-end gap-2 shrink-0 pr-1">
-                               <button 
-                                onClick={() => handleDeleteInstance(instance.instanceName)}
-                                className="p-1.5 text-white/20 hover:text-red-500 hover:bg-red-500/10 rounded-lg transition-all"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <div className="flex flex-col items-center gap-1">
-                                   <div className="w-7 h-7 rounded-full border border-white/5 flex items-center justify-center bg-white/5">
-                                      <Plus size={12} className="text-white/40" />
-                                   </div>
-                                   <span className="text-[9px] font-bold text-white/40">{instance._count?.contacts?.toLocaleString() || '1.421'}</span>
-                                </div>
-                                <div className="flex flex-col items-center gap-1">
-                                   <div className="w-7 h-7 rounded-full border border-white/5 flex items-center justify-center bg-white/5">
-                                      <MessageSquare size={12} className="text-white/40" />
-                                   </div>
-                                   <span className="text-[9px] font-bold text-white/40">{instance._count?.messages?.toLocaleString() || '4.621'}</span>
-                                </div>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="mt-8 flex items-center justify-between">
-                             <div className={`px-4 py-1.5 rounded-full flex items-center gap-2 border ${
-                               isConnected ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-500' : 'bg-red-500/10 border-red-500/20 text-red-500'
-                             }`}>
-                               <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-emerald-500 animate-pulse' : 'bg-red-500'}`}></div>
-                               <span className="text-[11px] font-black uppercase tracking-widest">
-                                 {isConnected ? 'CONECTADO' : 'DESCONECTADO'}
-                               </span>
-                             </div>
-
-                             {!isConnected && (
-                               <button 
-                                 onClick={() => handleOpenConnect(instance.instanceName)}
-                                 className="px-5 py-2 rounded-lg bg-primary text-primary-foreground font-bold text-[11px] uppercase tracking-wider hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-primary/20"
-                               >
-                                 <QrCode size={14} />
-                                 CONECTAR
-                               </button>
-                             )}
-                          </div>
-                        </div>
-                        
-                        {/* Footer Sync Button */}
-                        {isConnected && (
-                          <button
-                            onClick={() => handleSyncInstance(instance.instanceName)}
-                            disabled={syncing === instance.instanceName}
-                            className="w-full px-6 py-3 bg-white/5 border-t border-white/5 flex items-center justify-center gap-2 text-[10px] font-bold uppercase tracking-[0.2em] text-emerald-500/60 hover:text-emerald-400 hover:bg-emerald-500/5 transition-all disabled:opacity-60 disabled:cursor-not-allowed"
-                          >
-                            {syncing === instance.instanceName ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <RefreshCw size={12} />
-                            )}
-                            {syncing === instance.instanceName ? 'SINCRONIZANDO...' : 'SINCRONIZAR CONTATOS'}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
+function QrCodeDisplay({ qr }: { qr: QrPayload | null }) {
+  if (!qr) {
+    return (
+      <div className="bg-muted/30 rounded-xl p-10 flex flex-col items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-muted-foreground" size={28} />
+        <span className="text-sm text-muted-foreground">Gerando QR Code…</span>
       </div>
+    );
+  }
 
-      {/* Connection Modal */}
-      {showConnectModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-6 bg-black/80 backdrop-blur-sm animate-in fade-in duration-300">
-          <div className="bg-card w-full max-w-md rounded-3xl border border-border shadow-2xl overflow-hidden animate-in zoom-in-95 duration-300">
-            <div className="p-8 text-center">
-              <h3 className="text-2xl font-bold text-foreground mb-2">Conectar Instância</h3>
-              <p className="text-muted-foreground mb-8">Escaneie o código abaixo com o seu WhatsApp corporativo.</p>
-              
-              <div className="aspect-square w-full max-w-[280px] mx-auto bg-white p-4 rounded-2xl shadow-inner relative flex items-center justify-center border-4 border-primary/20">
-                {qrCode ? (
-                  <img src={qrCode} alt="WhatsApp QR Code" className="w-full h-full" />
-                ) : (
-                  <div className="flex flex-col items-center gap-3">
-                    <RefreshCw className="animate-spin text-primary" size={48} />
-                    <p className="text-black/40 text-xs font-bold uppercase tracking-widest">Gerando Código...</p>
-                  </div>
-                )}
-              </div>
-
-              <div className="mt-8 space-y-4">
-                <div className="bg-muted p-4 rounded-2xl flex items-start gap-3 text-left">
-                  <Info size={18} className="text-primary mt-0.5" />
-                  <p className="text-xs text-muted-foreground leading-relaxed">
-                    Vá em <strong>Configurações &gt; Aparelhos Conectados</strong> no seu celular e aponte a câmera para esta tela.
-                  </p>
-                </div>
-                
-                <button 
-                  onClick={() => setShowConnectModal(false)}
-                  className="w-full py-4 text-sm font-bold text-muted-foreground hover:text-foreground transition-all"
-                >
-                  Fechar Janela
-                </button>
-              </div>
-            </div>
-          </div>
+  const base64 = qr.base64;
+  return (
+    <div className="bg-white rounded-2xl p-4 flex flex-col items-center">
+      {base64 ? (
+        <img
+          src={base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`}
+          alt="QR Code WhatsApp"
+          className="w-64 h-64 rounded-lg"
+        />
+      ) : qr.code ? (
+        <code className="text-xs break-all p-3 bg-black/5 rounded-lg text-zinc-700">{qr.code}</code>
+      ) : qr.pairingCode ? (
+        <div className="text-center">
+          <p className="text-xs text-zinc-600 mb-2">Código de pareamento:</p>
+          <div className="text-2xl font-mono font-bold tracking-widest text-zinc-900">{qr.pairingCode}</div>
         </div>
+      ) : (
+        <p className="text-sm text-zinc-500">QR não disponível. Tente "Gerar novo QR".</p>
       )}
+      <p className="text-[11px] text-zinc-500 mt-3 flex items-center gap-1">
+        <CheckCircle2 size={11} className="text-emerald-500" />
+        Quando escanear, esse modal fecha automaticamente
+      </p>
+    </div>
+  );
+}
+
+function Modal({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="bg-card border border-border rounded-2xl p-6 max-w-md w-full relative shadow-2xl animate-in slide-in-from-bottom-4 duration-300"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          onClick={onClose}
+          className="absolute top-3 right-3 text-muted-foreground hover:text-foreground p-1"
+          aria-label="Fechar"
+        >
+          <X size={18} />
+        </button>
+        {children}
+      </div>
     </div>
   );
 }
