@@ -256,6 +256,8 @@ function StepScreen({
   const isDone = status === 'done';
   // Onda 17.32.137 — WhatsApp ganha QR inline (em vez de Link redirect)
   const isWhatsapp = step.key === 'whatsapp';
+  // Onda 17.32.141 — Asaas tambem ganha setup inline
+  const isAsaas = step.key === 'asaas';
 
   return (
     <div className="flex-1 flex flex-col py-6">
@@ -296,6 +298,13 @@ function StepScreen({
         />
       )}
 
+      {/* Onda 17.32.141 — Asaas Quick Setup inline */}
+      {isAsaas && !isDone && (
+        <AsaasQuickSetup
+          onConfigured={async () => { await onStepUpdate('asaas', 'done'); }}
+        />
+      )}
+
       {/* Spacer */}
       <div className="flex-1" />
 
@@ -332,11 +341,10 @@ function StepScreen({
               Continuar
               <ArrowRight size={14} />
             </button>
-          ) : isWhatsapp ? (
-            // Onda 17.32.139 — Botao "Seguir" pra avancar mesmo sem
-            // ter escaneado o QR (caso queira voltar depois). Quando
-            // conectar de verdade, o auto-detect do backend marca
-            // como done — entao "Seguir" so suspende temporariamente.
+          ) : isWhatsapp || isAsaas ? (
+            // Onda 17.32.139/141 — Botao "Seguir" pra avancar mesmo
+            // sem ter completado. Quando configurar de verdade, o
+            // auto-detect marca como done.
             <button
               type="button"
               onClick={onSkip}
@@ -577,6 +585,93 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
       >
         <RefreshCw size={10} /> Gerar novo QR
       </button>
+    </div>
+  );
+}
+
+// ─── Asaas Quick Setup inline (Onda 17.32.141) ────────────────────
+function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }) {
+  const [apiKey, setApiKey] = useState('');
+  const [sandbox, setSandbox] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null); setSubmitting(true);
+    try {
+      await api.post('/payment-gateway/setup', { apiKey: apiKey.trim(), sandbox });
+      await onConfigured();
+    } catch (e: any) {
+      const raw = e?.response?.data?.message || '';
+      if (typeof raw === 'string' && raw.startsWith('Cannot')) {
+        setError('Servidor ainda nao reconhece — deploy em andamento?');
+      } else if (raw) {
+        setError(raw);
+      } else {
+        setError('Nao foi possivel validar a chave. Tente de novo.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmit = apiKey.trim().length >= 20 && !submitting;
+
+  return (
+    <div className="bg-violet-500/5 border border-violet-500/20 rounded-2xl p-5">
+      <label className="block mb-2 text-xs font-bold text-foreground">
+        Cole sua chave de API do Asaas
+      </label>
+      <input
+        type="password"
+        value={apiKey}
+        onChange={(e) => setApiKey(e.target.value)}
+        placeholder="$aact_… (cole sua chave completa)"
+        className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm font-mono outline-none focus:border-violet-500 transition-all"
+        autoFocus
+        autoComplete="off"
+        spellCheck={false}
+      />
+      <p className="mt-2 text-[11px] text-muted-foreground">
+        Painel Asaas → <b>Integrações</b> → <b>API</b> → copie a chave de produção.
+        <a
+          href="https://www.asaas.com/api"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="ml-1 text-violet-600 hover:underline"
+        >
+          Não tenho conta ↗
+        </a>
+      </p>
+
+      <label className="mt-3 flex items-center gap-2 cursor-pointer">
+        <input
+          type="checkbox"
+          checked={sandbox}
+          onChange={(e) => setSandbox(e.target.checked)}
+          className="accent-violet-600"
+        />
+        <span className="text-xs text-muted-foreground">
+          Estou usando conta <b>sandbox</b> (teste — não cobra de verdade)
+        </span>
+      </label>
+
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={submit}
+        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {submitting ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
+        {submitting ? 'Validando…' : 'Conectar Asaas'}
+      </button>
+
+      {error && (
+        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </p>
+      )}
     </div>
   );
 }

@@ -5,6 +5,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import * as crypto from 'crypto';
+import axios from 'axios';
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
@@ -1138,6 +1139,66 @@ export class PaymentGatewayService {
       configured: !!config.apiKey,
       sandbox: config.sandbox,
     };
+  }
+
+  /**
+   * Onda 17.32.141 — Quick Setup do Asaas pro ADMIN do tenant.
+   * Valida a chave fazendo um GET real na Asaas. Se OK, persiste
+   * em TenantSetting. Caso contrario, retorna erro amigavel.
+   */
+  async setupAsaas(
+    tenantId: string | undefined | null,
+    apiKey: string,
+    sandbox = false,
+  ): Promise<{ ok: true; sandbox: boolean }> {
+    if (!tenantId) {
+      throw new BadRequestException('Tenant nao identificado no token.');
+    }
+    if (!apiKey || apiKey.trim().length < 20) {
+      throw new BadRequestException('Chave do Asaas invalida. Cole a chave completa (>= 20 caracteres).');
+    }
+
+    const trimmedKey = apiKey.trim();
+    const baseUrl = sandbox
+      ? 'https://api-sandbox.asaas.com/v3'
+      : 'https://api.asaas.com/v3';
+
+    // Valida a chave fazendo chamada real na Asaas
+    try {
+      const response = await axios.get(`${baseUrl}/finance/balance`, {
+        headers: {
+          access_token: trimmedKey,
+          'Content-Type': 'application/json',
+          'User-Agent': 'LexCRM/1.0',
+        },
+        timeout: 10000,
+      });
+      if (typeof response.data?.balance !== 'number') {
+        throw new BadRequestException('Chave aceita mas resposta inesperada do Asaas. Tente de novo.');
+      }
+    } catch (e: any) {
+      const status = e?.response?.status;
+      if (status === 401) {
+        throw new BadRequestException('Chave invalida ou sem permissao. Verifique no painel do Asaas: Integracoes > API.');
+      }
+      if (status === 403) {
+        throw new BadRequestException('Chave sem permissao pra ler saldo. Use uma chave com escopo de leitura.');
+      }
+      if (e?.code === 'ECONNABORTED' || e?.code === 'ETIMEDOUT') {
+        throw new BadRequestException('Asaas demorou pra responder. Tente de novo em alguns segundos.');
+      }
+      if (e instanceof BadRequestException) throw e;
+      this.logger.error(`[setupAsaas] Erro validando chave: ${e?.message}`);
+      throw new BadRequestException('Nao foi possivel validar a chave no Asaas. Verifique e tente de novo.');
+    }
+
+    // Chave valida — persiste no TenantSetting do tenant
+    const { setTenantSetting } = await import('../tenants/tenant-settings.helper.js');
+    await setTenantSetting(this.prisma, tenantId, 'ASAAS_API_KEY', trimmedKey);
+    await setTenantSetting(this.prisma, tenantId, 'ASAAS_BASE_URL', baseUrl);
+
+    this.logger.log(`[setupAsaas] Asaas configurado pro tenant ${tenantId} (sandbox=${sandbox})`);
+    return { ok: true, sandbox };
   }
 
   // ─── Helpers ───────────────────────────────────────────

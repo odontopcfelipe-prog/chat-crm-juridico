@@ -87,6 +87,23 @@ export class PaymentGatewayController {
     return this.service.getSettings(tenantId);
   }
 
+  /**
+   * Onda 17.32.141 — Quick Setup pro ADMIN do tenant configurar
+   * Asaas em 1 passo (usado pelo onboarding wizard).
+   *
+   * Valida a chave fazendo uma chamada real na Asaas (GET /finance/balance).
+   * Se OK, salva em TenantSetting{ASAAS_API_KEY, ASAAS_BASE_URL}.
+   * Se erro, retorna 400 com mensagem amigavel.
+   */
+  @Post('setup')
+  async setup(
+    @Req() req: any,
+    @Body() body: { apiKey: string; sandbox?: boolean },
+  ) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    return this.service.setupAsaas(tenantId, body.apiKey, body.sandbox);
+  }
+
   /** Lista cobranças direto da API do Asaas */
   @Get('charges/asaas')
   async listAsaasCharges(
