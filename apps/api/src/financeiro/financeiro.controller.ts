@@ -13,6 +13,7 @@ import {
 import { FinanceiroService } from './financeiro.service';
 import { FinanceiroChargesService } from './financeiro-charges.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import {
   CreateTransactionDto,
   UpdateTransactionDto,
@@ -21,6 +22,10 @@ import {
 } from './financeiro.dto';
 
 @UseGuards(JwtAuthGuard)
+// Onda 17.32.128 — Fase 6: financeiro exige permissao view_financial
+// (setores financeiro + admin tem por default; demais ganham via
+// extra_grants quando ADMIN do tenant liberar)
+@RequiresPermission('view_financial')
 @Controller('financeiro')
 export class FinanceiroController {
   constructor(

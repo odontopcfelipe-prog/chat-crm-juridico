@@ -1,8 +1,12 @@
 import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
 import { FollowupService } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 
 @UseGuards(JwtAuthGuard)
+// Onda 17.32.128 — Fase 6: follow-up exige view_marketing
+// (crc + admin por default)
+@RequiresPermission('view_marketing')
 @Controller('followup')
 export class FollowupController {
   constructor(private readonly svc: FollowupService) {}

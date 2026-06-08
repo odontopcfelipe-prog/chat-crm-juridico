@@ -1,12 +1,17 @@
 import { Controller, Get, Param, Patch, Body, Post, Query, UseGuards, Request, Req } from '@nestjs/common';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { TransferRequestDto, TransferToLawyerDto, ReturnToOriginDto } from './dto/transfer-request.dto';
 import { CreateConversationDto } from './dto/create-conversation.dto';
 import { SendPresenceDto } from './dto/presence.dto';
 import { CreateNoteDto } from './dto/create-note.dto';
 
 @UseGuards(JwtAuthGuard)
+// Onda 17.32.128 — Fase 6: conversas exigem view_chat
+// (recepcao/crc/dentista/acd_asb/admin tem por default; financeiro
+// nao tem mas pode ganhar via extra_grants se ADMIN liberar)
+@RequiresPermission('view_chat')
 @Controller('conversations')
 export class ConversationsController {
   constructor(private readonly conversationsService: ConversationsService) {}

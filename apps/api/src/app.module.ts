@@ -78,6 +78,8 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { RolesGuard } from './auth/guards/roles.guard';
+// Onda 17.32.128 — Fase 6: autorizacao real por permissao
+import { PermissionsGuard } from './auth/decorators/requires-permission.decorator';
 
 @Module({
   imports: [
@@ -195,6 +197,13 @@ import { RolesGuard } from './auth/guards/roles.guard';
     {
       provide: APP_GUARD,
       useClass: RolesGuard,
+    },
+    // Onda 17.32.128 — Fase 6: permissoes finas (view_financial, etc).
+    // Vem DEPOIS do JwtAuthGuard (precisa de req.user populado).
+    // Rotas sem @RequiresPermission passam direto.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionsGuard,
     },
   ],
 })

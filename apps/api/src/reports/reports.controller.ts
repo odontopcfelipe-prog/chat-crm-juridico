@@ -2,9 +2,12 @@ import {
   Controller, Get, Query, Request, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { ReportsService } from './reports.service';
 
 @UseGuards(JwtAuthGuard)
+// Onda 17.32.128 — Fase 6: relatorios exigem view_reports
+@RequiresPermission('view_reports')
 @Controller('reports')
 export class ReportsController {
   constructor(private readonly reports: ReportsService) {}
