@@ -14,6 +14,15 @@ RUN npm install --legacy-peer-deps
 # Agora copia fontes
 COPY . .
 
+# Onda 17.32.135 — Builda @crm/shared ANTES do web.
+# Desde o commit e537a64c (Onda 17.32.117), o web importa SECTORS/
+# PERMISSIONS de @crm/shared. O package.json do shared aponta
+# main:'dist/index.js' e .dockerignore exclui dist/. Logo, sem
+# buildar o dist aqui, o `next build` quebra com "Cannot find
+# module '@crm/shared'". O Dockerfile.backend ja fazia isso desde
+# sempre — o web nao fazia porque antes nao importava.
+RUN cd packages/shared && npm run build
+
 # Faz o build do frontend Next.js indicando Next.js cache mode
 WORKDIR /app/apps/web
 ENV NEXT_TELEMETRY_DISABLED=1
