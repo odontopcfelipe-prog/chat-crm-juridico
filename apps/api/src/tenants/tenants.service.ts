@@ -248,20 +248,16 @@ export class TenantsService {
     });
     const persisted = (t?.onboarding_state ?? {}) as Record<string, any>;
 
-    // Onda 17.32.137 — Auto-detect WhatsApp tambem reconhece o
-    // Quick Connect novo (WHATSAPP_INSTANCE_NAMES_JSON). Era so
-    // legacy (EVOLUTION_API_KEY|EVOLUTION_INSTANCE_NAME) — daria
-    // pending eterno em tenant que usou /my-numbers/connect.
+    // Onda 17.32.140 — Auto-detect SO via legacy (EVOLUTION_API_KEY
+    // / EVOLUTION_INSTANCE_NAME). Antes incluia
+    // WHATSAPP_INSTANCE_NAMES_JSON (Onda 137), mas isso marcava como
+    // done so por ter criado uma instancia — mesmo se ela estiver
+    // desconectada. O frontend agora marca como done apenas quando
+    // detecta status open via polling no Quick Connect inline.
     const evolution = await this.prisma.tenantSetting.findFirst({
       where: {
         tenant_id: tenantId,
-        key: {
-          in: [
-            'EVOLUTION_API_KEY',
-            'EVOLUTION_INSTANCE_NAME',
-            'WHATSAPP_INSTANCE_NAMES_JSON',
-          ],
-        },
+        key: { in: ['EVOLUTION_API_KEY', 'EVOLUTION_INSTANCE_NAME'] },
       },
     });
     const whatsappReady = !!evolution;

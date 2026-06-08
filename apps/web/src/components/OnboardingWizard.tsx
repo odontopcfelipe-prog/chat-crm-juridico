@@ -438,6 +438,8 @@ interface MyNumber {
   status: string;
 }
 
+const CONNECTED_STATUSES = ['open', 'connected', 'online', 'authenticated'];
+
 function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void> }) {
   const [generating, setGenerating] = useState(false);
   const [instanceName, setInstanceName] = useState<string | null>(null);
@@ -447,6 +449,30 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   const generate = useCallback(async () => {
     setGenerating(true); setError(null);
     try {
+      // Onda 17.32.140 — Verifica primeiro se ja tem instancia.
+      // Se tem e esta conectada -> done direto.
+      // Se tem e desconectada -> chama /reconnect (gera novo QR
+      //                          da mesma instancia).
+      // Se nao tem -> cria nova via /connect.
+      const existingRes = await api.get<MyNumber[]>('/whatsapp/my-numbers').catch(() => ({ data: [] }));
+      const existing = (existingRes.data || [])[0];
+
+      if (existing) {
+        const s = (existing.status || '').toLowerCase();
+        if (CONNECTED_STATUSES.includes(s)) {
+          await onConnected();
+          return;
+        }
+        // Desconectada — reconecta
+        const recRes = await api.post<QrPayload>(
+          `/whatsapp/my-numbers/${encodeURIComponent(existing.instanceName)}/reconnect`,
+        );
+        setInstanceName(existing.instanceName);
+        setQr(recRes.data);
+        return;
+      }
+
+      // Nao tem instancia — cria nova
       const res = await api.post<{ instanceName: string; qr: QrPayload | null }>(
         '/whatsapp/my-numbers/connect',
         { displayName: 'WhatsApp da clinica' },
@@ -455,11 +481,6 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
       setQr(res.data.qr);
     } catch (e: any) {
       const raw = e?.response?.data?.message || '';
-      if (typeof raw === 'string' && raw.includes('ja possui')) {
-        // Ja tinha 1 conectado — marca como done direto
-        await onConnected();
-        return;
-      }
       if (typeof raw === 'string' && raw.startsWith('Cannot')) {
         setError('O servidor ainda nao reconhece essa funcionalidade. Deploy em andamento?');
       } else {
@@ -479,7 +500,7 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
         const me = (res.data || []).find((n) => n.instanceName === instanceName);
         if (!me) return;
         const s = (me.status || '').toLowerCase();
-        if (['open', 'connected', 'online', 'authenticated'].includes(s)) {
+        if (CONNECTED_STATUSES.includes(s)) {
           clearInterval(t);
           await onConnected();
         }
