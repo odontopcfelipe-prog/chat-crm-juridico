@@ -190,7 +190,11 @@ export function OnboardingWizard({
                 status={status}
                 submitting={submitting}
                 onSkip={() => handleSkip(step.key)}
-                onPrev={screen > 1 ? handlePrev : undefined}
+                // Onda 17.32.138 — Voltar sempre habilitado.
+                // No passo 1 volta pra tela 0 (boas-vindas) — antes
+                // ficava desabilitado e nao tinha como sair sem
+                // dismiss.
+                onPrev={handlePrev}
                 onStepUpdate={onStepUpdate}
               />
             );
