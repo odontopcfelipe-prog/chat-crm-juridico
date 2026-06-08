@@ -1772,16 +1772,40 @@ export class SettingsService {
     await this.set('CANNED_RESPONSES', JSON.stringify(responses));
   }
 
-  async getWhatsAppConfig() {
-    const dbApiUrl = await this.get('EVOLUTION_API_URL');
-    const dbApiKey = await this.get('EVOLUTION_GLOBAL_APIKEY');
-    const dbWebhookUrl = await this.get('WEBHOOK_URL');
+  async getWhatsAppConfig(tenantId?: string | null) {
+    // Onda 17.32.129 — Fase 6.1: per-tenant. Cada clinica configura
+    // seu proprio servidor Evolution. Le TenantSetting primeiro
+    // (texto cru, igual padrao /tenants/:id/settings), cai pro
+    // GlobalSetting (com decrypt automatico via this.get) se vazio.
+    const [tApiUrl, tApiKey, tWebhookUrl] = tenantId
+      ? await Promise.all([
+          this.getTenantSettingRaw(tenantId, 'EVOLUTION_API_URL'),
+          this.getTenantSettingRaw(tenantId, 'EVOLUTION_GLOBAL_APIKEY'),
+          this.getTenantSettingRaw(tenantId, 'WEBHOOK_URL'),
+        ])
+      : [null, null, null];
+
+    const dbApiUrl     = tApiUrl     ?? (await this.get('EVOLUTION_API_URL'));
+    const dbApiKey     = tApiKey     ?? (await this.get('EVOLUTION_GLOBAL_APIKEY'));
+    const dbWebhookUrl = tWebhookUrl ?? (await this.get('WEBHOOK_URL'));
 
     return {
       apiUrl: this.normalizeHttpUrl(dbApiUrl || process.env.EVOLUTION_API_URL, 'EVOLUTION_API_URL'),
       apiKey: dbApiKey || process.env.EVOLUTION_GLOBAL_APIKEY,
       webhookUrl: dbWebhookUrl || `${process.env.PUBLIC_API_URL || 'https://andrelustosaadvogados.com.br/api'}/webhooks/evolution`,
     };
+  }
+
+  /** Le valor cru de TenantSetting sem fallback nem decrypt. */
+  private async getTenantSettingRaw(tenantId: string, key: string): Promise<string | null> {
+    try {
+      const ts = await this.prisma.tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key } },
+      });
+      return ts?.value ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /**
@@ -1804,14 +1828,40 @@ export class SettingsService {
     return `https://${trimmed}`.replace(/\/+$/, '');
   }
 
-  async setWhatsAppConfig(apiUrl: string, apiKey?: string, webhookUrl?: string) {
+  async setWhatsAppConfig(
+    apiUrl: string,
+    apiKey?: string,
+    webhookUrl?: string,
+    tenantId?: string | null,
+  ) {
+    if (tenantId) {
+      // Onda 17.32.129 — Fase 6.1: salva NO TENANT, nao no Global.
+      // Espelha padrao /tenants/:id/settings (texto cru sem encrypt).
+      await this.upsertTenantSetting(tenantId, 'EVOLUTION_API_URL', apiUrl);
+      if (apiKey)     await this.upsertTenantSetting(tenantId, 'EVOLUTION_GLOBAL_APIKEY', apiKey);
+      if (webhookUrl) await this.upsertTenantSetting(tenantId, 'WEBHOOK_URL', webhookUrl);
+      // Invalida cache do tenant-settings.helper (whatsapp.service usa)
+      try {
+        const { invalidateTenantSetting } = await import('../tenants/tenant-settings.helper.js');
+        invalidateTenantSetting(tenantId, 'EVOLUTION_API_URL');
+        invalidateTenantSetting(tenantId, 'EVOLUTION_GLOBAL_APIKEY');
+        invalidateTenantSetting(tenantId, 'WEBHOOK_URL');
+      } catch { /* helper opcional, segue */ }
+      return;
+    }
+    // Sem tenant (legado / SUPER_ADMIN setando default global)
     await this.set('EVOLUTION_API_URL', apiUrl);
-    if (apiKey) {
-      await this.set('EVOLUTION_GLOBAL_APIKEY', apiKey);
-    }
-    if (webhookUrl) {
-      await this.set('WEBHOOK_URL', webhookUrl);
-    }
+    if (apiKey)     await this.set('EVOLUTION_GLOBAL_APIKEY', apiKey);
+    if (webhookUrl) await this.set('WEBHOOK_URL', webhookUrl);
+  }
+
+  /** Upsert direto em TenantSetting (texto cru). */
+  private async upsertTenantSetting(tenantId: string, key: string, value: string) {
+    await this.prisma.tenantSetting.upsert({
+      where:  { tenant_id_key: { tenant_id: tenantId, key } },
+      create: { tenant_id: tenantId, key, value },
+      update: { value },
+    });
   }
 
   async getAiConfig() {

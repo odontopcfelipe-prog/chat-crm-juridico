@@ -141,9 +141,11 @@ export class SettingsController {
 
   @Get('whatsapp-config/health')
   @Roles('ADMIN')
-  async checkHealth() {
+  async checkHealth(@Request() req: any) {
     try {
-      await this.whatsappService.listInstances();
+      // Onda 17.32.129 — health usa as instances do tenant logado
+      const tenantId = req.user?.tenant_id ?? null;
+      await this.whatsappService.listInstances(tenantId);
       return { status: 'online' };
     } catch (error) {
       return { status: 'offline', error: error.message };
@@ -152,25 +154,36 @@ export class SettingsController {
 
   @Get('whatsapp-config')
   @Roles('ADMIN')
-  async getWhatsAppConfig() {
-    const config = await this.settingsService.getWhatsAppConfig();
+  async getWhatsAppConfig(@Request() req: any) {
+    // Onda 17.32.129 — Fase 6.1: per-tenant. ADMIN da clinica ve a
+    // config DELE (TenantSetting com fallback pro global se nao
+    // tiver configurado ainda).
+    const tenantId = req.user?.tenant_id ?? null;
+    const config = await this.settingsService.getWhatsAppConfig(tenantId);
     return { ...config, apiKey: maskApiKey(config.apiKey) };
   }
 
   @Post('whatsapp-config')
   @Roles('ADMIN')
-  async setWhatsAppConfig(@Body() data: { apiUrl: string; apiKey?: string; webhookUrl?: string }) {
-    await this.settingsService.setWhatsAppConfig(data.apiUrl, data.apiKey, data.webhookUrl);
+  async setWhatsAppConfig(
+    @Request() req: any,
+    @Body() data: { apiUrl: string; apiKey?: string; webhookUrl?: string },
+  ) {
+    // Onda 17.32.129 — Fase 6.1: salva no tenant logado (nao no global)
+    const tenantId = req.user?.tenant_id ?? null;
+    await this.settingsService.setWhatsAppConfig(
+      data.apiUrl, data.apiKey, data.webhookUrl, tenantId,
+    );
 
-    // Reaplicar webhook em todas as instâncias existentes
+    // Reaplicar webhook em todas as instâncias do tenant
     if (data.webhookUrl) {
       try {
-        const instances = await this.whatsappService.listInstances();
+        const instances = await this.whatsappService.listInstances(tenantId);
         const names: string[] = (instances as any[]).map((i) => i.instanceName).filter(Boolean);
         await Promise.allSettled(
-          names.map((name) => this.whatsappService.setWebhook(name, data.webhookUrl!)),
+          names.map((name) => this.whatsappService.setWebhook(name, data.webhookUrl!, tenantId)),
         );
-        this.logger.log(`Webhook atualizado em ${names.length} instância(s)`);
+        this.logger.log(`Webhook atualizado em ${names.length} instância(s) do tenant ${tenantId ?? 'global'}`);
       } catch (e) {
         this.logger.error('Falha ao reaplicar webhook nas instâncias:', e?.message);
       }

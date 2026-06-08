@@ -242,7 +242,8 @@ export default function WhatsappIntegrationPage() {
                 </div>
                 <div>
                   <h4 className="text-sm font-bold text-foreground">Configuração do Servidor Evolution</h4>
-                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Conexão Global</p>
+                  {/* Onda 17.32.129: cada clinica tem sua propria config (TenantSetting) */}
+                  <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">Conexão da sua clínica</p>
                 </div>
               </div>
               <button 
@@ -269,12 +270,12 @@ export default function WhatsappIntegrationPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold text-muted-foreground uppercase ml-1">Global API Key</label>
+                  <label className="text-xs font-bold text-muted-foreground uppercase ml-1">API Key</label>
                   <input
                     type="password"
                     value={apiKey}
                     onChange={(e) => setApiKey(e.target.value)}
-                    placeholder={apiKeyMasked ? 'Deixe vazio para manter a chave atual' : 'Sua chave secreta global'}
+                    placeholder={apiKeyMasked ? 'Deixe vazio para manter a chave atual' : 'Sua chave secreta'}
                     className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all font-mono"
                   />
                   {apiKeyMasked && (
@@ -310,12 +311,12 @@ export default function WhatsappIntegrationPage() {
                       <span className="text-foreground font-mono truncate max-w-[180px]">{apiUrl || 'Não configurado'}</span>
                    </div>
                    <div className="flex flex-col">
-                      <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">Chave Global</span>
+                      <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">API Key</span>
                       <span className="text-foreground font-mono">{apiKeyMasked ? apiKeyMasked : 'Não configurada'}</span>
                    </div>
                    <div className="flex flex-col">
                       <span className="text-muted-foreground font-semibold uppercase tracking-tighter text-[9px]">Webhook (Sistema)</span>
-                      <span className="text-foreground font-mono truncate max-w-[180px]">{webhookUrl || 'André Lustosa (Padrão)'}</span>
+                      <span className="text-foreground font-mono truncate max-w-[180px]">{webhookUrl || 'Padrão do sistema'}</span>
                    </div>
                 </div>
                 {apiStatus === 'online' ? (

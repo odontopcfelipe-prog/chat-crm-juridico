@@ -246,8 +246,10 @@ export class WhatsappService {
 
   // --- GESTÃO DE INSTÂNCIAS ---
 
-  async listInstances() {
-    const data = await this.request('GET', 'instance/fetchInstances');
+  async listInstances(tenantId?: string | null) {
+    // Onda 17.32.129 — Fase 6.1: per-tenant. Passa tenantId pro request
+    // pra usar a Evolution config do tenant (URL + key) em vez do global.
+    const data = await this.request('GET', 'instance/fetchInstances', undefined, undefined, tenantId);
     // Na v2, a Evolution retorna [{ instance: { ... } }] ou um objeto com { data: [...] }
     let instancesArray = (data as any)?.instances || (data as any)?.data || data;
     
@@ -355,7 +357,7 @@ export class WhatsappService {
     return this.request('GET', `instance/connectionStatus/${instanceName}`);
   }
 
-  async setWebhook(instanceName: string, url: string) {
+  async setWebhook(instanceName: string, url: string, tenantId?: string | null) {
     return this.request('POST', `webhook/set/${instanceName}`, {
       url,
       enabled: true,
@@ -381,7 +383,7 @@ export class WhatsappService {
         'CONTACTS_UPDATE',
         'CONTACTS_SET',
       ],
-    });
+    }, undefined, tenantId);
   }
 
   async fetchContacts(instanceName: string) {
