@@ -248,9 +248,21 @@ export class TenantsService {
     });
     const persisted = (t?.onboarding_state ?? {}) as Record<string, any>;
 
-    // Auto-detect WhatsApp
+    // Onda 17.32.137 — Auto-detect WhatsApp tambem reconhece o
+    // Quick Connect novo (WHATSAPP_INSTANCE_NAMES_JSON). Era so
+    // legacy (EVOLUTION_API_KEY|EVOLUTION_INSTANCE_NAME) — daria
+    // pending eterno em tenant que usou /my-numbers/connect.
     const evolution = await this.prisma.tenantSetting.findFirst({
-      where: { tenant_id: tenantId, key: { in: ['EVOLUTION_API_KEY', 'EVOLUTION_INSTANCE_NAME'] } },
+      where: {
+        tenant_id: tenantId,
+        key: {
+          in: [
+            'EVOLUTION_API_KEY',
+            'EVOLUTION_INSTANCE_NAME',
+            'WHATSAPP_INSTANCE_NAMES_JSON',
+          ],
+        },
+      },
     });
     const whatsappReady = !!evolution;
 

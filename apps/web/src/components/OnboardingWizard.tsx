@@ -19,7 +19,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import {
   Sparkles, ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
-  MessageSquare, CreditCard, Users, UserPlus, Rocket,
+  MessageSquare, CreditCard, Users, UserPlus, Rocket, QrCode,
+  AlertCircle, Smartphone, RefreshCw,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
@@ -190,6 +191,7 @@ export function OnboardingWizard({
                 submitting={submitting}
                 onSkip={() => handleSkip(step.key)}
                 onPrev={screen > 1 ? handlePrev : undefined}
+                onStepUpdate={onStepUpdate}
               />
             );
           })()}
@@ -238,15 +240,18 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
 
 // ─── Telas 1-4: Etapas ────────────────────────────────────────────
 function StepScreen({
-  step, status, submitting, onSkip, onPrev,
+  step, status, submitting, onSkip, onPrev, onStepUpdate,
 }: {
   step: StepDef;
   status: StepStatus;
   submitting: boolean;
   onSkip?: () => void;
   onPrev?: () => void;
+  onStepUpdate: (step: StepKey, status: 'done' | 'skipped') => Promise<void>;
 }) {
   const isDone = status === 'done';
+  // Onda 17.32.137 — WhatsApp ganha QR inline (em vez de Link redirect)
+  const isWhatsapp = step.key === 'whatsapp';
 
   return (
     <div className="flex-1 flex flex-col py-6">
@@ -278,6 +283,14 @@ function StepScreen({
           <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
         </div>
       </div>
+
+      {/* Onda 17.32.137 — WhatsApp Quick Connect inline (QR no proprio
+          card do wizard, sem precisar sair pra outra tela) */}
+      {isWhatsapp && !isDone && (
+        <WhatsappQuickConnect
+          onConnected={async () => { await onStepUpdate('whatsapp', 'done'); }}
+        />
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />
@@ -315,6 +328,16 @@ function StepScreen({
               Continuar
               <ArrowRight size={14} />
             </button>
+          ) : isWhatsapp ? (
+            // No WhatsApp o CTA principal vive dentro do QuickConnect.
+            // Mostra um link discreto pra abrir a tela completa caso
+            // queira (ex: gerenciar varios numeros depois).
+            <Link
+              href={step.cta.href}
+              className="text-xs font-semibold text-violet-600 hover:text-violet-700 underline-offset-4 hover:underline"
+            >
+              Abrir tela completa
+            </Link>
           ) : (
             <Link
               href={step.cta.href}
@@ -389,6 +412,141 @@ function FinalScreen({
       >
         {submitting ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
         Começar a usar o sistema
+      </button>
+    </div>
+  );
+}
+
+// ─── WhatsApp Quick Connect inline (Onda 17.32.137) ───────────────
+interface QrPayload {
+  base64?: string;
+  code?: string;
+  pairingCode?: string;
+}
+
+interface MyNumber {
+  instanceName: string;
+  displayName: string;
+  status: string;
+}
+
+function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void> }) {
+  const [generating, setGenerating] = useState(false);
+  const [instanceName, setInstanceName] = useState<string | null>(null);
+  const [qr, setQr] = useState<QrPayload | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const generate = useCallback(async () => {
+    setGenerating(true); setError(null);
+    try {
+      const res = await api.post<{ instanceName: string; qr: QrPayload | null }>(
+        '/whatsapp/my-numbers/connect',
+        { displayName: 'WhatsApp da clinica' },
+      );
+      setInstanceName(res.data.instanceName);
+      setQr(res.data.qr);
+    } catch (e: any) {
+      const raw = e?.response?.data?.message || '';
+      if (typeof raw === 'string' && raw.includes('ja possui')) {
+        // Ja tinha 1 conectado — marca como done direto
+        await onConnected();
+        return;
+      }
+      if (typeof raw === 'string' && raw.startsWith('Cannot')) {
+        setError('O servidor ainda nao reconhece essa funcionalidade. Deploy em andamento?');
+      } else {
+        setError('Nao foi possivel gerar o QR. Tente de novo em alguns segundos.');
+      }
+    } finally {
+      setGenerating(false);
+    }
+  }, [onConnected]);
+
+  // Polling 2s: detecta quando o user escaneou e ficou conectado
+  useEffect(() => {
+    if (!instanceName) return;
+    const t = setInterval(async () => {
+      try {
+        const res = await api.get<MyNumber[]>('/whatsapp/my-numbers');
+        const me = (res.data || []).find((n) => n.instanceName === instanceName);
+        if (!me) return;
+        const s = (me.status || '').toLowerCase();
+        if (['open', 'connected', 'online', 'authenticated'].includes(s)) {
+          clearInterval(t);
+          await onConnected();
+        }
+      } catch { /* tenta de novo no proximo tick */ }
+    }, 2000);
+    return () => clearInterval(t);
+  }, [instanceName, onConnected]);
+
+  // Estado: ainda nao gerou QR
+  if (!qr && !generating) {
+    return (
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-6 flex flex-col items-center text-center">
+        <button
+          type="button"
+          onClick={generate}
+          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all"
+        >
+          <QrCode size={16} />
+          Gerar QR Code
+        </button>
+        {error && (
+          <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+            <AlertCircle size={12} /> {error}
+          </p>
+        )}
+      </div>
+    );
+  }
+
+  // Estado: gerando QR
+  if (generating) {
+    return (
+      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
+        <Loader2 className="animate-spin text-violet-500" size={28} />
+        <p className="text-xs text-muted-foreground">Conectando ao servidor…</p>
+      </div>
+    );
+  }
+
+  // Estado: QR pronto pra escanear
+  const base64 = qr?.base64;
+  return (
+    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex flex-col items-center text-center">
+      <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 font-semibold mb-3">
+        <Smartphone size={14} />
+        <span>WhatsApp → Aparelhos conectados → Conectar aparelho</span>
+      </div>
+      <div className="bg-white rounded-xl p-3 ring-4 ring-emerald-500/20">
+        {base64 ? (
+          <img
+            src={base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`}
+            alt="QR Code WhatsApp"
+            className="w-44 h-44 rounded-lg"
+          />
+        ) : qr?.code ? (
+          <code className="text-[10px] break-all block max-w-[180px] p-2 text-zinc-700">{qr.code}</code>
+        ) : qr?.pairingCode ? (
+          <div className="text-center px-4">
+            <p className="text-[10px] text-zinc-600 mb-1">Codigo de pareamento:</p>
+            <div className="text-xl font-mono font-bold tracking-widest text-zinc-900">{qr.pairingCode}</div>
+          </div>
+        ) : (
+          <p className="text-xs text-zinc-500 p-4">QR nao disponivel. Tente regenerar.</p>
+        )}
+      </div>
+      <p className="mt-3 text-[11px] text-muted-foreground flex items-center gap-1.5 animate-pulse">
+        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+        Aguardando voce escanear…
+      </p>
+      <button
+        type="button"
+        onClick={generate}
+        className="mt-2 text-[11px] font-bold text-violet-600 hover:text-violet-700 inline-flex items-center gap-1"
+      >
+        <RefreshCw size={10} /> Gerar novo QR
       </button>
     </div>
   );
