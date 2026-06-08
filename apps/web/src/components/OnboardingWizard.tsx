@@ -54,7 +54,7 @@ const STEPS: StepDef[] = [
     required: true,
     icon: <MessageSquare size={36} />,
     iconBg: 'from-emerald-500 to-emerald-700',
-    title: 'Conecte seu WhatsApp',
+    title: 'Conecte o número principal da clínica ou consultório',
     description: 'Em 2 minutos seu sistema atende pacientes pelo WhatsApp. Sem isso, eles não recebem confirmação de consulta, lembrete de retorno, nem link de anamnese.',
     cta: { label: 'Conectar agora', href: '/atendimento/settings/whatsapp' },
   },
@@ -333,15 +333,19 @@ function StepScreen({
               <ArrowRight size={14} />
             </button>
           ) : isWhatsapp ? (
-            // No WhatsApp o CTA principal vive dentro do QuickConnect.
-            // Mostra um link discreto pra abrir a tela completa caso
-            // queira (ex: gerenciar varios numeros depois).
-            <Link
-              href={step.cta.href}
-              className="text-xs font-semibold text-violet-600 hover:text-violet-700 underline-offset-4 hover:underline"
+            // Onda 17.32.139 — Botao "Seguir" pra avancar mesmo sem
+            // ter escaneado o QR (caso queira voltar depois). Quando
+            // conectar de verdade, o auto-detect do backend marca
+            // como done — entao "Seguir" so suspende temporariamente.
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={submitting}
+              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all disabled:opacity-50"
             >
-              Abrir tela completa
-            </Link>
+              Seguir
+              <ArrowRight size={14} />
+            </button>
           ) : (
             <Link
               href={step.cta.href}
