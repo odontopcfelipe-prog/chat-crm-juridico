@@ -21,6 +21,14 @@ COPY . .
 # buildar o dist aqui, o `next build` quebra com "Cannot find
 # module '@crm/shared'". O Dockerfile.backend ja fazia isso desde
 # sempre — o web nao fazia porque antes nao importava.
+#
+# Onda 17.32.136 — Tambem precisa do Prisma Client gerado. O
+# packages/shared/src/index.ts faz `export * from '@prisma/client'`
+# (legacy do CRM juridico — ainda nao desacoplado do frontend).
+# Sem prisma generate, qualquer rota que toque @crm/shared falha
+# no "Collecting page data" do Next com:
+#   "@prisma/client did not initialize yet"
+RUN npm run db:generate -w @crm/shared
 RUN cd packages/shared && npm run build
 
 # Faz o build do frontend Next.js indicando Next.js cache mode
