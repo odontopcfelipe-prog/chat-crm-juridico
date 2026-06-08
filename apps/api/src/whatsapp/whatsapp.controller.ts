@@ -2,6 +2,7 @@ import { Controller, Get, Post, Patch, Delete, Body, Param, UseGuards, Request, 
 import { WhatsappService } from './whatsapp.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { SettingsService } from '../settings/settings.service';
+import { SuperAdmin } from '../auth/decorators/super-admin.decorator';
 
 @Controller('whatsapp')
 @UseGuards(JwtAuthGuard)
@@ -68,19 +69,25 @@ export class WhatsappController {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // Endpoints legacy — mantidos pra compat. Os novos clientes (ADMIN
-  // de tenant) usam /my-numbers acima.
+  // Endpoints legacy — SO SUPER_ADMIN. ADMIN do tenant usa /my-numbers.
+  //
+  // Onda 17.32.132 — Antes era qualquer authenticated. Isso permitia
+  // ADMIN do tenant A listar/gerenciar/buscar contatos de instancias
+  // do tenant B (vazamento de metadados + contatos). Agora travado
+  // pra SUPER_ADMIN (cross-tenant — quem cuida da infra do SaaS).
   // ═══════════════════════════════════════════════════════════════════
 
   @Get('instances')
+  @SuperAdmin()
   async listInstances() {
     return this.whatsappService.listInstances();
   }
 
   @Post('instances')
+  @SuperAdmin()
   async createInstance(@Body('name') name: string) {
     const instance = await this.whatsappService.createInstance(name);
-    
+
     // Autoconfigura o webhook assim que a instância é criada
     try {
       const config = await this.settingsService.getWhatsAppConfig();
@@ -96,37 +103,44 @@ export class WhatsappController {
   }
 
   @Delete('instances/:name')
+  @SuperAdmin()
   async deleteInstance(@Param('name') name: string) {
     return this.whatsappService.deleteInstance(name);
   }
 
   @Post('instances/:name/logout')
+  @SuperAdmin()
   async logoutInstance(@Param('name') name: string) {
     return this.whatsappService.logoutInstance(name);
   }
 
   @Get('instances/:name/connect')
+  @SuperAdmin()
   async getConnectCode(@Param('name') name: string) {
     return this.whatsappService.getConnectCode(name);
   }
 
   @Get('instances/:name/status')
+  @SuperAdmin()
   async getConnectionStatus(@Param('name') name: string) {
     return this.whatsappService.getConnectionStatus(name);
   }
 
   @Get('instances/:name/contacts')
+  @SuperAdmin()
   async fetchContacts(@Param('name') name: string) {
     return this.whatsappService.fetchContacts(name);
   }
 
   @Post('instances/:name/sync')
+  @SuperAdmin()
   async syncContacts(@Param('name') name: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     return this.whatsappService.syncContacts(name, tenantId);
   }
 
   @Post('instances/:name/settings')
+  @SuperAdmin()
   async setInstanceSettings(
     @Param('name') name: string,
     @Body() body: { rejectCall?: boolean; msgCall?: string; alwaysOnline?: boolean },

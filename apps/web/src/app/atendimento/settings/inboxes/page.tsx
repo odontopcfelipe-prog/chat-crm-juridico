@@ -89,7 +89,8 @@ export default function InboxesSettingsPage() {
       const [inboxesRes, usersRes, waRes] = await Promise.all([
         api.get('/inboxes'),
         api.get('/users'),
-        api.get('/whatsapp/instances'),
+        // Onda 17.32.132 — /my-numbers ja filtra por tenant (era /instances global, vazava)
+        api.get('/whatsapp/my-numbers'),
       ]);
       setInboxes(inboxesRes.data);
       setAllUsers(usersRes.data);

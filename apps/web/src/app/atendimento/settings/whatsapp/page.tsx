@@ -180,6 +180,10 @@ export default function WhatsappIntegrationPage() {
     }
   };
 
+  // Onda 17.32.132 — 1 WhatsApp por tenant. Quando ja tem, esconde botao
+  // de conectar e mostra mensagem clara em vez de oferecer multiplas linhas.
+  const hasConnected = numbers.length > 0;
+
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
       {/* Header */}
@@ -190,16 +194,20 @@ export default function WhatsappIntegrationPage() {
             WhatsApp da clínica
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Conecte um ou mais números — basta escanear o QR Code com o app do WhatsApp.
+            {hasConnected
+              ? 'Sua clínica já tem um WhatsApp conectado. Remova a linha atual antes de trocar de número.'
+              : 'Conecte o WhatsApp da clínica em segundos — basta escanear o QR Code com o app.'}
           </p>
         </div>
-        <button
-          onClick={() => setShowConnectModal(true)}
-          className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
-        >
-          <Plus size={18} />
-          Conectar novo WhatsApp
-        </button>
+        {!hasConnected && !loading && (
+          <button
+            onClick={() => setShowConnectModal(true)}
+            className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
+          >
+            <Plus size={18} />
+            Conectar WhatsApp
+          </button>
+        )}
       </header>
 
       {/* Erro de carga */}

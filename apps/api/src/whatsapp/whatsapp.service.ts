@@ -465,14 +465,21 @@ export class WhatsappService {
     const prefix = this.tenantPrefix(tenantId);
     const existing = await this.listForTenant(tenantId);
 
-    // Acha o proximo numero (vai de 1 em diante, pulando os ja usados)
-    const usedNumbers = existing.map((e) => {
-      const m = e.instanceName?.match(new RegExp(`^${prefix}-(\\d+)$`));
-      return m ? parseInt(m[1], 10) : 0;
-    });
-    const nextN = (usedNumbers.length === 0 ? 0 : Math.max(...usedNumbers)) + 1;
+    // Onda 17.32.132 — SEGURANCA: cada tenant tem EXATAMENTE 1
+    // WhatsApp. Se ja tem instancia (mesmo se desconectada/sem QR),
+    // rejeita criar a 2a. Pra trocar de numero o tenant deve remover
+    // a atual primeiro.
+    if (existing.length > 0) {
+      const current = existing[0];
+      throw new BadRequestException(
+        `Sua clinica ja possui um WhatsApp conectado ("${current.displayName || current.instanceName}"). ` +
+        `Pra trocar de numero, remova a linha atual primeiro.`,
+      );
+    }
+
+    const nextN = 1; // sempre 1 — limite per-tenant
     const instanceName = `${prefix}-${nextN}`;
-    const finalDisplayName = (displayName || '').trim() || `Linha ${nextN}`;
+    const finalDisplayName = (displayName || '').trim() || `WhatsApp da clinica`;
 
     this.logger.log(`[quickConnect] Criando instancia ${instanceName} pro tenant ${tenantId} ("${finalDisplayName}")`);
 
