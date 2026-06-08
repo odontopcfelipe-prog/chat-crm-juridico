@@ -13,7 +13,7 @@
  * nao autorizacao real.
  */
 
-export type Sector = 'recepcao' | 'dentista' | 'crc' | 'financeiro' | 'admin';
+export type Sector = 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin';
 
 export type Permission =
   | 'view_patients'      | 'edit_patients'
@@ -228,6 +228,50 @@ export const SECTORS: SectorMeta[] = [
     },
   },
   {
+    // Onda 17.32.122 — ACD/ASB (Auxiliar Consultorio Dentario /
+    // Auxiliar em Saude Bucal). Trabalha no consultorio assistindo
+    // o dentista: prepara sala, instrumental, organiza materiais,
+    // acompanha prontuario, conversa com paciente.
+    id: 'acd_asb',
+    name: 'ACD / ASB',
+    description: 'Auxilia o dentista — prepara sala, instrumental e acompanha o atendimento',
+    icon: '🧤',
+    backendRoles: ['ACD', 'ASB', 'ACD_ASB', 'AUXILIAR', 'ASSISTANT'],
+    defaultPermissions: [
+      'view_patients',     // ve quem esta sendo atendido
+      'view_agenda',       // ve agenda do dia
+      'view_chat',         // pode confirmar consultas e tirar duvidas no whatsapp
+      'view_clinical',     // acompanha prontuario do paciente
+      'edit_clinical',     // ASB pode preencher evolucao supervisionada
+    ],
+    home: {
+      persona: 'Auxiliar de Consultorio',
+      subtitle: 'Prepare o consultorio, organize materiais e ajude o dentista a entregar o melhor atendimento.',
+      highlight: {
+        title: 'Consultorio agora',
+        icon: '🧤',
+        chips: [
+          { value: 4,        label: 'consultas hoje',           tone: 'violet'  },
+          { value: '12min',  label: 'proxima consulta',         tone: 'emerald' },
+          { value: 2,        label: 'salas pra esterilizar',    tone: 'amber'   },
+        ],
+        cta: { label: 'Ver agenda do dia', href: '/atendimento/agenda' },
+      },
+      actions: [
+        { icon: '📅', label: 'Agenda do dia',     href: '/atendimento/agenda',     tone: 'violet'  },
+        { icon: '🦷', label: 'Paciente atual',    href: '/atendimento/pacientes',  tone: 'sky'     },
+        { icon: '📋', label: 'Anotar evolucao',   href: '/atendimento/pacientes',  tone: 'emerald' },
+        { icon: '💬', label: 'WhatsApp paciente', href: '/atendimento/whatsapp',   tone: 'amber'   },
+      ],
+      todos: [
+        'Preparar sala pra proxima consulta',
+        'Esterilizar instrumental do turno',
+        'Conferir cadeiras e materiais',
+        'Avisar dentista sobre encaixes',
+      ],
+    },
+  },
+  {
     id: 'crc',
     name: 'CRC (Atendimento)',
     description: 'Central de relacionamento — captacao, follow-up e marketing',
@@ -352,7 +396,14 @@ export const SECTORS: SectorMeta[] = [
  * der match. Default = 'recepcao' (mais restrito que admin pra
  * nao expor demais por engano).
  *
- * Ordem de prioridade: admin > dentista > financeiro > crc > recepcao.
+ * Ordem de prioridade:
+ *   admin > dentista > acd_asb > financeiro > crc > recepcao.
+ *
+ * Onda 17.32.122 — ACD/ASB ficou ACIMA de financeiro e crc na
+ * prioridade porque eh funcao clinica especifica (auxiliar
+ * direto do dentista), enquanto ASSISTANT pode ser tanto CRC quanto
+ * auxiliar clinico — se tem so ASSISTANT, cai em CRC pra nao mudar
+ * comportamento atual de quem ja estava em outras unidades.
  */
 export function mapBackendRole(roles: string[] | null | undefined): Sector {
   if (!roles || roles.length === 0) return 'recepcao';
@@ -360,6 +411,8 @@ export function mapBackendRole(roles: string[] | null | undefined): Sector {
 
   if (set.has('SUPER_ADMIN') || set.has('ADMIN'))                  return 'admin';
   if (set.has('DENTIST')     || set.has('DENTISTA'))               return 'dentista';
+  // ACD/ASB: roles especificas de auxiliar clinico
+  if (set.has('ACD') || set.has('ASB') || set.has('ACD_ASB') || set.has('AUXILIAR')) return 'acd_asb';
   if (set.has('FINANCEIRO'))                                       return 'financeiro';
   if (set.has('COMERCIAL')   || set.has('ASSISTANT'))              return 'crc';
   if (set.has('OPERADOR'))                                         return 'recepcao';

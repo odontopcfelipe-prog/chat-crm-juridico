@@ -160,7 +160,8 @@ export class UsersService {
 
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {
-      const allowed = ['recepcao','dentista','crc','financeiro','admin'];
+      // Onda 17.32.122 — Inclui acd_asb (auxiliar de consultorio)
+      const allowed = ['recepcao','dentista','acd_asb','crc','financeiro','admin'];
       if (data.sector && !allowed.includes(data.sector)) {
         throw new BadRequestException(`Setor invalido: ${data.sector}`);
       }
