@@ -152,12 +152,23 @@ export class HomeHighlightsService {
       }), null);
     const proximaTxt = proxima?.start_at ? this.minutesUntil(proxima.start_at) : '—';
 
-    // "Salas pra esterilizar" ainda nao tem fonte real — placeholder 0
+    // Onda 17.32.127 — "Salas pra esterilizar" usa proxy: consultas
+    // ja concluidas hoje. Cada consulta concluida = 1 sala pra
+    // higienizar. Aproximacao util ate ter modelo Room.status.
+    const concluidasHoje = await this.safe('acd.concluidasHoje',
+      () => this.prisma.calendarEvent.count({
+        where: {
+          tenant_id: tenantId,
+          start_at: { gte: start, lte: end },
+          status:   { in: ['CONCLUIDO', 'COMPLETED', 'DONE'] },
+        },
+      }), 0);
+
     return {
       chips: [
-        { value: consultasHoje, label: 'consultas hoje',   tone: 'violet'  },
-        { value: proximaTxt,    label: 'proxima consulta', tone: 'emerald' },
-        { value: 0,             label: 'salas pendentes',  tone: 'amber'   },
+        { value: consultasHoje,  label: 'consultas hoje',   tone: 'violet'  },
+        { value: proximaTxt,     label: 'proxima consulta', tone: 'emerald' },
+        { value: concluidasHoje, label: 'esterilizar (concluidas)', tone: 'amber' },
       ],
       cta: { label: 'Ver agenda do dia', href: '/atendimento/agenda' },
     };
@@ -183,11 +194,23 @@ export class HomeHighlightsService {
         },
       }), 0);
 
+    // Onda 17.32.127 — Follow-ups reais: enrollments ATIVOs cuja
+    // proxima mensagem ja venceu (next_send_at <= now). Filtra por
+    // tenant via Lead (FollowupEnrollment nao tem tenant_id direto).
+    const followUps = await this.safe('crc.followUps',
+      () => this.prisma.followupEnrollment.count({
+        where: {
+          status: 'ATIVO',
+          next_send_at: { lte: new Date() },
+          lead: { tenant_id: tenantId },
+        },
+      }), 0);
+
     return {
       chips: [
         { value: novas,       label: 'novas conversas',  tone: 'violet'  },
         { value: semResposta, label: 'sem resposta +2h', tone: 'amber'   },
-        { value: 0,           label: 'follow-ups hoje',  tone: 'rose'    },
+        { value: followUps,   label: 'follow-ups pendentes', tone: 'rose' },
       ],
       cta: { label: 'Abrir WhatsApp', href: '/atendimento/whatsapp' },
     };
