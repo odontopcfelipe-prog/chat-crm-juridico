@@ -48,7 +48,25 @@ interface MyNumber {
   isLegacy?: boolean;
   profileName?: string;
   profilePictureUrl?: string;
+  /** E.164 sem o '+' — ex: "5511999998888" */
+  phoneNumber?: string;
   _count?: { contacts?: number; messages?: number; chats?: number };
+}
+
+/** "5511999998888" -> "+55 (11) 99999-8888" */
+function formatPhone(raw?: string | null): string | null {
+  if (!raw) return null;
+  const digits = raw.replace(/\D/g, '');
+  // BR: 55 + DDD(2) + numero(8 ou 9)
+  if (digits.startsWith('55') && (digits.length === 12 || digits.length === 13)) {
+    const country = digits.slice(0, 2);
+    const ddd = digits.slice(2, 4);
+    const rest = digits.slice(4);
+    const split = rest.length === 9 ? 5 : 4;
+    return `+${country} (${ddd}) ${rest.slice(0, split)}-${rest.slice(split)}`;
+  }
+  // Generico: adiciona '+'
+  return `+${digits}`;
 }
 
 interface QrPayload {
@@ -462,15 +480,23 @@ function NumberCard({
     s.tone === 'warn' ? 'bg-amber-500/10  text-amber-500  border-amber-500/30'  :
                         'bg-rose-500/10   text-rose-500   border-rose-500/30';
 
+  const phoneFormatted = formatPhone(number.phoneNumber);
+
   return (
     <div className="bg-card border border-border rounded-2xl p-5 space-y-3">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-center gap-3 flex-1 min-w-0">
           {number.profilePictureUrl ? (
-            <img src={number.profilePictureUrl} alt="" className="w-10 h-10 rounded-full" />
+            <img
+              src={number.profilePictureUrl}
+              alt={number.profileName || number.displayName}
+              className="w-12 h-12 rounded-full object-cover ring-2 ring-emerald-500/20"
+              referrerPolicy="no-referrer"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none'; }}
+            />
           ) : (
-            <div className="w-10 h-10 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
-              <MessageSquare size={18} />
+            <div className="w-12 h-12 rounded-full bg-muted flex items-center justify-center text-muted-foreground">
+              <MessageSquare size={20} />
             </div>
           )}
           <div className="flex-1 min-w-0">
@@ -485,9 +511,12 @@ function NumberCard({
             {number.profileName && (
               <p className="text-xs text-muted-foreground truncate">{number.profileName}</p>
             )}
+            {phoneFormatted && (
+              <p className="text-xs text-emerald-600 font-mono mt-0.5">{phoneFormatted}</p>
+            )}
           </div>
         </div>
-        <span className={`text-[10px] font-bold uppercase border px-2 py-1 rounded-full ${toneClass}`}>
+        <span className={`text-[10px] font-bold uppercase border px-2 py-1 rounded-full shrink-0 ${toneClass}`}>
           {s.label}
         </span>
       </div>

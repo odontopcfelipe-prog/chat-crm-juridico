@@ -270,15 +270,50 @@ export class WhatsappService {
         const isOnline = ['open', 'connected', 'online', 'authenticated'].includes(rawStatus);
         const finalStatus = isOnline ? 'open' : rawStatus;
 
+        // Onda 17.32.134 — Extrai numero + foto do perfil pra UI
+        // Evolution v2 expoe esses campos com nomes variaveis.
+        const profilePictureUrl =
+          inst.profilePicUrl ||
+          inst.profilePictureUrl ||
+          inst.profile_pic_url ||
+          inst.pictureUrl ||
+          null;
+        const profileName =
+          inst.profileName ||
+          inst.profile_name ||
+          inst.pushName ||
+          null;
+        const phoneNumber = this.extractPhoneNumber(inst);
+
         return {
           ...inst,
           instanceName: inst.instanceName || inst.name || inst.id || 'Instância sem Nome',
-          status: finalStatus
+          status: finalStatus,
+          profilePictureUrl,
+          profileName,
+          phoneNumber,
         };
       });
     }
-    
+
     return data;
+  }
+
+  /**
+   * Extrai numero E.164 sem o '+' a partir do ownerJid da Evolution
+   * (formato: "5511999999999@s.whatsapp.net") ou de outros campos.
+   */
+  private extractPhoneNumber(inst: any): string | null {
+    const candidates = [
+      inst.ownerJid, inst.owner, inst.wuid, inst.jid, inst.number, inst.phone, inst.phoneNumber,
+    ];
+    for (const c of candidates) {
+      if (!c || typeof c !== 'string') continue;
+      // Remove sufixos do tipo "@s.whatsapp.net" / "@c.us"
+      const cleaned = c.split('@')[0].replace(/\D/g, '');
+      if (cleaned.length >= 10) return cleaned;
+    }
+    return null;
   }
 
   async createInstance(instanceName: string) {
