@@ -196,6 +196,11 @@ export function OnboardingWizard({
                 // dismiss.
                 onPrev={handlePrev}
                 onStepUpdate={onStepUpdate}
+                // Onda 17.32.142 — Ao clicar em links de redirect
+                // (passos 3 e 4 que ainda nao tem fluxo inline),
+                // fechar o wizard ANTES de navegar — senao ele
+                // continua coberto e parece que nada acontece.
+                onClose={onClose}
               />
             );
           })()}
@@ -244,7 +249,7 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
 
 // ─── Telas 1-4: Etapas ────────────────────────────────────────────
 function StepScreen({
-  step, status, submitting, onSkip, onPrev, onStepUpdate,
+  step, status, submitting, onSkip, onPrev, onStepUpdate, onClose,
 }: {
   step: StepDef;
   status: StepStatus;
@@ -252,6 +257,7 @@ function StepScreen({
   onSkip?: () => void;
   onPrev?: () => void;
   onStepUpdate: (step: StepKey, status: 'done' | 'skipped') => Promise<void>;
+  onClose: () => void;
 }) {
   const isDone = status === 'done';
   // Onda 17.32.137 — WhatsApp ganha QR inline (em vez de Link redirect)
@@ -357,6 +363,10 @@ function StepScreen({
           ) : (
             <Link
               href={step.cta.href}
+              // Onda 17.32.142 — Fecha o wizard antes de navegar
+              // (senao o overlay z-200 fica em cima da tela destino
+              // e parece que nada aconteceu)
+              onClick={onClose}
               className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all"
             >
               {step.cta.label}
