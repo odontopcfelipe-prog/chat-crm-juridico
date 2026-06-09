@@ -113,6 +113,9 @@ export class TenantsMeController {
       status: t.status,
       plan: t.plan,
       trial_ends_at: t.trial_ends_at,
+      // Onda 17.32.150 — Identifica o ADMIN principal pra frontend
+      // mostrar wizard/banner/trial-modal so pra ele.
+      owner_user_id: t.owner_user_id,
     };
   }
 

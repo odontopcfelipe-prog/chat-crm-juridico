@@ -12,7 +12,7 @@
  */
 import { useEffect, useState, useCallback } from 'react';
 import api from '@/lib/api';
-import { useTenant } from '@/lib/useTenant';
+import { useTenant, useIsTenantOwner } from '@/lib/useTenant';
 import { OnboardingWizard } from './OnboardingWizard';
 
 type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team';
@@ -30,6 +30,8 @@ const DISMISS_LOCAL_KEY = 'onboarding_dismissed_local';
 
 export function OnboardingWizardLoader() {
   const tenant = useTenant();
+  // Onda 17.32.150 — Wizard so aparece pro ADMIN principal do tenant
+  const isOwner = useIsTenantOwner();
   const [state, setState] = useState<OnboardingState | null>(null);
   const [open, setOpen] = useState(false);
 
@@ -47,6 +49,8 @@ export function OnboardingWizardLoader() {
     if (!tenant) return;
     // Só pra tenants em TRIAL (depois do trial, modal nao aparece)
     if (tenant.status !== 'TRIAL') return;
+    // Onda 17.32.150 — Apenas pro ADMIN principal (signatario)
+    if (!isOwner) return;
 
     let cancelled = false;
     fetchState().then((s) => {
@@ -70,7 +74,7 @@ export function OnboardingWizardLoader() {
       return () => clearTimeout(t);
     });
     return () => { cancelled = true; };
-  }, [tenant, fetchState]);
+  }, [tenant, isOwner, fetchState]);
 
   // Onda 17.32.125 — Permite reabrir o wizard de qualquer lugar
   // (ex: banner persistente no menu inicial) via window event.

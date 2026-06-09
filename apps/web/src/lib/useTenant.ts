@@ -27,6 +27,64 @@ export interface TenantBranding {
   status: string;
   plan: string;
   trial_ends_at: string | null;
+  // Onda 17.32.150 — ADMIN principal (signatario da conta).
+  // Frontend usa pra mostrar wizard/banner/trial-modal so pra ele.
+  owner_user_id: string | null;
+}
+
+/**
+ * Onda 17.32.150 — Decodifica o JWT do localStorage e retorna o
+ * payload.sub (user_id) ou null. Usado pra detectar se o user
+ * logado e o ADMIN principal do tenant.
+ */
+export function getCurrentUserId(): string | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const token = localStorage.getItem('token');
+    if (!token) return null;
+    let b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    while (b64.length % 4) b64 += '=';
+    const payload = JSON.parse(atob(b64));
+    return payload?.sub ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Hook que retorna true se o user logado e o ADMIN principal do
+ * tenant (owner_user_id). SUPER_ADMIN tambem retorna true pra
+ * permitir suporte/operacoes cross-tenant.
+ */
+export function useIsTenantOwner(): boolean {
+  const tenant = useTenant();
+  const [isOwner, setIsOwner] = useState(false);
+
+  useEffect(() => {
+    if (!tenant) { setIsOwner(false); return; }
+    const userId = getCurrentUserId();
+    if (!userId) { setIsOwner(false); return; }
+    // owner_user_id direto
+    if (tenant.owner_user_id && tenant.owner_user_id === userId) {
+      setIsOwner(true); return;
+    }
+    // SUPER_ADMIN: decoda roles do token
+    try {
+      const token = localStorage.getItem('token') || '';
+      let b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+      while (b64.length % 4) b64 += '=';
+      const payload = JSON.parse(atob(b64));
+      const roles: string[] = Array.isArray(payload?.roles)
+        ? payload.roles
+        : (payload?.role ? [payload.role] : []);
+      if (roles.includes('SUPER_ADMIN')) {
+        setIsOwner(true); return;
+      }
+    } catch { /* ignora */ }
+    setIsOwner(false);
+  }, [tenant]);
+
+  return isOwner;
 }
 
 // Cache em modulo — todas as instancias do hook compartilham.

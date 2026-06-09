@@ -21,17 +21,20 @@ import {
   Sparkles, X, ArrowRight, CalendarDays, ShieldCheck,
   MessageSquare, CreditCard, Users,
 } from 'lucide-react';
-import { useTenant } from '@/lib/useTenant';
+import { useTenant, useIsTenantOwner } from '@/lib/useTenant';
 
 const DISMISS_KEY = 'trial_welcome_dismissed_at';
 
 export function TrialWelcomeModal() {
   const tenant = useTenant();
+  // Onda 17.32.150 — Modal so pra ADMIN principal (signatario)
+  const isOwner = useIsTenantOwner();
   const [open, setOpen] = useState(false);
 
   useEffect(() => {
     if (!tenant) return;
     if (tenant.status !== 'TRIAL') return;
+    if (!isOwner) return;
 
     // So aparece 1x por dia — chave salva a data (YYYY-MM-DD)
     const today = new Date().toISOString().slice(0, 10);
@@ -65,7 +68,7 @@ export function TrialWelcomeModal() {
       }
     })();
     return () => { cancelled = true; };
-  }, [tenant]);
+  }, [tenant, isOwner]);
 
   const handleClose = () => {
     try {

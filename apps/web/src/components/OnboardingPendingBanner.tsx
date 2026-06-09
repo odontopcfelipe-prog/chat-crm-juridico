@@ -14,7 +14,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Sparkles, ArrowRight, MessageSquare, CreditCard, UserPlus, Users, CheckCircle2 } from 'lucide-react';
 import api from '@/lib/api';
-import { useTenant } from '@/lib/useTenant';
+import { useTenant, useIsTenantOwner } from '@/lib/useTenant';
 
 type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team';
 type StepStatus = 'done' | 'skipped' | 'pending';
@@ -35,6 +35,8 @@ const STEP_META: Record<StepKey, { label: string; Icon: any; required: boolean }
 
 export function OnboardingPendingBanner() {
   const tenant = useTenant();
+  // Onda 17.32.150 — Banner so aparece pro ADMIN principal
+  const isOwner = useIsTenantOwner();
   const [state, setState] = useState<OnboardingState | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -71,6 +73,8 @@ export function OnboardingPendingBanner() {
   if (loading) return null;
   if (!tenant) return null;
   if (tenant.status !== 'TRIAL') return null;
+  // Onda 17.32.150 — Apenas pro ADMIN principal (signatario)
+  if (!isOwner) return null;
   if (!state) return null;
   if (state.completed_at) return null;
   // Se nada pendente, esconde
