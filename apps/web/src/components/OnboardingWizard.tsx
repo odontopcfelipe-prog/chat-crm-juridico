@@ -16,7 +16,7 @@
  * persistente no menu inicial. Cada etapa tem auto-detect do backend:
  * se o user ja fez do lado, marca como done.
  */
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Sparkles, ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
   MessageSquare, CreditCard, Users, UserPlus, Rocket, QrCode,
@@ -106,17 +106,38 @@ export function OnboardingWizard({
   const [screen, setScreen] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  // Avanca automaticamente quando uma etapa eh detectada como done
+  // Onda 17.32.144 — Auto-advance SO se a etapa VIROU done enquanto
+  // o user estava nela (transicao). Antes avancava tambem se o user
+  // chegasse num passo ja done — sem dar tempo de clicar "Continuar"
+  // pra explorar/cadastrar mais um.
+  //
+  // Rastreamos o status PREVIO via ref pra detectar transicao:
+  //   prev !== 'done' && curr === 'done' -> avanca
+  //   prev === 'done' && curr === 'done' -> nao mexe (user pode clicar)
+  const prevStatusRef = useRef<StepStatus | null>(null);
   useEffect(() => {
     if (!state || !open) return;
-    if (screen === 0 || screen === 5) return;
+    if (screen === 0 || screen === 5) {
+      prevStatusRef.current = null;
+      return;
+    }
     const stepKey = STEPS[screen - 1]?.key;
-    if (stepKey && state.steps[stepKey] === 'done') {
-      // Pequeno delay pra dar tempo de mostrar o check
+    if (!stepKey) return;
+    const curr = state.steps[stepKey];
+    const prev = prevStatusRef.current;
+    prevStatusRef.current = curr;
+    // So avanca quando transitar de !done -> done
+    if (prev && prev !== 'done' && curr === 'done') {
       const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 5)), 800);
       return () => clearTimeout(t);
     }
   }, [state, screen, open]);
+
+  // Reset do ref quando muda de screen (pra nao confundir o anterior
+  // do passo X com o anterior do passo Y)
+  useEffect(() => {
+    prevStatusRef.current = null;
+  }, [screen]);
 
   if (!open || !state) return null;
 
