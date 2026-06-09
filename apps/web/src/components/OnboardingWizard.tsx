@@ -106,38 +106,41 @@ export function OnboardingWizard({
   const [screen, setScreen] = useState(0);
   const [submitting, setSubmitting] = useState(false);
 
-  // Onda 17.32.144 — Auto-advance SO se a etapa VIROU done enquanto
-  // o user estava nela (transicao). Antes avancava tambem se o user
-  // chegasse num passo ja done — sem dar tempo de clicar "Continuar"
-  // pra explorar/cadastrar mais um.
+  // Onda 17.32.145 — Auto-advance SO quando a etapa atual transicionou
+  // de !done -> done ENQUANTO o user estava nela. Antes:
+  //   v143: avancava sempre que detectava done -> pulava sem deixar
+  //         o user clicar.
+  //   v144: tentou rastrear "status anterior" via ref mas o ref
+  //         guardava status de step_X quando o user pulava pra
+  //         step_Y — comparacao errada disparava o avance.
   //
-  // Rastreamos o status PREVIO via ref pra detectar transicao:
-  //   prev !== 'done' && curr === 'done' -> avanca
-  //   prev === 'done' && curr === 'done' -> nao mexe (user pode clicar)
-  const prevStatusRef = useRef<StepStatus | null>(null);
+  // Solucao definitiva: o ref guarda PAR { screen, status }. So
+  // compara se ambos sao do MESMO screen. Mudou de screen ->
+  // primeira render do novo screen so registra, nao avanca.
+  const prevRef = useRef<{ screen: number; status: StepStatus } | null>(null);
   useEffect(() => {
     if (!state || !open) return;
     if (screen === 0 || screen === 5) {
-      prevStatusRef.current = null;
+      prevRef.current = null;
       return;
     }
     const stepKey = STEPS[screen - 1]?.key;
     if (!stepKey) return;
     const curr = state.steps[stepKey];
-    const prev = prevStatusRef.current;
-    prevStatusRef.current = curr;
-    // So avanca quando transitar de !done -> done
-    if (prev && prev !== 'done' && curr === 'done') {
+
+    const prev = prevRef.current;
+    prevRef.current = { screen, status: curr };
+
+    // 1. Primeira render desse passo (prev nao existe ou e de outro
+    //    screen) -> nao avanca, so registra
+    if (!prev || prev.screen !== screen) return;
+
+    // 2. Mesmo screen, mas transicao de !done -> done -> avanca
+    if (prev.status !== 'done' && curr === 'done') {
       const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 5)), 800);
       return () => clearTimeout(t);
     }
   }, [state, screen, open]);
-
-  // Reset do ref quando muda de screen (pra nao confundir o anterior
-  // do passo X com o anterior do passo Y)
-  useEffect(() => {
-    prevStatusRef.current = null;
-  }, [screen]);
 
   if (!open || !state) return null;
 
