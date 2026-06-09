@@ -332,23 +332,29 @@ function StepScreen({
         />
       )}
 
-      {/* Onda 17.32.141 — Asaas Quick Setup inline */}
+      {/* Onda 17.32.141 — Asaas Quick Setup inline.
+          (Quando ja done: nao mostra form pra nao confundir — pra trocar
+          chave usa /atendimento/settings/payment-gateway) */}
       {isAsaas && !isDone && (
         <AsaasQuickSetup
           onConfigured={async () => { await onStepUpdate('asaas', 'done'); }}
         />
       )}
 
-      {/* Onda 17.32.143 — Paciente Quick Create inline */}
-      {isFirstPatient && !isDone && (
+      {/* Onda 17.32.146 — Paciente Quick Create inline (sempre visivel
+          mesmo se ja "done" — o backend marca done pq tem N pacientes
+          no banco, mas o user pode querer cadastrar UM MAIS pelo wizard) */}
+      {isFirstPatient && (
         <PatientQuickCreate
+          alreadyDone={isDone}
           onCreated={async () => { await onStepUpdate('first_patient', 'done'); }}
         />
       )}
 
-      {/* Onda 17.32.143 — Equipe Quick Invite inline */}
-      {isTeam && !isDone && (
+      {/* Onda 17.32.146 — Equipe Quick Invite inline (sempre visivel) */}
+      {isTeam && (
         <TeamQuickInvite
+          alreadyDone={isDone}
           onInvited={async () => { await onStepUpdate('team', 'done'); }}
         />
       )}
@@ -729,8 +735,13 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
   );
 }
 
-// ─── Paciente Quick Create inline (Onda 17.32.143) ────────────────
-function PatientQuickCreate({ onCreated }: { onCreated: () => Promise<void> }) {
+// ─── Paciente Quick Create inline (Onda 17.32.143/146) ────────────
+function PatientQuickCreate({
+  onCreated, alreadyDone = false,
+}: {
+  onCreated: () => Promise<void>;
+  alreadyDone?: boolean;
+}) {
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
   const [birthDate, setBirthDate] = useState('');
@@ -763,6 +774,12 @@ function PatientQuickCreate({ onCreated }: { onCreated: () => Promise<void> }) {
 
   return (
     <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5">
+      {alreadyDone && (
+        <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+          <CheckCircle2 size={12} />
+          Voce ja tem pacientes. Quer cadastrar mais um agora?
+        </p>
+      )}
       <label className="block mb-2 text-xs font-bold text-foreground">
         Nome completo do paciente
       </label>
@@ -831,7 +848,12 @@ const TEAM_ROLES = [
   { value: 'ADMIN',      label: '👑 Administrador' },
 ];
 
-function TeamQuickInvite({ onInvited }: { onInvited: () => Promise<void> }) {
+function TeamQuickInvite({
+  onInvited, alreadyDone = false,
+}: {
+  onInvited: () => Promise<void>;
+  alreadyDone?: boolean;
+}) {
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [role, setRole] = useState('DENTIST');
@@ -871,6 +893,12 @@ function TeamQuickInvite({ onInvited }: { onInvited: () => Promise<void> }) {
 
   return (
     <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5">
+      {alreadyDone && (
+        <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+          <CheckCircle2 size={12} />
+          Voce ja tem outros usuarios. Quer convidar mais um?
+        </p>
+      )}
       <p className="text-[11px] text-muted-foreground mb-3">
         Adicione 1 pessoa agora. Você cadastra os demais a qualquer momento em
         <b> Configurações → Usuários</b>.
