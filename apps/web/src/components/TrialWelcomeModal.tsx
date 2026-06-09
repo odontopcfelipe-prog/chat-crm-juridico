@@ -43,9 +43,28 @@ export function TrialWelcomeModal() {
     }
     if (dismissed === today) return;
 
-    // Pequeno delay pra dar tempo do dashboard montar
-    const t = setTimeout(() => setOpen(true), 600);
-    return () => clearTimeout(t);
+    // Onda 17.32.149 — Nao mostra se o Onboarding Wizard ja foi
+    // completado. Os atalhos sao redundantes com o wizard, entao
+    // se o user ja terminou o wizard nao precisa ver esse modal.
+    let cancelled = false;
+    (async () => {
+      try {
+        const { default: api } = await import('@/lib/api');
+        const res = await api.get<{ completed_at: string | null }>('/tenants/me/onboarding');
+        if (cancelled) return;
+        if (res.data?.completed_at) return; // onboarding ja completo -> nao mostra
+        // Pequeno delay pra dar tempo do dashboard montar
+        const t = setTimeout(() => setOpen(true), 600);
+        return () => clearTimeout(t);
+      } catch {
+        // Se /tenants/me/onboarding falhar, mostra o modal mesmo
+        // (comportamento legacy — melhor ver duas vezes que nao ver)
+        if (cancelled) return;
+        const t = setTimeout(() => setOpen(true), 600);
+        return () => clearTimeout(t);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [tenant]);
 
   const handleClose = () => {
