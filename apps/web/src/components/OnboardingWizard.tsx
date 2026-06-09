@@ -735,7 +735,7 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
   );
 }
 
-// ─── Paciente Quick Create inline (Onda 17.32.143/146) ────────────
+// ─── Paciente Quick Create inline (Onda 17.32.143/146/147) ────────
 function PatientQuickCreate({
   onCreated, alreadyDone = false,
 }: {
@@ -747,6 +747,8 @@ function PatientQuickCreate({
   const [birthDate, setBirthDate] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Onda 17.32.147 — feedback visual claro de sucesso
+  const [successName, setSuccessName] = useState<string | null>(null);
 
   const submit = async () => {
     setError(null); setSubmitting(true);
@@ -755,7 +757,13 @@ function PatientQuickCreate({
       if (phone.trim()) payload.phone = phone.trim();
       if (birthDate) payload.birth_date = birthDate;
       await api.post('/patients', payload);
+      setSuccessName(name.trim());
+      // Limpa o form pra cadastrar outro se quiser
+      setName(''); setPhone(''); setBirthDate('');
+      // Marca step como done (avanca depois de mostrar confirmacao)
       await onCreated();
+      // Tira a confirmacao apos 4s (caso user nao tenha avancado)
+      setTimeout(() => setSuccessName(null), 4000);
     } catch (e: any) {
       const raw = e?.response?.data?.message || '';
       if (typeof raw === 'string' && raw.startsWith('Cannot')) {
@@ -774,7 +782,23 @@ function PatientQuickCreate({
 
   return (
     <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5">
-      {alreadyDone && (
+      {/* Onda 17.32.147 — Banner de sucesso visivel apos cadastrar */}
+      {successName && (
+        <div className="mb-4 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
+          <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+            <CheckCircle2 size={18} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+              ✓ Paciente cadastrado com sucesso!
+            </p>
+            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 truncate">
+              "{successName}" foi salvo. Cadastre outro ou clique em "Continuar".
+            </p>
+          </div>
+        </div>
+      )}
+      {alreadyDone && !successName && (
         <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
           <CheckCircle2 size={12} />
           Voce ja tem pacientes. Quer cadastrar mais um agora?
@@ -860,6 +884,8 @@ function TeamQuickInvite({
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Onda 17.32.147 — feedback de sucesso
+  const [successInfo, setSuccessInfo] = useState<{ name: string; email: string } | null>(null);
 
   const submit = async () => {
     setError(null); setSubmitting(true);
@@ -870,7 +896,10 @@ function TeamQuickInvite({
         password: password.trim(),
         roles: [role],
       });
+      setSuccessInfo({ name: name.trim(), email: email.trim() });
+      setName(''); setEmail(''); setPassword('');
       await onInvited();
+      setTimeout(() => setSuccessInfo(null), 4000);
     } catch (e: any) {
       const raw = e?.response?.data?.message || '';
       if (typeof raw === 'string' && raw.startsWith('Cannot')) {
@@ -893,7 +922,23 @@ function TeamQuickInvite({
 
   return (
     <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5">
-      {alreadyDone && (
+      {/* Onda 17.32.147 — Banner de sucesso */}
+      {successInfo && (
+        <div className="mb-4 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
+          <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+            <CheckCircle2 size={18} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
+              ✓ Convite enviado!
+            </p>
+            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 truncate">
+              "{successInfo.name}" pode entrar com o e-mail {successInfo.email} e a senha que você definiu.
+            </p>
+          </div>
+        </div>
+      )}
+      {alreadyDone && !successInfo && (
         <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
           <CheckCircle2 size={12} />
           Voce ja tem outros usuarios. Quer convidar mais um?
