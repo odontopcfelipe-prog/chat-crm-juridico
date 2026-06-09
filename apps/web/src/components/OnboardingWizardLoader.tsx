@@ -15,7 +15,7 @@ import api from '@/lib/api';
 import { useTenant, useIsTenantOwner } from '@/lib/useTenant';
 import { OnboardingWizard } from './OnboardingWizard';
 
-type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team';
+type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
 
 interface OnboardingState {

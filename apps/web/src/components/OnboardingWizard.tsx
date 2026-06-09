@@ -20,14 +20,16 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Sparkles, ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
   MessageSquare, CreditCard, Users, UserPlus, Rocket, QrCode,
-  AlertCircle, Smartphone, RefreshCw,
+  AlertCircle, Smartphone, RefreshCw, Tag,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
 // Onda 17.32.148 — form completo de paciente (em arquivo separado)
 import PatientFullCreate from './onboarding/PatientFullCreate';
+// Onda 17.32.151 — revisao da tabela de precos
+import PricingQuickReview from './onboarding/PricingQuickReview';
 
-type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team';
+type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
 
 interface OnboardingState {
@@ -90,6 +92,17 @@ const STEPS: StepDef[] = [
     description: 'Cadastre dentistas, recepção, ACD/ASB e financeiro. Cada um vê só o que tem permissão — você controla.',
     cta: { label: 'Convidar equipe', href: '/atendimento/settings/users' },
   },
+  // Onda 17.32.151 — Tabela de precos (opcional, mas valioso)
+  {
+    key: 'pricing',
+    index: 5,
+    required: false,
+    icon: <Tag size={36} />,
+    iconBg: 'from-violet-500 to-violet-700',
+    title: 'Revise a tabela de preços',
+    description: 'Mostramos a tabela padrão pra sua clínica. Edite preços, remova procedimentos que não usa, adicione novos. Tudo em segundos.',
+    cta: { label: 'Abrir tabela completa', href: '/atendimento/settings/procedures' },
+  },
 ];
 
 interface Props {
@@ -122,7 +135,7 @@ export function OnboardingWizard({
   const prevRef = useRef<{ screen: number; status: StepStatus } | null>(null);
   useEffect(() => {
     if (!state || !open) return;
-    if (screen === 0 || screen === 5) {
+    if (screen === 0 || screen === 6) {
       prevRef.current = null;
       return;
     }
@@ -139,7 +152,7 @@ export function OnboardingWizard({
 
     // 2. Mesmo screen, mas transicao de !done -> done -> avanca
     if (prev.status !== 'done' && curr === 'done') {
-      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 5)), 800);
+      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 6)), 800);
       return () => clearTimeout(t);
     }
   }, [state, screen, open]);
@@ -151,13 +164,13 @@ export function OnboardingWizard({
     setSubmitting(true);
     try {
       await onStepUpdate(step, 'skipped');
-      setScreen((s) => Math.min(s + 1, 5));
+      setScreen((s) => Math.min(s + 1, 6));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleNext = () => setScreen((s) => Math.min(s + 1, 5));
+  const handleNext = () => setScreen((s) => Math.min(s + 1, 6));
   const handlePrev = () => setScreen((s) => Math.max(s - 1, 0));
 
   const handleFinish = async () => {
@@ -191,7 +204,7 @@ export function OnboardingWizard({
       <div className="relative w-full max-w-3xl bg-white/95 dark:bg-card backdrop-blur-md rounded-3xl shadow-2xl overflow-hidden">
         {/* Progress dots */}
         <div className="px-8 pt-6 pb-2 flex items-center justify-center gap-2">
-          {[0, 1, 2, 3, 4, 5].map((s) => (
+          {[0, 1, 2, 3, 4, 5, 6].map((s) => (
             <div
               key={s}
               className={`h-1.5 rounded-full transition-all ${
@@ -207,7 +220,7 @@ export function OnboardingWizard({
         <div className="px-8 pb-8 pt-2 min-h-[440px] flex flex-col">
           {screen === 0 && <WelcomeScreen onStart={handleNext} />}
 
-          {screen >= 1 && screen <= 4 && (() => {
+          {screen >= 1 && screen <= 5 && (() => {
             const step = STEPS[screen - 1];
             const status = state.steps[step.key];
             return (
@@ -231,7 +244,7 @@ export function OnboardingWizard({
             );
           })()}
 
-          {screen === 5 && (
+          {screen === 6 && (
             <FinalScreen
               state={state}
               submitting={submitting}
@@ -293,13 +306,15 @@ function StepScreen({
   // Onda 17.32.143 — Paciente e Equipe tambem ganham formularios inline
   const isFirstPatient = step.key === 'first_patient';
   const isTeam = step.key === 'team';
-  const hasInlineForm = isWhatsapp || isAsaas || isFirstPatient || isTeam;
+  // Onda 17.32.151 — Tabela de precos com revisao inline
+  const isPricing = step.key === 'pricing';
+  const hasInlineForm = isWhatsapp || isAsaas || isFirstPatient || isTeam || isPricing;
 
   return (
     <div className="flex-1 flex flex-col py-6">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 text-xs text-muted-foreground font-semibold">
-        <span>Passo {step.index} de 4</span>
+        <span>Passo {step.index} de 5</span>
         {step.required ? (
           <span className="text-amber-600 dark:text-amber-400">• Recomendado</span>
         ) : (
@@ -357,6 +372,14 @@ function StepScreen({
         <TeamQuickInvite
           alreadyDone={isDone}
           onInvited={async () => { await onStepUpdate('team', 'done'); }}
+        />
+      )}
+
+      {/* Onda 17.32.151 — Tabela de Precos inline */}
+      {isPricing && (
+        <PricingQuickReview
+          alreadyDone={isDone}
+          onUpdated={async () => { await onStepUpdate('pricing', 'done'); }}
         />
       )}
 

@@ -281,6 +281,12 @@ export class TenantsService {
       asaas:         asaasReady    ? 'done' : (persisted.asaas         ?? 'pending'),
       first_patient: hasPatient    ? 'done' : (persisted.first_patient ?? 'pending'),
       team:          hasTeam       ? 'done' : (persisted.team          ?? 'pending'),
+      // Onda 17.32.151 — Tabela de precos. Auto-detect: se ja editou
+      // pelo menos 1 procedimento apos a criacao (updated_at > created_at + 30s),
+      // considera "revisado". Senao, persisted ou pending.
+      pricing:       (await this.detectPricingReviewed(tenantId))
+                       ? 'done'
+                       : (persisted.pricing ?? 'pending'),
     };
 
     return {
@@ -290,13 +296,34 @@ export class TenantsService {
       // Total de etapas obrigatorias (whatsapp + asaas) que ainda nao
       // estao done. Frontend usa pra decidir se mostra wizard agora.
       required_pending: ['whatsapp', 'asaas'].filter(s => (steps as any)[s] !== 'done').length,
-      // Quantas etapas opcionais ainda nao foram tocadas
-      optional_pending: ['first_patient', 'team'].filter(s => (steps as any)[s] === 'pending').length,
+      // Quantas etapas opcionais ainda nao foram tocadas (paciente, equipe, precos)
+      optional_pending: ['first_patient', 'team', 'pricing'].filter(s => (steps as any)[s] === 'pending').length,
     };
   }
 
+  /**
+   * Onda 17.32.151 — Detecta se o tenant ja revisou a tabela de
+   * precos. Heuristica: pelo menos 1 procedimento com updated_at
+   * significativamente apos o created_at do seed (margem 30s pra
+   * ignorar diferenca de timing do upsert no seed).
+   */
+  private async detectPricingReviewed(tenantId: string): Promise<boolean> {
+    try {
+      const raw = await this.prisma.$queryRaw<Array<{ count: bigint }>>`
+        SELECT COUNT(*)::bigint as count
+        FROM procedures
+        WHERE tenant_id = ${tenantId}
+          AND updated_at > created_at + INTERVAL '30 seconds'
+      `;
+      const editedCount = Number(raw?.[0]?.count ?? 0);
+      return editedCount >= 1;
+    } catch {
+      return false;
+    }
+  }
+
   async setOnboardingStep(tenantId: string, step: string, status: 'done' | 'skipped') {
-    const allowed = ['whatsapp', 'asaas', 'first_patient', 'team'];
+    const allowed = ['whatsapp', 'asaas', 'first_patient', 'team', 'pricing'];
     if (!allowed.includes(step)) {
       throw new BadRequestException(`Etapa invalida: ${step}`);
     }
