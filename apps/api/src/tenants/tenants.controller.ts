@@ -116,6 +116,17 @@ export class TenantsMeController {
       // Onda 17.32.150 — Identifica o ADMIN principal pra frontend
       // mostrar wizard/banner/trial-modal so pra ele.
       owner_user_id: t.owner_user_id,
+      // Onda 17.32.154 — Endereco, responsavel tecnico e horarios
+      zip_code:           (t as any).zip_code           ?? null,
+      address:            (t as any).address            ?? null,
+      address_number:     (t as any).address_number     ?? null,
+      address_complement: (t as any).address_complement ?? null,
+      neighborhood:       (t as any).neighborhood       ?? null,
+      city:               (t as any).city               ?? null,
+      state:              (t as any).state              ?? null,
+      responsible_name:   (t as any).responsible_name   ?? null,
+      responsible_cro:    (t as any).responsible_cro    ?? null,
+      business_hours:     (t as any).business_hours     ?? null,
     };
   }
 
@@ -151,6 +162,17 @@ export class TenantsMeController {
     email?: string | null;
     cpf_cnpj?: string | null;
     custom_domain?: string | null;
+    // Onda 17.32.154 — Endereco, responsavel, horarios
+    zip_code?: string | null;
+    address?: string | null;
+    address_number?: string | null;
+    address_complement?: string | null;
+    neighborhood?: string | null;
+    city?: string | null;
+    state?: string | null;
+    responsible_name?: string | null;
+    responsible_cro?: string | null;
+    business_hours?: string | null;
   }) {
     const tenantId = req.user?.tenant_id;
     const roles: string[] = req.user?.roles ?? [];
@@ -167,6 +189,17 @@ export class TenantsMeController {
     if (body.email !== undefined)         allowed.email = body.email;
     if (body.cpf_cnpj !== undefined)      allowed.cpf_cnpj = body.cpf_cnpj;
     if (body.custom_domain !== undefined) allowed.custom_domain = body.custom_domain;
+    // Onda 17.32.154 — Endereco, responsavel tec, horarios
+    if (body.zip_code !== undefined)           allowed.zip_code = body.zip_code;
+    if (body.address !== undefined)            allowed.address = body.address;
+    if (body.address_number !== undefined)     allowed.address_number = body.address_number;
+    if (body.address_complement !== undefined) allowed.address_complement = body.address_complement;
+    if (body.neighborhood !== undefined)       allowed.neighborhood = body.neighborhood;
+    if (body.city !== undefined)               allowed.city = body.city;
+    if (body.state !== undefined)              allowed.state = body.state;
+    if (body.responsible_name !== undefined)   allowed.responsible_name = body.responsible_name;
+    if (body.responsible_cro !== undefined)    allowed.responsible_cro = body.responsible_cro;
+    if (body.business_hours !== undefined)     allowed.business_hours = body.business_hours;
 
     return this.service.update(tenantId, allowed);
   }

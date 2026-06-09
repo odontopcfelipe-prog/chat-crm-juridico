@@ -20,6 +20,20 @@ model Tenant {
   logo_url         String? // exibido em login + sidebar + PDFs
   theme_color      String? // hex ex: "#3B82F6"
   custom_domain    String?   @unique // ex: "sistema.clinicapassos.com.br"
+  // Onda 17.32.154 — Endereco da clinica (aparece em recibos, contratos, NFs)
+  zip_code           String?
+  address            String?
+  address_number     String?
+  address_complement String?
+  neighborhood       String?
+  city               String?
+  state              String?  @db.VarChar(2)
+  // Onda 17.32.154 — Responsavel tecnico (dentista CRO da clinica)
+  responsible_name   String?
+  responsible_cro    String?  // ex: "12345-SP"
+  // Onda 17.32.154 — Horario de funcionamento (texto livre por simplicidade)
+  // ex: "Seg-Sex 08:00-18:00, Sab 08:00-12:00"
+  business_hours     String?
   /// Usuario "dono" (responsavel financeiro do tenant). Quando suspende, ele eh
   /// avisado. Nao bloqueia delete do User — owner_user_id vira null.
   owner_user_id    String?
