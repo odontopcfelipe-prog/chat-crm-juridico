@@ -399,14 +399,12 @@ function StepScreen({
         />
       )}
 
-      {/* Onda 17.32.151/155 — Tabela de Precos: card resumo com botao
-          que abre a tela completa. NAO marca como done direto — o
-          auto-detect do backend (>=1 procedimento editado) faz isso
-          quando o user voltar da tela completa. */}
+      {/* Onda 17.32.151/155/156 — Tabela de Precos: card resumo com
+          botao que abre a tela completa EM CIMA do wizard (modal
+          fullscreen com iframe). User nao sai do fluxo. */}
       {isPricing && (
         <PricingQuickReview
           alreadyDone={isDone}
-          onClose={onClose}
         />
       )}
 
