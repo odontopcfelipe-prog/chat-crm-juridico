@@ -21,7 +21,9 @@ import api from '@/lib/api';
 interface Procedure {
   id: string;
   name: string;
-  base_price: number | null;
+  // Prisma Decimal serializa como STRING em JSON, nao number.
+  // Aceitamos os 3 formatos pra robustez.
+  base_price: number | string | null;
   duration_minutes: number | null;
   active: boolean;
   specialty?: { id: string; name: string } | null;
@@ -32,14 +34,22 @@ interface Props {
   onUpdated: () => Promise<void>;
 }
 
-function formatBRL(n: number | null | undefined): string {
-  if (n == null || isNaN(n as any)) return 'R$ 0,00';
+/** Onda 17.32.153 — Coerce qualquer tipo (number|string|null) pra number. */
+function toNumber(v: number | string | null | undefined): number {
+  if (v == null) return 0;
+  if (typeof v === 'number') return isFinite(v) ? v : 0;
+  const n = parseFloat(String(v).replace(',', '.'));
+  return isFinite(n) ? n : 0;
+}
+
+function formatBRL(v: number | string | null | undefined): string {
+  const n = toNumber(v);
   return `R$ ${n.toFixed(2).replace('.', ',')}`;
 }
 
 function parseBRL(s: string): number {
-  // Remove "R$", pontos e troca vírgula por ponto
-  const clean = s.replace(/[R$\s.]/g, '').replace(',', '.');
+  // Remove "R$", pontos de milhar e troca vírgula por ponto
+  const clean = String(s).replace(/[R$\s.]/g, '').replace(',', '.');
   const n = parseFloat(clean);
   return isNaN(n) ? 0 : n;
 }
@@ -59,6 +69,10 @@ export default function PricingQuickReview({ alreadyDone = false, onUpdated }: P
   // Confirmação de remoção
   const [confirmDelete, setConfirmDelete] = useState<Procedure | null>(null);
 
+  // Onda 17.32.153 — Override local do input de preco por id (em vez
+  // de mutar o objeto Procedure com cast `as any`)
+  const [localEdits, setLocalEdits] = useState<Record<string, string>>({});
+
   const fetchList = useCallback(async () => {
     setLoading(true); setError(null);
     try {
@@ -76,19 +90,26 @@ export default function PricingQuickReview({ alreadyDone = false, onUpdated }: P
 
   // ─── Edita preço inline ──────────────────────────────────────────
   const handlePriceChange = (id: string, newValue: string) => {
-    setList((arr) => arr.map((p) => p.id === id ? { ...p, _localPrice: newValue } as any : p));
+    setLocalEdits((m) => ({ ...m, [id]: newValue }));
   };
 
   const handlePriceBlur = async (proc: Procedure) => {
-    const localStr = (proc as any)._localPrice ?? formatBRL(proc.base_price);
+    const localStr = localEdits[proc.id];
+    if (localStr === undefined) return; // nao editou
     const newPrice = parseBRL(localStr);
-    if (newPrice === proc.base_price) return; // nao mudou
+    const currentPrice = toNumber(proc.base_price);
+    if (newPrice === currentPrice) {
+      // Limpa override pra mostrar valor formatado oficial
+      setLocalEdits((m) => { const c = { ...m }; delete c[proc.id]; return c; });
+      return;
+    }
     setSavingId(proc.id);
     try {
       await api.patch(`/procedures/${proc.id}`, { base_price: newPrice });
       setList((arr) => arr.map((p) =>
-        p.id === proc.id ? { ...p, base_price: newPrice, _localPrice: undefined as any } : p
+        p.id === proc.id ? { ...p, base_price: newPrice } : p
       ));
+      setLocalEdits((m) => { const c = { ...m }; delete c[proc.id]; return c; });
       setSuccessMsg(`"${proc.name}" atualizado pra ${formatBRL(newPrice)}`);
       setTimeout(() => setSuccessMsg(null), 3000);
       await onUpdated();
@@ -210,7 +231,7 @@ export default function PricingQuickReview({ alreadyDone = false, onUpdated }: P
       ) : (
         <ul className="space-y-1.5">
           {list.map((proc) => {
-            const localPrice = (proc as any)._localPrice;
+            const localPrice = localEdits[proc.id];
             const isSaving = savingId === proc.id;
             return (
               <li
