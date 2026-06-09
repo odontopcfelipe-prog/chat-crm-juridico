@@ -24,6 +24,8 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
+// Onda 17.32.148 — form completo de paciente (em arquivo separado)
+import PatientFullCreate from './onboarding/PatientFullCreate';
 
 type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team';
 type StepStatus = 'done' | 'skipped' | 'pending';
@@ -341,11 +343,10 @@ function StepScreen({
         />
       )}
 
-      {/* Onda 17.32.146 — Paciente Quick Create inline (sempre visivel
-          mesmo se ja "done" — o backend marca done pq tem N pacientes
-          no banco, mas o user pode querer cadastrar UM MAIS pelo wizard) */}
+      {/* Onda 17.32.146/148 — Paciente Full Create (form completo,
+          arquivo separado pra nao inflar este componente) */}
       {isFirstPatient && (
-        <PatientQuickCreate
+        <PatientFullCreate
           alreadyDone={isDone}
           onCreated={async () => { await onStepUpdate('first_patient', 'done'); }}
         />
