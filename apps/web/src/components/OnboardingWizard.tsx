@@ -20,7 +20,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import {
   Sparkles, ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
   MessageSquare, CreditCard, Users, UserPlus, Rocket, QrCode,
-  AlertCircle, Smartphone, RefreshCw, Tag,
+  AlertCircle, Smartphone, RefreshCw, Tag, Building2,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
@@ -28,8 +28,10 @@ import api from '@/lib/api';
 import PatientFullCreate from './onboarding/PatientFullCreate';
 // Onda 17.32.151 — revisao da tabela de precos
 import PricingQuickReview from './onboarding/PricingQuickReview';
+// Onda 17.32.152 — revisao da identidade da clinica (passo 1)
+import ClinicIdentityReview from './onboarding/ClinicIdentityReview';
 
-type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
+type StepKey = 'clinic_profile' | 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
 
 interface OnboardingState {
@@ -52,9 +54,20 @@ interface StepDef {
 }
 
 const STEPS: StepDef[] = [
+  // Onda 17.32.152 — Identidade da clinica (primeiro passo).
+  {
+    key: 'clinic_profile',
+    index: 1,
+    required: true,
+    icon: <Building2 size={36} />,
+    iconBg: 'from-emerald-500 to-emerald-700',
+    title: 'Confirme os dados da clínica ou consultório',
+    description: 'Os dados que aparecem em recibos, contratos e notas fiscais. Você já preencheu no cadastro inicial — vamos só confirmar e completar o que faltar.',
+    cta: { label: 'Editar identidade', href: '/atendimento/settings/identidade' },
+  },
   {
     key: 'whatsapp',
-    index: 1,
+    index: 2,
     required: true,
     icon: <MessageSquare size={36} />,
     iconBg: 'from-emerald-500 to-emerald-700',
@@ -64,7 +77,7 @@ const STEPS: StepDef[] = [
   },
   {
     key: 'asaas',
-    index: 2,
+    index: 3,
     required: true,
     icon: <CreditCard size={36} />,
     iconBg: 'from-violet-500 to-violet-700',
@@ -74,7 +87,7 @@ const STEPS: StepDef[] = [
   },
   {
     key: 'first_patient',
-    index: 3,
+    index: 4,
     required: false,
     icon: <UserPlus size={36} />,
     iconBg: 'from-sky-500 to-sky-700',
@@ -84,7 +97,7 @@ const STEPS: StepDef[] = [
   },
   {
     key: 'team',
-    index: 4,
+    index: 5,
     required: false,
     icon: <Users size={36} />,
     iconBg: 'from-amber-500 to-amber-700',
@@ -95,7 +108,7 @@ const STEPS: StepDef[] = [
   // Onda 17.32.151 — Tabela de precos (opcional, mas valioso)
   {
     key: 'pricing',
-    index: 5,
+    index: 6,
     required: false,
     icon: <Tag size={36} />,
     iconBg: 'from-violet-500 to-violet-700',
@@ -135,7 +148,7 @@ export function OnboardingWizard({
   const prevRef = useRef<{ screen: number; status: StepStatus } | null>(null);
   useEffect(() => {
     if (!state || !open) return;
-    if (screen === 0 || screen === 6) {
+    if (screen === 0 || screen === 7) {
       prevRef.current = null;
       return;
     }
@@ -152,7 +165,7 @@ export function OnboardingWizard({
 
     // 2. Mesmo screen, mas transicao de !done -> done -> avanca
     if (prev.status !== 'done' && curr === 'done') {
-      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 6)), 800);
+      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 7)), 800);
       return () => clearTimeout(t);
     }
   }, [state, screen, open]);
@@ -164,13 +177,13 @@ export function OnboardingWizard({
     setSubmitting(true);
     try {
       await onStepUpdate(step, 'skipped');
-      setScreen((s) => Math.min(s + 1, 6));
+      setScreen((s) => Math.min(s + 1, 7));
     } finally {
       setSubmitting(false);
     }
   };
 
-  const handleNext = () => setScreen((s) => Math.min(s + 1, 6));
+  const handleNext = () => setScreen((s) => Math.min(s + 1, 7));
   const handlePrev = () => setScreen((s) => Math.max(s - 1, 0));
 
   const handleFinish = async () => {
@@ -204,7 +217,7 @@ export function OnboardingWizard({
       <div className="relative w-full max-w-3xl bg-white/95 dark:bg-card backdrop-blur-md rounded-3xl shadow-2xl overflow-hidden">
         {/* Progress dots */}
         <div className="px-8 pt-6 pb-2 flex items-center justify-center gap-2">
-          {[0, 1, 2, 3, 4, 5, 6].map((s) => (
+          {[0, 1, 2, 3, 4, 5, 6, 7].map((s) => (
             <div
               key={s}
               className={`h-1.5 rounded-full transition-all ${
@@ -220,7 +233,7 @@ export function OnboardingWizard({
         <div className="px-8 pb-8 pt-2 min-h-[440px] flex flex-col">
           {screen === 0 && <WelcomeScreen onStart={handleNext} />}
 
-          {screen >= 1 && screen <= 5 && (() => {
+          {screen >= 1 && screen <= 6 && (() => {
             const step = STEPS[screen - 1];
             const status = state.steps[step.key];
             return (
@@ -244,7 +257,7 @@ export function OnboardingWizard({
             );
           })()}
 
-          {screen === 6 && (
+          {screen === 7 && (
             <FinalScreen
               state={state}
               submitting={submitting}
@@ -308,13 +321,15 @@ function StepScreen({
   const isTeam = step.key === 'team';
   // Onda 17.32.151 — Tabela de precos com revisao inline
   const isPricing = step.key === 'pricing';
-  const hasInlineForm = isWhatsapp || isAsaas || isFirstPatient || isTeam || isPricing;
+  // Onda 17.32.152 — Identidade da clinica (passo 1)
+  const isClinicProfile = step.key === 'clinic_profile';
+  const hasInlineForm = isClinicProfile || isWhatsapp || isAsaas || isFirstPatient || isTeam || isPricing;
 
   return (
     <div className="flex-1 flex flex-col py-6">
       {/* Header */}
       <div className="flex items-center gap-3 mb-6 text-xs text-muted-foreground font-semibold">
-        <span>Passo {step.index} de 5</span>
+        <span>Passo {step.index} de 6</span>
         {step.required ? (
           <span className="text-amber-600 dark:text-amber-400">• Recomendado</span>
         ) : (
@@ -340,6 +355,15 @@ function StepScreen({
           <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
         </div>
       </div>
+
+      {/* Onda 17.32.152 — Identidade da clinica (passo 1, sempre
+          visivel mesmo se ja "done" — user pode querer revisar) */}
+      {isClinicProfile && (
+        <ClinicIdentityReview
+          alreadyDone={isDone}
+          onSaved={async () => { await onStepUpdate('clinic_profile', 'done'); }}
+        />
+      )}
 
       {/* Onda 17.32.137 — WhatsApp Quick Connect inline (QR no proprio
           card do wizard, sem precisar sair pra outra tela) */}

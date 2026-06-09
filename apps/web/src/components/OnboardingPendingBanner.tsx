@@ -12,11 +12,11 @@
  *  - todas as etapas estao 'done' ou 'skipped'
  */
 import { useEffect, useState, useCallback } from 'react';
-import { Sparkles, ArrowRight, MessageSquare, CreditCard, UserPlus, Users, CheckCircle2, Tag } from 'lucide-react';
+import { Sparkles, ArrowRight, MessageSquare, CreditCard, UserPlus, Users, CheckCircle2, Tag, Building2 } from 'lucide-react';
 import api from '@/lib/api';
 import { useTenant, useIsTenantOwner } from '@/lib/useTenant';
 
-type StepKey = 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
+type StepKey = 'clinic_profile' | 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
 
 interface OnboardingState {
@@ -27,6 +27,7 @@ interface OnboardingState {
 }
 
 const STEP_META: Record<StepKey, { label: string; Icon: any; required: boolean }> = {
+  clinic_profile:{ label: 'Identidade da clínica', Icon: Building2,   required: true  },
   whatsapp:      { label: 'WhatsApp',           Icon: MessageSquare, required: true  },
   asaas:         { label: 'Cobrança Asaas',     Icon: CreditCard,    required: true  },
   first_patient: { label: '1° paciente',         Icon: UserPlus,      required: false },
@@ -87,11 +88,11 @@ export function OnboardingPendingBanner() {
     } catch { /* ignora */ }
   };
 
-  const pendingSteps = (['whatsapp', 'asaas', 'first_patient', 'team', 'pricing'] as StepKey[])
+  const pendingSteps = (['clinic_profile', 'whatsapp', 'asaas', 'first_patient', 'team', 'pricing'] as StepKey[])
     .filter(k => state.steps[k] === 'pending');
-  const doneCount = (['whatsapp', 'asaas', 'first_patient', 'team', 'pricing'] as StepKey[])
+  const doneCount = (['clinic_profile', 'whatsapp', 'asaas', 'first_patient', 'team', 'pricing'] as StepKey[])
     .filter(k => state.steps[k] === 'done').length;
-  const progress = Math.round((doneCount / 5) * 100);
+  const progress = Math.round((doneCount / 6) * 100);
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-violet-500/30 bg-gradient-to-r from-violet-500/10 via-violet-500/5 to-emerald-500/5 p-5 mb-6">
@@ -109,7 +110,7 @@ export function OnboardingPendingBanner() {
           <h3 className="text-sm font-bold text-foreground tracking-tight flex items-center gap-2 flex-wrap">
             Termine de configurar seu sistema
             <span className="text-[10px] font-extrabold bg-violet-600/20 text-violet-700 dark:text-violet-300 px-2 py-0.5 rounded-full">
-              {doneCount}/5 prontos
+              {doneCount}/6 prontos
             </span>
           </h3>
 

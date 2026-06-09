@@ -276,7 +276,22 @@ export class TenantsService {
     const userCount = await this.prisma.user.count({ where: { tenant_id: tenantId } });
     const hasTeam = userCount > 1;
 
+    // Onda 17.32.152 — Auto-detect identidade da clinica: name, phone,
+    // email e cpf_cnpj todos preenchidos = done. Sao os 4 dados que
+    // aparecem em cabecalho de recibos, contratos, NFs.
+    const tenantRow = await this.prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { name: true, phone: true, email: true, cpf_cnpj: true },
+    });
+    const clinicProfileReady = !!(
+      tenantRow?.name?.trim() &&
+      tenantRow?.phone?.trim() &&
+      tenantRow?.email?.trim() &&
+      tenantRow?.cpf_cnpj?.trim()
+    );
+
     const steps = {
+      clinic_profile: clinicProfileReady ? 'done' : (persisted.clinic_profile ?? 'pending'),
       whatsapp:      whatsappReady ? 'done' : (persisted.whatsapp      ?? 'pending'),
       asaas:         asaasReady    ? 'done' : (persisted.asaas         ?? 'pending'),
       first_patient: hasPatient    ? 'done' : (persisted.first_patient ?? 'pending'),
@@ -293,9 +308,10 @@ export class TenantsService {
       steps,
       completed_at: persisted.completed_at ?? null,
       dismissed_at: persisted.dismissed_at ?? null,
-      // Total de etapas obrigatorias (whatsapp + asaas) que ainda nao
-      // estao done. Frontend usa pra decidir se mostra wizard agora.
-      required_pending: ['whatsapp', 'asaas'].filter(s => (steps as any)[s] !== 'done').length,
+      // Total de etapas obrigatorias (clinic_profile + whatsapp + asaas)
+      // que ainda nao estao done. Frontend usa pra decidir se mostra
+      // wizard agora.
+      required_pending: ['clinic_profile', 'whatsapp', 'asaas'].filter(s => (steps as any)[s] !== 'done').length,
       // Quantas etapas opcionais ainda nao foram tocadas (paciente, equipe, precos)
       optional_pending: ['first_patient', 'team', 'pricing'].filter(s => (steps as any)[s] === 'pending').length,
     };
@@ -323,7 +339,7 @@ export class TenantsService {
   }
 
   async setOnboardingStep(tenantId: string, step: string, status: 'done' | 'skipped') {
-    const allowed = ['whatsapp', 'asaas', 'first_patient', 'team', 'pricing'];
+    const allowed = ['clinic_profile', 'whatsapp', 'asaas', 'first_patient', 'team', 'pricing'];
     if (!allowed.includes(step)) {
       throw new BadRequestException(`Etapa invalida: ${step}`);
     }
