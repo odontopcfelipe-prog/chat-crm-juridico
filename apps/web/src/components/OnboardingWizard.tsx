@@ -264,6 +264,10 @@ function StepScreen({
   const isWhatsapp = step.key === 'whatsapp';
   // Onda 17.32.141 — Asaas tambem ganha setup inline
   const isAsaas = step.key === 'asaas';
+  // Onda 17.32.143 — Paciente e Equipe tambem ganham formularios inline
+  const isFirstPatient = step.key === 'first_patient';
+  const isTeam = step.key === 'team';
+  const hasInlineForm = isWhatsapp || isAsaas || isFirstPatient || isTeam;
 
   return (
     <div className="flex-1 flex flex-col py-6">
@@ -311,6 +315,20 @@ function StepScreen({
         />
       )}
 
+      {/* Onda 17.32.143 — Paciente Quick Create inline */}
+      {isFirstPatient && !isDone && (
+        <PatientQuickCreate
+          onCreated={async () => { await onStepUpdate('first_patient', 'done'); }}
+        />
+      )}
+
+      {/* Onda 17.32.143 — Equipe Quick Invite inline */}
+      {isTeam && !isDone && (
+        <TeamQuickInvite
+          onInvited={async () => { await onStepUpdate('team', 'done'); }}
+        />
+      )}
+
       {/* Spacer */}
       <div className="flex-1" />
 
@@ -347,10 +365,11 @@ function StepScreen({
               Continuar
               <ArrowRight size={14} />
             </button>
-          ) : isWhatsapp || isAsaas ? (
-            // Onda 17.32.139/141 — Botao "Seguir" pra avancar mesmo
-            // sem ter completado. Quando configurar de verdade, o
-            // auto-detect marca como done.
+          ) : hasInlineForm ? (
+            // Onda 17.32.139/141/143 — Todos os passos com form inline
+            // (Whatsapp, Asaas, Paciente, Equipe) ganham botao "Seguir"
+            // pra avancar mesmo sem ter completado. Quando configurar
+            // de verdade, o auto-detect marca como done.
             <button
               type="button"
               onClick={onSkip}
@@ -674,6 +693,224 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
         {submitting ? 'Validando…' : 'Conectar Asaas'}
+      </button>
+
+      {error && (
+        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Paciente Quick Create inline (Onda 17.32.143) ────────────────
+function PatientQuickCreate({ onCreated }: { onCreated: () => Promise<void> }) {
+  const [name, setName] = useState('');
+  const [phone, setPhone] = useState('');
+  const [birthDate, setBirthDate] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null); setSubmitting(true);
+    try {
+      const payload: any = { name: name.trim() };
+      if (phone.trim()) payload.phone = phone.trim();
+      if (birthDate) payload.birth_date = birthDate;
+      await api.post('/patients', payload);
+      await onCreated();
+    } catch (e: any) {
+      const raw = e?.response?.data?.message || '';
+      if (typeof raw === 'string' && raw.startsWith('Cannot')) {
+        setError('Servidor ainda nao reconhece — deploy em andamento?');
+      } else if (Array.isArray(raw)) {
+        setError(raw.join(', '));
+      } else {
+        setError(raw || 'Nao foi possivel criar o paciente.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmit = name.trim().length >= 2 && !submitting;
+
+  return (
+    <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5">
+      <label className="block mb-2 text-xs font-bold text-foreground">
+        Nome completo do paciente
+      </label>
+      <input
+        type="text"
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        placeholder="Ex: Maria da Silva"
+        className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
+        autoFocus
+      />
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">
+            Telefone <span className="text-muted-foreground font-normal">(opcional)</span>
+          </label>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="(11) 99999-9999"
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">
+            Data de nascimento <span className="text-muted-foreground font-normal">(opcional)</span>
+          </label>
+          <input
+            type="date"
+            value={birthDate}
+            onChange={(e) => setBirthDate(e.target.value)}
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
+          />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={submit}
+        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(14,165,233,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {submitting ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
+        {submitting ? 'Salvando…' : 'Cadastrar paciente'}
+      </button>
+
+      {error && (
+        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+          <AlertCircle size={14} className="shrink-0 mt-0.5" />
+          <span>{error}</span>
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ─── Equipe Quick Invite inline (Onda 17.32.143) ──────────────────
+const TEAM_ROLES = [
+  { value: 'DENTIST',    label: '🦷 Dentista' },
+  { value: 'OPERADOR',   label: '🛎️ Recepção' },
+  { value: 'ASSISTANT',  label: '🧤 ACD / ASB' },
+  { value: 'COMERCIAL',  label: '💬 CRC (Atendimento)' },
+  { value: 'FINANCEIRO', label: '💰 Financeiro' },
+  { value: 'ADMIN',      label: '👑 Administrador' },
+];
+
+function TeamQuickInvite({ onInvited }: { onInvited: () => Promise<void> }) {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [role, setRole] = useState('DENTIST');
+  const [password, setPassword] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async () => {
+    setError(null); setSubmitting(true);
+    try {
+      await api.post('/users', {
+        name: name.trim(),
+        email: email.trim(),
+        password: password.trim(),
+        roles: [role],
+      });
+      await onInvited();
+    } catch (e: any) {
+      const raw = e?.response?.data?.message || '';
+      if (typeof raw === 'string' && raw.startsWith('Cannot')) {
+        setError('Servidor ainda nao reconhece — deploy em andamento?');
+      } else if (Array.isArray(raw)) {
+        setError(raw.join(', '));
+      } else {
+        setError(raw || 'Nao foi possivel criar o usuario.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmit =
+    name.trim().length >= 2 &&
+    /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) &&
+    password.trim().length >= 6 &&
+    !submitting;
+
+  return (
+    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5">
+      <p className="text-[11px] text-muted-foreground mb-3">
+        Adicione 1 pessoa agora. Você cadastra os demais a qualquer momento em
+        <b> Configurações → Usuários</b>.
+      </p>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">Nome</label>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Ex: Dr. João"
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all"
+            autoFocus
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">Cargo</label>
+          <select
+            value={role}
+            onChange={(e) => setRole(e.target.value)}
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all cursor-pointer"
+          >
+            {TEAM_ROLES.map((r) => (
+              <option key={r.value} value={r.value}>{r.label}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">E-mail</label>
+          <input
+            type="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="joao@suaclinica.com.br"
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all"
+            autoComplete="off"
+          />
+        </div>
+        <div>
+          <label className="block mb-1 text-xs font-bold text-foreground">Senha temporária</label>
+          <input
+            type="text"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Mínimo 6 caracteres"
+            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all font-mono"
+            autoComplete="off"
+          />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        disabled={!canSubmit}
+        onClick={submit}
+        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {submitting ? <Loader2 className="animate-spin" size={16} /> : <Users size={16} />}
+        {submitting ? 'Convidando…' : 'Convidar membro'}
       </button>
 
       {error && (
