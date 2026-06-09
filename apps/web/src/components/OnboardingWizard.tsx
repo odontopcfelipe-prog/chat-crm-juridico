@@ -399,11 +399,14 @@ function StepScreen({
         />
       )}
 
-      {/* Onda 17.32.151 — Tabela de Precos inline */}
+      {/* Onda 17.32.151/155 — Tabela de Precos: card resumo com botao
+          que abre a tela completa. NAO marca como done direto — o
+          auto-detect do backend (>=1 procedimento editado) faz isso
+          quando o user voltar da tela completa. */}
       {isPricing && (
         <PricingQuickReview
           alreadyDone={isDone}
-          onUpdated={async () => { await onStepUpdate('pricing', 'done'); }}
+          onClose={onClose}
         />
       )}
 
