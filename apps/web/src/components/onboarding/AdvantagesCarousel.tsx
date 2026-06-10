@@ -263,8 +263,9 @@ export default function AdvantagesCarousel({ onFinish, onSkip, onAccentChange }:
         </button>
       </div>
 
-      {/* Corpo (anim re-dispara por card via key) */}
-      <div key={v.id} className="anim-card px-6 pb-2 pt-5">
+      {/* Corpo (anim re-dispara por card via key). flex-1 +
+          justify-center: preenche a altura padronizada do card */}
+      <div key={v.id} className="anim-card flex min-h-0 flex-1 flex-col justify-center overflow-y-auto px-6 pb-2 pt-5">
         <div className="flex items-center gap-3">
           <div className={'flex h-11 w-11 items-center justify-center rounded-2xl ring-1 ' + accent.iconBg}>
             <VIcon className={'h-5 w-5 ' + accent.text} />
@@ -283,7 +284,7 @@ export default function AdvantagesCarousel({ onFinish, onSkip, onAccentChange }:
       </div>
 
       {/* Footer de navegacao */}
-      <div className="flex items-center justify-between gap-3 px-6 pb-6 pt-4">
+      <div className="flex shrink-0 items-center justify-between gap-3 px-6 pb-6 pt-4">
         <button
           type="button"
           onClick={back}

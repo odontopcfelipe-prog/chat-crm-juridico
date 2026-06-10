@@ -276,10 +276,12 @@ export function OnboardingWizard({
         {/* Glow de acento (troca de cor na fase de vantagens) */}
         <div className={'pointer-events-none absolute -inset-10 rounded-[40px] blur-3xl transition-colors duration-700 ' + glowClass} />
 
+        {/* Onda 17.32.170 — altura PADRONIZADA em todas as fases:
+            o conteudo rola dentro do card, o card nao muda de tamanho */}
         <div className={
           screen === 7
-            ? 'relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/70 shadow-2xl backdrop-blur-xl'
-            : 'relative overflow-hidden rounded-3xl bg-white shadow-2xl'
+            ? 'relative flex h-[min(640px,85vh)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/70 shadow-2xl backdrop-blur-xl'
+            : 'relative flex h-[min(640px,85vh)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl'
         }>
           {/* Header da fase de configuracao: eyebrow + stepper de pilulas */}
           {screen >= 1 && screen <= 6 && (() => {
@@ -358,7 +360,7 @@ export function OnboardingWizard({
 // ─── Tela 0: Boas-vindas ─────────────────────────────────────────
 function WelcomeScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="anim-card flex flex-col items-center px-6 py-12 text-center">
+    <div className="anim-card flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-10 text-center">
       <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 ring-1 ring-emerald-200">
         <Sparkles className="h-6 w-6 text-emerald-600" />
       </div>
@@ -413,9 +415,9 @@ function StepScreen({
   const L = LIGHT[step.accent];
 
   return (
-    <div key={step.key} className="anim-card flex flex-col px-6 pb-6 pt-5">
+    <div key={step.key} className="anim-card flex min-h-0 flex-1 flex-col px-6 pb-6 pt-5">
       {/* Cabecalho do passo: tile de icone + eyebrow + titulo */}
-      <div className="mb-5 flex items-start gap-4">
+      <div className="mb-5 flex shrink-0 items-start gap-4">
         <div className={'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ' + L.tile}>
           <Icon className={'h-5 w-5 ' + L.text} />
         </div>
@@ -437,6 +439,10 @@ function StepScreen({
           <p className="mt-1 text-[13px] leading-relaxed text-zinc-500">{step.description}</p>
         </div>
       </div>
+
+      {/* Onda 17.32.170 — area central rolavel: o card tem altura
+          fixa, entao o form rola aqui dentro e o rodape fica no pe */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
 
       {/* Onda 17.32.152 — Identidade da clinica (passo 1, sempre
           visivel mesmo se ja "done" — user pode querer revisar) */}
@@ -491,8 +497,10 @@ function StepScreen({
         />
       )}
 
+      </div>
+
       {/* Rodape de navegacao */}
-      <div className="mt-6 flex items-center justify-between gap-3 border-t border-zinc-100 pt-4">
+      <div className="mt-4 flex shrink-0 items-center justify-between gap-3 border-t border-zinc-100 pt-4">
         <button
           type="button"
           onClick={onPrev}
@@ -574,8 +582,8 @@ function FinalScreen({
   const allDone = state.required_pending === 0 && state.optional_pending === 0;
 
   return (
-    <div className="anim-card flex flex-col items-center px-6 py-10 text-center">
-      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-100 ring-1 ring-emerald-200">
+    <div className="anim-card flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-8 text-center">
+      <div className="mb-5 flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 ring-1 ring-emerald-200">
         <Check className="h-7 w-7 text-emerald-600" />
       </div>
       <h1 className="text-2xl font-bold leading-tight text-zinc-900">

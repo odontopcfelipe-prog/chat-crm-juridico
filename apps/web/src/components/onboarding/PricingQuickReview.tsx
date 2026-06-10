@@ -223,7 +223,7 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
 
   return (
     <>
-      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4 max-h-[52vh] overflow-y-auto">
+      <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-4">
         {/* Banner sucesso efemero */}
         {successMsg && (
           <div className="mb-3 flex items-center gap-2 rounded-xl bg-emerald-50 p-2.5 ring-1 ring-emerald-200">

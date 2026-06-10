@@ -144,7 +144,7 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
   const canSubmit = form.name.trim().length >= 2 && !submitting;
 
   return (
-    <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5 max-h-[55vh] overflow-y-auto">
+    <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5">
       {/* Banner de sucesso */}
       {successName && (
         <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">

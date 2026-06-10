@@ -186,9 +186,9 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
     }
   };
 
-  // Onda 17.32.154 — min-height fixo evita layout shift
-  const containerCls =
-    'rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5 min-h-[400px] max-h-[55vh] overflow-y-auto';
+  // Onda 17.32.170 — sem max-h proprio: quem rola e a area central
+  // do StepScreen (card de altura padronizada)
+  const containerCls = 'rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5';
 
   if (loading) {
     return (
