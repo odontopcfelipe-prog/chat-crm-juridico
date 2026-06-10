@@ -475,6 +475,22 @@ export class WhatsappService {
       return false;
     });
 
+    // Onda 17.33 — Self-healing: garante que cada instancia do tenant esta
+    // registrada na tabela Instance + vinculada a Inbox (e backfilla conversas
+    // orfaas). Repara instancias criadas pelo quickConnect antes deste fix.
+    // Best-effort em paralelo; nao bloqueia a listagem se falhar.
+    await Promise.all(
+      mine
+        .filter((i) => (i.instanceName || '').startsWith(`${prefix}-`))
+        .map((i) =>
+          this.ensureInstanceRegistered(
+            tenantId,
+            i.instanceName,
+            displayMap[i.instanceName],
+          ),
+        ),
+    );
+
     return mine.map((i) => ({
       ...i,
       displayName: displayMap[i.instanceName] || this.guessDisplayName(i.instanceName, prefix),
@@ -487,6 +503,120 @@ export class WhatsappService {
     const m = instanceName.match(new RegExp(`^${prefix}-(\\d+)$`));
     if (m) return `Linha ${m[1]}`;
     return instanceName; // legacy: mostra o nome cru
+  }
+
+  /**
+   * Onda 17.33 — Garante que a instancia do tenant esta REGISTRADA na tabela
+   * Instance (Prisma) e vinculada a um Inbox. Sem esse registro, o webhook
+   * da Evolution (evolution.service.handleMessagesUpsert) nao resolve o
+   * tenant e as conversas nascem com tenant_id=null/inbox_id=null —
+   * invisiveis pra todo mundo (bug "conectou mas mensagens nao chegam").
+   *
+   * Idempotente e self-healing:
+   *   1. So atua em instancias do padrao do tenant (t<hash8>-N). Instancias
+   *      legadas (override EVOLUTION_INSTANCE_NAME, ex "Comercial") sao
+   *      IGNORADAS — podem ser compartilhadas e ja tem vinculo manual.
+   *   2. Upsert da Instance com tenant_id.
+   *   3. Vincula a um Inbox: usa o inbox mais antigo do tenant SEM instancia
+   *      vinculada; se nao houver, cria um default com o displayName e
+   *      conecta todos os usuarios do tenant (pra operadores enxergarem).
+   *   4. Backfill: conversas/leads orfaos (tenant_id null) daquela instancia
+   *      ganham tenant_id + inbox_id retroativamente.
+   *
+   * Chamado no quickConnect (novas conexoes) e no listForTenant (repara
+   * instancias criadas antes deste fix quando a tela de WhatsApp abre).
+   */
+  private async ensureInstanceRegistered(
+    tenantId: string,
+    instanceName: string,
+    displayName?: string,
+  ): Promise<void> {
+    const prefix = this.tenantPrefix(tenantId);
+    if (!instanceName.startsWith(`${prefix}-`)) return; // legacy/foreign: nao mexe
+
+    try {
+      const existing = await this.prisma.instance.findUnique({
+        where: { name: instanceName },
+        select: { id: true, tenant_id: true, inbox_id: true },
+      });
+
+      // Ja registrada com tenant + inbox? Nada a fazer (caminho quente do
+      // listForTenant — 1 query e sai).
+      if (existing?.tenant_id && existing?.inbox_id) return;
+
+      // Resolve o inbox alvo: mais antigo do tenant sem instancia vinculada,
+      // senao cria um default.
+      let inboxId: string | null = existing?.inbox_id ?? null;
+      if (!inboxId) {
+        const freeInbox = await this.prisma.inbox.findFirst({
+          where: { tenant_id: tenantId, instances: { none: {} } },
+          orderBy: { created_at: 'asc' },
+          select: { id: true },
+        });
+        if (freeInbox) {
+          inboxId = freeInbox.id;
+        } else {
+          const tenantUsers = await this.prisma.user.findMany({
+            where: { tenant_id: tenantId },
+            select: { id: true },
+          });
+          const createdInbox = await this.prisma.inbox.create({
+            data: {
+              name: (displayName || '').trim() || 'WhatsApp da clinica',
+              tenant_id: tenantId,
+              auto_route: false,
+              users: tenantUsers.length > 0
+                ? { connect: tenantUsers.map((u) => ({ id: u.id })) }
+                : undefined,
+            },
+            select: { id: true },
+          });
+          inboxId = createdInbox.id;
+          this.logger.log(
+            `[ENSURE-INSTANCE] Inbox default criado pro tenant ${tenantId} (${tenantUsers.length} usuarios conectados)`,
+          );
+        }
+      }
+
+      await this.prisma.instance.upsert({
+        where: { name: instanceName },
+        create: {
+          name: instanceName,
+          type: 'whatsapp',
+          tenant_id: tenantId,
+          inbox_id: inboxId,
+        },
+        update: {
+          tenant_id: tenantId,
+          inbox_id: inboxId,
+        },
+      });
+
+      // Backfill de conversas/leads orfaos criados ANTES do registro
+      const convFix = await this.prisma.conversation.updateMany({
+        where: { instance_name: instanceName, tenant_id: null },
+        data: { tenant_id: tenantId, inbox_id: inboxId },
+      });
+      const convInboxFix = await this.prisma.conversation.updateMany({
+        where: { instance_name: instanceName, tenant_id: tenantId, inbox_id: null },
+        data: { inbox_id: inboxId },
+      });
+      const leadFix = await this.prisma.lead.updateMany({
+        where: {
+          tenant_id: null,
+          conversations: { some: { instance_name: instanceName } },
+        },
+        data: { tenant_id: tenantId },
+      });
+
+      this.logger.log(
+        `[ENSURE-INSTANCE] "${instanceName}" registrada pro tenant ${tenantId} ` +
+        `(inbox=${inboxId}, backfill: ${convFix.count + convInboxFix.count} conversas, ${leadFix.count} leads)`,
+      );
+    } catch (e: any) {
+      // Best-effort: nao pode quebrar a listagem/conexao por falha de registro
+      this.logger.error(`[ENSURE-INSTANCE] Falha ao registrar "${instanceName}": ${e?.message}`);
+    }
   }
 
   /**
@@ -523,6 +653,11 @@ export class WhatsappService {
 
     // Salva o apelido
     await this.saveInstanceDisplayName(tenantId, instanceName, finalDisplayName);
+
+    // Onda 17.33 — Registra a instancia no Prisma (Instance + Inbox + backfill).
+    // Sem isso o webhook da Evolution nao resolve o tenant e as mensagens
+    // recebidas viram conversas orfaas invisiveis.
+    await this.ensureInstanceRegistered(tenantId, instanceName, finalDisplayName);
 
     // Busca QR
     let qr: any = null;
