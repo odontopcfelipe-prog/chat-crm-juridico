@@ -223,29 +223,29 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
 
   return (
     <>
-      <div className="bg-violet-500/5 border border-violet-500/20 rounded-2xl p-4 max-h-[52vh] overflow-y-auto">
+      <div className="rounded-2xl border border-white/5 bg-black/30 p-4 max-h-[52vh] overflow-y-auto">
         {/* Banner sucesso efemero */}
         {successMsg && (
-          <div className="mb-3 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-2.5 flex items-center gap-2 animate-in slide-in-from-top-2 duration-300">
-            <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />
-            <p className="text-xs font-medium text-emerald-700 dark:text-emerald-400 flex-1">{successMsg}</p>
+          <div className="mb-3 flex items-center gap-2 rounded-xl border border-emerald-400/30 bg-emerald-500/15 p-2.5">
+            <CheckCircle2 size={16} className="shrink-0 text-emerald-400" />
+            <p className="flex-1 text-xs font-medium text-emerald-300">{successMsg}</p>
           </div>
         )}
         {alreadyDone && !successMsg && (
-          <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+          <p className="mb-3 flex items-center gap-1.5 text-xs text-emerald-400">
             <CheckCircle2 size={12} />
             Você já revisou a tabela. Pode ajustar mais se quiser.
           </p>
         )}
 
-        <p className="text-xs text-muted-foreground mb-3 flex items-center gap-1.5">
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-zinc-500">
           <Pencil size={11} />
           Clique num preço pra editar (salva ao sair do campo). Lixeira remove.
         </p>
 
         {/* Adicionar novo */}
-        <div className="bg-white dark:bg-card border border-violet-500/30 rounded-xl p-3 mb-4">
-          <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-400 mb-2 flex items-center gap-1">
+        <div className="mb-4 rounded-xl bg-white/[0.03] p-3 ring-1 ring-white/5">
+          <p className="mb-2 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
             <Plus size={12} /> Adicionar procedimento
           </p>
           <div className="grid grid-cols-1 md:grid-cols-[1fr_170px_110px_110px] gap-2">
@@ -254,17 +254,17 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Nome do procedimento"
-              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500"
+              className="px-3 py-2 rounded-lg bg-white/[0.04] text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-amber-400/40"
             />
             {/* Onda 17.32.164 — especialidade (opcional) */}
             <select
               value={newSpecialtyId}
               onChange={(e) => setNewSpecialtyId(e.target.value)}
-              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500 cursor-pointer"
+              className="px-3 py-2 rounded-lg bg-white/[0.04] text-sm text-zinc-100 ring-1 ring-white/10 transition focus:outline-none focus:ring-2 focus:ring-amber-400/40 cursor-pointer"
             >
-              <option value="">Especialidade…</option>
+              <option value="" className="bg-zinc-900">Especialidade…</option>
               {specialties.map((s) => (
-                <option key={s.id} value={s.id}>
+                <option key={s.id} value={s.id} className="bg-zinc-900">
                   {s.icon ? `${s.icon} ` : ''}{s.name}
                 </option>
               ))}
@@ -274,13 +274,13 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
               value={newPrice}
               onChange={(e) => setNewPrice(e.target.value)}
               placeholder="R$ 0,00"
-              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500 font-mono"
+              className="px-3 py-2 rounded-lg bg-white/[0.04] text-sm font-mono text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-amber-400/40"
             />
             <button
               type="button"
               onClick={handleAdd}
               disabled={adding || !newName.trim()}
-              className="inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-violet-600 hover:bg-violet-700 text-white font-bold text-xs transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="inline-flex items-center justify-center gap-1.5 rounded-lg bg-amber-400 px-3 py-2 text-xs font-semibold text-amber-950 transition hover:bg-amber-300 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
             >
               {adding ? <Loader2 className="animate-spin" size={14} /> : <Plus size={14} />}
               Adicionar
@@ -290,27 +290,27 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
 
         {/* Lista agrupada por especialidade */}
         {loading ? (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground py-8 justify-center">
+          <div className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">
             <Loader2 className="animate-spin" size={16} />
             Carregando tabela…
           </div>
         ) : list.length === 0 ? (
-          <p className="text-center text-sm text-muted-foreground py-8">
+          <p className="py-8 text-center text-sm text-zinc-500">
             Nenhum procedimento ainda. Adicione um acima pra começar.
           </p>
         ) : (
           <div className="space-y-4">
             {groups.map((g) => (
               <div key={g.name}>
-                <div className="flex items-center justify-between mb-1.5 px-1">
-                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                <div className="mb-1.5 flex items-center justify-between px-1">
+                  <span className="flex items-center gap-1.5 text-xs font-semibold text-zinc-200">
                     <span>{g.icon}</span>
                     {g.name}
-                    <span className="text-[10px] font-bold text-violet-600 dark:text-violet-400 bg-violet-500/10 px-1.5 py-0.5 rounded-full">
+                    <span className="rounded-full bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-semibold text-amber-400">
                       {g.items.length}
                     </span>
                   </span>
-                  <span className="text-[10px] font-bold text-muted-foreground">
+                  <span className="text-[10px] font-semibold tabular-nums text-zinc-500">
                     {formatBRL(g.items.reduce((sum, p) => sum + toNumber(p.base_price), 0))}
                   </span>
                 </div>
@@ -321,31 +321,31 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
                     return (
                       <li
                         key={proc.id}
-                        className="bg-white dark:bg-card border border-border rounded-lg px-3 py-1.5 flex items-center gap-2 hover:border-violet-500/40 transition-colors"
+                        className="flex items-center gap-2 rounded-lg bg-white/[0.03] px-3 py-1.5 ring-1 ring-white/5 transition hover:ring-amber-400/30"
                       >
-                        <span className="flex-1 min-w-0 text-sm text-foreground truncate">{proc.name}</span>
+                        <span className="min-w-0 flex-1 truncate text-sm text-zinc-200">{proc.name}</span>
                         {proc.duration_minutes != null && (
-                          <span className="text-[10px] text-muted-foreground shrink-0 hidden md:inline">
+                          <span className="hidden shrink-0 text-[10px] text-zinc-600 md:inline">
                             {proc.duration_minutes} min
                           </span>
                         )}
-                        <div className="flex items-center gap-1 shrink-0">
+                        <div className="flex shrink-0 items-center gap-1">
                           <input
                             type="text"
                             value={localPrice ?? formatBRL(proc.base_price)}
                             onChange={(e) => handlePriceChange(proc.id, e.target.value)}
                             onBlur={() => handlePriceBlur(proc)}
                             disabled={isSaving}
-                            className="w-24 px-2 py-1 rounded-md bg-violet-50 dark:bg-violet-900/20 border border-violet-200 dark:border-violet-800 text-xs font-mono font-bold text-violet-700 dark:text-violet-300 outline-none focus:border-violet-500 text-right disabled:opacity-50"
+                            className="w-24 rounded-md bg-amber-500/10 px-2 py-1 text-right text-xs font-mono font-semibold tabular-nums text-amber-300 ring-1 ring-amber-400/20 transition focus:outline-none focus:ring-2 focus:ring-amber-400/50 disabled:opacity-50"
                           />
-                          {isSaving && <Loader2 className="animate-spin text-violet-500" size={13} />}
+                          {isSaving && <Loader2 className="animate-spin text-amber-400" size={13} />}
                         </div>
                         <button
                           type="button"
                           onClick={() => setConfirmDelete(proc)}
                           disabled={isSaving}
                           title="Remover"
-                          className="text-rose-500 hover:bg-rose-500/10 p-1 rounded-md disabled:opacity-50 shrink-0"
+                          className="shrink-0 rounded-md p-1 text-rose-400 transition hover:bg-rose-500/10 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
                         >
                           <Trash2 size={13} />
                         </button>
@@ -359,7 +359,7 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
         )}
 
         {error && (
-          <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+          <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
             <AlertCircle size={14} className="shrink-0 mt-0.5" />
             <span>{error}</span>
           </p>
@@ -372,7 +372,7 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
             type="button"
             onClick={handleConclude}
             disabled={concluding}
-            className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-all disabled:opacity-50"
+            className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
           >
             {concluding ? <Loader2 className="animate-spin" size={16} /> : <Tag size={16} />}
             Concluir revisão da tabela
@@ -387,25 +387,25 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
           onClick={() => !deleting && setConfirmDelete(null)}
         >
           <div
-            className="bg-card border border-border rounded-2xl p-5 max-w-sm w-full"
+            className="w-full max-w-sm rounded-2xl border border-white/10 bg-zinc-900 p-5 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
-            <h3 className="text-base font-bold text-foreground mb-2">Remover procedimento?</h3>
-            <p className="text-sm text-muted-foreground mb-4">
-              "<b>{confirmDelete.name}</b>" será removido da tabela. Você pode adicionar de novo quando quiser.
+            <h3 className="mb-2 text-base font-bold text-white">Remover procedimento?</h3>
+            <p className="mb-4 text-sm leading-relaxed text-zinc-400">
+              "<b className="text-zinc-200">{confirmDelete.name}</b>" será removido da tabela. Você pode adicionar de novo quando quiser.
             </p>
-            <div className="flex gap-2 justify-end">
+            <div className="flex justify-end gap-2">
               <button
                 onClick={() => setConfirmDelete(null)}
                 disabled={deleting}
-                className="px-4 py-2 rounded-lg text-sm font-bold text-muted-foreground hover:bg-muted/40 disabled:opacity-50"
+                className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-500 transition hover:bg-white/5 hover:text-zinc-300 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
               >
                 Cancelar
               </button>
               <button
                 onClick={handleDeleteConfirm}
                 disabled={deleting}
-                className="bg-rose-500 hover:bg-rose-600 text-white font-bold text-sm px-4 py-2 rounded-lg inline-flex items-center gap-1.5 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-rose-500 px-4 py-2 text-sm font-semibold text-rose-950 transition hover:bg-rose-400 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
               >
                 {deleting ? <Loader2 className="animate-spin" size={14} /> : <Trash2 size={14} />}
                 Remover

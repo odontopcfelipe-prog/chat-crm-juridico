@@ -51,10 +51,11 @@ const STATES = [
   'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
 ];
 
+// Onda 17.32.167 — tokens dark da skill design-odonto-system
 const inputCls =
-  'w-full px-3 py-2 rounded-lg bg-white dark:bg-card border border-border text-sm outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all';
+  'w-full px-3 py-2 rounded-lg bg-white/[0.04] text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40 [color-scheme:dark]';
 const labelCls =
-  'block text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1';
+  'block text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1';
 
 const EMPTY: Omit<TenantSelf, 'id' | 'logo_url' | 'theme_color'> = {
   name: '', phone: '', email: '', cpf_cnpj: '',
@@ -187,7 +188,7 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
 
   // Onda 17.32.154 — min-height fixo evita layout shift
   const containerCls =
-    'bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 min-h-[400px] max-h-[55vh] overflow-y-auto';
+    'rounded-2xl border border-white/5 bg-black/30 p-5 min-h-[400px] max-h-[55vh] overflow-y-auto';
 
   if (loading) {
     return (
@@ -200,15 +201,15 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
   return (
     <div className={containerCls}>
       {success && (
-        <div className="mb-4 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
-          <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/15 p-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-emerald-950">
             <CheckCircle2 size={18} />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-              ✓ Dados da clínica confirmados!
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-emerald-300">
+              Dados da clínica confirmados!
             </p>
-            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80">
+            <p className="text-xs text-emerald-300/80">
               Sua clínica está pronta — partiu próximo passo.
             </p>
           </div>
@@ -219,19 +220,19 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
         <div className="mb-4 flex items-center gap-2 text-xs">
           {missingCount === 0 ? (
             <>
-              <CheckCircle2 size={14} className="text-emerald-500" />
-              <span className="text-emerald-700 dark:text-emerald-400 font-bold">
+              <CheckCircle2 size={14} className="text-emerald-400" />
+              <span className="font-semibold text-emerald-400">
                 Todos os dados essenciais já estão preenchidos.
               </span>
-              <span className="text-muted-foreground">Pode confirmar.</span>
+              <span className="text-zinc-500">Pode confirmar.</span>
             </>
           ) : (
             <>
-              <AlertCircle size={14} className="text-amber-500" />
-              <span className="text-amber-700 dark:text-amber-400 font-bold">
+              <AlertCircle size={14} className="text-amber-400" />
+              <span className="font-semibold text-amber-400">
                 Faltam {missingCount} de {essentials.length} essenciais
               </span>
-              <span className="text-muted-foreground">— complete pra finalizar.</span>
+              <span className="text-zinc-500">— complete pra finalizar.</span>
             </>
           )}
         </div>
@@ -312,8 +313,8 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
           <div className="md:col-span-1">
             <label className={labelCls}>UF</label>
             <select value={form.state || ''} onChange={(e) => set('state', e.target.value)} className={`${inputCls} cursor-pointer`}>
-              <option value="">—</option>
-              {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
+              <option value="" className="bg-zinc-900">—</option>
+              {STATES.map((s) => <option key={s} value={s} className="bg-zinc-900">{s}</option>)}
             </select>
           </div>
         </div>
@@ -352,18 +353,18 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-muted-foreground">
-        💡 Esses dados aparecem em <b>recibos, contratos, notas fiscais</b> e no rodapé do sistema. Vale conferir.
+      <p className="mt-3 text-[11px] text-zinc-600">
+        💡 Esses dados aparecem em <b className="text-zinc-400">recibos, contratos, notas fiscais</b> e no rodapé do sistema. Vale conferir.
       </p>
 
       <button type="button" disabled={submitting || !form.name?.trim()} onClick={handleSave}
-              className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(16,185,129,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50">
         {submitting ? <Loader2 className="animate-spin" size={16} /> : missingCount === 0 ? <CheckCircle2 size={16} /> : <Save size={16} />}
         {submitting ? 'Salvando…' : missingCount === 0 ? 'Confirmar dados' : 'Salvar e continuar'}
       </button>
 
       {error && (
-        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </p>
@@ -376,7 +377,7 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
 
 function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="flex items-center gap-1.5 mb-2 text-xs font-bold text-emerald-700 dark:text-emerald-400">
+    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
       <span>{icon}</span>
       <span className="uppercase tracking-wider">{children}</span>
     </div>
@@ -392,13 +393,13 @@ function Toggle({
     <button
       type="button"
       onClick={onToggle}
-      className="mt-4 mb-2 w-full flex items-center justify-between p-2 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/15 transition-colors text-left"
+      className="mt-4 mb-2 flex w-full items-center justify-between rounded-lg bg-white/[0.03] p-2 text-left ring-1 ring-white/5 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
     >
-      <span className="text-xs font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+      <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
         {icon}
         {label}
       </span>
-      <span className="text-emerald-700 dark:text-emerald-400">{open ? '▲' : '▼'}</span>
+      <span className="text-zinc-500">{open ? '▲' : '▼'}</span>
     </button>
   );
 }

@@ -32,7 +32,7 @@ import PricingQuickReview from './onboarding/PricingQuickReview';
 // Onda 17.32.152 — revisao da identidade da clinica (passo 1)
 import ClinicIdentityReview from './onboarding/ClinicIdentityReview';
 // Onda 17.32.165 — fase "conhecimento ao admin" (skill design-odonto-system)
-import AdvantagesCarousel, { ACCENTS } from './onboarding/AdvantagesCarousel';
+import AdvantagesCarousel, { ACCENTS, type AccentKey } from './onboarding/AdvantagesCarousel';
 
 type StepKey = 'clinic_profile' | 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
@@ -50,6 +50,9 @@ interface StepDef {
   index: number; // posicao no wizard (1-6)
   required: boolean;
   icon: typeof Building2;
+  // Onda 17.32.167 — um acento por passo (como o carrossel de
+  // vantagens): glow, tile, eyebrow e botoes acompanham a cor
+  accent: AccentKey;
   eyebrow: string;
   title: string;
   description: string;
@@ -64,6 +67,7 @@ const STEPS: StepDef[] = [
     index: 1,
     required: true,
     icon: Building2,
+    accent: 'emerald',
     eyebrow: 'Dados da clínica',
     title: 'Confirme os dados da clínica',
     description: 'Esses dados aparecem em recibos, contratos e mensagens. Revise e ajuste o que precisar.',
@@ -74,6 +78,7 @@ const STEPS: StepDef[] = [
     index: 2,
     required: true,
     icon: QrCode,
+    accent: 'cyan',
     eyebrow: 'Conectar WhatsApp',
     title: 'Conecte o WhatsApp da clínica',
     description: 'É por aqui que o sistema atende leads, manda lembretes e confirma consultas.',
@@ -84,6 +89,7 @@ const STEPS: StepDef[] = [
     index: 3,
     required: true,
     icon: CreditCard,
+    accent: 'rose',
     eyebrow: 'Cobrança',
     title: 'Configure a cobrança (Asaas)',
     description: 'Conecte sua conta para emitir PIX, boleto e cartão direto do sistema.',
@@ -94,6 +100,7 @@ const STEPS: StepDef[] = [
     index: 4,
     required: false,
     icon: UserPlus,
+    accent: 'blue',
     eyebrow: 'Primeiro paciente',
     title: 'Cadastre seu primeiro paciente',
     description: 'Só pra você ver como é rápido. Depois dá pra cadastrar a base inteira.',
@@ -104,6 +111,7 @@ const STEPS: StepDef[] = [
     index: 5,
     required: false,
     icon: Users,
+    accent: 'violet',
     eyebrow: 'Equipe',
     title: 'Adicione um membro da equipe',
     description: 'Cada perfil — Recepção, Dentista, CRC, Financeiro, Admin — vê só o que importa.',
@@ -114,6 +122,7 @@ const STEPS: StepDef[] = [
     index: 6,
     required: false,
     icon: Table,
+    accent: 'amber',
     eyebrow: 'Tabela de preços',
     title: 'Configure a tabela de preços',
     description: 'É a base dos orçamentos e propostas. Comece pela sugestão e ajuste à vontade.',
@@ -185,9 +194,15 @@ export function OnboardingWizard({
     }
   }, [state, screen, open]);
 
-  // Glow volta pro emerald fora da fase de vantagens
+  // Onda 17.32.167 — Glow acompanha o acento do passo atual (como o
+  // carrossel). Na fase de vantagens (screen 7) quem dirige e o
+  // proprio carrossel via onAccentChange.
   useEffect(() => {
-    if (screen !== 7) setGlowClass(ACCENTS.emerald.glow);
+    if (screen >= 1 && screen <= 6) {
+      setGlowClass(ACCENTS[STEPS[screen - 1].accent].glow);
+    } else if (screen !== 7) {
+      setGlowClass(ACCENTS.emerald.glow);
+    }
   }, [screen]);
 
   if (!open || !state) return null;
@@ -245,35 +260,39 @@ export function OnboardingWizard({
 
         <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/70 shadow-2xl backdrop-blur-xl">
           {/* Header da fase de configuracao: eyebrow + stepper de pilulas */}
-          {screen >= 1 && screen <= 6 && (
-            <div className="px-6 pt-6">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Configuração inicial</span>
-                <span className="text-xs tabular-nums text-zinc-600">Passo {screen} de {STEPS.length}</span>
+          {screen >= 1 && screen <= 6 && (() => {
+            const A = ACCENTS[STEPS[screen - 1].accent];
+            return (
+              <div className="px-6 pt-6">
+                <div className="flex items-center justify-between">
+                  <span className={'text-xs font-semibold uppercase tracking-wider transition-colors duration-500 ' + A.text}>Configuração inicial</span>
+                  <span className="text-xs tabular-nums text-zinc-600">Passo {screen} de {STEPS.length}</span>
+                </div>
+                <div className="mt-3 flex items-center gap-1.5">
+                  {STEPS.map((s, i) => {
+                    const done = state.steps[s.key] === 'done';
+                    const isCur = i === screen - 1;
+                    const SA = ACCENTS[s.accent];
+                    return (
+                      <div
+                        key={s.key}
+                        className={
+                          'flex h-6 flex-1 items-center justify-center rounded-full text-[10px] font-semibold ring-1 transition ' +
+                          (done
+                            ? 'bg-emerald-500/20 text-emerald-300 ring-emerald-400/30'
+                            : isCur
+                            ? SA.iconBg + ' ' + SA.text
+                            : 'bg-white/[0.03] text-zinc-600 ring-white/5')
+                        }
+                      >
+                        {done ? <Check className="h-3 w-3" /> : i + 1}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
-              <div className="mt-3 flex items-center gap-1.5">
-                {STEPS.map((s, i) => {
-                  const done = state.steps[s.key] === 'done';
-                  const isCur = i === screen - 1;
-                  return (
-                    <div
-                      key={s.key}
-                      className={
-                        'flex h-6 flex-1 items-center justify-center rounded-full text-[10px] font-semibold ring-1 transition ' +
-                        (done
-                          ? 'bg-emerald-500/20 text-emerald-300 ring-emerald-400/30'
-                          : isCur
-                          ? 'bg-emerald-500/15 text-emerald-200 ring-emerald-400/40'
-                          : 'bg-white/[0.03] text-zinc-600 ring-white/5')
-                      }
-                    >
-                      {done ? <Check className="h-3 w-3" /> : i + 1}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          )}
+            );
+          })()}
 
           {screen === 0 && <WelcomeScreen onStart={handleNext} />}
 
@@ -370,17 +389,18 @@ function StepScreen({
   const isClinicProfile = step.key === 'clinic_profile';
   const hasInlineForm = isClinicProfile || isWhatsapp || isAsaas || isFirstPatient || isTeam || isPricing;
   const Icon = step.icon;
+  const A = ACCENTS[step.accent];
 
   return (
     <div key={step.key} className="anim-card flex flex-col px-6 pb-6 pt-5">
       {/* Cabecalho do passo: tile de icone + eyebrow + titulo */}
       <div className="mb-5 flex items-start gap-4">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
-          <Icon className="h-5 w-5 text-emerald-400" />
+        <div className={'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl ring-1 ' + A.iconBg}>
+          <Icon className={'h-5 w-5 ' + A.text} />
         </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">{step.eyebrow}</span>
+            <span className={'text-xs font-semibold uppercase tracking-wider ' + A.text}>{step.eyebrow}</span>
             {isDone ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-emerald-400/30">
                 <CheckCircle2 size={10} />
@@ -478,7 +498,7 @@ function StepScreen({
             <button
               type="button"
               onClick={onSkip /* aproveita a logica de avanco */}
-              className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              className={'flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ' + A.btn}
             >
               Continuar
               <ArrowRight size={14} />
@@ -492,7 +512,7 @@ function StepScreen({
               type="button"
               onClick={onSkip}
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-emerald-500/15 px-5 py-2.5 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-400/30 transition hover:bg-emerald-500/25 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+              className={'flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold ring-1 transition hover:brightness-125 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30 ' + A.iconBg + ' ' + A.text}
             >
               Seguir
               <ArrowRight size={14} />
@@ -504,7 +524,7 @@ function StepScreen({
               // (senao o overlay z-200 fica em cima da tela destino
               // e parece que nada aconteceu)
               onClick={onClose}
-              className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+              className={'flex items-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold shadow-lg transition active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50 ' + A.btn}
             >
               {step.cta.label}
               <ArrowRight size={14} />
@@ -671,7 +691,7 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
         <button
           type="button"
           onClick={generate}
-          className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+          className="flex items-center gap-2 rounded-xl bg-cyan-500 px-5 py-2.5 text-sm font-semibold text-cyan-950 shadow-lg transition hover:bg-cyan-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         >
           <QrCode size={16} />
           Gerar QR Code
@@ -689,7 +709,7 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   if (generating) {
     return (
       <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/5 bg-black/30 p-8">
-        <Loader2 className="animate-spin text-emerald-400" size={28} />
+        <Loader2 className="animate-spin text-cyan-400" size={28} />
         <p className="text-xs text-zinc-500">Conectando ao servidor…</p>
       </div>
     );
@@ -699,7 +719,7 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   const base64 = qr?.base64;
   return (
     <div className="flex flex-col items-center rounded-2xl border border-white/5 bg-black/30 p-5 text-center">
-      <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-emerald-400">
+      <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-cyan-400">
         <Smartphone size={14} />
         <span>WhatsApp → Aparelhos conectados → Conectar aparelho</span>
       </div>
@@ -722,13 +742,13 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
         )}
       </div>
       <p className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500 animate-pulse">
-        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-cyan-400" />
         Aguardando voce escanear…
       </p>
       <button
         type="button"
         onClick={generate}
-        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300 transition hover:text-emerald-200"
+        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-cyan-300 transition hover:text-cyan-200"
       >
         <RefreshCw size={10} /> Gerar novo QR
       </button>
@@ -774,7 +794,7 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
         placeholder="$aact_… (cole sua chave completa)"
-        className="w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm font-mono text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
+        className="w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm font-mono text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-rose-400/40"
         autoFocus
         autoComplete="off"
         spellCheck={false}
@@ -785,7 +805,7 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
           href="https://www.asaas.com/api"
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-1 text-emerald-400 hover:underline"
+          className="ml-1 text-rose-400 hover:underline"
         >
           Não tenho conta ↗
         </a>
@@ -796,7 +816,7 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
           type="checkbox"
           checked={sandbox}
           onChange={(e) => setSandbox(e.target.checked)}
-          className="accent-emerald-500"
+          className="accent-rose-500"
         />
         <span className="text-xs text-zinc-500">
           Estou usando conta <b className="text-zinc-300">sandbox</b> (teste — não cobra de verdade)
@@ -807,7 +827,7 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
         type="button"
         disabled={!canSubmit}
         onClick={submit}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-rose-500 px-5 py-2.5 text-sm font-semibold text-rose-950 shadow-lg transition hover:bg-rose-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
         {submitting ? 'Validando…' : 'Conectar conta Asaas'}
@@ -881,7 +901,7 @@ function TeamQuickInvite({
     password.trim().length >= 6 &&
     !submitting;
 
-  const fieldCls = 'w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40';
+  const fieldCls = 'w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-violet-400/40';
 
   return (
     <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
@@ -967,7 +987,7 @@ function TeamQuickInvite({
         type="button"
         disabled={!canSubmit}
         onClick={submit}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-violet-500 px-5 py-2.5 text-sm font-semibold text-violet-950 shadow-lg transition hover:bg-violet-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <Users size={16} />}
         {submitting ? 'Convidando…' : 'Convidar membro'}
