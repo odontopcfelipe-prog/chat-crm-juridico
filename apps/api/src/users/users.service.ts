@@ -273,7 +273,26 @@ export class UsersService {
       where: { id },
       data: { email_verify_token: verifyToken, email_verify_sent_at: new Date() },
     });
-    const sent = await this.sendVerificationEmail(user.email, user.name, verifyToken, user.tenant_id || tenantId);
+    // Onda 17.32.174 — erro de envio NAO pode vazar como 500 generico:
+    // o admin precisa ver o motivo real (DNS, porta bloqueada, senha
+    // recusada) pra conseguir agir.
+    let sent = false;
+    try {
+      sent = await this.sendVerificationEmail(user.email, user.name, verifyToken, user.tenant_id || tenantId);
+    } catch (e: any) {
+      const code = e?.code || e?.responseCode || '';
+      this.logger.error(`[VERIFY-EMAIL] Reenvio falhou pra ${user.email}: code=${code} ${e?.message}`);
+      if (code === 'ENOTFOUND' || code === 'EAI_AGAIN' || code === 'EDNS') {
+        throw new BadRequestException('Servidor de e-mail inacessível (falha de DNS no servidor). Avise o suporte técnico.');
+      }
+      if (code === 'ETIMEDOUT' || code === 'ESOCKET' || code === 'ECONNECTION' || code === 'ECONNREFUSED') {
+        throw new BadRequestException('Não foi possível conectar ao servidor SMTP — o provedor pode estar bloqueando a porta de e-mail.');
+      }
+      if (code === 'EAUTH' || code === 535) {
+        throw new BadRequestException('Usuário ou senha SMTP recusados. Confira se a senha é uma "senha de app" válida.');
+      }
+      throw new BadRequestException(`Falha ao enviar o e-mail: ${e?.message || 'erro desconhecido'}`);
+    }
     if (!sent) {
       throw new BadRequestException('SMTP não configurado — configure o servidor de e-mail nas settings antes de reenviar.');
     }
