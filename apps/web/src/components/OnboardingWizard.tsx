@@ -130,9 +130,17 @@ interface Props {
 export function OnboardingWizard({
   open, state, onClose, onComplete, onDismiss, onStepUpdate,
 }: Props) {
-  // 0 = boas-vindas, 1-4 = etapas, 5 = final
+  // 0 = boas-vindas, 1-6 = etapas, 7 = final
   const [screen, setScreen] = useState(0);
   const [submitting, setSubmitting] = useState(false);
+
+  // Onda 17.32.162 — Ao reabrir o wizard (banner "Continuar
+  // configurando"), volta pra tela de boas-vindas. Antes o screen
+  // persistia entre open/close — reabrir mostrava o ultimo passo
+  // visitado (ou ate a tela final), confundindo o user.
+  useEffect(() => {
+    if (open) setScreen(0);
+  }, [open]);
 
   // Onda 17.32.145 — Auto-advance SO quando a etapa atual transicionou
   // de !done -> done ENQUANTO o user estava nela. Antes:
@@ -282,7 +290,7 @@ function WelcomeScreen({ onStart }: { onStart: () => void }) {
         <Sparkles size={36} />
       </div>
       <span className="text-[10px] font-bold uppercase tracking-widest text-violet-700 bg-violet-100 px-3 py-1 rounded-full mb-4">
-        Vamos preparar seu sistema em 4 passos
+        Vamos preparar seu sistema em 6 passos
       </span>
       <h1 className="text-3xl md:text-4xl font-extrabold text-foreground tracking-tight max-w-xl mb-3">
         Bem-vindo ao Odonto System!
@@ -776,133 +784,6 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
         {submitting ? 'Validando…' : 'Conectar Asaas'}
-      </button>
-
-      {error && (
-        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
-          <AlertCircle size={14} className="shrink-0 mt-0.5" />
-          <span>{error}</span>
-        </p>
-      )}
-    </div>
-  );
-}
-
-// ─── Paciente Quick Create inline (Onda 17.32.143/146/147) ────────
-function PatientQuickCreate({
-  onCreated, alreadyDone = false,
-}: {
-  onCreated: () => Promise<void>;
-  alreadyDone?: boolean;
-}) {
-  const [name, setName] = useState('');
-  const [phone, setPhone] = useState('');
-  const [birthDate, setBirthDate] = useState('');
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  // Onda 17.32.147 — feedback visual claro de sucesso
-  const [successName, setSuccessName] = useState<string | null>(null);
-
-  const submit = async () => {
-    setError(null); setSubmitting(true);
-    try {
-      const payload: any = { name: name.trim() };
-      if (phone.trim()) payload.phone = phone.trim();
-      if (birthDate) payload.birth_date = birthDate;
-      await api.post('/patients', payload);
-      setSuccessName(name.trim());
-      // Limpa o form pra cadastrar outro se quiser
-      setName(''); setPhone(''); setBirthDate('');
-      // Marca step como done (avanca depois de mostrar confirmacao)
-      await onCreated();
-      // Tira a confirmacao apos 4s (caso user nao tenha avancado)
-      setTimeout(() => setSuccessName(null), 4000);
-    } catch (e: any) {
-      const raw = e?.response?.data?.message || '';
-      if (typeof raw === 'string' && raw.startsWith('Cannot')) {
-        setError('Servidor ainda nao reconhece — deploy em andamento?');
-      } else if (Array.isArray(raw)) {
-        setError(raw.join(', '));
-      } else {
-        setError(raw || 'Nao foi possivel criar o paciente.');
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const canSubmit = name.trim().length >= 2 && !submitting;
-
-  return (
-    <div className="bg-sky-500/5 border border-sky-500/20 rounded-2xl p-5">
-      {/* Onda 17.32.147 — Banner de sucesso visivel apos cadastrar */}
-      {successName && (
-        <div className="mb-4 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
-          <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-            <CheckCircle2 size={18} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-              ✓ Paciente cadastrado com sucesso!
-            </p>
-            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 truncate">
-              "{successName}" foi salvo. Cadastre outro ou clique em "Continuar".
-            </p>
-          </div>
-        </div>
-      )}
-      {alreadyDone && !successName && (
-        <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
-          <CheckCircle2 size={12} />
-          Voce ja tem pacientes. Quer cadastrar mais um agora?
-        </p>
-      )}
-      <label className="block mb-2 text-xs font-bold text-foreground">
-        Nome completo do paciente
-      </label>
-      <input
-        type="text"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        placeholder="Ex: Maria da Silva"
-        className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
-        autoFocus
-      />
-
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
-        <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">
-            Telefone <span className="text-muted-foreground font-normal">(opcional)</span>
-          </label>
-          <input
-            type="tel"
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="(11) 99999-9999"
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
-          />
-        </div>
-        <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">
-            Data de nascimento <span className="text-muted-foreground font-normal">(opcional)</span>
-          </label>
-          <input
-            type="date"
-            value={birthDate}
-            onChange={(e) => setBirthDate(e.target.value)}
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-sky-500 transition-all"
-          />
-        </div>
-      </div>
-
-      <button
-        type="button"
-        disabled={!canSubmit}
-        onClick={submit}
-        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-sky-600 hover:bg-sky-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(14,165,233,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-      >
-        {submitting ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
-        {submitting ? 'Salvando…' : 'Cadastrar paciente'}
       </button>
 
       {error && (

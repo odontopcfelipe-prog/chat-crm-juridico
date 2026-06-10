@@ -73,6 +73,11 @@ export function OnboardingWizardLoader() {
     if (!isOwner) return;
 
     let cancelled = false;
+    // Onda 17.32.162 — timer guardado FORA do .then: o
+    // `return () => clearTimeout(t)` que existia dentro do callback
+    // era descartado (cleanup so funciona quando retornado pelo
+    // proprio useEffect). Agora o unmount/re-run cancela de verdade.
+    let timer: ReturnType<typeof setTimeout> | null = null;
     fetchState().then((s) => {
       if (cancelled || !s) return;
       if (s.completed_at) return; // ja completou alguma vez
@@ -99,10 +104,12 @@ export function OnboardingWizardLoader() {
       }
 
       // Mostra com pequeno delay pra layout estabilizar
-      const t = setTimeout(() => setOpen(true), 500);
-      return () => clearTimeout(t);
+      timer = setTimeout(() => { if (!cancelled) setOpen(true); }, 500);
     });
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [tenant, isOwner, fetchState]);
 
   // Onda 17.32.125 — Permite reabrir o wizard de qualquer lugar

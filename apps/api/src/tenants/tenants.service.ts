@@ -322,17 +322,23 @@ export class TenantsService {
    * precos. Heuristica: pelo menos 1 procedimento com updated_at
    * significativamente apos o created_at do seed (margem 30s pra
    * ignorar diferenca de timing do upsert no seed).
+   *
+   * Onda 17.32.162 — Era $queryRaw com nome de tabela hardcoded
+   * ('procedures') — renomear o modelo quebrava em silencio (catch
+   * devolvia false e a etapa nunca virava done). Agora usa o client
+   * Prisma tipado e compara em memoria (tenant tem ~30 procedures;
+   * trazer 2 timestamps por linha e barato).
    */
   private async detectPricingReviewed(tenantId: string): Promise<boolean> {
     try {
-      const raw = await this.prisma.$queryRaw<Array<{ count: bigint }>>`
-        SELECT COUNT(*)::bigint as count
-        FROM procedures
-        WHERE tenant_id = ${tenantId}
-          AND updated_at > created_at + INTERVAL '30 seconds'
-      `;
-      const editedCount = Number(raw?.[0]?.count ?? 0);
-      return editedCount >= 1;
+      const rows = await this.prisma.procedure.findMany({
+        where: { tenant_id: tenantId },
+        select: { created_at: true, updated_at: true },
+      });
+      const MARGIN_MS = 30_000;
+      return rows.some(
+        (p) => p.updated_at.getTime() - p.created_at.getTime() > MARGIN_MS,
+      );
     } catch {
       return false;
     }
