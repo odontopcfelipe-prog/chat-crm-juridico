@@ -411,12 +411,13 @@ function StepScreen({
         />
       )}
 
-      {/* Onda 17.32.151/155/156 — Tabela de Precos: card resumo com
-          botao que abre a tela completa EM CIMA do wizard (modal
-          fullscreen com iframe). User nao sai do fluxo. */}
+      {/* Onda 17.32.163 — Tabela de Precos INLINE no proprio passo
+          (sem modal/iframe). Editar/remover/adicionar NAO avancam o
+          wizard; so o botao "Concluir revisao" marca como done. */}
       {isPricing && (
         <PricingQuickReview
           alreadyDone={isDone}
+          onConcluded={async () => { await onStepUpdate('pricing', 'done'); }}
         />
       )}
 
