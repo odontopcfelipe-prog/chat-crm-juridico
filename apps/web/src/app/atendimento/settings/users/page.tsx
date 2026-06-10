@@ -134,6 +134,22 @@ export default function UsersSettingsPage() {
   // ter o id) ou junto com o PATCH se for edicao.
   const [schedule, setSchedule] = useState<DaySchedule[]>(defaultWeekSchedule());
   const [scheduleExpanded, setScheduleExpanded] = useState(false);
+  // Onda 17.32.172 — reenvio do e-mail de confirmacao
+  const [resendingId, setResendingId] = useState<string | null>(null);
+  const [resentId, setResentId] = useState<string | null>(null);
+
+  const handleResendVerification = async (id: string) => {
+    setResendingId(id);
+    try {
+      await api.post(`/users/${id}/resend-verification`);
+      setResentId(id);
+      setTimeout(() => setResentId((cur) => (cur === id ? null : cur)), 4000);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || 'Falha ao reenviar o e-mail de confirmação.');
+    } finally {
+      setResendingId(null);
+    }
+  };
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -443,7 +459,31 @@ export default function UsersSettingsPage() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-6 py-4 text-[13px] text-muted-foreground">{user.email}</td>
+                      <td className="px-6 py-4 text-[13px] text-muted-foreground">
+                        <div>{user.email}</div>
+                        {/* Onda 17.32.172 — status da confirmacao de e-mail */}
+                        <div className="mt-1">
+                          {user.email_verified_at ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold rounded-lg border border-emerald-500/20">
+                              ✓ E-mail confirmado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5">
+                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-bold rounded-lg border border-amber-500/20">
+                                Aguardando confirmação
+                              </span>
+                              <button
+                                onClick={() => handleResendVerification(user.id)}
+                                disabled={resendingId === user.id}
+                                className="text-[10px] font-bold text-primary hover:underline disabled:opacity-50"
+                                title="Reenviar e-mail de confirmação"
+                              >
+                                {resendingId === user.id ? 'Enviando…' : resentId === user.id ? 'Enviado!' : 'Reenviar'}
+                              </button>
+                            </span>
+                          )}
+                        </div>
+                      </td>
                       <td className="px-6 py-4 text-[13px] text-muted-foreground">
                         {user.phone ? (
                           <span className="inline-flex items-center gap-1">

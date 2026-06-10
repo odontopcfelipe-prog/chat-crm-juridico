@@ -1,5 +1,5 @@
 import {
-  Controller, Get, Post, Patch, Delete, Body, Param,
+  Controller, Get, Post, Patch, Delete, Body, Param, Query,
   UseGuards, Request, ForbiddenException, NotFoundException,
   Res, UseInterceptors, UploadedFile,
 } from '@nestjs/common';
@@ -8,6 +8,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import { UsersService } from './users.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { Public } from '../auth/decorators/public.decorator';
 import { ChatGateway } from '../gateway/chat.gateway';
 
 @UseGuards(JwtAuthGuard)
@@ -68,6 +69,25 @@ export class UsersController {
   @Roles('ADMIN')
   getOnlineUsers() {
     return { onlineUserIds: this.chatGateway.getOnlineUserIds() };
+  }
+
+  /**
+   * Onda 17.32.172 — Confirma o e-mail de um membro da equipe (link
+   * enviado por e-mail no cadastro). Rota PUBLICA: o membro clica no
+   * link antes mesmo de logar. Declarada antes de @Get(':id') pra nao
+   * cair no match do param.
+   */
+  @Public()
+  @Get('verify-email')
+  verifyEmail(@Query('token') token: string) {
+    return this.usersService.verifyEmail(token);
+  }
+
+  /** Reenvia o e-mail de confirmacao (gera token novo) — ADMIN. */
+  @Post(':id/resend-verification')
+  @Roles('ADMIN')
+  resendVerification(@Request() req: any, @Param('id') id: string) {
+    return this.usersService.resendVerification(id, req.user?.tenant_id);
   }
 
   @Get('agents')

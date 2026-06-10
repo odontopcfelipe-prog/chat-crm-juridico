@@ -1,8 +1,11 @@
 import { Injectable, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
+import { SettingsService } from '../settings/settings.service';
 import { Prisma, User } from '@crm/shared';
 import * as argon2 from 'argon2';
+import * as nodemailer from 'nodemailer';
+import { randomBytes } from 'crypto';
 
 /**
  * Normaliza valores legados de role (nomes de departamento em PT-BR, plurais,
@@ -46,6 +49,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private fileStorage: FileStorageService,
+    private settings: SettingsService,
   ) {}
 
   private tenantWhere(tenantId?: string) {
@@ -122,6 +126,8 @@ export class UsersService {
     const password_hash = await argon2.hash(data.password);
     // Normaliza para o enum canônico. Aceita tanto `roles[]` (forma nova) quanto `role` (legado).
     const normalizedRoles = normalizeRoles(data.roles, data.role);
+    // Onda 17.32.172 — token de confirmacao de e-mail gerado no cadastro
+    const verifyToken = randomBytes(32).toString('hex');
     const user = await this.prisma.user.create({
       data: {
         name: data.name,
@@ -133,12 +139,129 @@ export class UsersService {
         cro_number: data.cro_number || null,
         cro_uf: data.cro_uf || null,
         tenant_id: data.tenant_id,
+        email_verify_token: verifyToken,
+        email_verify_sent_at: new Date(),
         inboxes: data.inboxIds ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
       },
       include: { inboxes: { select: { id: true, name: true } } }
     });
+    // Envio best-effort em background — criar o usuario NUNCA falha
+    // por causa de SMTP (sem config, e-mail invalido, servidor fora).
+    this.sendVerificationEmail(user.email, user.name, verifyToken, data.tenant_id)
+      .catch((e) => this.logger.warn(`[VERIFY-EMAIL] Falha ao enviar pra ${user.email}: ${e?.message}`));
     const { password_hash: _, ...result } = user;
     return result as any;
+  }
+
+  // ─── Confirmacao de e-mail (Onda 17.32.172) ────────────────────
+
+  /**
+   * Envia o e-mail de confirmacao com o link /verificar-email?token=...
+   * Usa o SMTP global das settings (mesma fonte dos lembretes da agenda).
+   * Retorna false (sem lancar) quando SMTP nao esta configurado.
+   */
+  private async sendVerificationEmail(email: string, name: string, token: string, tenantId?: string): Promise<boolean> {
+    const smtp = await this.settings.getSmtpConfig();
+    if (!smtp.host) {
+      this.logger.warn('[VERIFY-EMAIL] SMTP nao configurado — e-mail de confirmacao ignorado');
+      return false;
+    }
+
+    let clinicName = 'Odonto System';
+    if (tenantId) {
+      const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+      if (tenant?.name) clinicName = tenant.name;
+    }
+
+    const publicUrl = (process.env.PUBLIC_WEB_URL || 'https://sistema.institutoodontopassos.com.br').replace(/\/+$/, '');
+    const link = `${publicUrl}/verificar-email?token=${token}`;
+
+    const transporter = nodemailer.createTransport({
+      host: smtp.host,
+      port: smtp.port,
+      secure: smtp.port === 465,
+      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
+    });
+
+    const html = `
+      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
+        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
+          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Bem-vindo(a) à equipe, ${name}!</h2>
+          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px;">
+            Você foi cadastrado(a) no sistema da <b style="color:#3f3f46;">${clinicName}</b>.
+            Confirme seu e-mail pra validar o seu acesso:
+          </p>
+          <p style="text-align: center; margin: 0 0 18px;">
+            <a href="${link}" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
+              Confirmar meu e-mail
+            </a>
+          </p>
+          <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
+            Pra entrar, use este e-mail e a senha que o administrador definiu pra você.
+            Se você não esperava este convite, ignore esta mensagem.
+          </p>
+        </div>
+        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
+          Enviado automaticamente pelo Odonto System — ${clinicName}
+        </p>
+      </div>
+    `;
+
+    await transporter.sendMail({
+      from: smtp.from || smtp.user,
+      to: email,
+      subject: `Confirme seu e-mail — ${clinicName}`,
+      html,
+    });
+    this.logger.log(`[VERIFY-EMAIL] E-mail de confirmacao enviado pra ${email}`);
+    return true;
+  }
+
+  /** Valida o token do link e marca o e-mail como confirmado. Rota publica. */
+  async verifyEmail(token: string): Promise<{ ok: true; name: string; email: string }> {
+    if (!token || token.length < 32) {
+      throw new BadRequestException('Link inválido.');
+    }
+    const user = await this.prisma.user.findFirst({
+      where: { email_verify_token: token },
+      select: { id: true, name: true, email: true, email_verify_sent_at: true },
+    });
+    if (!user) {
+      throw new BadRequestException('Link inválido ou já utilizado.');
+    }
+    // Expira em 7 dias — o admin pode reenviar pela tela de equipe
+    const sentAt = user.email_verify_sent_at ? new Date(user.email_verify_sent_at).getTime() : 0;
+    if (Date.now() - sentAt > 7 * 24 * 60 * 60 * 1000) {
+      throw new BadRequestException('Link expirado. Peça ao administrador pra reenviar a confirmação.');
+    }
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: { email_verified_at: new Date(), email_verify_token: null },
+    });
+    this.logger.log(`[VERIFY-EMAIL] E-mail confirmado: ${user.email}`);
+    return { ok: true, name: user.name, email: user.email };
+  }
+
+  /** Gera novo token e reenvia o e-mail de confirmacao (ADMIN). */
+  async resendVerification(id: string, tenantId?: string): Promise<{ ok: boolean; already_verified?: boolean; sent?: boolean }> {
+    await this.verifyTenantOwnership(id, tenantId);
+    const user = await this.prisma.user.findUnique({
+      where: { id },
+      select: { id: true, name: true, email: true, email_verified_at: true, tenant_id: true },
+    });
+    if (!user) throw new BadRequestException('Usuário não encontrado.');
+    if (user.email_verified_at) return { ok: true, already_verified: true };
+
+    const verifyToken = randomBytes(32).toString('hex');
+    await this.prisma.user.update({
+      where: { id },
+      data: { email_verify_token: verifyToken, email_verify_sent_at: new Date() },
+    });
+    const sent = await this.sendVerificationEmail(user.email, user.name, verifyToken, user.tenant_id || tenantId);
+    if (!sent) {
+      throw new BadRequestException('SMTP não configurado — configure o servidor de e-mail nas settings antes de reenviar.');
+    }
+    return { ok: true, sent: true };
   }
 
   async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {

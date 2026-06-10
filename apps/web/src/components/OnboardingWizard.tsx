@@ -940,8 +940,9 @@ function TeamQuickInvite({
             <p className="text-sm font-semibold text-emerald-700">
               Convite enviado!
             </p>
-            <p className="truncate text-xs text-emerald-700/80">
-              "{successInfo.name}" pode entrar com o e-mail {successInfo.email} e a senha que você definiu.
+            <p className="text-xs text-emerald-700/80">
+              Enviamos um e-mail de confirmação pra <b>{successInfo.email}</b>.
+              "{successInfo.name}" entra com esse e-mail e a senha que você definiu.
             </p>
           </div>
         </div>

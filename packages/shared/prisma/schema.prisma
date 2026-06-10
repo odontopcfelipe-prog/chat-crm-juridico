@@ -162,6 +162,13 @@ model User {
   cro_number                    String? // Número CRO (Conselho Regional de Odontologia), ex: "CRO-AL 12345"
   cro_uf                        String? // UF do CRO (ex: "AL")
   profile_picture_url           String? // Path relativo no filesystem (profiles/{id}.ext)
+  // Onda 17.32.172 — confirmacao de e-mail dos membros da equipe.
+  // Token enviado por e-mail no cadastro; verified_at marca quando o
+  // membro clicou no link. NAO bloqueia login (usuarios legados nunca
+  // confirmaram) — serve como validacao do endereco + badge na equipe.
+  email_verified_at             DateTime?
+  email_verify_token            String?                @unique
+  email_verify_sent_at          DateTime?
   created_at                    DateTime               @default(now())
   updated_at                    DateTime               @updatedAt
   audit_logs                    AuditLog[]
