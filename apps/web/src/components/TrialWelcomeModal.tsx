@@ -51,28 +51,34 @@ export function TrialWelcomeModal() {
     }
     if (dismissed === today) return;
 
-    // Onda 17.32.149 — Nao mostra se o Onboarding Wizard ja foi
-    // completado. Os atalhos sao redundantes com o wizard, entao
-    // se o user ja terminou o wizard nao precisa ver esse modal.
+    // Onda 17.32.158 — So abre DEPOIS do onboarding completado.
+    //
+    // Antes (Onda 149) abria quando completed_at == null — as MESMAS
+    // condicoes do OnboardingWizard. Ambos abriam juntos: o wizard
+    // (z-200) cobria este modal (z-110), e ao fechar o wizard o modal
+    // "aparecia do nada" (card fantasma reportado pelo user).
+    //
+    // Agora: pre-onboarding o wizard E a tela de boas-vindas; este
+    // modal vira lembrete diario do trial apenas pos-onboarding.
+    // Em erro do fetch: NAO abre (conservador — evita duplicar).
     let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
     (async () => {
       try {
         const { default: api } = await import('@/lib/api');
         const res = await api.get<{ completed_at: string | null }>('/tenants/me/onboarding');
         if (cancelled) return;
-        if (res.data?.completed_at) return; // onboarding ja completo -> nao mostra
+        if (!res.data?.completed_at) return; // onboarding em andamento -> wizard cuida
         // Pequeno delay pra dar tempo do dashboard montar
-        const t = setTimeout(() => setOpen(true), 600);
-        return () => clearTimeout(t);
+        timer = setTimeout(() => { if (!cancelled) setOpen(true); }, 600);
       } catch {
-        // Se /tenants/me/onboarding falhar, mostra o modal mesmo
-        // (comportamento legacy — melhor ver duas vezes que nao ver)
-        if (cancelled) return;
-        const t = setTimeout(() => setOpen(true), 600);
-        return () => clearTimeout(t);
+        // fetch falhou -> nao abre (wizard pode estar prestes a abrir)
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [tenant, isOwner]);
 
   const handleClose = () => {
