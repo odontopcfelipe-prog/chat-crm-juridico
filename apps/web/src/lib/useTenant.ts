@@ -68,19 +68,30 @@ export function useIsTenantOwner(): boolean {
     if (tenant.owner_user_id && tenant.owner_user_id === userId) {
       setIsOwner(true); return;
     }
-    // SUPER_ADMIN: decoda roles do token
+    // Roles do token (decode local — apenas pra UX; autorizacao real
+    // continua nos guards do backend)
+    let roles: string[] = [];
     try {
       const token = localStorage.getItem('token') || '';
       let b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
       while (b64.length % 4) b64 += '=';
       const payload = JSON.parse(atob(b64));
-      const roles: string[] = Array.isArray(payload?.roles)
+      roles = Array.isArray(payload?.roles)
         ? payload.roles
         : (payload?.role ? [payload.role] : []);
-      if (roles.includes('SUPER_ADMIN')) {
-        setIsOwner(true); return;
-      }
-    } catch { /* ignora */ }
+    } catch { /* token malformado -> roles vazio */ }
+
+    // SUPER_ADMIN sempre passa (suporte cross-tenant)
+    if (roles.includes('SUPER_ADMIN')) {
+      setIsOwner(true); return;
+    }
+    // Onda 17.32.159 — Fallback: tenant SEM owner definido (legado,
+    // ou o user dono foi deletado e owner_user_id virou null — ver
+    // comentario no schema). Nesses casos qualquer ADMIN do tenant
+    // assume o papel — senao NINGUEM ve o wizard/banner/trial-modal.
+    if (!tenant.owner_user_id && roles.includes('ADMIN')) {
+      setIsOwner(true); return;
+    }
     setIsOwner(false);
   }, [tenant]);
 
