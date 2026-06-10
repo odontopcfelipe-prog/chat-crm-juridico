@@ -2,9 +2,9 @@ import { Injectable, ForbiddenException, BadRequestException, Logger } from '@ne
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { SettingsService } from '../settings/settings.service';
+import { createSmtpTransport } from '../common/utils/smtp.util';
 import { Prisma, User } from '@crm/shared';
 import * as argon2 from 'argon2';
-import * as nodemailer from 'nodemailer';
 import { randomBytes } from 'crypto';
 
 /**
@@ -192,12 +192,9 @@ export class UsersService {
     const publicUrl = (process.env.PUBLIC_WEB_URL || 'https://sistema.institutoodontopassos.com.br').replace(/\/+$/, '');
     const link = `${publicUrl}/verificar-email?token=${token}`;
 
-    const transporter = nodemailer.createTransport({
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.port === 465,
-      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
-    });
+    // Onda 17.32.175 — resolve o host via dns.lookup antes do nodemailer
+    // (o resolve4 interno dele falha no Swarm; ver smtp.util.ts)
+    const transporter = await createSmtpTransport(smtp);
 
     const html = `
       <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">

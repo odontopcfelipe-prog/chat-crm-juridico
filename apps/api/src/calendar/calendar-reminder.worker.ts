@@ -6,7 +6,7 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { SettingsService } from '../settings/settings.service';
 import OpenAI from 'openai';
 import Anthropic from '@anthropic-ai/sdk';
-import * as nodemailer from 'nodemailer';
+import { createSmtpTransport } from '../common/utils/smtp.util';
 import {
   DEFAULT_REMINDER_CONFIG,
   applyTemplate,
@@ -1026,12 +1026,9 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       return false;
     }
 
-    const transporter = nodemailer.createTransport({
-      host: smtp.host,
-      port: smtp.port,
-      secure: smtp.port === 465,
-      auth: smtp.user ? { user: smtp.user, pass: smtp.pass } : undefined,
-    });
+    // Onda 17.32.175 — resolve o host via dns.lookup antes do nodemailer
+    // (o resolve4 interno dele falha no Swarm; ver smtp.util.ts)
+    const transporter = await createSmtpTransport(smtp);
 
     const typeEmoji = TYPE_EMOJI[event.type] || '📅';
     const label = TYPE_LABEL[event.type] || 'Evento';
