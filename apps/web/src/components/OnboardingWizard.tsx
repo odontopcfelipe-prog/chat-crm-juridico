@@ -1,16 +1,17 @@
 'use client';
 
 /**
- * Onda 17.32.124 — Wizard full-screen de onboarding (estilo Windows OOBE).
+ * Onda 17.32.124/166 — Wizard full-screen de primeiro acesso
+ * (design da skill design-odonto-system: dark premium, card central
+ * com glow, acento emerald na configuracao).
  *
- * Aparece automaticamente na 1a vez do user no sistema (trial ativo +
- * onboarding nao completo). Cobre tela inteira com 6 telas:
- *   0. Boas-vindas
- *   1. Conectar WhatsApp   (obrigatorio — sem botao Pular)
- *   2. Configurar Asaas    (obrigatorio — sem botao Pular)
- *   3. Cadastrar paciente  (opcional — pode pular)
- *   4. Convidar equipe     (opcional — pode pular)
- *   5. Tudo pronto!
+ * Fluxo em 3 fases:
+ *   0    Boas-vindas
+ *   1-6  Configuracao inicial (clinica, WhatsApp, Asaas, paciente,
+ *        equipe, tabela de precos) — stepper de pilulas que viram check
+ *   7    Apresentacao das vantagens (AdvantagesCarousel — explosao de
+ *        cor, um acento por card; o glow do shell acompanha)
+ *   8    Tudo pronto
  *
  * Pode minimizar com "Continuar configurando depois" — vira badge
  * persistente no menu inicial. Cada etapa tem auto-detect do backend:
@@ -18,9 +19,9 @@
  */
 import { useEffect, useState, useCallback, useRef } from 'react';
 import {
-  Sparkles, ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
-  MessageSquare, CreditCard, Users, UserPlus, Rocket, QrCode,
-  AlertCircle, Smartphone, RefreshCw, Tag, Building2,
+  ArrowRight, ArrowLeft, X, CheckCircle2, Loader2,
+  Sparkles, CreditCard, Users, UserPlus, QrCode,
+  AlertCircle, Smartphone, RefreshCw, Table, Building2, Check,
 } from 'lucide-react';
 import Link from 'next/link';
 import api from '@/lib/api';
@@ -30,6 +31,8 @@ import PatientFullCreate from './onboarding/PatientFullCreate';
 import PricingQuickReview from './onboarding/PricingQuickReview';
 // Onda 17.32.152 — revisao da identidade da clinica (passo 1)
 import ClinicIdentityReview from './onboarding/ClinicIdentityReview';
+// Onda 17.32.165 — fase "conhecimento ao admin" (skill design-odonto-system)
+import AdvantagesCarousel, { ACCENTS } from './onboarding/AdvantagesCarousel';
 
 type StepKey = 'clinic_profile' | 'whatsapp' | 'asaas' | 'first_patient' | 'team' | 'pricing';
 type StepStatus = 'done' | 'skipped' | 'pending';
@@ -44,76 +47,76 @@ interface OnboardingState {
 
 interface StepDef {
   key: StepKey;
-  index: number; // posicao no wizard (1-4)
+  index: number; // posicao no wizard (1-6)
   required: boolean;
-  icon: React.ReactNode;
-  iconBg: string;
+  icon: typeof Building2;
+  eyebrow: string;
   title: string;
   description: string;
   cta: { label: string; href: string };
 }
 
+// Onda 17.32.166 — Copys no tom da skill design-odonto-system:
+// beneficio pro dono da clinica, sentence case, uma frase.
 const STEPS: StepDef[] = [
-  // Onda 17.32.152 — Identidade da clinica (primeiro passo).
   {
     key: 'clinic_profile',
     index: 1,
     required: true,
-    icon: <Building2 size={36} />,
-    iconBg: 'from-emerald-500 to-emerald-700',
-    title: 'Confirme os dados da clínica ou consultório',
-    description: 'Os dados que aparecem em recibos, contratos e notas fiscais. Você já preencheu no cadastro inicial — vamos só confirmar e completar o que faltar.',
+    icon: Building2,
+    eyebrow: 'Dados da clínica',
+    title: 'Confirme os dados da clínica',
+    description: 'Esses dados aparecem em recibos, contratos e mensagens. Revise e ajuste o que precisar.',
     cta: { label: 'Editar identidade', href: '/atendimento/settings/identidade' },
   },
   {
     key: 'whatsapp',
     index: 2,
     required: true,
-    icon: <MessageSquare size={36} />,
-    iconBg: 'from-emerald-500 to-emerald-700',
-    title: 'Conecte o número principal da clínica ou consultório',
-    description: 'Em 2 minutos seu sistema atende pacientes pelo WhatsApp. Sem isso, eles não recebem confirmação de consulta, lembrete de retorno, nem link de anamnese.',
+    icon: QrCode,
+    eyebrow: 'Conectar WhatsApp',
+    title: 'Conecte o WhatsApp da clínica',
+    description: 'É por aqui que o sistema atende leads, manda lembretes e confirma consultas.',
     cta: { label: 'Conectar agora', href: '/atendimento/settings/whatsapp' },
   },
   {
     key: 'asaas',
     index: 3,
     required: true,
-    icon: <CreditCard size={36} />,
-    iconBg: 'from-violet-500 to-violet-700',
-    title: 'Configure cobrança Asaas',
-    description: 'PIX, boleto e cartão automatizados. Cole sua chave do Asaas (grátis pra abrir conta) e o sistema gera as cobranças sozinho — paciente paga e o status muda na hora.',
+    icon: CreditCard,
+    eyebrow: 'Cobrança',
+    title: 'Configure a cobrança (Asaas)',
+    description: 'Conecte sua conta para emitir PIX, boleto e cartão direto do sistema.',
     cta: { label: 'Configurar Asaas', href: '/atendimento/settings/payment-gateway' },
   },
   {
     key: 'first_patient',
     index: 4,
     required: false,
-    icon: <UserPlus size={36} />,
-    iconBg: 'from-sky-500 to-sky-700',
-    title: 'Cadastre seu 1° paciente',
-    description: 'Comece a explorar o prontuário, agenda e propostas com um paciente real. Pode pular se preferir cadastrar depois.',
+    icon: UserPlus,
+    eyebrow: 'Primeiro paciente',
+    title: 'Cadastre seu primeiro paciente',
+    description: 'Só pra você ver como é rápido. Depois dá pra cadastrar a base inteira.',
     cta: { label: 'Cadastrar paciente', href: '/atendimento/pacientes' },
   },
   {
     key: 'team',
     index: 5,
     required: false,
-    icon: <Users size={36} />,
-    iconBg: 'from-amber-500 to-amber-700',
-    title: 'Convide sua equipe',
-    description: 'Cadastre dentistas, recepção, ACD/ASB e financeiro. Cada um vê só o que tem permissão — você controla.',
+    icon: Users,
+    eyebrow: 'Equipe',
+    title: 'Adicione um membro da equipe',
+    description: 'Cada perfil — Recepção, Dentista, CRC, Financeiro, Admin — vê só o que importa.',
     cta: { label: 'Convidar equipe', href: '/atendimento/settings/users' },
   },
-  // Onda 17.32.151 — Tabela de precos (opcional, mas valioso)
   {
     key: 'pricing',
     index: 6,
     required: false,
-    icon: <Tag size={36} />,
-    iconBg: 'from-violet-500 to-violet-700',
-    title: 'Revise a tabela de preços',
-    description: 'Mostramos a tabela padrão pra sua clínica. Edite preços, remova procedimentos que não usa, adicione novos. Tudo em segundos.',
+    icon: Table,
+    eyebrow: 'Tabela de preços',
+    title: 'Configure a tabela de preços',
+    description: 'É a base dos orçamentos e propostas. Comece pela sugestão e ajuste à vontade.',
     cta: { label: 'Abrir tabela completa', href: '/atendimento/settings/procedures' },
   },
 ];
@@ -153,10 +156,14 @@ export function OnboardingWizard({
   // Solucao definitiva: o ref guarda PAR { screen, status }. So
   // compara se ambos sao do MESMO screen. Mudou de screen ->
   // primeira render do novo screen so registra, nao avanca.
+  // Onda 17.32.166 — Glow dinamico: emerald na configuracao, troca
+  // pro acento do card na fase de vantagens (skill design-odonto-system)
+  const [glowClass, setGlowClass] = useState<string>(ACCENTS.emerald.glow);
+
   const prevRef = useRef<{ screen: number; status: StepStatus } | null>(null);
   useEffect(() => {
     if (!state || !open) return;
-    if (screen === 0 || screen === 7) {
+    if (screen === 0 || screen >= 7) {
       prevRef.current = null;
       return;
     }
@@ -173,10 +180,15 @@ export function OnboardingWizard({
 
     // 2. Mesmo screen, mas transicao de !done -> done -> avanca
     if (prev.status !== 'done' && curr === 'done') {
-      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 7)), 800);
+      const t = setTimeout(() => setScreen((s) => Math.min(s + 1, 8)), 800);
       return () => clearTimeout(t);
     }
   }, [state, screen, open]);
+
+  // Glow volta pro emerald fora da fase de vantagens
+  useEffect(() => {
+    if (screen !== 7) setGlowClass(ACCENTS.emerald.glow);
+  }, [screen]);
 
   if (!open || !state) return null;
 
@@ -185,7 +197,7 @@ export function OnboardingWizard({
     setSubmitting(true);
     try {
       await onStepUpdate(step, 'skipped');
-      setScreen((s) => Math.min(s + 1, 7));
+      setScreen((s) => Math.min(s + 1, 8));
     } catch {
       // Onda 17.32.160 — PATCH falhou (Loader ja logou e re-sincronizou).
       // NAO avanca a tela — evita "avanco fantasma" que voltava pra
@@ -195,7 +207,7 @@ export function OnboardingWizard({
     }
   };
 
-  const handleNext = () => setScreen((s) => Math.min(s + 1, 7));
+  const handleNext = () => setScreen((s) => Math.min(s + 1, 8));
   const handlePrev = () => setScreen((s) => Math.max(s - 1, 0));
 
   const handleFinish = async () => {
@@ -208,41 +220,61 @@ export function OnboardingWizard({
     }
   };
 
+  // Screens: 0=boas-vindas · 1-6=configuracao · 7=vantagens · 8=tudo pronto
   return (
-    <div className="fixed inset-0 z-[200] bg-gradient-to-br from-violet-900 via-violet-950 to-indigo-950 flex items-center justify-center p-4">
-      {/* Background ornamento */}
-      <div className="absolute inset-0 opacity-30 pointer-events-none">
-        <div className="absolute top-1/4 -left-32 w-96 h-96 bg-emerald-500/30 rounded-full blur-[120px]" />
-        <div className="absolute bottom-1/4 -right-32 w-96 h-96 bg-violet-500/30 rounded-full blur-[120px]" />
-      </div>
+    <div className="dark fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-gradient-to-b from-zinc-950 via-zinc-950 to-black p-4 font-sans antialiased">
+      <style>{`
+        @keyframes cardIn { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform: translateY(0) scale(1);} }
+        @media (prefers-reduced-motion: reduce){ .anim-card{ animation:none !important; } }
+        .anim-card{ animation: cardIn .42s cubic-bezier(.22,1,.36,1) both; }
+      `}</style>
 
       {/* Botao "Continuar configurando depois" no canto */}
       <button
         type="button"
         onClick={() => { onDismiss(); onClose(); }}
-        className="absolute top-5 right-5 inline-flex items-center gap-1.5 text-xs font-bold text-white/60 hover:text-white transition-colors px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/10 border border-white/10"
+        className="absolute right-5 top-5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
       >
         Continuar configurando depois
         <X size={12} />
       </button>
 
-      <div className="relative w-full max-w-3xl bg-white/95 dark:bg-card backdrop-blur-md rounded-3xl shadow-2xl overflow-hidden">
-        {/* Progress dots */}
-        <div className="px-8 pt-6 pb-2 flex items-center justify-center gap-2">
-          {[0, 1, 2, 3, 4, 5, 6, 7].map((s) => (
-            <div
-              key={s}
-              className={`h-1.5 rounded-full transition-all ${
-                s === screen   ? 'w-10 bg-violet-600' :
-                s <  screen    ? 'w-6  bg-violet-300' :
-                                 'w-6  bg-gray-200'
-              }`}
-            />
-          ))}
-        </div>
+      <div className="relative my-8 w-full max-w-xl">
+        {/* Glow de acento (troca de cor na fase de vantagens) */}
+        <div className={'pointer-events-none absolute -inset-10 rounded-[40px] blur-3xl transition-colors duration-700 ' + glowClass} />
 
-        {/* Conteúdo das telas */}
-        <div className="px-8 pb-8 pt-2 min-h-[440px] flex flex-col">
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/70 shadow-2xl backdrop-blur-xl">
+          {/* Header da fase de configuracao: eyebrow + stepper de pilulas */}
+          {screen >= 1 && screen <= 6 && (
+            <div className="px-6 pt-6">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">Configuração inicial</span>
+                <span className="text-xs tabular-nums text-zinc-600">Passo {screen} de {STEPS.length}</span>
+              </div>
+              <div className="mt-3 flex items-center gap-1.5">
+                {STEPS.map((s, i) => {
+                  const done = state.steps[s.key] === 'done';
+                  const isCur = i === screen - 1;
+                  return (
+                    <div
+                      key={s.key}
+                      className={
+                        'flex h-6 flex-1 items-center justify-center rounded-full text-[10px] font-semibold ring-1 transition ' +
+                        (done
+                          ? 'bg-emerald-500/20 text-emerald-300 ring-emerald-400/30'
+                          : isCur
+                          ? 'bg-emerald-500/15 text-emerald-200 ring-emerald-400/40'
+                          : 'bg-white/[0.03] text-zinc-600 ring-white/5')
+                      }
+                    >
+                      {done ? <Check className="h-3 w-3" /> : i + 1}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {screen === 0 && <WelcomeScreen onStart={handleNext} />}
 
           {screen >= 1 && screen <= 6 && (() => {
@@ -254,22 +286,23 @@ export function OnboardingWizard({
                 status={status}
                 submitting={submitting}
                 onSkip={() => handleSkip(step.key)}
-                // Onda 17.32.138 — Voltar sempre habilitado.
-                // No passo 1 volta pra tela 0 (boas-vindas) — antes
-                // ficava desabilitado e nao tinha como sair sem
-                // dismiss.
                 onPrev={handlePrev}
                 onStepUpdate={onStepUpdate}
-                // Onda 17.32.142 — Ao clicar em links de redirect
-                // (passos 3 e 4 que ainda nao tem fluxo inline),
-                // fechar o wizard ANTES de navegar — senao ele
-                // continua coberto e parece que nada acontece.
                 onClose={onClose}
               />
             );
           })()}
 
+          {/* Onda 17.32.165 — Fase 2: conhecimento ao admin */}
           {screen === 7 && (
+            <AdvantagesCarousel
+              onFinish={handleNext}
+              onSkip={handleNext}
+              onAccentChange={setGlowClass}
+            />
+          )}
+
+          {screen === 8 && (
             <FinalScreen
               state={state}
               submitting={submitting}
@@ -285,27 +318,27 @@ export function OnboardingWizard({
 // ─── Tela 0: Boas-vindas ─────────────────────────────────────────
 function WelcomeScreen({ onStart }: { onStart: () => void }) {
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-violet-500 to-emerald-500 grid place-items-center text-white shadow-lg mb-6">
-        <Sparkles size={36} />
+    <div className="anim-card flex flex-col items-center px-6 py-12 text-center">
+      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
+        <Sparkles className="h-6 w-6 text-emerald-400" />
       </div>
-      <span className="text-[10px] font-bold uppercase tracking-widest text-violet-700 bg-violet-100 px-3 py-1 rounded-full mb-4">
-        Vamos preparar seu sistema em 6 passos
+      <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">
+        Primeiro acesso
       </span>
-      <h1 className="text-3xl md:text-4xl font-extrabold text-foreground tracking-tight max-w-xl mb-3">
-        Bem-vindo ao Odonto System!
+      <h1 className="mt-2 text-2xl font-bold leading-tight text-white">
+        Bem-vindo ao Odonto System
       </h1>
-      <p className="text-base text-muted-foreground max-w-lg mb-8">
-        Antes de você começar, vamos configurar o essencial pra sua clínica funcionar
-        de verdade. Leva 5 minutos.
+      <p className="mt-3 max-w-sm text-[15px] leading-relaxed text-zinc-400">
+        Em 6 passos rápidos sua clínica fica pronta pra atender, cobrar e
+        fidelizar pacientes. Leva uns 5 minutos.
       </p>
       <button
         type="button"
         onClick={onStart}
-        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-base shadow-[0_10px_28px_-8px_rgba(124,58,237,0.6)] hover:shadow-[0_14px_32px_-8px_rgba(124,58,237,0.7)] transition-all hover:-translate-y-0.5"
+        className="mt-8 flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         Vamos começar
-        <ArrowRight size={18} />
+        <ArrowRight size={16} />
       </button>
     </div>
   );
@@ -336,35 +369,31 @@ function StepScreen({
   // Onda 17.32.152 — Identidade da clinica (passo 1)
   const isClinicProfile = step.key === 'clinic_profile';
   const hasInlineForm = isClinicProfile || isWhatsapp || isAsaas || isFirstPatient || isTeam || isPricing;
+  const Icon = step.icon;
 
   return (
-    <div className="flex-1 flex flex-col py-6">
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-6 text-xs text-muted-foreground font-semibold">
-        <span>Passo {step.index} de 6</span>
-        {step.required ? (
-          <span className="text-amber-600 dark:text-amber-400">• Recomendado</span>
-        ) : (
-          <span className="text-emerald-600 dark:text-emerald-400">• Opcional</span>
-        )}
-      </div>
-
-      {/* Ilustração */}
-      <div className="flex items-start gap-4 mb-6">
-        <div className={`w-20 h-20 rounded-2xl bg-gradient-to-br ${step.iconBg} grid place-items-center text-white shrink-0 shadow-lg`}>
-          {step.icon}
+    <div key={step.key} className="anim-card flex flex-col px-6 pb-6 pt-5">
+      {/* Cabecalho do passo: tile de icone + eyebrow + titulo */}
+      <div className="mb-5 flex items-start gap-4">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
+          <Icon className="h-5 w-5 text-emerald-400" />
         </div>
-        <div className="flex-1 min-w-0">
-          <h2 className="text-2xl font-extrabold text-foreground mb-2 tracking-tight flex items-center gap-2 flex-wrap">
-            {step.title}
-            {isDone && (
-              <span className="inline-flex items-center gap-1 text-xs bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 px-2.5 py-1 rounded-full font-bold">
-                <CheckCircle2 size={12} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs font-semibold uppercase tracking-wider text-emerald-400">{step.eyebrow}</span>
+            {isDone ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-semibold text-emerald-300 ring-1 ring-emerald-400/30">
+                <CheckCircle2 size={10} />
                 Pronto
               </span>
-            )}
-          </h2>
-          <p className="text-sm text-muted-foreground leading-relaxed">{step.description}</p>
+            ) : !step.required ? (
+              <span className="rounded-full bg-white/[0.03] px-2 py-0.5 text-[10px] font-medium text-zinc-500 ring-1 ring-white/5">
+                Opcional
+              </span>
+            ) : null}
+          </div>
+          <h2 className="mt-1 text-[19px] font-bold leading-tight text-white">{step.title}</h2>
+          <p className="mt-1 text-[13px] leading-relaxed text-zinc-400">{step.description}</p>
         </div>
       </div>
 
@@ -421,16 +450,13 @@ function StepScreen({
         />
       )}
 
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Footer com ações */}
-      <div className="flex items-center justify-between gap-3 pt-4 border-t border-border">
+      {/* Rodape de navegacao */}
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-white/5 pt-4">
         <button
           type="button"
           onClick={onPrev}
           disabled={!onPrev || submitting}
-          className="inline-flex items-center gap-1.5 text-sm font-bold text-muted-foreground hover:text-foreground transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-500 transition hover:text-zinc-300 disabled:cursor-not-allowed disabled:opacity-40 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
         >
           <ArrowLeft size={14} />
           Voltar
@@ -442,9 +468,9 @@ function StepScreen({
               type="button"
               onClick={onSkip}
               disabled={submitting}
-              className="text-sm font-bold text-muted-foreground hover:text-foreground px-4 py-2.5 rounded-xl hover:bg-accent/40 transition-colors disabled:opacity-50"
+              className="rounded-xl px-3 py-2.5 text-sm font-medium text-zinc-500 transition hover:text-zinc-300 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
             >
-              Pular essa etapa
+              Pular por agora
             </button>
           )}
 
@@ -452,7 +478,7 @@ function StepScreen({
             <button
               type="button"
               onClick={onSkip /* aproveita a logica de avanco */}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-sm transition-colors"
+              className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
             >
               Continuar
               <ArrowRight size={14} />
@@ -466,7 +492,7 @@ function StepScreen({
               type="button"
               onClick={onSkip}
               disabled={submitting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all disabled:opacity-50"
+              className="flex items-center gap-2 rounded-xl bg-emerald-500/15 px-5 py-2.5 text-sm font-semibold text-emerald-300 ring-1 ring-emerald-400/30 transition hover:bg-emerald-500/25 disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
             >
               Seguir
               <ArrowRight size={14} />
@@ -478,7 +504,7 @@ function StepScreen({
               // (senao o overlay z-200 fica em cima da tela destino
               // e parece que nada aconteceu)
               onClick={onClose}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all"
+              className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
             >
               {step.cta.label}
               <ArrowRight size={14} />
@@ -488,8 +514,8 @@ function StepScreen({
       </div>
 
       {step.required && !isDone && (
-        <p className="text-[11px] text-amber-700 dark:text-amber-400 text-center mt-3">
-          ⚠ Recomendado configurar agora — sem isso seu sistema perde funcionalidade chave.
+        <p className="mt-3 text-center text-[11px] text-amber-400/80">
+          Recomendado configurar agora — sem isso o sistema perde recursos importantes.
         </p>
       )}
     </div>
@@ -507,34 +533,34 @@ function FinalScreen({
   const allDone = state.required_pending === 0 && state.optional_pending === 0;
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
-      <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-700 grid place-items-center text-white shadow-lg mb-6">
-        <Rocket size={36} />
+    <div className="anim-card flex flex-col items-center px-6 py-10 text-center">
+      <div className="mb-5 flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/15 ring-1 ring-emerald-400/30">
+        <Check className="h-7 w-7 text-emerald-400" />
       </div>
-      <h1 className="text-3xl md:text-4xl font-extrabold text-foreground tracking-tight mb-3">
-        {allDone ? 'Tudo pronto!' : 'Bom o suficiente pra começar!'}
+      <h1 className="text-2xl font-bold leading-tight text-white">
+        {allDone ? 'Tudo pronto!' : 'Bom o suficiente pra começar'}
       </h1>
-      <p className="text-base text-muted-foreground max-w-lg mb-6">
+      <p className="mt-2 max-w-sm text-[15px] leading-relaxed text-zinc-400">
         {allDone
-          ? 'Seu Odonto System está configurado e pronto pra atender seus pacientes. Vamos lá!'
-          : 'Você pode terminar a configuração depois — vou deixar um lembrete no menu inicial.'}
+          ? 'Sua clínica está configurada e pronta pra atender, cobrar e fidelizar.'
+          : 'Você pode terminar a configuração depois — fica um lembrete no menu inicial.'}
       </p>
 
       {/* Resumo das etapas */}
-      <div className="bg-muted/30 rounded-xl p-4 max-w-md w-full mb-6 space-y-2">
+      <div className="mt-6 w-full max-w-sm space-y-2 rounded-2xl border border-white/5 bg-black/30 p-4">
         {STEPS.map((s) => {
           const status = state.steps[s.key];
           return (
-            <div key={s.key} className="flex items-center justify-between text-sm">
-              <span className="text-foreground font-medium">{s.title}</span>
+            <div key={s.key} className="flex items-center justify-between gap-2 text-[13px]">
+              <span className="truncate text-zinc-300">{s.title}</span>
               {status === 'done' ? (
-                <span className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-bold text-xs">
+                <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-400">
                   <CheckCircle2 size={12} /> Pronto
                 </span>
               ) : status === 'skipped' ? (
-                <span className="text-xs text-muted-foreground font-bold">Pulada</span>
+                <span className="shrink-0 text-xs font-medium text-zinc-600">Pulada</span>
               ) : (
-                <span className="text-xs text-amber-600 dark:text-amber-400 font-bold">Pendente</span>
+                <span className="shrink-0 text-xs font-medium text-amber-400/90">Pendente</span>
               )}
             </div>
           );
@@ -545,9 +571,9 @@ function FinalScreen({
         type="button"
         onClick={onFinish}
         disabled={submitting}
-        className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-base shadow-[0_10px_28px_-8px_rgba(124,58,237,0.6)] transition-all hover:-translate-y-0.5 disabled:opacity-60"
+        className="mt-6 flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:opacity-60 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
-        {submitting ? <Loader2 size={18} className="animate-spin" /> : <Sparkles size={18} />}
+        {submitting ? <Loader2 size={16} className="animate-spin" /> : <Sparkles size={16} />}
         Começar a usar o sistema
       </button>
     </div>
@@ -641,17 +667,17 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   // Estado: ainda nao gerou QR
   if (!qr && !generating) {
     return (
-      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-6 flex flex-col items-center text-center">
+      <div className="flex flex-col items-center rounded-2xl border border-white/5 bg-black/30 p-6 text-center">
         <button
           type="button"
           onClick={generate}
-          className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all"
+          className="flex items-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
         >
           <QrCode size={16} />
           Gerar QR Code
         </button>
         {error && (
-          <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+          <p className="mt-3 flex items-center gap-1.5 text-xs text-rose-400">
             <AlertCircle size={12} /> {error}
           </p>
         )}
@@ -662,9 +688,9 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   // Estado: gerando QR
   if (generating) {
     return (
-      <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-8 flex flex-col items-center justify-center gap-3">
-        <Loader2 className="animate-spin text-violet-500" size={28} />
-        <p className="text-xs text-muted-foreground">Conectando ao servidor…</p>
+      <div className="flex flex-col items-center justify-center gap-3 rounded-2xl border border-white/5 bg-black/30 p-8">
+        <Loader2 className="animate-spin text-emerald-400" size={28} />
+        <p className="text-xs text-zinc-500">Conectando ao servidor…</p>
       </div>
     );
   }
@@ -672,12 +698,12 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
   // Estado: QR pronto pra escanear
   const base64 = qr?.base64;
   return (
-    <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-2xl p-5 flex flex-col items-center text-center">
-      <div className="flex items-center gap-2 text-xs text-emerald-700 dark:text-emerald-400 font-semibold mb-3">
+    <div className="flex flex-col items-center rounded-2xl border border-white/5 bg-black/30 p-5 text-center">
+      <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-emerald-400">
         <Smartphone size={14} />
         <span>WhatsApp → Aparelhos conectados → Conectar aparelho</span>
       </div>
-      <div className="bg-white rounded-xl p-3 ring-4 ring-emerald-500/20">
+      <div className="rounded-xl bg-white p-2.5 shadow-lg">
         {base64 ? (
           <img
             src={base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`}
@@ -695,14 +721,14 @@ function WhatsappQuickConnect({ onConnected }: { onConnected: () => Promise<void
           <p className="text-xs text-zinc-500 p-4">QR nao disponivel. Tente regenerar.</p>
         )}
       </div>
-      <p className="mt-3 text-[11px] text-muted-foreground flex items-center gap-1.5 animate-pulse">
-        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500" />
+      <p className="mt-3 flex items-center gap-1.5 text-[11px] text-zinc-500 animate-pulse">
+        <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-400" />
         Aguardando voce escanear…
       </p>
       <button
         type="button"
         onClick={generate}
-        className="mt-2 text-[11px] font-bold text-violet-600 hover:text-violet-700 inline-flex items-center gap-1"
+        className="mt-2 inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-300 transition hover:text-emerald-200"
       >
         <RefreshCw size={10} /> Gerar novo QR
       </button>
@@ -739,8 +765,8 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
   const canSubmit = apiKey.trim().length >= 20 && !submitting;
 
   return (
-    <div className="bg-violet-500/5 border border-violet-500/20 rounded-2xl p-5">
-      <label className="block mb-2 text-xs font-bold text-foreground">
+    <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
+      <label className="mb-1 block text-[12px] font-medium text-zinc-400">
         Cole sua chave de API do Asaas
       </label>
       <input
@@ -748,32 +774,32 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
         value={apiKey}
         onChange={(e) => setApiKey(e.target.value)}
         placeholder="$aact_… (cole sua chave completa)"
-        className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm font-mono outline-none focus:border-violet-500 transition-all"
+        className="w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm font-mono text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40"
         autoFocus
         autoComplete="off"
         spellCheck={false}
       />
-      <p className="mt-2 text-[11px] text-muted-foreground">
-        Painel Asaas → <b>Integrações</b> → <b>API</b> → copie a chave de produção.
+      <p className="mt-2 text-[11px] text-zinc-600">
+        Painel Asaas → <b className="text-zinc-400">Integrações</b> → <b className="text-zinc-400">API</b> → copie a chave de produção.
         <a
           href="https://www.asaas.com/api"
           target="_blank"
           rel="noopener noreferrer"
-          className="ml-1 text-violet-600 hover:underline"
+          className="ml-1 text-emerald-400 hover:underline"
         >
           Não tenho conta ↗
         </a>
       </p>
 
-      <label className="mt-3 flex items-center gap-2 cursor-pointer">
+      <label className="mt-3 flex cursor-pointer items-center gap-2">
         <input
           type="checkbox"
           checked={sandbox}
           onChange={(e) => setSandbox(e.target.checked)}
-          className="accent-violet-600"
+          className="accent-emerald-500"
         />
-        <span className="text-xs text-muted-foreground">
-          Estou usando conta <b>sandbox</b> (teste — não cobra de verdade)
+        <span className="text-xs text-zinc-500">
+          Estou usando conta <b className="text-zinc-300">sandbox</b> (teste — não cobra de verdade)
         </span>
       </label>
 
@@ -781,14 +807,14 @@ function AsaasQuickSetup({ onConfigured }: { onConfigured: () => Promise<void> }
         type="button"
         disabled={!canSubmit}
         onClick={submit}
-        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-violet-600 hover:bg-violet-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(124,58,237,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <CheckCircle2 size={16} />}
-        {submitting ? 'Validando…' : 'Conectar Asaas'}
+        {submitting ? 'Validando…' : 'Conectar conta Asaas'}
       </button>
 
       {error && (
-        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </p>
@@ -855,81 +881,83 @@ function TeamQuickInvite({
     password.trim().length >= 6 &&
     !submitting;
 
+  const fieldCls = 'w-full rounded-lg bg-white/[0.04] px-3 py-2.5 text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40';
+
   return (
-    <div className="bg-amber-500/5 border border-amber-500/20 rounded-2xl p-5">
+    <div className="rounded-2xl border border-white/5 bg-black/30 p-5">
       {/* Onda 17.32.147 — Banner de sucesso */}
       {successInfo && (
-        <div className="mb-4 bg-emerald-500/15 border border-emerald-500/40 rounded-xl p-3 flex items-center gap-3 animate-in slide-in-from-top-2 duration-300">
-          <div className="w-8 h-8 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
+        <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/15 p-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-emerald-950">
             <CheckCircle2 size={18} />
           </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-bold text-emerald-700 dark:text-emerald-400">
-              ✓ Convite enviado!
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-emerald-300">
+              Convite enviado!
             </p>
-            <p className="text-xs text-emerald-700/80 dark:text-emerald-400/80 truncate">
+            <p className="truncate text-xs text-emerald-300/80">
               "{successInfo.name}" pode entrar com o e-mail {successInfo.email} e a senha que você definiu.
             </p>
           </div>
         </div>
       )}
       {alreadyDone && !successInfo && (
-        <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-400 flex items-center gap-1.5">
+        <p className="mb-3 flex items-center gap-1.5 text-xs text-emerald-400">
           <CheckCircle2 size={12} />
           Voce ja tem outros usuarios. Quer convidar mais um?
         </p>
       )}
-      <p className="text-[11px] text-muted-foreground mb-3">
+      <p className="mb-3 text-[11px] text-zinc-600">
         Adicione 1 pessoa agora. Você cadastra os demais a qualquer momento em
-        <b> Configurações → Usuários</b>.
+        <b className="text-zinc-400"> Configurações → Usuários</b>.
       </p>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">Nome</label>
+          <label className="mb-1 block text-[12px] font-medium text-zinc-400">Nome</label>
           <input
             type="text"
             value={name}
             onChange={(e) => setName(e.target.value)}
             placeholder="Ex: Dr. João"
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all"
+            className={fieldCls}
             autoFocus
           />
         </div>
         <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">Cargo</label>
+          <label className="mb-1 block text-[12px] font-medium text-zinc-400">Cargo</label>
           <select
             value={role}
             onChange={(e) => setRole(e.target.value)}
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all cursor-pointer"
+            className={fieldCls + ' cursor-pointer appearance-none'}
           >
             {TEAM_ROLES.map((r) => (
-              <option key={r.value} value={r.value}>{r.label}</option>
+              <option key={r.value} value={r.value} className="bg-zinc-900">{r.label}</option>
             ))}
           </select>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+      <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
         <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">E-mail</label>
+          <label className="mb-1 block text-[12px] font-medium text-zinc-400">E-mail</label>
           <input
             type="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             placeholder="joao@suaclinica.com.br"
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all"
+            className={fieldCls}
             autoComplete="off"
           />
         </div>
         <div>
-          <label className="block mb-1 text-xs font-bold text-foreground">Senha temporária</label>
+          <label className="mb-1 block text-[12px] font-medium text-zinc-400">Senha temporária</label>
           <input
             type="text"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             placeholder="Mínimo 6 caracteres"
-            className="w-full bg-white dark:bg-card border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-amber-500 transition-all font-mono"
+            className={fieldCls + ' font-mono'}
             autoComplete="off"
           />
         </div>
@@ -939,14 +967,14 @@ function TeamQuickInvite({
         type="button"
         disabled={!canSubmit}
         onClick={submit}
-        className="mt-4 w-full inline-flex items-center justify-center gap-2 px-6 py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-[0_6px_18px_-4px_rgba(245,158,11,0.5)] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <Users size={16} />}
         {submitting ? 'Convidando…' : 'Convidar membro'}
       </button>
 
       {error && (
-        <p className="mt-3 text-xs text-rose-600 dark:text-rose-400 flex items-start gap-1.5">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </p>
