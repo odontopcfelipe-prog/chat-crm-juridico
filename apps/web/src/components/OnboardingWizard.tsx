@@ -253,8 +253,9 @@ export function OnboardingWizard({
   // Screens: 0=boas-vindas · 1-6=configuracao · 7=vantagens · 8=tudo pronto
   // Onda 17.32.168 — cards BRANCOS nas fases de preenchimento (0-6, 8);
   // o carrossel de vantagens (7) mantem o card dark.
+  // Onda 17.32.169 — fundo roxo mais claro (pedido do usuario).
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-gradient-to-b from-zinc-950 via-zinc-950 to-black p-4 font-sans antialiased">
+    <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-gradient-to-b from-violet-600 via-violet-800 to-indigo-950 p-4 font-sans antialiased">
       <style>{`
         @keyframes cardIn { from { opacity:0; transform: translateY(14px) scale(.985);} to { opacity:1; transform: translateY(0) scale(1);} }
         @media (prefers-reduced-motion: reduce){ .anim-card{ animation:none !important; } }
@@ -265,7 +266,7 @@ export function OnboardingWizard({
       <button
         type="button"
         onClick={() => { onDismiss(); onClose(); }}
-        className="absolute right-5 top-5 inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-zinc-500 transition-colors hover:bg-white/10 hover:text-zinc-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+        className="absolute right-5 top-5 inline-flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1.5 text-xs font-medium text-violet-100 transition-colors hover:bg-white/20 hover:text-white focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
       >
         Continuar configurando depois
         <X size={12} />
