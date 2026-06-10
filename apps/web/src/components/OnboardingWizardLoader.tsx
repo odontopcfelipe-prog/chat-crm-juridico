@@ -89,6 +89,15 @@ export function OnboardingWizardLoader() {
         }
       } catch { /* SSR ignore */ }
 
+      // Onda 17.32.160 — Dismiss PERSISTIDO no backend tambem conta
+      // (mesma janela de 4h). Antes o POST /dismiss era gravado mas
+      // nunca lido: sessionStorage morre ao fechar a aba e o wizard
+      // voltava na cara em toda nova sessao, ignorando o dismiss.
+      if (s.dismissed_at) {
+        const when = new Date(s.dismissed_at).getTime();
+        if (!isNaN(when) && Date.now() - when < 4 * 60 * 60 * 1000) return;
+      }
+
       // Mostra com pequeno delay pra layout estabilizar
       const t = setTimeout(() => setOpen(true), 500);
       return () => clearTimeout(t);
@@ -119,10 +128,17 @@ export function OnboardingWizardLoader() {
         { step, status },
       );
       setState(res.data);
-    } catch {
-      // ignora — frontend continua avancando mesmo se backend falhar
+    } catch (e) {
+      // Onda 17.32.160 — Antes era catch vazio: o wizard "avancava"
+      // mas o backend nao persistia, e no proximo refetch a etapa
+      // voltava pra pending (avanco fantasma). Agora: loga,
+      // re-sincroniza com o estado real e relanca — os forms inline
+      // tem catch proprio e mostram o erro; handleSkip nao avanca.
+      console.error('[onboarding] Falha ao salvar etapa', step, e);
+      await fetchState();
+      throw e;
     }
-  }, []);
+  }, [fetchState]);
 
   const handleComplete = useCallback(async () => {
     try {

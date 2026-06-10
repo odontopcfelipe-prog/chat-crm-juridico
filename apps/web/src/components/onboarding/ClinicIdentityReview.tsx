@@ -156,17 +156,21 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
           payload[k] = newVal || null;
         }
       }
-      if (Object.keys(payload).length === 0) {
-        setSuccess(true);
-        await onSaved();
-        setTimeout(() => setSuccess(false), 4000);
-        return;
+      if (Object.keys(payload).length > 0) {
+        await api.patch('/tenants/me', payload);
+        setInitial((cur) => cur ? { ...cur, ...payload } as TenantSelf : cur);
       }
-      await api.patch('/tenants/me', payload);
-      setInitial((cur) => cur ? { ...cur, ...payload } as TenantSelf : cur);
       setSuccess(true);
-      await onSaved();
       setTimeout(() => setSuccess(false), 4000);
+      // Onda 17.32.160 — So marca a etapa como done quando os 4
+      // essenciais (nome, CNPJ, telefone, email) estao preenchidos.
+      // Antes marcava done so com o nome — required_pending zerava
+      // com dados faltando, contradizendo o auto-detect do backend.
+      // Com campos faltando: salva o que tem, mostra sucesso e o
+      // banner "Faltam X de 4" continua orientando.
+      if (missingCount === 0) {
+        await onSaved();
+      }
     } catch (e: any) {
       const raw = e?.response?.data?.message || '';
       if (typeof raw === 'string' && raw.startsWith('Cannot')) {

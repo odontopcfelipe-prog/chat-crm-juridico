@@ -178,6 +178,10 @@ export function OnboardingWizard({
     try {
       await onStepUpdate(step, 'skipped');
       setScreen((s) => Math.min(s + 1, 7));
+    } catch {
+      // Onda 17.32.160 — PATCH falhou (Loader ja logou e re-sincronizou).
+      // NAO avanca a tela — evita "avanco fantasma" que voltava pra
+      // pending no proximo refetch.
     } finally {
       setSubmitting(false);
     }
