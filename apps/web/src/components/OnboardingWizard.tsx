@@ -251,8 +251,7 @@ export function OnboardingWizard({
   };
 
   // Screens: 0=boas-vindas · 1-6=configuracao · 7=vantagens · 8=tudo pronto
-  // Onda 17.32.168 — cards BRANCOS nas fases de preenchimento (0-6, 8);
-  // o carrossel de vantagens (7) mantem o card dark.
+  // Onda 17.32.168/171 — cards BRANCOS em todas as fases.
   // Onda 17.32.169 — fundo roxo mais claro (pedido do usuario).
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center overflow-y-auto bg-gradient-to-b from-violet-600 via-violet-800 to-indigo-950 p-4 font-sans antialiased">
@@ -276,13 +275,10 @@ export function OnboardingWizard({
         {/* Glow de acento (troca de cor na fase de vantagens) */}
         <div className={'pointer-events-none absolute -inset-10 rounded-[40px] blur-3xl transition-colors duration-700 ' + glowClass} />
 
-        {/* Onda 17.32.170 — altura PADRONIZADA em todas as fases:
+        {/* Onda 17.32.170/171 — altura PADRONIZADA e card BRANCO em
+            TODAS as fases (incluindo o carrossel de vantagens):
             o conteudo rola dentro do card, o card nao muda de tamanho */}
-        <div className={
-          screen === 7
-            ? 'relative flex h-[min(640px,85vh)] flex-col overflow-hidden rounded-3xl border border-white/10 bg-zinc-900/70 shadow-2xl backdrop-blur-xl'
-            : 'relative flex h-[min(640px,85vh)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl'
-        }>
+        <div className="relative flex h-[min(640px,85vh)] flex-col overflow-hidden rounded-3xl bg-white shadow-2xl">
           {/* Header da fase de configuracao: eyebrow + stepper de pilulas */}
           {screen >= 1 && screen <= 6 && (() => {
             const L = LIGHT[STEPS[screen - 1].accent];
