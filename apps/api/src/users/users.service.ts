@@ -128,23 +128,39 @@ export class UsersService {
     const normalizedRoles = normalizeRoles(data.roles, data.role);
     // Onda 17.32.172 — token de confirmacao de e-mail gerado no cadastro
     const verifyToken = randomBytes(32).toString('hex');
-    const user = await this.prisma.user.create({
-      data: {
-        name: data.name,
-        email: data.email,
-        phone: data.phone || null,
-        password_hash,
-        roles: normalizedRoles,
-        specialties: data.specialties ?? [],
-        cro_number: data.cro_number || null,
-        cro_uf: data.cro_uf || null,
-        tenant_id: data.tenant_id,
-        email_verify_token: verifyToken,
-        email_verify_sent_at: new Date(),
-        inboxes: data.inboxIds ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
-      },
-      include: { inboxes: { select: { id: true, name: true } } }
-    });
+    let user;
+    try {
+      user = await this.prisma.user.create({
+        data: {
+          name: data.name,
+          email: data.email,
+          phone: data.phone || null,
+          password_hash,
+          roles: normalizedRoles,
+          specialties: data.specialties ?? [],
+          cro_number: data.cro_number || null,
+          cro_uf: data.cro_uf || null,
+          tenant_id: data.tenant_id,
+          email_verify_token: verifyToken,
+          email_verify_sent_at: new Date(),
+          inboxes: data.inboxIds ? { connect: data.inboxIds.map(id => ({ id })) } : undefined
+        },
+        include: { inboxes: { select: { id: true, name: true } } }
+      });
+    } catch (e: any) {
+      // Onda 17.32.173 — P2002 (unique) vazava como "Erro interno do
+      // servidor" (500). Caso classico: cadastrar membro com o MESMO
+      // e-mail do admin/da clinica. Devolve mensagem clara.
+      if (e?.code === 'P2002') {
+        throw new BadRequestException('Já existe um usuário com este e-mail. Use outro endereço.');
+      }
+      // P2025 — inboxIds apontando pra inbox inexistente
+      if (e?.code === 'P2025') {
+        throw new BadRequestException('Inbox selecionada não existe mais. Recarregue a página e tente de novo.');
+      }
+      this.logger.error(`[USERS] Falha inesperada ao criar usuario (${data.email}): code=${e?.code} ${e?.message}`);
+      throw e;
+    }
     // Envio best-effort em background — criar o usuario NUNCA falha
     // por causa de SMTP (sem config, e-mail invalido, servidor fora).
     this.sendVerificationEmail(user.email, user.name, verifyToken, data.tenant_id)
@@ -299,11 +315,22 @@ export class UsersService {
       };
     }
 
-    const user = await this.prisma.user.update({
-      where: { id },
-      data: updateData,
-      include: { inboxes: { select: { id: true, name: true } } }
-    });
+    let user;
+    try {
+      user = await this.prisma.user.update({
+        where: { id },
+        data: updateData,
+        include: { inboxes: { select: { id: true, name: true } } }
+      });
+    } catch (e: any) {
+      // Onda 17.32.173 — mesmo tratamento do create: trocar e-mail pra
+      // um ja usado retornava 500 generico
+      if (e?.code === 'P2002') {
+        throw new BadRequestException('Já existe um usuário com este e-mail. Use outro endereço.');
+      }
+      this.logger.error(`[USERS] Falha inesperada ao atualizar usuario ${id}: code=${e?.code} ${e?.message}`);
+      throw e;
+    }
     const { password_hash, ...result } = user;
     return result as any;
   }
