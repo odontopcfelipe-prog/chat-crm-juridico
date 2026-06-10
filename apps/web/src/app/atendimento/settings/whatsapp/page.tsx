@@ -155,6 +155,14 @@ export default function WhatsappIntegrationPage() {
         type: 'success',
         message: `WhatsApp "${me.displayName}" conectado com sucesso!`,
       });
+      // Onda 17.32.161 — Persiste a etapa do onboarding. O auto-detect
+      // do backend so reconhece as keys legacy (EVOLUTION_API_KEY /
+      // EVOLUTION_INSTANCE_NAME); o Quick Connect grava
+      // WHATSAPP_INSTANCE_NAMES_JSON, entao quem conectava por AQUI
+      // (fora do wizard) ficava com a etapa "pendente" pra sempre e o
+      // wizard continuava cobrando. Best-effort: falha e silenciosa.
+      api.patch('/tenants/me/onboarding/step', { step: 'whatsapp', status: 'done' })
+        .catch(() => { /* onboarding e secundario aqui — nao bloqueia */ });
     }
   }, [numbers, qrInstance]);
 
