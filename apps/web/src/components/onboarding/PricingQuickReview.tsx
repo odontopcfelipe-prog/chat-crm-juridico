@@ -33,6 +33,12 @@ interface Procedure {
   specialty?: { id: string; name: string; icon?: string | null } | null;
 }
 
+interface Specialty {
+  id: string;
+  name: string;
+  icon?: string | null;
+}
+
 interface Props {
   alreadyDone?: boolean;
   /** Marca a etapa como done (so via botao explicito "Concluir revisao") */
@@ -72,6 +78,9 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
   // Adicionar novo
   const [newName, setNewName] = useState('');
   const [newPrice, setNewPrice] = useState('');
+  // Onda 17.32.164 — especialidade do novo procedimento (opcional)
+  const [newSpecialtyId, setNewSpecialtyId] = useState('');
+  const [specialties, setSpecialties] = useState<Specialty[]>([]);
   const [adding, setAdding] = useState(false);
 
   // Confirmacao de remocao
@@ -101,6 +110,15 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
   }, []);
 
   useEffect(() => { fetchList(); }, [fetchList]);
+
+  // Onda 17.32.164 — Carrega especialidades pro select do "Adicionar".
+  // Best-effort: se falhar, o select simplesmente nao aparece e o
+  // procedimento e criado sem especialidade (comportamento anterior).
+  useEffect(() => {
+    api.get<Specialty[]>('/specialties')
+      .then((r) => setSpecialties(Array.isArray(r.data) ? r.data : []))
+      .catch(() => { /* select fica vazio — add continua funcionando */ });
+  }, []);
 
   // ─── Agrupamento por especialidade (igual a tela do sistema) ────
   const groups = useMemo(() => {
@@ -153,9 +171,18 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
     try {
       const payload: any = { name: newName.trim() };
       if (newPrice.trim()) payload.base_price = parseBRL(newPrice);
+      // Onda 17.32.164 — especialidade escolhida no select (opcional)
+      if (newSpecialtyId) payload.specialty_id = newSpecialtyId;
       const res = await api.post<Procedure>('/procedures', payload);
-      setList((arr) => [res.data, ...arr]);
-      flashSuccess(`"${newName.trim()}" adicionado.`);
+      // O POST pode nao devolver o objeto specialty populado — injeta
+      // localmente pro item cair no grupo certo sem precisar refetch
+      const chosen = specialties.find((s) => s.id === newSpecialtyId) || null;
+      const created: Procedure = {
+        ...res.data,
+        specialty: res.data.specialty ?? chosen,
+      };
+      setList((arr) => [created, ...arr]);
+      flashSuccess(`"${newName.trim()}" adicionado${chosen ? ` em ${chosen.name}` : ''}.`);
       setNewName(''); setNewPrice('');
     } catch (e: any) {
       const raw = e?.response?.data?.message || '';
@@ -221,7 +248,7 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
           <p className="text-[10px] font-bold uppercase tracking-wider text-violet-700 dark:text-violet-400 mb-2 flex items-center gap-1">
             <Plus size={12} /> Adicionar procedimento
           </p>
-          <div className="grid grid-cols-1 md:grid-cols-[1fr_120px_110px] gap-2">
+          <div className="grid grid-cols-1 md:grid-cols-[1fr_170px_110px_110px] gap-2">
             <input
               type="text"
               value={newName}
@@ -229,6 +256,19 @@ export default function PricingQuickReview({ alreadyDone = false, onConcluded }:
               placeholder="Nome do procedimento"
               className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500"
             />
+            {/* Onda 17.32.164 — especialidade (opcional) */}
+            <select
+              value={newSpecialtyId}
+              onChange={(e) => setNewSpecialtyId(e.target.value)}
+              className="px-3 py-2 rounded-lg bg-background border border-border text-sm outline-none focus:border-violet-500 cursor-pointer"
+            >
+              <option value="">Especialidade…</option>
+              {specialties.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.icon ? `${s.icon} ` : ''}{s.name}
+                </option>
+              ))}
+            </select>
             <input
               type="text"
               value={newPrice}
