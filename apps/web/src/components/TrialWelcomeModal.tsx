@@ -35,6 +35,11 @@ export function TrialWelcomeModal() {
     if (!tenant) return;
     if (tenant.status !== 'TRIAL') return;
     if (!isOwner) return;
+    // Onda 17.32.157 — Nunca abrir dentro de iframe (o modal da tabela
+    // de precos do wizard embeda paginas que herdam este layout)
+    try {
+      if (typeof window !== 'undefined' && window.self !== window.top) return;
+    } catch { return; /* cross-origin = iframe */ }
 
     // So aparece 1x por dia — chave salva a data (YYYY-MM-DD)
     const today = new Date().toISOString().slice(0, 10);

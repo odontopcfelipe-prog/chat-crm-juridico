@@ -28,6 +28,23 @@ interface OnboardingState {
 
 const DISMISS_LOCAL_KEY = 'onboarding_dismissed_local';
 
+/**
+ * Onda 17.32.157 — True quando a pagina esta rodando DENTRO de um
+ * iframe (ex: o modal "Abrir tabela completa" do passo 6 embeda
+ * /atendimento/settings/procedures, que herda este layout). Nesse
+ * caso o wizard NAO deve abrir — senao aparece um wizard dentro do
+ * iframe dentro do wizard (inception).
+ */
+function isEmbeddedInIframe(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.self !== window.top;
+  } catch {
+    // cross-origin access ao window.top lanca — significa que estamos em iframe
+    return true;
+  }
+}
+
 export function OnboardingWizardLoader() {
   const tenant = useTenant();
   // Onda 17.32.150 — Wizard so aparece pro ADMIN principal do tenant
@@ -47,6 +64,9 @@ export function OnboardingWizardLoader() {
 
   useEffect(() => {
     if (!tenant) return;
+    // Onda 17.32.157 — Nunca abrir dentro de iframe (passo 6 embeda
+    // a tabela de precos, que herda este layout)
+    if (isEmbeddedInIframe()) return;
     // Só pra tenants em TRIAL (depois do trial, modal nao aparece)
     if (tenant.status !== 'TRIAL') return;
     // Onda 17.32.150 — Apenas pro ADMIN principal (signatario)
@@ -79,6 +99,8 @@ export function OnboardingWizardLoader() {
   // Onda 17.32.125 — Permite reabrir o wizard de qualquer lugar
   // (ex: banner persistente no menu inicial) via window event.
   useEffect(() => {
+    // Onda 17.32.157 — Em iframe nem registra o listener
+    if (isEmbeddedInIframe()) return;
     const handler = () => {
       // Refresh estado antes de abrir
       fetchState().then(() => {
