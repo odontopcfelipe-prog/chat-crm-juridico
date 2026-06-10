@@ -51,9 +51,9 @@ const EMPTY = {
   chiefComplaint: '', notes: '',
 };
 
-// Onda 17.32.167 — tokens dark da skill design-odonto-system (acento blue)
+// Onda 17.32.168 — card branco (fase de preenchimento clara, acento blue)
 const inputCls =
-  'w-full px-3 py-2 rounded-lg bg-white/[0.04] text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-blue-400/40 [color-scheme:dark]';
+  'w-full px-3 py-2 rounded-lg bg-white text-sm text-zinc-900 ring-1 ring-zinc-200 placeholder:text-zinc-400 transition focus:outline-none focus:ring-2 focus:ring-blue-400/60';
 const labelCls = 'block text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1';
 
 export default function PatientFullCreate({ alreadyDone = false, onCreated }: Props) {
@@ -144,25 +144,25 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
   const canSubmit = form.name.trim().length >= 2 && !submitting;
 
   return (
-    <div className="rounded-2xl border border-white/5 bg-black/30 p-5 max-h-[55vh] overflow-y-auto">
+    <div className="rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5 max-h-[55vh] overflow-y-auto">
       {/* Banner de sucesso */}
       {successName && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/15 p-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-emerald-950">
+        <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
             <CheckCircle2 size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-emerald-300">
+            <p className="text-sm font-semibold text-emerald-700">
               Paciente cadastrado com sucesso!
             </p>
-            <p className="truncate text-xs text-emerald-300/80">
+            <p className="truncate text-xs text-emerald-700/80">
               "{successName}" foi salvo. Cadastre outro ou clique em "Continuar".
             </p>
           </div>
         </div>
       )}
       {alreadyDone && !successName && (
-        <p className="mb-4 flex items-center gap-1.5 text-xs text-emerald-400">
+        <p className="mb-4 flex items-center gap-1.5 text-xs text-emerald-600">
           <CheckCircle2 size={12} />
           Você já tem pacientes cadastrados. Quer adicionar mais um agora?
         </p>
@@ -218,10 +218,10 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
             onChange={(e) => set('gender', e.target.value)}
             className={`${inputCls} cursor-pointer`}
           >
-            <option value="" className="bg-zinc-900">—</option>
-            <option value="M" className="bg-zinc-900">Masculino</option>
-            <option value="F" className="bg-zinc-900">Feminino</option>
-            <option value="OTHER" className="bg-zinc-900">Outro</option>
+            <option value="">—</option>
+            <option value="M">Masculino</option>
+            <option value="F">Feminino</option>
+            <option value="OTHER">Outro</option>
           </select>
         </div>
         <div className="md:col-span-2">
@@ -232,7 +232,7 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
             className={`${inputCls} cursor-pointer`}
           >
             {MARITAL_OPTIONS.map((o) => (
-              <option key={o.v} value={o.v} className="bg-zinc-900">{o.l}</option>
+              <option key={o.v} value={o.v}>{o.l}</option>
             ))}
           </select>
         </div>
@@ -284,7 +284,7 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
                 className={inputCls}
               />
               {cepLoading && (
-                <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-blue-400" size={14} />
+                <Loader2 className="absolute right-2 top-1/2 -translate-y-1/2 animate-spin text-blue-500" size={14} />
               )}
             </div>
           </div>
@@ -341,8 +341,8 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
               onChange={(e) => set('state', e.target.value)}
               className={`${inputCls} cursor-pointer`}
             >
-              <option value="" className="bg-zinc-900">—</option>
-              {STATES.map((s) => <option key={s} value={s} className="bg-zinc-900">{s}</option>)}
+              <option value="">—</option>
+              {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
@@ -365,8 +365,8 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
                 onChange={(e) => set('bloodType', e.target.value)}
                 className={`${inputCls} cursor-pointer`}
               >
-                <option value="" className="bg-zinc-900">—</option>
-                {BLOOD_TYPES.map((b) => <option key={b} value={b} className="bg-zinc-900">{b}</option>)}
+                <option value="">—</option>
+                {BLOOD_TYPES.map((b) => <option key={b} value={b}>{b}</option>)}
               </select>
             </div>
             <div>
@@ -418,14 +418,14 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
         type="button"
         disabled={!canSubmit}
         onClick={submit}
-        className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-500 px-5 py-2.5 text-sm font-semibold text-blue-950 shadow-lg transition hover:bg-blue-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50"
+        className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-blue-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-400"
       >
         {submitting ? <Loader2 className="animate-spin" size={16} /> : <UserPlus size={16} />}
         {submitting ? 'Salvando…' : 'Cadastrar paciente'}
       </button>
 
       {error && (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-600">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </p>
@@ -438,7 +438,7 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
 
 function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="mt-4 mb-2 flex items-center gap-1.5 text-xs font-semibold text-blue-400">
+    <div className="mt-4 mb-2 flex items-center gap-1.5 text-xs font-semibold text-blue-600">
       {icon}
       <span className="uppercase tracking-wider">{children}</span>
     </div>
@@ -454,14 +454,14 @@ function Toggle({
     <button
       type="button"
       onClick={onToggle}
-      className="mt-4 mb-2 flex w-full items-center justify-between rounded-lg bg-white/[0.03] p-2 text-left ring-1 ring-white/5 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      className="mt-4 mb-2 flex w-full items-center justify-between rounded-lg bg-white p-2 text-left ring-1 ring-zinc-200 transition-colors hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
     >
-      <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-400">
+      <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-blue-600">
         {icon}
         {label}
       </span>
-      {open ? <ChevronUp size={14} className="text-zinc-500" />
-            : <ChevronDown size={14} className="text-zinc-500" />}
+      {open ? <ChevronUp size={14} className="text-zinc-400" />
+            : <ChevronDown size={14} className="text-zinc-400" />}
     </button>
   );
 }

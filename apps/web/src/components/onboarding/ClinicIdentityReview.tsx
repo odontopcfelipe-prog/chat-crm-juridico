@@ -51,9 +51,9 @@ const STATES = [
   'PA','PB','PR','PE','PI','RJ','RN','RS','RO','RR','SC','SP','SE','TO',
 ];
 
-// Onda 17.32.167 — tokens dark da skill design-odonto-system
+// Onda 17.32.168 — card branco (fase de preenchimento clara)
 const inputCls =
-  'w-full px-3 py-2 rounded-lg bg-white/[0.04] text-sm text-zinc-100 ring-1 ring-white/10 placeholder:text-zinc-600 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/40 [color-scheme:dark]';
+  'w-full px-3 py-2 rounded-lg bg-white text-sm text-zinc-900 ring-1 ring-zinc-200 placeholder:text-zinc-400 transition focus:outline-none focus:ring-2 focus:ring-emerald-400/60';
 const labelCls =
   'block text-[11px] font-medium uppercase tracking-wider text-zinc-500 mb-1';
 
@@ -188,7 +188,7 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
 
   // Onda 17.32.154 — min-height fixo evita layout shift
   const containerCls =
-    'rounded-2xl border border-white/5 bg-black/30 p-5 min-h-[400px] max-h-[55vh] overflow-y-auto';
+    'rounded-2xl bg-zinc-50 ring-1 ring-zinc-200 p-5 min-h-[400px] max-h-[55vh] overflow-y-auto';
 
   if (loading) {
     return (
@@ -201,15 +201,15 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
   return (
     <div className={containerCls}>
       {success && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-emerald-400/30 bg-emerald-500/15 p-3">
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-emerald-950">
+        <div className="mb-4 flex items-center gap-3 rounded-xl bg-emerald-50 p-3 ring-1 ring-emerald-200">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white">
             <CheckCircle2 size={18} />
           </div>
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-emerald-300">
+            <p className="text-sm font-semibold text-emerald-700">
               Dados da clínica confirmados!
             </p>
-            <p className="text-xs text-emerald-300/80">
+            <p className="text-xs text-emerald-700/80">
               Sua clínica está pronta — partiu próximo passo.
             </p>
           </div>
@@ -220,16 +220,16 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
         <div className="mb-4 flex items-center gap-2 text-xs">
           {missingCount === 0 ? (
             <>
-              <CheckCircle2 size={14} className="text-emerald-400" />
-              <span className="font-semibold text-emerald-400">
+              <CheckCircle2 size={14} className="text-emerald-600" />
+              <span className="font-semibold text-emerald-600">
                 Todos os dados essenciais já estão preenchidos.
               </span>
               <span className="text-zinc-500">Pode confirmar.</span>
             </>
           ) : (
             <>
-              <AlertCircle size={14} className="text-amber-400" />
-              <span className="font-semibold text-amber-400">
+              <AlertCircle size={14} className="text-amber-500" />
+              <span className="font-semibold text-amber-600">
                 Faltam {missingCount} de {essentials.length} essenciais
               </span>
               <span className="text-zinc-500">— complete pra finalizar.</span>
@@ -313,8 +313,8 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
           <div className="md:col-span-1">
             <label className={labelCls}>UF</label>
             <select value={form.state || ''} onChange={(e) => set('state', e.target.value)} className={`${inputCls} cursor-pointer`}>
-              <option value="" className="bg-zinc-900">—</option>
-              {STATES.map((s) => <option key={s} value={s} className="bg-zinc-900">{s}</option>)}
+              <option value="">—</option>
+              {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
         </div>
@@ -353,18 +353,18 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
         </div>
       )}
 
-      <p className="mt-3 text-[11px] text-zinc-600">
-        💡 Esses dados aparecem em <b className="text-zinc-400">recibos, contratos, notas fiscais</b> e no rodapé do sistema. Vale conferir.
+      <p className="mt-3 text-[11px] text-zinc-500">
+        💡 Esses dados aparecem em <b className="text-zinc-700">recibos, contratos, notas fiscais</b> e no rodapé do sistema. Vale conferir.
       </p>
 
       <button type="button" disabled={submitting || !form.name?.trim()} onClick={handleSave}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-emerald-950 shadow-lg transition hover:bg-emerald-400 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/50">
+              className="mt-4 flex w-full items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-lg transition hover:bg-emerald-500 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400">
         {submitting ? <Loader2 className="animate-spin" size={16} /> : missingCount === 0 ? <CheckCircle2 size={16} /> : <Save size={16} />}
         {submitting ? 'Salvando…' : missingCount === 0 ? 'Confirmar dados' : 'Salvar e continuar'}
       </button>
 
       {error && (
-        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-400">
+        <p className="mt-3 flex items-start gap-1.5 text-xs text-rose-600">
           <AlertCircle size={14} className="shrink-0 mt-0.5" />
           <span>{error}</span>
         </p>
@@ -377,7 +377,7 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
 
 function SectionTitle({ icon, children }: { icon: React.ReactNode; children: React.ReactNode }) {
   return (
-    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-400">
+    <div className="mb-2 flex items-center gap-1.5 text-xs font-semibold text-emerald-600">
       <span>{icon}</span>
       <span className="uppercase tracking-wider">{children}</span>
     </div>
@@ -393,13 +393,13 @@ function Toggle({
     <button
       type="button"
       onClick={onToggle}
-      className="mt-4 mb-2 flex w-full items-center justify-between rounded-lg bg-white/[0.03] p-2 text-left ring-1 ring-white/5 transition-colors hover:bg-white/[0.06] focus:outline-none focus-visible:ring-2 focus-visible:ring-white/30"
+      className="mt-4 mb-2 flex w-full items-center justify-between rounded-lg bg-white p-2 text-left ring-1 ring-zinc-200 transition-colors hover:bg-zinc-100 focus:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300"
     >
-      <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-400">
+      <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wider text-emerald-600">
         {icon}
         {label}
       </span>
-      <span className="text-zinc-500">{open ? '▲' : '▼'}</span>
+      <span className="text-zinc-400">{open ? '▲' : '▼'}</span>
     </button>
   );
 }
@@ -409,22 +409,22 @@ function Toggle({
 function SkeletonForm() {
   return (
     <div className="animate-pulse space-y-3">
-      <div className="h-3 w-48 bg-emerald-500/20 rounded mb-4" />
-      <div className="h-4 w-36 bg-emerald-500/20 rounded mt-2" />
-      <div className="h-10 bg-emerald-500/10 rounded-lg" />
+      <div className="h-3 w-48 bg-zinc-200 rounded mb-4" />
+      <div className="h-4 w-36 bg-zinc-200 rounded mt-2" />
+      <div className="h-10 bg-zinc-100 rounded-lg" />
       <div className="grid grid-cols-2 gap-3">
         <div>
-          <div className="h-3 w-24 bg-emerald-500/20 rounded mb-2" />
-          <div className="h-10 bg-emerald-500/10 rounded-lg" />
+          <div className="h-3 w-24 bg-zinc-200 rounded mb-2" />
+          <div className="h-10 bg-zinc-100 rounded-lg" />
         </div>
         <div>
-          <div className="h-3 w-24 bg-emerald-500/20 rounded mb-2" />
-          <div className="h-10 bg-emerald-500/10 rounded-lg" />
+          <div className="h-3 w-24 bg-zinc-200 rounded mb-2" />
+          <div className="h-10 bg-zinc-100 rounded-lg" />
         </div>
       </div>
-      <div className="h-3 w-24 bg-emerald-500/20 rounded mb-2 mt-2" />
-      <div className="h-10 bg-emerald-500/10 rounded-lg" />
-      <div className="h-10 bg-emerald-500/10 rounded-lg mt-6 w-full" />
+      <div className="h-3 w-24 bg-zinc-200 rounded mb-2 mt-2" />
+      <div className="h-10 bg-zinc-100 rounded-lg" />
+      <div className="h-10 bg-zinc-100 rounded-lg mt-6 w-full" />
     </div>
   );
 }
