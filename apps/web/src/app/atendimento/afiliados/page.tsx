@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   HandCoins, Users, TrendingUp, Wallet, Clock, ExternalLink,
   Trophy, Loader2, RefreshCw, CheckCircle2, XCircle, AlertCircle,
-  Plus, Search, UserPlus, X, ArrowRight,
+  Plus, Search, X, ArrowRight,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
@@ -451,22 +451,18 @@ function AddAffiliateModal({
   onClose: () => void;
   onSuccess: (patientId: string) => void;
 }) {
-  const [mode, setMode] = useState<'pick' | 'create'>('pick');
+  // Onda 17.32.183 — modo "criar novo" REMOVIDO: cadastro de paciente
+  // so pelo formulario COMPLETO (Pacientes → Novo paciente). Afiliado
+  // e sempre um paciente ja cadastrado.
   const [submitting, setSubmitting] = useState(false);
 
-  // Modo "pick": busca paciente existente
+  // Busca paciente existente
   const [query, setQuery] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState<PatientLite[]>([]);
 
-  // Modo "create": cadastro novo
-  const [newName, setNewName] = useState('');
-  const [newPhone, setNewPhone] = useState('');
-  const [newEmail, setNewEmail] = useState('');
-
   // Debounced search
   useEffect(() => {
-    if (mode !== 'pick') return;
     if (!query.trim()) {
       setResults([]);
       return;
@@ -496,7 +492,7 @@ function AddAffiliateModal({
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [query, mode]);
+  }, [query]);
 
   const selectExisting = async (p: PatientLite) => {
     if (p.is_affiliate) {
@@ -526,33 +522,6 @@ function AddAffiliateModal({
     }
   };
 
-  const createNew = async () => {
-    if (!newName.trim()) {
-      showError('Nome é obrigatório');
-      return;
-    }
-    setSubmitting(true);
-    try {
-      // Cria patient + ja marca como afiliado num so payload
-      const res = await api.post('/patients', {
-        name: newName.trim(),
-        phone: newPhone.trim() || undefined,
-        email: newEmail.trim() || undefined,
-        is_affiliate: true,
-        affiliate_code: slugifyName(newName) || null,
-        affiliate_commission_pct: 3,
-      });
-      const patientId = res.data?.id;
-      if (!patientId) throw new Error('Patient criado mas id não retornado');
-      showSuccess('Paciente criado e adicionado como afiliado');
-      onSuccess(patientId);
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao criar paciente');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="w-full max-w-md bg-card border border-border rounded-2xl shadow-2xl">
@@ -566,34 +535,9 @@ function AddAffiliateModal({
           </button>
         </header>
 
-        {/* Toggle entre modos */}
-        <div className="flex border-b border-border">
-          <button
-            onClick={() => setMode('pick')}
-            className={`flex-1 px-4 py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-              mode === 'pick'
-                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-b-2 border-emerald-500'
-                : 'text-muted-foreground hover:bg-accent border-b-2 border-transparent'
-            }`}
-          >
-            <Search size={14} /> Paciente existente
-          </button>
-          <button
-            onClick={() => setMode('create')}
-            className={`flex-1 px-4 py-2.5 text-sm font-semibold transition-colors flex items-center justify-center gap-2 ${
-              mode === 'create'
-                ? 'bg-emerald-50 dark:bg-emerald-950/30 text-emerald-700 dark:text-emerald-400 border-b-2 border-emerald-500'
-                : 'text-muted-foreground hover:bg-accent border-b-2 border-transparent'
-            }`}
-          >
-            <UserPlus size={14} /> Novo paciente
-          </button>
-        </div>
-
         {/* Conteúdo */}
         <div className="p-5 space-y-4">
-          {mode === 'pick' ? (
-            <>
+          <>
               <div>
                 <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
                   Buscar paciente
@@ -617,7 +561,11 @@ function AddAffiliateModal({
                   <div className="text-center py-6 text-sm text-muted-foreground">
                     Nenhum paciente encontrado pra <strong>{query}</strong>.
                     <p className="text-xs mt-2">
-                      Tente cadastrar novo na aba ao lado.
+                      Afiliado precisa ser um paciente cadastrado —{' '}
+                      <a href="/atendimento/pacientes?new=1" className="font-bold text-emerald-600 underline">
+                        cadastre o paciente completo aqui
+                      </a>{' '}
+                      e volte pra adicioná-lo.
                     </p>
                   </div>
                 )}
@@ -652,57 +600,6 @@ function AddAffiliateModal({
                 </div>
               </div>
             </>
-          ) : (
-            <>
-              <div className="rounded-lg border border-emerald-200 dark:border-emerald-900/50 bg-emerald-50 dark:bg-emerald-950/20 p-3 text-xs leading-relaxed text-emerald-900 dark:text-emerald-200">
-                Cria um paciente novo já marcado como afiliado ativo (3% de comissão).
-                Você pode completar os dados depois pelo botão Editar da ficha.
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                  Nome *
-                </label>
-                <input
-                  value={newName}
-                  onChange={(e) => setNewName(e.target.value)}
-                  placeholder="Nome completo"
-                  autoFocus
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
-                {newName.trim() && (
-                  <p className="text-[11px] text-muted-foreground mt-1">
-                    Código de afiliado:{' '}
-                    <span className="font-mono font-bold text-emerald-700 dark:text-emerald-400">
-                      {slugifyName(newName) || '(definir depois)'}
-                    </span>
-                  </p>
-                )}
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                  Telefone
-                </label>
-                <input
-                  value={newPhone}
-                  onChange={(e) => setNewPhone(e.target.value)}
-                  placeholder="82 99999-9999"
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">
-                  E-mail
-                </label>
-                <input
-                  type="email"
-                  value={newEmail}
-                  onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="email@dominio.com"
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                />
-              </div>
-            </>
-          )}
         </div>
 
         <footer className="flex justify-end gap-2 px-5 py-3 border-t border-border bg-muted/20">
@@ -713,16 +610,6 @@ function AddAffiliateModal({
           >
             Cancelar
           </button>
-          {mode === 'create' && (
-            <button
-              onClick={createNew}
-              disabled={submitting || !newName.trim()}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 disabled:opacity-40"
-            >
-              {submitting ? <Loader2 size={14} className="animate-spin" /> : <UserPlus size={14} />}
-              Cadastrar e adicionar
-            </button>
-          )}
         </footer>
       </div>
     </div>
