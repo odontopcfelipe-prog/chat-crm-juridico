@@ -58,7 +58,9 @@ export class PatientTagsController {
   getForPatient(@Request() req: any, @Param('id') id: string) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.service.getTagsForPatient(id);
+    // Onda 17.33 — passa tenantId pro service validar ownership do paciente
+    // (antes vazava etiquetas entre tenants via enumeration de id).
+    return this.service.getTagsForPatient(id, tenantId);
   }
 
   @Put('patients/:id/tags')

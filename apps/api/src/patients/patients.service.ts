@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestEx
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsService } from '../referrals/referrals.service';
+import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { Prisma } from '@crm/shared';
 
 @Injectable()
@@ -12,11 +13,18 @@ export class PatientsService {
     private prisma: PrismaService,
     private fileStorage: FileStorageService,
     @Inject(forwardRef(() => ReferralsService)) private referralsService: ReferralsService,
+    private patientTagsService: PatientTagsService,
   ) {}
 
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
-  async create(tenantId: string, data: Omit<Prisma.PatientUncheckedCreateInput, 'tenant_id'>) {
+  async create(
+    tenantId: string,
+    data: Omit<Prisma.PatientUncheckedCreateInput, 'tenant_id'> & { tag_ids?: string[] },
+  ) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
+
+    // tag_ids nao e coluna do Patient — separa antes de mandar pro prisma.create
+    const { tag_ids, ...patientData } = data;
 
     // Onda 17.32.79 — Valida limite do plano antes de criar paciente.
     try {
@@ -55,9 +63,33 @@ export class PatientsService {
       }
     }
 
+    // Onda 17.33 — pré-valida etiquetas ANTES de criar o paciente (fail-fast):
+    // se vier tag de outro tenant, erra com 400 claro em vez de criar o
+    // paciente e engolir o erro silenciosamente (sem órfão, sem confusão UX).
+    const uniqueTagIds = tag_ids ? [...new Set(tag_ids)] : [];
+    if (uniqueTagIds.length > 0) {
+      const validTags = await (this.prisma as any).patientTag.findMany({
+        where: { id: { in: uniqueTagIds }, tenant_id: tenantId },
+        select: { id: true },
+      });
+      if (validTags.length !== uniqueTagIds.length) {
+        throw new BadRequestException('Uma ou mais etiquetas são inválidas ou de outro tenant');
+      }
+    }
+
     const patient = await this.prisma.patient.create({
-      data: { ...data, tenant_id: tenantId },
+      data: { ...patientData, tenant_id: tenantId },
     });
+
+    // Aplica as etiquetas já validadas. Só um erro transitório de banco cai
+    // aqui (não validação) — best-effort pra não desfazer o paciente criado.
+    if (uniqueTagIds.length > 0) {
+      try {
+        await this.patientTagsService.setTagsForPatient(patient.id, tenantId, uniqueTagIds);
+      } catch (e: any) {
+        this.logger.warn(`[PATIENT CREATE] Falha ao aplicar tags em ${patient.id}: ${e?.message}`);
+      }
+    }
 
     // Onda 5e v35 (Fase 25) — quando paciente eh cadastrado direto pela ficha
     // (sem ter chegado via WhatsApp), CRIA Lead + Conversation automaticamente

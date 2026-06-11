@@ -17,10 +17,11 @@
 import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
-  Camera, Trash2, Upload, RefreshCw, Check,
+  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { type PatientTag } from './PatientTagsPicker';
 
 interface Props {
   onClose: () => void;
@@ -56,6 +57,12 @@ const EMPTY_FORM = {
 
 const AFFILIATE_COMMISSION_PCT = 3;
 
+// Onda 17.33 — etiqueta especial pro backfill das fichas de papel (cenário
+// "tudo manual"). Criada sob demanda na 1ª vez que alguém marca o chip, então
+// não precisa de seed nem de criar à mão em Configurações.
+const PACIENTE_ANTIGO_NAME = 'Paciente Antigo';
+const PACIENTE_ANTIGO_COLOR = '#b45309'; // amber-700 — legível em badge claro/escuro
+
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
@@ -74,8 +81,66 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   // Captura por câmera (getUserMedia) — overlay independente do file picker
   const [cameraOpen, setCameraOpen] = useState(false);
 
+  // Etiquetas (Onda 17.33). Carregadas do tenant; selecao aplicada na criacao
+  // via tag_ids. selectedTagIds NAO é zerado no "Salvar e cadastrar novo" de
+  // proposito — pra marcar "Paciente Antigo" uma vez e cadastrar em lote.
+  const [allTags, setAllTags] = useState<PatientTag[]>([]);
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [creatingAntigo, setCreatingAntigo] = useState(false);
+
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
+
+  // Carrega etiquetas do tenant pro seletor
+  useEffect(() => {
+    api.get<PatientTag[]>('/patient-tags')
+      .then((r) => setAllTags(r.data || []))
+      .catch(() => {}); // sem etiquetas não impede o cadastro
+  }, []);
+
+  const pacienteAntigoTag = allTags.find(
+    (t) => t.name.trim().toLowerCase() === PACIENTE_ANTIGO_NAME.toLowerCase(),
+  );
+  const otherTags = allTags.filter((t) => t.id !== pacienteAntigoTag?.id);
+  const antigoSelected = !!pacienteAntigoTag && selectedTagIds.includes(pacienteAntigoTag.id);
+
+  const toggleTag = (id: string) =>
+    setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  // "Paciente Antigo": se a etiqueta já existe, só alterna a seleção; se ainda
+  // não existe no tenant, cria agora (sob demanda) e já marca.
+  const toggleAntigo = async () => {
+    if (creatingAntigo) return; // guard: evita 2 POSTs em clique duplo
+    if (pacienteAntigoTag) {
+      toggleTag(pacienteAntigoTag.id);
+      return;
+    }
+    setCreatingAntigo(true);
+    try {
+      const { data } = await api.post<PatientTag>('/patient-tags', {
+        name: PACIENTE_ANTIGO_NAME,
+        color: PACIENTE_ANTIGO_COLOR,
+        description: 'Paciente cadastrado da base antiga (fichas de papel, pré-sistema)',
+      });
+      setAllTags((prev) => [...prev, data]);
+      setSelectedTagIds((prev) => [...prev, data.id]);
+    } catch (err: any) {
+      // Corrida/duplicada: a etiqueta já existe — recarrega a lista e marca.
+      try {
+        const { data: list } = await api.get<PatientTag[]>('/patient-tags');
+        setAllTags(list || []);
+        const found = (list || []).find(
+          (t) => t.name.trim().toLowerCase() === PACIENTE_ANTIGO_NAME.toLowerCase(),
+        );
+        if (found) setSelectedTagIds((prev) => (prev.includes(found.id) ? prev : [...prev, found.id]));
+        else showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
+      } catch {
+        showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
+      }
+    } finally {
+      setCreatingAntigo(false);
+    }
+  };
 
   // Cria/limpa preview da foto. Revoga blob URL antiga pra não vazar memória.
   const handlePickPhoto = (file: File) => {
@@ -178,6 +243,9 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         base.affiliate_commission_pct = AFFILIATE_COMMISSION_PCT;
         if (form.affiliateNotes.trim()) base.affiliate_notes = form.affiliateNotes.trim();
       }
+
+      // Etiquetas escolhidas (ex: "Paciente Antigo") — aplicadas na criação
+      if (selectedTagIds.length > 0) base.tag_ids = selectedTagIds;
     return base;
   };
 
@@ -435,6 +503,105 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 </div>
               )}
             </div>
+          </Section>
+
+          {/* ── Etiquetas (Onda 17.33) ── */}
+          <Section icon={<Tag size={14} />} title="Etiquetas">
+            {/* Destaque: Paciente Antigo — cria a etiqueta sob demanda */}
+            <button
+              type="button"
+              onClick={toggleAntigo}
+              disabled={creatingAntigo}
+              className={`w-full flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors disabled:opacity-60 ${
+                antigoSelected
+                  ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
+                  : 'border-dashed border-border hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-950/20'
+              }`}
+            >
+              <div className="flex items-center gap-2.5">
+                <span
+                  className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
+                    antigoSelected
+                      ? 'bg-amber-500 text-white'
+                      : 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
+                  }`}
+                >
+                  {creatingAntigo ? <Loader2 size={15} className="animate-spin" /> : <Tag size={15} />}
+                </span>
+                <div className="min-w-0">
+                  <p className="text-sm font-semibold text-foreground">Paciente Antigo</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Marque para as fichas da base antiga (papel, pré-sistema)
+                  </p>
+                </div>
+              </div>
+              <span
+                className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md border ${
+                  antigoSelected ? 'bg-amber-500 border-amber-500 text-white' : 'border-border'
+                }`}
+              >
+                {antigoSelected && <Check size={13} />}
+              </span>
+            </button>
+
+            {/* Demais etiquetas do tenant (multi-seleção) */}
+            {otherTags.length > 0 && (
+              <div className="flex flex-wrap gap-1.5">
+                {otherTags.map((t) => {
+                  const selected = selectedTagIds.includes(t.id);
+                  const color = t.color || '#64748b';
+                  return (
+                    <button
+                      key={t.id}
+                      type="button"
+                      onClick={() => toggleTag(t.id)}
+                      title={t.description || t.name}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                      style={
+                        selected
+                          ? { backgroundColor: color, borderColor: color, color: '#fff' }
+                          : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
+                      }
+                    >
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: selected ? '#fff' : color }}
+                      />
+                      {t.name}
+                      {selected && <Check size={12} />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Aviso destacado de persistência — só quando há etiqueta marcada.
+                Evita aplicar "Paciente Antigo" sem querer no lote seguinte. */}
+            {selectedTagIds.length > 0 && (
+              <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-2.5">
+                <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                <p className="text-xs text-amber-800 dark:text-amber-200 leading-snug">
+                  <strong>
+                    {selectedTagIds.length} etiqueta{selectedTagIds.length > 1 ? 's' : ''} marcada
+                    {selectedTagIds.length > 1 ? 's' : ''}
+                  </strong>{' '}
+                  — {selectedTagIds.length > 1 ? 'serão aplicadas' : 'será aplicada'} a este cadastro{' '}
+                  <strong>e aos próximos</strong> ao usar “Salvar e cadastrar novo”, até você desmarcar.
+                  Ideal pro lote de fichas antigas.
+                </p>
+              </div>
+            )}
+
+            <p className="text-[11px] text-muted-foreground">
+              <a
+                href="/atendimento/settings/patient-tags"
+                target="_blank"
+                rel="noreferrer"
+                className="text-primary hover:underline"
+              >
+                Gerenciar etiquetas
+              </a>
+            </p>
           </Section>
 
           {/* ── Endereço (modo completo) ── */}

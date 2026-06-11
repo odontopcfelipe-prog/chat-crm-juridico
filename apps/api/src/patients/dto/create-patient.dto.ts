@@ -1,4 +1,4 @@
-import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID, IsBoolean, IsNumber, Min, Max } from 'class-validator';
+import { IsString, IsOptional, IsEmail, IsDateString, IsIn, IsUUID, IsBoolean, IsNumber, IsArray, Min, Max } from 'class-validator';
 
 const VALID_STATUS = ['ACTIVE', 'INACTIVE', 'ARCHIVED'] as const;
 const VALID_GENDER = ['M', 'F', 'OTHER'] as const;
@@ -11,6 +11,12 @@ export class CreatePatientDto {
   @IsOptional()
   @IsString()
   cpf?: string;
+
+  // Onda 17.32.184 — numero da ficha/prontuario fisico. ESTAVA FALTANDO aqui:
+  // com forbidNonWhitelisted o POST com record_number preenchido retornava 400.
+  @IsOptional()
+  @IsString()
+  record_number?: string;
 
   @IsOptional()
   @IsString()
@@ -75,11 +81,20 @@ export class CreatePatientDto {
   @IsOptional() @IsString() affiliate_code?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
   @IsOptional() @IsString() affiliate_notes?: string;
+
+  // Onda 17.33 — etiquetas atribuidas ja na criacao (ex: "Paciente Antigo"
+  // pro backfill das fichas de papel). O service valida que cada tag e do
+  // mesmo tenant antes de vincular.
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true, message: 'tag_ids deve conter UUIDs validos' })
+  tag_ids?: string[];
 }
 
 export class UpdatePatientDto {
   @IsOptional() @IsString() name?: string;
   @IsOptional() @IsString() cpf?: string;
+  @IsOptional() @IsString() record_number?: string;
   @IsOptional() @IsString() rg?: string;
   @IsOptional() @IsDateString() birth_date?: string;
   @IsOptional() @IsString() @IsIn(VALID_GENDER) gender?: string;

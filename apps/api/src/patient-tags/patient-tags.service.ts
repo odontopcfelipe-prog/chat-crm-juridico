@@ -113,7 +113,20 @@ export class PatientTagsService {
     return this.getTagsForPatient(patientId);
   }
 
-  async getTagsForPatient(patientId: string) {
+  async getTagsForPatient(patientId: string, tenantId?: string) {
+    // Onda 17.33 — isolamento multi-tenant: PatientTagOnPatient não tem
+    // tenant_id próprio, então valida via o paciente. Sem isso, um admin do
+    // tenant A conseguia ler as etiquetas de um paciente do tenant B só
+    // sabendo o id (enumeration). tenantId é opcional só por compat. retro —
+    // o controller SEMPRE passa.
+    if (tenantId) {
+      const patient = await this.prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { tenant_id: true },
+      });
+      if (!patient) throw new NotFoundException('Paciente não encontrado');
+      if (patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    }
     return (this.prisma as any).patientTagOnPatient.findMany({
       where: { patient_id: patientId },
       include: { tag: true },
