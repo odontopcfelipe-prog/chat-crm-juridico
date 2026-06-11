@@ -11,6 +11,7 @@ import { useEffect, useState, FormEvent } from 'react';
 import { Tag, Loader2, Plus, Pencil, Trash2, X, Save } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 
 interface PatientTag {
   id: string;
@@ -37,6 +38,10 @@ const COLOR_PRESETS = [
 ];
 
 export default function PatientTagsSettingsPage() {
+  // Excluir etiqueta e destrutivo (some de todos os pacientes) — API exige
+  // ADMIN (Onda 17.34); esconde a lixeira pra quem nao pode em vez de
+  // deixar clicar e tomar 403.
+  const { isAdmin } = useRole();
   const [tags, setTags] = useState<PatientTag[]>([]);
   const [loading, setLoading] = useState(true);
   const [openModal, setOpenModal] = useState(false);
@@ -143,13 +148,15 @@ export default function PatientTagsSettingsPage() {
                     >
                       <Pencil size={14} />
                     </button>
-                    <button
-                      onClick={() => handleDelete(t)}
-                      className="text-muted-foreground hover:text-destructive p-1"
-                      title="Remover"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+                    {isAdmin && (
+                      <button
+                        onClick={() => handleDelete(t)}
+                        className="text-muted-foreground hover:text-destructive p-1"
+                        title="Remover"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

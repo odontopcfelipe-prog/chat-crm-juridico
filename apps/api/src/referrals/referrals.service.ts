@@ -89,6 +89,18 @@ export class ReferralsService {
       return null;
     }
 
+    // Onda 17.34 — isolamento multi-tenant: referrerId vem do cliente
+    // (referred_by_id no DTO, validado so como UUID). Sem esta checagem,
+    // dava pra apontar um paciente de OUTRO tenant como indicador e gerar
+    // cashback indevido cruzando clinicas.
+    const [referrer, referred] = await Promise.all([
+      this.prisma.patient.findUnique({ where: { id: params.referrerId }, select: { tenant_id: true } }),
+      this.prisma.patient.findUnique({ where: { id: params.referredId }, select: { tenant_id: true } }),
+    ]);
+    if (!referrer || referrer.tenant_id !== params.tenantId || !referred || referred.tenant_id !== params.tenantId) {
+      throw new ForbiddenException('Indicador e indicado devem ser pacientes do mesmo tenant');
+    }
+
     // Idempotente: se já existe, retorna a existente
     const existing = await (this.prisma as any).referral.findUnique({
       where: { referred_id: params.referredId },

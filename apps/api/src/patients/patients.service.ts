@@ -63,6 +63,19 @@ export class PatientsService {
       }
     }
 
+    // Onda 17.34 — isolamento multi-tenant: referred_by_id vem do cliente e e
+    // gravado na coluna do paciente. Sem esta checagem, dava pra apontar um
+    // paciente de OUTRO tenant como indicador (vazamento + cashback indevido).
+    if (patientData.referred_by_id) {
+      const referrer = await this.prisma.patient.findUnique({
+        where: { id: patientData.referred_by_id as string },
+        select: { tenant_id: true },
+      });
+      if (!referrer || referrer.tenant_id !== tenantId) {
+        throw new BadRequestException('Paciente indicador inválido');
+      }
+    }
+
     // Onda 17.33 — pré-valida etiquetas ANTES de criar o paciente (fail-fast):
     // se vier tag de outro tenant, erra com 400 claro em vez de criar o
     // paciente e engolir o erro silenciosamente (sem órfão, sem confusão UX).
@@ -547,6 +560,72 @@ export class PatientsService {
     const existing = await this.prisma.patient.findUnique({ where: { lead_id: leadId } });
     if (existing) return existing;
 
+    // Onda 17.34 — anti-duplicata: se ja existe paciente no tenant com o
+    // MESMO telefone (com/sem DDI 55), reusa em vez de criar um segundo
+    // cadastro. Cobre o caso classico: recepcao cadastrou manualmente com
+    // "82 9..." e o lead do WhatsApp chega como "5582...". Match e por
+    // digitos exatos. So gera variante quando ha DDD (>=10 digitos) — numero
+    // local de 8 digitos prefixado com "55" colidiria com fixos do DDD 55.
+    const leadDigits = (lead.phone || '').replace(/\D/g, '');
+    if (leadDigits.length >= 10) {
+      const phoneVariants = new Set([leadDigits]);
+      if (leadDigits.startsWith('55') && leadDigits.length >= 12) phoneVariants.add(leadDigits.slice(2));
+      else phoneVariants.add(`55${leadDigits}`);
+      // Fast path indexavel: telefones gravados ja normalizados (fluxos
+      // WhatsApp/venda-rapida). Fallback: varredura leve (id+phone+lead_id,
+      // <1MB pra 10k pacientes, 1x por conversao) pra pegar formatados
+      // ("82 99999-9999") que o match exato de string nao acha.
+      let samePhone = await this.prisma.patient.findFirst({
+        where: { tenant_id: tenantId, phone: { in: [...phoneVariants] } },
+        select: { id: true, phone: true, lead_id: true },
+      });
+      if (!samePhone) {
+        const candidates = await this.prisma.patient.findMany({
+          where: { tenant_id: tenantId, phone: { not: null } },
+          select: { id: true, phone: true, lead_id: true },
+        });
+        samePhone = candidates.find((c) => phoneVariants.has((c.phone || '').replace(/\D/g, ''))) ?? null;
+      }
+      if (samePhone) {
+        this.logger.log(
+          `[CONVERT] Lead ${leadId} casou com paciente existente ${samePhone.id} pelo telefone — duplicata evitada`,
+        );
+        if (samePhone.lead_id) {
+          return this.prisma.patient.findUniqueOrThrow({ where: { id: samePhone.id } });
+        }
+        const linked = await this.prisma.patient.update({
+          where: { id: samePhone.id },
+          data: { lead_id: leadId },
+        });
+        // Mesmos hooks do caminho de criacao: vincula consultas ja agendadas
+        // no lead e puxa a foto do WhatsApp se o paciente nao tem.
+        try {
+          await this.prisma.calendarEvent.updateMany({
+            where: { tenant_id: tenantId, lead_id: leadId, patient_id: null },
+            data: { patient_id: linked.id },
+          });
+          await this.recalculateVisitDates(linked.id).catch(() => {});
+        } catch (e: any) {
+          this.logger.warn(`[CONVERT] Backfill no vinculo por telefone falhou: ${e?.message}`);
+        }
+        if (lead.profile_picture_url && !linked.avatar_url) {
+          this.copyWhatsappAvatarToPatient(linked.id, tenantId, lead.profile_picture_url).catch((err) =>
+            this.logger.warn(`[CONVERT] Falha ao copiar foto WhatsApp pro paciente ${linked.id}: ${err?.message}`),
+          );
+        }
+        return linked;
+      }
+    }
+
+    // CPF duplicado em extraData estouraria P2002 (500 generico) — valida
+    // antes com a mesma mensagem amigavel do create().
+    if (extraData.cpf) {
+      const cpfDup = await this.prisma.patient.findUnique({
+        where: { tenant_id_cpf: { tenant_id: tenantId, cpf: extraData.cpf as string } },
+      });
+      if (cpfDup) throw new BadRequestException('Ja existe um paciente com este CPF neste tenant');
+    }
+
     const patient = await this.prisma.patient.create({
       data: {
         tenant_id: tenantId,
@@ -578,7 +657,7 @@ export class PatientsService {
     // a mostrar consultas agendadas antes do lead virar paciente.
     try {
       const linked = await this.prisma.calendarEvent.updateMany({
-        where: { lead_id: leadId, patient_id: null },
+        where: { tenant_id: tenantId, lead_id: leadId, patient_id: null },
         data: { patient_id: patient.id },
       });
       if (linked.count > 0) {
@@ -648,37 +727,65 @@ export class PatientsService {
       select: { id: true, lead_id: true },
     });
 
+    // Onda 17.34 — em LOTE: a versao anterior fazia 2 queries POR evento
+    // orfao + 2 POR paciente do tenant (N+1). Com 1.000 orfaos e 10.000
+    // pacientes eram ~22.000 queries; agora sao ~3 + 1 updateMany por
+    // paciente tocado + 1 update por paciente com visita.
     let eventsLinked = 0;
     const patientsTouched = new Set<string>();
-    for (const e of orphanEvents) {
-      if (!e.lead_id) continue;
-      const patient = await this.prisma.patient.findUnique({
-        where: { lead_id: e.lead_id },
-        select: { id: true },
+    const orphanLeadIds = [...new Set(orphanEvents.map((e) => e.lead_id).filter(Boolean))] as string[];
+    if (orphanLeadIds.length > 0) {
+      const patientsByLead = await this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, lead_id: { in: orphanLeadIds } },
+        select: { id: true, lead_id: true },
       });
-      if (!patient) continue;
-      await this.prisma.calendarEvent.update({
-        where: { id: e.id },
-        data: { patient_id: patient.id },
-      });
-      eventsLinked++;
-      patientsTouched.add(patient.id);
+      const leadToPatient = new Map(patientsByLead.map((p) => [p.lead_id as string, p.id]));
+      // Agrupa eventos por paciente destino e vincula com 1 updateMany cada
+      const eventsByPatient = new Map<string, string[]>();
+      for (const e of orphanEvents) {
+        const pid = e.lead_id ? leadToPatient.get(e.lead_id) : undefined;
+        if (!pid) continue;
+        if (!eventsByPatient.has(pid)) eventsByPatient.set(pid, []);
+        eventsByPatient.get(pid)!.push(e.id);
+      }
+      for (const [pid, eventIds] of eventsByPatient) {
+        const r = await this.prisma.calendarEvent.updateMany({
+          // tenant_id redundante (orphanEvents ja veio filtrado) — defesa em
+          // profundidade contra lead_id corrompido cruzando tenants.
+          where: { id: { in: eventIds }, tenant_id: tenantId },
+          data: { patient_id: pid },
+        });
+        eventsLinked += r.count;
+        patientsTouched.add(pid);
+      }
     }
 
-    // 2) Pega TODOS os pacientes que tem eventos (não só os que tocamos),
-    // pra cobrir o caso de quem ja tinha patient_id mas nunca teve as datas
-    // populadas.
-    const allPatients = await this.prisma.patient.findMany({
-      where: { tenant_id: tenantId },
-      select: { id: true },
+    // 2) Recalcula first/last_visit_at de quem tem visita — groupBy resolve
+    // min/max de TODOS os pacientes do tenant numa query so.
+    const visitAgg = await this.prisma.calendarEvent.groupBy({
+      by: ['patient_id'],
+      where: {
+        tenant_id: tenantId,
+        patient_id: { not: null },
+        type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+        status: { in: ['CONFIRMADO', 'CONCLUIDO'] },
+      },
+      _min: { start_at: true },
+      _max: { start_at: true },
     });
 
     let patientsRecalculated = 0;
-    for (const p of allPatients) {
+    for (const agg of visitAgg) {
+      if (!agg.patient_id || !agg._min.start_at) continue;
       try {
-        await this.recalculateVisitDates(p.id);
+        await this.prisma.patient.update({
+          where: { id: agg.patient_id },
+          data: { first_visit_at: agg._min.start_at, last_visit_at: agg._max.start_at },
+        });
         patientsRecalculated++;
-      } catch {}
+      } catch {
+        // paciente pode ter sido removido entre o groupBy e o update — ignora
+      }
     }
 
     this.logger.log(
@@ -1049,12 +1156,16 @@ export class PatientsService {
   }
 
   /** Retorna buffer + mimeType da foto pra servir via HTTP. */
-  async getAvatarBuffer(patientId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  async getAvatarBuffer(patientId: string, tenantId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    // Onda 17.34 — isolamento multi-tenant: foto e dado pessoal; sem o filtro
+    // de tenant qualquer usuario autenticado enumerava ids e baixava fotos
+    // de pacientes de outras clinicas.
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
-      select: { avatar_url: true },
+      select: { avatar_url: true, tenant_id: true },
     });
-    if (!patient?.avatar_url) return null;
+    if (!patient || patient.tenant_id !== tenantId) return null;
+    if (!patient.avatar_url) return null;
 
     const ext = patient.avatar_url.split('.').pop()?.toLowerCase() || 'jpg';
     const mimeMap: Record<string, string> = {

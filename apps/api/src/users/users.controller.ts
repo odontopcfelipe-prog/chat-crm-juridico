@@ -52,15 +52,16 @@ export class UsersController {
   }
 
   /**
-   * Serve a foto de perfil — qualquer usuário autenticado.
+   * Serve a foto de perfil — qualquer usuário autenticado DO MESMO tenant.
    * GET /users/:id/avatar
+   * Onda 17.34 — valida tenant (antes vazava foto entre tenants por id).
    */
   @Get(':id/avatar')
-  async getAvatar(@Param('id') id: string, @Res() res: Response) {
-    const result = await this.usersService.getAvatarBuffer(id);
+  async getAvatar(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    const result = await this.usersService.getAvatarBuffer(id, req.user?.tenant_id);
     if (!result) throw new NotFoundException('Foto de perfil não encontrada.');
     res.set('Content-Type', result.mimeType);
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Cache-Control', 'private, max-age=86400');
     res.end(result.buffer);
   }
 

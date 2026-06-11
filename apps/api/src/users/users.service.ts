@@ -481,12 +481,15 @@ export class UsersService {
   /**
    * Retorna o buffer da foto de perfil + mimeType para servir via HTTP.
    */
-  async getAvatarBuffer(userId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+  async getAvatarBuffer(userId: string, tenantId: string): Promise<{ buffer: Buffer; mimeType: string } | null> {
+    // Onda 17.34 — isolamento multi-tenant (mesmo fix do avatar de paciente):
+    // sem o filtro, usuario autenticado de outro tenant baixava a foto por id.
     const user = await (this.prisma as any).user.findUnique({
       where: { id: userId },
-      select: { profile_picture_url: true },
+      select: { profile_picture_url: true, tenant_id: true },
     });
-    if (!user?.profile_picture_url) return null;
+    if (!user || user.tenant_id !== tenantId) return null;
+    if (!user.profile_picture_url) return null;
 
     const relativePath = user.profile_picture_url as string;
     const ext = relativePath.split('.').pop()?.toLowerCase() || 'jpg';

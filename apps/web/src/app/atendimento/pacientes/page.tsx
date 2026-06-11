@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, Suspense } from 'react';
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon, SlidersHorizontal, Download } from 'lucide-react';
 import api from '@/lib/api';
@@ -92,7 +92,13 @@ function PacientesPageInner() {
     }
   }, [searchParams, router]);
 
+  // Onda 17.34 — guarda contra resposta fora de ordem: digitando rapido, a
+  // busca antiga podia chegar DEPOIS da nova e sobrescrever a lista com
+  // resultado errado. So a requisicao mais recente aplica o resultado.
+  const loadSeqRef = useRef(0);
+
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current;
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -107,12 +113,14 @@ function PacientesPageInner() {
         api.get<PatientList>(`/patients?${params.toString()}`),
         api.get<typeof stats>('/patients/stats'),
       ]);
+      if (seq !== loadSeqRef.current) return; // chegou atrasada — descarta
       setList(listRes.data);
       setStats(statsRes.data);
     } catch (err: any) {
+      if (seq !== loadSeqRef.current) return;
       showError(err?.response?.data?.message || 'Erro ao carregar pacientes');
     } finally {
-      setLoading(false);
+      if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis]);
 

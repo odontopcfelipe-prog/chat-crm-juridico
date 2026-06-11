@@ -11,11 +11,12 @@
  */
 import {
   Controller, Get, Post, Patch, Put, Delete,
-  Body, Param, Request, UseGuards, BadRequestException,
+  Body, Param, Request, UseGuards, BadRequestException, ForbiddenException,
 } from '@nestjs/common';
 import { PatientTagsService } from './patient-tags.service';
 import type { CreateTagDto, UpdateTagDto } from './patient-tags.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { isAdmin } from '../common/utils/permissions.util';
 
 @UseGuards(JwtAuthGuard)
 @Controller()
@@ -49,6 +50,12 @@ export class PatientTagsController {
   remove(@Request() req: any, @Param('id') id: string) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    // Onda 17.34 — excluir e destrutivo (some de TODOS os pacientes que a
+    // usam): so ADMIN. Criar/editar continuam livres pra operacao (design
+    // documentado no service — recepcao cria tags no proprio cadastro).
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode excluir etiquetas');
+    }
     return this.service.remove(id, tenantId);
   }
 

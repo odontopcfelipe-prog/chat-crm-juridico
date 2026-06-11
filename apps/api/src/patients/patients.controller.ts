@@ -404,11 +404,15 @@ export class PatientsController {
 
   /** Servir a foto: GET /patients/:id/avatar */
   @Get(':id/avatar')
-  async getAvatar(@Param('id') id: string, @Res() res: Response) {
-    const result = await this.patientsService.getAvatarBuffer(id);
+  async getAvatar(@Param('id') id: string, @Request() req: any, @Res() res: Response) {
+    // Onda 17.34 — valida tenant: sem isso, qualquer usuario autenticado de
+    // OUTRO tenant baixava a foto so enumerando ids (dado pessoal/LGPD).
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const result = await this.patientsService.getAvatarBuffer(id, tenantId);
     if (!result) throw new NotFoundException('Foto nao encontrada.');
     res.set('Content-Type', result.mimeType);
-    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('Cache-Control', 'private, max-age=86400');
     res.end(result.buffer);
   }
 
