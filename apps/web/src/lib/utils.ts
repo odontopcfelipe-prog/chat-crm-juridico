@@ -71,3 +71,36 @@ export function formatCEP(cep: string | null | undefined) {
   if (cleaned.length !== 8) return cep;
   return `${cleaned.slice(0, 5)}-${cleaned.slice(5)}`;
 }
+
+// ─── Máscaras progressivas de DIGITAÇÃO (Onda 17.35) ─────────────────────
+// Diferente dos format* acima (exibição de valor completo), estas formatam
+// ENQUANTO o usuário digita — usar no onChange dos inputs. Sempre devolvem
+// algo digitável (nunca '-') e capam o tamanho máximo.
+
+/** CPF conforme digita: 000.000.000-00 */
+export function maskCPFInput(value: string): string {
+  const d = value.replace(/\D/g, '').slice(0, 11);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}.${d.slice(3)}`;
+  if (d.length <= 9) return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6)}`;
+  return `${d.slice(0, 3)}.${d.slice(3, 6)}.${d.slice(6, 9)}-${d.slice(9)}`;
+}
+
+/** Telefone BR conforme digita: (82) 99999-9999 / (82) 3333-4444. Colar com +55 funciona. */
+export function maskPhoneInput(value: string): string {
+  let d = value.replace(/\D/g, '');
+  if (d.startsWith('55') && d.length > 11) d = d.slice(2); // remove DDI colado
+  d = d.slice(0, 11);
+  if (d.length === 0) return '';
+  if (d.length <= 2) return `(${d}`;
+  if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+  if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+  return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+}
+
+/** CEP conforme digita: 00000-000 */
+export function maskCEPInput(value: string): string {
+  const d = value.replace(/\D/g, '').slice(0, 8);
+  if (d.length <= 5) return d;
+  return `${d.slice(0, 5)}-${d.slice(5)}`;
+}

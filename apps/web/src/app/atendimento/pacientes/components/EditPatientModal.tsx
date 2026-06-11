@@ -11,9 +11,11 @@
  * a recepção precisa preencher tudo (cadastro completo, atualização de dados).
  */
 import { useState, FormEvent, useEffect } from 'react';
-import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins } from 'lucide-react';
+import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins, Tag } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { maskCPFInput, maskPhoneInput, maskCEPInput } from '@/lib/utils';
+import TagChipsSelector from './TagChipsSelector';
 
 interface PatientFull {
   id: string;
@@ -103,6 +105,20 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   const [referredBy, setReferredBy] = useState(patient.referred_by || '');
   const [referredById, setReferredById] = useState(patient.referred_by_id || '');
   const [notes, setNotes] = useState(patient.notes || '');
+
+  // Etiquetas (Onda 17.35) — carrega as atuais do paciente; salva junto com o
+  // PATCH via PUT /patients/:id/tags (idempotente). tagsLoaded protege contra
+  // apagar as etiquetas se o GET inicial falhar (PUT [] zeraria tudo).
+  const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [tagsLoaded, setTagsLoaded] = useState(false);
+  useEffect(() => {
+    api.get<Array<{ tag_id: string }>>(`/patients/${patient.id}/tags`)
+      .then((r) => {
+        setSelectedTagIds((r.data || []).map((a) => a.tag_id));
+        setTagsLoaded(true);
+      })
+      .catch(() => {}); // sem tags carregadas, seção fica visível mas não salva
+  }, [patient.id]);
 
   // Programa de Afiliado — comissao fixa 3% (regra do programa, nao editavel
   // por paciente). Saldo pode acumular ou ser sacado.
@@ -214,6 +230,19 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
       });
 
       await api.patch(`/patients/${patient.id}`, payload);
+
+      // Etiquetas: PUT idempotente substitui o conjunto. Só salva se o GET
+      // inicial carregou (senão PUT [] apagaria as tags existentes).
+      if (tagsLoaded) {
+        try {
+          await api.put(`/patients/${patient.id}/tags`, { tag_ids: selectedTagIds });
+        } catch (err: any) {
+          showError(
+            `Dados salvos, mas as etiquetas falharam: ${err?.response?.data?.message || 'tente de novo pela ficha'}`,
+          );
+        }
+      }
+
       showSuccess('Dados atualizados');
       onUpdated();
     } catch (err: any) {
@@ -259,7 +288,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
             </div>
             <div className="grid grid-cols-3 gap-3">
               <Field label="CPF">
-                <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" className={inputCls} />
+                <input value={cpf} onChange={(e) => setCpf(maskCPFInput(e.target.value))} placeholder="000.000.000-00" className={inputCls} />
               </Field>
               <Field label="RG">
                 <input value={rg} onChange={(e) => setRg(e.target.value)} className={inputCls} />
@@ -288,12 +317,20 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Telefone / Celular">
-                <input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="82 99999-9999" className={inputCls} />
+                <input type="tel" value={phone} onChange={(e) => setPhone(maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
               </Field>
               <Field label="E-mail">
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
               </Field>
             </div>
+          </Section>
+
+          {/* ── Etiquetas (Onda 17.35 — mesma UI do cadastro) ── */}
+          <Section icon={<Tag size={14} />} title="Etiquetas">
+            <TagChipsSelector
+              selectedTagIds={selectedTagIds}
+              onChange={(ids) => setSelectedTagIds(ids)}
+            />
           </Section>
 
           {/* ── Endereço com ViaCEP ───────────────────────── */}
@@ -302,7 +339,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
               <Field label={`CEP ${cepLoading ? '(buscando...)' : ''}`}>
                 <input
                   value={zipCode}
-                  onChange={(e) => setZipCode(e.target.value)}
+                  onChange={(e) => setZipCode(maskCEPInput(e.target.value))}
                   placeholder="00000-000"
                   maxLength={9}
                   className={inputCls}
@@ -349,7 +386,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                 <input value={emergencyName} onChange={(e) => setEmergencyName(e.target.value)} className={inputCls} />
               </Field>
               <Field label="Contato de emergência (telefone)">
-                <input type="tel" value={emergencyPhone} onChange={(e) => setEmergencyPhone(e.target.value)} className={inputCls} />
+                <input type="tel" value={emergencyPhone} onChange={(e) => setEmergencyPhone(maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
               </Field>
             </div>
           </Section>
@@ -371,10 +408,10 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                   <input value={guardianName} onChange={(e) => setGuardianName(e.target.value)} className={inputCls} />
                 </Field>
                 <Field label="CPF do responsável">
-                  <input value={guardianCpf} onChange={(e) => setGuardianCpf(e.target.value)} placeholder="000.000.000-00" className={inputCls} />
+                  <input value={guardianCpf} onChange={(e) => setGuardianCpf(maskCPFInput(e.target.value))} placeholder="000.000.000-00" className={inputCls} />
                 </Field>
                 <Field label="Telefone do responsável">
-                  <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(e.target.value)} className={inputCls} />
+                  <input type="tel" value={guardianPhone} onChange={(e) => setGuardianPhone(maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
                 </Field>
               </div>
             )}

@@ -17,11 +17,12 @@
 import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
-  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle, Plus,
+  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { type PatientTag } from './PatientTagsPicker';
+import { maskCPFInput, maskPhoneInput, maskCEPInput } from '@/lib/utils';
+import TagChipsSelector from './TagChipsSelector';
 
 interface Props {
   onClose: () => void;
@@ -57,22 +58,6 @@ const EMPTY_FORM = {
 
 const AFFILIATE_COMMISSION_PCT = 3;
 
-// Onda 17.33 — etiqueta especial pro backfill das fichas de papel (cenário
-// "tudo manual"). Criada sob demanda na 1ª vez que alguém marca o chip, então
-// não precisa de seed nem de criar à mão em Configurações.
-const PACIENTE_ANTIGO_NAME = 'Paciente Antigo';
-const PACIENTE_ANTIGO_COLOR = '#b45309'; // amber-700 — legível em badge claro/escuro
-
-// Paleta pra etiquetas criadas inline no modal. Cor escolhida de forma
-// determinística pelo nome (sem Math.random) só pra variar visualmente —
-// pode ser reajustada depois em Configurações → Etiquetas.
-const NEW_TAG_COLORS = ['#0ea5e9', '#10b981', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#14b8a6', '#6366f1'];
-const colorForName = (name: string) => {
-  let sum = 0;
-  for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
-  return NEW_TAG_COLORS[sum % NEW_TAG_COLORS.length];
-};
-
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
@@ -91,117 +76,15 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   // Captura por câmera (getUserMedia) — overlay independente do file picker
   const [cameraOpen, setCameraOpen] = useState(false);
 
-  // Etiquetas (Onda 17.33). Carregadas do tenant; selecao aplicada na criacao
-  // via tag_ids. selectedTagIds NAO é zerado no "Salvar e cadastrar novo" de
-  // proposito — pra marcar "Paciente Antigo" uma vez e cadastrar em lote.
-  const [allTags, setAllTags] = useState<PatientTag[]>([]);
+  // Etiquetas (Onda 17.33/17.35 — UI compartilhada no TagChipsSelector).
+  // selectedTagIds NAO é zerado no "Salvar e cadastrar novo" de proposito —
+  // pra marcar "Paciente Antigo" uma vez e cadastrar o lote de fichas.
+  // antigoSelected libera CPF/CEP na validacao (ficha de papel pode nao ter).
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
-  const [creatingAntigo, setCreatingAntigo] = useState(false);
-  const [newTagName, setNewTagName] = useState('');
-  const [creatingTag, setCreatingTag] = useState(false);
-  const [addingTag, setAddingTag] = useState(false); // mostra o input "nova etiqueta"
+  const [antigoSelected, setAntigoSelected] = useState(false);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
-
-  // Carrega etiquetas do tenant pro seletor
-  useEffect(() => {
-    api.get<PatientTag[]>('/patient-tags')
-      .then((r) => setAllTags(r.data || []))
-      .catch(() => {}); // sem etiquetas não impede o cadastro
-  }, []);
-
-  const pacienteAntigoTag = allTags.find(
-    (t) => t.name.trim().toLowerCase() === PACIENTE_ANTIGO_NAME.toLowerCase(),
-  );
-  const otherTags = allTags.filter((t) => t.id !== pacienteAntigoTag?.id);
-  const antigoSelected = !!pacienteAntigoTag && selectedTagIds.includes(pacienteAntigoTag.id);
-
-  // Lista única de chips, todas iguais. "Paciente Antigo" sempre aparece —
-  // como tag real (se já existe) ou como chip "fantasma" que cria sob demanda
-  // ao ser clicado (id sentinela '__antigo__'). Fica sempre em 1º pra ser
-  // achado fácil no lote de fichas antigas, mas visualmente é só mais um chip.
-  const antigoChip = pacienteAntigoTag ?? {
-    id: '__antigo__',
-    name: PACIENTE_ANTIGO_NAME,
-    color: PACIENTE_ANTIGO_COLOR,
-    description: 'Paciente cadastrado da base antiga (fichas de papel, pré-sistema)',
-  };
-  const displayTags: PatientTag[] = [antigoChip, ...otherTags];
-
-  const toggleTag = (id: string) =>
-    setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
-
-  // "Paciente Antigo": se a etiqueta já existe, só alterna a seleção; se ainda
-  // não existe no tenant, cria agora (sob demanda) e já marca.
-  const toggleAntigo = async () => {
-    if (creatingAntigo) return; // guard: evita 2 POSTs em clique duplo
-    if (pacienteAntigoTag) {
-      toggleTag(pacienteAntigoTag.id);
-      return;
-    }
-    setCreatingAntigo(true);
-    try {
-      const { data } = await api.post<PatientTag>('/patient-tags', {
-        name: PACIENTE_ANTIGO_NAME,
-        color: PACIENTE_ANTIGO_COLOR,
-        description: 'Paciente cadastrado da base antiga (fichas de papel, pré-sistema)',
-      });
-      setAllTags((prev) => [...prev, data]);
-      setSelectedTagIds((prev) => [...prev, data.id]);
-    } catch (err: any) {
-      // Corrida/duplicada: a etiqueta já existe — recarrega a lista e marca.
-      try {
-        const { data: list } = await api.get<PatientTag[]>('/patient-tags');
-        setAllTags(list || []);
-        const found = (list || []).find(
-          (t) => t.name.trim().toLowerCase() === PACIENTE_ANTIGO_NAME.toLowerCase(),
-        );
-        if (found) setSelectedTagIds((prev) => (prev.includes(found.id) ? prev : [...prev, found.id]));
-        else showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
-      } catch {
-        showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
-      }
-    } finally {
-      setCreatingAntigo(false);
-    }
-  };
-
-  // Cria uma etiqueta nova (qualquer nome) direto do modal e já marca. Se já
-  // existir uma com o mesmo nome (case-insensitive), só seleciona — não duplica.
-  const createAndSelectTag = async () => {
-    const name = newTagName.trim();
-    if (!name || creatingTag) return;
-    const close = () => { setNewTagName(''); setAddingTag(false); };
-    const existing = allTags.find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
-    if (existing) {
-      if (!selectedTagIds.includes(existing.id)) toggleTag(existing.id);
-      close();
-      return;
-    }
-    setCreatingTag(true);
-    try {
-      const { data } = await api.post<PatientTag>('/patient-tags', { name, color: colorForName(name) });
-      setAllTags((prev) => [...prev, data]);
-      setSelectedTagIds((prev) => [...prev, data.id]);
-      close();
-    } catch (err: any) {
-      // Corrida/duplicada — recarrega e marca a existente.
-      try {
-        const { data: list } = await api.get<PatientTag[]>('/patient-tags');
-        setAllTags(list || []);
-        const found = (list || []).find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
-        if (found) {
-          setSelectedTagIds((prev) => (prev.includes(found.id) ? prev : [...prev, found.id]));
-          close();
-        } else showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
-      } catch {
-        showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
-      }
-    } finally {
-      setCreatingTag(false);
-    }
-  };
 
   // Cria/limpa preview da foto. Revoga blob URL antiga pra não vazar memória.
   const handlePickPhoto = (file: File) => {
@@ -500,8 +383,8 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 <input
                   type="tel"
                   value={form.phone}
-                  onChange={(e) => set('phone', e.target.value)}
-                  placeholder="82 99999-9999"
+                  onChange={(e) => set('phone', maskPhoneInput(e.target.value))}
+                  placeholder="(82) 99999-9999"
                   className={inputCls}
                 />
               </div>
@@ -510,7 +393,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 <input
                   type="text"
                   value={form.cpf}
-                  onChange={(e) => set('cpf', e.target.value)}
+                  onChange={(e) => set('cpf', maskCPFInput(e.target.value))}
                   placeholder="000.000.000-00"
                   className={inputCls}
                 />
@@ -580,88 +463,12 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             </div>
           </Section>
 
-          {/* ── Etiquetas (Onda 17.33) ── */}
+          {/* ── Etiquetas (Onda 17.33/17.35) ── */}
           <Section icon={<Tag size={14} />} title="Etiquetas">
-            {/* Lista única de chips — todas as etiquetas iguais. Clique marca/
-                desmarca; o chip "+ Nova" cria uma na hora. "Paciente Antigo"
-                aparece sempre (cria sob demanda se ainda não existir). */}
-            <div className="flex flex-wrap items-center gap-1.5">
-              {displayTags.map((t) => {
-                const synthetic = t.id === '__antigo__';
-                const selected = synthetic ? antigoSelected : selectedTagIds.includes(t.id);
-                const color = t.color || '#64748b';
-                const busy = synthetic && creatingAntigo;
-                return (
-                  <button
-                    key={t.id}
-                    type="button"
-                    onClick={() => (synthetic ? toggleAntigo() : toggleTag(t.id))}
-                    disabled={busy}
-                    title={t.description || t.name}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors disabled:opacity-60"
-                    style={
-                      selected
-                        ? { backgroundColor: color, borderColor: color, color: '#fff' }
-                        : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
-                    }
-                  >
-                    {busy ? (
-                      <Loader2 size={11} className="animate-spin" />
-                    ) : (
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: selected ? '#fff' : color }}
-                      />
-                    )}
-                    {t.name}
-                    {selected && <Check size={12} />}
-                  </button>
-                );
-              })}
-
-              {/* Criar nova etiqueta — chip "+ Nova" que vira input inline */}
-              {addingTag ? (
-                <span className="inline-flex items-center gap-1">
-                  <input
-                    autoFocus
-                    value={newTagName}
-                    onChange={(e) => setNewTagName(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') { e.preventDefault(); createAndSelectTag(); }
-                      if (e.key === 'Escape') { setAddingTag(false); setNewTagName(''); }
-                    }}
-                    placeholder="Nome da etiqueta…"
-                    maxLength={40}
-                    className="w-44 px-2.5 py-1 rounded-full text-xs bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
-                  />
-                  <button
-                    type="button"
-                    onClick={createAndSelectTag}
-                    disabled={!newTagName.trim() || creatingTag}
-                    title="Criar etiqueta"
-                    className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground disabled:opacity-50"
-                  >
-                    {creatingTag ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => { setAddingTag(false); setNewTagName(''); }}
-                    title="Cancelar"
-                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-border text-muted-foreground hover:bg-accent"
-                  >
-                    <X size={12} />
-                  </button>
-                </span>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => setAddingTag(true)}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors"
-                >
-                  <Plus size={12} /> Nova
-                </button>
-              )}
-            </div>
+            <TagChipsSelector
+              selectedTagIds={selectedTagIds}
+              onChange={(ids, antigo) => { setSelectedTagIds(ids); setAntigoSelected(antigo); }}
+            />
 
             {/* Aviso destacado de persistência — só quando há etiqueta marcada.
                 Evita aplicar "Paciente Antigo" sem querer no lote seguinte. */}
@@ -700,7 +507,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   <label className="block text-xs font-medium mb-1">CEP{!antigoSelected && ' *'} {cepLoading && <span className="text-muted-foreground">(buscando...)</span>}</label>
                   <input
                     value={form.zipCode}
-                    onChange={(e) => set('zipCode', e.target.value)}
+                    onChange={(e) => set('zipCode', maskCEPInput(e.target.value))}
                     placeholder="00000-000"
                     maxLength={9}
                     className={inputCls}
@@ -757,7 +564,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">Emergência (telefone)</label>
-                  <input type="tel" value={form.emergencyPhone} onChange={(e) => set('emergencyPhone', e.target.value)} className={inputCls} />
+                  <input type="tel" value={form.emergencyPhone} onChange={(e) => set('emergencyPhone', maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
                 </div>
               </div>
             </Section>
@@ -783,11 +590,11 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">CPF do responsável</label>
-                    <input value={form.guardianCpf} onChange={(e) => set('guardianCpf', e.target.value)} placeholder="000.000.000-00" className={inputCls} />
+                    <input value={form.guardianCpf} onChange={(e) => set('guardianCpf', maskCPFInput(e.target.value))} placeholder="000.000.000-00" className={inputCls} />
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">Telefone do responsável</label>
-                    <input type="tel" value={form.guardianPhone} onChange={(e) => set('guardianPhone', e.target.value)} className={inputCls} />
+                    <input type="tel" value={form.guardianPhone} onChange={(e) => set('guardianPhone', maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
                   </div>
                 </div>
               )}
