@@ -194,21 +194,21 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   };
 
   const submitInner = async (andCreateNext: boolean): Promise<boolean> => {
-    // Onda 17.33 — campos obrigatórios. Nome e Data de nascimento (idade) são
-    // SEMPRE exigidos; CPF e CEP são exigidos no cadastro normal, mas LIBERADOS
-    // quando "Paciente Antigo" está marcado (fichas de papel podem não ter).
+    // Onda 17.35.3 — campos obrigatórios SÓ no cadastro normal: Nome, Data de
+    // nascimento, CPF e CEP. Com "Paciente Antigo" marcado NADA é obrigatório —
+    // a ficha de papel pode vir incompleta (pedido do dono do produto).
     const faltando: string[] = [];
-    if (!form.name.trim()) faltando.push('Nome');
-    if (!form.birthDate) faltando.push('Data de nascimento');
     if (!antigoSelected) {
+      if (!form.name.trim()) faltando.push('Nome');
+      if (!form.birthDate) faltando.push('Data de nascimento');
       if (!form.cpf.trim()) faltando.push('CPF');
       if (!form.zipCode.trim()) faltando.push('CEP');
     }
     if (faltando.length > 0) {
-      const semDoc = !antigoSelected && (faltando.includes('CPF') || faltando.includes('CEP'));
+      const semDoc = faltando.includes('CPF') || faltando.includes('CEP');
       showError(
         `Preencha: ${faltando.join(', ')}.` +
-          (semDoc ? ' Ficha antiga sem CPF/CEP? Marque a etiqueta “Paciente Antigo”.' : ''),
+          (semDoc ? ' Ficha antiga incompleta? Marque a etiqueta “Paciente Antigo”.' : ''),
       );
       return false;
     }
@@ -369,12 +369,12 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           {/* ── Identificação (sempre visível) ── */}
           <Section icon={<User size={14} />} title="Identificação">
             <div>
-              <label className="block text-xs font-medium mb-1">Nome completo *</label>
+              <label className="block text-xs font-medium mb-1">Nome completo{!antigoSelected && ' *'}</label>
               <input
                 type="text"
                 value={form.name}
                 onChange={(e) => set('name', e.target.value)}
-                required
+                required={!antigoSelected}
                 autoFocus
                 className={inputCls}
               />
@@ -438,7 +438,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium mb-1">Data de nascimento *</label>
+                <label className="block text-xs font-medium mb-1">Data de nascimento{!antigoSelected && ' *'}</label>
                 <input
                   type="date"
                   value={form.birthDate}
