@@ -472,9 +472,11 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 <div>
                   <label className="block text-xs font-medium mb-1">Cidade / UF</label>
                   <div className="flex gap-1">
-                    <input value={form.city} onChange={(e) => set('city', e.target.value)} className={`${inputCls} flex-1`} />
-                    <select value={form.state} onChange={(e) => set('state', e.target.value)} className={`${inputCls} w-16`}>
-                      <option value="">—</option>
+                    {/* Onda 17.32.185 — !w-* forca a largura: o w-full do inputCls
+                        vencia o w-16 no Tailwind v4 e a UF esmagava a Cidade */}
+                    <input value={form.city} onChange={(e) => set('city', e.target.value)} placeholder="Cidade" className={`${inputCls} flex-1`} />
+                    <select value={form.state} onChange={(e) => set('state', e.target.value)} className={`${inputCls} !w-20 shrink-0`}>
+                      <option value="">UF</option>
                       {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                     </select>
                   </div>

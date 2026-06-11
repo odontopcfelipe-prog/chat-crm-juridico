@@ -324,8 +324,10 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
               </Field>
               <Field label="Cidade / UF">
                 <div className="flex gap-1">
-                  <input value={city} onChange={(e) => setCity(e.target.value)} className={`${inputCls} flex-1`} />
-                  <select value={state} onChange={(e) => setState(e.target.value)} className={`${inputCls} w-16`}>
+                  {/* Onda 17.32.185 — !w-* forca a largura: o w-full do inputCls
+                      vencia o w-16 no Tailwind v4 e a UF esmagava a Cidade */}
+                  <input value={city} onChange={(e) => setCity(e.target.value)} placeholder="Cidade" className={`${inputCls} flex-1`} />
+                  <select value={state} onChange={(e) => setState(e.target.value)} className={`${inputCls} !w-20 shrink-0`}>
                     <option value="">—</option>
                     {STATES.map((s) => <option key={s} value={s}>{s}</option>)}
                   </select>
