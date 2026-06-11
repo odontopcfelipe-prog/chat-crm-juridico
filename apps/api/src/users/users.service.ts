@@ -1,8 +1,7 @@
 import { Injectable, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
-import { SettingsService } from '../settings/settings.service';
-import { createSmtpTransport } from '../common/utils/smtp.util';
+import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import { Prisma, User } from '@crm/shared';
 import * as argon2 from 'argon2';
 import { randomBytes } from 'crypto';
@@ -49,7 +48,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private fileStorage: FileStorageService,
-    private settings: SettingsService,
+    private mail: MailService,
   ) {}
 
   private tenantWhere(tenantId?: string) {
@@ -173,61 +172,31 @@ export class UsersService {
 
   /**
    * Envia o e-mail de confirmacao com o link /verificar-email?token=...
-   * Usa o SMTP global das settings (mesma fonte dos lembretes da agenda).
+   * Onda 17.32.179 — via MailService central (template padrao).
    * Retorna false (sem lancar) quando SMTP nao esta configurado.
    */
   private async sendVerificationEmail(email: string, name: string, token: string, tenantId?: string): Promise<boolean> {
-    const smtp = await this.settings.getSmtpConfig();
-    if (!smtp.host) {
-      this.logger.warn('[VERIFY-EMAIL] SMTP nao configurado — e-mail de confirmacao ignorado');
-      return false;
-    }
-
     let clinicName = 'Odonto System';
     if (tenantId) {
       const tenant = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
       if (tenant?.name) clinicName = tenant.name;
     }
 
-    const publicUrl = (process.env.PUBLIC_WEB_URL || 'https://sistema.institutoodontopassos.com.br').replace(/\/+$/, '');
-    const link = `${publicUrl}/verificar-email?token=${token}`;
-
-    // Onda 17.32.175 — resolve o host via dns.lookup antes do nodemailer
-    // (o resolve4 interno dele falha no Swarm; ver smtp.util.ts)
-    const transporter = await createSmtpTransport(smtp);
-
-    const html = `
-      <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 480px; margin: 0 auto; padding: 24px;">
-        <div style="background: #ffffff; border: 1px solid #e4e4e7; border-radius: 16px; padding: 28px; color: #3f3f46;">
-          <h2 style="margin: 0 0 6px; color: #18181b; font-size: 19px;">Bem-vindo(a) à equipe, ${name}!</h2>
-          <p style="margin: 0 0 18px; color: #71717a; font-size: 14px;">
-            Você foi cadastrado(a) no sistema da <b style="color:#3f3f46;">${clinicName}</b>.
-            Confirme seu e-mail pra validar o seu acesso:
-          </p>
-          <p style="text-align: center; margin: 0 0 18px;">
-            <a href="${link}" style="display: inline-block; background: #059669; color: #fff; text-decoration: none; font-weight: 600; font-size: 14px; padding: 12px 24px; border-radius: 12px;">
-              Confirmar meu e-mail
-            </a>
-          </p>
-          <p style="margin: 0; color: #a1a1aa; font-size: 12px;">
-            Pra entrar, use este e-mail e a senha que o administrador definiu pra você.
-            Se você não esperava este convite, ignore esta mensagem.
-          </p>
-        </div>
-        <p style="text-align: center; color: #a1a1aa; font-size: 11px; margin-top: 14px;">
-          Enviado automaticamente pelo Odonto System — ${clinicName}
-        </p>
-      </div>
-    `;
-
-    await transporter.sendMail({
-      from: smtp.from || smtp.user,
+    const link = `${publicWebUrl()}/verificar-email?token=${token}`;
+    const sent = await this.mail.send({
       to: email,
       subject: `Confirme seu e-mail — ${clinicName}`,
-      html,
+      html: this.mail.renderTemplate({
+        title: `Bem-vindo(a) à equipe, ${name}!`,
+        bodyHtml: `Você foi cadastrado(a) no sistema da <b style="color:#3f3f46;">${clinicName}</b>. Confirme seu e-mail pra validar o seu acesso:`,
+        ctaLabel: 'Confirmar meu e-mail',
+        ctaUrl: link,
+        footerNote: 'Pra entrar, use este e-mail e a senha que o administrador definiu pra você. Se você não esperava este convite, ignore esta mensagem.',
+        brandName: clinicName,
+      }),
     });
-    this.logger.log(`[VERIFY-EMAIL] E-mail de confirmacao enviado pra ${email}`);
-    return true;
+    if (sent) this.logger.log(`[VERIFY-EMAIL] E-mail de confirmacao enviado pra ${email}`);
+    return sent;
   }
 
   /** Valida o token do link e marca o e-mail como confirmado. Rota publica. */

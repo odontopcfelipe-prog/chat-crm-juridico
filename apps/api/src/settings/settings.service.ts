@@ -1685,6 +1685,13 @@ export class SettingsService {
   }
 
   async upsert(key: string, value: string) {
+    // Onda 17.32.179 — A listagem mascara valores sensiveis como
+    // "********". Se a tela salvar a mascara de volta (user nao
+    // redigitou a senha), NAO sobrescreve o valor real.
+    if (isSensitiveKey(key) && /^\*+$/.test((value || '').trim())) {
+      const existing = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (existing) return existing;
+    }
     const storedValue = isSensitiveKey(key) ? encryptValue(value) : value;
     return this.prisma.globalSetting.upsert({
       where: { key },

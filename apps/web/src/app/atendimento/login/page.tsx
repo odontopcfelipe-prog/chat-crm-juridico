@@ -306,13 +306,12 @@ export default function LoginPage() {
                     </button>
                     <span className="font-medium">Lembrar acesso</span>
                   </label>
-                  <button
-                    type="button"
-                    onClick={() => setError('Funcionalidade em breve')}
+                  <Link
+                    href="/esqueci-senha"
                     className="text-xs font-bold text-violet-700 hover:text-violet-900 hover:underline transition-colors"
                   >
                     Esqueci a senha
-                  </button>
+                  </Link>
                 </div>
 
                 {/* CTA */}

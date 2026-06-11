@@ -24,6 +24,7 @@ import { GatewayModule } from './gateway/gateway.module';
 import { TasksModule } from './tasks/tasks.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { SettingsModule } from './settings/settings.module';
+import { MailModule } from './common/mail/mail.module';
 import { NotificationSettingsModule } from './notification-settings/notification-settings.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { PushModule } from './push/push.module';
@@ -118,6 +119,7 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
     TasksModule,
     WhatsappModule,
     SettingsModule,
+    MailModule,
     InboxesModule,
     PipelinesModule,
     MediaModule,

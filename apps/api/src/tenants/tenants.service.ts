@@ -7,7 +7,9 @@
  */
 import { Injectable, BadRequestException, ConflictException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import * as argon2 from 'argon2';
+import { randomBytes } from 'crypto';
 import { getLimitsForPlan, isWithinLimit } from './plan-limits.js';
 // Onda 17.32.109 — Defaults plantados em cada tenant novo
 import { seedTenantDefaults } from '@crm/shared';
@@ -16,7 +18,10 @@ import { seedTenantDefaults } from '@crm/shared';
 export class TenantsService {
   private readonly logger = new Logger(TenantsService.name);
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private mail: MailService,
+  ) {}
 
   async list(filters: { status?: string; q?: string }) {
     const where: any = {};
@@ -108,7 +113,7 @@ export class TenantsService {
     const passwordHash = await argon2.hash(body.admin.password);
 
     // Transacao: cria Tenant + Admin User atomicamente
-    return this.prisma.$transaction(async (tx) => {
+    const created = await this.prisma.$transaction(async (tx) => {
       const tenant = await tx.tenant.create({
         data: {
           name: body.name.trim(),
@@ -173,6 +178,41 @@ export class TenantsService {
         },
       };
     });
+
+    // Onda 17.32.179 — Boas-vindas + confirmacao de e-mail pro admin
+    // dono do tenant novo. POS-transacao e best-effort: e-mail fora
+    // do ar NUNCA impede o signup.
+    this.sendOwnerWelcomeEmail(created.tenant.id, created.tenant.name, created.admin)
+      .catch((e) => this.logger.warn(`[TENANT-CREATE] Falha no e-mail de boas-vindas: ${e?.message}`));
+
+    return created;
+  }
+
+  /** E-mail de boas-vindas do SaaS com link de confirmacao de e-mail. */
+  private async sendOwnerWelcomeEmail(
+    tenantId: string,
+    tenantName: string,
+    admin: { id: string; email: string; name: string },
+  ): Promise<void> {
+    const verifyToken = randomBytes(32).toString('hex');
+    await this.prisma.user.update({
+      where: { id: admin.id },
+      data: { email_verify_token: verifyToken, email_verify_sent_at: new Date() },
+    });
+    const link = `${publicWebUrl()}/verificar-email?token=${verifyToken}`;
+    const sent = await this.mail.send({
+      to: admin.email,
+      subject: `Bem-vindo(a) ao Odonto System — ${tenantName}`,
+      html: this.mail.renderTemplate({
+        title: `Sua clínica está no ar, ${admin.name.split(' ')[0]}!`,
+        bodyHtml: `A conta da <b style="color:#3f3f46;">${tenantName}</b> foi criada com sucesso e seus 14 dias de teste já estão valendo. Confirme seu e-mail pra garantir o acesso e a recuperação de senha:`,
+        ctaLabel: 'Confirmar meu e-mail',
+        ctaUrl: link,
+        footerNote: 'Entre no sistema com este e-mail e a senha que você definiu no cadastro. Qualquer dúvida, é só responder esta mensagem.',
+        brandName: tenantName,
+      }),
+    });
+    if (sent) this.logger.log(`[TENANT-CREATE] Boas-vindas enviadas pra ${admin.email}`);
   }
 
   /**

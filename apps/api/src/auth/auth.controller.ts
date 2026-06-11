@@ -24,4 +24,22 @@ export class AuthController {
   async mcpToken(@Request() req: any) {
     return this.authService.generateMcpToken(req.user);
   }
+
+  // ─── Redefinicao de senha (Onda 17.32.179) ──────────────────────
+
+  /** Pede o link de redefinicao. Sempre responde ok (anti-enumeracao). */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }) {
+    return this.authService.forgotPassword(body?.email);
+  }
+
+  /** Define a nova senha a partir do token recebido por e-mail. */
+  @Public()
+  @HttpCode(HttpStatus.OK)
+  @Post('reset-password')
+  async resetPassword(@Body() body: { token: string; password: string }) {
+    return this.authService.resetPassword(body?.token, body?.password);
+  }
 }
