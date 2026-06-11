@@ -213,7 +213,7 @@ function PacientesPageInner() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, CPF, telefone ou email..."
+            placeholder="Buscar por nome, ficha, CPF, telefone ou email..."
             className="w-full pl-10 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
@@ -368,6 +368,8 @@ function PacientesPageInner() {
                       )}
                     </div>
                     <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                      {/* Onda 17.32.184 — ficha visivel na listagem */}
+                      {(p as any).record_number && <span className="font-semibold text-primary">Ficha {(p as any).record_number}</span>}
                       {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
                       {p.cpf && <span>CPF: {formatCPF(p.cpf)}</span>}
                       {p.primary_dentist && <span>Dentista: {p.primary_dentist.name}</span>}

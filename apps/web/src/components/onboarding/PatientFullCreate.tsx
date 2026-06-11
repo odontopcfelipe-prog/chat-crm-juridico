@@ -42,7 +42,7 @@ const STATES = [
 const BLOOD_TYPES = ['A+','A-','B+','B-','AB+','AB-','O+','O-'];
 
 const EMPTY = {
-  name: '', cpf: '', rg: '', birthDate: '', gender: '', maritalStatus: '',
+  name: '', cpf: '', recordNumber: '', rg: '', birthDate: '', gender: '', maritalStatus: '',
   phone: '', email: '',
   zipCode: '', address: '', addressNumber: '', addressComplement: '',
   neighborhood: '', city: '', state: '',
@@ -101,6 +101,7 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
     try {
       const payload: any = { name: form.name.trim() };
       if (form.cpf.trim())             payload.cpf = form.cpf.trim();
+      if (form.recordNumber.trim())    payload.record_number = form.recordNumber.trim();
       if (form.rg.trim())              payload.rg = form.rg.trim();
       if (form.birthDate)              payload.birth_date = form.birthDate;
       if (form.gender)                 payload.gender = form.gender;
@@ -189,6 +190,16 @@ export default function PatientFullCreate({ alreadyDone = false, onCreated }: Pr
             value={form.cpf}
             onChange={(e) => set('cpf', e.target.value)}
             placeholder="000.000.000-00"
+            className={inputCls}
+          />
+        </div>
+        <div>
+          <label className={labelCls}>Ficha (nº)</label>
+          <input
+            type="text"
+            value={form.recordNumber}
+            onChange={(e) => set('recordNumber', e.target.value)}
+            placeholder="ex: 0482"
             className={inputCls}
           />
         </div>

@@ -43,7 +43,7 @@ const STATES = ['AC','AL','AP','AM','BA','CE','DF','ES','GO','MA','MT','MS','MG'
 const inputCls = 'w-full px-3 py-2 rounded-lg bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30';
 
 const EMPTY_FORM = {
-  name: '', cpf: '', rg: '', birthDate: '', gender: '', maritalStatus: '',
+  name: '', cpf: '', recordNumber: '', rg: '', birthDate: '', gender: '', maritalStatus: '',
   phone: '', email: '',
   zipCode: '', address: '', addressNumber: '', addressComplement: '',
   neighborhood: '', city: '', state: '',
@@ -144,6 +144,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
     const base: any = { name: form.name.trim() };
     if (form.phone.trim()) base.phone = form.phone.trim();
     if (form.cpf.trim()) base.cpf = form.cpf.trim();
+    if (form.recordNumber.trim()) base.record_number = form.recordNumber.trim();
     if (form.email.trim()) base.email = form.email.trim();
     if (form.birthDate) base.birth_date = form.birthDate;
     if (form.gender) base.gender = form.gender;
@@ -350,7 +351,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               />
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Telefone</label>
                 <input
@@ -368,6 +369,17 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   value={form.cpf}
                   onChange={(e) => set('cpf', e.target.value)}
                   placeholder="000.000.000-00"
+                  className={inputCls}
+                />
+              </div>
+              {/* Onda 17.32.184 — ficha/prontuario fisico; pesquisavel na busca */}
+              <div>
+                <label className="block text-xs font-medium mb-1">Ficha (nº)</label>
+                <input
+                  type="text"
+                  value={form.recordNumber}
+                  onChange={(e) => set('recordNumber', e.target.value)}
+                  placeholder="ex: 0482"
                   className={inputCls}
                 />
               </div>

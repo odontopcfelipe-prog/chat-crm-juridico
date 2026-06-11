@@ -44,6 +44,17 @@ export class PatientsService {
       if (existing) throw new BadRequestException('Ja existe um paciente com este CPF neste tenant');
     }
 
+    // Onda 17.32.184 — ficha (numero de prontuario) unica por tenant
+    if (data.record_number) {
+      const dupFicha = await this.prisma.patient.findFirst({
+        where: { tenant_id: tenantId, record_number: data.record_number as string },
+        select: { name: true },
+      });
+      if (dupFicha) {
+        throw new BadRequestException(`A ficha ${data.record_number} já pertence ao paciente ${dupFicha.name}`);
+      }
+    }
+
     const patient = await this.prisma.patient.create({
       data: { ...data, tenant_id: tenantId },
     });
@@ -255,6 +266,8 @@ export class PatientsService {
           { phone: { contains: opts.search } },
           { cpf: { contains: opts.search } },
           { email: { contains: opts.search, mode: 'insensitive' } },
+          // Onda 17.32.184 — busca tambem pela ficha (nº de prontuario)
+          { record_number: { contains: opts.search, mode: 'insensitive' } },
         ],
       });
     }
@@ -330,6 +343,17 @@ export class PatientsService {
         select: { id: true },
       });
       if (conflict) throw new BadRequestException('Outro paciente ja usa este CPF');
+    }
+
+    // Onda 17.32.184 — ficha (numero de prontuario) unica por tenant
+    if (data.record_number && typeof data.record_number === 'string') {
+      const fichaConflict = await this.prisma.patient.findFirst({
+        where: { tenant_id: tenantId, record_number: data.record_number, NOT: { id } },
+        select: { name: true },
+      });
+      if (fichaConflict) {
+        throw new BadRequestException(`A ficha ${data.record_number} já pertence ao paciente ${fichaConflict.name}`);
+      }
     }
 
     return this.prisma.patient.update({ where: { id }, data });

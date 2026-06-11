@@ -147,7 +147,7 @@ export function NovaAvaliacaoModal({ open, onClose }: Props) {
               ref={inputRef}
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar por nome, CPF ou telefone..."
+              placeholder="Buscar por nome, ficha, CPF ou telefone..."
               className="flex-1 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
             />
             {loading && <Loader2 size={14} className="text-muted-foreground animate-spin shrink-0" />}

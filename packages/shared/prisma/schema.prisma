@@ -1784,6 +1784,9 @@ model Patient {
   // Identificacao
   name           String
   cpf            String?
+  /// Onda 17.32.184 — numero da ficha/prontuario fisico da clinica.
+  /// Pesquisavel junto com nome/CPF; unicidade por tenant validada na API.
+  record_number  String?
   rg             String?
   birth_date     DateTime?
   gender         String? // "M" | "F" | "OTHER"

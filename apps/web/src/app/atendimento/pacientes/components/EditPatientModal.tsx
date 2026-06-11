@@ -74,6 +74,8 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   // Form state
   const [name, setName] = useState(patient.name || '');
   const [cpf, setCpf] = useState(patient.cpf || '');
+  // Onda 17.32.184 — ficha/prontuario fisico da clinica
+  const [recordNumber, setRecordNumber] = useState((patient as any).record_number || '');
   const [rg, setRg] = useState(patient.rg || '');
   const [birthDate, setBirthDate] = useState(patient.birth_date?.slice(0, 10) || '');
   const [gender, setGender] = useState(patient.gender || '');
@@ -164,6 +166,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
       const payload: any = {
         name: name.trim(),
         cpf: cpf.trim() || null,
+        record_number: recordNumber.trim() || null,
         rg: rg.trim() || null,
         birth_date: birthDate || null,
         gender: gender || null,
@@ -254,12 +257,15 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                 />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <Field label="CPF">
                 <input value={cpf} onChange={(e) => setCpf(e.target.value)} placeholder="000.000.000-00" className={inputCls} />
               </Field>
               <Field label="RG">
                 <input value={rg} onChange={(e) => setRg(e.target.value)} className={inputCls} />
+              </Field>
+              <Field label="Ficha (nº)">
+                <input value={recordNumber} onChange={(e) => setRecordNumber(e.target.value)} placeholder="ex: 0482" className={inputCls} />
               </Field>
             </div>
             <div className="grid grid-cols-3 gap-3">
