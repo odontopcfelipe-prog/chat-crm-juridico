@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Calendar, Clock, Briefcase, Trash2, Plus, Save, X, Star, Mail, Users, Copy } from 'lucide-react';
+import { Calendar, Clock, Briefcase, Trash2, Plus, Save, X, Star, Users, Copy } from 'lucide-react';
 import api from '@/lib/api';
 import {
   ScheduleEditor,
@@ -57,15 +57,8 @@ export default function OfficeSettingsPage() {
   const [newHoliday, setNewHoliday] = useState({ date: '', name: '', recurring_yearly: false });
   const [showNewHoliday, setShowNewHoliday] = useState(false);
 
-  const [smtpConfig, setSmtpConfig] = useState({
-    SMTP_HOST: '',
-    SMTP_PORT: '587',
-    SMTP_USER: '',
-    SMTP_PASS: '',
-    SMTP_FROM: '',
-  });
-  const [smtpSaved, setSmtpSaved] = useState(false);
-  const [smtpSaving, setSmtpSaving] = useState(false);
+  // Onda 17.32.180 — config SMTP saiu desta tela: e global do SaaS e
+  // agora vive no painel /admin/settings (somente SUPER_ADMIN)
 
   // ─── Horário do Escritório (GlobalSetting — cron + {{business_hours_info}}) ───
   const [officeHours, setOfficeHours] = useState({
@@ -96,7 +89,6 @@ export default function OfficeSettingsPage() {
     } catch {}
     loadAppTypes();
     loadHolidays();
-    loadSmtpConfig();
     loadOfficeHours();
   }, []);
 
@@ -179,18 +171,6 @@ export default function OfficeSettingsPage() {
     });
   };
 
-  const loadSmtpConfig = async () => {
-    try {
-      const res = await api.get('/settings');
-      const settings = res.data as any[];
-      const cfg = { ...smtpConfig };
-      for (const s of settings) {
-        if (s.key in cfg) (cfg as any)[s.key] = s.value;
-      }
-      setSmtpConfig(cfg);
-    } catch {}
-  };
-
   // ─── Handlers ──────────────────────────────────────
 
   const saveSchedule = async () => {
@@ -248,25 +228,13 @@ export default function OfficeSettingsPage() {
     } catch {}
   };
 
-  const saveSmtp = async () => {
-    setSmtpSaving(true);
-    try {
-      for (const [key, value] of Object.entries(smtpConfig)) {
-        await api.put('/settings', { key, value });
-      }
-      setSmtpSaved(true);
-      setTimeout(() => setSmtpSaved(false), 2000);
-    } catch {}
-    setSmtpSaving(false);
-  };
-
   // ─── Render ────────────────────────────────────────
   return (
     <div className="flex-1 flex flex-col pt-8 overflow-hidden bg-background">
       <header className="px-8 mb-6 shrink-0">
         <h1 className="text-2xl font-bold text-foreground tracking-tight">Agenda & Escritório</h1>
         <p className="text-[13px] text-muted-foreground mt-1">
-          Configure horários de trabalho, tipos de atendimento, feriados e email de lembretes.
+          Configure horários de trabalho, tipos de atendimento e feriados.
         </p>
       </header>
 
@@ -615,88 +583,6 @@ export default function OfficeSettingsPage() {
           </div>
         </div>
 
-        {/* ═══════ Seção 4: Config Email (SMTP) ═══════ */}
-        <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
-          <div className="flex items-center justify-between mb-5">
-            <div className="flex items-center gap-2">
-              <Mail size={16} className="text-primary" />
-              <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Email para Lembretes
-              </h2>
-            </div>
-            <div className="flex items-center gap-2">
-              {smtpSaved && (
-                <span className="text-xs text-primary font-semibold animate-fade-in">✓ Salvo</span>
-              )}
-              <button
-                onClick={saveSmtp}
-                disabled={smtpSaving}
-                className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
-              >
-                <Save size={12} />
-                {smtpSaving ? 'Salvando...' : 'Salvar'}
-              </button>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Servidor SMTP</label>
-              <input
-                type="text"
-                placeholder="smtp.gmail.com"
-                value={smtpConfig.SMTP_HOST}
-                onChange={(e) => setSmtpConfig({ ...smtpConfig, SMTP_HOST: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border rounded-lg text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Porta</label>
-              <input
-                type="text"
-                placeholder="587"
-                value={smtpConfig.SMTP_PORT}
-                onChange={(e) => setSmtpConfig({ ...smtpConfig, SMTP_PORT: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border rounded-lg text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Usuário</label>
-              <input
-                type="text"
-                placeholder="email@example.com"
-                value={smtpConfig.SMTP_USER}
-                onChange={(e) => setSmtpConfig({ ...smtpConfig, SMTP_USER: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border rounded-lg text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Senha</label>
-              <input
-                type="password"
-                placeholder="••••••••"
-                value={smtpConfig.SMTP_PASS}
-                onChange={(e) => setSmtpConfig({ ...smtpConfig, SMTP_PASS: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border rounded-lg text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-            <div className="md:col-span-2">
-              <label className="block text-xs font-semibold text-muted-foreground mb-1">Email remetente</label>
-              <input
-                type="email"
-                placeholder="noreply@escritorio.com.br"
-                value={smtpConfig.SMTP_FROM}
-                onChange={(e) => setSmtpConfig({ ...smtpConfig, SMTP_FROM: e.target.value })}
-                className="w-full px-3 py-2 text-sm bg-muted/30 border border-border rounded-lg text-foreground placeholder:text-muted-foreground"
-              />
-            </div>
-          </div>
-
-          <p className="text-[11px] text-muted-foreground mt-4">
-            Configure o servidor SMTP para enviar lembretes de eventos por email.
-            Usado quando o canal &quot;Email&quot; é selecionado nos lembretes de um evento.
-          </p>
-        </div>
       </div>
     </div>
   );

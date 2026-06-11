@@ -186,6 +186,14 @@ export default function AdminTenantsPage() {
               </>
             )}
           </button>
+          {/* Onda 17.32.180 — configuracoes globais do SaaS (e-mail/SMTP) */}
+          <Link
+            href="/admin/settings"
+            className="text-sm font-bold px-4 py-2 rounded-lg border border-border bg-card hover:bg-muted/40 text-foreground inline-flex items-center gap-2 transition-colors"
+          >
+            <Mail size={14} />
+            E-mail do sistema
+          </Link>
           <button
             type="button"
             onClick={() => setNewOpen(true)}

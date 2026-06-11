@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Request, Param, Put, Logger, UseInterceptors, UploadedFile, Res, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, UseGuards, Request, Param, Put, Logger, UseInterceptors, UploadedFile, Res, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { SettingsService } from './settings.service';
@@ -32,15 +32,57 @@ export class SettingsController {
   // ─── Generic Settings ─────────────────────────────────
 
   @Get()
-  @Roles('ADMIN')
-  async getAll() {
-    return this.settingsService.getAll();
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  async getAll(@Request() req: any) {
+    const all = await this.settingsService.getAll();
+    // Onda 17.32.180 — chaves da PLATAFORMA (SMTP_*) nao aparecem pra
+    // admin de tenant: a config de e-mail e global do SaaS e nao deve
+    // vazar host/usuario pros clientes
+    const isSuper = (req.user?.roles || []).includes('SUPER_ADMIN');
+    return isSuper ? all : all.filter((s: any) => !String(s.key || '').startsWith('SMTP_'));
   }
 
   @Put()
-  @Roles('ADMIN')
-  async upsert(@Body() data: { key: string; value: string }) {
+  @Roles('ADMIN', 'SUPER_ADMIN')
+  async upsert(@Request() req: any, @Body() data: { key: string; value: string }) {
+    // Onda 17.32.180 — admin de tenant NAO pode sobrescrever o SMTP
+    // global do SaaS (mesma classe do vazamento Evolution da Onda 74)
+    const isSuper = (req.user?.roles || []).includes('SUPER_ADMIN');
+    if (String(data?.key || '').startsWith('SMTP_') && !isSuper) {
+      throw new ForbiddenException('Configuração de e-mail da plataforma — somente o administrador do SaaS.');
+    }
     return this.settingsService.upsert(data.key, data.value);
+  }
+
+  // ─── E-mail da plataforma (Onda 17.32.180 — painel /admin) ───────
+
+  /** Config SMTP global do SaaS. Nunca retorna a senha (so has_pass). */
+  @Get('smtp')
+  @Roles('SUPER_ADMIN')
+  async getSmtp() {
+    const cfg = await this.settingsService.getSmtpConfig();
+    return { host: cfg.host, port: cfg.port, user: cfg.user, from: cfg.from, has_pass: !!cfg.pass };
+  }
+
+  /** Salva a config SMTP global. Senha vazia/mascarada nao sobrescreve. */
+  @Put('smtp')
+  @Roles('SUPER_ADMIN')
+  async saveSmtp(@Body() body: { host?: string; port?: string | number; user?: string; pass?: string; from?: string }) {
+    const entries: Array<[string, string | undefined]> = [
+      ['SMTP_HOST', body.host],
+      ['SMTP_PORT', body.port !== undefined && body.port !== null ? String(body.port) : undefined],
+      ['SMTP_USER', body.user],
+      ['SMTP_PASS', body.pass],
+      ['SMTP_FROM', body.from],
+    ];
+    for (const [key, raw] of entries) {
+      if (raw === undefined || raw === null) continue;
+      const value = String(raw).trim();
+      // Senha em branco ou mascarada = "manter a atual"
+      if (key === 'SMTP_PASS' && (!value || /^\*+$/.test(value))) continue;
+      await this.settingsService.upsert(key, value);
+    }
+    return { ok: true };
   }
 
   // ─── DJEN Lawyers ──────────────────────────────────────
