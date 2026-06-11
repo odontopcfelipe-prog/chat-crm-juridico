@@ -138,6 +138,28 @@ model Tenant {
   // Programa de Afiliado (Onda 5e v34, Fase 25)
   affiliate_referrals         AffiliateReferral[]
   affiliate_withdrawals       AffiliateWithdrawal[]
+  // E-mails automaticos (Onda 17.32.181)
+  email_templates             TenantEmailTemplate[]
+}
+
+/// Onda 17.32.181 — E-mails automaticos por tenant (estilo Nuvemshop).
+/// Os defaults (assunto/corpo/variaveis) vivem no codigo
+/// (apps/api/src/email-automation/email-events.ts); uma linha aqui
+/// representa o OVERRIDE do tenant pra um evento. Sem linha = padrao.
+model TenantEmailTemplate {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  /// 'cobranca_criada' | 'pagamento_confirmado' | 'agendamento_criado'
+  event_key  String
+  enabled    Boolean  @default(true)
+  subject    String
+  /// Texto com {{variaveis}}; quebras de linha viram <br> no envio
+  body       String
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+  tenant     Tenant   @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+
+  @@unique([tenant_id, event_key])
 }
 
 model User {

@@ -7,6 +7,7 @@ import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { EmailAutomationService } from '../email-automation/email-automation.service';
 // Type-only import pra evitar circular runtime dep CalendarModule <-> LeadsModule.
 // Resolvido via moduleRef.get em runtime.
 import type { LeadsService } from '../leads/leads.service';
@@ -30,6 +31,8 @@ export class CalendarService {
     @InjectQueue('calendar-reminders') private reminderQueue: Queue,
     @Inject(forwardRef(() => WaitlistService)) private waitlist: WaitlistService,
     @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
+    // Onda 17.32.181 — e-mails automaticos (modulo @Global)
+    private emailAutomation: EmailAutomationService,
     private moduleRef: ModuleRef,
   ) {}
 
@@ -325,6 +328,12 @@ export class CalendarService {
           start_at: event.start_at.toISOString(),
         });
       } catch {}
+    }
+
+    // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
+    // paciente (best-effort; so eventos clinicos com paciente/lead)
+    if (data.tenant_id && this.isClinicalEvent(event.type)) {
+      void this.sendAppointmentCreatedEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
     }
 
     // Enqueue WhatsApp + Email reminders
@@ -2516,6 +2525,52 @@ export class CalendarService {
   /** Tipos de evento que contam como "visita do paciente" */
   private isClinicalEvent(type: string): boolean {
     return ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(type);
+  }
+
+  /**
+   * Onda 17.32.181 — E-mail automatico "consulta agendada".
+   * Best-effort: resolve o e-mail do paciente (ou do lead) e dispara.
+   * Qualquer falha so loga — criar o evento nunca quebra por e-mail.
+   */
+  private async sendAppointmentCreatedEmail(
+    event: any,
+    patientId: string | null | undefined,
+    leadId: string | null | undefined,
+    tenantId: string,
+  ): Promise<void> {
+    try {
+      let toEmail: string | null = null;
+      let toName: string | null = null;
+      if (patientId) {
+        const patient = await this.prisma.patient.findUnique({
+          where: { id: patientId },
+          select: { name: true, email: true },
+        });
+        toEmail = patient?.email || null;
+        toName = patient?.name || null;
+      }
+      if (!toEmail && leadId) {
+        const lead = await this.prisma.lead.findUnique({
+          where: { id: leadId },
+          select: { name: true, email: true },
+        });
+        toEmail = lead?.email || null;
+        toName = toName || lead?.name || null;
+      }
+      if (!toEmail) return;
+
+      const tz = 'America/Maceio';
+      const startAt = new Date(event.start_at);
+      await this.emailAutomation.dispatch('agendamento_criado', tenantId, toEmail, {
+        paciente_nome: toName || '',
+        data: startAt.toLocaleDateString('pt-BR', { timeZone: tz }),
+        hora: startAt.toLocaleTimeString('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit' }),
+        profissional_nome: event.assigned_user?.name || '',
+        titulo: event.title || '',
+      });
+    } catch (e: any) {
+      this.logger.warn(`[AUTO-MAIL] agendamento_criado falhou: ${e?.message}`);
+    }
   }
 
   /**

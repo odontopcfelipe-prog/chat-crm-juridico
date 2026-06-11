@@ -20,6 +20,10 @@ export interface MailContent {
   to: string;
   subject: string;
   html: string;
+  /** Nome de exibicao do remetente (ex: nome da clinica) */
+  fromName?: string;
+  /** Respostas do destinatario vao pra este endereco (ex: e-mail da clinica) */
+  replyTo?: string;
 }
 
 export interface TemplateOptions {
@@ -59,18 +63,21 @@ export class MailService {
    * Envia um e-mail. Retorna false (sem lancar) quando SMTP nao esta
    * configurado; LANCA erros de transporte pro caller tratar.
    */
-  async send({ to, subject, html }: MailContent): Promise<boolean> {
+  async send({ to, subject, html, fromName, replyTo }: MailContent): Promise<boolean> {
     const smtp = await this.settings.getSmtpConfig();
     if (!smtp.host) {
       this.logger.warn(`[MAIL] SMTP nao configurado — "${subject}" pra ${to} ignorado`);
       return false;
     }
     const transporter = await createSmtpTransport(smtp);
+    const fromAddress = smtp.from || smtp.user;
     await transporter.sendMail({
-      from: smtp.from || smtp.user,
+      // Com fromName, o destinatario ve "Nome da Clinica <email-da-plataforma>"
+      from: fromName ? { name: fromName, address: fromAddress } : fromAddress,
       to,
       subject,
       html,
+      ...(replyTo ? { replyTo } : {}),
     });
     this.logger.log(`[MAIL] Enviado "${subject}" pra ${to}`);
     return true;

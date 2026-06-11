@@ -12,6 +12,7 @@ import { AsaasClient } from './asaas/asaas-client';
 import { FinanceiroService } from '../financeiro/financeiro.service';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
+import { EmailAutomationService } from '../email-automation/email-automation.service';
 // Onda 14.53 — Resolvido via ModuleRef (strict:false) — LeadsService eh
 // global no AppModule. Mesmo padrao de quotes.service.ts tryGraduateLead.
 import { LeadsService } from '../leads/leads.service';
@@ -37,6 +38,8 @@ export class PaymentGatewayService {
     private whatsapp: WhatsappService,
     private financeiroService: FinanceiroService,
     private chatGateway: ChatGateway,
+    // Onda 17.32.181 — e-mails automaticos (modulo @Global)
+    private emailAutomation: EmailAutomationService,
     // Onda 14.53 — pra resolver LeadsService via { strict: false } sem
     // dependencia circular entre PaymentGatewayModule e LeadsModule.
     private moduleRef: ModuleRef,
@@ -570,6 +573,31 @@ export class PaymentGatewayService {
     };
   }
 
+  /**
+   * Onda 17.32.181 — E-mail automatico "pagamento confirmado".
+   * Best-effort: busca o paciente da parcela e dispara; qualquer falha
+   * so loga (o webhook nunca quebra por causa de e-mail).
+   */
+  private async sendPaymentConfirmedEmail(charge: any, paymentData: any): Promise<void> {
+    try {
+      if (!charge?.installment_id || !charge?.tenant_id) return;
+      const inst = await this.prisma.installment.findUnique({
+        where: { id: charge.installment_id },
+        select: { patient: { select: { name: true, email: true } } },
+      });
+      const email = inst?.patient?.email;
+      if (!email) return;
+      const paidAt = paymentData?.paymentDate ? new Date(paymentData.paymentDate) : new Date();
+      await this.emailAutomation.dispatch('pagamento_confirmado', charge.tenant_id, email, {
+        paciente_nome: inst!.patient!.name,
+        valor: Number(charge.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+        data_pagamento: paidAt.toLocaleDateString('pt-BR'),
+      });
+    } catch (e: any) {
+      this.logger.warn(`[AUTO-MAIL] pagamento_confirmado falhou: ${e?.message}`);
+    }
+  }
+
   // ─── Cobrança para Installment (Fase 18 — Odontologia) ─
 
   /**
@@ -608,7 +636,7 @@ export class PaymentGatewayService {
     const installment = await this.prisma.installment.findFirst({
       where: { id: installmentId, tenant_id: tenantId },
       include: {
-        patient: { select: { id: true, name: true, cpf: true, lead_id: true } },
+        patient: { select: { id: true, name: true, cpf: true, lead_id: true, email: true } },
         quote: { select: { id: true } },
       },
     });
@@ -688,6 +716,21 @@ export class PaymentGatewayService {
       where: { id: installmentId },
       data: { gateway_charge_id: asaasCharge.id },
     });
+
+    // Onda 17.32.181 — e-mail automatico "cobranca gerada" (best-effort,
+    // nunca bloqueia a emissao; dispatch trata erros internamente)
+    void this.emailAutomation.dispatch(
+      'cobranca_criada',
+      tenantId,
+      installment.patient.email,
+      {
+        paciente_nome: installment.patient.name,
+        valor: value.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+        vencimento: dueDate.toLocaleDateString('pt-BR'),
+        forma_pagamento: billingType === 'CREDIT_CARD' ? 'Cartão' : billingType === 'BOLETO' ? 'Boleto' : 'PIX',
+      },
+      { ctaUrl: charge.invoice_url || charge.boleto_url || undefined },
+    );
 
     return {
       ...charge,
@@ -1059,6 +1102,8 @@ export class PaymentGatewayService {
       } catch (e: any) {
         this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento: ${e.message}`);
       }
+      // Onda 17.32.181 — e-mail automatico "pagamento confirmado"
+      void this.sendPaymentConfirmedEmail(charge, paymentData);
     }
 
     // Se cobrança DELETADA ou REFUNDED, notificar cliente via WhatsApp
