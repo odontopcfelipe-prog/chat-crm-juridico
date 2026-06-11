@@ -360,22 +360,23 @@ function PacientesPageInner() {
                     size={56}
                   />
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <p className="font-medium text-foreground truncate">{p.name}</p>
-                      {p.tags && p.tags.length > 0 && (
-                        <div className="flex items-center gap-1 flex-wrap">
-                          {p.tags.slice(0, 3).map((t) => (
-                            <TagBadge key={t.tag_id} tag={t.tag} />
-                          ))}
-                          {p.tags.length > 3 && (
-                            <span className="text-[10px] text-muted-foreground">
-                              +{p.tags.length - 3}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
+                    <p className="font-medium text-foreground truncate">{p.name}</p>
+                    {/* Onda 17.35.4 — etiquetas em linha própria logo abaixo do
+                        nome, pra ficarem expostas (antes ficavam coladas no
+                        nome e passavam batido). */}
+                    {p.tags && p.tags.length > 0 && (
+                      <div className="flex items-center gap-1 flex-wrap mt-1">
+                        {p.tags.slice(0, 5).map((t) => (
+                          <TagBadge key={t.tag_id} tag={t.tag} />
+                        ))}
+                        {p.tags.length > 5 && (
+                          <span className="text-[10px] text-muted-foreground">
+                            +{p.tags.length - 5}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
                       {/* Onda 17.32.184 — ficha visivel na listagem */}
                       {(p as any).record_number && <span className="font-semibold text-primary">Ficha {(p as any).record_number}</span>}
                       {p.phone && <span className="flex items-center gap-1"><Phone size={12} /> {formatPhone(p.phone)}</span>}
