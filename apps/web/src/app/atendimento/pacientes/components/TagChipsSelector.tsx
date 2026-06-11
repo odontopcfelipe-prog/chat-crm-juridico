@@ -167,13 +167,15 @@ export default function TagChipsSelector({ selectedTagIds, onChange }: Props) {
                 : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
             }
           >
+            {/* Onda 17.35.1 — chip desmarcada mostra "+" (affordance de
+                adicionável, mesmo estilo do "+ Nova"); marcada vira
+                preenchida com ✓. */}
             {busy ? (
               <Loader2 size={11} className="animate-spin" />
+            ) : selected ? (
+              <span className="w-2 h-2 rounded-full shrink-0 bg-white" />
             ) : (
-              <span
-                className="w-2 h-2 rounded-full shrink-0"
-                style={{ backgroundColor: selected ? '#fff' : color }}
-              />
+              <Plus size={11} className="shrink-0" />
             )}
             {t.name}
             {selected && <Check size={12} />}
