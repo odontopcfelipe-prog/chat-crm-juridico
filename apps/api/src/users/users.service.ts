@@ -266,10 +266,9 @@ export class UsersService {
     if (user.email_verified_at) return { ok: true, already_verified: true };
 
     const verifyToken = randomBytes(32).toString('hex');
-    await this.prisma.user.update({
-      where: { id },
-      data: { email_verify_token: verifyToken, email_verify_sent_at: new Date() },
-    });
+    // Onda 17.32.178 — ENVIA PRIMEIRO, persiste DEPOIS: se o reenvio
+    // falhar, o token anterior continua valendo (antes, um reenvio
+    // falho invalidava o link do e-mail que JA tinha chegado).
     // Onda 17.32.174 — erro de envio NAO pode vazar como 500 generico:
     // o admin precisa ver o motivo real (DNS, porta bloqueada, senha
     // recusada) pra conseguir agir.
@@ -293,6 +292,11 @@ export class UsersService {
     if (!sent) {
       throw new BadRequestException('SMTP não configurado — configure o servidor de e-mail nas settings antes de reenviar.');
     }
+    // Envio confirmado — agora sim o token novo passa a valer
+    await this.prisma.user.update({
+      where: { id },
+      data: { email_verify_token: verifyToken, email_verify_sent_at: new Date() },
+    });
     return { ok: true, sent: true };
   }
 
