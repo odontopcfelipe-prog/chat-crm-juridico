@@ -311,8 +311,22 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   };
 
   const submitInner = async (andCreateNext: boolean): Promise<boolean> => {
-    if (!form.name.trim()) {
-      showError('Nome é obrigatório');
+    // Onda 17.33 — campos obrigatórios. Nome e Data de nascimento (idade) são
+    // SEMPRE exigidos; CPF e CEP são exigidos no cadastro normal, mas LIBERADOS
+    // quando "Paciente Antigo" está marcado (fichas de papel podem não ter).
+    const faltando: string[] = [];
+    if (!form.name.trim()) faltando.push('Nome');
+    if (!form.birthDate) faltando.push('Data de nascimento');
+    if (!antigoSelected) {
+      if (!form.cpf.trim()) faltando.push('CPF');
+      if (!form.zipCode.trim()) faltando.push('CEP');
+    }
+    if (faltando.length > 0) {
+      const semDoc = !antigoSelected && (faltando.includes('CPF') || faltando.includes('CEP'));
+      showError(
+        `Preencha: ${faltando.join(', ')}.` +
+          (semDoc ? ' Ficha antiga sem CPF/CEP? Marque a etiqueta “Paciente Antigo”.' : ''),
+      );
       return false;
     }
     setLoading(true);
@@ -492,7 +506,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 />
               </div>
               <div>
-                <label className="block text-xs font-medium mb-1">CPF</label>
+                <label className="block text-xs font-medium mb-1">CPF{!antigoSelected && ' *'}</label>
                 <input
                   type="text"
                   value={form.cpf}
@@ -538,7 +552,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
 
             <div className="grid grid-cols-3 gap-3">
               <div>
-                <label className="block text-xs font-medium mb-1">Data de nascimento</label>
+                <label className="block text-xs font-medium mb-1">Data de nascimento *</label>
                 <input
                   type="date"
                   value={form.birthDate}
@@ -683,7 +697,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             <Section icon={<MapPin size={14} />} title="Endereço">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs font-medium mb-1">CEP {cepLoading && <span className="text-muted-foreground">(buscando...)</span>}</label>
+                  <label className="block text-xs font-medium mb-1">CEP{!antigoSelected && ' *'} {cepLoading && <span className="text-muted-foreground">(buscando...)</span>}</label>
                   <input
                     value={form.zipCode}
                     onChange={(e) => set('zipCode', e.target.value)}
