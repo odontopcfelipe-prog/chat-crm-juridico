@@ -1706,12 +1706,15 @@ export class SettingsService {
       }
       cfg[r.key] = val;
     }
+    // Onda 17.32.177 — trim em TODOS os campos: espaco invisivel de
+    // copy-paste no host gerava ENOTFOUND "consistente" que parecia
+    // problema de DNS da infra; na senha geraria EAUTH.
     return {
-      host: cfg.SMTP_HOST || '',
-      port: parseInt(cfg.SMTP_PORT || '587'),
-      user: cfg.SMTP_USER || '',
-      pass: cfg.SMTP_PASS || '',
-      from: cfg.SMTP_FROM || '',
+      host: (cfg.SMTP_HOST || '').trim(),
+      port: parseInt((cfg.SMTP_PORT || '587').trim()),
+      user: (cfg.SMTP_USER || '').trim(),
+      pass: (cfg.SMTP_PASS || '').trim(),
+      from: (cfg.SMTP_FROM || '').trim(),
     };
   }
 
