@@ -17,7 +17,7 @@
 import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
-  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle,
+  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle, Plus,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -63,6 +63,16 @@ const AFFILIATE_COMMISSION_PCT = 3;
 const PACIENTE_ANTIGO_NAME = 'Paciente Antigo';
 const PACIENTE_ANTIGO_COLOR = '#b45309'; // amber-700 — legível em badge claro/escuro
 
+// Paleta pra etiquetas criadas inline no modal. Cor escolhida de forma
+// determinística pelo nome (sem Math.random) só pra variar visualmente —
+// pode ser reajustada depois em Configurações → Etiquetas.
+const NEW_TAG_COLORS = ['#0ea5e9', '#10b981', '#8b5cf6', '#ec4899', '#f59e0b', '#ef4444', '#14b8a6', '#6366f1'];
+const colorForName = (name: string) => {
+  let sum = 0;
+  for (let i = 0; i < name.length; i++) sum += name.charCodeAt(i);
+  return NEW_TAG_COLORS[sum % NEW_TAG_COLORS.length];
+};
+
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
@@ -87,6 +97,8 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [allTags, setAllTags] = useState<PatientTag[]>([]);
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [creatingAntigo, setCreatingAntigo] = useState(false);
+  const [newTagName, setNewTagName] = useState('');
+  const [creatingTag, setCreatingTag] = useState(false);
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -139,6 +151,41 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
       }
     } finally {
       setCreatingAntigo(false);
+    }
+  };
+
+  // Cria uma etiqueta nova (qualquer nome) direto do modal e já marca. Se já
+  // existir uma com o mesmo nome (case-insensitive), só seleciona — não duplica.
+  const createAndSelectTag = async () => {
+    const name = newTagName.trim();
+    if (!name || creatingTag) return;
+    const existing = allTags.find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
+    if (existing) {
+      if (!selectedTagIds.includes(existing.id)) toggleTag(existing.id);
+      setNewTagName('');
+      return;
+    }
+    setCreatingTag(true);
+    try {
+      const { data } = await api.post<PatientTag>('/patient-tags', { name, color: colorForName(name) });
+      setAllTags((prev) => [...prev, data]);
+      setSelectedTagIds((prev) => [...prev, data.id]);
+      setNewTagName('');
+    } catch (err: any) {
+      // Corrida/duplicada — recarrega e marca a existente.
+      try {
+        const { data: list } = await api.get<PatientTag[]>('/patient-tags');
+        setAllTags(list || []);
+        const found = (list || []).find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
+        if (found) {
+          setSelectedTagIds((prev) => (prev.includes(found.id) ? prev : [...prev, found.id]));
+          setNewTagName('');
+        } else showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
+      } catch {
+        showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
+      }
+    } finally {
+      setCreatingTag(false);
     }
   };
 
@@ -544,36 +591,69 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               </span>
             </button>
 
-            {/* Demais etiquetas do tenant (multi-seleção) */}
-            {otherTags.length > 0 && (
-              <div className="flex flex-wrap gap-1.5">
-                {otherTags.map((t) => {
-                  const selected = selectedTagIds.includes(t.id);
-                  const color = t.color || '#64748b';
-                  return (
-                    <button
-                      key={t.id}
-                      type="button"
-                      onClick={() => toggleTag(t.id)}
-                      title={t.description || t.name}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
-                      style={
-                        selected
-                          ? { backgroundColor: color, borderColor: color, color: '#fff' }
-                          : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
-                      }
-                    >
-                      <span
-                        className="w-2 h-2 rounded-full shrink-0"
-                        style={{ backgroundColor: selected ? '#fff' : color }}
-                      />
-                      {t.name}
-                      {selected && <Check size={12} />}
-                    </button>
-                  );
-                })}
+            {/* Outras etiquetas do sistema — escolher as existentes ou criar nova */}
+            <div className="space-y-2">
+              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
+                Outras etiquetas do sistema
+              </p>
+
+              {otherTags.length > 0 ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {otherTags.map((t) => {
+                    const selected = selectedTagIds.includes(t.id);
+                    const color = t.color || '#64748b';
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => toggleTag(t.id)}
+                        title={t.description || t.name}
+                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
+                        style={
+                          selected
+                            ? { backgroundColor: color, borderColor: color, color: '#fff' }
+                            : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
+                        }
+                      >
+                        <span
+                          className="w-2 h-2 rounded-full shrink-0"
+                          style={{ backgroundColor: selected ? '#fff' : color }}
+                        />
+                        {t.name}
+                        {selected && <Check size={12} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  Nenhuma outra etiqueta ainda — crie uma abaixo ou em Configurações.
+                </p>
+              )}
+
+              {/* Criar etiqueta nova direto do modal (qualquer nome) */}
+              <div className="flex items-center gap-2">
+                <input
+                  value={newTagName}
+                  onChange={(e) => setNewTagName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); createAndSelectTag(); }
+                  }}
+                  placeholder="Criar nova etiqueta (ex: VIP, Ortodontia)…"
+                  maxLength={40}
+                  className={`${inputCls} flex-1`}
+                />
+                <button
+                  type="button"
+                  onClick={createAndSelectTag}
+                  disabled={!newTagName.trim() || creatingTag}
+                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 text-sm font-medium disabled:opacity-50 shrink-0"
+                >
+                  {creatingTag ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
+                  Criar
+                </button>
               </div>
-            )}
+            </div>
 
             {/* Aviso destacado de persistência — só quando há etiqueta marcada.
                 Evita aplicar "Paciente Antigo" sem querer no lote seguinte. */}
