@@ -91,12 +91,12 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://sistema.institutoodontopassos.com.br}
       - WEBHOOK_HMAC_REQUIRED=${WEBHOOK_HMAC_REQUIRED:-false}
-    # DNS publico explicito — o resolver herdado do host falhava em nomes
-    # externos (getaddrinfo ENOTFOUND smtp.gmail.com) e quebrava o envio
-    # de e-mail de confirmacao via SMTP
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+    # NAO configurar `dns:` customizado aqui! Faz o container consultar
+    # os servidores direto via UDP (que a VPS bloqueia) em vez do DNS
+    # embutido do Docker (127.0.0.11, encaminhado pelo host) — quebra
+    # TODA resolucao externa (Evolution/Asaas/SMTP). O quirk do
+    # nodemailer com o DNS embutido e tratado no codigo
+    # (apps/api/src/common/utils/smtp.util.ts).
     networks:
       - chatcrm_network
       - traefik_public
@@ -147,10 +147,7 @@ services:
       - S3_ACCESS_KEY=${S3_ACCESS_KEY:-minioadmin}
       - S3_SECRET_KEY=${S3_SECRET_KEY:-minioadmin}
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
-    # Mesmo fix de DNS da API — o worker envia lembretes por e-mail
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
+    # NAO configurar `dns:` customizado (ver comentario no servico api)
     networks:
       - chatcrm_network
       # traefik_public: mesma rede onde evolution_api roda (declarado no
