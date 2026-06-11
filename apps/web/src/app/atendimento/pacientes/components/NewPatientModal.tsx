@@ -3,12 +3,13 @@
 /**
  * NewPatientModal — formulário de criação de paciente.
  *
- * Dois modos via abas:
- *  - "Cadastro simples": só os essenciais (nome + telefone + CPF + email + nasc + sexo)
- *    pra recepção registrar rápido em situação de urgência ou alta demanda.
- *  - "Cadastro completo": tudo do simples + endereço com ViaCEP, estado civil,
- *    contato emergência, responsável legal, indicação. Mesmo conjunto que o
- *    EditPatientModal.
+ * Onda 17.32.183 — Modo UNICO (completo). O "cadastro simples" foi
+ * REMOVIDO a pedido do dono do produto: o atalho induzia a recepcao a
+ * cadastrar pacientes pela metade ("descaso de quem for cadastrar").
+ * Campos: identificacao + contato + endereco com ViaCEP, estado civil,
+ * saude/emergencia, responsavel legal, indicacao, afiliado — mesmo
+ * conjunto do EditPatientModal. So o NOME e obrigatorio; os demais
+ * ficam visiveis pra incentivar o preenchimento.
  *
  * Botão "Salvar e cadastrar novo" mantém o modal aberto e zera o form pra
  * cadastro em lote (ex: feirão de avaliação, pós-evento de marketing).
@@ -56,7 +57,6 @@ const EMPTY_FORM = {
 const AFFILIATE_COMMISSION_PCT = 3;
 
 export default function NewPatientModal({ onClose, onCreated }: Props) {
-  const [mode, setMode] = useState<'simple' | 'full'>('simple');
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
@@ -109,13 +109,13 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Carrega lista de pacientes quando opera no modo completo
+  // Carrega lista de pacientes pro picker de indicacao
   useEffect(() => {
-    if (mode !== 'full' || patientsList.length > 0) return;
+    if (patientsList.length > 0) return;
     api.get('/patients?limit=100&status=ACTIVE')
       .then((r) => setPatientsList((r.data?.data || []).map((p: any) => ({ id: p.id, name: p.name, phone: p.phone }))))
       .catch(() => {});
-  }, [mode, patientsList.length]);
+  }, [patientsList.length]);
 
   // ViaCEP autocomplete
   useEffect(() => {
@@ -149,8 +149,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
     if (form.gender) base.gender = form.gender;
     if (form.rg.trim()) base.rg = form.rg.trim();
 
-    if (mode === 'full') {
-      if (form.maritalStatus) base.marital_status = form.maritalStatus;
+    if (form.maritalStatus) base.marital_status = form.maritalStatus;
       if (form.zipCode.trim()) base.zip_code = form.zipCode.trim();
       if (form.address.trim()) base.address = form.address.trim();
       if (form.addressNumber.trim()) base.address_number = form.addressNumber.trim();
@@ -178,7 +177,6 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         base.affiliate_commission_pct = AFFILIATE_COMMISSION_PCT;
         if (form.affiliateNotes.trim()) base.affiliate_notes = form.affiliateNotes.trim();
       }
-    }
     return base;
   };
 
@@ -244,7 +242,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
       onClick={onClose}
     >
       <div
-        className={`bg-card border border-border rounded-xl w-full shadow-2xl max-h-[90vh] overflow-y-auto ${mode === 'full' ? 'max-w-3xl' : 'max-w-lg'}`}
+        className="bg-card border border-border rounded-xl w-full shadow-2xl max-h-[90vh] overflow-y-auto max-w-3xl"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header sticky */}
@@ -257,23 +255,6 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             <button onClick={onClose} className="p-1 hover:bg-accent rounded">
               <X size={18} />
             </button>
-          </div>
-          {/* Tabs simples / completo */}
-          <div className="flex gap-1 px-4 pb-2">
-            {(['simple', 'full'] as const).map((m) => (
-              <button
-                key={m}
-                type="button"
-                onClick={() => setMode(m)}
-                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-                  mode === m
-                    ? 'bg-primary text-primary-foreground'
-                    : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'
-                }`}
-              >
-                {m === 'simple' ? 'Cadastro simples' : 'Cadastro completo'}
-              </button>
-            ))}
           </div>
         </div>
 
@@ -392,7 +373,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               </div>
             </div>
 
-            {mode === 'full' && (
+            {(
               <div>
                 <label className="block text-xs font-medium mb-1">RG</label>
                 <input
@@ -414,7 +395,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               />
             </div>
 
-            <div className={`grid ${mode === 'full' ? 'grid-cols-3' : 'grid-cols-2'} gap-3`}>
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Data de nascimento</label>
                 <input
@@ -433,7 +414,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   <option value="OTHER">Outro</option>
                 </select>
               </div>
-              {mode === 'full' && (
+              {(
                 <div>
                   <label className="block text-xs font-medium mb-1">Estado civil</label>
                   <select value={form.maritalStatus} onChange={(e) => set('maritalStatus', e.target.value)} className={inputCls}>
@@ -445,7 +426,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           </Section>
 
           {/* ── Endereço (modo completo) ── */}
-          {mode === 'full' && (
+          {(
             <Section icon={<MapPin size={14} />} title="Endereço">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -491,7 +472,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           )}
 
           {/* ── Saúde + emergência (modo completo) ── */}
-          {mode === 'full' && (
+          {(
             <Section icon={<Heart size={14} />} title="Saúde e emergência">
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
@@ -514,7 +495,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           )}
 
           {/* ── Responsável legal (modo completo) ── */}
-          {mode === 'full' && (
+          {(
             <Section icon={<Shield size={14} />} title="Responsável legal">
               <label className="flex items-center gap-2 text-sm">
                 <input
@@ -545,7 +526,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           )}
 
           {/* ── Indicação + Observações (modo completo) ── */}
-          {mode === 'full' && (
+          {(
             <Section icon={<User size={14} />} title="Indicação e observações">
               <div>
                 <label className="block text-xs font-medium mb-1">Indicado por outro paciente</label>
@@ -618,7 +599,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
           )}
 
           {/* ─── Programa de Afiliado (modo completo) ─── */}
-          {mode === 'full' && (
+          {(
             <Section icon={<HandCoins size={14} />} title="Programa de Afiliado">
               <div>
                 <label className="block text-xs font-medium mb-1">Tornar Afiliado</label>
