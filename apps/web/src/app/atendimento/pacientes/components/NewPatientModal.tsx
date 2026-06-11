@@ -17,7 +17,7 @@
 import { useState, FormEvent, useEffect, useRef } from 'react';
 import {
   X, Loader2, UserPlus, Save, MapPin, User, Heart, Shield, HandCoins,
-  Camera, Trash2, Upload, RefreshCw, Check, Tag, AlertTriangle,
+  Camera, Trash2, Upload, RefreshCw, Check, Tag,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -77,9 +77,9 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [cameraOpen, setCameraOpen] = useState(false);
 
   // Etiquetas (Onda 17.33/17.35 — UI compartilhada no TagChipsSelector).
-  // selectedTagIds NAO é zerado no "Salvar e cadastrar novo" de proposito —
-  // pra marcar "Paciente Antigo" uma vez e cadastrar o lote de fichas.
-  // antigoSelected libera CPF/CEP na validacao (ficha de papel pode nao ter).
+  // Selecionadas individualmente por paciente: o "Salvar e cadastrar novo"
+  // zera junto com o form (pedido do dono do produto — sem carregar tags
+  // pro proximo cadastro). antigoSelected libera CPF/CEP na validacao.
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [antigoSelected, setAntigoSelected] = useState(false);
 
@@ -234,10 +234,13 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
 
       showSuccess('Paciente cadastrado');
       if (andCreateNext) {
-        // mantém modo, zera form + foto, mantém modal aberto
+        // zera form + foto + etiquetas, mantém modal aberto. Etiquetas zeram
+        // TAMBÉM (Onda 17.35.2): cada paciente escolhe as suas individualmente.
         setForm({ ...EMPTY_FORM });
         setReferredSearch('');
         handleRemovePhoto();
+        setSelectedTagIds([]);
+        setAntigoSelected(false);
       } else {
         onCreated(data);
       }
@@ -469,23 +472,6 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               selectedTagIds={selectedTagIds}
               onChange={(ids, antigo) => { setSelectedTagIds(ids); setAntigoSelected(antigo); }}
             />
-
-            {/* Aviso destacado de persistência — só quando há etiqueta marcada.
-                Evita aplicar "Paciente Antigo" sem querer no lote seguinte. */}
-            {selectedTagIds.length > 0 && (
-              <div className="flex items-start gap-2 rounded-lg border border-amber-300 dark:border-amber-800 bg-amber-50 dark:bg-amber-950/30 p-2.5">
-                <AlertTriangle size={15} className="text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <p className="text-xs text-amber-800 dark:text-amber-200 leading-snug">
-                  <strong>
-                    {selectedTagIds.length} etiqueta{selectedTagIds.length > 1 ? 's' : ''} marcada
-                    {selectedTagIds.length > 1 ? 's' : ''}
-                  </strong>{' '}
-                  — {selectedTagIds.length > 1 ? 'serão aplicadas' : 'será aplicada'} a este cadastro{' '}
-                  <strong>e aos próximos</strong> ao usar “Salvar e cadastrar novo”, até você desmarcar.
-                  Ideal pro lote de fichas antigas.
-                </p>
-              </div>
-            )}
 
             <p className="text-[11px] text-muted-foreground">
               <a
