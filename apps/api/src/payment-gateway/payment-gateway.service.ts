@@ -574,6 +574,35 @@ export class PaymentGatewayService {
   }
 
   /**
+   * Onda 17.32.182 — E-mail automatico "pagamento atrasado".
+   * Disparado pelo webhook PAYMENT_OVERDUE do Asaas. Best-effort.
+   */
+  private async sendPaymentOverdueEmail(charge: any): Promise<void> {
+    try {
+      if (!charge?.installment_id || !charge?.tenant_id) return;
+      const inst = await this.prisma.installment.findUnique({
+        where: { id: charge.installment_id },
+        select: { patient: { select: { name: true, email: true } } },
+      });
+      const email = inst?.patient?.email;
+      if (!email) return;
+      await this.emailAutomation.dispatch(
+        'pagamento_atrasado',
+        charge.tenant_id,
+        email,
+        {
+          paciente_nome: inst!.patient!.name,
+          valor: Number(charge.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+          vencimento: charge.due_date ? new Date(charge.due_date).toLocaleDateString('pt-BR') : '',
+        },
+        { ctaUrl: charge.invoice_url || charge.boleto_url || undefined },
+      );
+    } catch (e: any) {
+      this.logger.warn(`[AUTO-MAIL] pagamento_atrasado falhou: ${e?.message}`);
+    }
+  }
+
+  /**
    * Onda 17.32.181 — E-mail automatico "pagamento confirmado".
    * Best-effort: busca o paciente da parcela e dispara; qualquer falha
    * so loga (o webhook nunca quebra por causa de e-mail).
@@ -1104,6 +1133,12 @@ export class PaymentGatewayService {
       }
       // Onda 17.32.181 — e-mail automatico "pagamento confirmado"
       void this.sendPaymentConfirmedEmail(charge, paymentData);
+    }
+
+    // Onda 17.32.182 — e-mail automatico "pagamento atrasado": o banco
+    // (Asaas) envia PAYMENT_OVERDUE quando a cobranca vence sem pagar
+    if (mappedStatus === 'OVERDUE') {
+      void this.sendPaymentOverdueEmail(charge);
     }
 
     // Se cobrança DELETADA ou REFUNDED, notificar cliente via WhatsApp

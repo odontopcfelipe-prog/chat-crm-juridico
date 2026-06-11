@@ -49,6 +49,27 @@ export const EMAIL_EVENTS: EmailEventDef[] = [
     ctaLabel: 'Pagar agora',
   },
   {
+    key: 'vencimento_proximo',
+    label: 'Vencimento amanhã',
+    description: 'Lembrete enviado 1 dia antes do vencimento de cobranças ainda em aberto.',
+    variables: [
+      { name: 'paciente_nome', label: 'Nome do paciente', sample: 'Maria da Silva' },
+      { name: 'clinica_nome', label: 'Nome da clínica', sample: 'Clínica Exemplo' },
+      { name: 'valor', label: 'Valor (R$)', sample: 'R$ 350,00' },
+      { name: 'vencimento', label: 'Data de vencimento', sample: '12/06/2026' },
+      { name: 'forma_pagamento', label: 'Forma de pagamento', sample: 'Boleto' },
+    ],
+    defaultSubject: 'Lembrete: sua cobrança vence amanhã — {{clinica_nome}}',
+    defaultBody:
+      'Olá, {{paciente_nome}}!\n\n' +
+      'Passando pra lembrar que sua cobrança da {{clinica_nome}} vence amanhã:\n\n' +
+      'Valor: {{valor}}\n' +
+      'Vencimento: {{vencimento}}\n' +
+      'Forma de pagamento: {{forma_pagamento}}\n\n' +
+      'Pagando em dia você evita juros. Qualquer dúvida, é só falar com a gente.',
+    ctaLabel: 'Pagar agora',
+  },
+  {
     key: 'pagamento_confirmado',
     label: 'Pagamento confirmado',
     description: 'Enviado ao paciente quando o pagamento de uma cobrança é confirmado.',
@@ -63,6 +84,25 @@ export const EMAIL_EVENTS: EmailEventDef[] = [
       'Olá, {{paciente_nome}}!\n\n' +
       'Recebemos o seu pagamento de {{valor}} em {{data_pagamento}}. Tudo certo por aqui!\n\n' +
       'Obrigado pela confiança.\n{{clinica_nome}}',
+  },
+  {
+    key: 'pagamento_atrasado',
+    label: 'Pagamento atrasado',
+    description: 'Enviado quando o banco informa que uma cobrança venceu sem pagamento.',
+    variables: [
+      { name: 'paciente_nome', label: 'Nome do paciente', sample: 'Maria da Silva' },
+      { name: 'clinica_nome', label: 'Nome da clínica', sample: 'Clínica Exemplo' },
+      { name: 'valor', label: 'Valor (R$)', sample: 'R$ 350,00' },
+      { name: 'vencimento', label: 'Data de vencimento', sample: '10/06/2026' },
+    ],
+    defaultSubject: 'Sua cobrança da {{clinica_nome}} está em aberto',
+    defaultBody:
+      'Olá, {{paciente_nome}}.\n\n' +
+      'Notamos que a cobrança abaixo venceu e ainda não identificamos o pagamento:\n\n' +
+      'Valor: {{valor}}\n' +
+      'Venceu em: {{vencimento}}\n\n' +
+      'Você pode regularizar agora pelo botão abaixo. Se já pagou, desconsidere esta mensagem — a confirmação pode levar algumas horas.',
+    ctaLabel: 'Regularizar agora',
   },
   {
     key: 'agendamento_criado',

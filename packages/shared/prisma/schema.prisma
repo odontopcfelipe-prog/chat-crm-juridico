@@ -1484,6 +1484,9 @@ model PaymentGatewayCharge {
   net_value       Decimal?
   webhook_payload Json?
 
+  // Onda 17.32.182 — dedup do lembrete "vence amanha" (cron diario)
+  due_reminder_sent_at DateTime?
+
   /// Onda 14.59 — Vincula direto ao TreatmentPlan (pra sinal/entrada que nao
   /// passam por Installment). Permite query "todas charges deste plan".
   treatment_plan_id String?

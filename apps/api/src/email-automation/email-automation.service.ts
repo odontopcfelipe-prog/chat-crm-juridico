@@ -1,4 +1,5 @@
 import { Injectable, Logger, BadRequestException } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { MailService } from '../common/mail/mail.service';
 import { EMAIL_EVENTS, getEmailEvent } from './email-events';
@@ -168,6 +169,75 @@ export class EmailAutomationService {
     } catch (e: any) {
       this.logger.warn(`[AUTO-MAIL] Falha em ${eventKey} pra ${toEmail}: ${e?.message}`);
       return false;
+    }
+  }
+
+  /**
+   * Onda 17.32.182 — Lembrete "vence amanha": cron diario as 09:00
+   * (America/Maceio) que varre cobrancas PENDING com vencimento no dia
+   * seguinte e dispara o e-mail. Dedup via due_reminder_sent_at —
+   * marcado SO quando o envio acontece, entao falha de SMTP tenta de
+   * novo no dia seguinte (enquanto ainda estiver na janela).
+   */
+  @Cron('0 9 * * *', { timeZone: 'America/Maceio' })
+  async sendDueTomorrowReminders(): Promise<void> {
+    try {
+      // America/Maceio = UTC-3 fixo (sem horario de verao)
+      const OFFSET_MS = 3 * 60 * 60 * 1000;
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const nowLocal = new Date(Date.now() - OFFSET_MS);
+      const tomorrowLocalMidnight = Date.UTC(
+        nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate(),
+      ) + DAY_MS;
+      const start = new Date(tomorrowLocalMidnight + OFFSET_MS);
+      const end = new Date(start.getTime() + DAY_MS);
+
+      const charges = await this.prisma.paymentGatewayCharge.findMany({
+        where: {
+          status: 'PENDING',
+          due_reminder_sent_at: null,
+          due_date: { gte: start, lt: end },
+          installment_id: { not: null },
+          tenant_id: { not: null },
+        },
+        select: {
+          id: true,
+          tenant_id: true,
+          amount: true,
+          due_date: true,
+          billing_type: true,
+          invoice_url: true,
+          boleto_url: true,
+          installment: { select: { patient: { select: { name: true, email: true } } } },
+        },
+      });
+      if (charges.length === 0) return;
+      this.logger.log(`[AUTO-MAIL] vencimento_proximo: ${charges.length} cobranca(s) vencem amanha`);
+
+      for (const c of charges) {
+        const patient = c.installment?.patient;
+        if (!patient?.email) continue;
+        const sent = await this.dispatch(
+          'vencimento_proximo',
+          c.tenant_id!,
+          patient.email,
+          {
+            paciente_nome: patient.name,
+            valor: Number(c.amount).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }),
+            vencimento: new Date(c.due_date).toLocaleDateString('pt-BR'),
+            forma_pagamento: c.billing_type === 'CREDIT_CARD' ? 'Cartão' : c.billing_type === 'BOLETO' ? 'Boleto' : 'PIX',
+          },
+          { ctaUrl: c.invoice_url || c.boleto_url || undefined },
+        );
+        if (sent) {
+          await this.prisma.paymentGatewayCharge.update({
+            where: { id: c.id },
+            data: { due_reminder_sent_at: new Date() },
+          });
+        }
+      }
+    } catch (e: any) {
+      this.logger.error(`[AUTO-MAIL] cron vencimento_proximo falhou: ${e?.message}`);
     }
   }
 
