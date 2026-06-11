@@ -300,6 +300,9 @@ export class PatientsService {
           { email: { contains: opts.search, mode: 'insensitive' } },
           // Onda 17.32.184 — busca tambem pela ficha (nº de prontuario)
           { record_number: { contains: opts.search, mode: 'insensitive' } },
+          // Onda 17.33 — busca tambem pelo nome da etiqueta (ex: digitar
+          // "Paciente Antigo" traz todos com essa tag, sem usar o dropdown)
+          { tags: { some: { tag: { name: { contains: opts.search, mode: 'insensitive' } } } } },
         ],
       });
     }

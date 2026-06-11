@@ -213,7 +213,7 @@ function PacientesPageInner() {
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Buscar por nome, ficha, CPF, telefone ou email..."
+            placeholder="Buscar por nome, ficha, CPF, telefone, email ou etiqueta..."
             className="w-full pl-10 pr-3 py-2 rounded-lg bg-card border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
