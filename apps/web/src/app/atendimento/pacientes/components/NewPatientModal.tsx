@@ -99,6 +99,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [creatingAntigo, setCreatingAntigo] = useState(false);
   const [newTagName, setNewTagName] = useState('');
   const [creatingTag, setCreatingTag] = useState(false);
+  const [addingTag, setAddingTag] = useState(false); // mostra o input "nova etiqueta"
 
   const set = <K extends keyof typeof EMPTY_FORM>(key: K, value: (typeof EMPTY_FORM)[K]) =>
     setForm((f) => ({ ...f, [key]: value }));
@@ -115,6 +116,18 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   );
   const otherTags = allTags.filter((t) => t.id !== pacienteAntigoTag?.id);
   const antigoSelected = !!pacienteAntigoTag && selectedTagIds.includes(pacienteAntigoTag.id);
+
+  // Lista única de chips, todas iguais. "Paciente Antigo" sempre aparece —
+  // como tag real (se já existe) ou como chip "fantasma" que cria sob demanda
+  // ao ser clicado (id sentinela '__antigo__'). Fica sempre em 1º pra ser
+  // achado fácil no lote de fichas antigas, mas visualmente é só mais um chip.
+  const antigoChip = pacienteAntigoTag ?? {
+    id: '__antigo__',
+    name: PACIENTE_ANTIGO_NAME,
+    color: PACIENTE_ANTIGO_COLOR,
+    description: 'Paciente cadastrado da base antiga (fichas de papel, pré-sistema)',
+  };
+  const displayTags: PatientTag[] = [antigoChip, ...otherTags];
 
   const toggleTag = (id: string) =>
     setSelectedTagIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
@@ -159,10 +172,11 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const createAndSelectTag = async () => {
     const name = newTagName.trim();
     if (!name || creatingTag) return;
+    const close = () => { setNewTagName(''); setAddingTag(false); };
     const existing = allTags.find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
     if (existing) {
       if (!selectedTagIds.includes(existing.id)) toggleTag(existing.id);
-      setNewTagName('');
+      close();
       return;
     }
     setCreatingTag(true);
@@ -170,7 +184,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
       const { data } = await api.post<PatientTag>('/patient-tags', { name, color: colorForName(name) });
       setAllTags((prev) => [...prev, data]);
       setSelectedTagIds((prev) => [...prev, data.id]);
-      setNewTagName('');
+      close();
     } catch (err: any) {
       // Corrida/duplicada — recarrega e marca a existente.
       try {
@@ -179,7 +193,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         const found = (list || []).find((t) => t.name.trim().toLowerCase() === name.toLowerCase());
         if (found) {
           setSelectedTagIds((prev) => (prev.includes(found.id) ? prev : [...prev, found.id]));
-          setNewTagName('');
+          close();
         } else showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
       } catch {
         showError(err?.response?.data?.message || 'Erro ao criar etiqueta');
@@ -554,105 +568,85 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
 
           {/* ── Etiquetas (Onda 17.33) ── */}
           <Section icon={<Tag size={14} />} title="Etiquetas">
-            {/* Destaque: Paciente Antigo — cria a etiqueta sob demanda */}
-            <button
-              type="button"
-              onClick={toggleAntigo}
-              disabled={creatingAntigo}
-              className={`w-full flex items-center justify-between gap-3 p-3 rounded-lg border text-left transition-colors disabled:opacity-60 ${
-                antigoSelected
-                  ? 'border-amber-400 bg-amber-50 dark:bg-amber-950/30'
-                  : 'border-dashed border-border hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-950/20'
-              }`}
-            >
-              <div className="flex items-center gap-2.5">
-                <span
-                  className={`flex items-center justify-center w-8 h-8 rounded-full shrink-0 ${
-                    antigoSelected
-                      ? 'bg-amber-500 text-white'
-                      : 'bg-amber-100 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400'
-                  }`}
-                >
-                  {creatingAntigo ? <Loader2 size={15} className="animate-spin" /> : <Tag size={15} />}
+            {/* Lista única de chips — todas as etiquetas iguais. Clique marca/
+                desmarca; o chip "+ Nova" cria uma na hora. "Paciente Antigo"
+                aparece sempre (cria sob demanda se ainda não existir). */}
+            <div className="flex flex-wrap items-center gap-1.5">
+              {displayTags.map((t) => {
+                const synthetic = t.id === '__antigo__';
+                const selected = synthetic ? antigoSelected : selectedTagIds.includes(t.id);
+                const color = t.color || '#64748b';
+                const busy = synthetic && creatingAntigo;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => (synthetic ? toggleAntigo() : toggleTag(t.id))}
+                    disabled={busy}
+                    title={t.description || t.name}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors disabled:opacity-60"
+                    style={
+                      selected
+                        ? { backgroundColor: color, borderColor: color, color: '#fff' }
+                        : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
+                    }
+                  >
+                    {busy ? (
+                      <Loader2 size={11} className="animate-spin" />
+                    ) : (
+                      <span
+                        className="w-2 h-2 rounded-full shrink-0"
+                        style={{ backgroundColor: selected ? '#fff' : color }}
+                      />
+                    )}
+                    {t.name}
+                    {selected && <Check size={12} />}
+                  </button>
+                );
+              })}
+
+              {/* Criar nova etiqueta — chip "+ Nova" que vira input inline */}
+              {addingTag ? (
+                <span className="inline-flex items-center gap-1">
+                  <input
+                    autoFocus
+                    value={newTagName}
+                    onChange={(e) => setNewTagName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') { e.preventDefault(); createAndSelectTag(); }
+                      if (e.key === 'Escape') { setAddingTag(false); setNewTagName(''); }
+                    }}
+                    placeholder="Nome da etiqueta…"
+                    maxLength={40}
+                    className="w-44 px-2.5 py-1 rounded-full text-xs bg-background border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={createAndSelectTag}
+                    disabled={!newTagName.trim() || creatingTag}
+                    title="Criar etiqueta"
+                    className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground disabled:opacity-50"
+                  >
+                    {creatingTag ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => { setAddingTag(false); setNewTagName(''); }}
+                    title="Cancelar"
+                    className="inline-flex items-center justify-center w-6 h-6 rounded-full border border-border text-muted-foreground hover:bg-accent"
+                  >
+                    <X size={12} />
+                  </button>
                 </span>
-                <div className="min-w-0">
-                  <p className="text-sm font-semibold text-foreground">Paciente Antigo</p>
-                  <p className="text-[11px] text-muted-foreground">
-                    Marque para as fichas da base antiga (papel, pré-sistema)
-                  </p>
-                </div>
-              </div>
-              <span
-                className={`shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-md border ${
-                  antigoSelected ? 'bg-amber-500 border-amber-500 text-white' : 'border-border'
-                }`}
-              >
-                {antigoSelected && <Check size={13} />}
-              </span>
-            </button>
-
-            {/* Outras etiquetas do sistema — escolher as existentes ou criar nova */}
-            <div className="space-y-2">
-              <p className="text-[11px] font-medium text-muted-foreground uppercase tracking-wide">
-                Outras etiquetas do sistema
-              </p>
-
-              {otherTags.length > 0 ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {otherTags.map((t) => {
-                    const selected = selectedTagIds.includes(t.id);
-                    const color = t.color || '#64748b';
-                    return (
-                      <button
-                        key={t.id}
-                        type="button"
-                        onClick={() => toggleTag(t.id)}
-                        title={t.description || t.name}
-                        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border transition-colors"
-                        style={
-                          selected
-                            ? { backgroundColor: color, borderColor: color, color: '#fff' }
-                            : { backgroundColor: `${color}15`, borderColor: `${color}50`, color }
-                        }
-                      >
-                        <span
-                          className="w-2 h-2 rounded-full shrink-0"
-                          style={{ backgroundColor: selected ? '#fff' : color }}
-                        />
-                        {t.name}
-                        {selected && <Check size={12} />}
-                      </button>
-                    );
-                  })}
-                </div>
               ) : (
-                <p className="text-[11px] text-muted-foreground">
-                  Nenhuma outra etiqueta ainda — crie uma abaixo ou em Configurações.
-                </p>
-              )}
-
-              {/* Criar etiqueta nova direto do modal (qualquer nome) */}
-              <div className="flex items-center gap-2">
-                <input
-                  value={newTagName}
-                  onChange={(e) => setNewTagName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') { e.preventDefault(); createAndSelectTag(); }
-                  }}
-                  placeholder="Criar nova etiqueta (ex: VIP, Ortodontia)…"
-                  maxLength={40}
-                  className={`${inputCls} flex-1`}
-                />
                 <button
                   type="button"
-                  onClick={createAndSelectTag}
-                  disabled={!newTagName.trim() || creatingTag}
-                  className="inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 text-sm font-medium disabled:opacity-50 shrink-0"
+                  onClick={() => setAddingTag(true)}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium border border-dashed border-border text-muted-foreground hover:border-primary hover:text-primary transition-colors"
                 >
-                  {creatingTag ? <Loader2 size={14} className="animate-spin" /> : <Plus size={14} />}
-                  Criar
+                  <Plus size={12} /> Nova
                 </button>
-              </div>
+              )}
             </div>
 
             {/* Aviso destacado de persistência — só quando há etiqueta marcada.
