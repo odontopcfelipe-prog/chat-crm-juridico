@@ -9,9 +9,10 @@
  * no e-mail cadastrado em Identidade da clínica.
  */
 import { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   Mail, Loader2, Save, CheckCircle2, AlertCircle, Send, RotateCcw,
-  ChevronDown, ChevronUp,
+  ChevronDown, ChevronUp, Building2,
 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -29,6 +30,7 @@ interface EmailEvent {
 
 export default function EmailsAutomaticosPage() {
   const [events, setEvents] = useState<EmailEvent[]>([]);
+  const [clinic, setClinic] = useState<{ name: string; email: string | null } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [openKey, setOpenKey] = useState<string | null>(null);
@@ -46,6 +48,10 @@ export default function EmailsAutomaticosPage() {
     } finally {
       setLoading(false);
     }
+    // Remetente exibido no topo (nome + e-mail de resposta da clínica)
+    api.get<{ name: string; email: string | null }>('/tenants/me')
+      .then((r) => setClinic({ name: r.data.name, email: r.data.email }))
+      .catch(() => {});
   };
 
   useEffect(() => { load(); }, []);
@@ -120,6 +126,40 @@ export default function EmailsAutomaticosPage() {
       </header>
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 space-y-4">
+        {/* Remetente destes e-mails (separado dos e-mails do sistema) */}
+        <div className="bg-violet-500/5 border border-violet-500/20 rounded-2xl p-5">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-violet-500/10 border border-violet-500/20">
+              <Building2 size={18} className="text-violet-500" />
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="text-[11px] font-bold uppercase tracking-wider text-violet-500 mb-1">
+                Remetente destes e-mails
+              </p>
+              <p className="text-sm text-foreground">
+                Enviado em nome de <b>{clinic?.name || 'sua clínica'}</b>
+                {clinic?.email ? (
+                  <> · respostas dos pacientes chegam em <b>{clinic.email}</b></>
+                ) : null}
+              </p>
+              {!clinic?.email && clinic && (
+                <p className="mt-1 flex items-center gap-1.5 text-xs text-amber-600">
+                  <AlertCircle size={13} />
+                  Sua clínica ainda não tem e-mail cadastrado — as respostas dos pacientes não terão destino.
+                  <Link href="/atendimento/settings/identidade" className="font-bold underline">
+                    Cadastrar em Identidade da clínica
+                  </Link>
+                </p>
+              )}
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Estes e-mails são <b>exclusivos pros seus pacientes</b> (cobrança, pagamento, agendamento).
+                Os e-mails do sistema — confirmação de acesso da equipe e redefinição de senha — são
+                separados e enviados pela plataforma Odonto System.
+              </p>
+            </div>
+          </div>
+        </div>
+
         {error && (
           <div className="flex items-center gap-2 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-2.5 text-sm text-rose-600">
             <AlertCircle size={15} />
