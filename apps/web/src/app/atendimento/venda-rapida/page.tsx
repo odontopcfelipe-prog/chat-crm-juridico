@@ -17,10 +17,11 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight,
+  Copy, ExternalLink, ArrowRight, UserPlus,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import NewPatientModal from '../pacientes/components/NewPatientModal';
 
 interface Procedure {
   id: string;
@@ -111,6 +112,9 @@ export default function VendaRapidaPage() {
   const [patientQuery, setPatientQuery] = useState('');
   const [patientResults, setPatientResults] = useState<PatientOption[]>([]);
   const [searchingPatient, setSearchingPatient] = useState(false);
+  // Onda 17.37 — cadastrar paciente sem sair da venda: abre o modal, cria e
+  // já seleciona pra "Vender para".
+  const [showNewPatient, setShowNewPatient] = useState(false);
   const [billingType, setBillingType] = useState<BillingType>('PIX');
   const [installments, setInstallments] = useState<number>(1);
   const [finishing, setFinishing] = useState(false);
@@ -464,6 +468,14 @@ export default function VendaRapidaPage() {
                     ))}
                   </ul>
                 )}
+                {/* Cadastrar paciente sem sair da venda */}
+                <button
+                  type="button"
+                  onClick={() => setShowNewPatient(true)}
+                  className="mt-2 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg border border-primary/30 text-primary hover:bg-primary/10 text-sm font-medium"
+                >
+                  <UserPlus size={15} /> Cadastrar novo paciente
+                </button>
                 <p className="text-[10px] text-muted-foreground mt-1">obrigatório para lançar no tratamento</p>
               </div>
             )}
@@ -643,6 +655,21 @@ export default function VendaRapidaPage() {
           onClose={() => setSuccessDialog(null)}
           onGoToPatient={() => {
             router.push(`/atendimento/pacientes/${successDialog.patientId}?tab=financial`);
+          }}
+        />
+      )}
+
+      {/* Onda 17.37 — Cadastro de paciente sem sair da venda: ao criar, já
+          seleciona o paciente em "Vender para" e fecha o modal. */}
+      {showNewPatient && (
+        <NewPatientModal
+          onClose={() => setShowNewPatient(false)}
+          onCreated={(p: any) => {
+            setPatient({ id: p.id, name: p.name, phone: p.phone ?? null, cpf: p.cpf ?? null });
+            setPatientQuery('');
+            setPatientResults([]);
+            setShowNewPatient(false);
+            showSuccess(`${p.name} selecionado para a venda`);
           }}
         />
       )}
