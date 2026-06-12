@@ -308,11 +308,10 @@ export default function VendaRapidaPage() {
     () => cart.reduce((sum, it) => sum + unitPriceOf(it) * itemUnits(it), 0),
     [cart],
   );
-  // Onda 17.37 — desconto à vista só no PIX online (Asaas). As formas recebidas
-  // na clínica (espécie/maquineta/PIX clínica) vão a preço cheio (decisão do
-  // dono do produto: maquineta tem taxa, e o caixa fica sem divergência).
-  const avistaDiscount = billingType === 'PIX' ? subtotal * 0.10 : 0;
-  const total = subtotal - avistaDiscount;
+  // Onda 17.41 — Venda Rápida sempre a PREÇO CHEIO (decisão do dono): removido
+  // o desconto à vista do PIX. Desconto manual por item (override_price) segue
+  // valendo via unitPriceOf; aqui não há mais desconto por forma de pagamento.
+  const total = subtotal;
 
   // Finaliza venda
   const handleFinish = async () => {
@@ -337,7 +336,8 @@ export default function VendaRapidaPage() {
       // Funciona imediatamente, sem depender de rebuild do API.
 
       // 1. Cria Quote (com items)
-      const discountPercent = billingType === 'PIX' ? 10 : 0;
+      // Onda 17.41 — sem desconto por forma de pagamento (preço cheio).
+      const discountPercent = 0;
       const clinicReceived = isClinicReceived(billingType);
       // Método recebido na clínica vai no título → aparece no Financeiro do
       // paciente (prestação de contas: "como" foi pago).
@@ -740,7 +740,7 @@ export default function VendaRapidaPage() {
             <div className="space-y-1.5">
               {([
                 // Onda 17.37 — 2 grupos: online (Asaas) e recebido na clínica.
-                { group: 'Cobrar online (Asaas)', key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas · −10%', Icon: DollarSign },
+                { group: 'Cobrar online (Asaas)', key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas', Icon: DollarSign },
                 { group: 'Cobrar online (Asaas)', key: 'CREDIT_CARD' as BillingType, label: 'Cartão', sub: 'link Asaas · até 6x', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
                 { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (clínica)', sub: 'cartão na máquina da clínica', Icon: CreditCard },
@@ -803,14 +803,6 @@ export default function VendaRapidaPage() {
               <span className="text-muted-foreground">Subtotal</span>
               <span className="font-semibold tabular-nums">R$ {fmtBRL(subtotal)}</span>
             </div>
-            {billingType === 'PIX' && avistaDiscount > 0 && (
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-emerald-700 dark:text-emerald-400">Desconto à vista</span>
-                <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
-                  − R$ {fmtBRL(avistaDiscount)}
-                </span>
-              </div>
-            )}
             <div className="flex items-center justify-between pt-2 border-t border-border">
               <span className="text-sm font-bold">Total</span>
               <span className="text-xl font-extrabold tabular-nums">R$ {fmtBRL(total)}</span>
