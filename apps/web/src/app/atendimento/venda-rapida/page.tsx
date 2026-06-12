@@ -42,7 +42,25 @@ interface PatientOption {
 interface CartItem {
   procedure: Procedure;
   quantity: number;
+  // Onda 17.38 — dentes (FDI) do procedimento. Vazio = procedimento sem dente
+  // (limpeza, clareamento de arcada). Com dentes = 1 unidade por dente (entra
+  // no odontograma/tratamento pra a dentista validar o que foi feito).
+  toothFdis: string[];
 }
+
+// Onda 17.38 — numeração FDI, igual à avaliação/odontograma. Layout anatômico:
+// arcada superior em cima (18→11 | 21→28), inferior embaixo.
+const FDI_PERMANENT_ROWS: string[][] = [
+  ['18', '17', '16', '15', '14', '13', '12', '11', '21', '22', '23', '24', '25', '26', '27', '28'],
+  ['48', '47', '46', '45', '44', '43', '42', '41', '31', '32', '33', '34', '35', '36', '37', '38'],
+];
+const FDI_DECIDUOUS_ROWS: string[][] = [
+  ['55', '54', '53', '52', '51', '61', '62', '63', '64', '65'],
+  ['85', '84', '83', '82', '81', '71', '72', '73', '74', '75'],
+];
+
+// Quantas unidades um item vale: nº de dentes se houver, senão a quantidade.
+const itemUnits = (it: CartItem) => (it.toothFdis.length > 0 ? it.toothFdis.length : it.quantity);
 
 // Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
 // quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
@@ -191,16 +209,37 @@ export default function VendaRapidaPage() {
   }, [procedures, tab, search]);
 
   // Carrinho helpers
+  const [toothPickerFor, setToothPickerFor] = useState<string | null>(null);
+  const [toothKidMode, setToothKidMode] = useState(false);
+
   const addToCart = (p: Procedure) => {
     setCart((prev) => {
       const existing = prev.find((it) => it.procedure.id === p.id);
       if (existing) {
+        // Item com dentes não incrementa quantity (a contagem é por dente)
+        if (existing.toothFdis.length > 0) return prev;
         return prev.map((it) =>
           it.procedure.id === p.id ? { ...it, quantity: it.quantity + 1 } : it,
         );
       }
-      return [...prev, { procedure: p, quantity: 1 }];
+      return [...prev, { procedure: p, quantity: 1, toothFdis: [] }];
     });
+  };
+
+  // Marca/desmarca um dente FDI no item
+  const toggleTooth = (procId: string, fdi: string) => {
+    setCart((prev) =>
+      prev.map((it) =>
+        it.procedure.id === procId
+          ? {
+              ...it,
+              toothFdis: it.toothFdis.includes(fdi)
+                ? it.toothFdis.filter((t) => t !== fdi)
+                : [...it.toothFdis, fdi],
+            }
+          : it,
+      ),
+    );
   };
 
   const changeQty = (id: string, delta: number) => {
@@ -219,9 +258,9 @@ export default function VendaRapidaPage() {
     setCart((prev) => prev.filter((it) => it.procedure.id !== id));
   };
 
-  // Totais
+  // Totais — item com dentes vale 1 unidade por dente
   const subtotal = useMemo(
-    () => cart.reduce((sum, it) => sum + Number(it.procedure.base_price) * it.quantity, 0),
+    () => cart.reduce((sum, it) => sum + Number(it.procedure.base_price) * itemUnits(it), 0),
     [cart],
   );
   // Onda 17.37 — desconto à vista só no PIX online (Asaas). As formas recebidas
@@ -264,10 +303,18 @@ export default function VendaRapidaPage() {
         `/patients/${patient.id}/quotes`,
         {
           title,
-          items: cart.map((it) => ({
-            procedure_id: it.procedure.id,
-            quantity: it.quantity,
-          })),
+          // Onda 17.38 — item com dentes vira 1 item POR dente (tooth_fdi),
+          // pra entrar no odontograma/tratamento e a dentista validar dente a
+          // dente. Sem dentes = item por quantidade (limpeza, clareamento).
+          items: cart.flatMap((it) =>
+            it.toothFdis.length > 0
+              ? it.toothFdis.map((fdi) => ({
+                  procedure_id: it.procedure.id,
+                  quantity: 1,
+                  tooth_fdi: fdi,
+                }))
+              : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
+          ),
           discount_percent: discountPercent,
           notes: clinicReceived
             ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
@@ -513,41 +560,84 @@ export default function VendaRapidaPage() {
               </div>
             ) : (
               <ul className="space-y-2">
-                {cart.map((it) => (
-                  <li key={it.procedure.id} className="bg-muted/30 rounded-lg p-2.5 flex items-center gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="text-xs font-bold text-foreground truncate">{it.procedure.name}</p>
-                      <p className="text-[10px] text-muted-foreground tabular-nums">
-                        R$ {fmtBRL(Number(it.procedure.base_price))} × {it.quantity}
-                      </p>
+                {cart.map((it) => {
+                  const hasTeeth = it.toothFdis.length > 0;
+                  return (
+                  <li key={it.procedure.id} className="bg-muted/30 rounded-lg p-2.5">
+                    <div className="flex items-center gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs font-bold text-foreground truncate">{it.procedure.name}</p>
+                        <p className="text-[10px] text-muted-foreground tabular-nums">
+                          R$ {fmtBRL(Number(it.procedure.base_price))} × {itemUnits(it)}
+                          {hasTeeth && <span className="ml-1">({it.toothFdis.length} dente{it.toothFdis.length > 1 ? 's' : ''})</span>}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-1 shrink-0">
+                        {/* Quantidade só quando NÃO há dentes (com dentes, a contagem é por dente) */}
+                        {!hasTeeth && (
+                          <>
+                            <button
+                              type="button"
+                              onClick={() => changeQty(it.procedure.id, -1)}
+                              className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                            >
+                              <Minus size={10} />
+                            </button>
+                            <span className="w-5 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => changeQty(it.procedure.id, 1)}
+                              className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                            >
+                              <Plus size={10} />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => removeFromCart(it.procedure.id)}
+                          className="w-6 h-6 rounded text-muted-foreground hover:text-red-600 ml-1 flex items-center justify-center"
+                          title="Remover"
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
+
+                    {/* Onda 17.38 — dentes do item (chips + abrir seletor FDI) */}
+                    <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                      {it.toothFdis.map((fdi) => (
+                        <span
+                          key={fdi}
+                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300/60"
+                        >
+                          {fdi}
+                          <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title="Remover dente">
+                            <X size={9} />
+                          </button>
+                        </span>
+                      ))}
                       <button
                         type="button"
-                        onClick={() => changeQty(it.procedure.id, -1)}
-                        className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                        onClick={() => setToothPickerFor(toothPickerFor === it.procedure.id ? null : it.procedure.id)}
+                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
                       >
-                        <Minus size={10} />
-                      </button>
-                      <span className="w-5 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
-                      <button
-                        type="button"
-                        onClick={() => changeQty(it.procedure.id, 1)}
-                        className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
-                      >
-                        <Plus size={10} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => removeFromCart(it.procedure.id)}
-                        className="w-6 h-6 rounded text-muted-foreground hover:text-red-600 ml-1 flex items-center justify-center"
-                        title="Remover"
-                      >
-                        <X size={12} />
+                        <Smile size={11} /> {hasTeeth ? 'Dentes' : 'Dente (opcional)'}
                       </button>
                     </div>
+
+                    {toothPickerFor === it.procedure.id && (
+                      <ToothPicker
+                        selected={it.toothFdis}
+                        onToggle={(fdi) => toggleTooth(it.procedure.id, fdi)}
+                        kidMode={toothKidMode}
+                        onKidMode={setToothKidMode}
+                        onClose={() => setToothPickerFor(null)}
+                      />
+                    )}
                   </li>
-                ))}
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -915,6 +1005,77 @@ function PixLogo() {
         <span className="text-3xl font-light text-gray-600 lowercase tracking-tight">pix</span>
         <span className="text-[8px] text-gray-400 mt-0.5">powered by Banco Central</span>
       </div>
+    </div>
+  );
+}
+
+// ─── Onda 17.38 — Seletor de dente (FDI), referência da avaliação ──────────
+// Grade compacta no padrão do odontograma: arcada superior em cima, inferior
+// embaixo, numeração FDI. Multi-seleção (clica pra marcar/desmarcar). Toggle
+// Adulto/Infantil. Some os dentes selecionados em dourado, igual à avaliação.
+function ToothPicker({
+  selected,
+  onToggle,
+  kidMode,
+  onKidMode,
+  onClose,
+}: {
+  selected: string[];
+  onToggle: (fdi: string) => void;
+  kidMode: boolean;
+  onKidMode: (v: boolean) => void;
+  onClose: () => void;
+}) {
+  const rows = kidMode ? FDI_DECIDUOUS_ROWS : FDI_PERMANENT_ROWS;
+  return (
+    <div className="mt-2 rounded-lg border border-border bg-card p-2 shadow-inner">
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="inline-flex rounded-md border border-border overflow-hidden text-[10px] font-semibold">
+          <button
+            type="button"
+            onClick={() => onKidMode(false)}
+            className={`px-2 py-0.5 ${!kidMode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent/40'}`}
+          >
+            Adulto
+          </button>
+          <button
+            type="button"
+            onClick={() => onKidMode(true)}
+            className={`px-2 py-0.5 ${kidMode ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-accent/40'}`}
+          >
+            Infantil
+          </button>
+        </div>
+        <button type="button" onClick={onClose} className="text-[10px] text-muted-foreground hover:text-foreground font-medium">
+          Fechar
+        </button>
+      </div>
+      <div className="space-y-1">
+        {rows.map((row, i) => (
+          <div key={i} className="flex flex-wrap justify-center gap-0.5">
+            {row.map((fdi) => {
+              const on = selected.includes(fdi);
+              return (
+                <button
+                  key={fdi}
+                  type="button"
+                  onClick={() => onToggle(fdi)}
+                  className={`w-6 h-6 rounded text-[10px] font-bold tabular-nums border transition-colors ${
+                    on
+                      ? 'bg-amber-400 border-amber-500 text-amber-950'
+                      : 'bg-background border-border text-muted-foreground hover:border-primary hover:text-primary'
+                  }`}
+                >
+                  {fdi}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
+      <p className="text-[9px] text-muted-foreground mt-1.5 text-center">
+        Clique nos dentes do procedimento. Cada dente vira 1 item no tratamento.
+      </p>
     </div>
   );
 }
