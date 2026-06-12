@@ -1135,14 +1135,26 @@ function PriceTag({
   const [draft, setDraft] = useState('');
   const discounted = value < base - 0.001;
 
-  const startEdit = () => {
-    setDraft(value.toFixed(2).replace('.', ','));
+  // Abre o campo VAZIO (preço atual fica no placeholder). Assim, no celular,
+  // digitar o novo valor substitui em vez de anexar ao texto pré-preenchido.
+  const open = () => {
+    setDraft('');
     setEditing(true);
   };
   const commit = () => {
+    const raw = draft.trim();
+    if (raw === '') {
+      // Vazio = não mexe (evita zerar um desconto só por abrir e fechar).
+      setEditing(false);
+      return;
+    }
     // aceita "1.800,00" ou "1800" — tira separador de milhar, vírgula vira ponto
-    const n = Number(draft.replace(/\./g, '').replace(',', '.'));
-    onChange(isFinite(n) && n > 0 ? n : null);
+    const n = Number(raw.replace(/\./g, '').replace(',', '.'));
+    if (isFinite(n) && n > 0) onChange(n); // setItemPrice clampa em [0, tabela]
+    setEditing(false);
+  };
+  const resetTable = () => {
+    onChange(null);
     setEditing(false);
   };
 
@@ -1156,13 +1168,14 @@ function PriceTag({
           inputMode="decimal"
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
           onKeyDown={(e) => {
             if (e.key === 'Enter') commit();
             if (e.key === 'Escape') setEditing(false);
           }}
           onBlur={commit}
-          placeholder={base.toFixed(2)}
-          className="w-16 px-1 py-0.5 text-[11px] border border-primary/60 rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+          placeholder={value.toFixed(2).replace('.', ',')}
+          className="w-20 px-1.5 py-1 text-[11px] border border-primary/60 rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
         />
         <button
           type="button"
@@ -1171,8 +1184,19 @@ function PriceTag({
           className="text-emerald-600 hover:text-emerald-700"
           title="Aplicar"
         >
-          <Check size={11} />
+          <Check size={13} />
         </button>
+        {discounted && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={resetTable}
+            className="text-[9px] underline text-muted-foreground hover:text-foreground"
+            title="Voltar ao preço de tabela"
+          >
+            tabela
+          </button>
+        )}
       </span>
     );
   }
@@ -1180,15 +1204,19 @@ function PriceTag({
   return (
     <button
       type="button"
-      onClick={startEdit}
+      onClick={open}
       className="group/price inline-flex items-center gap-1 hover:text-primary"
       title="Alterar preço (dar desconto)"
     >
       {discounted && <span className="line-through text-muted-foreground/50">R$ {fmtBRL(base)}</span>}
-      <span className={discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400' : ''}>
+      <span
+        className={`border-b border-dashed border-muted-foreground/40 ${
+          discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400' : ''
+        }`}
+      >
         R$ {fmtBRL(value)}
       </span>
-      <Pencil size={9} className="opacity-40 group-hover/price:opacity-100" />
+      <Pencil size={11} className="opacity-60 group-hover/price:opacity-100" />
     </button>
   );
 }
