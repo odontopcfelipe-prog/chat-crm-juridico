@@ -22,6 +22,7 @@ export type Permission =
   | 'view_clinical'      | 'edit_clinical'
   | 'view_financial'     | 'manage_financial'
   | 'manage_proposals'
+  | 'override_price'
   | 'view_reports'
   | 'view_marketing'
   | 'manage_users'
@@ -67,6 +68,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Emitir, cancelar e reverter cobrancas', group: 'financeiro' },
   { key: 'manage_proposals', label: 'Propostas e orcamentos',
     description: 'Criar e aprovar propostas + venda rapida', group: 'financeiro' },
+  { key: 'override_price', label: 'Alterar preco na venda',
+    description: 'Dar desconto (preco abaixo da tabela) na Venda Rapida', group: 'financeiro' },
   { key: 'view_reports', label: 'Ver relatorios',
     description: 'Dashboards e relatorios consolidados', group: 'financeiro' },
 
@@ -199,6 +202,8 @@ export const SECTORS: SectorMeta[] = [
       'view_chat',
       'view_clinical', 'edit_clinical',
       'manage_proposals',
+      // Dentista define/desconta preco nas propostas — mantem o que ja fazia.
+      'override_price',
     ],
     home: {
       persona: 'Dentista',
@@ -285,6 +290,8 @@ export const SECTORS: SectorMeta[] = [
       'view_chat',
       'view_marketing',
       'manage_proposals',
+      // CRC negocia desconto na pre-venda — mantem o que ja fazia.
+      'override_price',
     ],
     home: {
       persona: 'CRC',

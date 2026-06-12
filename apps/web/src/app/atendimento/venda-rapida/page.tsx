@@ -17,10 +17,11 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight, UserPlus,
+  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import NewPatientModal from '../pacientes/components/NewPatientModal';
 
 interface Procedure {
@@ -46,6 +47,10 @@ interface CartItem {
   // (limpeza, clareamento de arcada). Com dentes = 1 unidade por dente (entra
   // no odontograma/tratamento pra a dentista validar o que foi feito).
   toothFdis: string[];
+  // Onda 17.39 — preço unitário customizado (desconto). null = usa base_price.
+  // Só editável por quem tem a permissão `override_price`; o backend trava
+  // preço abaixo da tabela sem a permissão.
+  customPrice: number | null;
 }
 
 // Onda 17.38 — numeração FDI, igual à avaliação/odontograma. Layout anatômico:
@@ -61,6 +66,10 @@ const FDI_DECIDUOUS_ROWS: string[][] = [
 
 // Quantas unidades um item vale: nº de dentes se houver, senão a quantidade.
 const itemUnits = (it: CartItem) => (it.toothFdis.length > 0 ? it.toothFdis.length : it.quantity);
+
+// Preço unitário efetivo: customizado (desconto) ou o de tabela.
+const unitPriceOf = (it: CartItem) =>
+  it.customPrice != null ? it.customPrice : Number(it.procedure.base_price);
 
 // Onda 17.32.69 — Boleto removido (venda balcao raramente pede boleto;
 // quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
@@ -135,6 +144,9 @@ function fmtBRL(v: number): string {
 
 export default function VendaRapidaPage() {
   const router = useRouter();
+  // Onda 17.39 — só quem tem `override_price` edita preço (dar desconto).
+  const { hasPermission } = useUserPermissions();
+  const canOverridePrice = hasPermission('override_price');
   const [procedures, setProcedures] = useState<Procedure[]>([]);
   const [loadingProc, setLoadingProc] = useState(true);
   const [search, setSearch] = useState('');
@@ -222,8 +234,21 @@ export default function VendaRapidaPage() {
           it.procedure.id === p.id ? { ...it, quantity: it.quantity + 1 } : it,
         );
       }
-      return [...prev, { procedure: p, quantity: 1, toothFdis: [] }];
+      return [...prev, { procedure: p, quantity: 1, toothFdis: [], customPrice: null }];
     });
+  };
+
+  // Onda 17.39 — define preço unitário (desconto). null/≥base reseta pro de
+  // tabela; clampa em [0, base] (só desconto, nunca acima da tabela).
+  const setItemPrice = (procId: string, v: number | null) => {
+    setCart((prev) =>
+      prev.map((it) => {
+        if (it.procedure.id !== procId) return it;
+        const base = Number(it.procedure.base_price);
+        if (v == null || v >= base) return { ...it, customPrice: null };
+        return { ...it, customPrice: Math.max(0, v) };
+      }),
+    );
   };
 
   // Marca/desmarca um dente FDI no item
@@ -260,7 +285,7 @@ export default function VendaRapidaPage() {
 
   // Totais — item com dentes vale 1 unidade por dente
   const subtotal = useMemo(
-    () => cart.reduce((sum, it) => sum + Number(it.procedure.base_price) * itemUnits(it), 0),
+    () => cart.reduce((sum, it) => sum + unitPriceOf(it) * itemUnits(it), 0),
     [cart],
   );
   // Onda 17.37 — desconto à vista só no PIX online (Asaas). As formas recebidas
@@ -306,15 +331,19 @@ export default function VendaRapidaPage() {
           // Onda 17.38 — item com dentes vira 1 item POR dente (tooth_fdi),
           // pra entrar no odontograma/tratamento e a dentista validar dente a
           // dente. Sem dentes = item por quantidade (limpeza, clareamento).
-          items: cart.flatMap((it) =>
-            it.toothFdis.length > 0
+          items: cart.flatMap((it) => {
+            // Onda 17.39 — desconto vai como unit_price (omitido = preço de
+            // tabela). O backend bloqueia se o usuário não tiver override_price.
+            const priceOverride = it.customPrice != null ? { unit_price: it.customPrice } : {};
+            return it.toothFdis.length > 0
               ? it.toothFdis.map((fdi) => ({
                   procedure_id: it.procedure.id,
                   quantity: 1,
                   tooth_fdi: fdi,
+                  ...priceOverride,
                 }))
-              : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
-          ),
+              : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride }];
+          }),
           discount_percent: discountPercent,
           notes: clinicReceived
             ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
@@ -567,10 +596,19 @@ export default function VendaRapidaPage() {
                     <div className="flex items-center gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs font-bold text-foreground truncate">{it.procedure.name}</p>
-                        <p className="text-[10px] text-muted-foreground tabular-nums">
-                          R$ {fmtBRL(Number(it.procedure.base_price))} × {itemUnits(it)}
-                          {hasTeeth && <span className="ml-1">({it.toothFdis.length} dente{it.toothFdis.length > 1 ? 's' : ''})</span>}
-                        </p>
+                        <div className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1 flex-wrap">
+                          {canOverridePrice ? (
+                            <PriceTag
+                              base={Number(it.procedure.base_price)}
+                              value={unitPriceOf(it)}
+                              onChange={(v) => setItemPrice(it.procedure.id, v)}
+                            />
+                          ) : (
+                            <span>R$ {fmtBRL(unitPriceOf(it))}</span>
+                          )}
+                          <span>× {itemUnits(it)}</span>
+                          {hasTeeth && <span>({it.toothFdis.length} dente{it.toothFdis.length > 1 ? 's' : ''})</span>}
+                        </div>
                       </div>
                       <div className="flex items-center gap-1 shrink-0">
                         {/* Quantidade só quando NÃO há dentes (com dentes, a contagem é por dente) */}
@@ -1077,5 +1115,80 @@ function ToothPicker({
         Clique nos dentes do procedimento. Cada dente vira 1 item no tratamento.
       </p>
     </div>
+  );
+}
+
+// ─── Onda 17.39 — Editor de preço unitário (desconto) ──────────────────────
+// Só renderizado pra quem tem a permissão `override_price`. Clica no preço →
+// input inline. Clampa em [0, base] (só desconto: nunca acima da tabela).
+// Mostra o preço de tabela riscado quando há desconto. O backend revalida.
+function PriceTag({
+  base,
+  value,
+  onChange,
+}: {
+  base: number;
+  value: number;
+  onChange: (v: number | null) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState('');
+  const discounted = value < base - 0.001;
+
+  const startEdit = () => {
+    setDraft(value.toFixed(2).replace('.', ','));
+    setEditing(true);
+  };
+  const commit = () => {
+    // aceita "1.800,00" ou "1800" — tira separador de milhar, vírgula vira ponto
+    const n = Number(draft.replace(/\./g, '').replace(',', '.'));
+    onChange(isFinite(n) && n > 0 ? n : null);
+    setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <span className="inline-flex items-center gap-1">
+        <span className="text-muted-foreground">R$</span>
+        <input
+          autoFocus
+          type="text"
+          inputMode="decimal"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit();
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          onBlur={commit}
+          placeholder={base.toFixed(2)}
+          className="w-16 px-1 py-0.5 text-[11px] border border-primary/60 rounded bg-background text-foreground focus:outline-none focus:ring-1 focus:ring-primary/40"
+        />
+        <button
+          type="button"
+          onMouseDown={(e) => e.preventDefault()}
+          onClick={commit}
+          className="text-emerald-600 hover:text-emerald-700"
+          title="Aplicar"
+        >
+          <Check size={11} />
+        </button>
+      </span>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={startEdit}
+      className="group/price inline-flex items-center gap-1 hover:text-primary"
+      title="Alterar preço (dar desconto)"
+    >
+      {discounted && <span className="line-through text-muted-foreground/50">R$ {fmtBRL(base)}</span>}
+      <span className={discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400' : ''}>
+        R$ {fmtBRL(value)}
+      </span>
+      <Pencil size={9} className="opacity-40 group-hover/price:opacity-100" />
+    </button>
   );
 }

@@ -11,7 +11,7 @@ import { ContractsService } from './contracts.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
 
 type ItemInput = {
   procedure_id: string;
@@ -82,6 +82,21 @@ export class QuotesService {
 
     const items = data.items || [];
     const resolvedItems = await this.resolveItems(items, tenantId);
+
+    // Onda 17.39 — trava real de desconto: aplicar preco ABAIXO da tabela
+    // (base_price) exige a permissao `override_price`. UI nao eh seguranca —
+    // sem isso, recepcao poderia forjar desconto chamando o endpoint direto.
+    // Dentista/CRC/Admin tem a permissao por padrao (mantem o que ja faziam);
+    // recepcao (balcao da Venda Rapida) so com grant individual do admin.
+    const hasDiscountedItem = resolvedItems.some(
+      (i) => i.unit_price < i.base_price - 0.001,
+    );
+    if (hasDiscountedItem && !(await this.userCanOverridePrice(userId))) {
+      throw new ForbiddenException(
+        'Sem permissao "Alterar preco na venda" para aplicar desconto. Peca ao admin do tenant para liberar.',
+      );
+    }
+
     const totals = this.computeTotals(resolvedItems, data.discount_percent || 0);
 
     // Onda 5 — orcamentos nao tem mais validade automatica.
@@ -1622,10 +1637,33 @@ export class QuotesService {
       const proc = byId.get(i.procedure_id);
       if (!proc) throw new BadRequestException(`Procedimento ${i.procedure_id} nao encontrado`);
       const quantity = i.quantity ?? 1;
-      const unit_price = i.unit_price ?? Number(proc.base_price);
+      const base_price = Number(proc.base_price);
+      const unit_price = i.unit_price ?? base_price;
       const total_price = quantity * unit_price;
-      return { ...i, quantity, unit_price, total_price };
+      return { ...i, quantity, base_price, unit_price, total_price };
     });
+  }
+
+  /**
+   * Onda 17.39 — resolve se o usuario pode aplicar preco abaixo da tabela
+   * (desconto). Espelha a logica do PermissionsGuard: SUPER_ADMIN passa,
+   * senao resolve setor + extra_grants/revokes e checa `override_price`.
+   */
+  private async userCanOverridePrice(userId: string): Promise<boolean> {
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { roles: true, sector: true, extra_grants: true, extra_revokes: true },
+    });
+    if (!u) return false;
+    const roles = (u.roles ?? []) as string[];
+    if (roles.includes('SUPER_ADMIN')) return true;
+    const sector = ((u.sector as Sector) || mapBackendRole(roles));
+    const perms = resolvePermissions(
+      sector,
+      (u.extra_grants ?? []) as Permission[],
+      (u.extra_revokes ?? []) as Permission[],
+    );
+    return perms.has('override_price');
   }
 
   private computeTotals(items: { total_price: number }[], discountPercent: number) {
