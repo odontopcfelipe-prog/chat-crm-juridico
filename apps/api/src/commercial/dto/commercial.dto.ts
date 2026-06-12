@@ -107,6 +107,10 @@ export class ApproveAndBillDto {
   @IsString() @IsIn(['PIX', 'CREDIT_CARD', 'BOLETO']) billing_type!: string;
   @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) value!: number;
   @IsOptional() @IsInt() @Min(1) @Max(24) installment_count?: number;
+  // Onda 17.40 — Venda Rapida "na hora da venda": ao finalizar, marca os itens
+  // do plano como feitos em nome do dentista responsavel (gera comissao dele).
+  @IsOptional() @IsBoolean() auto_execute_items?: boolean;
+  @IsOptional() @IsUUID('4') executed_by_dentist_id?: string;
 }
 
 // Onda 13 — Bônus de fechamento (segura proposta + valida).

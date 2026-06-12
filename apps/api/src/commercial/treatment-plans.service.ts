@@ -290,6 +290,32 @@ export class TreatmentPlansService {
   }
 
   /**
+   * Onda 17.40 — auto-executa TODOS os itens pendentes de um plano em nome de um
+   * executor (ex: dentista responsavel da Venda Rapida). Cada item vira DONE e
+   * dispara a comissao pro executor (via generateCommissionForItem). Best-effort
+   * por item: um erro num item nao derruba os demais. Usado no "na hora da venda".
+   */
+  async autoExecutePlanItems(planId: string, tenantId: string, executorUserId: string) {
+    const items = await this.prisma.treatmentPlanItem.findMany({
+      where: { treatment_plan_id: planId, status: { notIn: ['DONE', 'CANCELLED'] } },
+      select: { id: true },
+    });
+    let ok = 0;
+    for (const it of items) {
+      try {
+        await this.executeItem(it.id, tenantId, executorUserId, {});
+        ok++;
+      } catch (e: any) {
+        this.logger.warn(`[VENDA-RAPIDA auto-exec] item ${it.id} falhou: ${e?.message}`);
+      }
+    }
+    this.logger.log(
+      `[VENDA-RAPIDA auto-exec] plano ${planId}: ${ok}/${items.length} itens executados (executor ${executorUserId})`,
+    );
+    return { executed: ok, total: items.length };
+  }
+
+  /**
    * Resolve CommissionRule mais especifica para (executor, procedimento)
    * e gera Commission status=DEVIDA. Prioridade:
    *   procedure_id > procedure_category > sem escopo (geral)

@@ -40,6 +40,13 @@ interface PatientOption {
   cpf?: string | null;
 }
 
+// Onda 17.40 — dentista responsável (entra na comissão dele). Vem de
+// GET /users/lawyers (dentistas + admins com especialidade do tenant).
+interface DentistOption {
+  id: string;
+  name: string;
+}
+
 interface CartItem {
   procedure: Procedure;
   quantity: number;
@@ -159,6 +166,9 @@ export default function VendaRapidaPage() {
   // Onda 17.37 — cadastrar paciente sem sair da venda: abre o modal, cria e
   // já seleciona pra "Vender para".
   const [showNewPatient, setShowNewPatient] = useState(false);
+  // Onda 17.40 — dentista responsável pela venda (entra na comissão dele).
+  const [dentists, setDentists] = useState<DentistOption[]>([]);
+  const [dentistId, setDentistId] = useState<string>('');
   const [billingType, setBillingType] = useState<BillingType>('PIX');
   const [installments, setInstallments] = useState<number>(1);
   const [finishing, setFinishing] = useState(false);
@@ -183,6 +193,16 @@ export default function VendaRapidaPage() {
       })
       .catch(() => showError('Falha ao carregar procedimentos'))
       .finally(() => setLoadingProc(false));
+  }, []);
+
+  // Onda 17.40 — carrega dentistas pro seletor de responsável (comissão)
+  useEffect(() => {
+    api.get<any>('/users/lawyers')
+      .then(({ data }) => {
+        const list = Array.isArray(data) ? data : (data?.data || []);
+        setDentists(list.map((d: any) => ({ id: d.id, name: d.name })));
+      })
+      .catch(() => { /* silencioso — seletor fica vazio */ });
   }, []);
 
   // Busca paciente (debounced)
@@ -335,14 +355,17 @@ export default function VendaRapidaPage() {
             // Onda 17.39 — desconto vai como unit_price (omitido = preço de
             // tabela). O backend bloqueia se o usuário não tiver override_price.
             const priceOverride = it.customPrice != null ? { unit_price: it.customPrice } : {};
+            // Onda 17.40 — dentista responsável (registro + relatório por dentista).
+            const dentistRef = dentistId ? { dentist_id: dentistId } : {};
             return it.toothFdis.length > 0
               ? it.toothFdis.map((fdi) => ({
                   procedure_id: it.procedure.id,
                   quantity: 1,
                   tooth_fdi: fdi,
                   ...priceOverride,
+                  ...dentistRef,
                 }))
-              : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride }];
+              : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride, ...dentistRef }];
           }),
           discount_percent: discountPercent,
           notes: clinicReceived
@@ -362,6 +385,10 @@ export default function VendaRapidaPage() {
           billing_type: clinicReceived ? 'PIX' : billingType,
           value: total,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
+          // Onda 17.40 — "na hora da venda": com dentista responsável escolhido,
+          // marca os procedimentos como feitos em nome dele e gera a comissão.
+          auto_execute_items: !!dentistId,
+          executed_by_dentist_id: dentistId || undefined,
         },
       );
 
@@ -575,6 +602,31 @@ export default function VendaRapidaPage() {
                 <p className="text-[10px] text-muted-foreground mt-1">obrigatório para lançar no tratamento</p>
               </div>
             )}
+          </div>
+
+          {/* Onda 17.40 — Dentista responsável (a venda entra na comissão dele) */}
+          <div className="mb-4">
+            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
+              Dentista responsável
+            </p>
+            <div className="relative">
+              <Stethoscope size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+              <select
+                value={dentistId}
+                onChange={(e) => setDentistId(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30 appearance-none"
+              >
+                <option value="">Sem dentista (não gera comissão)</option>
+                {dentists.map((d) => (
+                  <option key={d.id} value={d.id}>{d.name}</option>
+                ))}
+              </select>
+            </div>
+            <p className="text-[10px] text-muted-foreground mt-1">
+              {dentistId
+                ? 'Ao finalizar, os procedimentos entram como feitos e a comissão vai pra ele.'
+                : 'Selecione pra creditar a comissão da venda.'}
+            </p>
           </div>
 
           {/* Carrinho */}

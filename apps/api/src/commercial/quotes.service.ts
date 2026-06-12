@@ -7,6 +7,7 @@ import { PortalAuthService } from '../portal/portal-auth.service';
 import { QuoteVersionsService } from './quote-versions.service';
 import { TreatmentPlanContractService } from './treatment-plan-contract.service';
 import { TreatmentPlanBillingService } from './treatment-plan-billing.service';
+import { TreatmentPlansService } from './treatment-plans.service';
 import { ContractsService } from './contracts.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
@@ -55,6 +56,11 @@ export class QuotesService {
     // Onda 14.38: gera PDF do orcamento pra anexar no WhatsApp ao enviar
     // pro paciente (com secao "Proposta de pagamento" se chosen).
     @Optional() private pdfService?: QuotePdfService,
+    // Onda 17.40 — auto-executa itens da Venda Rapida em nome do dentista
+    // responsavel (gera comissao na hora). forwardRef + Optional: mesmo modulo,
+    // sem ciclo hoje, mas defensivo contra ordem de init.
+    @Optional() @Inject(forwardRef(() => TreatmentPlansService))
+    private treatmentPlans?: TreatmentPlansService,
   ) {}
 
   async create(
@@ -137,6 +143,9 @@ export class QuotesService {
               total_price: i.total_price,
               notes: i.notes || null,
               order_index: idx,
+              // Onda 17.40 — dentista responsavel (registro/relatorio "quanto
+              // cada dentista gerou"). A comissao em si sai na execucao.
+              dentist_id: i.dentist_id || null,
             })),
           },
         },
@@ -729,6 +738,10 @@ export class QuotesService {
       billing_type: 'PIX' | 'CREDIT_CARD' | 'BOLETO';
       value: number;
       installment_count?: number; // so CREDIT_CARD
+      // Onda 17.40 — Venda Rapida "na hora da venda": marca os itens como feitos
+      // em nome do dentista responsavel, gerando a comissao dele imediatamente.
+      auto_execute_items?: boolean;
+      executed_by_dentist_id?: string;
     },
   ) {
     if (!this.billingService) {
@@ -800,6 +813,31 @@ export class QuotesService {
         `[APPROVE-AND-BILL] [step:done] Quote ${quoteId}: ${data.billing_type} ` +
         `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
       );
+
+      // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
+      // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
+      // hora. Best-effort: a cobranca ja foi criada, nao falha por causa disso.
+      // So roda quando vem um dentista valido do tenant (evita credito errado).
+      if (data.auto_execute_items && data.executed_by_dentist_id && this.treatmentPlans) {
+        try {
+          const dentist = await this.prisma.user.findFirst({
+            where: { id: data.executed_by_dentist_id, tenant_id: tenantId },
+            select: { id: true },
+          });
+          if (dentist) {
+            await this.treatmentPlans.autoExecutePlanItems(
+              plan.id,
+              tenantId,
+              data.executed_by_dentist_id,
+            );
+            this.logger.log(`[APPROVE-AND-BILL] [step:auto-exec] itens executados p/ dentista ${data.executed_by_dentist_id}`);
+          } else {
+            this.logger.warn(`[APPROVE-AND-BILL] dentista ${data.executed_by_dentist_id} fora do tenant ${tenantId} — auto-exec ignorado`);
+          }
+        } catch (e: any) {
+          this.logger.warn(`[APPROVE-AND-BILL] auto-exec falhou: ${e?.message}`);
+        }
+      }
 
       // Onda 17.32.55 — Promove Lead -> Cliente assim que encaminha pro
       // financeiro (antes era so quando 1a parcela pagava via webhook).
