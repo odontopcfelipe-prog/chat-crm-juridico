@@ -66,14 +66,7 @@ export class PaymentGatewayService {
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
-      include: {
-        treatment_plan: {
-          select: {
-            patient: { select: { id: true, name: true } },
-            quote: { select: { created_by_user_id: true } },
-          },
-        },
-      },
+      select: { id: true, status: true, received_at: true, received_by_user_id: true, paid_at: true },
     });
     if (!charge) {
       this.logger.warn(`[clinic-receipt] cobrança local não encontrada p/ external ${externalId}`);
@@ -81,8 +74,7 @@ export class PaymentGatewayService {
     }
 
     const now = new Date();
-
-    // 1. Marca recebida na hora (independe do webhook)
+    // 1. Marca recebida na hora (independe do webhook do Asaas)
     const alreadyPaidStatus = charge.status === 'RECEIVED' || charge.status === 'CONFIRMED';
     await this.prisma.paymentGatewayCharge.update({
       where: { id: charge.id },
@@ -95,27 +87,72 @@ export class PaymentGatewayService {
       },
     });
 
-    // 2. Lança no caixa (RECEITA PAGO) — uma vez (idempotente via transaction_id)
-    if (charge.transaction_id) {
-      return { ok: true, transaction_id: charge.transaction_id, charge_id: charge.id, already: true };
-    }
+    // 2. Lança no caixa (RECEITA) — método informado (DINHEIRO/CARTAO/PIX clínica)
+    const txId = await this.ensureChargeReceita(charge.id, {
+      paymentMethod: opts?.paymentMethod || 'DINHEIRO',
+      receivedInClinic: true,
+    });
+    return { ok: true, transaction_id: txId, charge_id: charge.id };
+  }
 
+  /** Onda 17.41 — billing_type da cobrança → forma de pagamento do caixa. */
+  private mapBillingToCaixaMethod(billingType: string | null): string {
+    switch (billingType) {
+      case 'CREDIT_CARD': return 'CARTAO';
+      case 'BOLETO': return 'BOLETO';
+      case 'PIX': return 'PIX';
+      default: return 'PIX';
+    }
+  }
+
+  /**
+   * Onda 17.41 — "toda venda vira Receita": cria UMA VEZ o lançamento de RECEITA
+   * no caixa (FinancialTransaction PAGO) pra uma cobrança recebida e vincula 1:1
+   * (transaction_id). Idempotente — se a cobrança já tem transaction_id, não faz
+   * nada. Reusado pelo recebimento na clínica (espécie/maquineta/PIX clínica) e
+   * pelo webhook de pagamento confirmado (PIX/Cartão Asaas online).
+   */
+  private async ensureChargeReceita(
+    chargeId: string,
+    opts?: { paymentMethod?: string; receivedInClinic?: boolean },
+  ): Promise<string | null> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { id: chargeId },
+      include: {
+        treatment_plan: {
+          select: {
+            patient: { select: { name: true } },
+            quote: { select: { created_by_user_id: true } },
+          },
+        },
+      },
+    });
+    if (!charge) return null;
+    if (charge.transaction_id) return charge.transaction_id; // já lançado
+    // Jurídico (LeadHonorarioPayment) tem caixa próprio — não duplica aqui.
+    if (charge.lead_honorario_payment_id) return null;
+
+    const now = new Date();
     const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
-    const method = opts?.paymentMethod || 'DINHEIRO';
+    const method = opts?.paymentMethod || this.mapBillingToCaixaMethod(charge.billing_type);
+    const inClinic = !!opts?.receivedInClinic;
+
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: charge.tenant_id,
         type: 'RECEITA',
         category: 'PROCEDIMENTO',
-        description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''}`,
+        description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}`,
         amount: charge.amount,
         date: now,
-        paid_at: now,
+        paid_at: charge.paid_at ?? now,
         payment_method: method,
         status: 'PAGO',
         dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
         reference_id: charge.external_id,
-        notes: 'Venda/atendimento recebido na clínica (fechamento de caixa)',
+        notes: inClinic
+          ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
+          : 'Recebimento de cobrança (Asaas online)',
       },
     });
     await this.prisma.paymentGatewayCharge.update({
@@ -123,9 +160,9 @@ export class PaymentGatewayService {
       data: { transaction_id: tx.id },
     });
     this.logger.log(
-      `[clinic-receipt] RECEITA ${tx.id} (R$ ${charge.amount}, ${method}) lançada no caixa p/ cobrança ${charge.id}`,
+      `[caixa] RECEITA ${tx.id} (R$ ${charge.amount}, ${method}${inClinic ? ', clínica' : ''}) p/ cobrança ${charge.id}`,
     );
-    return { ok: true, transaction_id: tx.id, charge_id: charge.id };
+    return tx.id;
   }
 
   /**
@@ -1107,6 +1144,17 @@ export class PaymentGatewayService {
         webhook_payload: payload,
       },
     });
+
+    // Onda 17.41 — "toda venda vira Receita": pagamento online (PIX/Cartão
+    // Asaas) confirmado também lança RECEITA no caixa. Idempotente via
+    // transaction_id (recebido na clínica já lançou; aqui sai cedo). Best-effort.
+    if (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') {
+      try {
+        await this.ensureChargeReceita(charge.id);
+      } catch (e: any) {
+        this.logger.warn(`[WEBHOOK] Falha ao lançar RECEITA no caixa p/ ${charge.id}: ${e?.message}`);
+      }
+    }
 
     // Onda 14.59 — Se charge eh de SINAL/ENTRADA e foi confirmada, dispara
     // trigger do down-payment flow (gera parcelas + aprova proposta quando

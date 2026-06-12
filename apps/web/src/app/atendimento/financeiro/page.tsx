@@ -1165,8 +1165,8 @@ export default function FinanceiroPage() {
                         );
                       })}
                     </div>
-                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-emerald-400 hover:underline mt-3">
-                      Ver todos →
+                    <button onClick={() => setTab('Receitas')} className="text-[10px] font-bold text-emerald-400 hover:underline mt-3">
+                      Ver todas as entradas →
                     </button>
                   </div>
                 ) : dashboard.top_atrasos.length > 0 ? (
