@@ -392,12 +392,20 @@ export default function VendaRapidaPage() {
         },
       );
 
-      // 3. Recebido na clínica — receiveInCash imediato registra como pago e
-      // joga no financeiro do paciente (espécie, maquineta ou PIX da clínica).
+      // 3. Recebido na clínica — receiveInCash imediato registra como pago,
+      // joga no financeiro do paciente E lança no caixa (fechamento). O método
+      // (DINHEIRO/CARTAO/PIX) vai junto pra aparecer certo no caixa.
       const asaasId = billData?.charge?.external_id;
       if (clinicReceived && asaasId) {
+        const CLINIC_METHOD_TO_CAIXA: Record<string, string> = {
+          CASH: 'DINHEIRO',
+          CLINIC_CARD: 'CARTAO',
+          CLINIC_PIX: 'PIX',
+        };
         try {
-          await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`);
+          await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
+            payment_method: CLINIC_METHOD_TO_CAIXA[billingType] || 'DINHEIRO',
+          });
         } catch (e: any) {
           console.warn('[VENDA-RAPIDA] receiveInCash falhou:', e?.message);
           // Nao bloqueia — operador pode marcar manualmente depois

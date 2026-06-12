@@ -46,6 +46,89 @@ export class PaymentGatewayService {
   ) {}
 
   /**
+   * Onda 17.41 — Recebimento na clínica (espécie / maquineta da clínica / PIX
+   * da clínica), que NÃO usa o Asaas como processador real. Faz duas coisas:
+   *
+   *  1. Marca a cobrança local como recebida NA HORA (received_in_cash + status
+   *     RECEIVED + paid_at). Antes isso dependia do webhook do Asaas voltar —
+   *     se atrasasse/falhasse, a venda em dinheiro ficava presa em "a receber".
+   *  2. Lança uma RECEITA no caixa (FinancialTransaction) vinculada à cobrança
+   *     (transaction_id 1:1) → entra em Receitas / Resumo do Período / fechamento
+   *     de caixa. O histórico no Asaas/ficha do paciente continua (a cobrança
+   *     não é apagada).
+   *
+   * Idempotente: não duplica a RECEITA se a cobrança já tem transaction_id.
+   * Online (PIX/Cartão Asaas) NÃO passa por aqui — segue só no mundo Asaas.
+   */
+  async registerClinicReceipt(
+    externalId: string,
+    opts?: { paymentMethod?: string; userId?: string },
+  ) {
+    const charge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { external_id: externalId },
+      include: {
+        treatment_plan: {
+          select: {
+            patient: { select: { id: true, name: true } },
+            quote: { select: { created_by_user_id: true } },
+          },
+        },
+      },
+    });
+    if (!charge) {
+      this.logger.warn(`[clinic-receipt] cobrança local não encontrada p/ external ${externalId}`);
+      return { ok: false, reason: 'charge_not_found' };
+    }
+
+    const now = new Date();
+
+    // 1. Marca recebida na hora (independe do webhook)
+    const alreadyPaidStatus = charge.status === 'RECEIVED' || charge.status === 'CONFIRMED';
+    await this.prisma.paymentGatewayCharge.update({
+      where: { id: charge.id },
+      data: {
+        received_in_cash: true,
+        received_at: charge.received_at ?? now,
+        received_by_user_id: charge.received_by_user_id ?? opts?.userId ?? null,
+        status: alreadyPaidStatus ? charge.status : 'RECEIVED',
+        paid_at: charge.paid_at ?? now,
+      },
+    });
+
+    // 2. Lança no caixa (RECEITA PAGO) — uma vez (idempotente via transaction_id)
+    if (charge.transaction_id) {
+      return { ok: true, transaction_id: charge.transaction_id, charge_id: charge.id, already: true };
+    }
+
+    const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
+    const method = opts?.paymentMethod || 'DINHEIRO';
+    const tx = await this.prisma.financialTransaction.create({
+      data: {
+        tenant_id: charge.tenant_id,
+        type: 'RECEITA',
+        category: 'PROCEDIMENTO',
+        description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''}`,
+        amount: charge.amount,
+        date: now,
+        paid_at: now,
+        payment_method: method,
+        status: 'PAGO',
+        dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
+        reference_id: charge.external_id,
+        notes: 'Venda/atendimento recebido na clínica (fechamento de caixa)',
+      },
+    });
+    await this.prisma.paymentGatewayCharge.update({
+      where: { id: charge.id },
+      data: { transaction_id: tx.id },
+    });
+    this.logger.log(
+      `[clinic-receipt] RECEITA ${tx.id} (R$ ${charge.amount}, ${method}) lançada no caixa p/ cobrança ${charge.id}`,
+    );
+    return { ok: true, transaction_id: tx.id, charge_id: charge.id };
+  }
+
+  /**
    * Onda 14.13 — Busca parcelas filhas de uma charge parcelada no Asaas.
    *
    * Quando criamos charge com installmentCount > 1, o Asaas gera N cobrancas

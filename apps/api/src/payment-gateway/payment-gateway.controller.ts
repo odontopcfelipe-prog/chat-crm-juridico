@@ -316,16 +316,33 @@ export class PaymentGatewayController {
     return this.asaasClient.updateCharge(chargeId, body);
   }
 
-  /** Confirmar recebimento em dinheiro */
+  /** Confirmar recebimento em dinheiro (espécie/maquineta/PIX da clínica).
+   *  Onda 17.41 — além do Asaas, marca a cobrança local na hora e lança a
+   *  RECEITA no caixa (fechamento). `payment_method` (DINHEIRO/CARTAO/PIX) é
+   *  opcional — default DINHEIRO (espécie). */
   @Post('charges/asaas/:chargeId/receive-in-cash')
-  async receiveInCash(@Param('chargeId') chargeId: string) {
+  async receiveInCash(
+    @Param('chargeId') chargeId: string,
+    @Body() body: { payment_method?: string } = {},
+    @Req() req: any,
+  ) {
     this.logger.log(`[POST /charges/asaas/${chargeId}/receive-in-cash] Confirmando pagamento em dinheiro`);
-    // Buscar dados da cobrança para obter o valor
-    const charge = await this.asaasClient.getCharge(chargeId);
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
-    const value = charge?.value || 1;
-    const result = await this.asaasClient.receiveInCash(chargeId, today, value);
-    return result;
+    // Asaas é best-effort: se falhar, ainda registramos local + caixa.
+    let result: any = null;
+    try {
+      const charge = await this.asaasClient.getCharge(chargeId);
+      const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+      const value = charge?.value || 1;
+      result = await this.asaasClient.receiveInCash(chargeId, today, value);
+    } catch (e: any) {
+      this.logger.warn(`[receive-in-cash] Asaas falhou (segue com registro local): ${e?.message}`);
+    }
+    // Onda 17.41 — marca recebido local na hora + lança RECEITA no caixa
+    const caixa = await this.service.registerClinicReceipt(chargeId, {
+      paymentMethod: body?.payment_method,
+      userId: req?.user?.id,
+    });
+    return { ...(result || {}), caixa };
   }
 
   /** Excluir cobrança no Asaas */
