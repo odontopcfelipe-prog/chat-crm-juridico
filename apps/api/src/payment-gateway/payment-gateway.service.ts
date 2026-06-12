@@ -1397,9 +1397,14 @@ export class PaymentGatewayService {
           }
 
           try {
-            // Verificar se já existe lead com esse telefone (busca exata + parcial)
+            // Verificar se já existe lead com esse telefone (busca exata + parcial).
+            // Onda 17.36 — escopo por tenant: sem isso a importação Asaas
+            // vinculava o customer a lead de OUTRA clínica com o mesmo numero.
             let existingLead = await this.prisma.lead.findFirst({
-              where: { OR: [{ phone }, { phone: rawPhone }, { phone: { contains: rawPhone.slice(-10) } }] },
+              where: {
+                tenant_id: tenantId || null,
+                OR: [{ phone }, { phone: rawPhone }, { phone: { contains: rawPhone.slice(-10) } }],
+              },
               select: { id: true },
             });
 

@@ -331,7 +331,10 @@ export class EvolutionService implements OnApplicationBootstrap {
       // todas as mensagens na conversa do telefone real, encerrando a do LID.
       const rawLidPhone = remoteJid.split('@')[0];
       if (rawLidPhone.length > 13 && phone !== rawLidPhone) {
-        const lidLead = await this.prisma.lead.findFirst({ where: { phone: rawLidPhone } });
+        // Onda 17.36 — merge LID restrito ao mesmo tenant do lead resolvido
+        const lidLead = await this.prisma.lead.findFirst({
+          where: { phone: rawLidPhone, tenant_id: lead.tenant_id },
+        });
         if (lidLead && lidLead.id !== lead.id) {
           const lidConvs = await this.prisma.conversation.findMany({
             where: { lead_id: lidLead.id, channel: 'whatsapp' },
@@ -728,8 +731,9 @@ export class EvolutionService implements OnApplicationBootstrap {
       const phone = extractPhone(data.remoteJid as string, data.remoteJidAlt as string);
       if (phone.length > 13) continue; // LID, não é telefone real
 
-      // Apenas atualizar leads existentes — NÃO criar novos via chats.upsert
-      const existingLead = await this.leadsService.findByPhone(phone);
+      // Apenas atualizar leads existentes — NÃO criar novos via chats.upsert.
+      // Onda 17.36 — escopo por tenant da instância (null = só órfãos).
+      const existingLead = await this.leadsService.findByPhone(phone, effectiveTenantId);
       if (!existingLead) continue;
 
       // Atualizar foto se disponível (URLs do WhatsApp expiram)
@@ -823,6 +827,11 @@ export class EvolutionService implements OnApplicationBootstrap {
     const data = payload?.data;
     const chats = Array.isArray(data) ? data : [data];
 
+    // Onda 17.36 — resolve o tenant da instância pra fechar SÓ conversas dele
+    const delInstanceName = payload?.instance || payload?.instanceId;
+    const delInbox = delInstanceName ? await this.inboxesService.findByInstanceName(delInstanceName) : null;
+    const delTenantId: string | null = (delInbox as any)?.tenant_id || (delInbox as any)?.inbox?.tenant_id || null;
+
     for (const chat of chats) {
       if (!chat) continue;
       const remoteJid = chat.remoteJid || chat.id;
@@ -831,7 +840,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       const phone = extractPhone(remoteJid, chat.remoteJidAlt);
       if (!phone || phone.length > 13) continue;
 
-      const lead = await this.prisma.lead.findFirst({ where: { phone } });
+      const lead = await this.prisma.lead.findFirst({ where: { phone, tenant_id: delTenantId } });
       if (!lead) continue;
 
       // Fechar apenas conversas abertas — não alterar conversas já fechadas/adiadas
@@ -917,6 +926,9 @@ export class EvolutionService implements OnApplicationBootstrap {
   async handleContactsUpsert(payload: EvolutionWebhookPayload) {
     this.logger.debug(`Recebendo webhook de contatos: ${summarizePayload(payload)}`);
     const instanceName = payload?.instance || payload?.instanceId;
+    // Onda 17.36 — escopo por tenant da instância
+    const cuInbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName) : null;
+    const cuTenantId: string | null = (cuInbox as any)?.tenant_id || (cuInbox as any)?.inbox?.tenant_id || null;
     const contacts = Array.isArray(payload?.data)
       ? (payload.data as any[])
       : [payload?.data as any];
@@ -939,7 +951,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       if (phone.length > 13) continue; // LID, não é telefone real
 
       // Apenas atualizar leads existentes — NÃO criar novos via contacts.upsert
-      const existingContact = await this.leadsService.findByPhone(phone);
+      const existingContact = await this.leadsService.findByPhone(phone, cuTenantId);
       if (!existingContact) continue;
 
       const updates: Record<string, string> = {};
@@ -1008,6 +1020,9 @@ export class EvolutionService implements OnApplicationBootstrap {
     this.logger.log(`[WEBHOOK] contacts.update received`);
     const data = payload?.data;
     const instanceName = payload?.instance || payload?.instanceId;
+    // Onda 17.36 — escopo por tenant da instância
+    const ctInbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName) : null;
+    const ctTenantId: string | null = (ctInbox as any)?.tenant_id || (ctInbox as any)?.inbox?.tenant_id || null;
     const contacts = Array.isArray(data) ? data : [data];
 
     for (const contact of contacts) {
@@ -1019,7 +1034,7 @@ export class EvolutionService implements OnApplicationBootstrap {
       if (!phone || phone.includes('-')) continue; // Ignorar grupos
       if (phone.length > 13) continue; // LID, não é telefone real
 
-      const lead = await this.prisma.lead.findFirst({ where: { phone } });
+      const lead = await this.prisma.lead.findFirst({ where: { phone, tenant_id: ctTenantId } });
       if (!lead) continue;
 
       const updates: Record<string, string> = {};
@@ -1147,8 +1162,8 @@ export class EvolutionService implements OnApplicationBootstrap {
           : 0;
         if (lastMsgTs > 0 && lastMsgTs < cutoffTs) continue; // Chat antigo, ignorar
 
-        // Verificar se já existe conversa ABERTA para este lead
-        const existingLead = await this.leadsService.findByPhone(phone);
+        // Verificar se já existe conversa ABERTA para este lead (escopo do tenant)
+        const existingLead = await this.leadsService.findByPhone(phone, tenantId);
         if (existingLead) {
           const existingConv = await this.prisma.conversation.findFirst({
             where: { lead_id: existingLead.id, channel: 'whatsapp', status: { in: ['ABERTO', 'ADIADO'] } },
@@ -1345,7 +1360,13 @@ export class EvolutionService implements OnApplicationBootstrap {
     const phone = jid.replace(/@.*$/, '');
     if (!phone || phone.includes('-')) return; // Ignorar grupos
 
-    const lead = await this.prisma.lead.findFirst({ where: { phone } });
+    // Onda 17.36 — escopo por tenant da instância (presença é cosmética, mas
+    // sem o filtro o "digitando..." aparecia na conversa de OUTRA clínica)
+    const prInstanceName = payload?.instance || payload?.instanceId;
+    const prInbox = prInstanceName ? await this.inboxesService.findByInstanceName(prInstanceName) : null;
+    const prTenantId: string | null = (prInbox as any)?.tenant_id || (prInbox as any)?.inbox?.tenant_id || null;
+
+    const lead = await this.prisma.lead.findFirst({ where: { phone, tenant_id: prTenantId } });
     if (!lead) return;
 
     const conversation = await this.prisma.conversation.findFirst({

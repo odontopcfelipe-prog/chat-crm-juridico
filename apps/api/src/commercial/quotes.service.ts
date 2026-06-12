@@ -894,10 +894,12 @@ export class QuotesService {
 
     if (patient.lead_id) return; // ja tem lead, OK
 
-    // Tenta vincular lead existente pelo telefone
+    // Tenta vincular lead existente pelo telefone — DENTRO do tenant
+    // (Onda 17.36: phone deixou de ser unico global; vincular lead de outra
+    // clinica aqui geraria cobranca/Asaas no tenant errado)
     if (patient.phone) {
-      const existingLead = await this.prisma.lead.findUnique({
-        where: { phone: patient.phone },
+      const existingLead = await this.prisma.lead.findFirst({
+        where: { phone: patient.phone, tenant_id: tenantId },
       });
       if (existingLead) {
         await this.prisma.patient.update({

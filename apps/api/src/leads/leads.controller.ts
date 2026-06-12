@@ -41,9 +41,11 @@ export class LeadsController {
   }
 
   @Get('check-phone')
-  checkPhone(@Query('phone') phone: string) {
+  checkPhone(@Request() req: any, @Query('phone') phone: string) {
     if (!phone) throw new BadRequestException('phone e obrigatorio');
-    return this.leadsService.checkPhone(phone);
+    // Onda 17.36 — escopo por tenant: a checagem só enxerga leads da própria
+    // clínica (antes vazava existência/dados de lead de outro tenant).
+    return this.leadsService.checkPhone(phone, req.user?.tenant_id ?? null);
   }
 
   // Onda 5e v31 (Fase 25) — leads que ja realizaram a avaliacao clinica.

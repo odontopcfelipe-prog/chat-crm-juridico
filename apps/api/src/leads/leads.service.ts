@@ -461,21 +461,37 @@ export class LeadsService {
     const incomingTenantId: string | null =
       tenantIdFlat || tenantRel?.connect?.id || null;
 
-    this.logger.debug(`Upsert lead: raw=${data.phone} → stored=${phone}`);
+    this.logger.debug(`Upsert lead: raw=${data.phone} → stored=${phone} tenant=${incomingTenantId ?? 'null'}`);
 
-    // Tenta atualizar o nome apenas se o lead existente não tiver nome
-    if (incomingName) {
-      await this.prisma.lead.updateMany({
-        where: { phone, name: null },
-        data: { name: incomingName },
-      });
-    }
+    // Onda 17.36 — ISOLAMENTO MULTI-TENANT. O lead agora é resolvido por
+    // (tenant_id, phone), NUNCA mais só pelo phone global: antes, mensagem
+    // chegando pela instância da clínica B grudava no lead da clínica A se o
+    // telefone já existisse lá (vazamento de conversa entre clínicas).
 
-    // Preenche tenant_id apenas se o lead existente estiver sem tenant (backfill defensivo)
+    // Backfill defensivo: lead órfão (tenant_id null, pré-multi-tenant) com
+    // este phone é adotado pelo tenant da instância que recebeu a mensagem.
+    // Roda ANTES da resolução pra que o lead adotado seja encontrado abaixo.
     if (incomingTenantId) {
-      await this.prisma.lead.updateMany({
+      const adopted = await this.prisma.lead.updateMany({
         where: { phone, tenant_id: null },
         data: { tenant_id: incomingTenantId },
+      });
+      if (adopted.count > 0) {
+        this.logger.log(
+          `[UPSERT] Lead órfão ${phone} adotado pelo tenant ${incomingTenantId} (backfill legado)`,
+        );
+      }
+    }
+
+    // Resolve o lead DENTRO do tenant. tenant null = escopo dos órfãos
+    // (webhook de instância legada sem vínculo) — nunca casa lead de clínica.
+    const scope = { phone, tenant_id: incomingTenantId };
+
+    // Atualiza o nome apenas se o lead existente (deste tenant) não tiver nome
+    if (incomingName) {
+      await this.prisma.lead.updateMany({
+        where: { ...scope, name: null },
+        data: { name: incomingName },
       });
     }
 
@@ -487,13 +503,24 @@ export class LeadsService {
     }
 
     // Detecta se é criação (lead novo) para disparar notificação ao atendente
-    const existing = await this.prisma.lead.findUnique({ where: { phone }, select: { id: true } });
+    let existing = await this.prisma.lead.findFirst({ where: scope, select: { id: true } });
 
-    const lead = await this.prisma.lead.upsert({
-      where: { phone },
-      update: updateData,
-      create: { ...data, phone },
-    });
+    let lead: Lead;
+    if (existing) {
+      lead = await this.prisma.lead.update({ where: { id: existing.id }, data: updateData });
+    } else {
+      try {
+        lead = await this.prisma.lead.create({ data: { ...data, phone } });
+      } catch (e: any) {
+        // Corrida: dois webhooks simultâneos do mesmo numero — o segundo create
+        // bate na @@unique([tenant_id, phone]); re-resolve e atualiza.
+        if (e?.code !== 'P2002') throw e;
+        const raced = await this.prisma.lead.findFirst({ where: scope, select: { id: true } });
+        if (!raced) throw e;
+        existing = raced;
+        lead = await this.prisma.lead.update({ where: { id: raced.id }, data: updateData });
+      }
+    }
 
     if (!existing) {
       // Lead realmente novo — atribui ao funil padrão pra que apareça no Kanban dinâmico.
@@ -543,15 +570,25 @@ export class LeadsService {
     });
   }
 
-  async findByPhone(phone: string): Promise<Lead | null> {
+  /**
+   * Onda 17.36 — busca por telefone com escopo de tenant:
+   *   - string  → só leads daquele tenant
+   *   - null    → só leads órfãos (tenant_id null, legado pré-multi-tenant)
+   *   - undefined → sem filtro (NÃO usar em fluxo de webhook/tenant — só em
+   *     rotinas administrativas globais conscientes do vazamento)
+   */
+  async findByPhone(phone: string, tenantId?: string | null): Promise<Lead | null> {
     const normalized = to12Digits(phone);
     return this.prisma.lead.findFirst({
-      where: { OR: [{ phone: normalized }, { phone }] },
+      where: {
+        OR: [{ phone: normalized }, { phone }],
+        ...(tenantId !== undefined ? { tenant_id: tenantId } : {}),
+      },
     });
   }
 
-  async checkPhone(phone: string): Promise<{ exists: boolean; lead?: Lead }> {
-    const found = await this.findByPhone(phone);
+  async checkPhone(phone: string, tenantId?: string | null): Promise<{ exists: boolean; lead?: Lead }> {
+    const found = await this.findByPhone(phone, tenantId);
     if (!found) return { exists: false };
     return { exists: true, lead: found };
   }

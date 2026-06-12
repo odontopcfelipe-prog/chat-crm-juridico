@@ -270,7 +270,10 @@ model Lead {
   id                  String         @id @default(uuid())
   tenant_id           String?
   name                String?
-  phone               String         @unique
+  /// Onda 17.36 — phone era @unique GLOBAL: o mesmo numero so podia existir
+  /// como lead em UMA clinica, e o upsert do webhook grudava a mensagem no
+  /// lead de OUTRO tenant (vazamento). Agora a unicidade e por tenant.
+  phone               String
   email               String?
   origin              String?
   // Pipeline dinâmico (Fase 1). `stage` String é legado — será deprecado
@@ -319,7 +322,10 @@ model Lead {
   lead_honorarios           LeadHonorario[]
   cpf_cnpj                  String? // CPF ou CNPJ — facilita match com Asaas
 
-  @@index([tenant_id, phone])
+  // Unicidade POR TENANT (Postgres: tenant_id null nao colide — leads orfaos
+  // legados convivem; o codigo resolve orfaos por escopo explicito).
+  @@unique([tenant_id, phone])
+  @@index([phone])
   @@index([stage])
   @@index([pipeline_id])
   @@index([stage_id])

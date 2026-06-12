@@ -33,17 +33,17 @@ export class LeadsCleanupService {
     while (true) {
       // Busca apenas id e phone para minimizar uso de memória
       // Nota: cursor separado do findMany para evitar erro de inferência de tipo (TS7022)
-      const batch: { id: string; phone: string }[] = cursor
+      const batch: { id: string; phone: string; tenant_id: string | null }[] = cursor
         ? await this.prisma.lead.findMany({
             take: BATCH_SIZE,
             skip: 1,
             cursor: { id: cursor },
-            select: { id: true, phone: true },
+            select: { id: true, phone: true, tenant_id: true },
             orderBy: { id: 'asc' },
           })
         : await this.prisma.lead.findMany({
             take: BATCH_SIZE,
-            select: { id: true, phone: true },
+            select: { id: true, phone: true, tenant_id: true },
             orderBy: { id: 'asc' },
           });
 
@@ -63,8 +63,11 @@ export class LeadsCleanupService {
         try {
           const normalizedPhone = normalizeBrazilianPhone(oldLead.phone);
 
-          const normalizedLead = await this.prisma.lead.findUnique({
-            where: { phone: normalizedPhone },
+          // Onda 17.36 — duplicata e DENTRO do tenant: phone deixou de ser
+          // unico global (@@unique([tenant_id, phone])), entao o merge so
+          // pode casar lead da MESMA clinica (ou orfaos entre si).
+          const normalizedLead = await this.prisma.lead.findFirst({
+            where: { phone: normalizedPhone, tenant_id: oldLead.tenant_id },
             select: { id: true },
           });
 
