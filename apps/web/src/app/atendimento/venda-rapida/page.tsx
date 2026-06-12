@@ -48,7 +48,21 @@ interface CartItem {
 // quando precisar parcelar, usar o fluxo normal de Avaliacao/Propostas).
 // Onda 17.32.71 — CASH (especie/dinheiro) separado de PIX. Backend
 // trata CASH como PIX + receiveInCash (marca como ja paga).
-type BillingType = 'PIX' | 'CASH' | 'CREDIT_CARD';
+// Onda 17.37 — formas "recebido na clínica" (CASH/CLINIC_CARD/CLINIC_PIX) NÃO
+// passam pelo Asaas online: registram a cobranca como JA RECEBIDA (receive-in-
+// cash) e entram no financeiro do paciente pra prestacao de contas. PIX/CARTAO
+// continuam gerando cobranca online via Asaas.
+type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX';
+
+// Rotulo do metodo recebido na clinica — vai no titulo do orcamento pra
+// aparecer no Financeiro do paciente.
+const CLINIC_METHOD_LABEL: Record<string, string> = {
+  CASH: 'Espécie',
+  CLINIC_CARD: 'Maquineta (clínica)',
+  CLINIC_PIX: 'PIX da clínica',
+};
+const isClinicReceived = (t: BillingType) =>
+  t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX';
 
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
@@ -210,8 +224,10 @@ export default function VendaRapidaPage() {
     () => cart.reduce((sum, it) => sum + Number(it.procedure.base_price) * it.quantity, 0),
     [cart],
   );
-  // Onda 17.32.71 — Desconto a vista aplica pra PIX E CASH (ambos sao a vista)
-  const avistaDiscount = (billingType === 'PIX' || billingType === 'CASH') ? subtotal * 0.10 : 0;
+  // Onda 17.37 — desconto à vista só no PIX online (Asaas). As formas recebidas
+  // na clínica (espécie/maquineta/PIX clínica) vão a preço cheio (decisão do
+  // dono do produto: maquineta tem taxa, e o caixa fica sem divergência).
+  const avistaDiscount = billingType === 'PIX' ? subtotal * 0.10 : 0;
   const total = subtotal - avistaDiscount;
 
   // Finaliza venda
@@ -237,42 +253,46 @@ export default function VendaRapidaPage() {
       // Funciona imediatamente, sem depender de rebuild do API.
 
       // 1. Cria Quote (com items)
-      const discountPercent = (billingType === 'PIX' || billingType === 'CASH') ? 10 : 0;
-      // Onda 17.32.72 — rota eh /patients/:id/quotes (sem prefixo
-      // /commercial/ — confirmado em commercial.controller.ts linha 75:
-      // @Controller() sem argumento).
+      const discountPercent = billingType === 'PIX' ? 10 : 0;
+      const clinicReceived = isClinicReceived(billingType);
+      // Método recebido na clínica vai no título → aparece no Financeiro do
+      // paciente (prestação de contas: "como" foi pago).
+      const title = clinicReceived
+        ? `Venda rápida · ${CLINIC_METHOD_LABEL[billingType]}`
+        : 'Venda rápida';
       const { data: quoteData } = await api.post<any>(
         `/patients/${patient.id}/quotes`,
         {
-          // Onda 17.32.73 — title="Venda rápida" pra aparecer no contrato
-          // (aba Financeiro do paciente) em vez do generico "Plano".
-          title: 'Venda rápida',
+          title,
           items: cart.map((it) => ({
             procedure_id: it.procedure.id,
             quantity: it.quantity,
           })),
           discount_percent: discountPercent,
-          notes: 'Venda rapida (balcao sem avaliacao)',
+          notes: clinicReceived
+            ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
+            : 'Venda rapida (balcao sem avaliacao)',
         },
       );
       const quoteId = quoteData?.id || quoteData?.quote?.id;
       if (!quoteId) throw new Error('Falha ao criar orcamento');
 
-      // 2. approveAndBill — cria charge Asaas
-      // Pra CASH, manda PIX (e marca como recebida em dinheiro no passo 3)
-      const isCash = billingType === 'CASH';
+      // 2. approveAndBill — cria charge. Recebido na clínica usa PIX como tipo
+      // (Asaas só aceita PIX/BOLETO/CREDIT_CARD) e é marcado como recebido no
+      // passo 3 — não gera cobrança online.
       const { data: billData } = await api.post<any>(
         `/quotes/${quoteId}/approve-and-bill`,
         {
-          billing_type: isCash ? 'PIX' : billingType,
+          billing_type: clinicReceived ? 'PIX' : billingType,
           value: total,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
         },
       );
 
-      // 3. CASH — receiveInCash imediato pra registrar como recebida
+      // 3. Recebido na clínica — receiveInCash imediato registra como pago e
+      // joga no financeiro do paciente (espécie, maquineta ou PIX da clínica).
       const asaasId = billData?.charge?.external_id;
-      if (isCash && asaasId) {
+      if (clinicReceived && asaasId) {
         try {
           await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`);
         } catch (e: any) {
@@ -539,14 +559,23 @@ export default function VendaRapidaPage() {
             </p>
             <div className="space-y-1.5">
               {([
-                { key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas · −10%', Icon: DollarSign },
-                { key: 'CASH' as BillingType, label: 'Espécie', sub: 'em mãos · −10%', Icon: ShoppingCart },
-                { key: 'CREDIT_CARD' as BillingType, label: 'Cartão', sub: 'até 6x sem juros', Icon: CreditCard },
-              ]).map((m) => {
+                // Onda 17.37 — 2 grupos: online (Asaas) e recebido na clínica.
+                { group: 'Cobrar online (Asaas)', key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas · −10%', Icon: DollarSign },
+                { group: 'Cobrar online (Asaas)', key: 'CREDIT_CARD' as BillingType, label: 'Cartão', sub: 'link Asaas · até 6x', Icon: CreditCard },
+                { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
+                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (clínica)', sub: 'cartão na máquina da clínica', Icon: CreditCard },
+                { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
+              ]).map((m, idx, arr) => {
                 const isActive = billingType === m.key;
+                const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
                 return (
+                  <div key={m.key}>
+                    {showHeader && (
+                      <p className="text-[9px] uppercase tracking-wider font-semibold text-muted-foreground/70 mb-1 mt-2 first:mt-0">
+                        {m.group}
+                      </p>
+                    )}
                   <button
-                    key={m.key}
                     type="button"
                     onClick={() => setBillingType(m.key)}
                     className={`w-full text-left p-2.5 rounded-lg border-2 transition-colors flex items-center gap-2 ${
@@ -566,6 +595,7 @@ export default function VendaRapidaPage() {
                     </div>
                     {isActive && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
                   </button>
+                  </div>
                 );
               })}
             </div>
@@ -738,17 +768,17 @@ function SuccessDialog({
 
         {/* Body */}
         <div className="flex-1 overflow-auto p-6">
-          {data.billingType === 'CASH' ? (
+          {isClinicReceived(data.billingType) ? (
             <div className="text-center py-4">
               <div className="w-20 h-20 rounded-full bg-emerald-500/15 text-emerald-700 flex items-center justify-center mx-auto mb-3">
                 <CheckCircle2 size={48} strokeWidth={2} />
               </div>
               <p className="text-lg font-extrabold text-foreground mb-1">
-                Recebido em espécie!
+                Recebido na clínica · {CLINIC_METHOD_LABEL[data.billingType]}
               </p>
               <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                Pagamento registrado como recebido. Os procedimentos já
-                aparecem no tratamento do paciente.
+                Pagamento registrado como recebido e lançado no financeiro do
+                paciente. Os procedimentos já aparecem no tratamento.
               </p>
             </div>
           ) : data.billingType === 'PIX' && data.pixQrCode ? (
