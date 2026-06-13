@@ -215,6 +215,13 @@ export class InfluencersService {
           },
         });
       } else {
+        // SaaS Fase 4 — valida limite do plano ANTES de criar paciente novo.
+        // Este caminho cria Patient direto no tx, sem passar por
+        // PatientsService.create(), entao a checagem de quota precisa ser
+        // explicita aqui — senao influenciadores furam o limite do plano.
+        // Passa o proprio tx pra contar dentro da transacao.
+        await this.patientsService.assertCanCreatePatient(tenantId, tx);
+
         // Cria Patient novo com dados minimos do influenciador
         patient = await (tx as any).patient.create({
           data: {

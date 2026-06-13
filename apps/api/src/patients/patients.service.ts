@@ -4,6 +4,11 @@ import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { Prisma } from '@crm/shared';
+// SaaS Fase 4 (Onda 17.32.79) — limites por plano. Import ESTATICO (resolucao
+// nodenext, extensao .js): se o modulo sumir o build/boot quebra alto, em vez
+// de a checagem de quota ser pulada silenciosamente em runtime — que era o que
+// acontecia com o `await import()` dentro de try/catch.
+import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
 
 @Injectable()
 export class PatientsService {
@@ -16,6 +21,37 @@ export class PatientsService {
     private patientTagsService: PatientTagsService,
   ) {}
 
+  /**
+   * SaaS Fase 4 (Onda 17.32.79) — valida o limite de pacientes do plano do
+   * tenant ANTES de criar um Patient. Lanca BadRequestException quando a quota
+   * ja foi atingida; nao faz nada quando ha folga (ou plano ilimitado).
+   *
+   * DEVE ser chamado em TODOS os caminhos que criam Patient: create(),
+   * convertFromLead() e InfluencersService.create(). Sem isso um tenant fura a
+   * quota paga — ex.: STARTER passa de max_patients convertendo leads que
+   * chegam o tempo todo pelo WhatsApp, ou cadastrando influenciadores.
+   *
+   * `client` aceita o tx de uma $transaction em andamento (InfluencersService)
+   * pra contar dentro da mesma transacao, sem abrir uma segunda conexao.
+   */
+  async assertCanCreatePatient(
+    tenantId: string,
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<void> {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente no contexto');
+    const tenant = await client.tenant.findUnique({
+      where: { id: tenantId },
+      select: { plan: true },
+    });
+    const limits = getLimitsForPlan(tenant?.plan);
+    const currentCount = await client.patient.count({ where: { tenant_id: tenantId } });
+    if (!isWithinLimit(currentCount, limits.max_patients)) {
+      throw new BadRequestException(
+        `Limite do plano ${tenant?.plan} atingido pra pacientes (${currentCount}/${limits.max_patients}). Atualize o plano pra continuar.`,
+      );
+    }
+  }
+
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
   async create(
     tenantId: string,
@@ -26,24 +62,8 @@ export class PatientsService {
     // tag_ids nao e coluna do Patient — separa antes de mandar pro prisma.create
     const { tag_ids, ...patientData } = data;
 
-    // Onda 17.32.79 — Valida limite do plano antes de criar paciente.
-    try {
-      const { getLimitsForPlan, isWithinLimit } = await import('../tenants/plan-limits.js');
-      const tenant = await this.prisma.tenant.findUnique({
-        where: { id: tenantId },
-        select: { plan: true },
-      });
-      const limits = getLimitsForPlan(tenant?.plan);
-      const currentCount = await this.prisma.patient.count({ where: { tenant_id: tenantId } });
-      if (!isWithinLimit(currentCount, limits.max_patients)) {
-        throw new BadRequestException(
-          `Limite do plano ${tenant?.plan} atingido pra pacientes (${currentCount}/${limits.max_patients}). Atualize o plano pra continuar.`,
-        );
-      }
-    } catch (e: any) {
-      if (e instanceof BadRequestException) throw e;
-      // Outros erros nao bloqueiam — best-effort
-    }
+    // Onda 17.32.79 / SaaS Fase 4 — valida limite de pacientes do plano.
+    await this.assertCanCreatePatient(tenantId);
 
     if (data.cpf) {
       const existing = await this.prisma.patient.findUnique({
@@ -625,6 +645,11 @@ export class PatientsService {
       });
       if (cpfDup) throw new BadRequestException('Ja existe um paciente com este CPF neste tenant');
     }
+
+    // SaaS Fase 4 — valida limite do plano tambem na conversao de Lead. Leads
+    // chegam constantemente via WhatsApp; sem esta checagem um tenant STARTER
+    // ultrapassa max_patients indefinidamente convertendo leads em pacientes.
+    await this.assertCanCreatePatient(tenantId);
 
     const patient = await this.prisma.patient.create({
       data: {
