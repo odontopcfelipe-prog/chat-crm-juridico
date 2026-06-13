@@ -169,7 +169,8 @@ export default function VendaRapidaPage() {
   // Onda 17.40 — dentista responsável pela venda (entra na comissão dele).
   const [dentists, setDentists] = useState<DentistOption[]>([]);
   const [dentistId, setDentistId] = useState<string>('');
-  const [billingType, setBillingType] = useState<BillingType>('PIX');
+  // Onda 17.42 — padrão "Espécie" (online Asaas removido da venda rápida).
+  const [billingType, setBillingType] = useState<BillingType>('CASH');
   const [installments, setInstallments] = useState<number>(1);
   const [finishing, setFinishing] = useState(false);
   // Onda 17.32.70 — Dialog de sucesso com QR PIX ou link de cartao
@@ -747,9 +748,8 @@ export default function VendaRapidaPage() {
             </p>
             <div className="space-y-1.5">
               {([
-                // Onda 17.37 — 2 grupos: online (Asaas) e recebido na clínica.
-                { group: 'Cobrar online (Asaas)', key: 'PIX' as BillingType, label: 'PIX', sub: 'QR Asaas', Icon: DollarSign },
-                { group: 'Cobrar online (Asaas)', key: 'CREDIT_CARD' as BillingType, label: 'Cartão', sub: 'link Asaas · até 6x', Icon: CreditCard },
+                // Onda 17.42 — Venda Rápida só recebe NA CLÍNICA (cobrança online
+                // via Asaas foi removida — PIX QR / Cartão link saíram do balcão).
                 { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
                 { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (clínica)', sub: 'cartão na máquina da clínica', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
@@ -851,8 +851,8 @@ export default function VendaRapidaPage() {
           <div className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
             <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
             <p className="leading-snug">
-              Ao finalizar: gera a cobrança no Asaas, lança os procedimentos no
-              tratamento do paciente e libera o agendamento.
+              Ao finalizar: registra o recebimento no caixa, lança os
+              procedimentos no tratamento do paciente e libera o agendamento.
             </p>
           </div>
         </aside>
