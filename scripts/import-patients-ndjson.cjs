@@ -70,13 +70,30 @@ async function main() {
     console.log(`TAG:    "${tagName}"`);
     console.log(`MODO:   ${commit ? '*** COMMIT (vai escrever) ***' : 'DRY-RUN (não escreve)'}`);
 
-    // ── Lê o NDJSON ────────────────────────────────────────────────────────
-    const lines = fs.readFileSync(file, 'utf8').split(/\r?\n/).filter(Boolean);
+    // ── Lê o arquivo: aceita NDJSON ({...} por linha) OU TSV colado da
+    // planilha (Paciente \t Prontuário \t Idade \t Documento \t Celular) ──────
+    const raw = fs.readFileSync(file, 'utf8');
+    const lines = raw.split(/\r?\n/).filter((l) => l.trim() !== '');
     const recs = [];
-    for (const l of lines) {
-      try { recs.push(JSON.parse(l)); } catch { /* pula linha inválida */ }
+    const isJson = lines[0] && lines[0].trim().startsWith('{');
+    if (isJson) {
+      for (const l of lines) { try { recs.push(JSON.parse(l)); } catch { /* skip */ } }
+      console.log(`Formato: NDJSON | ${recs.length} registros`);
+    } else {
+      const digits = (s) => (s || '').replace(/\D/g, '');
+      for (const l of lines) {
+        // pula o cabeçalho (linha que tem "Documento" e "Celular")
+        if (/documento/i.test(l) && /celular/i.test(l)) continue;
+        const cols = l.split('\t');
+        const name = (cols[0] || '').trim();
+        if (!name) continue;
+        const rn = (cols[1] || '').trim() || null;       // Prontuário
+        let cpf = digits(cols[3]); cpf = cpf.length === 11 ? cpf : null; // Documento
+        let phone = digits(cols[4]); phone = phone.length >= 10 ? phone : null; // Celular
+        recs.push({ name, record_number: rn, cpf, phone });
+      }
+      console.log(`Formato: TSV (planilha) | ${recs.length} registros`);
     }
-    console.log(`NDJSON: ${recs.length} registros (de ${lines.length} linhas)`);
 
     // ── Existentes (dedup idempotente) ─────────────────────────────────────
     const existing = await prisma.patient.findMany({
