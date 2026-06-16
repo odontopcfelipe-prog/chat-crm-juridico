@@ -10,6 +10,59 @@ import { Prisma } from '@crm/shared';
 // acontecia com o `await import()` dentro de try/catch.
 import { getLimitsForPlan, isWithinLimit } from '../tenants/plan-limits.js';
 
+// ============================================================================
+// Onda 17.47 — "Inativo" e CALCULADO por recencia, NAO um status salvo.
+// Decisao do produto: paciente inativo = nao-arquivado cujo ultimo atendimento
+// (last_visit_at, mantido pela agenda ao concluir/validar consulta clinica) foi
+// ha MAIS de INACTIVE_AFTER_MONTHS meses. Quem NUNCA foi atendido (last_visit_at
+// null) usa a data de cadastro (created_at) como referencia — cadastro recente
+// sem consulta ainda conta como Ativo; cadastro antigo sem consulta vira Inativo.
+// "Arquivado" (status manual, botao Arquivar) e preservado e tem prioridade.
+// Nada disso escreve no banco — e tudo derivado em tempo de leitura.
+// ============================================================================
+const INACTIVE_AFTER_MONTHS = 12;
+
+/** Data de corte: pacientes com referencia anterior a ela sao Inativos. */
+function inactiveCutoff(now: Date = new Date()): Date {
+  const d = new Date(now);
+  d.setMonth(d.getMonth() - INACTIVE_AFTER_MONTHS);
+  return d;
+}
+
+/**
+ * Fragmento de WHERE (combinavel via AND/spread) pra cada balde de atividade.
+ * Ambos excluem ARCHIVED. ACTIVE = referencia DENTRO da janela; INACTIVE = ANTES.
+ * Referencia = last_visit_at; se null, cai pra created_at.
+ */
+function activityWhere(bucket: 'ACTIVE' | 'INACTIVE', cutoff: Date): Prisma.PatientWhereInput {
+  if (bucket === 'ACTIVE') {
+    return {
+      status: { not: 'ARCHIVED' },
+      OR: [
+        { last_visit_at: { gte: cutoff } },
+        { last_visit_at: null, created_at: { gte: cutoff } },
+      ],
+    };
+  }
+  return {
+    status: { not: 'ARCHIVED' },
+    OR: [
+      { last_visit_at: { lt: cutoff } },
+      { last_visit_at: null, created_at: { lt: cutoff } },
+    ],
+  };
+}
+
+/** Status de atividade derivado pra um paciente ja carregado (selo da lista). */
+function deriveActivityStatus(
+  p: { status: string; last_visit_at: Date | null; created_at: Date },
+  cutoff: Date,
+): 'ACTIVE' | 'INACTIVE' | 'ARCHIVED' {
+  if (p.status === 'ARCHIVED') return 'ARCHIVED';
+  const ref = p.last_visit_at ?? p.created_at;
+  return ref < cutoff ? 'INACTIVE' : 'ACTIVE';
+}
+
 @Injectable()
 export class PatientsService {
   private readonly logger = new Logger(PatientsService.name);
@@ -270,7 +323,8 @@ export class PatientsService {
     tenantId: string,
     opts: {
       search?: string;
-      status?: string;
+      status?: string;        // filtro pelo campo SALVO (compat com pickers)
+      activity?: string;      // Onda 17.47 — filtro CALCULADO: ACTIVE/INACTIVE/ARCHIVED
       dentistId?: string;
       tagId?: string;
       // Filtros avancados (Fase 22)
@@ -318,7 +372,19 @@ export class PatientsService {
     const andFilters: Prisma.PatientWhereInput[] = [
       { tenant_id: tenantId },
     ];
+    // status = filtro pelo campo SALVO. Mantido cru DE PROPOSITO: outros
+    // consumidores mandam ?status=ACTIVE pra dizer "nao-arquivado" (pickers de
+    // Nova Avaliacao, indicador...). Mexer aqui mudaria o significado deles.
     if (opts.status) andFilters.push({ status: opts.status });
+    // Onda 17.47 — activity = filtro CALCULADO por recencia (dropdown da tela de
+    // Pacientes). ACTIVE/INACTIVE derivam de last_visit_at/created_at; ARCHIVED
+    // cai no status salvo. Param SEPARADO de `status` pra nao colidir com os pickers.
+    const activityCutoff = inactiveCutoff();
+    if (opts.activity === 'ARCHIVED') {
+      andFilters.push({ status: 'ARCHIVED' });
+    } else if (opts.activity === 'ACTIVE' || opts.activity === 'INACTIVE') {
+      andFilters.push(activityWhere(opts.activity, activityCutoff));
+    }
     if (opts.dentistId) andFilters.push({ primary_dentist_id: opts.dentistId });
     if (opts.tagId) andFilters.push({ tags: { some: { tag_id: opts.tagId } } });
     if (opts.withActivePlan) andFilters.push({ treatment_plans: { some: { status: 'ACTIVE' } } });
@@ -358,7 +424,14 @@ export class PatientsService {
       this.prisma.patient.count({ where }),
     ]);
 
-    return { data, total, page, totalPages: Math.ceil(total / limit) };
+    // Onda 17.47 — anexa o status de atividade CALCULADO (Ativo/Inativo/Arquivado)
+    // pra lista exibir o selo certo sem reimplementar a regra dos 12m no front.
+    const dataWithActivity = data.map((p) => ({
+      ...p,
+      activity_status: deriveActivityStatus(p, activityCutoff),
+    }));
+
+    return { data: dataWithActivity, total, page, totalPages: Math.ceil(total / limit) };
   }
 
   /** Detalhe completo do paciente — inclui alergias, medicacoes, prontuario, odontograma. */
@@ -888,10 +961,15 @@ export class PatientsService {
 
   /** Estatisticas rapidas (para dashboard). */
   async getStats(tenantId: string) {
+    // Onda 17.47 — Ativos/Inativos sao CALCULADOS por recencia (>12m sem
+    // atendimento = Inativo); Arquivados continua sendo o status salvo.
+    // active + inactive + archived = total (particao: archived vs nao-archived
+    // dividido por recencia; created_at sempre existe, entao todo mundo cai em 1).
+    const cutoff = inactiveCutoff();
     const [total, active, inactive, archived, withActivePlan] = await Promise.all([
       this.prisma.patient.count({ where: { tenant_id: tenantId } }),
-      this.prisma.patient.count({ where: { tenant_id: tenantId, status: 'ACTIVE' } }),
-      this.prisma.patient.count({ where: { tenant_id: tenantId, status: 'INACTIVE' } }),
+      this.prisma.patient.count({ where: { tenant_id: tenantId, ...activityWhere('ACTIVE', cutoff) } }),
+      this.prisma.patient.count({ where: { tenant_id: tenantId, ...activityWhere('INACTIVE', cutoff) } }),
       this.prisma.patient.count({ where: { tenant_id: tenantId, status: 'ARCHIVED' } }),
       this.prisma.patient.count({
         where: {

@@ -61,6 +61,7 @@ export class PatientsController {
     @Request() req: any,
     @Query('search') search?: string,
     @Query('status') status?: string,
+    @Query('activity') activity?: string,
     @Query('dentistId') dentistId?: string,
     @Query('tagId') tagId?: string,
     @Query('noVisitMonths') noVisitMonths?: string,
@@ -74,6 +75,7 @@ export class PatientsController {
     return this.patientsService.findAll(tenantId, {
       search,
       status,
+      activity,
       dentistId,
       tagId,
       noVisitMonths: noVisitMonths ? parseInt(noVisitMonths, 10) : undefined,

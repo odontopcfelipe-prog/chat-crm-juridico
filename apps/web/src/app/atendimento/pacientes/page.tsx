@@ -20,6 +20,9 @@ interface Patient {
   email: string | null;
   avatar_url: string | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
+  // Onda 17.47 — status de atividade CALCULADO pela API (Inativo = +12 meses
+  // sem atendimento). O selo usa este; `status` continua sendo o salvo (ARCHIVED).
+  activity_status?: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   primary_dentist?: { id: string; name: string } | null;
   last_visit_at?: string | null;
   tags?: Array<{ tag_id: string; tag: PatientTag }>;
@@ -105,7 +108,7 @@ function PacientesPageInner() {
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.set('search', search.trim());
-      if (status !== 'all') params.set('status', status);
+      if (status !== 'all') params.set('activity', status);
       if (tagFilter) params.set('tagId', tagFilter);
       if (noVisitMonths) params.set('noVisitMonths', noVisitMonths);
       if (withActivePlan) params.set('withActivePlan', 'true');
@@ -132,7 +135,7 @@ function PacientesPageInner() {
     try {
       const params = new URLSearchParams();
       if (search.trim()) params.set('search', search.trim());
-      if (status !== 'all') params.set('status', status);
+      if (status !== 'all') params.set('activity', status);
       if (tagFilter) params.set('tagId', tagFilter);
       if (noVisitMonths) params.set('noVisitMonths', noVisitMonths);
       if (withActivePlan) params.set('withActivePlan', 'true');
@@ -146,7 +149,9 @@ function PacientesPageInner() {
         p.cpf || '',
         p.phone || '',
         p.email || '',
-        p.status || '',
+        // Onda 17.47 — coluna Status usa o rotulo CALCULADO (igual ao selo da
+        // lista): Ativo/Inativo/Arquivado, nao o campo cru do banco.
+        STATUS_BADGE[(p.activity_status ?? p.status) as Patient['status']]?.label || '',
         p.primary_dentist?.name || '',
         (p.tags || []).map((t: any) => t.tag?.name).filter(Boolean).join('; '),
       ]);
@@ -212,13 +217,13 @@ function PacientesPageInner() {
       {/* Stats cards */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
         {[
-          { label: 'Total', value: stats.total, cls: 'text-foreground' },
-          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600' },
-          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600' },
-          { label: 'Arquivados', value: stats.archived, cls: 'text-muted-foreground' },
-          { label: 'Em tratamento', value: stats.with_active_plan, cls: 'text-primary' },
+          { label: 'Total', value: stats.total, cls: 'text-foreground', hint: 'Todos os pacientes cadastrados' },
+          { label: 'Ativos', value: stats.active, cls: 'text-emerald-600', hint: 'Com atendimento nos últimos 12 meses' },
+          { label: 'Inativos', value: stats.inactive, cls: 'text-amber-600', hint: 'Mais de 12 meses sem atendimento' },
+          { label: 'Arquivados', value: stats.archived, cls: 'text-muted-foreground', hint: 'Arquivados manualmente' },
+          { label: 'Em tratamento', value: stats.with_active_plan, cls: 'text-primary', hint: 'Com plano de tratamento ativo' },
         ].map((s) => (
-          <div key={s.label} className="bg-card border border-border rounded-xl p-4">
+          <div key={s.label} title={s.hint} className="bg-card border border-border rounded-xl p-4">
             <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">{s.label}</p>
             <p className={`text-2xl font-bold mt-1 ${s.cls}`}>{s.value}</p>
           </div>
@@ -361,7 +366,10 @@ function PacientesPageInner() {
         ) : (
           <ul className="divide-y divide-border">
             {list.data.map((p) => {
-              const StatusIcon = STATUS_BADGE[p.status].icon;
+              // Onda 17.47 — selo usa o status CALCULADO (Inativo = +12m sem
+              // atendimento) que a API manda; cai pro status salvo se faltar.
+              const activity = p.activity_status ?? p.status;
+              const StatusIcon = STATUS_BADGE[activity].icon;
               return (
                 <li
                   key={p.id}
@@ -407,9 +415,9 @@ function PacientesPageInner() {
                       </div>
                     )}
                     <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[p.status].cls}`}
+                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[activity].cls}`}
                     >
-                      <StatusIcon size={12} /> {STATUS_BADGE[p.status].label}
+                      <StatusIcon size={12} /> {STATUS_BADGE[activity].label}
                     </span>
                   </div>
                 </li>
