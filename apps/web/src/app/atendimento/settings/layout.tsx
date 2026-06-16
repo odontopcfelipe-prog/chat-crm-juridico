@@ -29,7 +29,7 @@ const settingsSections: MenuSection[] = [
     items: [
       { label: 'Setores', href: '/atendimento/settings/inboxes', icon: Layout },
       { label: 'Respostas Rápidas', href: '/atendimento/settings/canned-responses', icon: Zap },
-      { label: 'Funis de CRM', href: '/atendimento/settings/pipelines', icon: Kanban },
+      { label: 'Funis de CRC', href: '/atendimento/settings/pipelines', icon: Kanban },
       { label: 'Notificações', href: '/atendimento/settings/notifications', icon: Bell },
       { label: 'Automações', href: '/atendimento/settings/automations', icon: GitBranch },
     ],

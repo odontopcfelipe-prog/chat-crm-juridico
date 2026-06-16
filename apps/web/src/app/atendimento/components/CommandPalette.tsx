@@ -38,7 +38,7 @@ const NAV_ACTIONS = [
   { id: 'nav-crm',      label: 'Ir para CRC',       sublabel: 'Pipeline de leads',     href: '/atendimento/crm',      icon: <Kanban size={14} className="text-violet-400" /> },
   { id: 'nav-agenda',   label: 'Ir para Agenda',    sublabel: 'Compromissos e prazos',  href: '/atendimento/agenda',   icon: <Calendar size={14} className="text-blue-400" /> },
   { id: 'nav-contacts', label: 'Ir para Contatos',  sublabel: 'Lista de leads',         href: '/atendimento/contacts', icon: <User size={14} className="text-emerald-400" /> },
-  { id: 'nav-settings', label: 'Configurações',     sublabel: 'WhatsApp, IA, CRM...',   href: '/atendimento/settings', icon: <Settings size={14} className="text-muted-foreground" /> },
+  { id: 'nav-settings', label: 'Configurações',     sublabel: 'WhatsApp, IA, CRC...',   href: '/atendimento/settings', icon: <Settings size={14} className="text-muted-foreground" /> },
 ];
 
 export function CommandPalette({
