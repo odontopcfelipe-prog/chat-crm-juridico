@@ -228,7 +228,10 @@ function PacientesPageInner() {
       {/* Filtros */}
       <div className="flex flex-col sm:flex-row gap-3 mb-4">
         <div className="relative flex-1">
-          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+          {/* pointer-events-none: o icone fica sobre o input (left-3 absolute);
+              sem isso, clicar em cima da lupa NAO foca o campo e o que voce
+              digita nao registra (lista nao filtra). Padrao igual ao PatientSearch. */}
+          <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
           <input
             type="text"
             value={search}
