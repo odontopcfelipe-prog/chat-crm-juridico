@@ -183,7 +183,10 @@ function PacientesPageInner() {
   };
 
   return (
-    <div className="p-6 w-full">
+    // Onda 17.46 — root precisa do proprio scroll: o <main> do layout e
+    // overflow-hidden, entao sem h-full+overflow-y-auto aqui a lista de 50
+    // pacientes estoura a altura e nao rola (padrao igual ao dashboard).
+    <div className="h-full overflow-y-auto p-6 w-full">
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
