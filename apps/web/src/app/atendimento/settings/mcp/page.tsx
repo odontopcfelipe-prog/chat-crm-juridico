@@ -51,7 +51,7 @@ export default function McpSettingsPage() {
         <h1 className="text-xl font-bold">Integração MCP — Claude Desktop</h1>
       </div>
       <p className="text-sm text-muted-foreground mb-8">
-        Conecte o Claude Desktop (Cowork) diretamente ao CRM. Sem instalação local — basta gerar o
+        Conecte o Claude Desktop (Cowork) diretamente ao CRC. Sem instalação local — basta gerar o
         token e colar na configuração do Claude.
       </p>
 
@@ -63,7 +63,7 @@ export default function McpSettingsPage() {
         <div className="bg-card border border-border rounded-xl p-5">
           <p className="text-sm text-muted-foreground mb-4">
             O token gerado é válido por <strong>1 ano</strong> e permite que o Claude acesse os
-            dados do CRM em seu nome. Gere um novo token sempre que necessário.
+            dados do CRC em seu nome. Gere um novo token sempre que necessário.
           </p>
           <button
             onClick={generateToken}
@@ -173,7 +173,7 @@ export default function McpSettingsPage() {
           </h2>
           <div className="bg-card border border-border rounded-xl p-5">
             <p className="text-sm text-muted-foreground">
-              Feche o Claude Desktop completamente e abra novamente. O CRM aparecerá como ferramenta
+              Feche o Claude Desktop completamente e abra novamente. O CRC aparecerá como ferramenta
               disponível (ícone 🔧) com 14 ferramentas: clientes, processos, documentos e
               honorários.
             </p>

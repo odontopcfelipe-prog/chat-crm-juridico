@@ -74,7 +74,7 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Dashboards e relatorios consolidados', group: 'financeiro' },
 
   // ─── Marketing / CRM ────────────────────────────────────────
-  { key: 'view_marketing', label: 'CRM e Marketing',
+  { key: 'view_marketing', label: 'CRC e Marketing',
     description: 'Funis, afiliados, retornos e follow-up', group: 'marketing' },
 
   // ─── Sistema ────────────────────────────────────────────────
@@ -308,7 +308,7 @@ export const SECTORS: SectorMeta[] = [
       },
       actions: [
         { icon: '💬', label: 'Mensagens',     href: '/atendimento/whatsapp',      tone: 'violet'  },
-        { icon: '🎯', label: 'Funil CRM',     href: '/atendimento/crm',           tone: 'emerald' },
+        { icon: '🎯', label: 'Funil CRC',     href: '/atendimento/crm',           tone: 'emerald' },
         { icon: '🔁', label: 'Follow-up IA',  href: '/atendimento/followup',      tone: 'amber'   },
         { icon: '📢', label: 'Marketing',     href: '/atendimento/marketing',     tone: 'rose'    },
       ],

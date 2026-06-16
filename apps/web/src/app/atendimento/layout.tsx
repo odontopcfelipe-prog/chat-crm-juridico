@@ -192,7 +192,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
   // ─── Bottom nav tabs ──────────────────────────────────────
   const mainTabs = [
-    { label: 'CRM', href: '/atendimento/crm', icon: Briefcase, match: (p: string) => p.startsWith('/atendimento/crm') },
+    { label: 'CRC', href: '/atendimento/crm', icon: Briefcase, match: (p: string) => p.startsWith('/atendimento/crm') },
     { label: 'Chat', href: '/atendimento', icon: MessageSquare, match: (p: string) => p === '/atendimento' || p.startsWith('/atendimento/chat'), isCenter: true, badge: unreadTotal },
     { label: 'Contatos', href: '/atendimento/contacts', icon: Users, match: (p: string) => p.startsWith('/atendimento/contacts') },
   ];

@@ -29,7 +29,7 @@ interface PaletteItem {
 const NAV_ITEMS = [
   { id: 'nav-dashboard',  label: 'Dashboard',               sublabel: 'Visão geral do escritório',     href: '/atendimento/dashboard',           icon: <LayoutDashboard size={14} className="text-indigo-400" /> },
   { id: 'nav-inbox',      label: 'Inbox (WhatsApp)',         sublabel: 'Conversas abertas',             href: '/atendimento',                     icon: <MessageSquare size={14} className="text-emerald-400" /> },
-  { id: 'nav-crm',        label: 'Leads & CRM',             sublabel: 'Pipeline de leads',             href: '/atendimento/crm',                 icon: <Briefcase size={14} className="text-violet-400" /> },
+  { id: 'nav-crm',        label: 'Leads & CRC',             sublabel: 'Pipeline de leads',             href: '/atendimento/crm',                 icon: <Briefcase size={14} className="text-violet-400" /> },
   { id: 'nav-contacts',   label: 'Contatos',                sublabel: 'Lista de clientes e leads',     href: '/atendimento/contacts',            icon: <Users size={14} className="text-blue-400" /> },
   { id: 'nav-tasks',      label: 'Tarefas',                 sublabel: 'Pendências e prazos',           href: '/atendimento/tasks',               icon: <CheckSquare size={14} className="text-amber-400" /> },
   { id: 'nav-agenda',     label: 'Agenda',                  sublabel: 'Compromissos e audiências',     href: '/atendimento/agenda',              icon: <Calendar size={14} className="text-sky-400" /> },

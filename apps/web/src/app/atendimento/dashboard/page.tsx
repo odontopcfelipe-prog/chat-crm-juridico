@@ -153,7 +153,7 @@ const SECONDARY_ACTIONS = [
 // "Ir para" pra distinguir.
 const SECTION_SHORTCUTS = [
   { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users },
-  { label: 'CRM', href: '/atendimento/crm', icon: LayoutGrid },
+  { label: 'CRC', href: '/atendimento/crm', icon: LayoutGrid },
   { label: 'WhatsApp', href: '/atendimento', icon: MessageCircle },
   { label: 'Financeiro', href: '/atendimento/financeiro', icon: Wallet },
 ] as const;

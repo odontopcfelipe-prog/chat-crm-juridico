@@ -2306,7 +2306,7 @@ function ClientesSyncTab() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
           <Users size={15} className="text-primary" />
-          Clientes CRM x Asaas
+          Clientes CRC x Asaas
           <span className="text-xs text-muted-foreground font-normal">({linked.length} vinculados)</span>
         </h2>
         <div className="flex items-center gap-2">

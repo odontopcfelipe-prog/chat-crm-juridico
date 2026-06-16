@@ -19,7 +19,7 @@ export function LeadPipeline({ pipeline }: Props) {
     <WidgetCard
       title="Pipeline de Leads"
       icon={<Briefcase size={15} className="text-primary" />}
-      linkLabel="Ver CRM"
+      linkLabel="Ver CRC"
       linkHref="/atendimento/crm"
     >
       <div className="space-y-2">

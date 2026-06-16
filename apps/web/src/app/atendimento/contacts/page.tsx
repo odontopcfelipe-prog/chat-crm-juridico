@@ -172,7 +172,7 @@ export default function ContactsPage() {
     setArchivedLeads(prev => prev.filter(c => c.id !== contactId));
     try {
       await api.patch(`/leads/${contactId}/stage`, { stage: 'INICIAL' });
-      showSuccess('Contato movido de volta para o CRM.');
+      showSuccess('Contato movido de volta para o CRC.');
     } catch {
       fetchArchivedContacts();
       showError('Erro ao mover contato.');
@@ -393,7 +393,7 @@ export default function ContactsPage() {
                   )}
                 </div>
                 <p className="text-[13px] text-muted-foreground mt-0.5">
-                  Leads marcados como Perdido no CRM
+                  Leads marcados como Perdido no CRC
                 </p>
               </div>
             </div>

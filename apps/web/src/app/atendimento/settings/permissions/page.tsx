@@ -49,7 +49,7 @@ const MATRIX: MatrixRow[] = [
     permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'none' },
   },
   {
-    label: 'Leads & CRM',
+    label: 'Leads & CRC',
     description: 'Gestão do funil comercial',
     permissions: { ADMIN: 'full', DENTIST: 'partial', OPERADOR: 'partial', ASSISTANT: 'none' },
   },

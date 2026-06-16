@@ -92,7 +92,7 @@ export default function AutomationsPage() {
             <Zap size={20} className="text-primary" />
             Automações de Workflow
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">Regras automáticas acionadas por eventos no CRM</p>
+          <p className="text-sm text-muted-foreground mt-1">Regras automáticas acionadas por eventos no CRC</p>
         </div>
         <button
           onClick={() => setShowNew(true)}

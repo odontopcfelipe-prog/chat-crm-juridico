@@ -195,7 +195,7 @@ export default function PipelinesSettingsPage() {
             <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <Kanban size={24} />
             </div>
-            <h1 className="text-3xl font-bold text-foreground tracking-tight">Funis de CRM</h1>
+            <h1 className="text-3xl font-bold text-foreground tracking-tight">Funis de CRC</h1>
           </div>
           <p className="text-muted-foreground max-w-3xl">
             Crie múltiplos funis (ex: Odontologia, Estética) e configure as etapas de cada um. A IA usa essas etapas
@@ -389,7 +389,7 @@ function StagnationSettings() {
       ) : (
         <>
           <p className="text-[12px] text-muted-foreground mb-3">
-            Exibir alerta no CRM quando um lead ficar sem mensagem por pelo menos{' '}
+            Exibir alerta no CRC quando um lead ficar sem mensagem por pelo menos{' '}
             <span className="text-foreground font-bold">{days} dia{days !== 1 ? 's' : ''}</span>
             {' '}(exceto nas etapas marcadas como ganho/perdido).
           </p>

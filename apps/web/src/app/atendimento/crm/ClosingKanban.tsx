@@ -220,7 +220,7 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
         <div className="flex items-center gap-3">
           <DollarSign size={18} className="text-emerald-600" />
           <div>
-            <h2 className="text-base font-bold text-foreground">CRM de Fechamento</h2>
+            <h2 className="text-base font-bold text-foreground">CRC de Fechamento</h2>
             <p className="text-[11px] text-muted-foreground">
               Pacientes que fizeram avaliação — auto-populado quando consulta vira CONCLUÍDA
             </p>

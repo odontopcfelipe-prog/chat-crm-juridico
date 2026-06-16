@@ -46,7 +46,7 @@ type RoleKey = 'ADMIN' | 'DENTIST' | 'OPERADOR' | 'COMERCIAL' | 'ASSISTANT' | 'F
 const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: string }[] = [
   { key: 'ADMIN', label: 'Administrador', emoji: '🛡️', description: 'Acesso total ao sistema' },
   { key: 'DENTIST', label: 'Dentista', emoji: '🦷', description: 'Atendimento clínico, prontuários, prescrições' },
-  { key: 'OPERADOR', label: 'Operador', emoji: '💬', description: 'Atendimento no chat e CRM' },
+  { key: 'OPERADOR', label: 'Operador', emoji: '💬', description: 'Atendimento no chat e CRC' },
   { key: 'COMERCIAL', label: 'Comercial', emoji: '💼', description: 'Captação e pré-venda' },
   { key: 'ASSISTANT', label: 'Assistente', emoji: '🧑‍⚕️', description: 'Auxilia dentistas em procedimentos e atendimento' },
   { key: 'FINANCEIRO', label: 'Financeiro', emoji: '💰', description: 'Honorários e receitas' },

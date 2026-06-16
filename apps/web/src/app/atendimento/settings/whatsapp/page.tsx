@@ -395,7 +395,7 @@ export default function WhatsappIntegrationPage() {
               <h3 className="text-lg font-bold text-foreground">Remover "{confirmDelete.displayName}"?</h3>
               <p className="text-sm text-muted-foreground mt-1">
                 O WhatsApp será desconectado e a linha apagada do servidor. As conversas já recebidas
-                ficam guardadas no CRM, mas o número não receberá mais mensagens até reconectar.
+                ficam guardadas no CRC, mas o número não receberá mais mensagens até reconectar.
               </p>
             </div>
           </div>

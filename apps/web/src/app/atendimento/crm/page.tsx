@@ -1716,7 +1716,7 @@ export default function CrmPage() {
         <header className="px-6 py-5 border-b border-border shrink-0 flex items-center gap-4">
           <div className="shrink-0">
             <div className="flex items-center gap-3 flex-wrap">
-              <h1 className="text-xl font-bold text-foreground tracking-tight">CRM Pipeline</h1>
+              <h1 className="text-xl font-bold text-foreground tracking-tight">CRC Pipeline</h1>
               {pipelines.length > 0 && (
                 <div className="relative">
                   <select
@@ -1776,7 +1776,7 @@ export default function CrmPage() {
               title="CRM Fechamentos — orcamentos pos-avaliacao aguardando fechamento"
             >
               <DollarSign size={16} strokeWidth={2.5} />
-              <span>CRM Fechamentos</span>
+              <span>CRC Fechamentos</span>
             </button>
           </div>
 

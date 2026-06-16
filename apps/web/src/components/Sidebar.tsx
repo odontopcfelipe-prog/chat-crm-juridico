@@ -551,7 +551,7 @@ export function Sidebar() {
     },
     crm: {
       // Onda 5e v8 — encurtado de "Leads & CRM" pra "CRM"
-      label: 'CRM',
+      label: 'CRC',
       href: '/atendimento/crm',
       icon: <Briefcase size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/crm'),
@@ -828,7 +828,7 @@ export function Sidebar() {
     },
     {
       id: 'crm',
-      label: 'CRM',
+      label: 'CRC',
       defaultExpanded: true,
       icon: <Network size={14} strokeWidth={2.5} />,
       items: [
