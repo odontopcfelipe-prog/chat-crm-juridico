@@ -390,39 +390,85 @@ export class PatientsService {
     if (opts.withActivePlan) andFilters.push({ treatment_plans: { some: { status: 'ACTIVE' } } });
     if (opts.withoutAnamnesis) andFilters.push({ anamneses: { none: {} } });
     if (lastVisitFilter) andFilters.push(lastVisitFilter);
-    if (opts.search) {
-      andFilters.push({
-        OR: [
-          { name: { contains: opts.search, mode: 'insensitive' } },
-          { phone: { contains: opts.search } },
-          { cpf: { contains: opts.search } },
-          { email: { contains: opts.search, mode: 'insensitive' } },
-          // Onda 17.32.184 — busca tambem pela ficha (nº de prontuario)
-          { record_number: { contains: opts.search, mode: 'insensitive' } },
-          // Onda 17.33 — busca tambem pelo nome da etiqueta (ex: digitar
-          // "Paciente Antigo" traz todos com essa tag, sem usar o dropdown)
-          { tags: { some: { tag: { name: { contains: opts.search, mode: 'insensitive' } } } } },
-        ],
-      });
-    }
-    const where: Prisma.PatientWhereInput = { AND: andFilters };
+    // Onda 17.48 — busca textual (substring em nome/telefone/cpf/ficha/email/tag).
+    // NAO entra no andFilters base de proposito: a busca e tratada em DOIS baldes
+    // pra rankear por relevancia (quem o NOME comeca com o termo vem primeiro).
+    const searchOr: Prisma.PatientWhereInput | undefined = opts.search
+      ? {
+          OR: [
+            { name: { contains: opts.search, mode: 'insensitive' } },
+            { phone: { contains: opts.search } },
+            { cpf: { contains: opts.search } },
+            { email: { contains: opts.search, mode: 'insensitive' } },
+            // Onda 17.32.184 — busca tambem pela ficha (nº de prontuario)
+            { record_number: { contains: opts.search, mode: 'insensitive' } },
+            // Onda 17.33 — busca tambem pelo nome da etiqueta
+            { tags: { some: { tag: { name: { contains: opts.search, mode: 'insensitive' } } } } },
+          ],
+        }
+      : undefined;
 
-    const [data, total] = await Promise.all([
-      this.prisma.patient.findMany({
-        where,
-        // Onda 17.44 — lista em ordem alfabética por nome (antes era created_at
-        // desc, que ficava bagunçado depois de importar uma base grande).
-        orderBy: { name: 'asc' },
-        skip,
-        take: limit,
-        include: {
-          primary_dentist: { select: { id: true, name: true, email: true } },
-          tags: { include: { tag: true } },
-          _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
-        },
-      }),
-      this.prisma.patient.count({ where }),
-    ]);
+    const include = {
+      primary_dentist: { select: { id: true, name: true, email: true } },
+      tags: { include: { tag: true } },
+      _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
+    } satisfies Prisma.PatientInclude;
+
+    let data: any[];
+    let total: number;
+
+    if (searchOr) {
+      // Onda 17.48 — RANKING por relevancia. Antes a busca ordenava so por nome
+      // ASC: quem apenas CONTINHA a letra num nome menor (ex: "Lustosa" pra "s")
+      // vinha ANTES de quem o nome COMECA com ela ("Suellen"). Agora dois baldes:
+      //   tier 1 = nome COMECA com o termo (o que o usuario espera ver primeiro)
+      //   tier 2 = demais matches (substring em qualquer campo) menos o tier 1
+      // Cada balde por nome ASC; a paginacao atravessa os dois corretamente.
+      const prefixCond: Prisma.PatientWhereInput = {
+        name: { startsWith: opts.search, mode: 'insensitive' },
+      };
+      const prefixWhere: Prisma.PatientWhereInput = { AND: [...andFilters, prefixCond] };
+      const restWhere: Prisma.PatientWhereInput = {
+        AND: [...andFilters, searchOr, { NOT: prefixCond }],
+      };
+
+      const [prefixCount, restCount] = await Promise.all([
+        this.prisma.patient.count({ where: prefixWhere }),
+        this.prisma.patient.count({ where: restWhere }),
+      ]);
+      total = prefixCount + restCount;
+
+      // Fatia da pagina atual em cada balde (tier 1 primeiro, depois tier 2).
+      const t1Take = Math.max(0, Math.min(limit, prefixCount - skip));
+      const t2Skip = Math.max(0, skip - prefixCount);
+      const t2Take = limit - t1Take;
+
+      const [t1, t2] = await Promise.all([
+        t1Take > 0
+          ? this.prisma.patient.findMany({ where: prefixWhere, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip, take: t1Take, include })
+          : Promise.resolve([] as any[]),
+        t2Take > 0
+          ? this.prisma.patient.findMany({ where: restWhere, orderBy: [{ name: 'asc' }, { id: 'asc' }], skip: t2Skip, take: t2Take, include })
+          : Promise.resolve([] as any[]),
+      ]);
+      data = [...t1, ...t2];
+    } else {
+      const where: Prisma.PatientWhereInput = { AND: andFilters };
+      [data, total] = await Promise.all([
+        this.prisma.patient.findMany({
+          where,
+          // Onda 17.44 — lista em ordem alfabética por nome (antes era created_at
+          // desc, que ficava bagunçado depois de importar uma base grande).
+          // Onda 17.48 — desempate por id pra ordem total estavel entre paginas
+          // (nomes homonimos nao trocam de lugar/duplicam na fronteira).
+          orderBy: [{ name: 'asc' }, { id: 'asc' }],
+          skip,
+          take: limit,
+          include,
+        }),
+        this.prisma.patient.count({ where }),
+      ]);
+    }
 
     // Onda 17.47 — anexa o status de atividade CALCULADO (Ativo/Inativo/Arquivado)
     // pra lista exibir o selo certo sem reimplementar a regra dos 12m no front.
