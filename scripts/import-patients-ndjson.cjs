@@ -36,8 +36,15 @@ async function main() {
   const tagName = getFlag(args, '--tag', 'Paciente novo');
   const commit = args.includes('--commit');
 
-  if (!file || !tenantArg) {
-    console.error('uso: node import-patients-ndjson.cjs <ndjson> --tenant "<id|nome>" [--tag "Paciente novo"] [--commit]');
+  // Onda 17.45 — modo RE-TAG: troca uma tag por outra em todos que a têm
+  // (ex: corrigir os importados de "Paciente novo" -> "Paciente antigo").
+  const retagFrom = getFlag(args, '--retag-from');
+  const retagTo = getFlag(args, '--retag-to');
+  const isRetag = !!(retagFrom && retagTo);
+
+  if (!tenantArg || (!isRetag && !file)) {
+    console.error('uso (import): node ... <ndjson|tsv> --tenant "<id|nome>" [--tag "..."] [--commit]');
+    console.error('uso (re-tag): node ... --tenant "<id|nome>" --retag-from "Paciente novo" --retag-to "Paciente antigo" [--commit]');
     process.exit(1);
   }
 
@@ -67,8 +74,43 @@ async function main() {
       process.exit(2);
     }
     console.log(`TENANT: ${tenant.id} | "${tenant.name}" | plano ${tenant.plan}`);
-    console.log(`TAG:    "${tagName}"`);
     console.log(`MODO:   ${commit ? '*** COMMIT (vai escrever) ***' : 'DRY-RUN (não escreve)'}`);
+
+    // ── Modo RE-TAG: troca todos de uma tag pra outra ──────────────────────
+    if (isRetag) {
+      const fromTag = await prisma.patientTag.findUnique({
+        where: { tenant_id_name: { tenant_id: tenant.id, name: retagFrom } },
+      });
+      if (!fromTag) {
+        console.error(`Tag de origem "${retagFrom}" não existe nesse tenant.`);
+        process.exit(2);
+      }
+      const count = await prisma.patientTagOnPatient.count({ where: { tag_id: fromTag.id } });
+      console.log(`RE-TAG: "${retagFrom}" -> "${retagTo}" | ${count} paciente(s) com a tag de origem`);
+      if (!commit) {
+        console.log('\n*** DRY-RUN — nada foi alterado. Confira a contagem e rode com --commit. ***');
+        return;
+      }
+      const toTag = await prisma.patientTag.upsert({
+        where: { tenant_id_name: { tenant_id: tenant.id, name: retagTo } },
+        update: {},
+        create: { tenant_id: tenant.id, name: retagTo, color: '#f59e0b' },
+      });
+      const links = await prisma.patientTagOnPatient.findMany({
+        where: { tag_id: fromTag.id },
+        select: { patient_id: true },
+      });
+      // adiciona a tag nova (sem duplicar) e remove a antiga
+      await prisma.patientTagOnPatient.createMany({
+        data: links.map((l) => ({ patient_id: l.patient_id, tag_id: toTag.id })),
+        skipDuplicates: true,
+      });
+      await prisma.patientTagOnPatient.deleteMany({ where: { tag_id: fromTag.id } });
+      console.log(`FIM: ${links.length} paciente(s) re-etiquetados "${retagFrom}" -> "${retagTo}".`);
+      return;
+    }
+
+    console.log(`TAG:    "${tagName}"`);
 
     // ── Lê o arquivo: aceita NDJSON ({...} por linha) OU TSV colado da
     // planilha (Paciente \t Prontuário \t Idade \t Documento \t Celular) ──────
