@@ -66,6 +66,8 @@ function PacientesPageInner() {
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, archived: 0, with_active_plan: 0 });
   const [allTags, setAllTags] = useState<PatientTag[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('');
+  // Onda 17.44 — paginação (base grande: 7k+ pacientes não cabem em 1 página).
+  const [page, setPage] = useState(1);
 
   // Filtros avancados (Fase 22)
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -109,6 +111,7 @@ function PacientesPageInner() {
       if (withActivePlan) params.set('withActivePlan', 'true');
       if (withoutAnamnesis) params.set('withoutAnamnesis', 'true');
       params.set('limit', '50');
+      params.set('page', String(page));
       const [listRes, statsRes] = await Promise.all([
         api.get<PatientList>(`/patients?${params.toString()}`),
         api.get<typeof stats>('/patients/stats'),
@@ -122,7 +125,7 @@ function PacientesPageInner() {
     } finally {
       if (seq === loadSeqRef.current) setLoading(false);
     }
-  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis]);
+  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, page]);
 
   // Export CSV: gera planilha com filtros aplicados (limit alto)
   const handleExportCsv = async () => {
@@ -166,6 +169,12 @@ function PacientesPageInner() {
     const t = setTimeout(load, 250); // debounce leve pra busca
     return () => clearTimeout(t);
   }, [load]);
+
+  // Onda 17.44 — qualquer mudança de filtro volta pra página 1 (senão você
+  // poderia ficar "preso" numa página que o novo filtro nem tem).
+  useEffect(() => {
+    setPage(1);
+  }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis]);
 
   const handleCreated = (patient: Patient) => {
     setShowModal(false);
@@ -405,9 +414,34 @@ function PacientesPageInner() {
       </div>
 
       {list.total > 0 && (
-        <p className="text-xs text-muted-foreground mt-3 text-center">
-          Mostrando {list.data.length} de {list.total} pacientes
-        </p>
+        <div className="flex items-center justify-between gap-3 mt-3 flex-wrap">
+          <p className="text-xs text-muted-foreground">
+            Mostrando {(list.page - 1) * 50 + 1}–{(list.page - 1) * 50 + list.data.length} de {list.total} pacientes
+          </p>
+          {list.totalPages > 1 && (
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={list.page <= 1 || loading}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                ← Anterior
+              </button>
+              <span className="text-xs text-muted-foreground tabular-nums">
+                Página {list.page} de {list.totalPages}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage((p) => Math.min(list.totalPages, p + 1))}
+                disabled={list.page >= list.totalPages || loading}
+                className="px-3 py-1.5 text-xs font-medium rounded-md border border-border bg-card hover:bg-accent/40 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Próxima →
+              </button>
+            </div>
+          )}
+        </div>
       )}
 
       {showModal && (

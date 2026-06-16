@@ -344,7 +344,9 @@ export class PatientsService {
     const [data, total] = await Promise.all([
       this.prisma.patient.findMany({
         where,
-        orderBy: { created_at: 'desc' },
+        // Onda 17.44 — lista em ordem alfabética por nome (antes era created_at
+        // desc, que ficava bagunçado depois de importar uma base grande).
+        orderBy: { name: 'asc' },
         skip,
         take: limit,
         include: {
