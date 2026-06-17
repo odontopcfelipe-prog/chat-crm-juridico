@@ -70,12 +70,12 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
     }
   };
 
-  const cards: Array<{
-    which: Which; title: string; Icon: typeof Bell; color: string;
-    enabled: boolean; metric: string; sub: ReactNode; onOpen: () => void;
-  }> = data ? [
-    {
-      which: 'confirmacao', title: 'Confirmação de consulta', Icon: CalendarCheck, color: 'emerald',
+  // Resiliente a skew de versao backend/frontend: cada card so entra se o bloco
+  // de dados dele veio na resposta. Assim um campo faltando (ex: API antiga sem
+  // 'aniversario') apenas OMITE o card, em vez de quebrar a tela inteira.
+  const cards = (data ? [
+    data.confirmacao && {
+      which: 'confirmacao' as Which, title: 'Confirmação de consulta', Icon: CalendarCheck, color: 'emerald',
       enabled: data.confirmacao.enabled,
       metric: data.confirmacao.enviadasHoje > 0 ? `${data.confirmacao.pct}%` : '—',
       sub: data.confirmacao.enviadasHoje > 0
@@ -83,29 +83,29 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
         : <>nenhuma enviada hoje</>,
       onOpen: () => router.push('/atendimento/agenda'),
     },
-    {
-      which: 'lembrete', title: 'Lembrete de consulta', Icon: Bell, color: 'amber',
+    data.lembrete && {
+      which: 'lembrete' as Which, title: 'Lembrete de consulta', Icon: Bell, color: 'amber',
       enabled: data.lembrete.enabled,
       metric: `${data.lembrete.enviadosHoje}`,
       sub: <>enviados hoje · <b className="font-semibold text-foreground">{data.lembrete.antecedenciaLabel}</b></>,
       onOpen: () => onOpenTab('lembretes'),
     },
-    {
-      which: 'pos', title: 'Pós-atendimento', Icon: Heart, color: 'pink',
+    data.pos && {
+      which: 'pos' as Which, title: 'Pós-atendimento', Icon: Heart, color: 'pink',
       enabled: data.pos.enabled,
       metric: data.pos.nps != null ? `NPS ${data.pos.nps}` : '—',
       sub: <>média 30 dias · <b className="font-semibold text-foreground">{data.pos.respostasHoje} respostas</b> hoje</>,
       onOpen: () => onOpenTab('pos-atendimento'),
     },
-    {
-      which: 'dentista', title: 'Resumo do dentista', Icon: FileText, color: 'sky',
+    data.dentista && {
+      which: 'dentista' as Which, title: 'Resumo do dentista', Icon: FileText, color: 'sky',
       enabled: data.dentista.enabled,
       metric: fmtHora(data.dentista.sendAt),
       sub: <><b className="font-semibold text-foreground">{data.dentista.dentistasHoje} dentistas</b> com agenda hoje</>,
       onOpen: () => onOpenTab('dentista'),
     },
-    {
-      which: 'aniversario', title: 'Aniversário', Icon: Cake, color: 'rose',
+    data.aniversario && {
+      which: 'aniversario' as Which, title: 'Aniversário', Icon: Cake, color: 'rose',
       enabled: data.aniversario.enabled,
       metric: `${data.aniversario.aniversariantesHoje}`,
       sub: data.aniversario.enabled
@@ -113,7 +113,10 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
         : <>aniversariantes hoje · <b className="font-semibold text-foreground">envio desligado</b></>,
       onOpen: () => router.push('/atendimento/pacientes'),
     },
-  ] : [];
+  ] : []).filter(Boolean) as Array<{
+    which: Which; title: string; Icon: typeof Bell; color: string;
+    enabled: boolean; metric: string; sub: ReactNode; onOpen: () => void;
+  }>;
 
   const ligados = cards.filter((c) => c.enabled).length;
 
@@ -125,7 +128,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
         <span className="text-sm text-muted-foreground">— o dia a dia que roda no piloto automático</span>
         {data && (
           <span className="ml-auto text-[11px] font-medium text-muted-foreground bg-muted/50 border border-border rounded-full px-2.5 py-1">
-            {ligados} de 5 ligados
+            {ligados} de {cards.length} ligados
           </span>
         )}
       </div>
