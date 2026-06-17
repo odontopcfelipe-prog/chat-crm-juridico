@@ -104,7 +104,10 @@ function buildInfo(roles: AppRole[], userId: string | null): RoleInfo {
     isAdvogado: isDentist,
     isEstagiario: isAssistant,
     canManageSettings: roles.includes('ADMIN'),
-    canViewDashboard: has(['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL']),
+    // Onda 17.50 — A home "Início" (balões) virou a porta de entrada de TODOS
+    // os papéis; FINANCEIRO e ASSISTANT (ACD/ASB) precisam dela no menu mobile
+    // pra ter rota de volta (no desktop usam o botão "Início" do header).
+    canViewDashboard: has(['ADMIN', 'DENTIST', 'OPERADOR', 'COMERCIAL', 'FINANCEIRO', 'ASSISTANT']),
     canViewAnalytics: has(['ADMIN']),
     canViewFinanceiro: has(['ADMIN', 'FINANCEIRO', 'DENTIST']),
     canViewQuoteValues: has(['ADMIN', 'FINANCEIRO', 'COMERCIAL']),

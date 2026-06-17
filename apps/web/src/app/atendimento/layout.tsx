@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useRef, Suspense } from 'react';
+import { useEffect, useState, useRef, useMemo, Suspense } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import { Sidebar } from '@/components/Sidebar';
 // Onda 17.32.86 — Banner global de trial/inadimplencia
@@ -30,6 +30,25 @@ import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
 
 import { THEMES } from '@/components/ThemeSwitcher';
 
+// Onda 17.50 — Decodifica os roles do JWT (uppercase) pra decidir a barra
+// lateral de forma REATIVA ao token. Diferente do useRole (que memoiza na 1a
+// montagem com deps []), isto recalcula quando o token muda — cobre o
+// login -> dashboard no layout persistente; senao o admin logava e caia SEM
+// barra ate dar reload manual (regressao pega na revisao pre-deploy).
+function rolesFromToken(token: string | null): string[] {
+  if (!token) return [];
+  try {
+    const b64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const payload = JSON.parse(atob(b64));
+    const raw: unknown = Array.isArray(payload?.roles)
+      ? payload.roles
+      : (payload?.role ? [payload.role] : []);
+    return (raw as string[]).map((r) => String(r).toUpperCase());
+  } catch {
+    return [];
+  }
+}
+
 export default function AtendimentoLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
@@ -37,17 +56,6 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const { open: cmdOpen, setOpen: setCmdOpen } = useGlobalCommandPalette();
   const perms = useRole();
-
-  // Onda 17.50 — Barra lateral por papel: SO o Adm Geral (ADMIN/SUPER_ADMIN)
-  // mantem a barra; os papeis simples (recepcao, dentista, ACD/ASB, CRC,
-  // financeiro) navegam pelos baloes da home. `mounted` evita mismatch de
-  // hidratacao: no SSR useRole nao enxerga o token (window undefined) e trataria
-  // todo mundo como nao-admin — entao so decidimos mostrar a barra DEPOIS de
-  // montar no client, quando os roles do JWT ja existem (useRole le sincrono).
-  // Esconder a barra e UX: a autorizacao real continua nos endpoints do backend.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => { setMounted(true); }, []);
-  const showSidebar = mounted && (perms.isAdmin || perms.isSuperAdmin);
 
   // Mobile states
   const [isMobile, setIsMobile] = useState(false);
@@ -98,6 +106,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   useEffect(() => {
     setAuthToken(localStorage.getItem('token'));
   }, [pathname]); // re-lê token a cada navegação (captura momento pós-login)
+
+  // Onda 17.50 — Barra lateral SO pro Adm Geral (ADMIN/SUPER_ADMIN). Derivada
+  // do authToken (REATIVO) e nao do useRole (memo fixo na 1a montagem) — senao,
+  // como o layout persiste no login -> dashboard, o admin caia sem barra ate
+  // recarregar. authToken=null no SSR/1o paint -> sem barra (bate com o SSR,
+  // sem mismatch de hidratacao). Esconder a barra e UX; a autorizacao real
+  // continua nos endpoints do backend.
+  const showSidebar = useMemo(() => {
+    const rs = rolesFromToken(authToken);
+    return rs.includes('ADMIN') || rs.includes('SUPER_ADMIN');
+  }, [authToken]);
 
   // ─── Fetch unread counts do servidor na montagem (fonte de verdade) ──────
   useEffect(() => {

@@ -850,9 +850,11 @@ export default function UsersSettingsPage() {
                     Setor e permissões
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    O setor define qual home/sidebar aparece pra esse usuário
-                    e quais permissões já vêm marcadas. Você pode dar ou
-                    remover permissões individualmente abaixo.
+                    O setor define qual <strong>home (balões)</strong> aparece pra
+                    esse usuário e quais permissões já vêm marcadas. A barra
+                    lateral completa é exclusiva do papel <strong>Adm Geral</strong>
+                    {' '}(ADMIN), não do setor. Você pode dar ou remover permissões
+                    individualmente abaixo.
                   </p>
                 </div>
 

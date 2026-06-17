@@ -228,6 +228,9 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'Calendar',      icon: '📅', label: 'Minha agenda',        desc: 'Seus pacientes de hoje.',  href: '/atendimento/agenda',     tone: 'violet'  },
         { lucide: 'Users',         icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico.',  href: '/atendimento/pacientes',  tone: 'sky'     },
         { lucide: 'ClipboardList', icon: '📋', label: 'Plano de tratamento', desc: 'Planos e propostas.',      href: '/atendimento/orcamentos', tone: 'emerald' },
+        // Onda 17.50 — Dentista mantém `view_chat`; sem a barra lateral o balão
+        // é a única porta pro WhatsApp no desktop (revisão pré-deploy).
+        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',            desc: 'Conversas com pacientes.', href: '/atendimento',            tone: 'amber'   },
       ],
       todos: [
         'Pacientes pra atender hoje',
@@ -268,8 +271,11 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Ver agenda do dia', href: '/atendimento/agenda' },
       },
       actions: [
-        { lucide: 'Calendar', icon: '📅', label: 'Agenda',    desc: 'Agenda do consultório.',    href: '/atendimento/agenda',    tone: 'violet' },
-        { lucide: 'Users',    icon: '👥', label: 'Pacientes', desc: 'Pacientes em atendimento.', href: '/atendimento/pacientes', tone: 'sky'    },
+        { lucide: 'Calendar',      icon: '📅', label: 'Agenda',    desc: 'Agenda do consultório.',    href: '/atendimento/agenda',    tone: 'violet' },
+        { lucide: 'Users',         icon: '👥', label: 'Pacientes', desc: 'Pacientes em atendimento.', href: '/atendimento/pacientes', tone: 'sky'    },
+        // Onda 17.50 — ACD/ASB mantém `view_chat`; balão é a única porta pro
+        // WhatsApp no desktop sem a barra lateral (revisão pré-deploy).
+        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',  desc: 'Confirmar e tirar dúvidas.', href: '/atendimento',          tone: 'amber'  },
       ],
       todos: [
         'Preparar sala pra proxima consulta',
@@ -307,7 +313,7 @@ export const SECTORS: SectorMeta[] = [
           { value: 5,  label: 'sem resposta +2h',     tone: 'amber'   },
           { value: 3,  label: 'follow-ups vencidos',  tone: 'rose'    },
         ],
-        cta: { label: 'Abrir WhatsApp', href: '/atendimento/whatsapp' },
+        cta: { label: 'Abrir WhatsApp', href: '/atendimento' },
       },
       actions: [
         { lucide: 'Briefcase',     icon: '🎯', label: 'Fila CRC',    desc: 'Funil de relacionamento.', href: '/atendimento/crm',                    tone: 'violet'  },

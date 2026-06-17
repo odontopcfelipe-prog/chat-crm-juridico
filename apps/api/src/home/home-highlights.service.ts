@@ -212,7 +212,7 @@ export class HomeHighlightsService {
         { value: semResposta, label: 'sem resposta +2h', tone: 'amber'   },
         { value: followUps,   label: 'follow-ups pendentes', tone: 'rose' },
       ],
-      cta: { label: 'Abrir WhatsApp', href: '/atendimento/whatsapp' },
+      cta: { label: 'Abrir WhatsApp', href: '/atendimento' },
     };
   }
 

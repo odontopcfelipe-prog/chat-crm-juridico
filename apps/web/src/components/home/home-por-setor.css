@@ -13,6 +13,11 @@
   --hb-fg-soft:     var(--text-muted);
   --hb-accent:      #f97316;            /* laranja dos ícones (mockup) */
   --hb-accent-soft: rgba(249, 115, 22, 0.12);
+  /* Onda 17.50 — laranja puro (#f97316) como TEXTO fica em ~2:1 sobre fundo
+     claro (ilegível, falha WCAG) — pego na revisão pré-deploy. Pra TEXTO usa
+     o texto do tema (legível nos 4 temas); o #f97316 fica só no FUNDO dos
+     ícones, onde o glifo branco garante contraste. */
+  --hb-accent-text: var(--text-primary);
 
   --hb-tone-violet:  #7c3aed;
   --hb-tone-emerald: #10b981;
@@ -84,7 +89,7 @@
   font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--hb-accent);
+  color: var(--hb-accent-text);
   background: var(--hb-accent-soft);
   border: 1px solid rgba(249, 115, 22, 0.22);
   padding: 4px 10px;
@@ -111,7 +116,7 @@
   margin: 0 0 4px;
 }
 
-.home-bs .hb-greeting em { font-style: normal; color: var(--hb-accent); }
+.home-bs .hb-greeting em { font-style: normal; color: var(--hb-accent-text); }
 
 .home-bs .hb-count {
   font-size: 14px;
@@ -193,8 +198,9 @@
   margin-left: auto;
   font-size: 12px;
   font-weight: 700;
-  color: var(--hb-accent);
-  text-decoration: none;
+  color: var(--hb-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
   white-space: nowrap;
 }
 .home-bs .hb-kpis-cta:hover { text-decoration: underline; }
