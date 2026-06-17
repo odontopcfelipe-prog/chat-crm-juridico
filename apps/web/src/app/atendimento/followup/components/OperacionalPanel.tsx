@@ -7,18 +7,19 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarCheck, Bell, Heart, FileText, ArrowRight, Loader2, Bot } from 'lucide-react';
+import { CalendarCheck, Bell, Heart, FileText, Cake, ArrowRight, Loader2, Bot } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 
-type Which = 'confirmacao' | 'lembrete' | 'pos' | 'dentista';
+type Which = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario';
 
 interface OperacionalData {
   confirmacao: { enabled: boolean; enviadasHoje: number; confirmadasHoje: number; pct: number };
   lembrete: { enabled: boolean; enviadosHoje: number; antecedenciaLabel: string };
   pos: { enabled: boolean; nps: number | null; respostasHoje: number; media30d: number | null; responded: number };
   dentista: { enabled: boolean; sendAt: string; dentistasHoje: number };
+  aniversario: { enabled: boolean; sendAt: string; aniversariantesHoje: number };
 }
 
 const COLOR: Record<string, string> = {
@@ -26,6 +27,7 @@ const COLOR: Record<string, string> = {
   amber: 'bg-amber-500/10 text-amber-600',
   pink: 'bg-pink-500/10 text-pink-600',
   sky: 'bg-sky-500/10 text-sky-600',
+  rose: 'bg-rose-500/10 text-rose-600',
 };
 
 // "07:00" -> "7h00"
@@ -102,6 +104,15 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       sub: <><b className="font-semibold text-foreground">{data.dentista.dentistasHoje} dentistas</b> com agenda hoje</>,
       onOpen: () => onOpenTab('dentista'),
     },
+    {
+      which: 'aniversario', title: 'Aniversário', Icon: Cake, color: 'rose',
+      enabled: data.aniversario.enabled,
+      metric: `${data.aniversario.aniversariantesHoje}`,
+      sub: data.aniversario.enabled
+        ? <>aniversariantes · <b className="font-semibold text-foreground">parabéns às {fmtHora(data.aniversario.sendAt)}</b></>
+        : <>aniversariantes hoje · <b className="font-semibold text-foreground">envio desligado</b></>,
+      onOpen: () => router.push('/atendimento/pacientes'),
+    },
   ] : [];
 
   const ligados = cards.filter((c) => c.enabled).length;
@@ -114,7 +125,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
         <span className="text-sm text-muted-foreground">— o dia a dia que roda no piloto automático</span>
         {data && (
           <span className="ml-auto text-[11px] font-medium text-muted-foreground bg-muted/50 border border-border rounded-full px-2.5 py-1">
-            {ligados} de 4 ligados
+            {ligados} de 5 ligados
           </span>
         )}
       </div>

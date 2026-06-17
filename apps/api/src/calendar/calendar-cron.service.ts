@@ -134,4 +134,49 @@ export class CalendarCronService {
       this.logger.error(`[CRON] Erro no checkDentistDailySummary: ${e.message}`);
     }
   }
+
+  /**
+   * Disparo de aniversário (Onda 17.49). Roda toda hora cheia. Pra cada tenant
+   * com BIRTHDAY_GREETING enabled cujo send_at bate com a hora ATUAL em Maceió
+   * (UTC-3) e que ainda não disparou hoje (last_run_date), manda os parabéns.
+   */
+  @Cron('0 * * * *')
+  async checkBirthdayGreetings() {
+    try {
+      const now = new Date();
+      // Hora e data no fuso America/Maceio (UTC-3, sem horario de verao).
+      const maceio = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+      const maceioHH = String(maceio.getUTCHours()).padStart(2, '0');
+      const todayMaceio = maceio.toISOString().slice(0, 10); // YYYY-MM-DD
+
+      const settings = await this.prisma.globalSetting.findMany({
+        where: { key: { startsWith: 'BIRTHDAY_GREETING' } },
+      });
+
+      for (const s of settings) {
+        let cfg: any;
+        try { cfg = JSON.parse(s.value || '{}'); } catch { continue; }
+        if (!cfg.enabled) continue;
+        const sendHH = String(cfg.send_at || '09:00').split(':')[0];
+        if (sendHH !== maceioHH) continue;
+        if (cfg.last_run_date === todayMaceio) continue; // ja disparou hoje
+
+        const tenantId = s.key === 'BIRTHDAY_GREETING'
+          ? undefined
+          : s.key.replace(/^BIRTHDAY_GREETING_/, '');
+        if (!tenantId) continue; // aniversario e sempre por-tenant
+
+        try {
+          // Marca a data ANTES de enviar — idempotencia diaria (sem disparo duplo).
+          await this.calendarService.setBirthdayGreetingConfig(tenantId, { last_run_date: todayMaceio });
+          await this.calendarService.sendBirthdayGreetingsNow(tenantId);
+          this.logger.log(`[CRON] Parabens de aniversario disparados pra tenant ${tenantId} (${maceioHH}:00 Maceio)`);
+        } catch (e: any) {
+          this.logger.error(`[CRON] Erro no disparo de aniversario tenant ${tenantId}: ${e.message}`);
+        }
+      }
+    } catch (e: any) {
+      this.logger.error(`[CRON] Erro no checkBirthdayGreetings: ${e.message}`);
+    }
+  }
 }

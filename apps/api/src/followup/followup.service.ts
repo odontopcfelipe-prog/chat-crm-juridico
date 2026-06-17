@@ -80,16 +80,23 @@ export class FollowupService {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const { start: dayStart, end: dayEnd } = this.dayWindowMaceio();
     const since30 = new Date(Date.now() - 30 * 86400000);
+    // Mes/dia de "hoje" no fuso Maceio (UTC-3) — mesma base do robo de
+    // aniversario, pra o card contar EXATAMENTE quem vai receber o parabens.
+    const maceioNow = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const bMonth = maceioNow.getUTCMonth() + 1;
+    const bDay = maceioNow.getUTCDate();
 
-    const [confSetting, reminderSetting, posSetting, dentSetting] = await Promise.all([
+    const [confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: 'POST_CARE_CONFIG' } }),
       this.prisma.globalSetting.findUnique({ where: { key: `DENTIST_DAILY_SUMMARY_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BIRTHDAY_GREETING_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
     const dentCfg = this.parseJson(dentSetting?.value);
+    const birthdayCfg = this.parseJson(birthdaySetting?.value);
 
     // Defaults: confirmacao/lembrete/pos LIGADOS por default; dentista DESLIGADO.
     const confEnabled = (confSetting?.value ?? 'true') !== 'false';
@@ -97,8 +104,10 @@ export class FollowupService {
     const posEnabled = posCfg?.enabled !== false;
     const dentEnabled = dentCfg?.enabled === true;
     const dentSendAt = (dentCfg?.send_at as string) || '07:00';
+    const birthdayEnabled = birthdayCfg?.enabled === true;
+    const birthdaySendAt = (birthdayCfg?.send_at as string) || '09:00';
 
-    const [confs, lembretesHoje, posSurveys, posRespHoje, dentistEvents, dentistUsers] = await Promise.all([
+    const [confs, lembretesHoje, posSurveys, posRespHoje, dentistEvents, dentistUsers, aniversariantesRows] = await Promise.all([
       this.prisma.appointmentConfirmation.findMany({
         where: { sent_at: { gte: dayStart, lt: dayEnd }, appointment: { tenant_id: tenantId } },
         select: { response_status: true, delivery_status: true, appointment: { select: { status: true } } },
@@ -125,6 +134,13 @@ export class FollowupService {
         distinct: ['assigned_user_id'],
       }),
       this.prisma.user.findMany({ where: { tenant_id: tenantId, roles: { has: 'DENTIST' } }, select: { id: true } }),
+      this.prisma.$queryRawUnsafe<Array<{ count: number }>>(
+        `SELECT count(*)::int as count FROM patients
+         WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
+           AND EXTRACT(MONTH FROM birth_date)::int = $2
+           AND EXTRACT(DAY FROM birth_date)::int = $3`,
+        tenantId, bMonth, bDay,
+      ),
     ]);
 
     // Confirmacao: % das ENVIADAS hoje que viraram CONFIRMADO. Sinal confiavel =
@@ -156,11 +172,15 @@ export class FollowupService {
     const dentistIds = new Set(dentistUsers.map((u) => u.id));
     const dentistasHoje = dentistEvents.filter((e) => e.assigned_user_id && dentistIds.has(e.assigned_user_id)).length;
 
+    // Aniversariantes ATIVOS de hoje (count cru).
+    const aniversariantesHoje = Number(aniversariantesRows?.[0]?.count ?? 0);
+
     return {
       confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct },
       lembrete: { enabled: reminderEnabled, enviadosHoje: lembretesHoje, antecedenciaLabel },
       pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded },
       dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje },
+      aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje },
     };
   }
 
@@ -187,6 +207,9 @@ export class FollowupService {
         break;
       case 'dentista':
         await mergeJson(`DENTIST_DAILY_SUMMARY_${tenantId}`, { enabled });
+        break;
+      case 'aniversario':
+        await mergeJson(`BIRTHDAY_GREETING_${tenantId}`, { enabled });
         break;
       default:
         throw new BadRequestException(`toggle invalido: ${which}`);

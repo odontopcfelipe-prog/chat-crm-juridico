@@ -160,3 +160,37 @@ export const DEFAULT_DENTIST_DAILY_SUMMARY: DentistDailySummaryConfig = {
     '{agenda}\n\n' +
     'Tenha um excelente dia!',
 };
+
+/**
+ * Onda 17.49 — Disparo de PARABÉNS pra aniversariantes do dia.
+ *
+ * Robô diário: no horário configurado manda um WhatsApp de feliz aniversário
+ * pra cada paciente ATIVO que faz aniversário hoje. Opt-in (default DESLIGADO)
+ * porque é mensagem que vai pro paciente. Dedup por dia via `last_run_date`.
+ *
+ * Variáveis no template: {nome} (primeiro nome) e {clinica} (nome da clínica).
+ *
+ * Persistido em GlobalSetting com key BIRTHDAY_GREETING_<tenant_id>.
+ */
+export interface BirthdayGreetingConfig {
+  /** Liga/desliga o disparo automático */
+  enabled: boolean;
+  /** Horário do disparo "HH:MM" (fuso America/Maceio) */
+  send_at: string;
+  /** Canal — só WHATSAPP por ora (paciente) */
+  channel: 'WHATSAPP';
+  /** Template da mensagem com {nome} e {clinica} */
+  template: string;
+  /** Última data (YYYY-MM-DD, Maceió) em que o robô disparou — dedup diário */
+  last_run_date?: string;
+}
+
+export const DEFAULT_BIRTHDAY_GREETING: BirthdayGreetingConfig = {
+  enabled: false,
+  send_at: '09:00',
+  channel: 'WHATSAPP',
+  template:
+    'Feliz aniversário, {nome}! 🎉🎂\n\n' +
+    'A equipe da {clinica} deseja um dia maravilhoso pra você. ' +
+    'Conte com a gente pra cuidar do seu sorriso! 😁',
+};

@@ -1608,6 +1608,104 @@ export class CalendarService {
     return { total: dentists.length, results };
   }
 
+  // ─── Disparo de aniversário (Onda 17.49) ─────────────────────────────
+  // Robô diário: manda WhatsApp de "feliz aniversário" pros aniversariantes
+  // ATIVOS de hoje. Opt-in (default off). Espelha o resumo do dentista.
+
+  async getBirthdayGreetingConfig(tenant_id?: string) {
+    const { DEFAULT_BIRTHDAY_GREETING } = await import('@crm/shared');
+    const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return DEFAULT_BIRTHDAY_GREETING;
+      return { ...DEFAULT_BIRTHDAY_GREETING, ...JSON.parse(setting.value) };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando defaults: ${(e as any)?.message}`);
+      return DEFAULT_BIRTHDAY_GREETING;
+    }
+  }
+
+  async setBirthdayGreetingConfig(
+    tenant_id: string | undefined,
+    config: { enabled?: boolean; send_at?: string; template?: string; last_run_date?: string },
+  ) {
+    if (config.send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.send_at)) {
+      throw new BadRequestException('send_at deve estar no formato HH:MM');
+    }
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 2000) throw new BadRequestException('template ultrapassa 2000 caracteres');
+    }
+    const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
+    const current = await this.getBirthdayGreetingConfig(tenant_id);
+    const merged = { ...current, ...config };
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value: JSON.stringify(merged) },
+      update: { value: JSON.stringify(merged) },
+    });
+    this.logger.log(`[BIRTHDAY_GREETING] salvo pra ${key}`);
+    return merged;
+  }
+
+  /** Aniversariantes ATIVOS de hoje (mesma regra do /patients/birthdays). */
+  private async birthdayPatientsToday(tenant_id: string) {
+    // "Hoje" no fuso America/Maceio (UTC-3) calculado no Node — NAO usa
+    // CURRENT_DATE do Postgres (que roda em UTC) pra nao pegar o dia errado
+    // perto da meia-noite (ex: send_at noturno pegaria os aniversariantes de
+    // amanha). Mesma base que o cron usa pra decidir a hora.
+    const maceio = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const month = maceio.getUTCMonth() + 1;
+    const day = maceio.getUTCDate();
+    return this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null }>>(
+      `SELECT id, name, phone FROM patients
+       WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
+         AND EXTRACT(MONTH FROM birth_date)::int = $2
+         AND EXTRACT(DAY FROM birth_date)::int = $3
+       LIMIT 200`,
+      tenant_id, month, day,
+    );
+  }
+
+  /**
+   * Manda o parabéns pra todos os aniversariantes de hoje do tenant.
+   * Usado pelo cron diário e pelo "Enviar agora" manual.
+   */
+  async sendBirthdayGreetingsNow(tenant_id: string) {
+    const config = await this.getBirthdayGreetingConfig(tenant_id);
+    const tenant = await this.prisma.tenant.findUnique({ where: { id: tenant_id }, select: { name: true } });
+    const clinica = tenant?.name || 'nossa clínica';
+
+    const patients = await this.birthdayPatientsToday(tenant_id);
+    const results: { patient_id: string; name: string; sent: boolean; reason?: string }[] = [];
+
+    for (const p of patients) {
+      if (!p.phone) {
+        results.push({ patient_id: p.id, name: p.name, sent: false, reason: 'sem telefone' });
+        continue;
+      }
+      const firstName = (p.name || '').split(' ')[0] || p.name;
+      const msg = config.template
+        .replace(/\{nome\}/g, firstName)
+        .replace(/\{clinica\}/g, clinica)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+      const phone = p.phone.replace(/\D/g, '');
+      try {
+        // Passa tenant_id pra sair da instancia Evolution DA CLINICA (multi-tenant).
+        await this.whatsapp.sendText(phone, msg, undefined, undefined, tenant_id);
+        results.push({ patient_id: p.id, name: p.name, sent: true });
+      } catch (e: any) {
+        results.push({ patient_id: p.id, name: p.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
+      }
+    }
+
+    this.logger.log(
+      `[BIRTHDAY_GREETING] disparado: ${results.filter((r) => r.sent).length}/${patients.length} aniversariantes (tenant ${tenant_id})`,
+    );
+    return { total: patients.length, results };
+  }
+
   // ─── Backfill de Reminders (Onda 5e v19, Fase 25) ────────────────────
   // Cria EventReminders default (1d, 1h, 30min) pra eventos futuros que
   // NAO tem reminders + enfileira no BullMQ pra disparar WhatsApp.
