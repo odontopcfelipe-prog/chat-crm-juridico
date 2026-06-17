@@ -497,7 +497,8 @@ export function Sidebar() {
     dashboard: {
       // Onda 16.3 — renomeado pra "Visao geral" (pt-BR, alinhado com odonto)
       // Onda 16.6 — virou "Menu inicial" (porta de entrada do sistema)
-      label: 'Menu inicial',
+      // Onda 17.50 — "Inicio" (alinhado ao mockup de baloes por papel)
+      label: 'Início',
       href: '/atendimento/dashboard',
       icon: <LayoutDashboard size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/dashboard'),

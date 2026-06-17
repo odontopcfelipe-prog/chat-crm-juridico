@@ -90,9 +90,13 @@ export const PERMISSIONS: PermissionMeta[] = [
 
 // ─── Configuracao da home dirigida por setor (skill home-por-setor) ─
 export interface HomeAction {
-  /** Emoji ou letra usada como icone no card */
+  /** Emoji ou letra usada como icone (fallback se nao houver lucide) */
   icon: string;
+  /** Nome do icone lucide-react (preferido — visual alinhado ao mockup) */
+  lucide?: string;
   label: string;
+  /** Descricao curta exibida abaixo do titulo (estilo mockup) */
+  desc?: string;
   href: string;
   /** Tom da borda/glow do card */
   tone?: 'violet' | 'emerald' | 'amber' | 'sky' | 'rose';
@@ -177,10 +181,12 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Abrir agenda do dia', href: '/atendimento/agenda' },
       },
       actions: [
-        { icon: '👤', label: 'Novo paciente',  href: '/atendimento/pacientes',     tone: 'sky'     },
-        { icon: '📅', label: 'Agendar',        href: '/atendimento/agenda',        tone: 'violet'  },
-        { icon: '⚡', label: 'Venda rapida',   href: '/atendimento/venda-rapida',  tone: 'emerald' },
-        { icon: '💬', label: 'WhatsApp',       href: '/atendimento/whatsapp',      tone: 'amber'   },
+        { lucide: 'Calendar',      icon: '📅', label: 'Agenda',       desc: 'Toda a agenda do dia.',       href: '/atendimento/agenda',        tone: 'violet'  },
+        { lucide: 'Zap',           icon: '⚡', label: 'Venda rápida', desc: 'Venda de balcão rápida.',     href: '/atendimento/venda-rapida',  tone: 'emerald' },
+        { lucide: 'Users',         icon: '👥', label: 'Pacientes',    desc: 'Base completa de pacientes.', href: '/atendimento/pacientes',     tone: 'sky'     },
+        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',     desc: 'Conversas e atendimento.',    href: '/atendimento',               tone: 'amber'   },
+        { lucide: 'Bell',          icon: '🔔', label: 'Retornos',     desc: 'Quem precisa voltar.',        href: '/atendimento/return-alerts', tone: 'rose'    },
+        { lucide: 'FileText',      icon: '📄', label: 'Orçamentos',   desc: 'Propostas e orçamentos.',     href: '/atendimento/orcamentos',    tone: 'violet'  },
       ],
       todos: [
         'Confirmar agendamentos de amanha',
@@ -219,10 +225,9 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Ver minha agenda', href: '/atendimento/agenda' },
       },
       actions: [
-        { icon: '🦷', label: 'Proximo paciente', href: '/atendimento/agenda',     tone: 'violet'  },
-        { icon: '📋', label: 'Anamnese',         href: '/atendimento/pacientes',  tone: 'sky'     },
-        { icon: '💡', label: 'Plano + proposta', href: '/atendimento/orcamentos', tone: 'emerald' },
-        { icon: '💬', label: 'Chat com pacientes', href: '/atendimento/whatsapp', tone: 'amber'  },
+        { lucide: 'Calendar',      icon: '📅', label: 'Minha agenda',        desc: 'Seus pacientes de hoje.',  href: '/atendimento/agenda',     tone: 'violet'  },
+        { lucide: 'Users',         icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico.',  href: '/atendimento/pacientes',  tone: 'sky'     },
+        { lucide: 'ClipboardList', icon: '📋', label: 'Plano de tratamento', desc: 'Planos e propostas.',      href: '/atendimento/orcamentos', tone: 'emerald' },
       ],
       todos: [
         'Pacientes pra atender hoje',
@@ -263,10 +268,8 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Ver agenda do dia', href: '/atendimento/agenda' },
       },
       actions: [
-        { icon: '📅', label: 'Agenda do dia',     href: '/atendimento/agenda',     tone: 'violet'  },
-        { icon: '🦷', label: 'Paciente atual',    href: '/atendimento/pacientes',  tone: 'sky'     },
-        { icon: '📋', label: 'Anotar evolucao',   href: '/atendimento/pacientes',  tone: 'emerald' },
-        { icon: '💬', label: 'WhatsApp paciente', href: '/atendimento/whatsapp',   tone: 'amber'   },
+        { lucide: 'Calendar', icon: '📅', label: 'Agenda',    desc: 'Agenda do consultório.',    href: '/atendimento/agenda',    tone: 'violet' },
+        { lucide: 'Users',    icon: '👥', label: 'Pacientes', desc: 'Pacientes em atendimento.', href: '/atendimento/pacientes', tone: 'sky'    },
       ],
       todos: [
         'Preparar sala pra proxima consulta',
@@ -307,10 +310,12 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Abrir WhatsApp', href: '/atendimento/whatsapp' },
       },
       actions: [
-        { icon: '💬', label: 'Mensagens',     href: '/atendimento/whatsapp',      tone: 'violet'  },
-        { icon: '🎯', label: 'Funil CRC',     href: '/atendimento/crm',           tone: 'emerald' },
-        { icon: '🔁', label: 'Follow-up IA',  href: '/atendimento/followup',      tone: 'amber'   },
-        { icon: '📢', label: 'Marketing',     href: '/atendimento/marketing',     tone: 'rose'    },
+        { lucide: 'Briefcase',     icon: '🎯', label: 'Fila CRC',    desc: 'Funil de relacionamento.', href: '/atendimento/crm',                    tone: 'violet'  },
+        { lucide: 'Sparkles',      icon: '🔁', label: 'Follow-up',   desc: 'Robôs e acompanhamento.',  href: '/atendimento/followup',               tone: 'amber'   },
+        { lucide: 'Bell',          icon: '🔔', label: 'Retornos',    desc: 'Pacientes pra reativar.',  href: '/atendimento/return-alerts',          tone: 'rose'    },
+        { lucide: 'Handshake',     icon: '🤝', label: 'Fechamentos', desc: 'Orçamentos pra fechar.',   href: '/atendimento/fechamentos',            tone: 'emerald' },
+        { lucide: 'Layers',        icon: '📑', label: 'Propostas',   desc: 'Propostas enviadas.',      href: '/atendimento/orcamentos?status=SENT', tone: 'sky'     },
+        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',    desc: 'Conversas e leads.',       href: '/atendimento',                        tone: 'amber'   },
       ],
       todos: [
         'Mensagens sem resposta',
@@ -346,10 +351,11 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Abrir financeiro', href: '/atendimento/financeiro' },
       },
       actions: [
-        { icon: '💰', label: 'Visao geral',     href: '/atendimento/financeiro',          tone: 'emerald' },
-        { icon: '🧾', label: 'Cobrancas',       href: '/atendimento/financeiro/boletos',  tone: 'violet'  },
-        { icon: '⚠️', label: 'Inadimplencia',   href: '/atendimento/financeiro',          tone: 'amber'   },
-        { icon: '📊', label: 'Relatorios',      href: '/atendimento/relatorios',          tone: 'sky'     },
+        { lucide: 'BarChart3', icon: '📊', label: 'Visão geral', desc: 'KPIs e caixa do dia.',    href: '/atendimento/financeiro/dashboard',   tone: 'emerald' },
+        { lucide: 'Receipt',   icon: '🧾', label: 'Cobranças',   desc: 'Boletos e recebimentos.', href: '/atendimento/financeiro',             tone: 'violet'  },
+        { lucide: 'FileText',  icon: '📄', label: 'Orçamentos',  desc: 'Orçamentos da clínica.',  href: '/atendimento/orcamentos',             tone: 'sky'     },
+        { lucide: 'Layers',    icon: '📑', label: 'Propostas',   desc: 'Propostas em aberto.',    href: '/atendimento/orcamentos?status=SENT', tone: 'amber'   },
+        { lucide: 'PieChart',  icon: '📈', label: 'Indicadores', desc: 'Relatórios e metas.',     href: '/atendimento/relatorios',             tone: 'rose'    },
       ],
       todos: [
         'Boletos que vencem hoje',
@@ -381,10 +387,14 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Ver detalhes', href: '/atendimento/relatorios' },
       },
       actions: [
-        { icon: '👥', label: 'Pacientes',  href: '/atendimento/pacientes',  tone: 'violet'  },
-        { icon: '📅', label: 'Agenda',     href: '/atendimento/agenda',     tone: 'sky'     },
-        { icon: '💰', label: 'Financeiro', href: '/atendimento/financeiro', tone: 'emerald' },
-        { icon: '⚙', label: 'Sistema',    href: '/atendimento/settings',   tone: 'amber'   },
+        { lucide: 'Calendar',  icon: '📅', label: 'Agenda',        desc: 'Toda a agenda da clínica.',     href: '/atendimento/agenda',              tone: 'violet'  },
+        { lucide: 'Users',     icon: '👥', label: 'Pacientes',     desc: 'Base completa de pacientes.',   href: '/atendimento/pacientes',           tone: 'sky'     },
+        { lucide: 'Briefcase', icon: '🎯', label: 'CRC',           desc: 'Recuperação e relacionamento.', href: '/atendimento/crm',                 tone: 'rose'    },
+        { lucide: 'Wallet',    icon: '💰', label: 'Financeiro',    desc: 'Caixa, cobranças e contratos.', href: '/atendimento/financeiro',          tone: 'emerald' },
+        { lucide: 'UserCog',   icon: '👥', label: 'Equipe',        desc: 'Profissionais e permissões.',   href: '/atendimento/settings/users',      tone: 'sky'     },
+        { lucide: 'Megaphone', icon: '📢', label: 'Marketing',     desc: 'Campanhas e captação.',         href: '/atendimento/marketing/analytics', tone: 'amber'   },
+        { lucide: 'FileText',  icon: '📄', label: 'Relatórios',    desc: 'Indicadores e metas.',          href: '/atendimento/relatorios',          tone: 'violet'  },
+        { lucide: 'Settings',  icon: '⚙️', label: 'Configurações', desc: 'Ajustes do sistema.',           href: '/atendimento/settings',            tone: 'amber'   },
       ],
       todos: [
         'Aprovar pendencias da equipe',

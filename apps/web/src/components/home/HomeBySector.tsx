@@ -1,33 +1,37 @@
 'use client';
 
 /**
- * Onda 17.32.121 — Home dirigida por setor (rev 2 da Fase 4).
+ * Onda 17.50 — Home "balões por papel" (rev 3 — alinhada ao mockup do usuário).
  *
- * Mudancas vs rev 1:
- *  - Bloco em destaque (chips/filas/KPIs) entre subtitulo e acoes
- *  - SectorSwitcher opcional no topo (pra SUPER_ADMIN/ADMIN comparar
- *    como cada setor ve sem trocar de user)
- *  - Cards de acoes maiores em grid 3x2 (era 2x2 minusculo)
- *  - Subtitulo melhorado (acompanha hora — "Boa noite! Hora de revisar")
+ * Layout plano (estilo mockup):
+ *   cabeçalho compacto (badge do papel + saudação + "N balões" + subtítulo)
+ *   → tira fina de KPIs ao vivo
+ *   → grade de balões (ícone laranja + título + descrição), cada um leva
+ *     direto pra rota do módulo.
  *
- * HIDRATACAO: hora fixa inicial + useEffect (sem mismatch).
+ * Mantém: allowSwitch (admin troca de perspectiva pra comparar) e os chips
+ * ao vivo (useHomeHighlights, com fallback pro mock). skySlot é aceito por
+ * compatibilidade com os call-sites antigos, mas não é mais renderizado
+ * (a home virou plana, sem o banner roxo).
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  getSector, SECTORS,
-  type Sector,
-} from '@crm/shared';
+  Calendar, Zap, Users, MessageSquare, Bell, FileText, ClipboardList,
+  Briefcase, Sparkles, Handshake, Layers, BarChart3, Receipt, PieChart,
+  Wallet, UserCog, Megaphone, Settings, type LucideIcon,
+} from 'lucide-react';
+import { getSector, SECTORS, type Sector } from '@crm/shared';
 // Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
 import { useHomeHighlights } from '@/lib/useHomeHighlights';
 import './home-por-setor.css';
 
 interface Props {
-  /** Setor do usuario logado (ja resolvido no servidor) */
+  /** Setor do usuario logado (ja resolvido) */
   sector: Sector;
   /** Primeiro nome do usuario pra saudacao */
   userName?: string;
-  /** Slot opcional pra reusar o <SkyBackdrop/> de producao */
+  /** @deprecated mantido por compat — nao e mais renderizado */
   skySlot?: React.ReactNode;
   /** Se true, mostra seletor "Visualizando como" pra trocar de perspectiva (UX only) */
   allowSwitch?: boolean;
@@ -35,13 +39,21 @@ interface Props {
 
 const DEFAULT_HOUR = 12; // estado neutro pro SSR
 
+// Mapa nome→componente lucide (os ícones referenciados em sectors.config.ts).
+// Mantido aqui (e não no shared) pra não acoplar o pacote shared ao React.
+const ICONS: Record<string, LucideIcon> = {
+  Calendar, Zap, Users, MessageSquare, Bell, FileText, ClipboardList,
+  Briefcase, Sparkles, Handshake, Layers, BarChart3, Receipt, PieChart,
+  Wallet, UserCog, Megaphone, Settings,
+};
+
 function greetingFor(hour: number): string {
   if (hour >= 5  && hour < 12) return 'Bom dia';
   if (hour >= 12 && hour < 18) return 'Boa tarde';
   return 'Boa noite';
 }
 
-export default function HomeBySector({ sector, userName, skySlot, allowSwitch = false }: Props) {
+export default function HomeBySector({ sector, userName, allowSwitch = false }: Props) {
   const [hour, setHour] = useState(DEFAULT_HOUR);
   const [previewSector, setPreviewSector] = useState<Sector>(sector);
 
@@ -54,11 +66,12 @@ export default function HomeBySector({ sector, userName, skySlot, allowSwitch = 
   // Quando o setor real muda (props), reseta a preview
   useEffect(() => { setPreviewSector(sector); }, [sector]);
 
-  const active   = previewSector;
-  const meta     = getSector(active);
-  const greeting = greetingFor(hour);
+  const active    = previewSector;
+  const meta      = getSector(active);
+  const greeting  = greetingFor(hour);
   const firstName = userName?.trim().split(' ')[0] || 'visitante';
   const isPreview = active !== sector;
+  const actions   = meta.home.actions;
 
   // Onda 17.32.126 — Chips reais via API; cai no mock se falhar/loading
   const { data: liveHighlights, loading: highlightsLoading } = useHomeHighlights(active);
@@ -91,64 +104,60 @@ export default function HomeBySector({ sector, userName, skySlot, allowSwitch = 
         </div>
       )}
 
-      {/* Hero — usa <skySlot/> de producao como fundo */}
-      <section className="hb-hero">
-        {skySlot}
-        <div className="hb-hero-content">
-          <span className="hb-persona-chip">
-            <span style={{ fontSize: 13 }}>{meta.icon}</span>
-            {meta.home.persona}
-            {isPreview && <span className="hb-preview-tag">prévia</span>}
-          </span>
-          <h1 className="hb-greeting">
-            {greeting}, <em>{firstName}</em> 👋
-          </h1>
-          <p className="hb-subtitle">{meta.home.subtitle}</p>
-        </div>
-      </section>
+      {/* Cabeçalho compacto */}
+      <header className="hb-head">
+        <span className="hb-persona-badge">
+          <span aria-hidden="true" style={{ fontSize: 12 }}>{meta.icon}</span>
+          {meta.home.persona}
+          {isPreview && <span className="hb-preview-tag">prévia</span>}
+        </span>
+        <h1 className="hb-greeting">
+          {greeting}, <em>{firstName}</em>
+          <span className="hb-count">· {actions.length} {actions.length === 1 ? 'balão' : 'balões'}</span>
+        </h1>
+        <p className="hb-subtitle">{meta.home.subtitle}</p>
+      </header>
 
-      {/* Bloco em destaque (chips/KPIs/filas) */}
-      <div className="hb-highlight">
-        <div className="hb-highlight-head">
-          <span className="hb-highlight-title">
-            <span aria-hidden="true">{meta.home.highlight.icon}</span>
-            {meta.home.highlight.title}
-            {highlightsLoading && !liveHighlights && (
-              <span className="hb-highlight-loading" aria-hidden="true" />
-            )}
-          </span>
-          {highlightCta && (
-            <Link href={highlightCta.href} className="hb-highlight-cta">
-              {highlightCta.label} →
-            </Link>
+      {/* Tira fina de KPIs ao vivo */}
+      <div className="hb-kpis">
+        <span className="hb-kpis-title">
+          <span aria-hidden="true">{meta.home.highlight.icon}</span>
+          {meta.home.highlight.title}
+          {highlightsLoading && !liveHighlights && (
+            <span className="hb-kpis-loading" aria-hidden="true" />
           )}
-        </div>
+        </span>
         <div className="hb-chips">
           {chips.map((c, i) => (
-            <div key={i} className="hb-chip" data-tone={c.tone ?? 'violet'}>
+            <span key={i} className="hb-chip" data-tone={c.tone ?? 'violet'}>
               <span className="hb-chip-value">{c.value}</span>
               <span className="hb-chip-label">{c.label}</span>
-            </div>
+            </span>
           ))}
         </div>
+        {highlightCta && (
+          <Link href={highlightCta.href} className="hb-kpis-cta">
+            {highlightCta.label} →
+          </Link>
+        )}
       </div>
 
-      {/* Pergunta + grade de acoes */}
-      <div className="hb-actions-wrap">
-        <h2 className="hb-actions-title">O que vamos fazer agora?</h2>
-        <div className="hb-actions">
-          {meta.home.actions.map((a) => (
-            <Link
-              key={a.label}
-              href={a.href}
-              className="hb-action"
-              data-tone={a.tone ?? 'violet'}
-            >
-              <span className="hb-action-icon">{a.icon}</span>
-              <span className="hb-action-label">{a.label}</span>
+      {/* Grade de balões */}
+      <div className="hb-actions">
+        {actions.map((a) => {
+          const Icon = a.lucide ? ICONS[a.lucide] : undefined;
+          return (
+            <Link key={a.label} href={a.href} className="hb-action">
+              <span className="hb-action-icon">
+                {Icon ? <Icon size={22} strokeWidth={2} /> : <span style={{ fontSize: 20 }}>{a.icon}</span>}
+              </span>
+              <span className="hb-action-text">
+                <span className="hb-action-label">{a.label}</span>
+                {a.desc && <span className="hb-action-desc">{a.desc}</span>}
+              </span>
             </Link>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );

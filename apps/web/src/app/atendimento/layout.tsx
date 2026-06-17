@@ -15,7 +15,7 @@ import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -24,6 +24,9 @@ import { NotificationToggle } from '@/components/NotificationToggle';
 import { useVisualMode } from '@/components/VisualModeProvider';
 import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 import { ThemeMenuButton } from '@/components/ThemeMenuButton';
+// Onda 17.50 — Menu de conta (avatar + Sair) no header, pra quando a barra
+// lateral some pros papeis simples e o logout precisa ter outro lugar.
+import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
 
 import { THEMES } from '@/components/ThemeSwitcher';
 
@@ -34,6 +37,17 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const { open: cmdOpen, setOpen: setCmdOpen } = useGlobalCommandPalette();
   const perms = useRole();
+
+  // Onda 17.50 — Barra lateral por papel: SO o Adm Geral (ADMIN/SUPER_ADMIN)
+  // mantem a barra; os papeis simples (recepcao, dentista, ACD/ASB, CRC,
+  // financeiro) navegam pelos baloes da home. `mounted` evita mismatch de
+  // hidratacao: no SSR useRole nao enxerga o token (window undefined) e trataria
+  // todo mundo como nao-admin — entao so decidimos mostrar a barra DEPOIS de
+  // montar no client, quando os roles do JWT ja existem (useRole le sincrono).
+  // Esconder a barra e UX: a autorizacao real continua nos endpoints do backend.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => { setMounted(true); }, []);
+  const showSidebar = mounted && (perms.isAdmin || perms.isSuperAdmin);
 
   // Mobile states
   const [isMobile, setIsMobile] = useState(false);
@@ -213,7 +227,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     <div className="flex h-screen overflow-hidden">
       {/* Sidebar — desktop only. Escondida em modo chatonly (?chatonly=1) usado
           pelos iframes do Split View pra mostrar so a aba de conversa. */}
-      {!isChatOnly && (
+      {!isChatOnly && showSidebar && (
         <div className="hidden md:flex">
           {/* Suspense necessario porque Sidebar usa useSearchParams() (atalho
               "Propostas" com ?status=SENT). Sem boundary, Next.js falha em
@@ -263,6 +277,19 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // SEMPRE visiveis. Antes o header inteiro sumia em algumas paginas.
           return (
             <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card/50 backdrop-blur-sm shrink-0">
+              {/* Onda 17.50 — Botao "Inicio" aparece quando a barra lateral
+                  esta escondida (papeis simples): e a unica volta pros baloes
+                  da home. Admin nao precisa — ja tem o logo/Inicio na barra. */}
+              {!showSidebar && (
+                <button
+                  type="button"
+                  onClick={() => router.push('/atendimento/dashboard')}
+                  className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-sm font-medium text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all shrink-0"
+                  title="Voltar ao início"
+                >
+                  <Home size={18} /> Início
+                </button>
+              )}
               <div className="flex-1 max-w-xl">
                 {!hideSearch && <PatientSearch />}
               </div>
@@ -272,6 +299,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                   <NotificationCenter />
                 </div>
                 <ThemeMenuButton variant="header" align="right" />
+                <AccountMenu />
               </div>
             </header>
           );

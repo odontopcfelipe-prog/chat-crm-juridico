@@ -89,7 +89,11 @@ export default function LoginPage() {
       } else {
         localStorage.removeItem('remembered_email');
       }
-      router.push('/atendimento');
+      // Onda 17.50 — Apos login, cai na home "Inicio" (baloes por papel),
+      // que e a porta de entrada unica do sistema (antes ia direto pro
+      // WhatsApp). O layout tambem redireciona login->dashboard quando ja
+      // logado; manter os dois alinhados na mesma rota.
+      router.push('/atendimento/dashboard');
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } } };
       setError(e.response?.data?.message || 'Credenciais inválidas');
