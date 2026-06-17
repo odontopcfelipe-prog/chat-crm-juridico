@@ -1,49 +1,52 @@
 /*
- * Onda 17.50 — Home "balões por papel" (rev 3 — plana, alinhada ao mockup).
+ * Onda 17.50 — Home "balões por papel" (rev 4 — fiel ao skill home-por-setor).
  *
- * Usa os TOKENS de tema do app (texto/card/borda) pra ficar legível nos 4
- * temas (noturno/cyber/violet/coral) + um LARANJA fixo nos ícones dos balões
- * (igual ao mockup desenhado pelo usuário). Tudo escopado em .home-bs.
+ * Estilo Clinicorp: paleta LARANJA fixa sobre cinza/branco, SEMPRE CLARA
+ * (independente do tema do app — decisão do usuário). Por isso usa cores
+ * fixas, não tokens de tema. Tudo escopado em .home-bs.
+ *
+ * Regras do skill que NÃO se negocia (references/tokens-visuais.md):
+ *  - balão: canto 8px (não arredondar demais), borda fina, sombra sutil;
+ *  - ícone: CÍRCULO laranja sólido, glifo branco (nunca cor por módulo);
+ *  - grade 3 colunas, gap 18px; tipografia Inter.
  */
 
 .home-bs {
-  --hb-card:        var(--bg-secondary);
-  --hb-border:      var(--border-default);
-  --hb-fg:          var(--text-primary);
-  --hb-fg-soft:     var(--text-muted);
-  --hb-accent:      #f97316;            /* laranja dos ícones (mockup) */
-  --hb-accent-soft: rgba(249, 115, 22, 0.12);
-  /* Onda 17.50 — laranja puro (#f97316) como TEXTO fica em ~2:1 sobre fundo
-     claro (ilegível, falha WCAG) — pego na revisão pré-deploy. Pra TEXTO usa
-     o texto do tema (legível nos 4 temas); o #f97316 fica só no FUNDO dos
-     ícones, onde o glifo branco garante contraste. */
-  --hb-accent-text: var(--text-primary);
-
-  --hb-tone-violet:  #7c3aed;
-  --hb-tone-emerald: #10b981;
-  --hb-tone-amber:   #b45309;
-  --hb-tone-sky:     #0ea5e9;
-  --hb-tone-rose:    #f43f5e;
+  --orange:      #F26C1B;   /* ícone do balão, acentos */
+  --orange-d:    #E06014;   /* texto laranja / hover */
+  --orange-soft: #FDEEE3;   /* fundo do chip de setor */
+  --orange-bd:   #F7DAC4;   /* borda do chip / hover do balão */
+  --bg:          #F4F5F6;   /* fundo da área de conteúdo */
+  --surface:     #FFFFFF;   /* card/balão */
+  --ink:         #2D2D2D;   /* título */
+  --ink-2:       #5B5B5B;   /* subtítulo */
+  --ink-3:       #8A8F96;   /* descrição / legendas */
+  --line:        #E6E8EA;   /* borda do balão */
+  --card-sh:     0 1px 3px rgba(0, 0, 0, 0.07);
+  --card-sh-h:   0 6px 18px -6px rgba(0, 0, 0, 0.16);
 
   position: relative;
   width: 100%;
+  background: var(--bg);
+  border-radius: 16px;
+  padding: 26px 26px 40px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: var(--ink);
 }
 
-/* ─── Switcher (admin only) ──────────────────────────────────── */
+/* ─── Switcher (admin only) — mantém a identidade roxa do app ─────── */
 .home-bs .hb-switcher {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 10px 14px;
   background: linear-gradient(135deg, #312e81, #4c1d95);
-  border-radius: 14px;
+  border-radius: 12px;
   color: #fff;
-  margin-bottom: 16px;
+  margin-bottom: 18px;
   flex-wrap: wrap;
 }
-
-.home-bs .hb-switcher-label { font-size: 13px; font-weight: 700; letter-spacing: -0.005em; }
-
+.home-bs .hb-switcher-label { font-size: 13px; font-weight: 700; }
 .home-bs .hb-switcher-tabs {
   display: inline-flex;
   background: rgba(255, 255, 255, 0.10);
@@ -51,7 +54,6 @@
   padding: 3px;
   gap: 2px;
 }
-
 .home-bs .hb-switcher-tab {
   background: none;
   border: none;
@@ -63,198 +65,147 @@
   cursor: pointer;
   transition: background 0.18s, color 0.18s;
 }
-
 .home-bs .hb-switcher-tab:hover { color: #fff; }
 .home-bs .hb-switcher-tab.is-active { background: #fff; color: #4c1d95; }
-
 .home-bs .hb-switcher-hint {
   margin-left: auto;
   font-size: 11px;
   color: rgba(255, 255, 255, 0.78);
   font-weight: 500;
 }
+@media (max-width: 720px) { .home-bs .hb-switcher-hint { display: none; } }
 
-@media (max-width: 720px) {
-  .home-bs .hb-switcher-hint { display: none; }
-}
+/* ─── Cabeçalho ──────────────────────────────────────────────────── */
+.home-bs .hb-crumb { font-size: 12.5px; color: var(--ink-3); font-weight: 500; margin-bottom: 14px; }
+.home-bs .hb-crumb b { color: var(--ink-2); font-weight: 600; }
 
-/* ─── Cabeçalho compacto ─────────────────────────────────────── */
-.home-bs .hb-head { margin-bottom: 18px; }
-
-.home-bs .hb-persona-badge {
+.home-bs .hb-sector-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.08em;
+  font-size: 12px;
+  font-weight: 700;
   text-transform: uppercase;
-  color: var(--hb-accent-text);
-  background: var(--hb-accent-soft);
-  border: 1px solid rgba(249, 115, 22, 0.22);
-  padding: 4px 10px;
-  border-radius: 999px;
-  margin-bottom: 10px;
+  letter-spacing: 0.04em;
+  color: var(--orange-d);
+  background: var(--orange-soft);
+  border: 1px solid var(--orange-bd);
+  padding: 5px 12px;
+  border-radius: 6px;
 }
-
 .home-bs .hb-preview-tag {
-  margin-left: 4px;
+  font-style: normal;
+  margin-left: 6px;
   font-size: 9px;
-  background: #f59e0b;
-  color: #422006;
+  background: var(--orange);
+  color: #fff;
   padding: 1px 6px;
   border-radius: 4px;
-  font-weight: 900;
+  font-weight: 800;
 }
 
 .home-bs .hb-greeting {
-  font-size: clamp(22px, 3vw, 30px);
-  font-weight: 800;
-  line-height: 1.1;
-  letter-spacing: -0.02em;
-  color: var(--hb-fg);
-  margin: 0 0 4px;
+  font-size: clamp(21px, 2.5vw, 24px);
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--ink);
+  margin: 14px 0 0;
+  letter-spacing: -0.01em;
 }
+.home-bs .hb-count { font-size: 13px; font-weight: 600; color: var(--ink-3); margin-left: 8px; }
+.home-bs .hb-sub { font-size: 14px; color: var(--ink-2); margin: 5px 0 0; max-width: 640px; }
 
-.home-bs .hb-greeting em { font-style: normal; color: var(--hb-accent-text); }
-
-.home-bs .hb-count {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--hb-fg-soft);
-  margin-left: 8px;
-  letter-spacing: 0;
-}
-
-.home-bs .hb-subtitle {
-  font-size: 13.5px;
-  color: var(--hb-fg-soft);
-  margin: 0;
-  max-width: 620px;
-}
-
-/* ─── Tira fina de KPIs ──────────────────────────────────────── */
+/* ─── Tira fina de KPIs ──────────────────────────────────────────── */
 .home-bs .hb-kpis {
   display: flex;
   align-items: center;
   gap: 10px 14px;
   flex-wrap: wrap;
+  margin-top: 20px;
   padding: 10px 14px;
-  margin-bottom: 20px;
-  background: var(--hb-card);
-  border: 1px solid var(--hb-border);
-  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--card-sh);
 }
-
 .home-bs .hb-kpis-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   font-size: 12.5px;
-  font-weight: 800;
-  color: var(--hb-fg);
+  font-weight: 700;
+  color: var(--ink);
 }
-
 .home-bs .hb-kpis-loading {
   display: inline-block;
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: var(--hb-accent);
+  background: var(--orange);
   animation: hb-pulse 1.2s ease-in-out infinite;
   margin-left: 4px;
 }
-
 @keyframes hb-pulse {
   0%, 100% { opacity: 0.3; transform: scale(0.8); }
   50%      { opacity: 1;   transform: scale(1.1); }
 }
-
 .home-bs .hb-chips { display: inline-flex; flex-wrap: wrap; gap: 6px; }
-
 .home-bs .hb-chip {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
   padding: 4px 12px;
   border-radius: 999px;
-  background: var(--hb-accent-soft);
-  border: 1px solid var(--hb-border);
+  background: var(--orange-soft);
+  border: 1px solid var(--orange-bd);
   font-size: 12.5px;
-  color: var(--hb-fg);
+  color: var(--ink-2);
 }
-
-.home-bs .hb-chip-value { font-weight: 900; font-size: 15px; letter-spacing: -0.01em; color: var(--hb-accent); }
-.home-bs .hb-chip-label { color: var(--hb-fg-soft); }
-
-/* Tons de chip (valor) */
-.home-bs .hb-chip[data-tone="emerald"] .hb-chip-value { color: var(--hb-tone-emerald); }
-.home-bs .hb-chip[data-tone="amber"]   .hb-chip-value { color: var(--hb-tone-amber); }
-.home-bs .hb-chip[data-tone="sky"]     .hb-chip-value { color: var(--hb-tone-sky); }
-.home-bs .hb-chip[data-tone="rose"]    .hb-chip-value { color: var(--hb-tone-rose); }
-.home-bs .hb-chip[data-tone="violet"]  .hb-chip-value { color: var(--hb-tone-violet); }
-
+.home-bs .hb-chip-value { font-weight: 800; font-size: 15px; letter-spacing: -0.01em; color: var(--orange-d); }
+.home-bs .hb-chip-label { color: var(--ink-3); }
 .home-bs .hb-kpis-cta {
   margin-left: auto;
   font-size: 12px;
   font-weight: 700;
-  color: var(--hb-accent-text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
+  color: var(--orange-d);
+  text-decoration: none;
   white-space: nowrap;
 }
 .home-bs .hb-kpis-cta:hover { text-decoration: underline; }
 
-/* ─── Balões ─────────────────────────────────────────────────── */
-.home-bs .hb-actions {
+/* ─── Balões (estilo Clinicorp) ──────────────────────────────────── */
+.home-bs .hb-grid {
+  margin-top: 24px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
 }
+@media (max-width: 1100px) { .home-bs .hb-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px)  { .home-bs .hb-grid { grid-template-columns: 1fr; } }
 
-.home-bs .hb-action {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 14px;
-  padding: 20px;
-  border-radius: 16px;
-  background: var(--hb-card);
-  border: 1px solid var(--hb-border);
+.home-bs .hb-balao {
+  display: block;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 22px 20px;
+  box-shadow: var(--card-sh);
   text-decoration: none;
   color: inherit;
-  transition: transform 0.16s, border-color 0.16s, box-shadow 0.16s;
-  min-height: 132px;
+  transition: box-shadow 0.18s, transform 0.18s, border-color 0.18s;
 }
-
-.home-bs .hb-action:hover {
+.home-bs .hb-balao:hover {
+  box-shadow: var(--card-sh-h);
   transform: translateY(-2px);
-  border-color: rgba(249, 115, 22, 0.45);
-  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.10);
+  border-color: var(--orange-bd);
 }
-
-.home-bs .hb-action-icon {
+.home-bs .hb-balao-ico {
   width: 46px;
   height: 46px;
-  border-radius: 12px;
+  border-radius: 50%;
+  background: var(--orange);
   display: grid;
   place-items: center;
-  background: var(--hb-accent);
   color: #fff;
-  flex-shrink: 0;
 }
-
-.home-bs .hb-action-text { display: flex; flex-direction: column; gap: 3px; }
-
-.home-bs .hb-action-label {
-  font-size: 15px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  color: var(--hb-fg);
-}
-
-.home-bs .hb-action-desc {
-  font-size: 12.5px;
-  font-weight: 500;
-  color: var(--hb-fg-soft);
-}
+.home-bs .hb-balao-title { font-size: 16px; font-weight: 700; color: var(--ink); margin: 14px 0 0; }
+.home-bs .hb-balao-desc  { font-size: 13px; font-weight: 400; color: var(--ink-3); line-height: 1.5; margin: 5px 0 0; }

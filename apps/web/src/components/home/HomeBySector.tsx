@@ -1,25 +1,24 @@
 'use client';
 
 /**
- * Onda 17.50 — Home "balões por papel" (rev 3 — alinhada ao mockup do usuário).
+ * Onda 17.50 — Home "balões por papel" (rev 4 — alinhada ao skill home-por-setor).
  *
- * Layout plano (estilo mockup):
- *   cabeçalho compacto (badge do papel + saudação + "N balões" + subtítulo)
- *   → tira fina de KPIs ao vivo
- *   → grade de balões (ícone laranja + título + descrição), cada um leva
- *     direto pra rota do módulo.
+ * Visual fiel ao protótipo Clinicorp (assets/preview-todos-setores.html):
+ *   breadcrumb "Início › Setor" → chip laranja do setor → "Bom dia, X · N balões"
+ *   → tira fina de KPIs ao vivo → grade de balões (card branco, canto 8px, ícone
+ *   CÍRCULO laranja sólido, título + descrição).
  *
- * Mantém: allowSwitch (admin troca de perspectiva pra comparar) e os chips
- * ao vivo (useHomeHighlights, com fallback pro mock). skySlot é aceito por
- * compatibilidade com os call-sites antigos, mas não é mais renderizado
- * (a home virou plana, sem o banner roxo).
+ * A home é SEMPRE CLARA (launcher Clinicorp), independente do tema do app —
+ * decisão confirmada com o usuário. Por isso o CSS usa paleta fixa (não tokens
+ * de tema). Mantém allowSwitch (admin compara perspectivas) e os chips ao vivo
+ * (useHomeHighlights). skySlot é aceito por compat mas não é mais renderizado.
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import {
-  Calendar, Zap, Users, MessageSquare, Bell, FileText, ClipboardList,
-  Briefcase, Sparkles, Handshake, Layers, BarChart3, Receipt, PieChart,
-  Wallet, UserCog, Megaphone, Settings, type LucideIcon,
+  Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
+  Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
+  Megaphone, Settings, type LucideIcon,
 } from 'lucide-react';
 import { getSector, SECTORS, type Sector } from '@crm/shared';
 // Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
@@ -42,9 +41,9 @@ const DEFAULT_HOUR = 12; // estado neutro pro SSR
 // Mapa nome→componente lucide (os ícones referenciados em sectors.config.ts).
 // Mantido aqui (e não no shared) pra não acoplar o pacote shared ao React.
 const ICONS: Record<string, LucideIcon> = {
-  Calendar, Zap, Users, MessageSquare, Bell, FileText, ClipboardList,
-  Briefcase, Sparkles, Handshake, Layers, BarChart3, Receipt, PieChart,
-  Wallet, UserCog, Megaphone, Settings,
+  Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
+  Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
+  Megaphone, Settings,
 };
 
 function greetingFor(hour: number): string {
@@ -72,6 +71,7 @@ export default function HomeBySector({ sector, userName, allowSwitch = false }: 
   const firstName = userName?.trim().split(' ')[0] || 'visitante';
   const isPreview = active !== sector;
   const actions   = meta.home.actions;
+  const setorLabel = meta.home.persona;
 
   // Onda 17.32.126 — Chips reais via API; cai no mock se falhar/loading
   const { data: liveHighlights, loading: highlightsLoading } = useHomeHighlights(active);
@@ -104,19 +104,17 @@ export default function HomeBySector({ sector, userName, allowSwitch = false }: 
         </div>
       )}
 
-      {/* Cabeçalho compacto */}
-      <header className="hb-head">
-        <span className="hb-persona-badge">
-          <span aria-hidden="true" style={{ fontSize: 12 }}>{meta.icon}</span>
-          {meta.home.persona}
-          {isPreview && <span className="hb-preview-tag">prévia</span>}
-        </span>
-        <h1 className="hb-greeting">
-          {greeting}, <em>{firstName}</em>
-          <span className="hb-count">· {actions.length} {actions.length === 1 ? 'balão' : 'balões'}</span>
-        </h1>
-        <p className="hb-subtitle">{meta.home.subtitle}</p>
-      </header>
+      {/* Cabeçalho — breadcrumb + chip do setor + saudação */}
+      <div className="hb-crumb">Início <b>›</b> {setorLabel}</div>
+      <span className="hb-sector-chip">
+        {setorLabel}
+        {isPreview && <em className="hb-preview-tag">prévia</em>}
+      </span>
+      <h1 className="hb-greeting">
+        {greeting}, {firstName}
+        <span className="hb-count">· {actions.length} {actions.length === 1 ? 'balão' : 'balões'}</span>
+      </h1>
+      <p className="hb-sub">{meta.home.subtitle}</p>
 
       {/* Tira fina de KPIs ao vivo */}
       <div className="hb-kpis">
@@ -129,7 +127,7 @@ export default function HomeBySector({ sector, userName, allowSwitch = false }: 
         </span>
         <div className="hb-chips">
           {chips.map((c, i) => (
-            <span key={i} className="hb-chip" data-tone={c.tone ?? 'violet'}>
+            <span key={i} className="hb-chip">
               <span className="hb-chip-value">{c.value}</span>
               <span className="hb-chip-label">{c.label}</span>
             </span>
@@ -142,19 +140,17 @@ export default function HomeBySector({ sector, userName, allowSwitch = false }: 
         )}
       </div>
 
-      {/* Grade de balões */}
-      <div className="hb-actions">
+      {/* Grade de balões (estilo Clinicorp) */}
+      <div className="hb-grid">
         {actions.map((a) => {
           const Icon = a.lucide ? ICONS[a.lucide] : undefined;
           return (
-            <Link key={a.label} href={a.href} className="hb-action">
-              <span className="hb-action-icon">
+            <Link key={a.label} href={a.href} className="hb-balao">
+              <span className="hb-balao-ico">
                 {Icon ? <Icon size={22} strokeWidth={2} /> : <span style={{ fontSize: 20 }}>{a.icon}</span>}
               </span>
-              <span className="hb-action-text">
-                <span className="hb-action-label">{a.label}</span>
-                {a.desc && <span className="hb-action-desc">{a.desc}</span>}
-              </span>
+              <h3 className="hb-balao-title">{a.label}</h3>
+              {a.desc && <p className="hb-balao-desc">{a.desc}</p>}
             </Link>
           );
         })}
