@@ -1654,16 +1654,14 @@ export class CalendarService {
     // CURRENT_DATE do Postgres (que roda em UTC) pra nao pegar o dia errado
     // perto da meia-noite (ex: send_at noturno pegaria os aniversariantes de
     // amanha). Mesma base que o cron usa pra decidir a hora.
-    const maceio = new Date(Date.now() - 3 * 60 * 60 * 1000);
-    const month = maceio.getUTCMonth() + 1;
-    const day = maceio.getUTCDate();
+    const todayMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
     return this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null }>>(
       `SELECT id, name, phone FROM patients
        WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-         AND EXTRACT(MONTH FROM birth_date)::int = $2
-         AND EXTRACT(DAY FROM birth_date)::int = $3
+         AND EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM $2::date)
+         AND EXTRACT(DAY FROM birth_date) = EXTRACT(DAY FROM $2::date)
        LIMIT 200`,
-      tenant_id, month, day,
+      tenant_id, todayMaceio,
     );
   }
 
