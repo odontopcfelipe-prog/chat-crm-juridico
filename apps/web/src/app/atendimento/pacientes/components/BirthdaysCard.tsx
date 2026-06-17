@@ -29,7 +29,10 @@ const PERIODS = [
 
 type Period = typeof PERIODS[number]['v'];
 
-export default function BirthdaysCard() {
+// alwaysShow (Onda 17.49): na tela de Pacientes o card some quando nao tem
+// ninguem HOJE (evita poluir). No painel Operacional do Follow-up a gente quer
+// ele SEMPRE visivel (mostra "Ninguem faz aniversario hoje" no lugar de sumir).
+export default function BirthdaysCard({ alwaysShow = false }: { alwaysShow?: boolean } = {}) {
   const router = useRouter();
   const [period, setPeriod] = useState<Period>('today');
   const [list, setList] = useState<Birthday[]>([]);
@@ -49,7 +52,7 @@ export default function BirthdaysCard() {
   // Mas se está carregando ainda, espera.
   // Heurística: se period=today e lista vazia, ainda mostra o card pra
   // usuário poder trocar pra "semana"/"mês".
-  if (!loading && list.length === 0 && period === 'today') {
+  if (!alwaysShow && !loading && list.length === 0 && period === 'today') {
     return null;
   }
 
@@ -88,7 +91,7 @@ export default function BirthdaysCard() {
         </div>
       ) : list.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Ninguém faz aniversário {period === 'week' ? 'esta semana' : 'este mês'}.
+          Ninguém faz aniversário {period === 'today' ? 'hoje' : period === 'week' ? 'esta semana' : 'este mês'}.
         </p>
       ) : (
         <ul className="space-y-1.5 max-h-64 overflow-y-auto">

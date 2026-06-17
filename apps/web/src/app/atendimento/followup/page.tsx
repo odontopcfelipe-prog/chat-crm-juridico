@@ -15,6 +15,8 @@ import { OperacionalPanel } from './components/OperacionalPanel';
 import { RemindersTab } from './components/RemindersTab';
 import { PosAtendimentoTab } from './components/PosAtendimentoTab';
 import { DentistSummaryTab } from './components/DentistSummaryTab';
+// Onda 17.49 — aniversariantes do dia no painel (reusa o card da tela de Pacientes)
+import BirthdaysCard from '@/app/atendimento/pacientes/components/BirthdaysCard';
 
 type View = 'hub' | 'lembretes' | 'pos-atendimento' | 'dentista';
 
@@ -27,13 +29,18 @@ export default function FollowupPage() {
     <div className="h-full overflow-y-auto bg-background">
       <div className="w-full px-4 md:px-6 py-6 pb-28 md:pb-8">
         {view === 'hub' ? (
-          <OperacionalPanel
-            onOpenTab={(t) => {
-              if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista') {
-                setView(t);
-              }
-            }}
-          />
+          <>
+            <OperacionalPanel
+              onOpenTab={(t) => {
+                if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista') {
+                  setView(t);
+                }
+              }}
+            />
+            <div className="mt-6 max-w-md">
+              <BirthdaysCard alwaysShow />
+            </div>
+          </>
         ) : (
           <>
             <button
