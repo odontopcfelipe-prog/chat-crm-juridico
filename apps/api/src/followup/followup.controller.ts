@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException } from '@nestjs/common';
 import { FollowupService } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
@@ -13,6 +13,21 @@ export class FollowupController {
 
   @Get('stats')
   getStats(@Request() req: any) { return this.svc.getStats(req.user?.tenant_id); }
+
+  // ─── Painel "Operacional" (Onda 17.49) ───────────────────────────────────
+  @Get('operacional')
+  getOperacional(@Request() req: any) { return this.svc.getOperacional(req.user?.tenant_id); }
+
+  @Patch('operacional/toggle')
+  setOperacionalToggle(@Body() body: { which: string; enabled: boolean }, @Request() req: any) {
+    // Ler as metricas e liberado pra view_marketing (crc+admin), mas LIGAR/DESLIGAR
+    // os robos de mensageria do paciente e ato administrativo — so ADMIN.
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode ligar/desligar as automações');
+    }
+    return this.svc.setOperacionalToggle(req.user?.tenant_id, body?.which, !!body?.enabled);
+  }
 
   // ─── Sequências ──────────────────────────────────────────────────────────
   @Get('sequences')

@@ -29,10 +29,10 @@ export class CalendarCronService {
       const in2min = new Date(now.getTime() + 2 * 60 * 1000);
 
       const reminders = await this.prisma.$queryRaw<
-        { id: string; event_id: string; minutes_before: number; title: string; type: string; start_at: Date; assigned_user_id: string | null }[]
+        { id: string; event_id: string; minutes_before: number; title: string; type: string; start_at: Date; assigned_user_id: string | null; tenant_id: string | null }[]
       >`
         SELECT er.id, er.event_id, er.minutes_before,
-               ce.title, ce.type, ce.start_at, ce.assigned_user_id
+               ce.title, ce.type, ce.start_at, ce.assigned_user_id, ce.tenant_id
         FROM "EventReminder" er
         JOIN "CalendarEvent" ce ON er.event_id = ce.id
         WHERE er.channel = 'PUSH'
@@ -45,7 +45,21 @@ export class CalendarCronService {
         this.logger.log(`[CRON] Encontrados ${reminders.length} lembretes PUSH para enviar`);
       }
 
+      // Onda 17.49 — respeita o toggle "Lembrete" (default LIGADO) por tenant.
+      const reminderEnabledByTenant = new Map<string, boolean>();
+
       for (const r of reminders) {
+        const tid = r.tenant_id || '';
+        let lembreteOn = reminderEnabledByTenant.get(tid);
+        if (lembreteOn === undefined) {
+          const s = await this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tid}` } });
+          lembreteOn = true;
+          if (s?.value) { try { lembreteOn = JSON.parse(s.value)?.enabled !== false; } catch { lembreteOn = true; } }
+          reminderEnabledByTenant.set(tid, lembreteOn);
+        }
+        // Desligado: nao emite nem marca (fica pendente; nao dispara nesse minuto).
+        if (!lembreteOn) continue;
+
         if (r.assigned_user_id) {
           try {
             this.chatGateway.emitCalendarReminder(r.assigned_user_id, {

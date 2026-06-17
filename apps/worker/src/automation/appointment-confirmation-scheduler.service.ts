@@ -52,12 +52,27 @@ export class AppointmentConfirmationSchedulerService {
 
       let created = 0;
       let skipped = 0;
+      // Onda 17.49 — cache do liga/desliga da confirmacao por tenant
+      const enabledByTenant = new Map<string, boolean>();
 
       for (const ev of eligible) {
         if (!ev.patient?.phone) {
           skipped++;
           continue;
         }
+
+        // Onda 17.49 — respeita o toggle "Confirmação" (default LIGADO): nao cria
+        // a confirmacao se o tenant desligou no painel Operacional.
+        const tid = ev.tenant_id || '';
+        let confEnabled = enabledByTenant.get(tid);
+        if (confEnabled === undefined) {
+          const s = await this.prisma.globalSetting.findUnique({
+            where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tid}` },
+          });
+          confEnabled = (s?.value ?? 'true') !== 'false';
+          enabledByTenant.set(tid, confEnabled);
+        }
+        if (!confEnabled) { skipped++; continue; }
 
         // Ja existe confirmacao por WhatsApp para este agendamento?
         const existing = await this.prisma.appointmentConfirmation.findFirst({

@@ -13,6 +13,8 @@ import { showError, showSuccess } from '@/lib/toast';
 import { API_BASE_URL } from '@/lib/api';
 // Onda 5e v21 (Fase 25) — aba dedicada pra acompanhamento de lembretes
 import { RemindersTab } from './components/RemindersTab';
+// Onda 17.49 — painel "Operacional" (4 robôs do dia-a-dia) no topo do Dashboard
+import { OperacionalPanel } from './components/OperacionalPanel';
 // Fase 26 — pesquisa de satisfacao pos-atendimento
 import { PosAtendimentoTab } from './components/PosAtendimentoTab';
 // Onda 5e v30 (Fase 25) — resumo diario pra dentistas
@@ -1647,6 +1649,8 @@ export default function FollowupPage() {
         {/* ── TAB: DASHBOARD ─────────────────────────────────────────────────── */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8">
+            {/* Onda 17.49 — painel "Operacional" lidera o Dashboard */}
+            <OperacionalPanel onOpenTab={(t) => setActiveTab(t as TabId)} />
             {loadingStats ? (
               <div className="flex items-center justify-center py-20 text-muted-foreground">
                 <RefreshCw size={20} className="animate-spin mr-2" />

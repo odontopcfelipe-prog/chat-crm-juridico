@@ -356,6 +356,20 @@ export class CalendarReminderWorker extends WorkerHost {
       return;
     }
 
+    // Onda 17.49 — respeita o toggle "Lembrete" do painel Operacional.
+    // Default LIGADO: so pula se REMINDER_CONFIG_<tenant>.enabled === false.
+    const remCfg = await this.prisma.globalSetting.findUnique({
+      where: { key: `REMINDER_CONFIG_${event.tenant_id}` },
+    });
+    if (remCfg?.value) {
+      try {
+        if (JSON.parse(remCfg.value)?.enabled === false) {
+          this.logger.log(`[WORKER-API] Lembretes desligados (tenant ${event.tenant_id}) — pulando reminder ${reminderId}`);
+          return;
+        }
+      } catch { /* config corrompida = trata como ligado */ }
+    }
+
     // v31: se nao tem lead mas tem patient, usa patient como source pra envio
     // Mantem event.lead pra compat com restantes do codigo (templates, logs)
     if (!event.lead && (event as any).patient) {

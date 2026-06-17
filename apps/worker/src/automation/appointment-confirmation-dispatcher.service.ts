@@ -64,6 +64,8 @@ export class AppointmentConfirmationDispatcherService {
 
       // Cache de instances por tenant para evitar query repetida
       const instanceByTenant = new Map<string, string | null>();
+      // Onda 17.49 — cache do liga/desliga da confirmacao por tenant
+      const enabledByTenant = new Map<string, boolean>();
 
       let sent = 0;
       let failed = 0;
@@ -78,6 +80,19 @@ export class AppointmentConfirmationDispatcherService {
           skipped++;
           continue;
         }
+
+        // Onda 17.49 — respeita o toggle "Confirmação" do painel Operacional.
+        // Default LIGADO: so nao envia se a key estiver explicitamente 'false'.
+        // Nao marca como falha (fica PENDENTE) — volta a enviar se religar.
+        let confEnabled = enabledByTenant.get(tenantId);
+        if (confEnabled === undefined) {
+          const s = await this.prisma.globalSetting.findUnique({
+            where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` },
+          });
+          confEnabled = (s?.value ?? 'true') !== 'false';
+          enabledByTenant.set(tenantId, confEnabled);
+        }
+        if (!confEnabled) { skipped++; continue; }
 
         // Resolve instance do tenant
         let instance = instanceByTenant.get(tenantId);

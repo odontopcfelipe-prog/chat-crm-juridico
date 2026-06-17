@@ -35,11 +35,18 @@ export interface ReminderTemplates {
 }
 
 export interface ReminderConfig {
+  /**
+   * Onda 17.49 — liga/desliga global dos lembretes de agendamento do tenant.
+   * Default LIGADO (ausente/undefined = true) pra nao mudar o comportamento
+   * de quem ja usa. So desligado (enabled === false) bloqueia o disparo.
+   */
+  enabled?: boolean;
   default_antecedencias: ReminderAntecedencia[];
   templates: ReminderTemplates;
 }
 
 export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
+  enabled: true,
   default_antecedencias: [
     { minutes_before: 1440, channel: 'WHATSAPP' },
     { minutes_before: 60, channel: 'WHATSAPP' },

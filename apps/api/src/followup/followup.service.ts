@@ -48,6 +48,153 @@ export class FollowupService {
     @InjectQueue('followup-jobs') private followupQueue: Queue,
   ) {}
 
+  // ─── Painel "Operacional" (Onda 17.49) ───────────────────────────────────
+  // 4 automacoes do dia-a-dia (confirmacao / lembrete / pos-atendimento /
+  // resumo dentista) num card so: metrica do dia + estado do liga-desliga.
+  // Tudo derivado em leitura; os toggles persistem em GlobalSetting (mesmas
+  // keys que cada cron ja le, pra ligar/desligar de verdade).
+
+  private parseJson(v?: string | null): any {
+    if (!v) return null;
+    try { return JSON.parse(v); } catch { return null; }
+  }
+
+  /** Janela do dia corrente no fuso America/Maceio (UTC-3, sem horario de verao). */
+  private dayWindowMaceio(): { start: Date; end: Date } {
+    const offsetMs = 3 * 60 * 60 * 1000;
+    const maceio = new Date(Date.now() - offsetMs);
+    const start = new Date(
+      Date.UTC(maceio.getUTCFullYear(), maceio.getUTCMonth(), maceio.getUTCDate(), 0, 0, 0) + offsetMs,
+    );
+    return { start, end: new Date(start.getTime() + 86400000) };
+  }
+
+  private minutesAntesLabel(min: number): string {
+    if (min >= 1440) { const d = Math.round(min / 1440); return d === 1 ? '1 dia antes' : `${d} dias antes`; }
+    if (min >= 60) { const h = Math.round(min / 60); return h === 1 ? '1 hora antes' : `${h} horas antes`; }
+    return `${Math.max(1, Math.round(min))} min antes`;
+  }
+
+  /** Agrega as 4 metricas do dia + os 4 estados de toggle numa resposta so. */
+  async getOperacional(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const { start: dayStart, end: dayEnd } = this.dayWindowMaceio();
+    const since30 = new Date(Date.now() - 30 * 86400000);
+
+    const [confSetting, reminderSetting, posSetting, dentSetting] = await Promise.all([
+      this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: 'POST_CARE_CONFIG' } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `DENTIST_DAILY_SUMMARY_${tenantId}` } }),
+    ]);
+    const reminderCfg = this.parseJson(reminderSetting?.value);
+    const posCfg = this.parseJson(posSetting?.value);
+    const dentCfg = this.parseJson(dentSetting?.value);
+
+    // Defaults: confirmacao/lembrete/pos LIGADOS por default; dentista DESLIGADO.
+    const confEnabled = (confSetting?.value ?? 'true') !== 'false';
+    const reminderEnabled = reminderCfg?.enabled !== false;
+    const posEnabled = posCfg?.enabled !== false;
+    const dentEnabled = dentCfg?.enabled === true;
+    const dentSendAt = (dentCfg?.send_at as string) || '07:00';
+
+    const [confs, lembretesHoje, posSurveys, posRespHoje, dentistEvents, dentistUsers] = await Promise.all([
+      this.prisma.appointmentConfirmation.findMany({
+        where: { sent_at: { gte: dayStart, lt: dayEnd }, appointment: { tenant_id: tenantId } },
+        select: { response_status: true, delivery_status: true, appointment: { select: { status: true } } },
+      }),
+      this.prisma.eventReminder.count({
+        where: { sent_at: { gte: dayStart, lt: dayEnd }, event: { tenant_id: tenantId } },
+      }),
+      this.prisma.postCareSurvey.findMany({
+        where: { tenant_id: tenantId, created_at: { gte: since30 } },
+        select: { sentiment: true, responded_at: true, score: true },
+      }),
+      this.prisma.postCareSurvey.count({
+        where: { tenant_id: tenantId, responded_at: { gte: dayStart, lt: dayEnd } },
+      }),
+      this.prisma.calendarEvent.findMany({
+        where: {
+          tenant_id: tenantId,
+          start_at: { gte: dayStart, lt: dayEnd },
+          status: { in: ['AGENDADO', 'CONFIRMADO'] },
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+          assigned_user_id: { not: null },
+        },
+        select: { assigned_user_id: true },
+        distinct: ['assigned_user_id'],
+      }),
+      this.prisma.user.findMany({ where: { tenant_id: tenantId, roles: { has: 'DENTIST' } }, select: { id: true } }),
+    ]);
+
+    // Confirmacao: % das ENVIADAS hoje que viraram CONFIRMADO. Sinal confiavel =
+    // status da consulta (o respond do paciente vira CalendarEvent CONFIRMADO);
+    // response_status como reforco.
+    const enviadasHoje = confs.filter((c) => c.delivery_status !== 'FAILED').length;
+    const confirmadasHoje = confs.filter(
+      (c) => c.delivery_status !== 'FAILED' &&
+        (c.appointment?.status === 'CONFIRMADO' || c.response_status === 'CONFIRMADO'),
+    ).length;
+    const confPct = enviadasHoje > 0 ? Math.round((confirmadasHoje / enviadasHoje) * 100) : 0;
+
+    // Lembrete: antecedencia (maior) configurada -> "1 dia antes".
+    const antecedencias = Array.isArray(reminderCfg?.default_antecedencias) ? reminderCfg.default_antecedencias : [];
+    const maxMin = antecedencias.length
+      ? Math.max(...antecedencias.map((a: any) => Number(a?.minutes_before) || 0))
+      : 1440;
+    const antecedenciaLabel = this.minutesAntesLabel(maxMin || 1440);
+
+    // Pos-atendimento: NPS proxy (%positivos - %negativos entre os que responderam, 30d).
+    const responded = posSurveys.filter((s) => s.responded_at != null).length;
+    const positive = posSurveys.filter((s) => s.sentiment === 'POSITIVE').length;
+    const negative = posSurveys.filter((s) => s.sentiment === 'NEGATIVE').length;
+    const nps = responded > 0 ? Math.round(((positive - negative) / responded) * 100) : null;
+    const scores = posSurveys.map((s) => s.score).filter((n): n is number => n != null);
+    const media30d = scores.length ? Number((scores.reduce((a, b) => a + b, 0) / scores.length).toFixed(1)) : null;
+
+    // Dentista: quantos dentistas (role DENTIST) tem atendimento clinico hoje.
+    const dentistIds = new Set(dentistUsers.map((u) => u.id));
+    const dentistasHoje = dentistEvents.filter((e) => e.assigned_user_id && dentistIds.has(e.assigned_user_id)).length;
+
+    return {
+      confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct },
+      lembrete: { enabled: reminderEnabled, enviadosHoje: lembretesHoje, antecedenciaLabel },
+      pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded },
+      dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje },
+    };
+  }
+
+  /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le). */
+  async setOperacionalToggle(tenantId: string, which: string, enabled: boolean) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const mergeJson = async (key: string, patch: Record<string, any>) => {
+      const cur = await this.prisma.globalSetting.findUnique({ where: { key } });
+      const value = JSON.stringify({ ...(this.parseJson(cur?.value) || {}), ...patch });
+      await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    };
+    switch (which) {
+      case 'confirmacao': {
+        const key = `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      case 'lembrete':
+        await mergeJson(`REMINDER_CONFIG_${tenantId}`, { enabled });
+        break;
+      case 'pos':
+        await mergeJson('POST_CARE_CONFIG', { enabled });
+        break;
+      case 'dentista':
+        await mergeJson(`DENTIST_DAILY_SUMMARY_${tenantId}`, { enabled });
+        break;
+      default:
+        throw new BadRequestException(`toggle invalido: ${which}`);
+    }
+    this.logger.log(`[OPERACIONAL] ${which} -> ${enabled ? 'ON' : 'OFF'} (tenant ${tenantId})`);
+    return { ok: true, which, enabled };
+  }
+
   // ─── CRUD Sequências ─────────────────────────────────────────────────────
 
   async listSequences(tenantId?: string) {

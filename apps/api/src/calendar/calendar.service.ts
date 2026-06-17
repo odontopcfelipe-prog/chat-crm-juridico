@@ -1377,6 +1377,8 @@ export class CalendarService {
       const parsed = JSON.parse(setting.value);
       // Merge com defaults pra garantir que campos novos venham preenchidos
       return {
+        // Onda 17.49 — liga/desliga; default LIGADO (so 'false' explicito desliga).
+        enabled: parsed.enabled !== false,
         default_antecedencias: Array.isArray(parsed.default_antecedencias)
           ? parsed.default_antecedencias
           : DEFAULT_REMINDER_CONFIG.default_antecedencias,
@@ -1393,7 +1395,7 @@ export class CalendarService {
 
   async setReminderConfig(
     tenant_id: string | undefined,
-    config: { default_antecedencias?: any[]; templates?: any },
+    config: { enabled?: boolean; default_antecedencias?: any[]; templates?: any },
   ) {
     const key = tenant_id ? `REMINDER_CONFIG_${tenant_id}` : 'REMINDER_CONFIG';
     // Valida shape minimo
@@ -1420,7 +1422,14 @@ export class CalendarService {
         }
       }
     }
+    // Onda 17.49 — preserva SO o `enabled` (o modal de antecedencias nunca o
+    // envia, entao salvar templates/antecedencias nao pode apagar o liga/desliga).
+    // default_antecedencias/templates AUSENTES continuam significando "resetar pros
+    // defaults" — e o que o botao "Restaurar padroes" faz; por isso NAO ha fallback
+    // pro atual aqui (so pro enabled).
+    const current = await this.getReminderConfig(tenant_id);
     const value = JSON.stringify({
+      enabled: config.enabled !== undefined ? config.enabled : current.enabled,
       default_antecedencias: config.default_antecedencias,
       templates: config.templates,
     });
