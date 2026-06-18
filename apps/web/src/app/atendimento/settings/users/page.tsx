@@ -6,6 +6,7 @@ import { Plus, Pencil, Trash2, X, UserCog, Phone, Loader2, Clock, ChevronDown, C
 import api from '@/lib/api';
 // Onda 17.32.117 — Setores + permissoes (catalogo compartilhado)
 import { SECTORS, PERMISSIONS, type Sector, type Permission } from '@crm/shared';
+import { SectorHomePreview } from '@/components/home/SectorHomePreview';
 // Onda 5e v10 (Fase 25) — editor de horarios reusavel
 import {
   ScheduleEditor,
@@ -740,6 +741,11 @@ export default function UsersSettingsPage() {
                   )}
                 </div>
               </div>
+
+              {/* Onda 17.52 — Prévia da home do setor escolhido: mostra os balões
+                  que esse usuário vai ver, atualizando junto com o card de setor. */}
+              {form.sector && <SectorHomePreview sector={form.sector as Sector} />}
+
               {/* Onda 17.51 — Especialidades são atributo clínico do DENTISTA (como
                   CRO/horário). Não faz sentido pra recepção/admin/financeiro. Mantém
                   visível se já houver especialidade salva, pra não esconder dado. */}
