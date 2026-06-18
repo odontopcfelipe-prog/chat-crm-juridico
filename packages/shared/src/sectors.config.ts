@@ -205,7 +205,8 @@ export const SECTORS: SectorMeta[] = [
     defaultPermissions: [
       'view_patients', 'edit_patients',
       'view_agenda',
-      'view_chat',
+      // Onda 17.52 — Dentista NÃO usa WhatsApp (decisão do usuário): sem
+      // view_chat e sem balão de WhatsApp. Recepção/CRC cuidam do chat.
       'view_clinical', 'edit_clinical',
       'manage_proposals',
       // Dentista define/desconta preco nas propostas — mantem o que ja fazia.
@@ -228,10 +229,6 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'Calendar', icon: '📅', label: 'Minha agenda',        desc: 'Seus atendimentos de hoje.',      href: '/atendimento/agenda',     tone: 'violet'  },
         { lucide: 'Users',    icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico clínico.', href: '/atendimento/pacientes',  tone: 'sky'     },
         { lucide: 'FileText', icon: '📄', label: 'Plano de tratamento', desc: 'Monte e apresente o plano.',      href: '/atendimento/orcamentos', tone: 'emerald' },
-        // Onda 17.50 — DESVIO do skill (que dá 3 balões ao dentista): mantemos o
-        // WhatsApp porque o dentista tem `view_chat` e, sem barra lateral, este é
-        // o único acesso ao chat no desktop. Remover só se tirar a permissão tb.
-        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',       desc: 'Converse com os pacientes.',      href: '/atendimento',            tone: 'amber'   },
       ],
       todos: [
         'Pacientes pra atender hoje',
