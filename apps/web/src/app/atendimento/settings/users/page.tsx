@@ -844,8 +844,11 @@ export default function UsersSettingsPage() {
                 </div>
               )}
 
-              {/* Supervisores (Dentistas) */}
-              {lawyers.length > 0 && (
+              {/* Supervisores (Dentistas) — Onda 17.51: a seção vincula o usuário
+                  como ASSISTENTE de dentistas, então só faz sentido pro papel
+                  Assistente (ACD/ASB). Antes aparecia pra todos. Mantém visível se
+                  já houver vínculo salvo, pra não esconder dado. */}
+              {(form.roles.includes('ASSISTANT') || form.supervisorIds.length > 0) && lawyers.length > 0 && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🦷 Supervisores (Dentistas)
