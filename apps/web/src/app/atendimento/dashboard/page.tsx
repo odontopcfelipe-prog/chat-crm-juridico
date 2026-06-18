@@ -427,7 +427,7 @@ export default function VisaoGeralPage() {
         )}
       </div>
 
-      <div className="relative z-10 max-w-6xl mx-auto p-4 md:p-6 pb-28 md:pb-12 space-y-6">
+      <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6 pb-28 md:pb-12 space-y-6">
 
         {/* Onda 17.3 — botao "Dashboard completo" removido daqui.
             Acesso a esse conteudo agora pelo sidebar (Financeiro >
