@@ -794,7 +794,10 @@ export default function UsersSettingsPage() {
                   )}
                 </div>
               </div>
-              {form.roles.length > 0 && (
+              {/* Onda 17.51 — Especialidades são atributo clínico do DENTISTA (como
+                  CRO/horário). Não faz sentido pra recepção/admin/financeiro. Mantém
+                  visível se já houver especialidade salva, pra não esconder dado. */}
+              {(form.roles.includes('DENTIST') || form.specialties.length > 0) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🦷 Especialidades Odontológicas
