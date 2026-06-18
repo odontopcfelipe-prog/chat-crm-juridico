@@ -52,6 +52,20 @@ const ROLE_OPTIONS: { key: RoleKey; label: string; emoji: string; description: s
   { key: 'FINANCEIRO', label: 'Financeiro', emoji: '💰', description: 'Honorários e receitas' },
 ];
 
+// Onda 17.51 — Setor -> perfil de acesso técnico (1:1). O SETOR é a única
+// escolha de cadastro; o perfil (role) é derivado daqui pra manter a
+// autorização do backend (RolesGuard) funcionando, sem o usuário ter que
+// escolher os dois (era contraditório). Multi-papel continua possível no
+// bloco "Avançado".
+const SECTOR_ROLE: Record<Sector, RoleKey> = {
+  recepcao:   'OPERADOR',
+  dentista:   'DENTIST',
+  acd_asb:    'ASSISTANT',
+  crc:        'COMERCIAL',
+  financeiro: 'FINANCEIRO',
+  admin:      'ADMIN',
+};
+
 // Mapeia rótulos legados (nomes de departamento ou roles jurídicos) para o enum canônico
 // odontológico. Aceita ADVOGADO/ESTAGIARIO porque o banco pré-migração pode conter esses
 // valores — o frontend normaliza para DENTIST/ASSISTANT até a migration SQL rodar.
@@ -255,6 +269,10 @@ export default function UsersSettingsPage() {
     setShowModal(true);
   };
 
+  // Onda 17.51 — Perfil de acesso técnico só aparece no "Avançado" (é derivado
+  // do setor). Default fechado pra não competir com o card de setor.
+  const [showAdvancedRoles, setShowAdvancedRoles] = useState(false);
+
   const toggleRole = (role: RoleKey) => {
     setForm(f => ({
       ...f,
@@ -281,7 +299,7 @@ export default function UsersSettingsPage() {
     setError('');
 
     if (form.roles.length === 0) {
-      setError('Selecione ao menos um perfil de acesso.');
+      setError('Selecione o setor do usuário (ou um perfil no Avançado).');
       setLoading(false);
       return;
     }
@@ -626,42 +644,59 @@ export default function UsersSettingsPage() {
                   placeholder="••••••••"
                 />
               </div>
+              {/* Onda 17.51 — O perfil de acesso (role) deixou de ser um seletor
+                  separado: ele é DERIVADO do setor (escolhido na coluna ao lado).
+                  Antes havia DOIS seletores que se contradiziam. Aqui fica só um
+                  "Avançado", fechado, pro caso raro de acumular papéis. */}
               <div className="space-y-1.5">
-                <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
-                  Perfis de acesso <span className="text-muted-foreground/60 normal-case font-medium">(selecione um ou mais)</span>
-                </label>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
-                  {ROLE_OPTIONS.map(opt => {
-                    const checked = form.roles.includes(opt.key);
-                    return (
-                      <label
-                        key={opt.key}
-                        className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
-                          checked
-                            ? 'border-primary/40 bg-primary/5'
-                            : 'border-border/60 hover:border-border hover:bg-accent/30'
-                        }`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => toggleRole(opt.key)}
-                          className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/20 shrink-0"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <div className="text-[13px] font-semibold text-foreground leading-tight">
-                            {opt.emoji} {opt.label}
+                <button
+                  type="button"
+                  onClick={() => setShowAdvancedRoles(v => !v)}
+                  className="w-full flex items-center justify-between px-1 py-1 text-left"
+                >
+                  <span className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider">
+                    Perfil de acesso <span className="text-muted-foreground/60 normal-case font-medium">— definido pelo setor</span>
+                  </span>
+                  {showAdvancedRoles ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
+                </button>
+                <p className="text-[10px] text-muted-foreground/70 ml-1 leading-tight">
+                  É preenchido automaticamente quando você escolhe o <strong>setor</strong> ao lado.
+                  Abra só em casos especiais (ex.: alguém que acumula dois papéis).
+                </p>
+                {showAdvancedRoles && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
+                    {ROLE_OPTIONS.map(opt => {
+                      const checked = form.roles.includes(opt.key);
+                      return (
+                        <label
+                          key={opt.key}
+                          className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
+                            checked
+                              ? 'border-primary/40 bg-primary/5'
+                              : 'border-border/60 hover:border-border hover:bg-accent/30'
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleRole(opt.key)}
+                            className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/20 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-semibold text-foreground leading-tight">
+                              {opt.emoji} {opt.label}
+                            </div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
+                              {opt.description}
+                            </div>
                           </div>
-                          <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                            {opt.description}
-                          </div>
-                        </div>
-                      </label>
-                    );
-                  })}
-                </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                )}
                 {form.roles.length === 0 && (
-                  <p className="text-[10px] text-sky-400 ml-1">Selecione ao menos um perfil de acesso.</p>
+                  <p className="text-[10px] text-amber-500 ml-1">Escolha o <strong>setor</strong> do usuário (na coluna ao lado).</p>
                 )}
               </div>
 
@@ -735,7 +770,7 @@ export default function UsersSettingsPage() {
               )}
 
               <div className="space-y-1.5">
-                <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Setores (Acesso ao Chat)</label>
+                <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Caixas de WhatsApp <span className="text-muted-foreground/60 normal-case font-medium">(acesso ao chat)</span></label>
                 <div className="grid grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
                   {inboxes.map(inbox => (
                     <label key={inbox.id} className="flex items-center gap-2 cursor-pointer group">
@@ -754,7 +789,7 @@ export default function UsersSettingsPage() {
                     </label>
                   ))}
                   {inboxes.length === 0 && (
-                    <p className="col-span-2 text-[11px] text-muted-foreground italic text-center py-2">Nenhum setor cadastrado.</p>
+                    <p className="col-span-2 text-[11px] text-muted-foreground italic text-center py-2">Nenhuma caixa de WhatsApp cadastrada.</p>
                   )}
                 </div>
               </div>
@@ -850,10 +885,11 @@ export default function UsersSettingsPage() {
                     Setor e permissões
                   </h3>
                   <p className="text-xs text-muted-foreground">
-                    O setor define qual <strong>home (balões)</strong> aparece pra
-                    esse usuário e quais permissões já vêm marcadas. A barra
-                    lateral completa é exclusiva do papel <strong>Adm Geral</strong>
-                    {' '}(ADMIN), não do setor. Você pode dar ou remover permissões
+                    Escolha o setor — é a <strong>única</strong> escolha de cadastro.
+                    Ele define o <strong>perfil de acesso</strong>, qual{' '}
+                    <strong>home (balões)</strong> aparece e quais permissões já vêm
+                    marcadas. A barra lateral completa é exclusiva do{' '}
+                    <strong>Adm Geral</strong> (ADMIN). Você pode ajustar permissões
                     individualmente abaixo.
                   </p>
                 </div>
@@ -866,7 +902,7 @@ export default function UsersSettingsPage() {
                       <button
                         key={s.id}
                         type="button"
-                        onClick={() => setForm(f => ({ ...f, sector: s.id, extra_grants: [], extra_revokes: [] }))}
+                        onClick={() => setForm(f => ({ ...f, sector: s.id, roles: [SECTOR_ROLE[s.id]], extra_grants: [], extra_revokes: [] }))}
                         className={`text-left p-3 rounded-xl border-2 transition-all ${
                           selected
                             ? 'bg-violet-500/10 border-violet-500/50 ring-2 ring-violet-500/20'
