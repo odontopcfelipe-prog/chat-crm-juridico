@@ -269,18 +269,10 @@ export default function UsersSettingsPage() {
     setShowModal(true);
   };
 
-  // Onda 17.51 — Perfil de acesso técnico só aparece no "Avançado" (é derivado
-  // do setor). Default fechado pra não competir com o card de setor.
-  const [showAdvancedRoles, setShowAdvancedRoles] = useState(false);
-
-  const toggleRole = (role: RoleKey) => {
-    setForm(f => ({
-      ...f,
-      roles: f.roles.includes(role)
-        ? f.roles.filter(r => r !== role)
-        : [...f.roles, role],
-    }));
-  };
+  // Onda 17.51 — Seletor de "Perfil de acesso" REMOVIDO do formulário: o papel
+  // técnico (role) é 100% derivado do SETOR escolhido (ver SECTOR_ROLE + o
+  // onClick dos cards). Não há mais toggle manual de roles — era redundante e
+  // contraditório com o card de setor.
 
   const addSpecialty = (value: string) => {
     const trimmed = value.trim();
@@ -644,61 +636,15 @@ export default function UsersSettingsPage() {
                   placeholder="••••••••"
                 />
               </div>
-              {/* Onda 17.51 — O perfil de acesso (role) deixou de ser um seletor
-                  separado: ele é DERIVADO do setor (escolhido na coluna ao lado).
-                  Antes havia DOIS seletores que se contradiziam. Aqui fica só um
-                  "Avançado", fechado, pro caso raro de acumular papéis. */}
-              <div className="space-y-1.5">
-                <button
-                  type="button"
-                  onClick={() => setShowAdvancedRoles(v => !v)}
-                  className="w-full flex items-center justify-between px-1 py-1 text-left"
-                >
-                  <span className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider">
-                    Perfil de acesso <span className="text-muted-foreground/60 normal-case font-medium">— definido pelo setor</span>
-                  </span>
-                  {showAdvancedRoles ? <ChevronUp size={14} className="text-muted-foreground" /> : <ChevronDown size={14} className="text-muted-foreground" />}
-                </button>
-                <p className="text-[10px] text-muted-foreground/70 ml-1 leading-tight">
-                  É preenchido automaticamente quando você escolhe o <strong>setor</strong> ao lado.
-                  Abra só em casos especiais (ex.: alguém que acumula dois papéis).
+              {/* Onda 17.51 — Sem seletor de "Perfil de acesso": o papel vem do
+                  setor (coluna ao lado). Só mostra um aviso enquanto nada foi
+                  escolhido. */}
+              {form.roles.length === 0 && (
+                <p className="text-[11px] text-amber-500 ml-1">
+                  Escolha o <strong>setor</strong> do usuário (na coluna ao lado) — ele
+                  define o perfil de acesso e as permissões.
                 </p>
-                {showAdvancedRoles && (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
-                    {ROLE_OPTIONS.map(opt => {
-                      const checked = form.roles.includes(opt.key);
-                      return (
-                        <label
-                          key={opt.key}
-                          className={`flex items-start gap-2.5 p-2.5 rounded-lg border cursor-pointer transition-all ${
-                            checked
-                              ? 'border-primary/40 bg-primary/5'
-                              : 'border-border/60 hover:border-border hover:bg-accent/30'
-                          }`}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => toggleRole(opt.key)}
-                            className="w-4 h-4 mt-0.5 rounded border-border text-primary focus:ring-primary/20 shrink-0"
-                          />
-                          <div className="flex-1 min-w-0">
-                            <div className="text-[13px] font-semibold text-foreground leading-tight">
-                              {opt.emoji} {opt.label}
-                            </div>
-                            <div className="text-[10px] text-muted-foreground mt-0.5 leading-tight">
-                              {opt.description}
-                            </div>
-                          </div>
-                        </label>
-                      );
-                    })}
-                  </div>
-                )}
-                {form.roles.length === 0 && (
-                  <p className="text-[10px] text-amber-500 ml-1">Escolha o <strong>setor</strong> do usuário (na coluna ao lado).</p>
-                )}
-              </div>
+              )}
 
               {/* CRO — registro no Conselho Regional de Odontologia (só dentistas;
                   mantém visível se já houver um número salvo, pra não esconder dado). */}
