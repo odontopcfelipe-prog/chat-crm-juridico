@@ -253,10 +253,10 @@ export default function UsersSettingsPage() {
     setError('');
     // v11: ao editar, abre expandido se for DENTIST/ADMIN — facilita ver/ajustar
     // horarios sem precisar clicar no toggle
-    setScheduleExpanded(uniqueRoles.includes('DENTIST') || uniqueRoles.includes('ADMIN'));
+    setScheduleExpanded(uniqueRoles.includes('DENTIST'));
     // v10: carrega horarios atuais do dentista (se houver)
     setSchedule(defaultWeekSchedule());
-    if (uniqueRoles.includes('DENTIST') || uniqueRoles.includes('ADMIN')) {
+    if (uniqueRoles.includes('DENTIST')) {
       try {
         const res = await api.get(`/calendar/schedule/${user.id}`);
         if (res.data && res.data.length > 0) {
@@ -356,7 +356,7 @@ export default function UsersSettingsPage() {
       // v10: salva horarios SE o user eh dentista/admin (criados ou editados).
       // Backend valida permissao (ADMIN ou dono). Se falhar, registra mas
       // nao bloqueia — user fica criado, e admin pode reabrir e tentar de novo.
-      const needsSchedule = form.roles.includes('DENTIST') || form.roles.includes('ADMIN');
+      const needsSchedule = form.roles.includes('DENTIST');
       if (needsSchedule && savedUserId) {
         try {
           await api.put(`/calendar/schedule/${savedUserId}`, {
@@ -700,8 +700,9 @@ export default function UsersSettingsPage() {
                 )}
               </div>
 
-              {/* CRO — registro no Conselho Regional de Odontologia (dentistas + admins) */}
-              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN') || form.cro_number) && (
+              {/* CRO — registro no Conselho Regional de Odontologia (só dentistas;
+                  mantém visível se já houver um número salvo, pra não esconder dado). */}
+              {(form.roles.includes('DENTIST') || form.cro_number) && (
                 <div className="space-y-1.5">
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Registro CRO</label>
                   <div className="flex gap-2">
@@ -732,7 +733,7 @@ export default function UsersSettingsPage() {
                   ADMIN. Aberto por default. Badge OBRIGATORIO + texto explicando
                   que IA depende disso pra agendar. Permite dentistas que so
                   trabalham 2 dias na semana, ou turnos parciais (so manha, etc). */}
-              {(form.roles.includes('DENTIST') || form.roles.includes('ADMIN')) && (
+              {form.roles.includes('DENTIST') && (
                 <div className="space-y-1.5">
                   <button
                     type="button"
