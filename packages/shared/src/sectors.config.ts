@@ -163,6 +163,10 @@ export const SECTORS: SectorMeta[] = [
       'view_patients', 'edit_patients',
       'view_agenda',   'manage_agenda',
       'view_chat',
+      // Onda 17.52 — recepção também preenche a anamnese no cadastro do paciente
+      // (decisão do usuário). Sem isso, travar o prontuário (Etapa 4/5) quebraria
+      // o onboarding. Dá acesso clínico à recepção; CRC/financeiro continuam sem.
+      'view_clinical', 'edit_clinical',
       // Onda 17.32.115 (revisao 1): recepcao tambem fecha venda
       // balcao (Venda Rapida) e gera proposta inicial.
       'manage_proposals',

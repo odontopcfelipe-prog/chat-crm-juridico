@@ -5,6 +5,9 @@ import { AnamnesisTemplatesService } from './anamnesis-templates.service';
 import { AnamnesisService } from './anamnesis.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+// Onda 17.52 — Etapa 4/5: anamnese do paciente é prontuário (view/edit_clinical).
+// Templates de anamnese seguem @Roles('ADMIN') — não são prontuário de paciente.
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import {
   CreateAnamnesisTemplateDto,
   UpdateAnamnesisTemplateDto,
@@ -69,6 +72,7 @@ export class AnamnesisController {
    * Retorna a anamnese ativa do paciente OU o template ativo se ainda nao existe.
    * Frontend renderiza form direto (preenchido ou vazio) sem listagem.
    */
+  @RequiresPermission('view_clinical')
   @Get('patients/:patientId/anamnesis')
   findActive(@Param('patientId') patientId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -80,6 +84,7 @@ export class AnamnesisController {
    * Upsert: equipe preenche/atualiza anamnese do paciente.
    * Marca submitted_via='STAFF', captura IP+UA, recalcula audit_hash.
    */
+  @RequiresPermission('edit_clinical')
   @Patch('patients/:patientId/anamnesis')
   upsert(
     @Param('patientId') patientId: string,
@@ -106,6 +111,7 @@ export class AnamnesisController {
 
   // ─── Endpoints legados (compat — multiplas anamneses) ─────────
 
+  @RequiresPermission('edit_clinical')
   @Post('patients/:patientId/anamneses')
   create(@Param('patientId') patientId: string, @Body() dto: CreateAnamnesisDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -113,6 +119,7 @@ export class AnamnesisController {
     return this.anamnesisService.create(patientId, tenantId, dto, req.user?.id);
   }
 
+  @RequiresPermission('view_clinical')
   @Get('patients/:patientId/anamneses')
   findByPatient(@Param('patientId') patientId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -120,6 +127,7 @@ export class AnamnesisController {
     return this.anamnesisService.findByPatient(patientId, tenantId);
   }
 
+  @RequiresPermission('view_clinical')
   @Get('anamneses/:id')
   findOne(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -127,6 +135,7 @@ export class AnamnesisController {
     return this.anamnesisService.findOne(id, tenantId);
   }
 
+  @RequiresPermission('edit_clinical')
   @Patch('anamneses/:id')
   update(@Param('id') id: string, @Body() dto: UpdateAnamnesisDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

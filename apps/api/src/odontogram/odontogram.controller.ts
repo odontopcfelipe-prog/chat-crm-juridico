@@ -12,6 +12,8 @@ import {
 import { OdontogramService } from './odontogram.service';
 import { StateSuggestionsService } from './state-suggestions.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// Onda 17.52 — Etapa 4/5: odontograma é prontuário (view_clinical/edit_clinical).
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { Authenticated } from '../auth/decorators/authenticated.decorator';
 import type { AuthUser } from '../auth/decorators/authenticated.decorator';
 import {
@@ -37,11 +39,13 @@ export class OdontogramController {
     private readonly suggestionsService: StateSuggestionsService,
   ) {}
 
+  @RequiresPermission('view_clinical')
   @Get('patients/:patientId/odontogram')
   get(@Param('patientId') patientId: string, @Authenticated() user: AuthUser) {
     return this.odontogramService.getOrCreate(patientId, user.tenant_id);
   }
 
+  @RequiresPermission('edit_clinical')
   @Patch('patients/:patientId/odontogram')
   updateMeta(
     @Param('patientId') patientId: string,
@@ -56,6 +60,7 @@ export class OdontogramController {
     );
   }
 
+  @RequiresPermission('edit_clinical')
   @Post('patients/:patientId/odontogram/teeth')
   addTooth(
     @Param('patientId') patientId: string,
@@ -70,6 +75,7 @@ export class OdontogramController {
     );
   }
 
+  @RequiresPermission('edit_clinical')
   @Patch('tooth-records/:id')
   updateTooth(
     @Param('id') id: string,
@@ -79,6 +85,7 @@ export class OdontogramController {
     return this.odontogramService.updateTooth(id, user.tenant_id, user.id, dto);
   }
 
+  @RequiresPermission('edit_clinical')
   @Delete('tooth-records/:id')
   removeTooth(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.odontogramService.removeTooth(id, user.tenant_id, user.id);

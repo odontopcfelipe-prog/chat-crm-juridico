@@ -4,6 +4,9 @@ import {
 import { MedicalRecordsService } from './medical-records.service';
 import { ClinicalNotesService } from './clinical-notes.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// Onda 17.52 — Etapa 4/5: prontuário exige view_clinical (ler) / edit_clinical
+// (escrever). Têm por default: dentista, ACD/ASB, recepção e admin.
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import {
   UpdateMedicalRecordDto,
   CreateClinicalNoteDto,
@@ -21,6 +24,7 @@ export class ClinicalRecordsController {
 
   // ─── MedicalRecord ────────────────────────────────────────────
 
+  @RequiresPermission('view_clinical')
   @Get('patients/:patientId/medical-record')
   getMedicalRecord(@Param('patientId') patientId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -28,6 +32,7 @@ export class ClinicalRecordsController {
     return this.medicalRecordsService.getOrCreate(patientId, tenantId);
   }
 
+  @RequiresPermission('edit_clinical')
   @Patch('patients/:patientId/medical-record')
   updateMedicalRecord(
     @Param('patientId') patientId: string,
@@ -39,6 +44,7 @@ export class ClinicalRecordsController {
     return this.medicalRecordsService.update(patientId, tenantId, dto);
   }
 
+  @RequiresPermission('edit_clinical')
   @Post('patients/:patientId/medical-record/close')
   closeMedicalRecord(@Param('patientId') patientId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -48,6 +54,7 @@ export class ClinicalRecordsController {
 
   // ─── ClinicalNote ─────────────────────────────────────────────
 
+  @RequiresPermission('edit_clinical')
   @Post('patients/:patientId/clinical-notes')
   createNote(
     @Param('patientId') patientId: string,
@@ -60,6 +67,7 @@ export class ClinicalRecordsController {
     return this.clinicalNotesService.create(patientId, tenantId, userId, dto);
   }
 
+  @RequiresPermission('view_clinical')
   @Get('patients/:patientId/clinical-notes')
   listNotes(@Param('patientId') patientId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -67,6 +75,7 @@ export class ClinicalRecordsController {
     return this.clinicalNotesService.findByPatient(patientId, tenantId);
   }
 
+  @RequiresPermission('view_clinical')
   @Get('clinical-notes/:id')
   findNote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -74,6 +83,7 @@ export class ClinicalRecordsController {
     return this.clinicalNotesService.findOne(id, tenantId);
   }
 
+  @RequiresPermission('edit_clinical')
   @Patch('clinical-notes/:id')
   updateNote(
     @Param('id') id: string,
@@ -86,6 +96,7 @@ export class ClinicalRecordsController {
     return this.clinicalNotesService.update(id, tenantId, userId, dto);
   }
 
+  @RequiresPermission('edit_clinical')
   @Post('clinical-notes/:id/finalize')
   finalizeNote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -94,6 +105,7 @@ export class ClinicalRecordsController {
     return this.clinicalNotesService.finalize(id, tenantId, userId);
   }
 
+  @RequiresPermission('edit_clinical')
   @Post('clinical-notes/:id/addendum')
   addAddendum(@Param('id') id: string, @Body() dto: AddAddendumDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
