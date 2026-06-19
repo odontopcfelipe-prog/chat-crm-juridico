@@ -217,18 +217,11 @@ export function RemindersTab() {
   // v23: lista de dentistas pra dropdown de filtro (carrega 1x)
   const fetchDentists = useCallback(async () => {
     try {
-      const res = await api.get('/users?limit=100');
-      const data: any[] = res.data?.data || res.data?.users || res.data || [];
-      // Filtra so dentistas/admins (mesmo criterio do filtro da agenda)
-      const list = data
-        .filter((u: any) =>
-          u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') ||
-          u.role === 'DENTIST' || u.role === 'ADVOGADO' ||
-          // Onda 17.54 — admin só é profissional clínico se tiver especialidade
-          // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
-          ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0),
-        )
-        .map((u: any) => ({ id: u.id, name: u.name }));
+      // Onda 17.54 — /users/lawyers (não /users, que é ADMIN-only → 403 pra não-admin).
+      // Acessível a qualquer logado, tenant-scoped, já filtra dentistas (+admin c/ especialidade).
+      const res = await api.get('/users/lawyers');
+      const data: any[] = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.users || []);
+      const list = data.map((u: any) => ({ id: u.id, name: u.name }));
       setDentists(list);
     } catch {
       // silent

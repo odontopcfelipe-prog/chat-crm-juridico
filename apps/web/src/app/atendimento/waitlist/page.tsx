@@ -91,16 +91,11 @@ export default function WaitlistPage() {
     api.get('/leads')
       .then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone }))))
       .catch(() => {});
-    api.get('/users?limit=100').then(r => {
-      const data: any[] = r.data?.data || r.data?.users || r.data || [];
-      const dentists = data.filter((u: any) =>
-        u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') ||
-        u.role === 'DENTIST' || u.role === 'ADVOGADO' ||
-        // Onda 17.54 — admin só é profissional clínico se tiver especialidade
-        // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
-        ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0)
-      );
-      setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
+    // Onda 17.54 — /users/lawyers (não /users, que é ADMIN-only → 403 pra não-admin).
+    // Acessível a qualquer logado, tenant-scoped, já filtra dentistas (+admin c/ especialidade).
+    api.get('/users/lawyers').then(r => {
+      const data: any[] = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.users || []);
+      setUsers(data.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(() => {});
   }, []);
 

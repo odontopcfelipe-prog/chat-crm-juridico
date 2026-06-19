@@ -1025,19 +1025,14 @@ export default function AgendaPage() {
         }
       }
     } catch (e) { swallow('parse JWT do localStorage')(e); }
-    // Buscar apenas dentistas e admins para o filtro de usuários. Aceita também
-    // o role legado ADVOGADO para compat com banco pré-migração.
-    api.get('/users?limit=100').then(r => {
-      const data: any[] = r.data?.data || r.data?.users || r.data || [];
-      const dentists = data.filter((u: any) =>
-        u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') ||
-        u.role === 'DENTIST' || u.role === 'ADVOGADO' ||
-        // Onda 17.54 — admin só é profissional clínico se tiver especialidade
-        // (espelha findLawyers no backend): tira admin-puro (ex.: "Ana Alinne")
-        // da lista de dentistas sem esconder um dentista real.
-        ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0)
-      );
-      setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
+    // Onda 17.54 — dentistas vêm de /users/lawyers, NÃO de /users (que é
+    // @Roles ADMIN → 403 pra recepção/dentista/assistente, deixando a lista
+    // VAZIA pra quem não é admin). /users/lawyers é acessível a qualquer logado,
+    // é tenant-scoped e já filtra: DENTIST ou (ADMIN com especialidade) — então
+    // admin-puro (ex.: "Ana Alinne") não entra. Mesma lista pra todos da tenant.
+    api.get('/users/lawyers').then(r => {
+      const data: any[] = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.users || []);
+      setUsers(data.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(swallow('lazy load filtro de dentistas (nao essencial pra renderizar agenda)'));
     api.get('/leads').then(r => setLeads((r.data || []).map((l: any) => ({ id: l.id, name: l.name, phone: l.phone })))).catch(swallow('lazy load leads pro autocomplete (agenda funciona sem)'));
 

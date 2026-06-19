@@ -594,17 +594,12 @@ function QuoteDetailView({
 
   // Onda 3.2 — carrega dentistas quando entra no detalhe (1x por sessao do detail)
   useEffect(() => {
-    api.get<any>('/users?limit=100')
+    // Onda 17.54 — /users/lawyers (não /users, que é ADMIN-only → 403 pra não-admin).
+    // Acessível a qualquer logado, tenant-scoped, já filtra dentistas (+admin c/ especialidade).
+    api.get<any>('/users/lawyers')
       .then((r) => {
-        const data: any[] = r.data?.data || r.data?.users || r.data || [];
-        const list = data
-          .filter((u: any) =>
-            u.roles?.includes('DENTIST') || u.role === 'DENTIST' ||
-            // Onda 17.54 — admin só é profissional clínico se tiver especialidade
-            // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
-            ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0)
-          )
-          .map((u: any) => ({ id: u.id, name: u.name }));
+        const data: any[] = Array.isArray(r.data) ? r.data : (r.data?.data || r.data?.users || []);
+        const list = data.map((u: any) => ({ id: u.id, name: u.name }));
         setDentists(list);
       })
       .catch(() => { /* silente — dropdown vai aparecer vazio */ });
