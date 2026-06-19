@@ -30,6 +30,9 @@ export interface DisparoItem {
   tags: string[];           // ['Template', 'via CRC']
   editor: DisparoEditor;    // painel de config (reusa componentes do Follow-up)
   operacionalKey?: OperacionalKey; // on/off + métrica via Operacional
+  /** Lembrete: o on/off é a PRESENÇA desta antecedência (minutos) na config do
+   *  lembrete (/calendar/reminders/config) — cada lembrete liga/desliga sozinho. */
+  antecedenciaMin?: number;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
 
@@ -38,9 +41,15 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'confirmacao', nome: 'Confirmação de agendamento', categoria: 'agendamento',
     gatilho: 'Assim que marca o horário', canal: 'WhatsApp', tags: ['Template'],
     editor: null, operacionalKey: 'confirmacao' },
-  { id: 'lembretes', nome: 'Lembretes de consulta', categoria: 'agendamento',
-    gatilho: '1 dia · 1h · 15 min antes', canal: 'WhatsApp', tags: ['Template'],
-    editor: 'reminders', operacionalKey: 'lembrete' },
+  { id: 'lembrete_1dia', nome: 'Lembrete · 1 dia antes', categoria: 'agendamento',
+    gatilho: '1 dia antes', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'reminders', antecedenciaMin: 1440 },
+  { id: 'lembrete_1h', nome: 'Lembrete · 1 hora antes', categoria: 'agendamento',
+    gatilho: '1 hora antes', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'reminders', antecedenciaMin: 60 },
+  { id: 'lembrete_15min', nome: 'Lembrete · 15 minutos antes', categoria: 'agendamento',
+    gatilho: '15 minutos antes', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'reminders', antecedenciaMin: 15 },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

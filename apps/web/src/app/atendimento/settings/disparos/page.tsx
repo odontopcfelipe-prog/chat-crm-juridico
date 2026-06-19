@@ -1,11 +1,11 @@
 'use client';
 
 // Onda 17.56 — Central de Disparos (Fase 1, visual — skill "disparos-lembretes").
-// Lista AGRUPADA por categoria (não abas — abas não escalam pros ~19 disparos).
-// Princípio do skill: "configura aqui, opera no Operacional". O on/off + métricas
-// vêm de /followup/operacional (os 5 disparos com backend); os demais aparecem do
-// catálogo como "Em breve". Clicar num disparo configurável abre o editor (reusa
-// os painéis existentes do Follow-up).
+// Lista AGRUPADA por categoria (não abas). Princípio do skill: "configura aqui,
+// opera no Operacional". On/off + métricas dos 5 disparos backed vêm de
+// /followup/operacional; os 3 lembretes (1 dia/1h/15 min) são SEPARADOS e cada
+// um liga/desliga a própria antecedência via /calendar/reminders/config. Os
+// demais aparecem do catálogo como "Em breve". Clicar abre o editor existente.
 import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot,
@@ -13,7 +13,7 @@ import {
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
-import { CATEGORIAS, DISPAROS, type DisparoCategoria, type OperacionalKey } from './disparos.config';
+import { CATEGORIAS, DISPAROS, type DisparoCategoria, type DisparoItem, type OperacionalKey } from './disparos.config';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -33,31 +33,42 @@ interface OperacionalData {
   dentista?: { enabled: boolean };
   aniversario?: { enabled: boolean };
 }
+interface Antecedencia { minutes_before: number; channel: string }
+interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }
 
 export default function CentralDisparosPage() {
   const { isAdmin } = useRole();
   const [op, setOp] = useState<OperacionalData | null>(null);
+  const [cfg, setCfg] = useState<ReminderConfig | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<OperacionalKey | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
-    try {
-      const r = await api.get<OperacionalData>('/followup/operacional');
-      setOp(r.data);
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao carregar os disparos');
-    } finally {
-      setLoading(false);
+    const [opRes, cfgRes] = await Promise.allSettled([
+      api.get<OperacionalData>('/followup/operacional'),
+      api.get<ReminderConfig>('/calendar/reminders/config'),
+    ]);
+    if (opRes.status === 'fulfilled') setOp(opRes.value.data);
+    if (cfgRes.status === 'fulfilled') setCfg(cfgRes.value.data);
+    if (opRes.status === 'rejected' && cfgRes.status === 'rejected') {
+      showError('Falha ao carregar os disparos');
     }
+    setLoading(false);
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const enabledOf = (k?: OperacionalKey) => (k && op ? !!(op as any)[k]?.enabled : false);
+  // on/off de um disparo: lembrete = presença da antecedência; resto = Operacional
+  const enabledOf = (d: DisparoItem): boolean => {
+    if (d.antecedenciaMin != null) {
+      return !!cfg?.default_antecedencias?.some((a) => a.minutes_before === d.antecedenciaMin);
+    }
+    return d.operacionalKey && op ? !!(op as any)[d.operacionalKey]?.enabled : false;
+  };
 
-  const toggle = async (k: OperacionalKey, enabled: boolean) => {
+  const toggleOperacional = async (k: OperacionalKey, enabled: boolean) => {
     setSaving(k);
-    setOp((d) => (d ? { ...d, [k]: { ...(d as any)[k], enabled } } : d)); // otimista
+    setOp((d) => (d ? { ...d, [k]: { ...(d as any)[k], enabled } } : d));
     try {
       await api.patch('/followup/operacional/toggle', { which: k, enabled });
     } catch (e: any) {
@@ -68,6 +79,32 @@ export default function CentralDisparosPage() {
     }
   };
 
+  // Liga/desliga UM lembrete = adiciona/remove sua antecedência da config (preserva templates)
+  const toggleLembrete = async (min: number, enabled: boolean) => {
+    if (!cfg) return;
+    const before = cfg;
+    const list = cfg.default_antecedencias.filter((a) => a.minutes_before !== min);
+    if (enabled) list.push({ minutes_before: min, channel: 'WHATSAPP' });
+    list.sort((a, b) => b.minutes_before - a.minutes_before);
+    const next: ReminderConfig = { ...cfg, default_antecedencias: list };
+    setSaving(`ant_${min}`);
+    setCfg(next); // otimista
+    try {
+      const r = await api.put('/calendar/reminders/config', next);
+      if (r.data) setCfg(r.data);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível salvar — revertendo');
+      setCfg(before);
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  const toggle = (d: DisparoItem, enabled: boolean) => {
+    if (d.antecedenciaMin != null) return toggleLembrete(d.antecedenciaMin, enabled);
+    if (d.operacionalKey) return toggleOperacional(d.operacionalKey, enabled);
+  };
+
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
   if (openItem && openItem.editor) {
@@ -75,7 +112,7 @@ export default function CentralDisparosPage() {
       <div className="p-6 max-w-3xl mx-auto">
         <button
           type="button"
-          onClick={() => setOpenId(null)}
+          onClick={() => { setOpenId(null); load(); }}
           className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground mb-5"
         >
           <ArrowLeft size={16} /> Voltar aos disparos
@@ -87,8 +124,8 @@ export default function CentralDisparosPage() {
     );
   }
 
-  const disponiveis = DISPAROS.filter((d) => d.operacionalKey).length;
-  const ativos = DISPAROS.filter((d) => d.operacionalKey && enabledOf(d.operacionalKey)).length;
+  const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null));
+  const ativos = configuraveis.filter((d) => enabledOf(d)).length;
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-5">
@@ -99,12 +136,12 @@ export default function CentralDisparosPage() {
             <Bot size={20} className="text-primary" /> Disparos
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Configure aqui as mensagens automáticas. Ligar/desligar e métricas detalhadas ficam no
-            painel Operacional.
+            Configure aqui as mensagens automáticas. Ligar/desligar geral e métricas detalhadas
+            ficam no painel Operacional.
           </p>
         </div>
         <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5 whitespace-nowrap">
-          {ativos} de {disponiveis} ativos
+          {ativos} de {configuraveis.length} ativos
         </span>
       </div>
 
@@ -126,8 +163,9 @@ export default function CentralDisparosPage() {
                 <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
                   {itens.map((d) => {
                     const clickable = !!d.editor && !d.emBreve;
-                    const hasToggle = !!d.operacionalKey && !d.emBreve;
-                    const on = enabledOf(d.operacionalKey);
+                    const hasToggle = (!!d.operacionalKey || d.antecedenciaMin != null) && !d.emBreve;
+                    const on = enabledOf(d);
+                    const savingThis = saving === d.operacionalKey || saving === `ant_${d.antecedenciaMin}`;
                     return (
                       <div
                         key={d.id}
@@ -169,8 +207,8 @@ export default function CentralDisparosPage() {
                             <input
                               type="checkbox"
                               checked={on}
-                              disabled={saving === d.operacionalKey || !isAdmin}
-                              onChange={(e) => d.operacionalKey && toggle(d.operacionalKey, e.target.checked)}
+                              disabled={savingThis || !isAdmin}
+                              onChange={(e) => toggle(d, e.target.checked)}
                               className="sr-only peer"
                             />
                             <div className="relative w-9 h-5 bg-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/40 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
