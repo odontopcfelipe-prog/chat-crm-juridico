@@ -64,6 +64,7 @@ export class FinanceiroController {
     });
   }
 
+  @RequiresPermission('manage_financial')
   @Post('transactions')
   createTransaction(
     @Body() body: CreateTransactionDto,
@@ -76,6 +77,7 @@ export class FinanceiroController {
     });
   }
 
+  @RequiresPermission('manage_financial')
   @Patch('transactions/:id')
   updateTransaction(
     @Param('id') id: string,
@@ -85,6 +87,7 @@ export class FinanceiroController {
     return this.service.updateTransaction(id, body, req.user.tenant_id, req.user.id);
   }
 
+  @RequiresPermission('manage_financial')
   @Delete('transactions/:id')
   deleteTransaction(
     @Param('id') id: string,
@@ -93,6 +96,7 @@ export class FinanceiroController {
     return this.service.deleteTransaction(id, req.user.tenant_id, req.user.id);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('transactions/:id/partial-payment')
   partialPayment(
     @Param('id') id: string,
@@ -148,6 +152,7 @@ export class FinanceiroController {
     return this.service.findAllCategories(req.user.tenant_id);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('categories')
   createCategory(
     @Body() body: CreateCategoryDto,
@@ -156,6 +161,7 @@ export class FinanceiroController {
     return this.service.createCategory(body, req.user.tenant_id);
   }
 
+  @RequiresPermission('manage_financial')
   @Patch('categories/:id')
   updateCategory(
     @Param('id') id: string,
@@ -165,6 +171,7 @@ export class FinanceiroController {
     return this.service.updateCategory(id, body, req.user.tenant_id);
   }
 
+  @RequiresPermission('manage_financial')
   @Delete('categories/:id')
   deleteCategory(
     @Param('id') id: string,
