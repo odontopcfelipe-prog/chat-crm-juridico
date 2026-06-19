@@ -744,7 +744,13 @@ export default function UsersSettingsPage() {
 
               {/* Onda 17.52 — Prévia da home do setor escolhido: mostra os balões
                   que esse usuário vai ver, atualizando junto com o card de setor. */}
-              {form.sector && <SectorHomePreview sector={form.sector as Sector} />}
+              {form.sector && (
+                <SectorHomePreview
+                  sector={form.sector as Sector}
+                  extraGrants={form.extra_grants}
+                  extraRevokes={form.extra_revokes}
+                />
+              )}
 
               {/* Onda 17.51 — Especialidades são atributo clínico do DENTISTA (como
                   CRO/horário). Não faz sentido pra recepção/admin/financeiro. Mantém

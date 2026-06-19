@@ -31,7 +31,7 @@ import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
 import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
 import HomeBySector from '@/components/home/HomeBySector';
-import { mapBackendRole, type Sector } from '@crm/shared';
+import { mapBackendRole, type Sector, type Permission } from '@crm/shared';
 import { useRole } from '@/lib/useRole';
 // Onda 17.32.125 — Lembrete persistente do onboarding pendente
 import { OnboardingPendingBanner } from '@/components/OnboardingPendingBanner';
@@ -260,6 +260,9 @@ export default function VisaoGeralPage() {
   const [userName, setUserName] = useState<string | null>(null);
   // Onda 17.32.119 — Setor do user logado pra Home por setor
   const [userSector, setUserSector] = useState<string | null>(null);
+  // Onda 17.52 — permissões individuais do user (refletem nos balões da home)
+  const [userGrants, setUserGrants] = useState<Permission[]>([]);
+  const [userRevokes, setUserRevokes] = useState<Permission[]>([]);
   // Fallback: deriva setor de roles do JWT se /users/me ainda nao retornou
   const role = useRole();
   const resolvedSector: Sector = (userSector as Sector) || mapBackendRole(role?.roles ?? []);
@@ -276,6 +279,8 @@ export default function VisaoGeralPage() {
       .then((r) => {
         setUserName(r.data?.name || null);
         setUserSector(r.data?.sector || null);
+        setUserGrants(r.data?.extra_grants || []);
+        setUserRevokes(r.data?.extra_revokes || []);
       })
       .catch(() => {/* falha silenciosa — usa fallback */});
 
@@ -448,6 +453,8 @@ export default function VisaoGeralPage() {
         <HomeBySector
           sector={resolvedSector}
           userName={userName ?? undefined}
+          extraGrants={userGrants}
+          extraRevokes={userRevokes}
           skySlot={<SkyBackdrop />}
           // Onda 17.32.121 — Admin pode trocar pra visualizar como cada setor ve
           allowSwitch={role?.isAdmin || role?.isSuperAdmin}

@@ -466,3 +466,78 @@ export function permissionsByGroup() {
   }
   return groups;
 }
+
+// ─── Balões x permissões (Onda 17.52) ───────────────────────────
+//
+// A home (balões) reflete as PERMISSÕES efetivas do usuário, não só os
+// defaults do setor: conceder uma permissão extra ADICIONA o balão dela;
+// revogar uma permissão REMOVE o balão. Assim a prévia no editor de usuário
+// e a home real batem com o que foi marcado.
+
+/** Qual permissão "abre" cada balão (pela rota). Usado pra remover ao revogar. */
+const HREF_TO_PERMISSION: Record<string, Permission> = {
+  '/atendimento':                          'view_chat',        // WhatsApp
+  '/atendimento/agenda':                   'view_agenda',
+  '/atendimento/pacientes':                'view_patients',
+  '/atendimento/venda-rapida':             'manage_proposals',
+  '/atendimento/orcamentos':               'manage_proposals',
+  '/atendimento/orcamentos?status=SENT':   'manage_proposals',
+  '/atendimento/crm':                      'view_marketing',
+  '/atendimento/followup':                 'view_marketing',
+  '/atendimento/fechamentos':              'manage_proposals',
+  '/atendimento/return-alerts':            'view_marketing',
+  '/atendimento/financeiro':               'manage_financial',
+  '/atendimento/financeiro/dashboard':     'view_financial',
+  '/atendimento/relatorios':               'view_reports',
+  '/atendimento/marketing/analytics':      'view_marketing',
+  '/atendimento/settings':                 'view_settings',
+  '/atendimento/settings/users':           'manage_users',
+};
+
+/** Balão representativo pra mostrar quando a permissão é concedida EXTRA. */
+const PERMISSION_TO_BALAO: Partial<Record<Permission, HomeAction>> = {
+  view_chat:        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',    desc: 'Conversas e atendimento.',    href: '/atendimento',                      tone: 'amber'   },
+  view_agenda:      { lucide: 'Calendar',      icon: '📅', label: 'Agenda',      desc: 'Agenda da clínica.',          href: '/atendimento/agenda',               tone: 'violet'  },
+  view_patients:    { lucide: 'Users',         icon: '👥', label: 'Pacientes',   desc: 'Base de pacientes.',          href: '/atendimento/pacientes',            tone: 'sky'     },
+  manage_proposals: { lucide: 'FileText',      icon: '📄', label: 'Orçamentos',  desc: 'Orçamentos e propostas.',     href: '/atendimento/orcamentos',           tone: 'emerald' },
+  view_marketing:   { lucide: 'LineChart',     icon: '🎯', label: 'CRM',         desc: 'Funil e relacionamento.',     href: '/atendimento/crm',                  tone: 'violet'  },
+  view_financial:   { lucide: 'LineChart',     icon: '📊', label: 'Visão geral', desc: 'Caixa e indicadores.',        href: '/atendimento/financeiro/dashboard', tone: 'emerald' },
+  manage_financial: { lucide: 'Receipt',       icon: '🧾', label: 'Cobranças',   desc: 'Boletos e recebimentos.',     href: '/atendimento/financeiro',           tone: 'violet'  },
+  view_reports:     { lucide: 'PieChart',      icon: '📈', label: 'Relatórios',  desc: 'Indicadores e metas.',        href: '/atendimento/relatorios',           tone: 'rose'    },
+  manage_users:     { lucide: 'UserCog',       icon: '👥', label: 'Equipe',      desc: 'Profissionais e permissões.', href: '/atendimento/settings/users',       tone: 'sky'     },
+  view_settings:    { lucide: 'Settings',      icon: '⚙️', label: 'Configurações', desc: 'Ajustes do sistema.',       href: '/atendimento/settings',             tone: 'amber'   },
+};
+
+/**
+ * Balões EFETIVOS de um usuário: parte dos balões curados do setor, remove os
+ * cuja permissão foi REVOGADA e adiciona os balões das permissões CONCEDIDAS
+ * extra (que ainda não estão na lista). Mantém a curadoria do setor + reflete
+ * os ajustes individuais. Usado na home e na prévia do editor de usuário.
+ */
+export function resolveHomeActions(
+  sectorId: Sector,
+  extraGrants: Permission[] = [],
+  extraRevokes: Permission[] = [],
+): HomeAction[] {
+  const sector = getSector(sectorId);
+  const revokes = new Set(extraRevokes);
+
+  // 1) Curado do setor, menos os balões cuja permissão foi revogada.
+  const base = sector.home.actions.filter((a) => {
+    const perm = HREF_TO_PERMISSION[a.href];
+    return !(perm && revokes.has(perm));
+  });
+
+  // 2) Adiciona o balão de cada permissão concedida EXTRA (sem duplicar rota).
+  const hrefs = new Set(base.map((a) => a.href));
+  const extras: HomeAction[] = [];
+  for (const perm of extraGrants) {
+    const balao = PERMISSION_TO_BALAO[perm];
+    if (balao && !hrefs.has(balao.href)) {
+      extras.push(balao);
+      hrefs.add(balao.href);
+    }
+  }
+
+  return [...base, ...extras];
+}

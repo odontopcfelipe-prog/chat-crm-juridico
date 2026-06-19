@@ -22,7 +22,7 @@ import {
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
   Megaphone, Settings, ArrowLeft, ArrowRight, Loader2, type LucideIcon,
 } from 'lucide-react';
-import { getSector, SECTORS, type Sector } from '@crm/shared';
+import { getSector, resolveHomeActions, SECTORS, type Sector, type Permission } from '@crm/shared';
 // Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
 import { useHomeHighlights } from '@/lib/useHomeHighlights';
 import api from '@/lib/api';
@@ -34,6 +34,9 @@ interface Props {
   /** @deprecated mantido por compat — nao e mais renderizado */
   skySlot?: React.ReactNode;
   allowSwitch?: boolean;
+  /** Permissões individuais do usuário — refletem nos balões (Onda 17.52) */
+  extraGrants?: Permission[];
+  extraRevokes?: Permission[];
 }
 
 const DEFAULT_HOUR = 12; // estado neutro pro SSR
@@ -62,7 +65,7 @@ function greetingFor(hour: number): string {
   return 'Boa noite';
 }
 
-export default function HomeBySector({ sector, userName, allowSwitch = false }: Props) {
+export default function HomeBySector({ sector, userName, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
   const router = useRouter();
   const [hour, setHour] = useState(DEFAULT_HOUR);
   const [previewSector, setPreviewSector] = useState<Sector>(sector);
@@ -86,7 +89,13 @@ export default function HomeBySector({ sector, userName, allowSwitch = false }: 
   const greeting  = greetingFor(hour);
   const firstName = userName?.trim().split(' ')[0] || 'visitante';
   const isPreview = active !== sector;
-  const actions   = meta.home.actions;
+  // Onda 17.52 — balões EFETIVOS (com grants/revokes do usuário). Só aplica os
+  // ajustes no setor REAL; no preview do admin (switcher) mostra só o padrão.
+  const actions   = resolveHomeActions(
+    active,
+    active === sector ? extraGrants : [],
+    active === sector ? extraRevokes : [],
+  );
   const setorLabel = meta.home.persona;
 
   // Fecha a prévia ao trocar de setor (seletor do admin)

@@ -13,7 +13,7 @@ import {
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
   Megaphone, Settings, type LucideIcon,
 } from 'lucide-react';
-import { getSector, type Sector } from '@crm/shared';
+import { getSector, resolveHomeActions, type Sector, type Permission } from '@crm/shared';
 
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
@@ -21,9 +21,19 @@ const ICONS: Record<string, LucideIcon> = {
   Megaphone, Settings,
 };
 
-export function SectorHomePreview({ sector }: { sector: Sector }) {
+export function SectorHomePreview({
+  sector,
+  extraGrants = [],
+  extraRevokes = [],
+}: {
+  sector: Sector;
+  extraGrants?: Permission[];
+  extraRevokes?: Permission[];
+}) {
   const meta = getSector(sector);
-  const actions = meta.home.actions;
+  // Onda 17.52 — reflete as permissões EFETIVAS (concedidas/revogadas), não só
+  // os defaults do setor: granted extra adiciona o balão; revogada remove.
+  const actions = resolveHomeActions(sector, extraGrants, extraRevokes);
   const isAdmin = meta.id === 'admin';
 
   return (
