@@ -24,14 +24,20 @@ export class AllExceptionsFilter implements ExceptionFilter {
 
     let status = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = 'Erro interno do servidor';
+    let code: string | undefined;
 
     if (exception instanceof HttpException) {
       status = exception.getStatus();
       const exResponse = exception.getResponse();
-      message =
-        typeof exResponse === 'string'
-          ? exResponse
-          : (exResponse as any).message || exception.message;
+      if (typeof exResponse === 'string') {
+        message = exResponse;
+      } else {
+        message = (exResponse as any).message || exception.message;
+        // Propaga um code discriminador (ex.: PERMISSION_DENIED) quando a
+        // exceção o carrega — pro frontend distinguir "falta de autorização
+        // que o admin pode liberar" dos demais 403 legítimos.
+        code = (exResponse as any).code;
+      }
     }
 
     // ─── Audit log: registra tentativas de acesso negado (403) ───────────
@@ -57,6 +63,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json({
       statusCode: status,
       message,
+      ...(code ? { code } : {}),
       timestamp: new Date().toISOString(),
       path: request.url,
     });

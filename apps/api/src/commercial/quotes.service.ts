@@ -98,9 +98,11 @@ export class QuotesService {
       (i) => i.unit_price < i.base_price - 0.001,
     );
     if (hasDiscountedItem && !(await this.userCanOverridePrice(userId))) {
-      throw new ForbiddenException(
-        'Sem permissao "Alterar preco na venda" para aplicar desconto. Peca ao admin do tenant para liberar.',
-      );
+      throw new ForbiddenException({
+        message:
+          'Sem permissao "Alterar preco na venda" para aplicar desconto. Peca ao admin do tenant para liberar.',
+        code: 'PERMISSION_DENIED',
+      });
     }
 
     const totals = this.computeTotals(resolvedItems, data.discount_percent || 0);

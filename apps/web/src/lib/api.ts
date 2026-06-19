@@ -1,4 +1,5 @@
 import axios from 'axios';
+import toast from 'react-hot-toast';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005',
@@ -118,6 +119,25 @@ api.interceptors.response.use(
         console.error(`[api] ${_consecutive401Count} erros 401 consecutivos — logout`);
         triggerLogout('unauthorized');
       }
+    }
+
+    // ─── 403 de PERMISSÃO ──────────────────────────────────────────────────
+    // Falta de autorização que o ADMIN DO TENANT pode liberar. O backend
+    // carimba `code: 'PERMISSION_DENIED'` só nessas fontes (@RequiresPermission,
+    // RolesGuard, trava de desconto). Outros 403 legítimos — recurso de outra
+    // clínica, posse de evento, conta suspensa, SUPER_ADMIN — NÃO têm o code e
+    // passam intactos pro tratamento local de cada tela.
+    if (
+      error.response?.status === 403 &&
+      (error.response?.data as any)?.code === 'PERMISSION_DENIED' &&
+      !isSilent &&
+      typeof window !== 'undefined'
+    ) {
+      // id fixo => de-duplica quando várias chamadas paralelas tomam 403 juntas
+      toast.error(
+        'Sem autorização para esta ação. Solicite o desbloqueio com o administrador.',
+        { id: 'permission-denied', duration: 5000 },
+      );
     }
 
     return Promise.reject(error);

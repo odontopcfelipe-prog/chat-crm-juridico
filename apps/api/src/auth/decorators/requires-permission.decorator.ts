@@ -63,9 +63,13 @@ export class PermissionsGuard implements CanActivate {
     const perms = await this.resolveUserPermissions(user.id, roles);
     if (perms.has(required)) return true;
 
-    throw new ForbiddenException(
-      `Sem permissao "${required}" — fale com o admin do tenant`,
-    );
+    // code:'PERMISSION_DENIED' => o frontend mostra a mensagem amigável
+    // ("Sem autorização — solicite o desbloqueio com o administrador").
+    // A `message` segue detalhada (qual permissão faltou) pro audit log.
+    throw new ForbiddenException({
+      message: `Sem permissao "${required}" — fale com o admin do tenant`,
+      code: 'PERMISSION_DENIED',
+    });
   }
 
   private async resolveUserPermissions(

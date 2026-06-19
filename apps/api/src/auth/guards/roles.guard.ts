@@ -1,4 +1,4 @@
-import { Injectable, CanActivate, ExecutionContext } from '@nestjs/common';
+import { Injectable, CanActivate, ExecutionContext, ForbiddenException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { ROLES_KEY } from '../decorators/roles.decorator';
 
@@ -19,6 +19,16 @@ export class RolesGuard implements CanActivate {
     const { user } = context.switchToHttp().getRequest();
     // Multi-role: verifica se QUALQUER role do usuário está na lista requerida
     const userRoles: string[] = Array.isArray(user?.roles) ? user.roles : (user?.role ? [user.role] : []);
-    return requiredRoles.some((role) => userRoles.includes(role));
+    const hasRole = requiredRoles.some((role) => userRoles.includes(role));
+    if (!hasRole) {
+      // Antes retornava `false`, e o Nest respondia 403 com "Forbidden resource"
+      // (inglês cru). Lançamos com code:'PERMISSION_DENIED' pra o frontend
+      // mostrar a mensagem amigável de falta de autorização.
+      throw new ForbiddenException({
+        message: `Sem o papel necessario (${requiredRoles.join(', ')}) para esta acao`,
+        code: 'PERMISSION_DENIED',
+      });
+    }
+    return true;
   }
 }
