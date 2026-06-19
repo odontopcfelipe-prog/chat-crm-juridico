@@ -99,7 +99,11 @@ export class CalendarCronService {
   async checkDentistDailySummary() {
     try {
       const now = new Date();
-      const currentHHMM = `${String(now.getUTCHours()).padStart(2, '0')}:00`;
+      // Onda 17.56 — hora no fuso America/Maceio (UTC-3). Antes comparava em UTC,
+      // então send_at "07:00" disparava às 04:00 local. Espelha checkBirthdayGreetings.
+      const maceio = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+      const maceioHH = String(maceio.getUTCHours()).padStart(2, '0');
+      const currentHHMM = `${maceioHH}:00`;
 
       const settings = await this.prisma.globalSetting.findMany({
         where: { key: { startsWith: 'DENTIST_DAILY_SUMMARY' } },
@@ -115,8 +119,8 @@ export class CalendarCronService {
         if (!cfg.enabled) continue;
         // Compara so a hora — minutos sao ignorados pra simplicidade
         // (cron roda no minuto 0 entao send_at "07:30" ainda dispara as 07:00).
-        const sendHH = String(cfg.send_at || '07:00').split(':')[0];
-        if (sendHH !== String(now.getUTCHours()).padStart(2, '0')) continue;
+        const sendHH = String(cfg.send_at || '07:00').split(':')[0].padStart(2, '0');
+        if (sendHH !== maceioHH) continue;
 
         // Extrai tenant_id da chave (DENTIST_DAILY_SUMMARY_<tenant>)
         const tenantId = s.key === 'DENTIST_DAILY_SUMMARY'
