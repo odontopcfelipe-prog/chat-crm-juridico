@@ -149,6 +149,10 @@ export default function UsersSettingsPage() {
   // ter o id) ou junto com o PATCH se for edicao.
   const [schedule, setSchedule] = useState<DaySchedule[]>(defaultWeekSchedule());
   const [scheduleExpanded, setScheduleExpanded] = useState(false);
+  // Onda 17.52 — true só quando o horário REAL veio do backend (GET ok) ou o
+  // admin mexeu no editor. Em edição, o save só persiste o schedule se isto for
+  // true — senão uma falha na GET sobrescreveria a agenda real pelo padrão.
+  const [scheduleLoaded, setScheduleLoaded] = useState(false);
   // Onda 17.32.172 — reenvio do e-mail de confirmacao
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [resentId, setResentId] = useState<string | null>(null);
@@ -252,19 +256,23 @@ export default function UsersSettingsPage() {
     });
     setSpecialtyInput('');
     setError('');
-    // v11: ao editar, abre expandido se for DENTIST/ADMIN — facilita ver/ajustar
+    // v11: ao editar, abre expandido se for DENTIST — facilita ver/ajustar
     // horarios sem precisar clicar no toggle
     setScheduleExpanded(uniqueRoles.includes('DENTIST'));
     // v10: carrega horarios atuais do dentista (se houver)
     setSchedule(defaultWeekSchedule());
+    setScheduleLoaded(false); // só vira true se a GET responder (ok com/sem dados)
     if (uniqueRoles.includes('DENTIST')) {
       try {
         const res = await api.get(`/calendar/schedule/${user.id}`);
         if (res.data && res.data.length > 0) {
           setSchedule(apiScheduleToDays(res.data));
         }
+        // GET respondeu (com ou sem dados) — estado confiável, pode persistir.
+        setScheduleLoaded(true);
       } catch {
-        // sem horarios cadastrados — mantem default
+        // GET falhou (rede/5xx) — NÃO marca loaded; o save preserva a agenda real
+        // em vez de sobrescrever pelo padrão Seg-Sex.
       }
     }
     setShowModal(true);
@@ -346,11 +354,13 @@ export default function UsersSettingsPage() {
         }
       }
 
-      // v10: salva horarios SE o user eh dentista/admin (criados ou editados).
-      // Backend valida permissao (ADMIN ou dono). Se falhar, registra mas
-      // nao bloqueia — user fica criado, e admin pode reabrir e tentar de novo.
+      // v10: salva horarios SE o user eh dentista (criados ou editados).
+      // Onda 17.52 — em EDIÇÃO só persiste se o horário real foi carregado da GET
+      // (scheduleLoaded) ou o admin mexeu no editor; senão uma falha na GET faria
+      // o save sobrescrever a agenda real pelo padrão Seg-Sex (perda de dado +
+      // IA propondo horários inexistentes). Em criação (!editingId) sempre salva.
       const needsSchedule = form.roles.includes('DENTIST');
-      if (needsSchedule && savedUserId) {
+      if (needsSchedule && savedUserId && (!editingId || scheduleLoaded)) {
         try {
           await api.put(`/calendar/schedule/${savedUserId}`, {
             slots: daysToApiSlots(schedule),
@@ -705,7 +715,7 @@ export default function UsersSettingsPage() {
                       </p>
                       <ScheduleEditor
                         value={schedule}
-                        onChange={setSchedule}
+                        onChange={(s) => { setSchedule(s); setScheduleLoaded(true); }}
                         showHelp={false}
                         compact={true}
                       />
