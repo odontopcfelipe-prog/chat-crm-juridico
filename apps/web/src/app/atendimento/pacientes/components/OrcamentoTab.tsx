@@ -599,8 +599,10 @@ function QuoteDetailView({
         const data: any[] = r.data?.data || r.data?.users || r.data || [];
         const list = data
           .filter((u: any) =>
-            u.roles?.includes('DENTIST') || u.roles?.includes('ADMIN') ||
-            u.role === 'DENTIST' || u.role === 'ADMIN'
+            u.roles?.includes('DENTIST') || u.role === 'DENTIST' ||
+            // Onda 17.54 — admin só é profissional clínico se tiver especialidade
+            // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
+            ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0)
           )
           .map((u: any) => ({ id: u.id, name: u.name }));
         setDentists(list);

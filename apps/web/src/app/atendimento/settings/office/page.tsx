@@ -99,11 +99,14 @@ export default function OfficeSettingsPage() {
       // Mostrar apenas dentistas e admins (não atendentes comerciais). Aceita o role legado
       // ADVOGADO para compat com banco pré-migração.
       const lawyers = data
-        .map((u: any) => ({ id: u.id, name: u.name, role: u.role, roles: u.roles }))
         .filter((u: any) =>
-          u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') ||
-          u.role === 'DENTIST' || u.role === 'ADVOGADO' || u.role === 'ADMIN',
-        );
+          u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') ||
+          u.role === 'DENTIST' || u.role === 'ADVOGADO' ||
+          // Onda 17.54 — admin só é profissional clínico se tiver especialidade
+          // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
+          ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0),
+        )
+        .map((u: any) => ({ id: u.id, name: u.name, role: u.role, roles: u.roles }));
       setUsers(lawyers);
     } catch {}
   };

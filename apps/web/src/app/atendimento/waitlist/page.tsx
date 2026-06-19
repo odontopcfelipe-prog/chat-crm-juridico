@@ -94,8 +94,11 @@ export default function WaitlistPage() {
     api.get('/users?limit=100').then(r => {
       const data: any[] = r.data?.data || r.data?.users || r.data || [];
       const dentists = data.filter((u: any) =>
-        u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') || u.roles?.includes('ADMIN') ||
-        u.role === 'DENTIST' || u.role === 'ADVOGADO' || u.role === 'ADMIN'
+        u.roles?.includes('DENTIST') || u.roles?.includes('ADVOGADO') ||
+        u.role === 'DENTIST' || u.role === 'ADVOGADO' ||
+        // Onda 17.54 — admin só é profissional clínico se tiver especialidade
+        // (espelha findLawyers no backend): tira admin-puro da lista de dentistas.
+        ((u.roles?.includes('ADMIN') || u.role === 'ADMIN') && (u.specialties?.length ?? 0) > 0)
       );
       setUsers(dentists.map((u: any) => ({ id: u.id, name: u.name })));
     }).catch(() => {});
