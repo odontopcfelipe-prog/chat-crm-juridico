@@ -8,7 +8,6 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import {
   canViewAllAgenda,
-  canCreateAgendaEvent,
   canDeleteAgendaEvent,
 } from '../common/utils/permissions.util';
 import {
@@ -70,13 +69,12 @@ export class CalendarController {
     return this.calendarService.findOne(id);
   }
 
+  // Onda 17.52 — Etapa 7: criar evento exige manage_agenda (antes era por papel).
+  // Têm por default: recepção, CRC e admin. Editar/validar o PRÓPRIO evento
+  // (PATCH abaixo) segue por checkOwnership — dentista continua validando.
+  @RequiresPermission('manage_agenda')
   @Post('events')
   create(@Body() data: CreateEventDto, @Request() req: any) {
-    // So ADMIN/OPERADOR (secretaria)/ASSISTANT criam eventos. DENTIST nao
-    // cria — deve ser agendado pela secretaria/admin pra evitar conflito.
-    if (!canCreateAgendaEvent(req.user?.roles)) {
-      throw new ForbiddenException('Sem permissao para criar evento na agenda. Solicite a secretaria.');
-    }
     return this.calendarService.create({
       ...data,
       created_by_id: req.user.id,

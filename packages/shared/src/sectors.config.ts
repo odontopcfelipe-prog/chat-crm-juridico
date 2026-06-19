@@ -293,9 +293,14 @@ export const SECTORS: SectorMeta[] = [
     backendRoles: ['COMERCIAL', 'ASSISTANT'],
     defaultPermissions: [
       'view_patients',
+      // Onda 17.52 — CRC cadastra paciente e agenda consulta no fluxo de venda
+      // (Etapa 7): precisa de edit_patients + manage_agenda pra não perder isso
+      // quando esses endpoints passaram a exigir a permissão.
+      'edit_patients',
       // Onda 17.32.115 (revisao 1): CRC ve agenda pra sugerir
       // horarios e conferir disponibilidade dos dentistas.
       'view_agenda',
+      'manage_agenda',
       'view_chat',
       'view_marketing',
       'manage_proposals',

@@ -27,7 +27,6 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
 import {
-  canCreatePatient,
   canEditPatientPersonalData,
   canArchivePatient,
 } from '../common/utils/permissions.util';
@@ -42,17 +41,13 @@ export class PatientsController {
     private readonly affiliateService: AffiliateService,
   ) {}
 
+  // Onda 17.52 — Etapa 7: cadastrar paciente exige edit_patients (antes era
+  // checagem por papel). Têm por default: recepção, dentista, CRC e admin.
+  @RequiresPermission('edit_patients')
   @Post()
   create(@Body() dto: CreatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    // Cadastro de paciente: ADMIN/OPERADOR (secretaria)/ASSISTANT.
-    // DENTIST/FINANCEIRO nao cadastram paciente standalone — pra atender
-    // existe POST /:id/start-attending que so funciona se o paciente ja
-    // existir (ou via convertFromLead automatico).
-    if (!canCreatePatient(req.user?.roles)) {
-      throw new ForbiddenException('Sem permissao para cadastrar paciente');
-    }
     return this.patientsService.create(tenantId, {
       ...dto,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
@@ -175,16 +170,14 @@ export class PatientsController {
     return this.patientsService.getTimeline(id, tenantId, lim);
   }
 
+  // Onda 17.52 — Etapa 7: editar dados do paciente exige edit_patients (antes
+  // era só ADMIN). Decisão do usuário: recepção/dentista/CRC passam a editar;
+  // arquivar/excluir continua só admin (canArchivePatient, nos DELETE abaixo).
+  @RequiresPermission('edit_patients')
   @Patch(':id')
   update(@Param('id') id: string, @Body() dto: UpdatePatientDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    // Editar dados pessoais (nome, CPF, telefone, endereco, etc): SO ADMIN.
-    // Dados clinicos (anamnese, odontograma, prontuario, alergias, medicacoes)
-    // tem endpoints proprios e seguem regras separadas — DENTIST pode mexer.
-    if (!canEditPatientPersonalData(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode alterar dados pessoais do paciente');
-    }
     return this.patientsService.update(id, tenantId, {
       ...dto,
       birth_date: dto.birth_date ? new Date(dto.birth_date) : undefined,
