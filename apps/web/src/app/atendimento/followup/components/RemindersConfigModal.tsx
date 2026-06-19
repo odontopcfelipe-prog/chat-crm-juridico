@@ -117,9 +117,12 @@ interface Props {
   /** Onda 17.55 — renderiza o formulário INLINE (sem overlay de modal), pra usar
    *  como painel de configuração dentro da página Disparos e Lembretes. */
   embedded?: boolean;
+  /** Onda 17.56 — editor INDIVIDUAL: mostra só o texto desta faixa e esconde a
+   *  lista de antecedências, pra clicar num lembrete e editar só ele. */
+  onlyTemplate?: 'consulta_24h' | 'consulta_1h' | 'consulta_15min';
 }
 
-export function RemindersConfigModal({ open, onClose, embedded = false }: Props) {
+export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemplate }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<ReminderConfig | null>(null);
@@ -256,8 +259,8 @@ export function RemindersConfigModal({ open, onClose, embedded = false }: Props)
           </div>
         ) : (
           <div className="p-5 space-y-5">
-            {/* Seção 1: Antecedências padrão */}
-            <div>
+            {/* Seção 1: Antecedências padrão — oculta no editor individual de um lembrete */}
+            {!onlyTemplate && <div>
               <div className="flex items-center justify-between mb-2">
                 <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
                   <Clock size={14} className="text-primary" />
@@ -314,9 +317,9 @@ export function RemindersConfigModal({ open, onClose, embedded = false }: Props)
                   </div>
                 ))}
               </div>
-            </div>
+            </div>}
 
-            <hr className="border-border" />
+            {!onlyTemplate && <hr className="border-border" />}
 
             {/* Seção 2: Templates */}
             <div>
@@ -350,7 +353,7 @@ export function RemindersConfigModal({ open, onClose, embedded = false }: Props)
               </div>
 
               {/* Templates */}
-              {TEMPLATE_INFO.map((info) => {
+              {TEMPLATE_INFO.filter((info) => !onlyTemplate || info.key === onlyTemplate).map((info) => {
                 const Icon = info.icon;
                 const value = config.templates[info.key];
                 const preview = applyPreview(value, PREVIEW_VARS);

@@ -108,6 +108,12 @@ export default function CentralDisparosPage() {
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
   if (openItem && openItem.editor) {
+    // lembrete individual: edita só o texto da sua faixa (1 dia→24h, 1h→1h, 15min→<1h)
+    const tplKey: 'consulta_24h' | 'consulta_1h' | 'consulta_15min' | undefined =
+      openItem.antecedenciaMin == null ? undefined
+        : openItem.antecedenciaMin >= 1440 ? 'consulta_24h'
+        : openItem.antecedenciaMin >= 60 ? 'consulta_1h'
+        : 'consulta_15min';
     return (
       <div className="p-6 max-w-3xl mx-auto">
         <button
@@ -117,7 +123,7 @@ export default function CentralDisparosPage() {
         >
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
-        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} />}
+        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}
       </div>
