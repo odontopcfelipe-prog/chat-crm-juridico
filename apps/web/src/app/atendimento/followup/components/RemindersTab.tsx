@@ -26,7 +26,6 @@ import {
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { ReminderPreviewModal } from './ReminderPreviewModal';
-import { RemindersConfigModal } from './RemindersConfigModal';
 import { useRole } from '@/lib/useRole';
 
 interface ReminderRow {
@@ -184,8 +183,6 @@ export function RemindersTab() {
   const [showHealth, setShowHealth] = useState(false);
   const [healthData, setHealthData] = useState<HealthData | null>(null);
   const [exporting, setExporting] = useState(false);
-  // v27: modal de config (admin)
-  const [showConfigModal, setShowConfigModal] = useState(false);
 
   const fetchSummary = useCallback(async () => {
     try {
@@ -617,16 +614,6 @@ export function RemindersTab() {
               })}
             </div>
             <div className="flex items-center gap-1">
-              {/* v27: botao Configurar (so admin) */}
-              {isAdmin && (
-                <button
-                  onClick={() => setShowConfigModal(true)}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-muted-foreground hover:bg-accent transition-colors"
-                  title="Configurar antecedências e templates de mensagem"
-                >
-                  <Settings size={12} /> Configurar
-                </button>
-              )}
               {/* v25 (Onda C #11): toggle saude */}
               <button
                 onClick={() => setShowHealth((v) => !v)}
@@ -1029,13 +1016,6 @@ export function RemindersTab() {
         />
       )}
 
-      {/* v27: Modal de configurações (só admin) */}
-      {showConfigModal && (
-        <RemindersConfigModal
-          open={showConfigModal}
-          onClose={() => setShowConfigModal(false)}
-        />
-      )}
     </div>
   );
 }
