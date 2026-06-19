@@ -34,7 +34,10 @@ interface CachedPerms {
 
 @Injectable()
 export class PermissionsGuard implements CanActivate {
-  private readonly cache = new Map<string, CachedPerms>();
+  // Onda 17.52 — cache ESTÁTICO (global) pra que UsersService.update() possa
+  // invalidar via PermissionsGuard.invalidate(userId) ao mudar sector/grants/
+  // revokes — antes era de instância e a mudança só valia após o TTL (30s).
+  private static readonly cache = new Map<string, CachedPerms>();
   private static readonly TTL_MS = 30_000;
 
   constructor(
@@ -69,7 +72,7 @@ export class PermissionsGuard implements CanActivate {
     userId: string,
     fallbackRoles: string[],
   ): Promise<Set<Permission>> {
-    const cached = this.cache.get(userId);
+    const cached = PermissionsGuard.cache.get(userId);
     if (cached && Date.now() - cached.fetchedAt < PermissionsGuard.TTL_MS) {
       return cached.perms;
     }
@@ -85,16 +88,17 @@ export class PermissionsGuard implements CanActivate {
     const revokes = (u?.extra_revokes ?? []) as Permission[];
     const perms = resolvePermissions(sector, grants, revokes);
 
-    this.cache.set(userId, { perms, fetchedAt: Date.now() });
+    PermissionsGuard.cache.set(userId, { perms, fetchedAt: Date.now() });
     return perms;
   }
 
   /**
-   * Invalida cache pra um user — chamar quando admin muda
-   * sector/extra_grants/extra_revokes via PATCH /users/:id.
+   * Invalida o cache de um user — chamar quando admin muda
+   * sector/extra_grants/extra_revokes via PATCH /users/:id. Estático pra ser
+   * chamado de qualquer service sem injetar a instância do APP_GUARD.
    */
-  invalidate(userId: string) {
-    this.cache.delete(userId);
+  static invalidate(userId: string) {
+    PermissionsGuard.cache.delete(userId);
   }
 }
 

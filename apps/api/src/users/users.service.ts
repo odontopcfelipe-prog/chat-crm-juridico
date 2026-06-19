@@ -1,5 +1,7 @@
 import { Injectable, ForbiddenException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+// Onda 17.52 — invalida o cache de permissões ao mudar sector/grants/revokes.
+import { PermissionsGuard } from '../auth/decorators/requires-permission.decorator';
 import { FileStorageService } from '../media/filesystem.service';
 import { MailService, publicWebUrl } from '../common/mail/mail.service';
 import { Prisma, User } from '@crm/shared';
@@ -319,6 +321,11 @@ export class UsersService {
       }
       this.logger.error(`[USERS] Falha inesperada ao atualizar usuario ${id}: code=${e?.code} ${e?.message}`);
       throw e;
+    }
+    // Onda 17.52 — se mudou setor/permissões, invalida o cache do guard pra a
+    // mudança valer NA HORA (antes só após o TTL de 30s).
+    if (data.sector !== undefined || data.extra_grants !== undefined || data.extra_revokes !== undefined) {
+      PermissionsGuard.invalidate(id);
     }
     const { password_hash, ...result } = user;
     return result as any;
