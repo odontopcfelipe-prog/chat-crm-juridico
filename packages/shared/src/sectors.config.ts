@@ -312,7 +312,7 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Abrir WhatsApp', href: '/atendimento' },
       },
       actions: [
-        { lucide: 'LineChart',     icon: '🎯', label: 'Fila CRC',    desc: 'Recupere pacientes e oportunidades.', href: '/atendimento/crm',                    tone: 'violet'  },
+        { lucide: 'LineChart',     icon: '🎯', label: 'CRM',         desc: 'Recupere pacientes e oportunidades.', href: '/atendimento/crm',                    tone: 'violet'  },
         { lucide: 'Workflow',      icon: '🔁', label: 'Follow-up',   desc: 'Acompanhe os contatos automáticos.',  href: '/atendimento/followup',               tone: 'amber'   },
         { lucide: 'RotateCcw',     icon: '🔄', label: 'Retornos',    desc: 'Pacientes que precisam voltar.',      href: '/atendimento/return-alerts',          tone: 'rose'    },
         { lucide: 'CheckCheck',    icon: '✅', label: 'Fechamentos', desc: 'Negocie e feche tratamentos.',        href: '/atendimento/fechamentos',            tone: 'emerald' },
