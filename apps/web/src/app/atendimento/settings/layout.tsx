@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail,
+  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -80,6 +80,7 @@ const settingsSections: MenuSection[] = [
         ],
       },
       { label: 'Base de Conhecimento', href: '/atendimento/settings/knowledge', icon: Brain },
+      { label: 'Disparos e Lembretes', href: '/atendimento/settings/disparos', icon: Send },
     ],
   },
   {
@@ -101,6 +102,7 @@ const adminOnlyPaths = new Set([
   '/atendimento/settings/knowledge',
   '/atendimento/settings/whatsapp',
   '/atendimento/settings/automations',
+  '/atendimento/settings/disparos',
   '/atendimento/settings/google-drive',
   '/atendimento/settings/mcp',
   '/atendimento/settings/payment-gateway',

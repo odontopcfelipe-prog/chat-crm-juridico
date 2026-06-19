@@ -1,17 +1,8 @@
 'use client';
 import { useState, useEffect } from 'react';
-import { Zap, Plus, Trash2, ArrowLeft } from 'lucide-react';
+import { Zap, Plus, Trash2 } from 'lucide-react';
 import { showSuccess, showError } from '@/lib/toast';
 import api from '@/lib/api';
-// Onda 17.55 — o painel "Operacional" (robôs do dia-a-dia: lembrete, confirmação,
-// pós-atendimento, resumo do dentista, aniversário) passa a morar AQUI, no menu
-// Configurações › Automações. Reusa os componentes do Follow-up (sem duplicar).
-import { OperacionalPanel } from '../../followup/components/OperacionalPanel';
-import { RemindersTab } from '../../followup/components/RemindersTab';
-import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
-import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
-
-type AutoView = 'hub' | 'lembretes' | 'pos-atendimento' | 'dentista';
 
 const TRIGGERS = [
   { value: 'NEW_LEAD', label: 'Novo lead criado', emoji: '🆕' },
@@ -38,7 +29,6 @@ interface AutomationRule {
 }
 
 export default function AutomationsPage() {
-  const [view, setView] = useState<AutoView>('hub');
   const [rules, setRules] = useState<AutomationRule[]>([]);
   const [loading, setLoading] = useState(false);
   const [showNew, setShowNew] = useState(false);
@@ -94,35 +84,8 @@ export default function AutomationsPage() {
   const getTriggerLabel = (v: string) => TRIGGERS.find(t => t.value === v);
   const getActionLabel = (v: string) => ACTIONS.find(a => a.value === v);
 
-  // Telas detalhadas dos robôs do Operacional (reusa os componentes do Follow-up)
-  if (view !== 'hub') {
-    return (
-      <div className="p-6 max-w-3xl mx-auto">
-        <button
-          type="button"
-          onClick={() => setView('hub')}
-          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground mb-5"
-        >
-          <ArrowLeft size={16} /> Voltar às Automações
-        </button>
-        {view === 'lembretes' && <RemindersTab />}
-        {view === 'pos-atendimento' && <PosAtendimentoTab />}
-        {view === 'dentista' && <DentistSummaryTab />}
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-8">
-      {/* Operacional — robôs do piloto automático (lembrete/confirmação/pós/resumo/aniversário) */}
-      <OperacionalPanel
-        onOpenTab={(t) => {
-          if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista') setView(t);
-        }}
-      />
-
-      {/* Automações de workflow — regras acionadas por eventos do CRC */}
-      <section className="space-y-6 pt-6 border-t border-border">
+    <div className="p-6 max-w-3xl mx-auto space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
@@ -276,7 +239,6 @@ export default function AutomationsPage() {
           })}
         </div>
       )}
-      </section>
     </div>
   );
 }
