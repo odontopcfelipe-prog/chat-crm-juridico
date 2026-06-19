@@ -1490,6 +1490,49 @@ export class CalendarService {
     return merged;
   }
 
+  // ─── Confirmação de agendamento (Onda 17.56) — mensagem editável ─────
+  // O liga/desliga vive em APPOINTMENT_CONFIRMATION_ENABLED_<tenant> (painel
+  // Operacional). Aqui guardamos só o TEXTO, em
+  // APPOINTMENT_CONFIRMATION_TEMPLATE_<tenant>. O worker scheduler aplica.
+  async getAppointmentConfirmationConfig(tenant_id?: string) {
+    const DEFAULT =
+      'Olá {nome}! Confirmando sua consulta com {dentista} amanhã ({data}) às {hora}.\n{local_line}\nResponda 1 para CONFIRMAR ou 2 para REMARCAR.';
+    const key = tenant_id ? `APPOINTMENT_CONFIRMATION_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_TEMPLATE';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return { template: DEFAULT };
+      const parsed = JSON.parse(setting.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : DEFAULT;
+      return { template: tpl };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
+      return { template: DEFAULT };
+    }
+  }
+
+  async setAppointmentConfirmationConfig(
+    tenant_id: string | undefined,
+    config: { template?: string },
+  ) {
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') {
+        throw new BadRequestException('template deve ser string');
+      }
+      if (config.template.length > 1500) {
+        throw new BadRequestException('template ultrapassa 1500 caracteres');
+      }
+    }
+    const key = tenant_id ? `APPOINTMENT_CONFIRMATION_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_TEMPLATE';
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+    this.logger.log(`[APPOINTMENT_CONFIRMATION_TEMPLATE] salvo pra ${key}`);
+    return this.getAppointmentConfirmationConfig(tenant_id);
+  }
+
   /**
    * Monta a mensagem do resumo diario pra um dentista especifico,
    * substituindo as variaveis do template. Retorna a string final.

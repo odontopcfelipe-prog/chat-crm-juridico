@@ -17,7 +17,7 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
 ];
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario';
 
@@ -40,7 +40,7 @@ export const DISPAROS: DisparoItem[] = [
   // ── Agendamento ──
   { id: 'confirmacao', nome: 'Confirmação de agendamento', categoria: 'agendamento',
     gatilho: 'Assim que marca o horário', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'confirmacao' },
+    editor: 'confirmacao', operacionalKey: 'confirmacao' },
   { id: 'lembrete_1dia', nome: 'Lembrete · 1 dia antes', categoria: 'agendamento',
     gatilho: '1 dia antes', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reminders', antecedenciaMin: 1440 },

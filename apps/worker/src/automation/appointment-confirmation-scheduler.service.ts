@@ -44,6 +44,8 @@ export class AppointmentConfirmationSchedulerService {
           tenant_id: true,
           title: true,
           start_at: true,
+          location: true,
+          assigned_user: { select: { name: true } },
           patient: { select: { id: true, name: true, phone: true } },
         },
       });
@@ -54,6 +56,10 @@ export class AppointmentConfirmationSchedulerService {
       let skipped = 0;
       // Onda 17.49 — cache do liga/desliga da confirmacao por tenant
       const enabledByTenant = new Map<string, boolean>();
+      // Onda 17.56 — cache do TEMPLATE da mensagem por tenant (editável na Central)
+      const templateByTenant = new Map<string, string>();
+      const DEFAULT_TPL =
+        'Olá {nome}! Confirmando sua consulta com {dentista} amanhã ({data}) às {hora}.\n{local_line}\nResponda 1 para CONFIRMAR ou 2 para REMARCAR.';
 
       for (const ev of eligible) {
         if (!ev.patient?.phone) {
@@ -110,15 +116,43 @@ export class AppointmentConfirmationSchedulerService {
           month: '2-digit',
         });
 
+        // Onda 17.56 — usa o template editável do tenant (cache por tenant)
+        let tpl: string;
+        const cachedTpl = templateByTenant.get(tid);
+        if (cachedTpl !== undefined) {
+          tpl = cachedTpl;
+        } else {
+          const ts = await this.prisma.globalSetting.findUnique({
+            where: { key: `APPOINTMENT_CONFIRMATION_TEMPLATE_${tid}` },
+          });
+          let parsed: any = null;
+          try { parsed = ts?.value ? JSON.parse(ts.value) : null; } catch { parsed = null; }
+          tpl =
+            parsed && typeof parsed.template === 'string' && parsed.template.trim()
+              ? String(parsed.template)
+              : DEFAULT_TPL;
+          templateByTenant.set(tid, tpl);
+        }
+
+        const localLine = ev.location ? `📍 ${ev.location}\n` : '';
+        const message = tpl
+          .replace(/\{nome_completo\}/g, ev.patient.name)
+          .replace(/\{nome\}/g, ev.patient.name.split(' ')[0])
+          .replace(/\{dentista\}/g, ev.assigned_user?.name || 'a clínica')
+          .replace(/\{data\}/g, date)
+          .replace(/\{hora\}/g, time)
+          .replace(/\{local_line\}/g, localLine)
+          .replace(/\{local\}/g, ev.location || '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+
         await this.prisma.appointmentConfirmation.create({
           data: {
             appointment_id: ev.id,
             channel: 'WHATSAPP',
             scheduled_for: now,
             // sent_at fica null — outro worker envia efetivamente
-            message_text:
-              `Ola ${ev.patient.name.split(' ')[0]}! Confirmando sua consulta amanha (${date}) as ${time}. ` +
-              `Responda 1 para CONFIRMAR ou 2 para REMARCAR.`,
+            message_text: message,
             response_status: 'PENDENTE',
           },
         });

@@ -420,6 +420,18 @@ export class CalendarController {
     return this.calendarService.setDentistDailySummaryConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Confirmação de agendamento (Onda 17.56) — mensagem editável ──────
+  @Get('appointment-confirmation/config')
+  getAppointmentConfirmationConfig(@Request() req: any) {
+    return this.calendarService.getAppointmentConfirmationConfig(req.user?.tenant_id);
+  }
+
+  @Put('appointment-confirmation/config')
+  @Roles('ADMIN')
+  setAppointmentConfirmationConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
+  }
+
   // Trigger manual — admin clica "Enviar agora" pra teste ou disparo
   // antecipado. O cron diario continua funcionando independente.
   @Post('dentist-daily-summary/send-now')

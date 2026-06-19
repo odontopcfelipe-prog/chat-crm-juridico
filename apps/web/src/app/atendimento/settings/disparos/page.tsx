@@ -17,6 +17,7 @@ import { CATEGORIAS, DISPAROS, type DisparoCategoria, type DisparoItem, type Ope
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
+import { ConfirmacaoEditor } from './ConfirmacaoEditor';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
@@ -124,6 +125,7 @@ export default function CentralDisparosPage() {
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
         {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} />}
+        {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}
       </div>
