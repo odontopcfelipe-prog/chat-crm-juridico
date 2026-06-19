@@ -1,58 +1,191 @@
 'use client';
 
-// Onda 17.55 — "Disparos e Lembretes": APENAS a configuração de cada disparo
-// (sem o painel de monitoramento/métricas do Follow-up). Abas no topo; cada aba
-// mostra o painel de config daquele disparo. O on/off e as métricas continuam no
-// painel Operacional (/atendimento/followup).
-import { useState } from 'react';
-import { Bell, Heart, Stethoscope } from 'lucide-react';
+// Onda 17.56 — Central de Disparos (Fase 1, visual — skill "disparos-lembretes").
+// Lista AGRUPADA por categoria (não abas — abas não escalam pros ~19 disparos).
+// Princípio do skill: "configura aqui, opera no Operacional". O on/off + métricas
+// vêm de /followup/operacional (os 5 disparos com backend); os demais aparecem do
+// catálogo como "Em breve". Clicar num disparo configurável abre o editor (reusa
+// os painéis existentes do Follow-up).
+import { useCallback, useEffect, useState } from 'react';
+import {
+  ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot,
+} from 'lucide-react';
+import api from '@/lib/api';
+import { showError } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
+import { CATEGORIAS, DISPAROS, type DisparoCategoria, type OperacionalKey } from './disparos.config';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 
-type Tab = 'lembrete' | 'pos' | 'dentista';
+const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
+  agendamento: CalendarClock,
+  pos_consulta: Heart,
+  datas: Cake,
+  recuperacao: TrendingUp,
+  clinico: Stethoscope,
+};
 
-const TABS: { id: Tab; label: string; Icon: typeof Bell }[] = [
-  { id: 'lembrete', label: 'Lembrete de consulta', Icon: Bell },
-  { id: 'pos', label: 'Pós-atendimento', Icon: Heart },
-  { id: 'dentista', label: 'Resumo do dentista', Icon: Stethoscope },
-];
+interface OperacionalData {
+  confirmacao?: { enabled: boolean };
+  lembrete?: { enabled: boolean };
+  pos?: { enabled: boolean };
+  dentista?: { enabled: boolean };
+  aniversario?: { enabled: boolean };
+}
 
-export default function DisparosLembretesPage() {
-  const [tab, setTab] = useState<Tab>('lembrete');
+export default function CentralDisparosPage() {
+  const { isAdmin } = useRole();
+  const [op, setOp] = useState<OperacionalData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState<OperacionalKey | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const r = await api.get<OperacionalData>('/followup/operacional');
+      setOp(r.data);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao carregar os disparos');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const enabledOf = (k?: OperacionalKey) => (k && op ? !!(op as any)[k]?.enabled : false);
+
+  const toggle = async (k: OperacionalKey, enabled: boolean) => {
+    setSaving(k);
+    setOp((d) => (d ? { ...d, [k]: { ...(d as any)[k], enabled } } : d)); // otimista
+    try {
+      await api.patch('/followup/operacional/toggle', { which: k, enabled });
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível salvar — revertendo');
+      setOp((d) => (d ? { ...d, [k]: { ...(d as any)[k], enabled: !enabled } } : d));
+    } finally {
+      setSaving(null);
+    }
+  };
+
+  // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
+  const openItem = DISPAROS.find((d) => d.id === openId) || null;
+  if (openItem && openItem.editor) {
+    return (
+      <div className="p-6 max-w-3xl mx-auto">
+        <button
+          type="button"
+          onClick={() => setOpenId(null)}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground mb-5"
+        >
+          <ArrowLeft size={16} /> Voltar aos disparos
+        </button>
+        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} />}
+        {openItem.editor === 'pos' && <PosAtendimentoTab />}
+        {openItem.editor === 'dentista' && <DentistSummaryTab />}
+      </div>
+    );
+  }
+
+  const disponiveis = DISPAROS.filter((d) => d.operacionalKey).length;
+  const ativos = DISPAROS.filter((d) => d.operacionalKey && enabledOf(d.operacionalKey)).length;
 
   return (
     <div className="p-6 max-w-3xl mx-auto space-y-5">
-      <div>
-        <h1 className="text-xl font-bold text-foreground">Disparos e Lembretes</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          Configure as mensagens automáticas de cada disparo. Para ligar/desligar e ver as
-          métricas, use o painel Operacional.
-        </p>
+      {/* Cabeçalho */}
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div>
+          <h1 className="text-xl font-bold text-foreground flex items-center gap-2">
+            <Bot size={20} className="text-primary" /> Disparos
+          </h1>
+          <p className="text-sm text-muted-foreground mt-1">
+            Configure aqui as mensagens automáticas. Ligar/desligar e métricas detalhadas ficam no
+            painel Operacional.
+          </p>
+        </div>
+        <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5 whitespace-nowrap">
+          {ativos} de {disponiveis} ativos
+        </span>
       </div>
 
-      {/* Abas — um painel de configuração por disparo */}
-      <div className="flex flex-wrap gap-1.5">
-        {TABS.map(({ id, label, Icon }) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
-              tab === id
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent border border-border'
-            }`}
-          >
-            <Icon size={14} /> {label}
-          </button>
-        ))}
-      </div>
-
-      {/* Painel de configuração do disparo selecionado */}
-      {tab === 'lembrete' && <RemindersConfigModal open embedded onClose={() => {}} />}
-      {tab === 'pos' && <PosAtendimentoTab />}
-      {tab === 'dentista' && <DentistSummaryTab />}
+      {loading ? (
+        <div className="py-12 flex items-center justify-center text-muted-foreground">
+          <Loader2 size={18} className="animate-spin mr-2" /> Carregando…
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {CATEGORIAS.map((cat) => {
+            const itens = DISPAROS.filter((d) => d.categoria === cat.id);
+            if (itens.length === 0) return null;
+            const CatIcon = CAT_ICON[cat.id];
+            return (
+              <section key={cat.id}>
+                <h2 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: cat.color }}>
+                  {cat.label}
+                </h2>
+                <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
+                  {itens.map((d) => {
+                    const clickable = !!d.editor && !d.emBreve;
+                    const hasToggle = !!d.operacionalKey && !d.emBreve;
+                    const on = enabledOf(d.operacionalKey);
+                    return (
+                      <div
+                        key={d.id}
+                        className={`flex items-center gap-3 px-4 py-3 transition-colors ${
+                          clickable ? 'hover:bg-accent/40 cursor-pointer' : ''
+                        } ${d.emBreve ? 'opacity-60' : ''}`}
+                        onClick={clickable ? () => setOpenId(d.id) : undefined}
+                      >
+                        <span
+                          className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
+                          style={{ backgroundColor: cat.color + '1A', color: cat.color }}
+                        >
+                          <CatIcon size={16} />
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-sm font-semibold text-foreground">{d.nome}</span>
+                            {d.tags.map((t) => (
+                              <span key={t} className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                                {t}
+                              </span>
+                            ))}
+                            {d.emBreve && (
+                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                                Em breve
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+                            {d.gatilho} · {d.canal}
+                          </div>
+                        </div>
+                        {hasToggle && (
+                          <label
+                            className={`inline-flex items-center ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
+                            onClick={(e) => e.stopPropagation()}
+                            title={!isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
+                          >
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={saving === d.operacionalKey || !isAdmin}
+                              onChange={(e) => d.operacionalKey && toggle(d.operacionalKey, e.target.checked)}
+                              className="sr-only peer"
+                            />
+                            <div className="relative w-9 h-5 bg-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/40 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
+                          </label>
+                        )}
+                        {clickable && <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
