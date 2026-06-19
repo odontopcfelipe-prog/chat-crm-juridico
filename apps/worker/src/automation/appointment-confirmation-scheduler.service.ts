@@ -74,6 +74,21 @@ export class AppointmentConfirmationSchedulerService {
         }
         if (!confEnabled) { skipped++; continue; }
 
+        // Onda 17.56 — dedup da mensagem dupla ~24h antes: se o evento já tem um
+        // lembrete (EventReminder) WhatsApp pendente na faixa "1 dia antes" (>= 12h),
+        // esse lembrete já convida a confirmar (e a resposta é tratada pela IA).
+        // Não cria a confirmação, pra não mandar DUAS mensagens pro mesmo paciente.
+        const lembrete24h = await this.prisma.eventReminder.findFirst({
+          where: {
+            event_id: ev.id,
+            channel: 'WHATSAPP',
+            sent_at: null,
+            minutes_before: { gte: 720 },
+          },
+          select: { id: true },
+        });
+        if (lembrete24h) { skipped++; continue; }
+
         // Ja existe confirmacao por WhatsApp para este agendamento?
         const existing = await this.prisma.appointmentConfirmation.findFirst({
           where: {
