@@ -18,6 +18,9 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { FileInterceptor } from '@nestjs/platform-express';
+// Onda 17.52 — Etapa 1 do enforcement: escrita de orçamento/proposta/venda
+// exige a permissão `manage_proposals` (antes qualquer logado escrevia/aprovava).
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { QuotesService } from './quotes.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { QuoteTemplatesService } from './quote-templates.service';
@@ -97,6 +100,7 @@ export class CommercialController {
 
   // ─── Quote endpoints — Onda 2.1: migrados pra @Authenticated() ────────
 
+  @RequiresPermission('manage_proposals')
   @Post('patients/:patientId/quotes')
   createQuote(
     @Param('patientId') patientId: string,
@@ -111,6 +115,7 @@ export class CommercialController {
    * Usado pelo OdontogramaTab quando dentista adiciona procedimento via
    * click em dente. Evita race condition + descoberta manual.
    */
+  @RequiresPermission('manage_proposals')
   @Post('patients/:patientId/quotes/draft-or-create')
   getOrCreateDraft(
     @Param('patientId') patientId: string,
@@ -167,6 +172,7 @@ export class CommercialController {
     return this.quotesService.findOne(id, user.tenant_id);
   }
 
+  @RequiresPermission('manage_proposals')
   @Patch('quotes/:id')
   updateQuote(
     @Param('id') id: string,
@@ -176,6 +182,7 @@ export class CommercialController {
     return this.quotesService.update(id, user.tenant_id, dto as any);
   }
 
+  @RequiresPermission('manage_proposals')
   @Delete('quotes/:id')
   removeQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.remove(id, user.tenant_id, user.id);
@@ -188,11 +195,13 @@ export class CommercialController {
   }
 
   /** Onda 25.6 — Restaura orcamento soft-deletado (volta pra listagem normal) */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/restore')
   restoreQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.restore(id, user.tenant_id);
   }
 
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/send')
   sendQuote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -200,6 +209,7 @@ export class CommercialController {
     return this.quotesService.send(id, tenantId, req.user?.id);
   }
 
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/accept')
   acceptQuote(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -224,6 +234,7 @@ export class CommercialController {
    * Cria novo Quote ACCEPTED + TreatmentPlan com items selecionados.
    * Original vira REJECTED com motivo automatico (preserva historico).
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/accept-partial')
   acceptPartialQuote(
     @Param('id') id: string,
@@ -251,6 +262,7 @@ export class CommercialController {
    * sem mexer em TreatmentPlan/Installments. Substitui o fluxo antigo
    * (accept-partial) que dividia em 2 quotes.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/approve-items')
   approveItems(
     @Param('id') id: string,
@@ -274,6 +286,7 @@ export class CommercialController {
    * Frontend envia payment_label (ex: "PIX à vista", "6x no cartão") e
    * final_value (ja com desconto/juros aplicados). Note e opcional.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/counter-proposal')
   saveCounterProposal(
     @Param('id') id: string,
@@ -292,6 +305,7 @@ export class CommercialController {
    * MVP mock — decisao em ~1.5s baseada em regras renda × parcela.
    * Em producao: substituir credit-check.service por integracao Serasa.
    */
+  @RequiresPermission('manage_proposals')
   @Post('credit-check/simulate')
   simulateCreditCheck(@Body() dto: CreditCheckSimulateDto) {
     return this.creditCheckService.simulate({
@@ -312,6 +326,7 @@ export class CommercialController {
    * Quando type=DESCONTO_EXTRA, aplica desconto adicional ao quote (recalcula
    * total). Demais tipos ficam como texto no historico.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/bonus')
   addBonus(
     @Param('id') id: string,
@@ -333,6 +348,7 @@ export class CommercialController {
    * Onda 14.5 — Aprova proposta + gera cobranca direta (PIX/Cartao/Boleto a vista).
    * Pra Boleto parcelado com entrada, usar /apply-financing.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/approve-and-bill')
   approveAndBill(
     @Param('id') id: string,
@@ -359,6 +375,7 @@ export class CommercialController {
    * Usado em vendas de balcao: limpeza, clareamento, raspagem,
    * extracao simples, etc.
    */
+  @RequiresPermission('manage_proposals')
   @Post('venda-rapida')
   async vendaRapida(
     @Body() dto: {
@@ -456,6 +473,7 @@ export class CommercialController {
    * Cadeia: accept quote → cria TreatmentPlan → marca ACTIVE → gera boletos
    * (entrada +3d, parcelas +33d) via Asaas. Retorna URLs dos boletos.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/apply-financing')
   applyFinancing(
     @Param('id') id: string,
@@ -476,6 +494,7 @@ export class CommercialController {
     });
   }
 
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/reject')
   rejectQuote(
     @Param('id') id: string,
@@ -502,6 +521,7 @@ export class CommercialController {
    * persistir a forma de pagamento + entrada apresentada pelo operador.
    * Esses dados aparecem na secao "Proposta de pagamento" do PDF gerado
    * (que e anexado ao WhatsApp em /send-whatsapp). */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/choose-as-proposal')
   chooseQuoteAsProposal(
     @Param('id') id: string,
@@ -528,18 +548,21 @@ export class CommercialController {
   }
 
   /** Onda 14.33 — Desmarca proposta escolhida (volta ao estado neutro). */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/unchoose-as-proposal')
   unchooseQuoteAsProposal(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.unmarkChosenProposal(id, user.tenant_id);
   }
 
   /** Onda 17.32.38 — Arquivar orçamento (some de Propostas, vai pra Financeiro). */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/archive')
   archiveQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.archiveQuote(id, user.tenant_id, user.id);
   }
 
   /** Onda 17.32.38 — Desarquivar orçamento (volta pra Propostas). */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/unarchive')
   unarchiveQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.unarchiveQuote(id, user.tenant_id);
@@ -579,6 +602,7 @@ export class CommercialController {
   }
 
   /** Envia orcamento por WhatsApp com link do portal */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/send-whatsapp')
   sendQuoteByWhatsapp(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -587,6 +611,7 @@ export class CommercialController {
   }
 
   /** Admin: forca auto-expiracao agora (idempotente) */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/expire-old')
   expireOldQuotes(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -632,6 +657,7 @@ export class CommercialController {
     return this.templatesService.findOne(id, tenantId);
   }
 
+  @RequiresPermission('manage_proposals')
   @Post('quote-templates')
   createTemplate(@Request() req: any, @Body() dto: CreateTemplateDto) {
     const tenantId = req.user?.tenant_id;
@@ -639,6 +665,7 @@ export class CommercialController {
     return this.templatesService.create(tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Patch('quote-templates/:id')
   updateTemplate(
     @Param('id') id: string,
@@ -650,6 +677,7 @@ export class CommercialController {
     return this.templatesService.update(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Delete('quote-templates/:id')
   removeTemplate(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -658,6 +686,7 @@ export class CommercialController {
   }
 
   /** Aplica template a um orcamento existente — copia items */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/apply-template')
   applyTemplate(
     @Param('id') quoteId: string,
@@ -692,6 +721,7 @@ export class CommercialController {
     return this.couponsService.findOne(id, tenantId);
   }
 
+  @RequiresPermission('manage_proposals')
   @Post('quote-coupons')
   createCoupon(@Request() req: any, @Body() dto: CreateCouponDto) {
     const tenantId = req.user?.tenant_id;
@@ -699,6 +729,7 @@ export class CommercialController {
     return this.couponsService.create(tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Patch('quote-coupons/:id')
   updateCoupon(
     @Param('id') id: string,
@@ -710,6 +741,7 @@ export class CommercialController {
     return this.couponsService.update(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Delete('quote-coupons/:id')
   removeCoupon(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -718,6 +750,7 @@ export class CommercialController {
   }
 
   /** Aplica cupom a um orcamento — valida + atualiza desconto + incrementa used_count */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/apply-coupon')
   applyCoupon(
     @Param('id') quoteId: string,
@@ -731,6 +764,7 @@ export class CommercialController {
   }
 
   /** Remove cupom do orcamento */
+  @RequiresPermission('manage_proposals')
   @Delete('quotes/:id/coupon')
   removeCouponFromQuote(@Param('id') quoteId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -749,6 +783,7 @@ export class CommercialController {
   }
 
   /** Upload de anexo (multipart, campo "file" + opcional category/description) */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/attachments')
   @UseInterceptors(
     FileInterceptor('file', { limits: { fileSize: 10 * 1024 * 1024 } }),
@@ -791,6 +826,7 @@ export class CommercialController {
   }
 
   /** Remove anexo (apaga arquivo + registro) */
+  @RequiresPermission('manage_proposals')
   @Delete('quote-attachments/:attachmentId')
   removeAttachment(
     @Param('attachmentId') attachmentId: string,
@@ -823,6 +859,7 @@ export class CommercialController {
    * Renegociar: cria duplicata DRAFT + marca atual REJECTED.
    * Operador edita o novo, envia v2.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/renegotiate')
   renegotiateQuote(
     @Param('id') quoteId: string,
@@ -845,6 +882,7 @@ export class CommercialController {
    * Ideal para apresentar varias condicoes comerciais (a vista, parcelado)
    * com os mesmos procedimentos clinicos.
    */
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/duplicate-as-option')
   duplicateAsOption(@Param('id') quoteId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -855,6 +893,7 @@ export class CommercialController {
 
   // ─── QuoteItems ───────────────────────────────────────────────
 
+  @RequiresPermission('manage_proposals')
   @Post('quotes/:id/items')
   addQuoteItem(
     @Param('id') id: string,
@@ -866,6 +905,7 @@ export class CommercialController {
     return this.quotesService.addItem(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Patch('quote-items/:id')
   updateQuoteItem(
     @Param('id') id: string,
@@ -877,6 +917,7 @@ export class CommercialController {
     return this.quotesService.updateItem(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_proposals')
   @Delete('quote-items/:id')
   removeQuoteItem(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
