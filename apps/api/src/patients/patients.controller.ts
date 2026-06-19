@@ -22,6 +22,9 @@ import { PatientsService } from './patients.service';
 import { LeadsService } from '../leads/leads.service';
 import { AffiliateService } from './affiliate.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+// Onda 17.52 — Etapa 3: leitura de paciente exige view_patients (antes aberta a
+// qualquer logado). Todos os 6 setores têm view_patients por default.
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
 import {
   canCreatePatient,
@@ -56,6 +59,7 @@ export class PatientsController {
     });
   }
 
+  @RequiresPermission('view_patients')
   @Get()
   findAll(
     @Request() req: any,
@@ -86,6 +90,7 @@ export class PatientsController {
     });
   }
 
+  @RequiresPermission('view_patients')
   @Get('stats')
   getStats(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -99,6 +104,7 @@ export class PatientsController {
    * (3o botao centralizado no header do CRM) pra renderizar cards 1x em
    * cada coluna de procedimento agendado/em-progresso.
    */
+  @RequiresPermission('view_patients')
   @Get('funil-clinica')
   findFunilClinica(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -119,6 +125,7 @@ export class PatientsController {
   }
 
   /** Aniversariantes do periodo (today | week | month). */
+  @RequiresPermission('view_patients')
   @Get('birthdays')
   getBirthdays(@Request() req: any, @Query('period') period?: string) {
     const tenantId = req.user?.tenant_id;
@@ -150,6 +157,7 @@ export class PatientsController {
     return { graduated: !!lead, lead_id: lead?.id ?? null };
   }
 
+  @RequiresPermission('view_patients')
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -158,6 +166,7 @@ export class PatientsController {
   }
 
   /** Timeline unificada: agrega consultas + procedimentos + pagamentos + retornos + anamneses */
+  @RequiresPermission('view_patients')
   @Get(':id/timeline')
   getTimeline(@Param('id') id: string, @Request() req: any, @Query('limit') limit?: string) {
     const tenantId = req.user?.tenant_id;

@@ -3,6 +3,9 @@ import type { Response } from 'express';
 import { CalendarService } from './calendar.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { Roles } from '../auth/decorators/roles.decorator';
+// Onda 17.52 — Etapa 3: leitura da agenda exige view_agenda (antes aberta a
+// qualquer logado). Todos os 6 setores têm view_agenda por default.
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import {
   canViewAllAgenda,
   canCreateAgendaEvent,
@@ -26,6 +29,7 @@ export class CalendarController {
 
   // ─── Events CRUD ──────────────────────────────────────
 
+  @RequiresPermission('view_agenda')
   @Get('events')
   findAll(
     @Query('start') start: string | undefined,
@@ -56,6 +60,7 @@ export class CalendarController {
     });
   }
 
+  @RequiresPermission('view_agenda')
   @Get('events/:id')
   async findOne(@Param('id') id: string, @Request() req: any) {
     // Tampa furo: antes qualquer user logado abria qualquer evento por ID.
@@ -237,6 +242,7 @@ export class CalendarController {
 
   // ─── Availability ─────────────────────────────────────
 
+  @RequiresPermission('view_agenda')
   @Get('availability/:userId')
   getAvailability(
     @Param('userId') userId: string,
@@ -247,6 +253,7 @@ export class CalendarController {
     return this.calendarService.getAvailability(userId, date, parseInt(duration) || 30, req.user?.tenant_id);
   }
 
+  @RequiresPermission('view_agenda')
   @Get('schedule/:userId')
   getSchedule(@Param('userId') userId: string) {
     return this.calendarService.getSchedule(userId);
