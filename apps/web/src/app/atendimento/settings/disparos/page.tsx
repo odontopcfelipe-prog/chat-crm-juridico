@@ -214,7 +214,10 @@ export default function CentralDisparosPage() {
                             <div className="relative w-9 h-5 bg-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/40 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
                           </label>
                         )}
-                        {clickable && <ChevronRight size={16} className="text-muted-foreground shrink-0" />}
+                        {/* slot fixo da seta — reservado sempre, pra os toggles alinharem */}
+                        <span className="w-4 shrink-0 flex items-center justify-center">
+                          {clickable && <ChevronRight size={16} className="text-muted-foreground" />}
+                        </span>
                       </div>
                     );
                   })}
