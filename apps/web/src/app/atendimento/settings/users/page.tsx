@@ -475,12 +475,12 @@ export default function UsersSettingsPage() {
                         {/* Onda 17.32.172 — status da confirmacao de e-mail */}
                         <div className="mt-1">
                           {user.email_verified_at ? (
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-500 text-[10px] font-bold rounded-lg border border-emerald-500/20">
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-emerald-500/10 text-emerald-600 text-[10px] font-bold rounded-lg border border-emerald-500/20">
                               ✓ E-mail confirmado
                             </span>
                           ) : (
                             <span className="inline-flex items-center gap-1.5">
-                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-500 text-[10px] font-bold rounded-lg border border-amber-500/20">
+                              <span className="px-2 py-0.5 bg-amber-500/10 text-amber-600 text-[10px] font-bold rounded-lg border border-amber-500/20">
                                 Aguardando confirmação
                               </span>
                               <button
@@ -719,21 +719,21 @@ export default function UsersSettingsPage() {
 
               <div className="space-y-1.5">
                 <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">Caixas de WhatsApp <span className="text-muted-foreground/60 normal-case font-medium">(acesso ao chat)</span></label>
-                <div className="grid grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
                   {inboxes.map(inbox => (
-                    <label key={inbox.id} className="flex items-center gap-2 cursor-pointer group">
-                      <input 
+                    <label key={inbox.id} className="flex items-center gap-2 cursor-pointer group min-w-0">
+                      <input
                         type="checkbox"
                         checked={form.inboxIds.includes(inbox.id)}
                         onChange={(e) => {
-                          const ids = e.target.checked 
+                          const ids = e.target.checked
                             ? [...form.inboxIds, inbox.id]
                             : form.inboxIds.filter(id => id !== inbox.id);
                           setForm({ ...form, inboxIds: ids });
                         }}
-                        className="w-4 h-4 rounded border-border text-primary focus:ring-primary/20"
+                        className="w-4 h-4 shrink-0 rounded border-border text-primary focus:ring-primary/20"
                       />
-                      <span className="text-[13px] text-foreground group-hover:text-primary transition-colors">{inbox.name}</span>
+                      <span className="text-[13px] text-foreground group-hover:text-primary transition-colors truncate">{inbox.name}</span>
                     </label>
                   ))}
                   {inboxes.length === 0 && (
@@ -811,9 +811,9 @@ export default function UsersSettingsPage() {
                   <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
                     🦷 Supervisores (Dentistas)
                   </label>
-                  <div className="grid grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 p-3 border border-border rounded-xl bg-background/50">
                     {lawyers.map(lawyer => (
-                      <label key={lawyer.id} className="flex items-center gap-2 cursor-pointer group">
+                      <label key={lawyer.id} className="flex items-center gap-2 cursor-pointer group min-w-0">
                         <input
                           type="checkbox"
                           checked={form.supervisorIds.includes(lawyer.id)}
@@ -823,9 +823,9 @@ export default function UsersSettingsPage() {
                               : form.supervisorIds.filter(id => id !== lawyer.id);
                             setForm({ ...form, supervisorIds: ids });
                           }}
-                          className="w-4 h-4 rounded border-border text-indigo-500 focus:ring-indigo-500/20"
+                          className="w-4 h-4 shrink-0 rounded border-border text-indigo-500 focus:ring-indigo-500/20"
                         />
-                        <div>
+                        <div className="min-w-0 truncate">
                           <span className="text-[13px] text-foreground group-hover:text-indigo-400 transition-colors">{lawyer.name}</span>
                           {lawyer.specialties?.length > 0 && (
                             <span className="ml-1 text-[9px] text-muted-foreground">({lawyer.specialties.join(', ')})</span>
@@ -875,7 +875,7 @@ export default function UsersSettingsPage() {
                         }`}
                       >
                         <div className="text-lg mb-1">{s.icon}</div>
-                        <div className={`text-xs font-bold ${selected ? 'text-violet-700 dark:text-violet-300' : 'text-foreground'}`}>
+                        <div className={`text-xs font-bold ${selected ? 'text-violet-300' : 'text-foreground'}`}>
                           {s.name}
                         </div>
                         <div className="text-[10px] text-muted-foreground leading-tight mt-0.5">
@@ -891,7 +891,12 @@ export default function UsersSettingsPage() {
                   const sectorMeta = SECTORS.find(s => s.id === form.sector);
                   const defaults = new Set(sectorMeta?.defaultPermissions ?? []);
                   const groups: Record<string, typeof PERMISSIONS> = {};
-                  for (const p of PERMISSIONS) (groups[p.group] ??= []).push(p);
+                  // Onda 17.52 — esconde 'admin_saas' (cross-tenant, só SUPER_ADMIN):
+                  // é decidido pela role, não por permissão — o checkbox era inerte.
+                  for (const p of PERMISSIONS) {
+                    if (p.key === 'admin_saas') continue;
+                    (groups[p.group] ??= []).push(p);
+                  }
                   const GROUP_LABEL: Record<string, string> = {
                     paciente: '👤 Paciente', agenda: '📅 Agenda',
                     chat: '💬 Chat / WhatsApp', clinico: '🏥 Clínico',
@@ -912,9 +917,9 @@ export default function UsersSettingsPage() {
                             const active    = (isDefault && !revoked) || granted;
                             // Cor/badge do estado
                             const stateLabel =
-                              !isDefault && granted ? { text: '+ extra',     cls: 'text-emerald-700 bg-emerald-500/15 border-emerald-500/30' } :
-                              isDefault && revoked  ? { text: '− removida',  cls: 'text-red-700     bg-red-500/15     border-red-500/30'     } :
-                              isDefault             ? { text: 'do setor',    cls: 'text-violet-700  bg-violet-500/10  border-violet-500/20'  } :
+                              !isDefault && granted ? { text: '+ extra',     cls: 'text-emerald-300 bg-emerald-500/15 border-emerald-500/30' } :
+                              isDefault && revoked  ? { text: '− removida',  cls: 'text-red-300     bg-red-500/15     border-red-500/30'     } :
+                              isDefault             ? { text: 'do setor',    cls: 'text-violet-300  bg-violet-500/10  border-violet-500/20'  } :
                                                        null;
                             return (
                               <label
