@@ -26,7 +26,6 @@ import {
   Users, LayoutGrid, Wallet, // Onda 17.17 — atalhos de secao
 } from 'lucide-react';
 import api from '@/lib/api';
-import { NovaAvaliacaoModal } from './NovaAvaliacaoModal';
 // Onda 17.32.108 — Ceu dinamico atras da saudacao (Modo 1, skill ceu-saudacao)
 import { SkyBackdrop } from '@/components/sky/SkyGreeting';
 // Onda 17.32.119 — Home dirigida por setor (skill home-por-setor, plug Fase 4b)
@@ -103,90 +102,6 @@ function getVerseOfDay(date: Date): { text: string; ref: string } {
 /* ───────────────────────────────────────────────────────────────
    Atalhos principais — 4 cards
 ─────────────────────────────────────────────────────────────── */
-/**
- * Acao especial usada pelo card "Nova avaliacao": em vez de navegar,
- * abre o NovaAvaliacaoModal pra escolher paciente. Identificado por
- * `action: 'open-modal-nova-avaliacao'` no render.
- */
-const PRIMARY_ACTIONS = [
-  {
-    label: 'Novo paciente',
-    description: 'Cadastrar uma nova ficha',
-    href: '/atendimento/pacientes?new=1',
-    icon: UserPlus,
-    color: 'sky', // alinhado com o ciano/azul da sidebar (primary do tema)
-  },
-  {
-    label: 'Nova avaliação',
-    description: 'Selecionar paciente p/ avaliação',
-    action: 'open-modal-nova-avaliacao' as const,
-    icon: FileText,
-    color: 'emerald', // verde de "ação positiva" — combina com saudações de saúde
-  },
-  {
-    label: 'Agendar',
-    description: 'Marcar na agenda',
-    href: '/atendimento/agenda',
-    icon: Calendar,
-    color: 'violet', // roxo de "tempo/agenda" — contrasta sem brigar com o ciano
-  },
-  {
-    label: 'Metas',
-    description: 'Acompanhe seu progresso',
-    href: '/atendimento/metas',
-    icon: Target,
-    color: 'amber', // dourado de "troféu" — único quente, dá destaque
-  },
-] as const;
-
-const SECONDARY_ACTIONS = [
-  // Acoes operacionais do dia a dia
-  { label: 'Agenda do dia', href: '/atendimento/agenda', icon: CalendarIcon },
-  { label: 'Registrar pagamento', href: '/atendimento/financeiro', icon: CreditCard },
-  { label: 'Confirmar consultas', href: '/atendimento/agenda', icon: CheckCircle2 },
-  { label: 'Lembrete no WhatsApp', href: '/atendimento', icon: MessageCircle },
-] as const;
-
-// Onda 17.17 — Atalhos pra as secoes principais do sistema. Separado
-// das SECONDARY_ACTIONS (que sao "acoes") pra dar clareza: aqui sao
-// "ir para a tela X". Aparece numa linha propria abaixo, com um label
-// "Ir para" pra distinguir.
-const SECTION_SHORTCUTS = [
-  { label: 'Pacientes', href: '/atendimento/pacientes', icon: Users },
-  { label: 'CRC', href: '/atendimento/crm', icon: LayoutGrid },
-  { label: 'WhatsApp', href: '/atendimento', icon: MessageCircle },
-  { label: 'Financeiro', href: '/atendimento/financeiro', icon: Wallet },
-] as const;
-
-// Onda 17.14 — Paleta alinhada com tema do sistema (ciano/azul da
-// sidebar). Antes usava cores Clinicorp soltas; agora usa tons da
-// paleta principal: sky (primary), emerald, violet, amber.
-const COLOR_CLASSES = {
-  sky: {
-    iconBg: 'bg-sky-100 dark:bg-sky-500/15',
-    iconText: 'text-sky-600 dark:text-sky-400',
-    glow: 'hover:shadow-sky-500/20',
-    ring: 'group-hover:ring-sky-500/20',
-  },
-  emerald: {
-    iconBg: 'bg-emerald-100 dark:bg-emerald-500/15',
-    iconText: 'text-emerald-600 dark:text-emerald-400',
-    glow: 'hover:shadow-emerald-500/20',
-    ring: 'group-hover:ring-emerald-500/20',
-  },
-  violet: {
-    iconBg: 'bg-violet-100 dark:bg-violet-500/15',
-    iconText: 'text-violet-600 dark:text-violet-400',
-    glow: 'hover:shadow-violet-500/20',
-    ring: 'group-hover:ring-violet-500/20',
-  },
-  amber: {
-    iconBg: 'bg-amber-100 dark:bg-amber-500/15',
-    iconText: 'text-amber-600 dark:text-amber-400',
-    glow: 'hover:shadow-amber-500/20',
-    ring: 'group-hover:ring-amber-500/20',
-  },
-} as const;
 
 /* ───────────────────────────────────────────────────────────────
    Afazeres padrao (template — vira persistente no localStorage)
@@ -267,7 +182,6 @@ export default function VisaoGeralPage() {
   const role = useRole();
   const resolvedSector: Sector = (userSector as Sector) || mapBackendRole(role?.roles ?? []);
   // Onda 17.6 — modal de seleção de paciente pra avaliação
-  const [novaAvaliacaoOpen, setNovaAvaliacaoOpen] = useState(false);
   useEffect(() => {
     setNow(new Date());
     const id = setInterval(() => setNow(new Date()), 60_000); // atualiza data a cada min
@@ -529,87 +443,6 @@ export default function VisaoGeralPage() {
           </div>
         </section>
 
-        {/* ─── Atalhos principais ─── */}
-        <section>
-          <div className="flex items-baseline justify-between mb-3">
-            <h2 className="text-sm font-bold text-foreground">O que vamos fazer agora?</h2>
-            <span className="text-xs text-muted-foreground font-semibold flex items-center gap-1.5">
-              <Sparkles size={12} />
-              Atalhos rápidos · 1 clique
-            </span>
-          </div>
-
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {PRIMARY_ACTIONS.map((a) => {
-              const c = COLOR_CLASSES[a.color];
-              const Icon = a.icon;
-              const handleClick = () => {
-                // Onda 17.6 — alguns cards abrem modal em vez de navegar
-                if ('action' in a && a.action === 'open-modal-nova-avaliacao') {
-                  setNovaAvaliacaoOpen(true);
-                  return;
-                }
-                if ('href' in a) router.push(a.href);
-              };
-              return (
-                <button
-                  key={a.label}
-                  onClick={handleClick}
-                  className={`group relative overflow-hidden bg-card border border-border rounded-xl p-4 md:p-5 text-left shadow-sm hover:shadow-lg hover:-translate-y-1 transition-all duration-200 ${c.glow}`}
-                >
-                  <div className={`w-12 h-12 rounded-xl ${c.iconBg} grid place-items-center mb-8 transition-transform group-hover:scale-110 group-hover:-rotate-6`}>
-                    <Icon size={22} className={c.iconText} />
-                  </div>
-                  <h3 className="text-sm md:text-base font-bold text-foreground flex items-center justify-between">
-                    {a.label}
-                    <span className="opacity-0 group-hover:opacity-100 transition-opacity">→</span>
-                  </h3>
-                  <p className="text-xs text-muted-foreground mt-0.5">{a.description}</p>
-                </button>
-              );
-            })}
-          </div>
-        </section>
-
-        {/* ─── Pilulas secundarias ─── */}
-        <section className="flex flex-wrap gap-2">
-          {SECONDARY_ACTIONS.map((a) => {
-            const Icon = a.icon;
-            return (
-              <Link
-                key={a.label}
-                href={a.href}
-                className="inline-flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs md:text-sm font-semibold text-foreground shadow-sm hover:shadow hover:-translate-y-0.5 transition-all"
-              >
-                <Icon size={15} className="text-muted-foreground" />
-                {a.label}
-              </Link>
-            );
-          })}
-        </section>
-
-        {/* ─── Atalhos de secao (Onda 17.17) ─── */}
-        <section className="space-y-2">
-          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            Ir para
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {SECTION_SHORTCUTS.map((a) => {
-              const Icon = a.icon;
-              return (
-                <Link
-                  key={a.label}
-                  href={a.href}
-                  className="inline-flex items-center gap-2 px-3 py-2 bg-card border border-border rounded-xl text-xs md:text-sm font-semibold text-foreground shadow-sm hover:shadow hover:-translate-y-0.5 hover:text-sky-600 dark:hover:text-sky-400 transition-all"
-                >
-                  <Icon size={15} className="text-sky-500 dark:text-sky-400" />
-                  {a.label}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-
         {/* ─── Grid 2 colunas: Afazeres + Anotacoes ─── */}
         <div className="grid grid-cols-1 md:grid-cols-[1.15fr_0.85fr] gap-4 mt-4">
 
@@ -707,12 +540,6 @@ export default function VisaoGeralPage() {
           </section>
         </div>
       </div>
-
-      {/* Onda 17.6 — Modal de selecao de paciente pra nova avaliacao */}
-      <NovaAvaliacaoModal
-        open={novaAvaliacaoOpen}
-        onClose={() => setNovaAvaliacaoOpen(false)}
-      />
     </div>
   );
 }
