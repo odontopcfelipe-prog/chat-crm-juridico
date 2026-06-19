@@ -114,9 +114,12 @@ function applyPreview(template: string, vars: Record<string, string>): string {
 interface Props {
   open: boolean;
   onClose: () => void;
+  /** Onda 17.55 — renderiza o formulário INLINE (sem overlay de modal), pra usar
+   *  como painel de configuração dentro da página Disparos e Lembretes. */
+  embedded?: boolean;
 }
 
-export function RemindersConfigModal({ open, onClose }: Props) {
+export function RemindersConfigModal({ open, onClose, embedded = false }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<ReminderConfig | null>(null);
@@ -230,23 +233,21 @@ export function RemindersConfigModal({ open, onClose }: Props) {
     }, 0);
   };
 
-  if (!open) return null;
+  if (!open && !embedded) return null;
 
-  return (
-    <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
-      <div
-        className="bg-card text-foreground rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-border"
-        onClick={(e) => e.stopPropagation()}
-      >
+  const content = (
+    <>
         {/* Header */}
         <div className="sticky top-0 bg-card border-b border-border px-5 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-2">
             <Settings size={18} className="text-primary" />
             <h2 className="text-base font-bold">Configurações de Lembrete</h2>
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent transition-colors" aria-label="Fechar">
-            <X size={16} />
-          </button>
+          {!embedded && (
+            <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-accent transition-colors" aria-label="Fechar">
+              <X size={16} />
+            </button>
+          )}
         </div>
 
         {loading || !config ? (
@@ -439,6 +440,24 @@ export function RemindersConfigModal({ open, onClose }: Props) {
             </div>
           </div>
         )}
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="bg-card text-foreground rounded-2xl border border-border overflow-hidden">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 flex items-center justify-center p-4" onClick={onClose}>
+      <div
+        className="bg-card text-foreground rounded-2xl shadow-2xl w-full max-w-3xl max-h-[92vh] overflow-y-auto border border-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        {content}
       </div>
     </div>
   );

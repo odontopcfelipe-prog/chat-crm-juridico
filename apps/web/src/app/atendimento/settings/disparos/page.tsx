@@ -1,45 +1,58 @@
 'use client';
 
-// Onda 17.55 — "Disparos e Lembretes": os robôs do dia-a-dia (lembrete,
-// confirmação, pós-atendimento, resumo do dentista, aniversário) que rodam no
-// piloto automático. Ficam em Configurações › Inteligência Artificial porque
-// dependem da IA (texto/confirmação). Reusa os componentes do Follow-up — clicar
-// "Abrir" num card abre a tela detalhada do robô com botão de voltar.
-
+// Onda 17.55 — "Disparos e Lembretes": APENAS a configuração de cada disparo
+// (sem o painel de monitoramento/métricas do Follow-up). Abas no topo; cada aba
+// mostra o painel de config daquele disparo. O on/off e as métricas continuam no
+// painel Operacional (/atendimento/followup).
 import { useState } from 'react';
-import { ArrowLeft } from 'lucide-react';
-import { OperacionalPanel } from '../../followup/components/OperacionalPanel';
-import { RemindersTab } from '../../followup/components/RemindersTab';
+import { Bell, Heart, Stethoscope } from 'lucide-react';
+import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 
-type View = 'hub' | 'lembretes' | 'pos-atendimento' | 'dentista';
+type Tab = 'lembrete' | 'pos' | 'dentista';
+
+const TABS: { id: Tab; label: string; Icon: typeof Bell }[] = [
+  { id: 'lembrete', label: 'Lembrete de consulta', Icon: Bell },
+  { id: 'pos', label: 'Pós-atendimento', Icon: Heart },
+  { id: 'dentista', label: 'Resumo do dentista', Icon: Stethoscope },
+];
 
 export default function DisparosLembretesPage() {
-  const [view, setView] = useState<View>('hub');
+  const [tab, setTab] = useState<Tab>('lembrete');
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      {view === 'hub' ? (
-        <OperacionalPanel
-          onOpenTab={(t) => {
-            if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista') setView(t);
-          }}
-        />
-      ) : (
-        <>
+    <div className="p-6 max-w-3xl mx-auto space-y-5">
+      <div>
+        <h1 className="text-xl font-bold text-foreground">Disparos e Lembretes</h1>
+        <p className="text-sm text-muted-foreground mt-1">
+          Configure as mensagens automáticas de cada disparo. Para ligar/desligar e ver as
+          métricas, use o painel Operacional.
+        </p>
+      </div>
+
+      {/* Abas — um painel de configuração por disparo */}
+      <div className="flex flex-wrap gap-1.5">
+        {TABS.map(({ id, label, Icon }) => (
           <button
+            key={id}
             type="button"
-            onClick={() => setView('hub')}
-            className="inline-flex items-center gap-1.5 text-sm font-medium text-muted-foreground hover:text-foreground mb-5"
+            onClick={() => setTab(id)}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              tab === id
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:bg-accent border border-border'
+            }`}
           >
-            <ArrowLeft size={16} /> Voltar
+            <Icon size={14} /> {label}
           </button>
-          {view === 'lembretes' && <RemindersTab />}
-          {view === 'pos-atendimento' && <PosAtendimentoTab />}
-          {view === 'dentista' && <DentistSummaryTab />}
-        </>
-      )}
+        ))}
+      </div>
+
+      {/* Painel de configuração do disparo selecionado */}
+      {tab === 'lembrete' && <RemindersConfigModal open embedded onClose={() => {}} />}
+      {tab === 'pos' && <PosAtendimentoTab />}
+      {tab === 'dentista' && <DentistSummaryTab />}
     </div>
   );
 }
