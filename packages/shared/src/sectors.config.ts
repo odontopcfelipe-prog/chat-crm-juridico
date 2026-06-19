@@ -251,7 +251,8 @@ export const SECTORS: SectorMeta[] = [
     defaultPermissions: [
       'view_patients',     // ve quem esta sendo atendido
       'view_agenda',       // ve agenda do dia
-      'view_chat',         // pode confirmar consultas e tirar duvidas no whatsapp
+      // Onda 17.52 — ACD/ASB sem WhatsApp (decisão do usuário): sem view_chat
+      // e sem balão. Recepção/CRC cuidam do chat.
       'view_clinical',     // acompanha prontuario do paciente
       'edit_clinical',     // ASB pode preencher evolucao supervisionada
     ],
@@ -271,10 +272,6 @@ export const SECTORS: SectorMeta[] = [
       actions: [
         { lucide: 'Calendar', icon: '📅', label: 'Agenda',    desc: 'Acompanhe os atendimentos do dia.', href: '/atendimento/agenda',    tone: 'violet' },
         { lucide: 'Users',    icon: '👥', label: 'Pacientes', desc: 'Consulte fichas e dados.',          href: '/atendimento/pacientes', tone: 'sky'    },
-        // Onda 17.50 — DESVIO do skill (que dá 2 balões ao ACD/ASB): mantemos o
-        // WhatsApp porque o setor tem `view_chat` e, sem barra lateral, este é o
-        // único acesso ao chat no desktop.
-        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp', desc: 'Confirmar e tirar dúvidas.',    href: '/atendimento',           tone: 'amber'  },
       ],
       todos: [
         'Preparar sala pra proxima consulta',
