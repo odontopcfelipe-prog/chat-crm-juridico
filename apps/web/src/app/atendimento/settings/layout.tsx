@@ -45,8 +45,6 @@ const settingsSections: MenuSection[] = [
       { label: 'Tags de Pacientes', href: '/atendimento/settings/patient-tags', icon: Tag },
       { label: 'Unidades / Franquias', href: '/atendimento/settings/clinics', icon: Network },
       { label: 'Contratos & Assinatura', href: '/atendimento/settings/contracts', icon: FileSignature },
-      // Onda 17.32.181 — e-mails automaticos pros pacientes (estilo Nuvemshop)
-      { label: 'E-mails automáticos', href: '/atendimento/settings/emails-automaticos', icon: Mail },
     ],
   },
   {
@@ -81,6 +79,8 @@ const settingsSections: MenuSection[] = [
       },
       { label: 'Base de Conhecimento', href: '/atendimento/settings/knowledge', icon: Brain },
       { label: 'Disparos e Lembretes', href: '/atendimento/settings/disparos', icon: Send },
+      // Onda 17.55 — e-mails automaticos pros pacientes (movido de Clínica pra cá)
+      { label: 'E-mails automáticos', href: '/atendimento/settings/emails-automaticos', icon: Mail },
     ],
   },
   {
