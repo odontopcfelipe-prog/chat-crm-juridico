@@ -11,14 +11,14 @@
 import {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings, type LucideIcon,
+  Megaphone, Settings, Cake, type LucideIcon,
 } from 'lucide-react';
 import { getSector, resolveHomeActions, type Sector, type Permission } from '@crm/shared';
 
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings,
+  Megaphone, Settings, Cake,
 };
 
 export function SectorHomePreview({

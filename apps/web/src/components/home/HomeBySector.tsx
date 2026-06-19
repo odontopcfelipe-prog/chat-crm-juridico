@@ -20,7 +20,7 @@ import { useRouter } from 'next/navigation';
 import {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings, ArrowLeft, ArrowRight, Loader2, type LucideIcon,
+  Megaphone, Settings, Cake, ArrowLeft, ArrowRight, Loader2, type LucideIcon,
 } from 'lucide-react';
 import { getSector, resolveHomeActions, SECTORS, type Sector, type Permission } from '@crm/shared';
 // Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
@@ -44,7 +44,7 @@ const DEFAULT_HOUR = 12; // estado neutro pro SSR
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings,
+  Megaphone, Settings, Cake,
 };
 
 // Onda 17.52 — href do balão -> chave de prévia (GET /home/preview?key=).

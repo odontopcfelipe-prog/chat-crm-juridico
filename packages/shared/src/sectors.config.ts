@@ -316,8 +316,9 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'Workflow',      icon: '🔁', label: 'Follow-up',   desc: 'Acompanhe os contatos automáticos.',  href: '/atendimento/followup',               tone: 'amber'   },
         { lucide: 'RotateCcw',     icon: '🔄', label: 'Retornos',    desc: 'Pacientes que precisam voltar.',      href: '/atendimento/return-alerts',          tone: 'rose'    },
         { lucide: 'CheckCheck',    icon: '✅', label: 'Fechamentos', desc: 'Negocie e feche tratamentos.',        href: '/atendimento/fechamentos',            tone: 'emerald' },
-        { lucide: 'Layers',        icon: '📑', label: 'Propostas',   desc: 'Acompanhe as propostas enviadas.',    href: '/atendimento/orcamentos?status=SENT', tone: 'sky'     },
-        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',    desc: 'Converse com os pacientes.',          href: '/atendimento',                        tone: 'amber'   },
+        { lucide: 'Layers',        icon: '📑', label: 'Propostas',      desc: 'Acompanhe as propostas enviadas.',      href: '/atendimento/orcamentos?status=SENT', tone: 'sky'     },
+        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',       desc: 'Converse com os pacientes.',            href: '/atendimento',                        tone: 'amber'   },
+        { lucide: 'Cake',          icon: '🎂', label: 'Aniversariantes', desc: 'Parabenize quem faz aniversário hoje.', href: '/atendimento/pacientes',              tone: 'rose'    },
       ],
       todos: [
         'Mensagens sem resposta',
