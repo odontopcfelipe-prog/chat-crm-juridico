@@ -888,10 +888,11 @@ export default function AgendaPage() {
     defaultView: isMobile ? 'day' : 'week',
     locale: 'pt-BR',
     firstDayOfWeek: 1,
-    // Onda 5d v7 (Fase 25) — pediu pra agenda comecar as 08:00 (em vez de 05:00).
-    // Mantem end 23:00 pra cobrir eventos noturnos eventuais.
-    dayBoundaries: { start: '08:00', end: '23:00' },
-    weekOptions: { gridHeight: isMobile ? 800 : 1200, gridStep: 30 },
+    // Onda 17.56 — grade cobre o DIA INTEIRO (00:00–24:00) pra NUNCA esconder um
+    // evento fora do horário comercial (ex.: 00:00). gridHeight maior compensa as
+    // 24h pra manter as linhas legíveis; o usuário rola até o horário.
+    dayBoundaries: { start: '00:00', end: '24:00' },
+    weekOptions: { gridHeight: isMobile ? 1000 : 1600, gridStep: 30 },
     isDark: isDarkTheme,
     callbacks: {
       onRangeUpdate(range) {
