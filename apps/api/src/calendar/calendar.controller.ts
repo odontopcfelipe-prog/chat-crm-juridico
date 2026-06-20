@@ -432,6 +432,13 @@ export class CalendarController {
     return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
   }
 
+  // Envia um teste da mensagem de confirmação pra um número (admin) — testa entrega.
+  @Post('appointment-confirmation/send-test')
+  @Roles('ADMIN')
+  sendTestConfirmation(@Body() body: { phone: string }, @Request() req: any) {
+    return this.calendarService.sendTestConfirmation(req.user?.tenant_id, body?.phone);
+  }
+
   // Trigger manual — admin clica "Enviar agora" pra teste ou disparo
   // antecipado. O cron diario continua funcionando independente.
   @Post('dentist-daily-summary/send-now')

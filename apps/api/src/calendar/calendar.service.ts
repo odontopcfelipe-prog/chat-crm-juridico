@@ -1533,6 +1533,39 @@ export class CalendarService {
     return this.getAppointmentConfirmationConfig(tenant_id);
   }
 
+  /** Onda 17.56 — envia a mensagem de confirmação (com dados de exemplo) pra um
+   *  número, pra testar na hora se o WhatsApp da clínica entrega ao paciente. */
+  async sendTestConfirmation(tenant_id: string | undefined, phone: string) {
+    const num = (phone || '').replace(/\D/g, '');
+    if (num.length < 10) {
+      throw new BadRequestException('Telefone inválido — use DDD + número (ex.: 82999998888)');
+    }
+    const { template } = await this.getAppointmentConfirmationConfig(tenant_id);
+    const local = 'Rua das Acácias, 123 — Sala 4';
+    const msg = template
+      .replace(/\{nome_completo\}/g, 'Felipe Passos (teste)')
+      .replace(/\{nome\}/g, 'Felipe (teste)')
+      .replace(/\{dentista\}/g, 'Dra. Suellen')
+      .replace(/\{data\}/g, '06/05')
+      .replace(/\{hora\}/g, '14:00')
+      .replace(/\{local_line\}/g, `📍 ${local}\n`)
+      .replace(/\{local\}/g, local)
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+    try {
+      const r: any = await this.whatsapp.sendText(num, msg);
+      if (!r || r?.statusCode >= 400 || r?.error) {
+        throw new Error(`Evolution ${r?.statusCode ?? ''} ${r?.error ?? ''}`.trim());
+      }
+      this.logger.log(`[APPOINTMENT_CONFIRMATION] teste enviado pra ${num}`);
+      return { sent: true, to: num, message: msg };
+    } catch (e: any) {
+      throw new BadRequestException(
+        `Não enviou: ${e.message}. Verifique se o WhatsApp da clínica está conectado.`,
+      );
+    }
+  }
+
   /**
    * Monta a mensagem do resumo diario pra um dentista especifico,
    * substituindo as variaveis do template. Retorna a string final.
