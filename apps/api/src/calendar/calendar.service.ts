@@ -1615,12 +1615,21 @@ export class CalendarService {
 
     try {
       const r: any = await this.whatsapp.sendText(num, msg, instanceName, undefined, tenant_id);
+      const raw = JSON.stringify(r ?? {});
+      // Evolution responde exists:false quando o número não está no WhatsApp
+      // (quase sempre número digitado errado — dígito a mais/menos).
+      if (/"exists"\s*:\s*false/.test(raw)) {
+        throw new BadRequestException(
+          `O número ${num} não foi encontrado no WhatsApp. Confira o número (DDD + número) — parece ter dígitos a mais ou a menos.`,
+        );
+      }
       if (!r || r?.statusCode >= 400 || r?.error) {
         throw new Error(`Evolution ${r?.statusCode ?? ''} ${r?.error ?? ''}`.trim());
       }
       this.logger.log(`[DISPARO_TESTE] ${disparo} enviado pra ${num} via ${instanceName}`);
       return { sent: true, to: num, message: msg };
     } catch (e: any) {
+      if (e instanceof BadRequestException) throw e;
       throw new BadRequestException(
         `Não enviou: ${e.message}. Verifique se o WhatsApp da clínica está conectado.`,
       );
