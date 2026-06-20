@@ -12,7 +12,7 @@
  */
 import { useState, useEffect, useCallback } from 'react';
 import {
-  Building2, Mail, Phone, IdCard, Palette, ImageIcon, Globe,
+  Building2, Mail, Phone, IdCard, Globe,
   Save, Loader2, CheckCircle2, ExternalLink, RefreshCw, AlertCircle,
   MapPin,
 } from 'lucide-react';
@@ -50,8 +50,6 @@ export default function IdentidadeClinicaPage() {
 
   // Form state
   const [name, setName] = useState('');
-  const [logoUrl, setLogoUrl] = useState('');
-  const [themeColor, setThemeColor] = useState('#7c3aed');
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [cpfCnpj, setCpfCnpj] = useState('');
@@ -78,8 +76,6 @@ export default function IdentidadeClinicaPage() {
       }
       setTenant(t);
       setName(t.name || '');
-      setLogoUrl(t.logo_url || '');
-      setThemeColor(t.theme_color || '#7c3aed');
       setPhone(t.phone || '');
       setEmail(t.email || '');
       setCpfCnpj(t.cpf_cnpj || '');
@@ -153,8 +149,6 @@ export default function IdentidadeClinicaPage() {
     try {
       await api.patch('/tenants/me', {
         name: name.trim(),
-        logo_url: logoUrl.trim() || null,
-        theme_color: themeColor || null,
         phone: phone.replace(/\D/g, '') || null,
         email: email.trim().toLowerCase() || null,
         cpf_cnpj: cpfCnpj.replace(/\D/g, '') || null,
@@ -228,7 +222,7 @@ export default function IdentidadeClinicaPage() {
         {/* Identidade básica */}
         <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
-            <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">1</span>
+            <Building2 size={16} className="text-violet-600" />
             <h2 className="text-sm font-bold text-foreground">Nome e identidade</h2>
           </div>
 
@@ -269,72 +263,6 @@ export default function IdentidadeClinicaPage() {
               />
             </div>
           </div>
-        </div>
-
-        {/* Branding visual */}
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-4">
-            <span className="w-6 h-6 rounded-full bg-violet-600 text-white text-[11px] font-bold flex items-center justify-center">2</span>
-            <h2 className="text-sm font-bold text-foreground">Logo e cor</h2>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-[1fr_140px] gap-4 items-end">
-            <Field
-              Icon={ImageIcon}
-              label="URL do logo (PNG/SVG)"
-              value={logoUrl}
-              onChange={setLogoUrl}
-              placeholder="https://seu-dominio.com/logo.png"
-              help="Aparece no canto superior esquerdo do sistema."
-            />
-            <div>
-              <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1.5 flex items-center gap-1.5">
-                <Palette size={11} className="text-violet-500" />
-                Cor de acento
-              </label>
-              <div className="flex items-center gap-2 h-11 px-3 border border-border rounded-xl bg-background">
-                <input
-                  type="color"
-                  value={themeColor}
-                  onChange={(e) => setThemeColor(e.target.value)}
-                  className="w-6 h-6 rounded cursor-pointer border-none bg-transparent"
-                />
-                <input
-                  type="text"
-                  value={themeColor}
-                  onChange={(e) => setThemeColor(e.target.value)}
-                  className="flex-1 text-sm bg-transparent outline-none font-mono"
-                  placeholder="#7c3aed"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Preview */}
-          {(logoUrl || name) && (
-            <div className="mt-4 p-3 rounded-xl border border-dashed border-border bg-muted/30 flex items-center gap-3">
-              {logoUrl ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={logoUrl}
-                  alt="Logo preview"
-                  className="w-10 h-10 rounded-lg object-contain bg-background border border-border"
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-              ) : (
-                <div
-                  className="w-10 h-10 rounded-lg flex items-center justify-center text-white text-sm font-black"
-                  style={{ background: themeColor }}
-                >
-                  {(name || 'C').charAt(0).toUpperCase()}
-                </div>
-              )}
-              <div>
-                <div className="text-xs text-muted-foreground">Preview no sidebar:</div>
-                <div className="text-sm font-bold text-foreground">{name || 'Sua clínica'}</div>
-              </div>
-            </div>
-          )}
         </div>
 
         {/* Onda 17.57 — Endereço FÍSICO da clínica (2º card: entra no {local} dos disparos) */}
