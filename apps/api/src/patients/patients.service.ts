@@ -105,6 +105,48 @@ export class PatientsService {
     }
   }
 
+  /** Onda 17.56 — adiciona o DDI 55 nos telefones (paciente + lead) que estão SEM
+   *  código de país (10-11 dígitos). Idempotente — quem já tem DDI não muda. */
+  private addDdiBr(phone: string | null | undefined): string | null {
+    if (!phone) return null;
+    const d = phone.replace(/\D/g, '');
+    if (d.length !== 10 && d.length !== 11) return null;
+    const ddd = d.slice(0, 2);
+    const rest = d.slice(2);
+    const num = rest.length === 9
+      ? `${rest.slice(0, 5)}-${rest.slice(5)}`
+      : `${rest.slice(0, 4)}-${rest.slice(4)}`;
+    return `+55 (${ddd}) ${num}`;
+  }
+
+  async backfillPhoneDdi(tenantId: string) {
+    let patients = 0;
+    const pats = await this.prisma.patient.findMany({
+      where: { tenant_id: tenantId, phone: { not: null } },
+      select: { id: true, phone: true },
+    });
+    for (const p of pats) {
+      const fixed = this.addDdiBr(p.phone);
+      if (fixed && fixed !== p.phone) {
+        await this.prisma.patient.update({ where: { id: p.id }, data: { phone: fixed } });
+        patients++;
+      }
+    }
+    let leads = 0;
+    const lds = await this.prisma.lead.findMany({
+      where: { tenant_id: tenantId },
+      select: { id: true, phone: true },
+    });
+    for (const l of lds) {
+      const fixed = this.addDdiBr(l.phone);
+      if (fixed && fixed !== l.phone) {
+        await this.prisma.lead.update({ where: { id: l.id }, data: { phone: fixed } });
+        leads++;
+      }
+    }
+    return { patients, leads };
+  }
+
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
   async create(
     tenantId: string,

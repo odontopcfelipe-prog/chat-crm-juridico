@@ -8,10 +8,10 @@
 // demais aparecem do catálogo como "Em breve". Clicar abre o editor existente.
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot,
+  ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench,
 } from 'lucide-react';
 import api from '@/lib/api';
-import { showError } from '@/lib/toast';
+import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { CATEGORIAS, DISPAROS, type DisparoCategoria, type DisparoItem, type OperacionalKey } from './disparos.config';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
@@ -44,6 +44,7 @@ export default function CentralDisparosPage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [fixingPhones, setFixingPhones] = useState(false);
 
   const load = useCallback(async () => {
     const [opRes, cfgRes] = await Promise.allSettled([
@@ -106,6 +107,20 @@ export default function CentralDisparosPage() {
     if (d.operacionalKey) return toggleOperacional(d.operacionalKey, enabled);
   };
 
+  // Adiciona o +55 nos telefones já salvos sem código de país (pacientes antigos).
+  const fixPhones = async () => {
+    setFixingPhones(true);
+    try {
+      const r = await api.post('/patients/backfill-phone-ddi');
+      const { patients = 0, leads = 0 } = r.data || {};
+      showSuccess(`Telefones corrigidos: ${patients} paciente(s) e ${leads} contato(s) ganharam o +55. Agora os disparos entregam pra eles.`);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao corrigir os telefones');
+    } finally {
+      setFixingPhones(false);
+    }
+  };
+
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
   if (openItem && openItem.editor) {
@@ -147,6 +162,16 @@ export default function CentralDisparosPage() {
             Configure aqui as mensagens automáticas. Ligar/desligar geral e métricas detalhadas
             ficam no painel Operacional.
           </p>
+          <button
+            type="button"
+            onClick={fixPhones}
+            disabled={fixingPhones}
+            className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
+            title="Adiciona o +55 nos telefones de pacientes antigos que estão sem código de país, pra os disparos entregarem."
+          >
+            {fixingPhones ? <Loader2 size={12} className="animate-spin" /> : <Wrench size={12} />}
+            Corrigir telefones antigos (adicionar +55)
+          </button>
         </div>
         <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5 whitespace-nowrap">
           {ativos} de {configuraveis.length} ativos

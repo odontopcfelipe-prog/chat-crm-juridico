@@ -119,6 +119,15 @@ export class PatientsController {
     return this.patientsService.backfillVisitDates(tenantId);
   }
 
+  /** Onda 17.56 — adiciona o +55 nos telefones já salvos sem código de país. */
+  @Post('backfill-phone-ddi')
+  @RequiresPermission('edit_patients')
+  backfillPhoneDdi(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.backfillPhoneDdi(tenantId);
+  }
+
   /** Aniversariantes do periodo (today | week | month). */
   @RequiresPermission('view_patients')
   @Get('birthdays')
