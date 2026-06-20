@@ -373,6 +373,42 @@ export default function IdentidadeClinicaPage() {
           )}
         </div>
 
+        {/* Onda 17.57 — Endereço FÍSICO da clínica (2º card: entra no {local} dos disparos) */}
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <MapPin size={16} className="text-violet-600" />
+            <h2 className="text-sm font-bold text-foreground">Endereço da clínica</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Aparece nas mensagens automáticas (confirmação e lembrete) pro paciente
+            saber onde é a consulta. Digite o CEP que o resto preenche sozinho.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="CEP" value={zipCode} placeholder="00000-000"
+                onChange={(v) => { const m = maskCEPInput(v); setZipCode(m); lookupCep(m); }} />
+            </div>
+            <div className="sm:col-span-4">
+              <Field Icon={MapPin} label="Rua / Logradouro" value={address} onChange={setAddress} placeholder="Av. Fernandes Lima" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Número" value={addressNumber} onChange={setAddressNumber} placeholder="123" />
+            </div>
+            <div className="sm:col-span-4">
+              <Field Icon={MapPin} label="Complemento" value={addressComplement} onChange={setAddressComplement} placeholder="Sala 4 / Bloco B" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Bairro" value={neighborhood} onChange={setNeighborhood} placeholder="Farol" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Cidade" value={city} onChange={setCity} placeholder="Maceió" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="UF" value={uf} onChange={(v) => setUf(v.toUpperCase().slice(0, 2))} placeholder="AL" />
+            </div>
+          </div>
+        </div>
+
         {/* Onda 17.32.110 — Dados padrao da clinica.
           Pra tenants que foram criados antes do seed automatico (Onda
           17.32.109) e ficaram sem tabela de precos e ficha de anamnese
@@ -445,42 +481,6 @@ export default function IdentidadeClinicaPage() {
               </>
             )}
           </button>
-        </div>
-
-        {/* Onda 17.57 — Endereço FÍSICO da clínica (entra no {local} dos disparos) */}
-        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
-          <div className="flex items-center gap-2 mb-1">
-            <MapPin size={16} className="text-violet-600" />
-            <h2 className="text-sm font-bold text-foreground">Endereço da clínica</h2>
-          </div>
-          <p className="text-sm text-muted-foreground mb-4">
-            Aparece nas mensagens automáticas (confirmação e lembrete) pro paciente
-            saber onde é a consulta. Digite o CEP que o resto preenche sozinho.
-          </p>
-          <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
-            <div className="sm:col-span-2">
-              <Field Icon={MapPin} label="CEP" value={zipCode} placeholder="00000-000"
-                onChange={(v) => { const m = maskCEPInput(v); setZipCode(m); lookupCep(m); }} />
-            </div>
-            <div className="sm:col-span-4">
-              <Field Icon={MapPin} label="Rua / Logradouro" value={address} onChange={setAddress} placeholder="Av. Fernandes Lima" />
-            </div>
-            <div className="sm:col-span-2">
-              <Field Icon={MapPin} label="Número" value={addressNumber} onChange={setAddressNumber} placeholder="123" />
-            </div>
-            <div className="sm:col-span-4">
-              <Field Icon={MapPin} label="Complemento" value={addressComplement} onChange={setAddressComplement} placeholder="Sala 4 / Bloco B" />
-            </div>
-            <div className="sm:col-span-2">
-              <Field Icon={MapPin} label="Bairro" value={neighborhood} onChange={setNeighborhood} placeholder="Farol" />
-            </div>
-            <div className="sm:col-span-2">
-              <Field Icon={MapPin} label="Cidade" value={city} onChange={setCity} placeholder="Maceió" />
-            </div>
-            <div className="sm:col-span-2">
-              <Field Icon={MapPin} label="UF" value={uf} onChange={(v) => setUf(v.toUpperCase().slice(0, 2))} placeholder="AL" />
-            </div>
-          </div>
         </div>
 
         {/* Custom domain — só pra Enterprise (futuro) */}

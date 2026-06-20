@@ -75,8 +75,9 @@ export default function ClinicIdentityReview({ alreadyDone = false, onSaved }: P
   const [initial, setInitial] = useState<TenantSelf | null>(null);
   const [form, setForm] = useState({ ...EMPTY });
 
-  // Seções colapsáveis
-  const [openAddress, setOpenAddress] = useState(false);
+  // Seções colapsáveis — Onda 17.57: Endereço já aberto (é o 2º a preencher,
+  // logo após a identificação; alimenta o {local} dos disparos).
+  const [openAddress, setOpenAddress] = useState(true);
   const [openResponsible, setOpenResponsible] = useState(false);
   const [openHours, setOpenHours] = useState(false);
 
