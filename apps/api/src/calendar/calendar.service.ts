@@ -1490,6 +1490,24 @@ export class CalendarService {
     return merged;
   }
 
+  /** Onda 17.56 — instância Evolution REAL do tenant: prefere a de uma conversa
+   *  recente (a que o chat usa de verdade) e cai na tabela Instance como fallback.
+   *  A tabela Instance às vezes tem um registro 'whatsapp' que a Evolution não tem. */
+  private async resolveTenantWhatsappInstance(tenant_id?: string): Promise<string | null> {
+    const convo = await this.prisma.conversation.findFirst({
+      where: { instance_name: { not: null }, ...(tenant_id ? { tenant_id } : {}) },
+      orderBy: { last_message_at: 'desc' },
+      select: { instance_name: true },
+    });
+    if (convo?.instance_name) return convo.instance_name;
+    const inst = await this.prisma.instance.findFirst({
+      where: { type: 'whatsapp', ...(tenant_id ? { tenant_id } : {}) },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    });
+    return inst?.name ?? null;
+  }
+
   // ─── Confirmação de agendamento (Onda 17.56) — mensagem editável ─────
   // O liga/desliga vive em APPOINTMENT_CONFIRMATION_ENABLED_<tenant> (painel
   // Operacional). Aqui guardamos só o TEXTO, em
@@ -1552,24 +1570,19 @@ export class CalendarService {
       .replace(/\{local\}/g, local)
       .replace(/\n{3,}/g, '\n\n')
       .trim();
-    // Resolve a instância Evolution REAL do tenant (a que o chat usa). Sem nome,
-    // o sendText cai no default 'whatsapp' — que não existe → 404 "instance does not exist".
-    const instance = await this.prisma.instance.findFirst({
-      where: { type: 'whatsapp', ...(tenant_id ? { tenant_id } : {}) },
-      orderBy: { created_at: 'asc' },
-      select: { name: true },
-    });
-    if (!instance?.name) {
+    // Instância Evolution REAL do tenant — a MESMA que o chat usa (conversa recente).
+    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id);
+    if (!instanceName) {
       throw new BadRequestException(
-        'Nenhuma instância de WhatsApp encontrada pra esta clínica. Conecte o WhatsApp primeiro.',
+        'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
       );
     }
     try {
-      const r: any = await this.whatsapp.sendText(num, msg, instance.name, undefined, tenant_id);
+      const r: any = await this.whatsapp.sendText(num, msg, instanceName, undefined, tenant_id);
       if (!r || r?.statusCode >= 400 || r?.error) {
         throw new Error(`Evolution ${r?.statusCode ?? ''} ${r?.error ?? ''}`.trim());
       }
-      this.logger.log(`[APPOINTMENT_CONFIRMATION] teste enviado pra ${num} via ${instance.name}`);
+      this.logger.log(`[APPOINTMENT_CONFIRMATION] teste enviado pra ${num} via ${instanceName}`);
       return { sent: true, to: num, message: msg };
     } catch (e: any) {
       throw new BadRequestException(
@@ -1654,14 +1667,8 @@ export class CalendarService {
 
     // Onda 17.56 — instância Evolution real do tenant (mesmo motivo do teste de
     // confirmação: sem nome, sendText cairia no default 'whatsapp' inexistente).
-    const summaryInstance =
-      config.channel === 'WHATSAPP'
-        ? await this.prisma.instance.findFirst({
-            where: { type: 'whatsapp', ...(tenant_id ? { tenant_id } : {}) },
-            orderBy: { created_at: 'asc' },
-            select: { name: true },
-          })
-        : null;
+    const summaryInstanceName =
+      config.channel === 'WHATSAPP' ? await this.resolveTenantWhatsappInstance(tenant_id) : null;
 
     const results: { user_id: string; name: string | null; sent: boolean; reason?: string }[] = [];
     for (const u of dentists) {
@@ -1694,7 +1701,7 @@ export class CalendarService {
       }
       const phone = u.phone.replace(/\D/g, '');
       try {
-        await this.whatsapp.sendText(phone, msg, summaryInstance?.name ?? undefined, undefined, tenant_id);
+        await this.whatsapp.sendText(phone, msg, summaryInstanceName ?? undefined, undefined, tenant_id);
         results.push({ user_id: u.id, name: u.name, sent: true });
       } catch (e: any) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
