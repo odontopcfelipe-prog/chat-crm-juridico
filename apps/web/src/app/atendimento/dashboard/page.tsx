@@ -16,7 +16,7 @@
  * Inspirado em Clinicorp / inicio.html (template Sorrir).
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
@@ -249,23 +249,6 @@ export default function VisaoGeralPage() {
     ? `${cap(DIAS[now.getDay()])}, ${now.getDate()} de ${MESES[now.getMonth()]} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
     : '—';
 
-  // Onda 17.15 — Background do "ceu" adaptativo a TODOS os temas
-  // (light/dark + neon/solid/clay). Em light: cores vivas (sky/cyan
-  // pra dia/tarde, indigo pra noite). Em dark/neon: opacidade
-  // reduzida e tons mais discretos pra nao "iluminar" demais a tela
-  // escura. Variantes com `dark:` adaptam automaticamente.
-  const skyBg = useMemo(() => {
-    switch (sal.period) {
-      case 'morning':
-        return 'bg-gradient-to-b from-sky-200 via-sky-100 to-transparent dark:from-sky-500/10 dark:via-sky-500/5 dark:to-transparent';
-      case 'afternoon':
-        return 'bg-gradient-to-b from-cyan-200 via-sky-100 to-transparent dark:from-cyan-500/10 dark:via-sky-500/5 dark:to-transparent';
-      case 'night':
-        // Noite: in light mode, indigo medio (nao tao escuro); em
-        // dark mode ja eh discreto naturalmente.
-        return 'bg-gradient-to-b from-indigo-300 via-purple-200 to-transparent dark:from-indigo-900 dark:via-purple-900 dark:to-transparent';
-    }
-  }, [sal.period]);
 
   return (
     <div className="h-full overflow-y-auto bg-background relative">
@@ -305,46 +288,6 @@ export default function VisaoGeralPage() {
         .flicker { animation: flicker 0.9s ease-in-out infinite; }
         .twinkle { animation: twinkle 3s ease-in-out infinite; }
       `}</style>
-
-      {/* Sky background — fica atras do conteudo */}
-      <div className={`absolute inset-x-0 top-0 h-[360px] ${skyBg} pointer-events-none transition-colors duration-1000`}>
-        {/* Sol / Lua */}
-        {sal.period !== 'night' ? (
-          <div
-            className="absolute top-[-26px] right-[80px] w-[120px] h-[120px] rounded-full"
-            style={{
-              background: sal.period === 'morning'
-                ? 'radial-gradient(circle, #FFCF66, #FF8A3D)'
-                : 'radial-gradient(circle, #FFE08A, #FFC24D)',
-              boxShadow: '0 0 100px 40px rgba(255, 210, 90, 0.45)',
-            }}
-          />
-        ) : (
-          <>
-            <div
-              className="absolute top-[40px] right-[140px] w-[74px] h-[74px] rounded-full"
-              style={{
-                background: '#FFF4D6',
-                boxShadow: '0 0 60px 18px rgba(255, 240, 200, 0.45), inset -16px -8px 0 0 #F1E2B4',
-              }}
-            />
-            {/* Estrelas */}
-            {Array.from({ length: 20 }).map((_, i) => (
-              <div
-                key={i}
-                className="absolute rounded-full bg-white twinkle"
-                style={{
-                  left: `${(i * 41) % 100}%`,
-                  top: `${30 + ((i * 17) % 200)}px`,
-                  width: `${1.5 + ((i * 7) % 3)}px`,
-                  height: `${1.5 + ((i * 7) % 3)}px`,
-                  animationDelay: `${(i * 0.3) % 3}s`,
-                }}
-              />
-            ))}
-          </>
-        )}
-      </div>
 
       <div className="relative z-10 max-w-7xl mx-auto p-4 md:p-6 pb-28 md:pb-12 space-y-6">
 
