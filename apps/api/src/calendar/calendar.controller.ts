@@ -439,6 +439,13 @@ export class CalendarController {
     return this.calendarService.sendTestConfirmation(req.user?.tenant_id, body?.phone);
   }
 
+  // Teste genérico — envia a mensagem de qualquer disparo pra um número (admin).
+  @Post('disparo/send-test')
+  @Roles('ADMIN')
+  sendTestDisparo(@Body() body: { disparo: string; phone: string }, @Request() req: any) {
+    return this.calendarService.sendTestDisparo(req.user?.tenant_id, body?.disparo, body?.phone);
+  }
+
   // Trigger manual — admin clica "Enviar agora" pra teste ou disparo
   // antecipado. O cron diario continua funcionando independente.
   @Post('dentist-daily-summary/send-now')

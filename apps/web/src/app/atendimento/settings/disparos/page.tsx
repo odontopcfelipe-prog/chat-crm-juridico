@@ -18,6 +18,7 @@ import { RemindersConfigModal } from '../../followup/components/RemindersConfigM
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 import { ConfirmacaoEditor } from './ConfirmacaoEditor';
+import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
@@ -143,6 +144,7 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}
+        <TesteEnvio disparo={openItem.id} />
       </div>
     );
   }

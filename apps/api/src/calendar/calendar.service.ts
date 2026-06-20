@@ -1551,47 +1551,85 @@ export class CalendarService {
     return this.getAppointmentConfirmationConfig(tenant_id);
   }
 
-  /** Onda 17.56 — envia a mensagem de confirmação (com dados de exemplo) pra um
-   *  número, pra testar na hora se o WhatsApp da clínica entrega ao paciente. */
-  async sendTestConfirmation(tenant_id: string | undefined, phone: string) {
+  /** Onda 17.56 — teste GENÉRICO: envia a mensagem de QUALQUER disparo (com dados
+   *  de exemplo) pra um número, pra ver na hora se o WhatsApp da clínica entrega. */
+  async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string) {
     let num = (phone || '').replace(/\D/g, '');
     if (num.length < 10) {
       throw new BadRequestException('Telefone inválido — use DDD + número (ex.: 82999998888)');
     }
-    // Onda 17.56 — adiciona o código do Brasil (55) quando vem só DDD + número
-    // (10–11 dígitos). Sem isso a Evolution lê "82..." como país errado → não existe.
+    // Adiciona o código do Brasil (55) quando vem só DDD + número (10–11 dígitos).
     if (num.length === 10 || num.length === 11) num = `55${num}`;
-    const { template } = await this.getAppointmentConfirmationConfig(tenant_id);
-    const local = 'Rua das Acácias, 123 — Sala 4';
-    const msg = template
-      .replace(/\{nome_completo\}/g, 'Felipe Passos (teste)')
-      .replace(/\{nome\}/g, 'Felipe (teste)')
-      .replace(/\{dentista\}/g, 'Dra. Suellen')
-      .replace(/\{data\}/g, '06/05')
-      .replace(/\{hora\}/g, '14:00')
-      .replace(/\{local_line\}/g, `📍 ${local}\n`)
-      .replace(/\{local\}/g, local)
-      .replace(/\n{3,}/g, '\n\n')
-      .trim();
-    // Instância Evolution REAL do tenant — a MESMA que o chat usa (conversa recente).
+
     const instanceName = await this.resolveTenantWhatsappInstance(tenant_id);
     if (!instanceName) {
       throw new BadRequestException(
         'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
       );
     }
+
+    // Variáveis de exemplo + aplicador (mesma lógica do worker).
+    const V: Record<string, string> = {
+      nome: 'Felipe (teste)', nome_completo: 'Felipe Passos (teste)',
+      dentista: 'Dra. Suellen', dentista_completo: 'Dra. Suellen Passos',
+      data: '06/05', hora: '14:00', local: 'Rua das Acácias, 123 — Sala 4',
+      clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
+    };
+    const apply = (t: string) =>
+      (t || '')
+        .replace(/\{local_line\}/g, V.local ? `📍 ${V.local}\n` : '')
+        .replace(/\{agenda\}/g, '- 14:00  Felipe (teste) (Avaliacao)')
+        .replace(/\{(\w+)\}/g, (_m, k) => V[k] ?? '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+    let msg = '';
+    switch (disparo) {
+      case 'confirmacao':
+        msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
+        break;
+      case 'lembrete_1dia':
+        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_24h);
+        break;
+      case 'lembrete_1h':
+        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_1h);
+        break;
+      case 'lembrete_15min':
+        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_15min);
+        break;
+      case 'aniversario':
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).template);
+        break;
+      case 'resumo_dentista':
+        msg = apply((await this.getDentistDailySummaryConfig(tenant_id)).template);
+        break;
+      case 'nps':
+        msg = 'Oi Felipe! Como foi sua consulta hoje com a Dra. Suellen? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)';
+        break;
+      default:
+        throw new BadRequestException('Esse disparo ainda não tem teste disponível.');
+    }
+    if (!msg.trim()) {
+      throw new BadRequestException('A mensagem desse disparo está vazia — configure o texto antes de testar.');
+    }
+
     try {
       const r: any = await this.whatsapp.sendText(num, msg, instanceName, undefined, tenant_id);
       if (!r || r?.statusCode >= 400 || r?.error) {
         throw new Error(`Evolution ${r?.statusCode ?? ''} ${r?.error ?? ''}`.trim());
       }
-      this.logger.log(`[APPOINTMENT_CONFIRMATION] teste enviado pra ${num} via ${instanceName}`);
+      this.logger.log(`[DISPARO_TESTE] ${disparo} enviado pra ${num} via ${instanceName}`);
       return { sent: true, to: num, message: msg };
     } catch (e: any) {
       throw new BadRequestException(
         `Não enviou: ${e.message}. Verifique se o WhatsApp da clínica está conectado.`,
       );
     }
+  }
+
+  /** Atalho legado — a UI nova usa sendTestDisparo. */
+  async sendTestConfirmation(tenant_id: string | undefined, phone: string) {
+    return this.sendTestDisparo(tenant_id, 'confirmacao', phone);
   }
 
   /**

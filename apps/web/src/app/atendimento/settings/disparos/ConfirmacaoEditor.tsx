@@ -4,7 +4,7 @@
 // fica no toggle da linha (painel Operacional); aqui edita-se só o TEXTO, salvo em
 // /calendar/appointment-confirmation/config (GlobalSetting). O worker scheduler aplica.
 import { useEffect, useState } from 'react';
-import { Loader2, Save, MessageSquare, Eye, Variable, Send } from 'lucide-react';
+import { Loader2, Save, MessageSquare, Eye, Variable } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -35,8 +35,6 @@ export function ConfirmacaoEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
-  const [testPhone, setTestPhone] = useState('');
-  const [testing, setTesting] = useState(false);
 
   useEffect(() => {
     api.get('/calendar/appointment-confirmation/config')
@@ -55,18 +53,6 @@ export function ConfirmacaoEditor() {
       showError(e?.response?.data?.message || 'Falha ao salvar');
     } finally {
       setSaving(false);
-    }
-  };
-
-  const sendTest = async () => {
-    setTesting(true);
-    try {
-      await api.post('/calendar/appointment-confirmation/send-test', { phone: testPhone });
-      showSuccess('Teste enviado — confira o WhatsApp desse número');
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao enviar o teste');
-    } finally {
-      setTesting(false);
     }
   };
 
@@ -130,31 +116,6 @@ export function ConfirmacaoEditor() {
           <div className="text-xs text-foreground whitespace-pre-wrap">
             {applyPreview(template) || <em className="text-muted-foreground">(mensagem vazia)</em>}
           </div>
-        </div>
-
-        {/* Testar entrega */}
-        <div className="pt-3 border-t border-border">
-          <div className="text-[11px] font-bold text-foreground mb-1.5">🧪 Testar entrega no WhatsApp</div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <input
-              value={testPhone}
-              onChange={(e) => setTestPhone(e.target.value)}
-              placeholder="Seu WhatsApp com DDD (ex.: 82999998888)"
-              className="flex-1 min-w-[180px] px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
-            />
-            <button
-              onClick={sendTest}
-              disabled={testing || !testPhone.trim()}
-              className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
-            >
-              {testing ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
-              Enviar teste
-            </button>
-          </div>
-          <p className="text-[10px] text-muted-foreground mt-1">
-            Manda a mensagem (com dados de exemplo) pro número acima — pra você ver se chega.
-            Precisa do WhatsApp da clínica conectado.
-          </p>
         </div>
 
         <div className="flex justify-end">
