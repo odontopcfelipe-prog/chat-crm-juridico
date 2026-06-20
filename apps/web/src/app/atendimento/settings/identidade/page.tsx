@@ -14,9 +14,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Building2, Mail, Phone, IdCard, Palette, ImageIcon, Globe,
   Save, Loader2, CheckCircle2, ExternalLink, RefreshCw, AlertCircle,
-  Sparkles, FileText, ClipboardList,
+  Sparkles, FileText, ClipboardList, MapPin,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { maskCEPInput } from '@/lib/utils';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { resetTenantCache } from '@/lib/useTenant';
@@ -31,6 +32,13 @@ interface TenantData {
   email: string | null;
   cpf_cnpj: string | null;
   custom_domain: string | null;
+  zip_code?: string | null;
+  address?: string | null;
+  address_number?: string | null;
+  address_complement?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
 }
 
 export default function IdentidadeClinicaPage() {
@@ -50,6 +58,14 @@ export default function IdentidadeClinicaPage() {
   const [phone, setPhone] = useState('');
   const [email, setEmail] = useState('');
   const [cpfCnpj, setCpfCnpj] = useState('');
+  // Onda 17.57 — endereço da clínica (entra no {local} dos disparos)
+  const [zipCode, setZipCode] = useState('');
+  const [address, setAddress] = useState('');
+  const [addressNumber, setAddressNumber] = useState('');
+  const [addressComplement, setAddressComplement] = useState('');
+  const [neighborhood, setNeighborhood] = useState('');
+  const [city, setCity] = useState('');
+  const [uf, setUf] = useState('');
 
   // Onda 17.32.105 — carga dos dados extraida pra funcao reutilizavel
   // pelo botao "Tentar novamente" quando o GET /tenants/me falha.
@@ -70,6 +86,13 @@ export default function IdentidadeClinicaPage() {
       setPhone(t.phone || '');
       setEmail(t.email || '');
       setCpfCnpj(t.cpf_cnpj || '');
+      setZipCode(t.zip_code || '');
+      setAddress(t.address || '');
+      setAddressNumber(t.address_number || '');
+      setAddressComplement(t.address_complement || '');
+      setNeighborhood(t.neighborhood || '');
+      setCity(t.city || '');
+      setUf(t.state || '');
     } catch (err: any) {
       // Loga detalhe pro DevTools — facilita debug em prod sem expor
       // detalhe pro usuario final.
@@ -106,6 +129,23 @@ export default function IdentidadeClinicaPage() {
     );
   }
 
+  // Onda 17.57 — autofill do endereço pelo CEP (ViaCEP, best-effort).
+  const lookupCep = async (masked: string) => {
+    const d = masked.replace(/\D/g, '');
+    if (d.length !== 8) return;
+    try {
+      const r = await fetch(`https://viacep.com.br/ws/${d}/json/`);
+      const j = await r.json();
+      if (j?.erro) return;
+      if (j.logradouro) setAddress(j.logradouro);
+      if (j.bairro) setNeighborhood(j.bairro);
+      if (j.localidade) setCity(j.localidade);
+      if (j.uf) setUf(j.uf);
+    } catch {
+      /* sem internet ou CEP indisponível — usuário preenche manual */
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) {
@@ -121,6 +161,13 @@ export default function IdentidadeClinicaPage() {
         phone: phone.replace(/\D/g, '') || null,
         email: email.trim().toLowerCase() || null,
         cpf_cnpj: cpfCnpj.replace(/\D/g, '') || null,
+        zip_code: zipCode.replace(/\D/g, '') || null,
+        address: address.trim() || null,
+        address_number: addressNumber.trim() || null,
+        address_complement: addressComplement.trim() || null,
+        neighborhood: neighborhood.trim() || null,
+        city: city.trim() || null,
+        state: uf.trim().toUpperCase() || null,
       });
       // Invalida cache do useTenant pra sidebar/header puxar nome novo
       resetTenantCache();
@@ -398,6 +445,42 @@ export default function IdentidadeClinicaPage() {
               </>
             )}
           </button>
+        </div>
+
+        {/* Onda 17.57 — Endereço FÍSICO da clínica (entra no {local} dos disparos) */}
+        <div className="bg-card border border-border rounded-2xl p-6 shadow-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <MapPin size={16} className="text-violet-600" />
+            <h2 className="text-sm font-bold text-foreground">Endereço da clínica</h2>
+          </div>
+          <p className="text-sm text-muted-foreground mb-4">
+            Aparece nas mensagens automáticas (confirmação e lembrete) pro paciente
+            saber onde é a consulta. Digite o CEP que o resto preenche sozinho.
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-3">
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="CEP" value={zipCode} placeholder="00000-000"
+                onChange={(v) => { const m = maskCEPInput(v); setZipCode(m); lookupCep(m); }} />
+            </div>
+            <div className="sm:col-span-4">
+              <Field Icon={MapPin} label="Rua / Logradouro" value={address} onChange={setAddress} placeholder="Av. Fernandes Lima" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Número" value={addressNumber} onChange={setAddressNumber} placeholder="123" />
+            </div>
+            <div className="sm:col-span-4">
+              <Field Icon={MapPin} label="Complemento" value={addressComplement} onChange={setAddressComplement} placeholder="Sala 4 / Bloco B" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Bairro" value={neighborhood} onChange={setNeighborhood} placeholder="Farol" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="Cidade" value={city} onChange={setCity} placeholder="Maceió" />
+            </div>
+            <div className="sm:col-span-2">
+              <Field Icon={MapPin} label="UF" value={uf} onChange={(v) => setUf(v.toUpperCase().slice(0, 2))} placeholder="AL" />
+            </div>
+          </div>
         </div>
 
         {/* Custom domain — só pra Enterprise (futuro) */}
