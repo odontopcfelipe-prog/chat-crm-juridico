@@ -599,13 +599,17 @@ export default function AgendaPage() {
   // useCallback com [currentUserId] para evitar stale closure no atalho de teclado
   const openCreateModal = useCallback((dateTime?: string, presetUserId?: string) => {
     const now = new Date();
+    // Onda 17.56 — relógio de Maceió (UTC-3) em forma "naive" (igual ao resto da
+    // agenda, que guarda a hora local nos campos UTC). Antes usava now.toISOString()
+    // (UTC real): à noite o padrão virava 00:00 do dia seguinte e o evento sumia.
+    const nowLocalIso = new Date(now.getTime() - 3 * 60 * 60 * 1000).toISOString();
     let date: string;
     let time: string;
 
     if (dateTime) {
       // schedule-x pode enviar "YYYY-MM-DD HH:mm" ao clicar na célula da grid
       const parts = dateTime.split(' ');
-      date = parts[0] || formatDateInput(now.toISOString());
+      date = parts[0] || formatDateInput(nowLocalIso);
       if (parts[1]) {
         // Arredondar minutos para múltiplo de 30 (grid de 30min)
         const [hh, mm] = parts[1].substring(0, 5).split(':').map(Number);
@@ -614,11 +618,11 @@ export default function AgendaPage() {
         const finalM = roundedMin >= 60 ? 0 : roundedMin;
         time = `${String(finalH).padStart(2, '0')}:${String(finalM).padStart(2, '0')}`;
       } else {
-        time = formatTimeInput(now.toISOString());
+        time = formatTimeInput(nowLocalIso);
       }
     } else {
-      date = formatDateInput(now.toISOString());
-      time = formatTimeInput(now.toISOString());
+      date = formatDateInput(nowLocalIso);
+      time = formatTimeInput(nowLocalIso);
     }
 
     const [h, m] = time.split(':').map(Number);
