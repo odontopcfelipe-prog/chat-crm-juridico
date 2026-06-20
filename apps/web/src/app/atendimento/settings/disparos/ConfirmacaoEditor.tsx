@@ -7,6 +7,7 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, MessageSquare, Eye, Variable } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { formatClinicAddress } from '@/lib/utils';
 
 const VARIABLES = [
   { key: 'nome', desc: 'Primeiro nome do paciente' },
@@ -19,14 +20,15 @@ const VARIABLES = [
 
 const PREVIEW: Record<string, string> = {
   nome: 'Felipe', nome_completo: 'Felipe Passos', dentista: 'Dra. Suellen',
-  data: '06/05', hora: '14:00', local: 'Rua das Acácias, 123 — Sala 4',
+  data: '06/05', hora: '14:00',
 };
 
-function applyPreview(t: string): string {
-  const localLine = PREVIEW.local ? `📍 ${PREVIEW.local}\n` : '';
+function applyPreview(t: string, local: string): string {
+  const vars: Record<string, string> = { ...PREVIEW, local };
+  const localLine = local ? `📍 ${local}\n` : '';
   return t
     .replace(/\{local_line\}/g, localLine)
-    .replace(/\{(\w+)\}/g, (_m, k) => PREVIEW[k] ?? '')
+    .replace(/\{(\w+)\}/g, (_m, k) => vars[k] ?? '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
@@ -35,12 +37,17 @@ export function ConfirmacaoEditor() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
+  const [clinicAddress, setClinicAddress] = useState('Rua das Acácias, 123 — Sala 4 (exemplo)');
 
   useEffect(() => {
     api.get('/calendar/appointment-confirmation/config')
       .then((r) => setTemplate(r.data?.template || ''))
       .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar a mensagem'))
       .finally(() => setLoading(false));
+    // Onda 17.57 — endereço real da clínica no preview (cai pra exemplo se vazio).
+    api.get('/tenants/me')
+      .then((r) => { const a = formatClinicAddress(r.data); if (a) setClinicAddress(a); })
+      .catch(() => {});
   }, []);
 
   const save = async () => {
@@ -114,7 +121,7 @@ export function ConfirmacaoEditor() {
             <Eye size={11} /> Preview (como o paciente vai receber)
           </div>
           <div className="text-xs text-foreground whitespace-pre-wrap">
-            {applyPreview(template) || <em className="text-muted-foreground">(mensagem vazia)</em>}
+            {applyPreview(template, clinicAddress) || <em className="text-muted-foreground">(mensagem vazia)</em>}
           </div>
         </div>
 

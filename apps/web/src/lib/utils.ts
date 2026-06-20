@@ -104,3 +104,30 @@ export function maskCEPInput(value: string): string {
   if (d.length <= 5) return d;
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
+
+/** Onda 17.57 — endereco da clinica (campos do Tenant) numa linha, igual ao
+ *  backend (formatTenantAddress). Usado nos previews dos disparos ({local}). */
+export function formatClinicAddress(t: {
+  address?: string | null;
+  address_number?: string | null;
+  address_complement?: string | null;
+  neighborhood?: string | null;
+  city?: string | null;
+  state?: string | null;
+} | null | undefined): string {
+  if (!t) return '';
+  const c = (v: unknown) => (v == null ? '' : String(v).trim());
+  const rua = c(t.address);
+  const numero = c(t.address_number);
+  const compl = c(t.address_complement);
+  const bairro = c(t.neighborhood);
+  const cidade = c(t.city);
+  const uf = c(t.state);
+  let street = rua;
+  if (rua && numero) street = `${rua}, ${numero}`;
+  else if (numero) street = numero;
+  if (compl) street = street ? `${street} — ${compl}` : compl;
+  const cidadeUf = cidade && uf ? `${cidade}/${uf}` : cidade || uf;
+  const tail = [bairro, cidadeUf].filter(Boolean).join(', ');
+  return [street, tail].filter(Boolean).join(', ').trim();
+}

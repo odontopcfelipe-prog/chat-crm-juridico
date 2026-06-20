@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { formatClinicAddress } from '@/lib/utils';
 
 interface Antecedencia {
   minutes_before: number;
@@ -128,6 +129,7 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
   const [config, setConfig] = useState<ReminderConfig | null>(null);
   // textareas: refs por template pra inserir variavel na posicao do cursor
   const [textareaRefs] = useState<Record<string, HTMLTextAreaElement | null>>({});
+  const [clinicAddress, setClinicAddress] = useState('Rua das Acácias, 123 — Sala 4 (exemplo)');
 
   useEffect(() => {
     if (!open) return;
@@ -136,6 +138,10 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
       try {
         const res = await api.get('/calendar/reminders/config');
         setConfig(res.data);
+        // Onda 17.57 — endereço real da clínica no preview (cai pra exemplo se vazio).
+        api.get('/tenants/me')
+          .then((r) => { const a = formatClinicAddress(r.data); if (a) setClinicAddress(a); })
+          .catch(() => {});
       } catch (e: any) {
         showError(e?.response?.data?.message || 'Falha ao carregar configurações');
         onClose();
@@ -356,7 +362,7 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
               {TEMPLATE_INFO.filter((info) => !onlyTemplate || info.key === onlyTemplate).map((info) => {
                 const Icon = info.icon;
                 const value = config.templates[info.key];
-                const preview = applyPreview(value, PREVIEW_VARS);
+                const preview = applyPreview(value, { ...PREVIEW_VARS, local: clinicAddress });
                 return (
                   <div key={info.key} className="mb-4 last:mb-0">
                     <div className="flex items-center gap-2 mb-1.5">

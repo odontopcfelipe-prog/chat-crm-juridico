@@ -11,6 +11,7 @@ import {
   DEFAULT_REMINDER_CONFIG,
   applyTemplate,
   pickTemplateKey,
+  formatTenantAddress,
   type ReminderConfig,
 } from '@crm/shared';
 
@@ -110,6 +111,7 @@ function templateClienteConsulta(
   event: any,
   minutesBefore: number,
   config: ReminderConfig,
+  tenantAddr: string,
 ): string {
   const nomeFull = event.lead?.name || 'paciente';
   const nome = nomeFull.split(' ')[0];
@@ -133,7 +135,7 @@ function templateClienteConsulta(
     dentista_completo: dentistaFull,
     data: dateStr,
     hora: horaStr,
-    local: event.location || '',
+    local: event.location || tenantAddr || '',
     antecedencia: antecedenciaLabel,
   });
 }
@@ -543,7 +545,8 @@ export class CalendarReminderWorker extends WorkerHost {
         // e nao gerar mensagem fora do tom). Lembrete 24h convida confirmar.
         // v27: carrega config do tenant pra usar templates customizaveis.
         const config = await this.loadReminderConfig(event.tenant_id);
-        clientMsg = templateClienteConsulta(event, minutesBefore, config);
+        const tenantAddr = await this.loadTenantAddress(event.tenant_id);
+        clientMsg = templateClienteConsulta(event, minutesBefore, config, tenantAddr);
         this.logger.log(`[REMINDER] Template CONSULTA gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
       } else {
         // AUDIENCIA/PERICIA: tenta IA, fallback pra template juridico
@@ -661,6 +664,23 @@ export class CalendarReminderWorker extends WorkerHost {
     } catch (e: any) {
       this.logger.warn(`Falha ao carregar config ${key}, usando defaults: ${e?.message}`);
       return DEFAULT_REMINDER_CONFIG;
+    }
+  }
+
+  /** Onda 17.57 — endereço cadastrado da clínica (Identidade) pro {local} do lembrete. */
+  private async loadTenantAddress(tenantId: string | null | undefined): Promise<string> {
+    if (!tenantId) return '';
+    try {
+      const t = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          address: true, address_number: true, address_complement: true,
+          neighborhood: true, city: true, state: true,
+        },
+      });
+      return formatTenantAddress(t);
+    } catch {
+      return '';
     }
   }
 

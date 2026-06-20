@@ -1568,11 +1568,26 @@ export class CalendarService {
       );
     }
 
+    // Onda 17.57 — endereço REAL da clínica (cadastrado em Identidade); cai pra
+    // um exemplo só se o tenant ainda não preencheu o endereço.
+    const { formatTenantAddress } = await import('@crm/shared');
+    const tenantRow = tenant_id
+      ? await this.prisma.tenant.findUnique({
+          where: { id: tenant_id },
+          select: {
+            address: true, address_number: true, address_complement: true,
+            neighborhood: true, city: true, state: true,
+          },
+        }).catch(() => null)
+      : null;
+    const tenantAddr = formatTenantAddress(tenantRow);
+
     // Variáveis de exemplo + aplicador (mesma lógica do worker).
     const V: Record<string, string> = {
       nome: 'Felipe (teste)', nome_completo: 'Felipe Passos (teste)',
       dentista: 'Dra. Suellen', dentista_completo: 'Dra. Suellen Passos',
-      data: '06/05', hora: '14:00', local: 'Rua das Acácias, 123 — Sala 4',
+      data: '06/05', hora: '14:00',
+      local: tenantAddr || 'Rua das Acácias, 123 — Sala 4 (exemplo)',
       clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
     };
     const apply = (t: string) =>

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
+import { formatTenantAddress } from '@crm/shared';
 
 /**
  * Cron horario que cria AppointmentConfirmation pendente para
@@ -58,6 +59,8 @@ export class AppointmentConfirmationSchedulerService {
       const enabledByTenant = new Map<string, boolean>();
       // Onda 17.56 — cache do TEMPLATE da mensagem por tenant (editável na Central)
       const templateByTenant = new Map<string, string>();
+      // Onda 17.57 — cache do endereço da clínica por tenant (fallback do {local})
+      const addressByTenant = new Map<string, string>();
       const DEFAULT_TPL =
         'Olá {nome}! Confirmando sua consulta com {dentista} amanhã ({data}) às {hora}.\n{local_line}\nResponda 1 para CONFIRMAR ou 2 para REMARCAR.';
 
@@ -134,7 +137,21 @@ export class AppointmentConfirmationSchedulerService {
           templateByTenant.set(tid, tpl);
         }
 
-        const localLine = ev.location ? `📍 ${ev.location}\n` : '';
+        // Onda 17.57 — {local} = local do evento OU endereço cadastrado da clínica.
+        let tenantAddr = addressByTenant.get(tid);
+        if (tenantAddr === undefined) {
+          const trow = await this.prisma.tenant.findUnique({
+            where: { id: tid },
+            select: {
+              address: true, address_number: true, address_complement: true,
+              neighborhood: true, city: true, state: true,
+            },
+          });
+          tenantAddr = formatTenantAddress(trow);
+          addressByTenant.set(tid, tenantAddr);
+        }
+        const local = ev.location || tenantAddr;
+        const localLine = local ? `📍 ${local}\n` : '';
         const message = tpl
           .replace(/\{nome_completo\}/g, ev.patient.name)
           .replace(/\{nome\}/g, ev.patient.name.split(' ')[0])
@@ -142,7 +159,7 @@ export class AppointmentConfirmationSchedulerService {
           .replace(/\{data\}/g, date)
           .replace(/\{hora\}/g, time)
           .replace(/\{local_line\}/g, localLine)
-          .replace(/\{local\}/g, ev.location || '')
+          .replace(/\{local\}/g, local)
           .replace(/\n{3,}/g, '\n\n')
           .trim();
 
