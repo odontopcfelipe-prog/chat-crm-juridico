@@ -62,6 +62,9 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // Onda 17.56 — DDI (código do país) editável, default 55 (Brasil). Antes o
+  // telefone era gravado SEM o 55 e o WhatsApp não entregava (exists:false).
+  const [ddi, setDdi] = useState('55');
 
   // Lista de pacientes pra picker de indicação (lazy load no modo full)
   const [patientsList, setPatientsList] = useState<PatientLite[]>([]);
@@ -151,7 +154,8 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
 
   const buildPayload = () => {
     const base: any = { name: form.name.trim() };
-    if (form.phone.trim()) base.phone = form.phone.trim();
+    // Grava com o DDI na frente (ex.: "+55 (82) 99657-8143") pra o WhatsApp entregar.
+    if (form.phone.trim()) base.phone = `+${ddi || '55'} ${form.phone.trim()}`;
     if (form.cpf.trim()) base.cpf = form.cpf.trim();
     if (form.recordNumber.trim()) base.record_number = form.recordNumber.trim();
     if (form.email.trim()) base.email = form.email.trim();
@@ -237,6 +241,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         // zera form + foto + etiquetas, mantém modal aberto. Etiquetas zeram
         // TAMBÉM (Onda 17.35.2): cada paciente escolhe as suas individualmente.
         setForm({ ...EMPTY_FORM });
+        setDdi('55');
         setReferredSearch('');
         handleRemovePhoto();
         setSelectedTagIds([]);
@@ -383,13 +388,25 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Telefone</label>
-                <input
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => set('phone', maskPhoneInput(e.target.value))}
-                  placeholder="(82) 99999-9999"
-                  className={inputCls}
-                />
+                <div className="flex items-stretch gap-1.5">
+                  <div className="flex items-center rounded-lg bg-background border border-border px-2 shrink-0">
+                    <span className="text-sm text-muted-foreground">+</span>
+                    <input
+                      type="tel"
+                      value={ddi}
+                      onChange={(e) => setDdi(e.target.value.replace(/\D/g, '').slice(0, 3))}
+                      title="Código do país (DDI). 55 = Brasil"
+                      className="w-7 bg-transparent text-sm text-center focus:outline-none"
+                    />
+                  </div>
+                  <input
+                    type="tel"
+                    value={form.phone}
+                    onChange={(e) => set('phone', maskPhoneInput(e.target.value))}
+                    placeholder="(82) 99999-9999"
+                    className={inputCls}
+                  />
+                </div>
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">CPF{!antigoSelected && ' *'}</label>
