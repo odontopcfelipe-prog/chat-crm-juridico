@@ -1554,10 +1554,13 @@ export class CalendarService {
   /** Onda 17.56 — envia a mensagem de confirmação (com dados de exemplo) pra um
    *  número, pra testar na hora se o WhatsApp da clínica entrega ao paciente. */
   async sendTestConfirmation(tenant_id: string | undefined, phone: string) {
-    const num = (phone || '').replace(/\D/g, '');
+    let num = (phone || '').replace(/\D/g, '');
     if (num.length < 10) {
       throw new BadRequestException('Telefone inválido — use DDD + número (ex.: 82999998888)');
     }
+    // Onda 17.56 — adiciona o código do Brasil (55) quando vem só DDD + número
+    // (10–11 dígitos). Sem isso a Evolution lê "82..." como país errado → não existe.
+    if (num.length === 10 || num.length === 11) num = `55${num}`;
     const { template } = await this.getAppointmentConfirmationConfig(tenant_id);
     const local = 'Rua das Acácias, 123 — Sala 4';
     const msg = template
