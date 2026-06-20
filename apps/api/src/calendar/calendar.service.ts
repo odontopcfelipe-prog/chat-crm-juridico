@@ -334,6 +334,9 @@ export class CalendarService {
     // paciente (best-effort; so eventos clinicos com paciente/lead)
     if (data.tenant_id && this.isClinicalEvent(event.type)) {
       void this.sendAppointmentCreatedEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
+      // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
+      // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
+      void this.sendAppointmentCreatedWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
     }
 
     // Enqueue WhatsApp + Email reminders
@@ -2846,6 +2849,80 @@ export class CalendarService {
       });
     } catch (e: any) {
       this.logger.warn(`[AUTO-MAIL] agendamento_criado falhou: ${e?.message}`);
+    }
+  }
+
+  /**
+   * Onda 17.59 — Notificação imediata por WhatsApp "consulta agendada" (odonto),
+   * espelhando o e-mail. Best-effort: resolve telefone do paciente (ou lead),
+   * usa o endereço cadastrado da clínica no {local}, e manda na instância do
+   * tenant. sendText já adiciona o 55. Falha só loga — criar evento nunca quebra.
+   */
+  private async sendAppointmentCreatedWhatsapp(
+    event: any,
+    patientId: string | null | undefined,
+    leadId: string | null | undefined,
+    tenantId: string,
+  ): Promise<void> {
+    try {
+      let phone: string | null = event.lead?.phone || null;
+      let name: string | null = event.lead?.name || null;
+      if (!phone && patientId) {
+        const patient = await this.prisma.patient.findUnique({
+          where: { id: patientId },
+          select: { name: true, phone: true },
+        });
+        phone = patient?.phone || null;
+        name = name || patient?.name || null;
+      }
+      if (!phone && leadId && !event.lead) {
+        const lead = await this.prisma.lead.findUnique({
+          where: { id: leadId },
+          select: { name: true, phone: true },
+        });
+        phone = lead?.phone || null;
+        name = name || lead?.name || null;
+      }
+      if (!phone) return;
+
+      const instanceName = await this.resolveTenantWhatsappInstance(tenantId);
+      if (!instanceName) {
+        this.logger.warn(`[AUTO-WPP] agendamento_criado: sem instância WhatsApp pro tenant ${tenantId}`);
+        return;
+      }
+
+      // Mesma leitura de hora dos outros disparos (naive-local-as-UTC).
+      const startAt = new Date(event.start_at);
+      const dateStr = `${String(startAt.getUTCDate()).padStart(2, '0')}/${String(startAt.getUTCMonth() + 1).padStart(2, '0')}`;
+      const horaStr = `${String(startAt.getUTCHours()).padStart(2, '0')}:${String(startAt.getUTCMinutes()).padStart(2, '0')}`;
+      const nome = (name || 'paciente').split(' ')[0];
+
+      const dentistaFull = event.assigned_user?.name || '';
+      const dParts = dentistaFull.split(' ');
+      const dentista = dParts.length >= 3 ? `${dParts[0]} ${dParts[1]}` : dentistaFull;
+
+      const { formatTenantAddress } = await import('@crm/shared');
+      const tenantRow = await this.prisma.tenant.findUnique({
+        where: { id: tenantId },
+        select: {
+          address: true, address_number: true, address_complement: true,
+          neighborhood: true, city: true, state: true,
+        },
+      }).catch(() => null);
+      const local = event.location || formatTenantAddress(tenantRow);
+      const localLine = local ? `📍 ${local}\n` : '';
+
+      const msg =
+        `Olá ${nome}! 😊\n\n` +
+        `Sua consulta foi agendada para *${dateStr}* às *${horaStr}*` +
+        `${dentista ? ` com ${dentista}` : ''}.\n` +
+        localLine +
+        `\nQualquer dúvida, é só chamar por aqui!`;
+
+      await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
+      this.logger.log(`[AUTO-WPP] agendamento_criado enviado ao paciente (evento ${event.id})`);
+    } catch (e: any) {
+      this.logger.warn(`[AUTO-WPP] agendamento_criado falhou: ${e?.message}`);
     }
   }
 
