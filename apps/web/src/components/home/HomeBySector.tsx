@@ -1,31 +1,26 @@
 'use client';
 
 /**
- * Onda 17.50/17.52 — Home "balões por papel" (Clinicorp) com PRÉVIA ao clicar.
+ * Onda 17.50/17.52/17.58 — Home "MÓDULOS por papel".
  *
- * Visual fiel ao protótipo (assets/preview-todos-setores.html): breadcrumb +
- * chip do setor + "Bom dia, X · N balões" + tira de KPIs + grade de balões
- * (card branco, canto 8px, ícone CÍRCULO laranja).
+ * Header escuro (breadcrumb + chip do papel + "Boa tarde, X") + grade de cards
+ * "MÓDULOS": ícone em quadrado arredondado (canto sup. esq., cor por tone),
+ * badge de contagem ao vivo no canto sup. dir. (GET /home/module-badges via
+ * useModuleBadges), título e descrição. Cada card navega direto (Link).
  *
- * Onda 17.52 — Balões cuja rota está em PREVIEW_BY_HREF, ao clicar, expandem
- * uma PRÉVIA inline (top-5 itens reais via GET /home/preview), com "Abrir" pra
- * entrar de vez e "voltar" pra grade. Os demais navegam direto (Link).
- *
- * Home SEMPRE CLARA (paleta fixa no CSS), decisão do usuário. skySlot é aceito
- * por compat mas não é mais renderizado.
+ * 100% dirigido por papel: os cards vêm de resolveHomeActions(setor, grants,
+ * revokes), então UM componente cobre os 6 setores. Home sempre clara fora do
+ * header (paleta fixa no CSS, decisão do usuário).
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
-  Megaphone, Settings, Cake, ArrowLeft, ArrowRight, Loader2, type LucideIcon,
+  Megaphone, Settings, Cake, type LucideIcon,
 } from 'lucide-react';
 import { getSector, resolveHomeActions, SECTORS, type Sector, type Permission } from '@crm/shared';
-// Onda 17.32.126 — Chips com dados reais (com fallback pro mock)
-import { useHomeHighlights } from '@/lib/useHomeHighlights';
-import api from '@/lib/api';
+import { useModuleBadges } from '@/lib/useModuleBadges';
 import './home-por-setor.css';
 
 interface Props {
@@ -34,7 +29,7 @@ interface Props {
   /** @deprecated mantido por compat — nao e mais renderizado */
   skySlot?: React.ReactNode;
   allowSwitch?: boolean;
-  /** Permissões individuais do usuário — refletem nos balões (Onda 17.52) */
+  /** Permissões individuais do usuário — refletem nos cards (Onda 17.52) */
   extraGrants?: Permission[];
   extraRevokes?: Permission[];
 }
@@ -47,18 +42,6 @@ const ICONS: Record<string, LucideIcon> = {
   Megaphone, Settings, Cake,
 };
 
-// Onda 17.52 — href do balão -> chave de prévia (GET /home/preview?key=).
-// Só os balões cuja rota está aqui ganham prévia ao clicar; o resto navega.
-const PREVIEW_BY_HREF: Record<string, string> = {
-  '/atendimento/crm': 'crc',
-  '/atendimento/return-alerts': 'return-alerts',
-  '/atendimento/orcamentos?status=SENT': 'propostas',
-  '/atendimento': 'whatsapp',
-};
-
-interface PreviewItem { title: string; subtitle: string }
-interface PreviewResp { key: string; items: PreviewItem[]; cta?: { label: string; href: string } }
-
 function greetingFor(hour: number): string {
   if (hour >= 5  && hour < 12) return 'Bom dia';
   if (hour >= 12 && hour < 18) return 'Boa tarde';
@@ -66,15 +49,8 @@ function greetingFor(hour: number): string {
 }
 
 export default function HomeBySector({ sector, userName, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
-  const router = useRouter();
   const [hour, setHour] = useState(DEFAULT_HOUR);
   const [previewSector, setPreviewSector] = useState<Sector>(sector);
-
-  // ─── Prévia ao clicar ──────────────────────────────────────────
-  const [openKey, setOpenKey] = useState<string | null>(null);
-  const [openMeta, setOpenMeta] = useState<{ label: string; href: string; lucide?: string } | null>(null);
-  const [previewData, setPreviewData] = useState<PreviewResp | null>(null);
-  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     setHour(new Date().getHours());
@@ -89,8 +65,8 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
   const greeting  = greetingFor(hour);
   const firstName = userName?.trim().split(' ')[0] || 'visitante';
   const isPreview = active !== sector;
-  // Onda 17.52 — balões EFETIVOS (com grants/revokes do usuário). Só aplica os
-  // ajustes no setor REAL; no preview do admin (switcher) mostra só o padrão.
+  // Cards EFETIVOS (com grants/revokes do usuário). Só aplica os ajustes no setor
+  // REAL; no preview do admin (switcher) mostra só o padrão.
   const actions   = resolveHomeActions(
     active,
     active === sector ? extraGrants : [],
@@ -98,29 +74,7 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
   );
   const setorLabel = meta.home.persona;
 
-  // Fecha a prévia ao trocar de setor (seletor do admin)
-  useEffect(() => { setOpenKey(null); setOpenMeta(null); }, [active]);
-
-  const openPreview = async (key: string, a: { label: string; href: string; lucide?: string }) => {
-    setOpenKey(key);
-    setOpenMeta(a);
-    setPreviewData(null);
-    setPreviewLoading(true);
-    try {
-      const r = await api.get<PreviewResp>('/home/preview', { params: { key } });
-      setPreviewData(r.data);
-    } catch {
-      setPreviewData({ key, items: [] });
-    } finally {
-      setPreviewLoading(false);
-    }
-  };
-
-  const { data: liveHighlights, loading: highlightsLoading } = useHomeHighlights(active);
-  const chips = liveHighlights?.chips?.length ? liveHighlights.chips : meta.home.highlight.chips;
-  const highlightCta = liveHighlights?.cta ?? meta.home.highlight.cta;
-
-  const OpenIcon = openMeta?.lucide ? ICONS[openMeta.lucide] : undefined;
+  const { data: badgesData } = useModuleBadges(active);
 
   return (
     <div className="home-bs" data-sector={meta.id}>
@@ -145,106 +99,39 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
         </div>
       )}
 
-      {/* Cabeçalho */}
-      <div className="hb-crumb">Início <b>›</b> {setorLabel}</div>
-      <span className="hb-sector-chip">
-        {setorLabel}
-        {isPreview && <em className="hb-preview-tag">prévia</em>}
-      </span>
-      <h1 className="hb-greeting">
-        {greeting}, {firstName}
-        <span className="hb-count">· {actions.length} {actions.length === 1 ? 'balão' : 'balões'}</span>
-      </h1>
-      <p className="hb-sub">{meta.home.subtitle}</p>
-
-      {/* Tira fina de KPIs ao vivo */}
-      <div className="hb-kpis">
-        <span className="hb-kpis-title">
-          <span aria-hidden="true">{meta.home.highlight.icon}</span>
-          {meta.home.highlight.title}
-          {highlightsLoading && !liveHighlights && <span className="hb-kpis-loading" aria-hidden="true" />}
+      {/* Header escuro */}
+      <header className="hb-hero">
+        <div className="hb-crumb">Início <b>›</b> {setorLabel}</div>
+        <span className="hb-sector-chip">
+          {setorLabel}
+          {isPreview && <em className="hb-preview-tag">prévia</em>}
         </span>
-        <div className="hb-chips">
-          {chips.map((c, i) => (
-            <span key={i} className="hb-chip">
-              <span className="hb-chip-value">{c.value}</span>
-              <span className="hb-chip-label">{c.label}</span>
-            </span>
-          ))}
-        </div>
-        {highlightCta && (
-          <Link href={highlightCta.href} className="hb-kpis-cta">{highlightCta.label} →</Link>
-        )}
-      </div>
+        <h1 className="hb-greeting">
+          {greeting}, <span className="hb-greeting-name">{firstName}</span>
+        </h1>
+        <p className="hb-sub">{meta.home.subtitle}</p>
+      </header>
 
-      {/* Prévia (ao clicar num balão) OU grade de balões */}
-      {openKey && openMeta ? (
-        <div className="hb-preview">
-          <button type="button" className="hb-preview-back" onClick={() => { setOpenKey(null); setOpenMeta(null); }}>
-            <ArrowLeft size={15} /> voltar aos balões
-          </button>
-          <div className="hb-preview-card">
-            <div className="hb-preview-head">
-              <span className="hb-balao-ico">
-                {OpenIcon ? <OpenIcon size={20} strokeWidth={2} /> : null}
+      {/* Grade de MÓDULOS */}
+      <div className="hb-section-label">Módulos</div>
+      <div className="hb-grid">
+        {actions.map((a) => {
+          const Icon = a.lucide ? ICONS[a.lucide] : undefined;
+          const badge = a.badgeKey ? badgesData?.badges?.[a.badgeKey] : undefined;
+          return (
+            <Link key={a.label} href={a.href} className="hb-balao">
+              <span className="hb-balao-ico" data-tone={a.tone}>
+                {Icon ? <Icon size={22} strokeWidth={2} /> : <span style={{ fontSize: 20 }}>{a.icon}</span>}
               </span>
-              <div className="hb-preview-headtext">
-                <span className="hb-preview-title">Prévia · {openMeta.label}</span>
-                <span className="hb-preview-sub">
-                  {previewLoading ? 'carregando…' : `${previewData?.items.length ?? 0} ${(previewData?.items.length ?? 0) === 1 ? 'item' : 'itens'}`}
-                </span>
-              </div>
-              <button type="button" className="hb-preview-open" onClick={() => router.push(openMeta.href)}>
-                Abrir {openMeta.label} <ArrowRight size={14} />
-              </button>
-            </div>
-
-            {previewLoading ? (
-              <div className="hb-preview-loading"><Loader2 size={16} className="hb-spin" /> Carregando…</div>
-            ) : previewData && previewData.items.length > 0 ? (
-              <ul className="hb-preview-list">
-                {previewData.items.map((it, i) => (
-                  <li key={i} className="hb-preview-item">
-                    <span className="hb-preview-item-title">{it.title}</span>
-                    <span className="hb-preview-item-sub">{it.subtitle}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="hb-preview-empty">Nada por aqui agora. 🎉</p>
-            )}
-          </div>
-        </div>
-      ) : (
-        <div className="hb-grid">
-          {actions.map((a) => {
-            const Icon = a.lucide ? ICONS[a.lucide] : undefined;
-            const pk = PREVIEW_BY_HREF[a.href];
-            const inner = (
-              <>
-                <span className="hb-balao-ico">
-                  {Icon ? <Icon size={22} strokeWidth={2} /> : <span style={{ fontSize: 20 }}>{a.icon}</span>}
-                </span>
-                <h3 className="hb-balao-title">{a.label}</h3>
-                {a.desc && <p className="hb-balao-desc">{a.desc}</p>}
-              </>
-            );
-            return pk ? (
-              <button
-                key={a.label}
-                type="button"
-                className="hb-balao hb-balao-btn"
-                onClick={() => openPreview(pk, { label: a.label, href: a.href, lucide: a.lucide })}
-              >
-                {inner}
-                <span className="hb-balao-peek">prévia ao clicar</span>
-              </button>
-            ) : (
-              <Link key={a.label} href={a.href} className="hb-balao">{inner}</Link>
-            );
-          })}
-        </div>
-      )}
+              {badge && (
+                <span className="hb-badge" data-tone={badge.tone ?? a.tone}>{badge.value}</span>
+              )}
+              <h3 className="hb-balao-title">{a.label}</h3>
+              {a.desc && <p className="hb-balao-desc">{a.desc}</p>}
+            </Link>
+          );
+        })}
+      </div>
     </div>
   );
 }
