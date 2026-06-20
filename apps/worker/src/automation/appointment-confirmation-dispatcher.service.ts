@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 
 /**
  * Cron horario que processa AppointmentConfirmation pendentes
@@ -116,7 +117,7 @@ export class AppointmentConfirmationDispatcherService {
           await axios.post(
             `${apiUrl}/message/sendText/${instance}`,
             {
-              number: phone,
+              number: toBrazilWhatsappNumber(phone),
               text: c.message_text || 'Confirmando sua consulta amanha. Responda 1 para CONFIRMAR ou 2 para REMARCAR.',
             },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },

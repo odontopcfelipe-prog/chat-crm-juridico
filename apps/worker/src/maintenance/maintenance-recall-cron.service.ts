@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 import axios from 'axios';
 
 /**
@@ -138,7 +139,7 @@ export class MaintenanceRecallCronService {
         return false;
       }
       const instance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
-      const cleanPhone = phone.replace(/\D/g, '');
+      const cleanPhone = toBrazilWhatsappNumber(phone);
       const res = await axios.post(
         `${apiUrl}/message/sendText/${instance}`,
         { number: cleanPhone, text },

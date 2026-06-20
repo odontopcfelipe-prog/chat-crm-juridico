@@ -2,6 +2,7 @@ import { Injectable, Logger, Inject, forwardRef, BadRequestException } from '@ne
 import { SettingsService } from '../settings/settings.service';
 import { LeadsService } from '../leads/leads.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 import * as crypto from 'crypto';
 
 @Injectable()
@@ -124,7 +125,9 @@ export class WhatsappService {
         targetInstance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
       }
     }
-    const payload: any = { number, text };
+    // Onda 17.56 — garante o codigo do pais (55) pra numero BR salvo sem DDI.
+    // Cirurgico/idempotente: JID e numero ja-com-DDI passam intactos.
+    const payload: any = { number: toBrazilWhatsappNumber(number), text };
     if (quoted) payload.quoted = quoted;
     return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
   }
@@ -168,7 +171,7 @@ export class WhatsappService {
 
     if (mediaType === 'audio') {
       return this.request('POST', `message/sendWhatsAppAudio/${targetInstance}`, {
-        number,
+        number: toBrazilWhatsappNumber(number),
         audio: mediaUrl,
       });
     }
@@ -184,7 +187,7 @@ export class WhatsappService {
     );
 
     return this.request('POST', `message/sendMedia/${targetInstance}`, {
-      number,
+      number: toBrazilWhatsappNumber(number),
       mediatype: mediaType,
       media: mediaUrl,
       caption: caption || '',
@@ -206,7 +209,7 @@ export class WhatsappService {
   ) {
     const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
     return this.request('POST', `message/sendList/${targetInstance}`, {
-      number,
+      number: toBrazilWhatsappNumber(number),
       title,
       description,
       buttonText,

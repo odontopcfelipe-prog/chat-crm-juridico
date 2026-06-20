@@ -10,3 +10,5 @@ export * from './influencer-schedule-utils';
 export * from './tenant-defaults';
 // Onda 17.32.115 — Setores + permissoes (5 setores, ~16 permissoes)
 export * from './sectors.config';
+// Onda 17.56 — normalizacao de numero BR pro WhatsApp (adiciona o 55 no envio)
+export * from './phone.util';

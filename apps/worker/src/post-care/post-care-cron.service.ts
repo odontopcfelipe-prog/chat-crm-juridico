@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 import axios from 'axios';
 
 const POST_CARE_KEY = 'POST_CARE_CONFIG';
@@ -214,7 +215,7 @@ export class PostCareCronService implements OnModuleInit {
 
     const resp = await axios.post(
       `${cfg.apiUrl}/message/sendText/${instance.name}`,
-      { number: phone, text },
+      { number: toBrazilWhatsappNumber(phone), text },
       {
         headers: { 'Content-Type': 'application/json', apikey: cfg.apiKey },
         timeout: 15000,

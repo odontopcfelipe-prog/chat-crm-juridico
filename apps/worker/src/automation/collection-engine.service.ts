@@ -3,6 +3,7 @@ import { Cron } from '@nestjs/schedule';
 import axios from 'axios';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 
 /**
  * Engine de regua de cobranca — Fase 11.
@@ -121,7 +122,7 @@ export class CollectionEngineService {
         try {
           await axios.post(
             `${apiUrl}/message/sendText/${instance}`,
-            { number: inst.patient.phone, text: message },
+            { number: toBrazilWhatsappNumber(inst.patient.phone), text: message },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },
           );
           await this.prisma.collectionAttempt.update({
