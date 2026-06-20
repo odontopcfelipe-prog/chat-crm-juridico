@@ -455,6 +455,12 @@ export class TenantsService {
       'name', 'slug', 'email', 'phone', 'cpf_cnpj',
       'logo_url', 'theme_color', 'custom_domain',
       'plan', 'owner_user_id',
+      // Onda 17.57 — endereço, responsável técnico e horários. ESTAVAM FALTANDO
+      // aqui: o controller aceitava no PATCH mas o update() dropava (o endereço
+      // "salvava e sumia"). Sem isso o {local} dos disparos nunca tinha valor.
+      'zip_code', 'address', 'address_number', 'address_complement',
+      'neighborhood', 'city', 'state',
+      'responsible_name', 'responsible_cro', 'business_hours',
     ];
     for (const f of allowedFields) {
       if (body[f] !== undefined) data[f] = body[f] || null;
