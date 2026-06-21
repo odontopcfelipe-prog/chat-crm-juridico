@@ -2865,16 +2865,19 @@ export class CalendarService {
     tenantId: string,
   ): Promise<void> {
     try {
-      let phone: string | null = event.lead?.phone || null;
-      let name: string | null = event.lead?.name || null;
-      if (!phone && patientId) {
+      // Onda 17.59 — prioriza o TELEFONE DO PACIENTE (é o alvo de "agende um
+      // paciente com contato X"); cai pro lead se o paciente não tiver.
+      let phone: string | null = null;
+      let name: string | null = null;
+      if (patientId) {
         const patient = await this.prisma.patient.findUnique({
           where: { id: patientId },
           select: { name: true, phone: true },
         });
         phone = patient?.phone || null;
-        name = name || patient?.name || null;
+        name = patient?.name || null;
       }
+      if (!phone) { phone = event.lead?.phone || null; name = name || event.lead?.name || null; }
       if (!phone && leadId && !event.lead) {
         const lead = await this.prisma.lead.findUnique({
           where: { id: leadId },
@@ -2883,7 +2886,12 @@ export class CalendarService {
         phone = lead?.phone || null;
         name = name || lead?.name || null;
       }
-      if (!phone) return;
+      if (!phone) {
+        // Diagnóstico: o e-mail saiu (tem e-mail) mas o paciente/lead não tem
+        // TELEFONE no cadastro — por isso o WhatsApp não vai.
+        this.logger.warn(`[AUTO-WPP] agendamento_criado: paciente/lead SEM telefone no cadastro (evento ${event.id}) — só o e-mail saiu`);
+        return;
+      }
 
       const instanceName = await this.resolveTenantWhatsappInstance(tenantId);
       if (!instanceName) {
