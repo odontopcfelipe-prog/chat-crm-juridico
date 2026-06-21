@@ -336,7 +336,7 @@ export class CalendarService {
       void this.sendAppointmentCreatedEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
       // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
       // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
-      void this.sendAppointmentCreatedWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
+      void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
     }
 
     // Enqueue WhatsApp + Email reminders
@@ -377,7 +377,12 @@ export class CalendarService {
   private async enqueueReminders(eventId: string, startAt: Date, reminders: { id: string; minutes_before: number; channel: string }[]) {
     for (const r of reminders) {
       if (r.channel !== 'WHATSAPP' && r.channel !== 'EMAIL') continue; // PUSH handled by cron
-      const triggerAt = startAt.getTime() - r.minutes_before * 60 * 1000;
+      // Onda 17.59 — start_at é "naive local" gravado nos campos UTC (Maceió UTC-3).
+      // Sem somar o offset, o lembrete disparava ~3h ADIANTADO (o "15 min antes"
+      // caía 3h15 antes). Soma 3h pra achar o instante REAL e agendar no minuto certo.
+      const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const realStartMs = startAt.getTime() + MACEIO_OFFSET_MS;
+      const triggerAt = realStartMs - r.minutes_before * 60 * 1000;
       const delay = Math.max(triggerAt - Date.now(), 1000); // min 1s
       const jobId = `reminder-${r.id}`;
       try {
@@ -570,6 +575,13 @@ export class CalendarService {
       } catch (e: any) {
         this.logger.error(`[AUDIENCIA] Erro ao enfileirar notificação de remarcação: ${e.message}`);
       }
+    }
+
+    // Onda 17.59 — CONSULTA odonto REMARCADA: avisa o paciente no WhatsApp que o
+    // horário mudou (espelha a notificação de criação). Só evento clínico com a
+    // DATA alterada; respeita o toggle "Re-agendamento" da Central.
+    if (this.isClinicalEvent(finalType ?? '') && dateChanged && before?.tenant_id) {
+      void this.sendAppointmentEventWhatsapp(event, event.patient_id, event.lead_id, before.tenant_id, 'rescheduled');
     }
 
     // Lista de espera (Fase 19): se status virou CANCELADO/ADIADO numa CONSULTA,
@@ -2875,15 +2887,25 @@ export class CalendarService {
    * usa o endereço cadastrado da clínica no {local}, e manda na instância do
    * tenant. sendText já adiciona o 55. Falha só loga — criar evento nunca quebra.
    */
-  private async sendAppointmentCreatedWhatsapp(
+  private async sendAppointmentEventWhatsapp(
     event: any,
     patientId: string | null | undefined,
     leadId: string | null | undefined,
     tenantId: string,
+    kind: 'created' | 'rescheduled',
   ): Promise<void> {
     try {
-      // Onda 17.59 — prioriza o TELEFONE DO PACIENTE (é o alvo de "agende um
-      // paciente com contato X"); cai pro lead se o paciente não tiver.
+      // O re-agendamento ("remarcada") respeita o toggle da Central
+      // (APPOINTMENT_RESCHEDULED_ENABLED, default LIGADO). O "agendada" sai sempre
+      // pra evento clínico (igual o e-mail), sem toggle.
+      if (kind === 'rescheduled') {
+        const s = await this.prisma.globalSetting.findUnique({
+          where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` },
+        });
+        if ((s?.value ?? 'true') === 'false') return; // desligado na Central
+      }
+
+      // Prioriza o TELEFONE DO PACIENTE; cai pro lead se o paciente não tiver.
       let phone: string | null = null;
       let name: string | null = null;
       if (patientId) {
@@ -2904,15 +2926,13 @@ export class CalendarService {
         name = name || lead?.name || null;
       }
       if (!phone) {
-        // Diagnóstico: o e-mail saiu (tem e-mail) mas o paciente/lead não tem
-        // TELEFONE no cadastro — por isso o WhatsApp não vai.
-        this.logger.warn(`[AUTO-WPP] agendamento_criado: paciente/lead SEM telefone no cadastro (evento ${event.id}) — só o e-mail saiu`);
+        this.logger.warn(`[AUTO-WPP] agendamento_${kind}: paciente/lead SEM telefone no cadastro (evento ${event.id}) — só o e-mail saiu`);
         return;
       }
 
       const instanceName = await this.resolveTenantWhatsappInstance(tenantId);
       if (!instanceName) {
-        this.logger.warn(`[AUTO-WPP] agendamento_criado: sem instância WhatsApp pro tenant ${tenantId}`);
+        this.logger.warn(`[AUTO-WPP] agendamento_${kind}: sem instância WhatsApp pro tenant ${tenantId}`);
         return;
       }
 
@@ -2937,17 +2957,18 @@ export class CalendarService {
       const local = event.location || formatTenantAddress(tenantRow);
       const localLine = local ? `📍 ${local}\n` : '';
 
+      const verbo = kind === 'rescheduled' ? 'foi *remarcada*' : 'foi agendada';
       const msg =
         `Olá ${nome}! 😊\n\n` +
-        `Sua consulta foi agendada para *${dateStr}* às *${horaStr}*` +
+        `Sua consulta ${verbo} para *${dateStr}* às *${horaStr}*` +
         `${dentista ? ` com ${dentista}` : ''}.\n` +
         localLine +
         `\nQualquer dúvida, é só chamar por aqui!`;
 
       await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
-      this.logger.log(`[AUTO-WPP] agendamento_criado enviado ao paciente (evento ${event.id})`);
+      this.logger.log(`[AUTO-WPP] agendamento_${kind} enviado ao paciente (evento ${event.id})`);
     } catch (e: any) {
-      this.logger.warn(`[AUTO-WPP] agendamento_criado falhou: ${e?.message}`);
+      this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou: ${e?.message}`);
     }
   }
 

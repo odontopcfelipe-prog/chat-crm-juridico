@@ -84,12 +84,13 @@ export class FollowupService {
     // de aniversario, pra o card contar EXATAMENTE quem vai receber o parabens.
     const todayMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const [confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting] = await Promise.all([
+    const [confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: 'POST_CARE_CONFIG' } }),
       this.prisma.globalSetting.findUnique({ where: { key: `DENTIST_DAILY_SUMMARY_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BIRTHDAY_GREETING_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -98,6 +99,8 @@ export class FollowupService {
 
     // Defaults: confirmacao/lembrete/pos LIGADOS por default; dentista DESLIGADO.
     const confEnabled = (confSetting?.value ?? 'true') !== 'false';
+    // Onda 17.59 — re-agendamento (avisa o paciente quando o horário muda). Default ON.
+    const reagEnabled = (reagSetting?.value ?? 'true') !== 'false';
     const reminderEnabled = reminderCfg?.enabled !== false;
     const posEnabled = posCfg?.enabled !== false;
     const dentEnabled = dentCfg?.enabled === true;
@@ -181,6 +184,7 @@ export class FollowupService {
       pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded },
       dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje },
       aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje },
+      reagendamento: { enabled: reagEnabled },
     };
   }
 
@@ -211,6 +215,12 @@ export class FollowupService {
       case 'aniversario':
         await mergeJson(`BIRTHDAY_GREETING_${tenantId}`, { enabled });
         break;
+      case 'reagendamento': {
+        const key = `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
       default:
         throw new BadRequestException(`toggle invalido: ${which}`);
     }

@@ -19,7 +19,7 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
 export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
-export type OperacionalKey = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario';
+export type OperacionalKey = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento';
 
 export interface DisparoItem {
   id: string;
@@ -50,6 +50,9 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'lembrete_15min', nome: 'Lembrete · 15 minutos antes', categoria: 'agendamento',
     gatilho: '15 minutos antes', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reminders', antecedenciaMin: 15 },
+  { id: 'reagendamento', nome: 'Aviso de re-agendamento', categoria: 'agendamento',
+    gatilho: 'Quando o horário muda', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'reagendamento' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',
