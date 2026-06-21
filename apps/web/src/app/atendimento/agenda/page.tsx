@@ -625,6 +625,16 @@ export default function AgendaPage() {
       time = formatTimeInput(nowLocalIso);
     }
 
+    // Onda 17.59 — "Novo Evento" NUNCA abre no passado. Se o candidato (clique numa
+    // célula de uma semana antiga, ou aba deixada aberta há dias) já passou, cai pra
+    // AGORA — "data e hora atual" sempre. Não scheduleia consulta no passado.
+    const nowDate = formatDateInput(nowLocalIso);
+    const nowTime = formatTimeInput(nowLocalIso);
+    if (`${date}T${time}` < `${nowDate}T${nowTime}`) {
+      date = nowDate;
+      time = nowTime;
+    }
+
     const [h, m] = time.split(':').map(Number);
     // Duração padrão: 30 min (compatível com grid de 30min)
     const endMinTotal = h * 60 + m + 30;
