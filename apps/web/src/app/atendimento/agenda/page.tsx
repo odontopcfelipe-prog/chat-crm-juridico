@@ -1149,6 +1149,10 @@ export default function AgendaPage() {
           // dentista, manter o nome reforca o padrao visual e evita confusao
           // quando varias agendas estao abertas em abas diferentes.
           const userLine = e.assigned_user ? `${e.assigned_user.name}\n` : '';
+          // Onda 17.59 — nome do PACIENTE (ou lead) em EVIDÊNCIA: vira a linha 1 do
+          // card (o que o schedule-x destaca). Sem paciente, mantém o padrão antigo.
+          const clientName = e.patient?.name || e.lead?.name || '';
+          const patientLine = clientName ? `${clientName}\n` : '';
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
           if (e.end_at && !isNaN(new Date(e.end_at).getTime())) {
@@ -1205,9 +1209,10 @@ export default function AgendaPage() {
 
           return {
             id: e.id,
-            // Ordem (Onda 5d v8): linha 1 = dentista [Dra. X], linha 2 = procedimento.
-            // Horario aparece automaticamente pelo schedule-x na 3a linha.
-            title: `${userLine}${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${e.title}${caseTag}${recurringTag}${commentsTag}`,
+            // Ordem (Onda 17.59): linha 1 = PACIENTE (em evidência), linha 2 = dentista,
+            // linha 3 = tipo/procedimento. Horário aparece pelo schedule-x. Sem paciente,
+            // cai pro padrão antigo (dentista em cima).
+            title: `${patientLine}${userLine}${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${e.title}${caseTag}${recurringTag}${commentsTag}`,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
