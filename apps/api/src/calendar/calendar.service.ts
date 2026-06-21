@@ -1585,12 +1585,29 @@ export class CalendarService {
       : null;
     const tenantAddr = formatTenantAddress(tenantRow);
 
-    // Variáveis de exemplo + aplicador (mesma lógica do worker).
+    // Onda 17.59 — dentista REAL do tenant logado (1º DENTIST, ou ADMIN com
+    // especialidade). Antes era fixo "Dra. Suellen" — parecia de OUTRO tenant.
+    const dentistRow = tenant_id
+      ? await this.prisma.user.findFirst({
+          where: {
+            tenant_id,
+            OR: [
+              { roles: { has: 'DENTIST' } },
+              { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
+            ],
+          },
+          select: { name: true },
+          orderBy: { name: 'asc' },
+        }).catch(() => null)
+      : null;
+    const dentistName = dentistRow?.name || 'a clínica';
+
+    // Variáveis: paciente/data/hora de EXEMPLO; dentista e local REAIS do tenant.
     const V: Record<string, string> = {
       nome: 'Felipe (teste)', nome_completo: 'Felipe Passos (teste)',
-      dentista: 'Dra. Suellen', dentista_completo: 'Dra. Suellen Passos',
+      dentista: dentistName, dentista_completo: dentistName,
       data: '06/05', hora: '14:00',
-      local: tenantAddr || 'Rua das Acácias, 123 — Sala 4 (exemplo)',
+      local: tenantAddr || '(endereço não cadastrado — preencha em Configurações › Identidade)',
       clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
     };
     const apply = (t: string) =>
@@ -1622,7 +1639,7 @@ export class CalendarService {
         msg = apply((await this.getDentistDailySummaryConfig(tenant_id)).template);
         break;
       case 'nps':
-        msg = 'Oi Felipe! Como foi sua consulta hoje com a Dra. Suellen? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)';
+        msg = `Oi Felipe! Como foi sua consulta hoje com ${dentistName}? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)`;
         break;
       default:
         throw new BadRequestException('Esse disparo ainda não tem teste disponível.');
