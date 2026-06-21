@@ -125,6 +125,27 @@ export const EMAIL_EVENTS: EmailEventDef[] = [
       'Profissional: {{profissional_nome}}\n\n' +
       'Se precisar remarcar, é só entrar em contato com a gente.',
   },
+  {
+    key: 'agendamento_remarcado',
+    label: 'Consulta remarcada',
+    description: 'Enviado ao paciente quando o horário de uma consulta é alterado na agenda.',
+    variables: [
+      { name: 'paciente_nome', label: 'Nome do paciente', sample: 'Maria da Silva' },
+      { name: 'clinica_nome', label: 'Nome da clínica', sample: 'Clínica Exemplo' },
+      { name: 'data', label: 'Nova data', sample: '16/06/2026' },
+      { name: 'hora', label: 'Novo horário', sample: '15:00' },
+      { name: 'profissional_nome', label: 'Profissional', sample: 'Dr. João' },
+      { name: 'titulo', label: 'Título do agendamento', sample: 'Avaliação inicial' },
+    ],
+    defaultSubject: 'Consulta remarcada — {{clinica_nome}}',
+    defaultBody:
+      'Olá, {{paciente_nome}}!\n\n' +
+      'Sua consulta na {{clinica_nome}} foi remarcada:\n\n' +
+      'Nova data: {{data}}\n' +
+      'Novo horário: {{hora}}\n' +
+      'Profissional: {{profissional_nome}}\n\n' +
+      'Se o novo horário não funcionar pra você, é só entrar em contato com a gente.',
+  },
 ];
 
 export function getEmailEvent(key: string): EmailEventDef | undefined {

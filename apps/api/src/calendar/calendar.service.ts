@@ -333,7 +333,7 @@ export class CalendarService {
     // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
     // paciente (best-effort; so eventos clinicos com paciente/lead)
     if (data.tenant_id && this.isClinicalEvent(event.type)) {
-      void this.sendAppointmentCreatedEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id);
+      void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
       // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
       // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
       void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
@@ -582,6 +582,7 @@ export class CalendarService {
     // DATA alterada; respeita o toggle "Re-agendamento" da Central.
     if (this.isClinicalEvent(finalType ?? '') && dateChanged && before?.tenant_id) {
       void this.sendAppointmentEventWhatsapp(event, event.patient_id, event.lead_id, before.tenant_id, 'rescheduled');
+      void this.sendAppointmentEventEmail(event, event.patient_id, event.lead_id, before.tenant_id, 'agendamento_remarcado');
     }
 
     // Lista de espera (Fase 19): se status virou CANCELADO/ADIADO numa CONSULTA,
@@ -2840,11 +2841,12 @@ export class CalendarService {
    * Best-effort: resolve o e-mail do paciente (ou do lead) e dispara.
    * Qualquer falha so loga — criar o evento nunca quebra por e-mail.
    */
-  private async sendAppointmentCreatedEmail(
+  private async sendAppointmentEventEmail(
     event: any,
     patientId: string | null | undefined,
     leadId: string | null | undefined,
     tenantId: string,
+    eventKey: 'agendamento_criado' | 'agendamento_remarcado',
   ): Promise<void> {
     try {
       let toEmail: string | null = null;
@@ -2867,17 +2869,21 @@ export class CalendarService {
       }
       if (!toEmail) return;
 
-      const tz = 'America/Maceio';
+      // Onda 17.59 — hora "naive local" (igual WhatsApp/lembrete). NÃO usar timeZone
+      // aqui: start_at já está nos campos UTC como hora local, então converter
+      // mostrava 3h a MENOS no e-mail.
       const startAt = new Date(event.start_at);
-      await this.emailAutomation.dispatch('agendamento_criado', tenantId, toEmail, {
+      const data = `${String(startAt.getUTCDate()).padStart(2, '0')}/${String(startAt.getUTCMonth() + 1).padStart(2, '0')}/${startAt.getUTCFullYear()}`;
+      const hora = `${String(startAt.getUTCHours()).padStart(2, '0')}:${String(startAt.getUTCMinutes()).padStart(2, '0')}`;
+      await this.emailAutomation.dispatch(eventKey, tenantId, toEmail, {
         paciente_nome: toName || '',
-        data: startAt.toLocaleDateString('pt-BR', { timeZone: tz }),
-        hora: startAt.toLocaleTimeString('pt-BR', { timeZone: tz, hour: '2-digit', minute: '2-digit' }),
+        data,
+        hora,
         profissional_nome: event.assigned_user?.name || '',
         titulo: event.title || '',
       });
     } catch (e: any) {
-      this.logger.warn(`[AUTO-MAIL] agendamento_criado falhou: ${e?.message}`);
+      this.logger.warn(`[AUTO-MAIL] ${eventKey} falhou: ${e?.message}`);
     }
   }
 
