@@ -10,7 +10,6 @@ import { useRouter } from 'next/navigation';
 import { CalendarCheck, Bell, Heart, FileText, Cake, ArrowRight, Loader2, Bot, History } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
-import { useRole } from '@/lib/useRole';
 
 type Which = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario';
 
@@ -38,10 +37,8 @@ const fmtHora = (hhmm: string): string => {
 
 export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => void }) {
   const router = useRouter();
-  const role = useRole();
   const [data, setData] = useState<OperacionalData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState<Which | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -55,20 +52,6 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
   }, []);
 
   useEffect(() => { load(); }, [load]);
-
-  const toggle = async (which: Which, enabled: boolean) => {
-    setSaving(which);
-    // otimista — reverte se o backend recusar
-    setData((d) => (d ? { ...d, [which]: { ...(d as any)[which], enabled } } : d));
-    try {
-      await api.patch('/followup/operacional/toggle', { which, enabled });
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Não foi possível salvar — revertendo');
-      setData((d) => (d ? { ...d, [which]: { ...(d as any)[which], enabled: !enabled } } : d));
-    } finally {
-      setSaving(null);
-    }
-  };
 
   // Resiliente a skew de versao backend/frontend: cada card so entra se o bloco
   // de dados dele veio na resposta. Assim um campo faltando (ex: API antiga sem
@@ -171,19 +154,11 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
                 <p className="text-3xl font-bold text-foreground mt-1 leading-none">{c.metric}</p>
                 <p className="text-xs text-muted-foreground mt-1.5">{c.sub}</p>
                 <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-                  <label
-                    className={`inline-flex items-center ${role.isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-                    title={!role.isAdmin ? 'Apenas ADMIN pode ligar/desligar' : c.enabled ? 'Desligar' : 'Ligar'}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={c.enabled}
-                      disabled={saving === c.which || !role.isAdmin}
-                      onChange={(e) => toggle(c.which, e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="relative w-10 h-5 bg-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/40 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
-                  </label>
+                  {/* Onda 17.60 — só LEITURA aqui (liga/desliga vive na Central de
+                      Disparos: "configura lá, opera aqui"). */}
+                  <span className={`text-xs font-medium ${c.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
+                    {c.enabled ? '● Ligado' : '○ Desligado'}
+                  </span>
                   <button
                     onClick={c.onOpen}
                     className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
