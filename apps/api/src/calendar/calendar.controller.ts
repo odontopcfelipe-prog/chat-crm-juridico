@@ -432,6 +432,30 @@ export class CalendarController {
     return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Re-agendamento (Onda 17.59) — mensagem editável ──────────────────
+  @Get('appointment-rescheduled/config')
+  getAppointmentRescheduledConfig(@Request() req: any) {
+    return this.calendarService.getAppointmentRescheduledConfig(req.user?.tenant_id);
+  }
+
+  @Put('appointment-rescheduled/config')
+  @Roles('ADMIN')
+  setAppointmentRescheduledConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setAppointmentRescheduledConfig(req.user?.tenant_id, body);
+  }
+
+  // ─── Aniversário (Onda 17.59) — expõe o get/set pra editar a mensagem na Central ──
+  @Get('birthday-greeting/config')
+  getBirthdayGreetingConfig(@Request() req: any) {
+    return this.calendarService.getBirthdayGreetingConfig(req.user?.tenant_id);
+  }
+
+  @Put('birthday-greeting/config')
+  @Roles('ADMIN')
+  setBirthdayGreetingConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setBirthdayGreetingConfig(req.user?.tenant_id, body);
+  }
+
   // Envia um teste da mensagem de confirmação pra um número (admin) — testa entrega.
   @Post('appointment-confirmation/send-test')
   @Roles('ADMIN')

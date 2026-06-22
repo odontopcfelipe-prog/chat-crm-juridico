@@ -18,6 +18,7 @@ import { RemindersConfigModal } from '../../followup/components/RemindersConfigM
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 import { ConfirmacaoEditor } from './ConfirmacaoEditor';
+import { MensagemEditor } from './MensagemEditor';
 import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
@@ -144,6 +145,34 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}
+        {openItem.editor === 'reagendamento' && (
+          <MensagemEditor
+            titulo="Mensagem de re-agendamento"
+            descricao="Enviada ao paciente quando o horário da consulta muda. Use as variáveis abaixo — o sistema substitui pelos dados reais."
+            endpoint="/calendar/appointment-rescheduled/config"
+            usaLocal
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'dentista', desc: 'Profissional' },
+              { key: 'data', desc: 'Nova data (DD/MM)' },
+              { key: 'hora', desc: 'Novo horário' },
+              { key: 'local', desc: 'Endereço da clínica' },
+            ]}
+            preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '22/06', hora: '15:00' }}
+          />
+        )}
+        {openItem.editor === 'aniversario' && (
+          <MensagemEditor
+            titulo="Mensagem de aniversário"
+            descricao="Enviada ao paciente no dia do aniversário, de manhã."
+            endpoint="/calendar/birthday-greeting/config"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'clinica', desc: 'Nome da clínica' },
+            ]}
+            preview={{ nome: 'Felipe', clinica: 'sua clínica' }}
+          />
+        )}
         <TesteEnvio disparo={openItem.id} />
       </div>
     );

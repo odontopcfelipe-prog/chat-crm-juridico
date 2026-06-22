@@ -1567,6 +1567,38 @@ export class CalendarService {
     return this.getAppointmentConfirmationConfig(tenant_id);
   }
 
+  // ─── Re-agendamento (Onda 17.59) — mensagem editável ─────────────────
+  // Liga/desliga vive em APPOINTMENT_RESCHEDULED_ENABLED (Central). Aqui só o TEXTO,
+  // em APPOINTMENT_RESCHEDULED_TEMPLATE_<tenant>. Aplicado em sendAppointmentEventWhatsapp.
+  readonly DEFAULT_RESCHEDULED_TEMPLATE =
+    'Olá {nome}! 😊\n\nSua consulta foi *remarcada* para *{data}* às *{hora}* com {dentista}.\n{local_line}\nQualquer dúvida, é só chamar por aqui!';
+
+  async getAppointmentRescheduledConfig(tenant_id?: string) {
+    const key = tenant_id ? `APPOINTMENT_RESCHEDULED_TEMPLATE_${tenant_id}` : 'APPOINTMENT_RESCHEDULED_TEMPLATE';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return { template: this.DEFAULT_RESCHEDULED_TEMPLATE };
+      const parsed = JSON.parse(setting.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : this.DEFAULT_RESCHEDULED_TEMPLATE;
+      return { template: tpl };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
+      return { template: this.DEFAULT_RESCHEDULED_TEMPLATE };
+    }
+  }
+
+  async setAppointmentRescheduledConfig(tenant_id: string | undefined, config: { template?: string }) {
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    }
+    const key = tenant_id ? `APPOINTMENT_RESCHEDULED_TEMPLATE_${tenant_id}` : 'APPOINTMENT_RESCHEDULED_TEMPLATE';
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[APPOINTMENT_RESCHEDULED_TEMPLATE] salvo pra ${key}`);
+    return this.getAppointmentRescheduledConfig(tenant_id);
+  }
+
   /** Onda 17.56 — teste GENÉRICO: envia a mensagem de QUALQUER disparo (com dados
    *  de exemplo) pra um número, pra ver na hora se o WhatsApp da clínica entrega. */
   async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string) {
@@ -2963,13 +2995,27 @@ export class CalendarService {
       const local = event.location || formatTenantAddress(tenantRow);
       const localLine = local ? `📍 ${local}\n` : '';
 
-      const verbo = kind === 'rescheduled' ? 'foi *remarcada*' : 'foi agendada';
-      const msg =
-        `Olá ${nome}! 😊\n\n` +
-        `Sua consulta ${verbo} para *${dateStr}* às *${horaStr}*` +
-        `${dentista ? ` com ${dentista}` : ''}.\n` +
-        localLine +
-        `\nQualquer dúvida, é só chamar por aqui!`;
+      let msg: string;
+      if (kind === 'rescheduled') {
+        // Texto editável na Central (APPOINTMENT_RESCHEDULED_TEMPLATE).
+        const tpl = (await this.getAppointmentRescheduledConfig(tenantId)).template;
+        msg = tpl
+          .replace(/\{local_line\}/g, localLine)
+          .replace(/\{nome\}/g, nome)
+          .replace(/\{dentista\}/g, dentista || 'a clínica')
+          .replace(/\{data\}/g, dateStr)
+          .replace(/\{hora\}/g, horaStr)
+          .replace(/\{local\}/g, local || '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      } else {
+        msg =
+          `Olá ${nome}! 😊\n\n` +
+          `Sua consulta foi agendada para *${dateStr}* às *${horaStr}*` +
+          `${dentista ? ` com ${dentista}` : ''}.\n` +
+          localLine +
+          `\nQualquer dúvida, é só chamar por aqui!`;
+      }
 
       await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
       this.logger.log(`[AUTO-WPP] agendamento_${kind} enviado ao paciente (evento ${event.id})`);

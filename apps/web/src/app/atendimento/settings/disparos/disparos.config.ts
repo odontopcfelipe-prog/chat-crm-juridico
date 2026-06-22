@@ -17,7 +17,7 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
 ];
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento';
 
@@ -52,7 +52,7 @@ export const DISPAROS: DisparoItem[] = [
     editor: 'reminders', antecedenciaMin: 15 },
   { id: 'reagendamento', nome: 'Aviso de re-agendamento', categoria: 'agendamento',
     gatilho: 'Quando o horário muda', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'reagendamento' },
+    editor: 'reagendamento', operacionalKey: 'reagendamento' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',
@@ -69,7 +69,7 @@ export const DISPAROS: DisparoItem[] = [
   // ── Datas e relacionamento ──
   { id: 'aniversario', nome: 'Aniversariantes do dia', categoria: 'datas',
     gatilho: 'No aniversário · 9h', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'aniversario' },
+    editor: 'aniversario', operacionalKey: 'aniversario' },
   { id: 'datas_sazonais', nome: 'Datas sazonais', categoria: 'datas',
     gatilho: 'Data fixa da campanha', canal: 'WhatsApp', tags: ['Template'], editor: null, emBreve: true },
 
