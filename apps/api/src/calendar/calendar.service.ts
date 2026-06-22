@@ -1510,6 +1510,27 @@ export class CalendarService {
    *  recente (a que o chat usa de verdade) e cai na tabela Instance como fallback.
    *  A tabela Instance às vezes tem um registro 'whatsapp' que a Evolution não tem. */
   private async resolveTenantWhatsappInstance(tenant_id?: string): Promise<string | null> {
+    // Onda 17.59 — PREFERE a instância REALMENTE conectada (Evolution status 'open').
+    // Antes pegava só a conversa mais recente / 1ª instância cadastrada, que podia
+    // estar STALE (número antigo) → o disparo saía de OUTRO WhatsApp. Consulta a
+    // Evolution ao vivo; cai no heurístico antigo se ela não responder.
+    try {
+      const live = await this.whatsapp.listInstances(tenant_id);
+      const connected = (live || []).filter((i: any) => i?.status === 'open' && i?.instanceName);
+      if (connected.length === 1) return connected[0].instanceName;
+      if (connected.length > 1) {
+        // Desempate entre conectadas: a que bate com a conversa mais recente.
+        const recent = await this.prisma.conversation.findFirst({
+          where: { instance_name: { not: null }, ...(tenant_id ? { tenant_id } : {}) },
+          orderBy: { last_message_at: 'desc' },
+          select: { instance_name: true },
+        }).catch(() => null);
+        const match = connected.find((i: any) => i.instanceName === recent?.instance_name);
+        return (match ?? connected[0]).instanceName;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[INSTANCE] listInstances falhou (${e?.message}) — usando heurístico`);
+    }
     const convo = await this.prisma.conversation.findFirst({
       where: { instance_name: { not: null }, ...(tenant_id ? { tenant_id } : {}) },
       orderBy: { last_message_at: 'desc' },

@@ -1046,6 +1046,25 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
   // é o que faltava pro lembrete de CONSULTA odonto entregar: conversa do tenant →
   // instância do tenant. Pode voltar null — aí o sendText resolve via tenantId.
   private async resolveTenantInstance(tenantId: string): Promise<string | null> {
+    // Onda 17.59 — prefere a instância REALMENTE conectada (Evolution 'open'), igual
+    // ao resolveTenantWhatsappInstance do CalendarService. Evita o lembrete sair de
+    // um número STALE. Cai no heurístico se a Evolution não responder.
+    try {
+      const live = await this.whatsapp.listInstances(tenantId);
+      const connected = (live || []).filter((i: any) => i?.status === 'open' && i?.instanceName);
+      if (connected.length === 1) return connected[0].instanceName;
+      if (connected.length > 1) {
+        const recent = await this.prisma.conversation.findFirst({
+          where: { instance_name: { not: null }, tenant_id: tenantId },
+          orderBy: { last_message_at: 'desc' },
+          select: { instance_name: true },
+        }).catch(() => null);
+        const match = connected.find((i: any) => i.instanceName === recent?.instance_name);
+        return (match ?? connected[0]).instanceName;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[INSTANCE] listInstances falhou (${e?.message}) — usando heurístico`);
+    }
     const convo = await this.prisma.conversation.findFirst({
       where: { instance_name: { not: null }, tenant_id: tenantId },
       orderBy: { last_message_at: 'desc' },
