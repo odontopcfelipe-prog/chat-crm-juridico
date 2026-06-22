@@ -1922,17 +1922,23 @@ export class CalendarService {
    * wrap de ano e 29/02 — JS normaliza Date.UTC). Ordena por quão perto está.
    */
   async getUpcomingBirthdays(tenant_id: string, days = 30) {
-    if (!tenant_id) return { total: 0, today: 0, items: [] as any[] };
+    if (!tenant_id) return { total: 0, today: 0, items: [] as any[], sem_data: 0, total_ativos: 0 };
     const N = Math.min(Math.max(days, 0), 366);
     const today = new Date(Date.now() - 3 * 60 * 60 * 1000); // dia de Maceió
     const todayY = today.getUTCFullYear();
     const todayMs = Date.UTC(todayY, today.getUTCMonth(), today.getUTCDate());
-    const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null; birth_date: Date }>>(
-      `SELECT id, name, phone, birth_date FROM patients
-       WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-       LIMIT 5000`,
-      tenant_id,
-    ).catch(() => [] as any[]);
+    const [rows, totalAtivos, semData] = await Promise.all([
+      this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null; birth_date: Date }>>(
+        `SELECT id, name, phone, birth_date FROM patients
+         WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
+         LIMIT 5000`,
+        tenant_id,
+      ).catch(() => [] as any[]),
+      // Onda 17.60 — quantos pacientes ATIVOS existem e quantos estão SEM data de
+      // nascimento (pra a tela mostrar "X sem nascimento — preencha pra aparecerem").
+      this.prisma.patient.count({ where: { tenant_id, status: 'ACTIVE' } }).catch(() => 0),
+      this.prisma.patient.count({ where: { tenant_id, status: 'ACTIVE', birth_date: null } }).catch(() => 0),
+    ]);
     const items = (rows as any[]).map((r) => {
       const bd = new Date(r.birth_date);
       const bm = bd.getUTCMonth();
@@ -1950,7 +1956,13 @@ export class CalendarService {
     })
       .filter((i) => i.days_until <= N)
       .sort((a, b) => a.days_until - b.days_until || a.name.localeCompare(b.name));
-    return { total: items.length, today: items.filter((i) => i.is_today).length, items };
+    return {
+      total: items.length,
+      today: items.filter((i) => i.is_today).length,
+      items,
+      sem_data: Number(semData) || 0,
+      total_ativos: Number(totalAtivos) || 0,
+    };
   }
 
   /**

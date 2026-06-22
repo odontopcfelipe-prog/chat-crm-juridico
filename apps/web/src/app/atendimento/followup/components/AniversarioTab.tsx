@@ -55,6 +55,8 @@ function maskPhone(p: string | null): string {
 export function AniversarioTab() {
   const [upcoming, setUpcoming] = useState<UpcomingItem[]>([]);
   const [todayCount, setTodayCount] = useState(0);
+  const [semData, setSemData] = useState(0);
+  const [totalAtivos, setTotalAtivos] = useState(0);
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,6 +72,8 @@ export function AniversarioTab() {
       ]);
       setUpcoming(up.data?.items || []);
       setTodayCount(up.data?.today || 0);
+      setSemData(up.data?.sem_data || 0);
+      setTotalAtivos(up.data?.total_ativos || 0);
       setHistory(hist.data?.items || []);
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao carregar os aniversariantes');
@@ -138,6 +142,16 @@ export function AniversarioTab() {
         {kpi('No ano', upcoming.length, 'border-border bg-card text-foreground')}
         {kpi('Parabéns enviados', enviadosCount, 'border-emerald-500/20 bg-emerald-500/5 text-emerald-600 dark:text-emerald-400')}
       </div>
+
+      {/* Aviso: pacientes sem data de nascimento não aparecem na lista */}
+      {semData > 0 && (
+        <div className="flex items-start gap-2 p-3 rounded-xl border border-amber-500/30 bg-amber-500/10 text-[12px] text-amber-800 dark:text-amber-300">
+          <span className="text-base leading-none">⚠️</span>
+          <span>
+            <b>{semData}</b> de <b>{totalAtivos}</b> pacientes ativos estão <b>sem data de nascimento</b> — por isso não aparecem aqui. É só preencher o nascimento no cadastro deles que entram na lista. 🎂
+          </span>
+        </div>
+      )}
 
       {/* Abas */}
       <div className="flex gap-1 border-b border-border overflow-x-auto">
