@@ -140,33 +140,28 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
           {cards.map((c) => {
             const Icon = c.Icon;
             return (
-              <div key={c.which} className="bg-card border border-border rounded-2xl p-5 flex flex-col">
+              // Onda 17.60 — o BALÃO INTEIRO abre (sem "Abrir" e sem "Ligado", que
+              // remetiam a configuração). Hover sinaliza que é clicável; o pontinho
+              // no canto é só um indicador de status (liga/desliga vive na Central).
+              <button
+                key={c.which}
+                type="button"
+                onClick={c.onOpen}
+                className="group text-left bg-card border border-border rounded-2xl p-5 flex flex-col hover:border-primary/40 hover:shadow-md transition-all cursor-pointer"
+              >
                 <div className="flex items-start justify-between">
                   <div className={`w-11 h-11 rounded-xl flex items-center justify-center ${COLOR[c.color]}`}>
                     <Icon size={22} />
                   </div>
                   <span
                     className={`w-2.5 h-2.5 rounded-full mt-1 ${c.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-                    title={c.enabled ? 'Ligado' : 'Desligado'}
+                    title={c.enabled ? 'Ativo' : 'Inativo'}
                   />
                 </div>
-                <p className="text-sm font-medium text-foreground mt-3">{c.title}</p>
+                <p className="text-sm font-medium text-foreground mt-3 group-hover:text-primary transition-colors">{c.title}</p>
                 <p className="text-3xl font-bold text-foreground mt-1 leading-none">{c.metric}</p>
                 <p className="text-xs text-muted-foreground mt-1.5">{c.sub}</p>
-                <div className="flex items-center justify-between mt-4 pt-3 border-t border-border">
-                  {/* Onda 17.60 — só LEITURA aqui (liga/desliga vive na Central de
-                      Disparos: "configura lá, opera aqui"). */}
-                  <span className={`text-xs font-medium ${c.enabled ? 'text-emerald-600 dark:text-emerald-400' : 'text-muted-foreground'}`}>
-                    {c.enabled ? '● Ligado' : '○ Desligado'}
-                  </span>
-                  <button
-                    onClick={c.onOpen}
-                    className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-                  >
-                    Abrir <ArrowRight size={14} />
-                  </button>
-                </div>
-              </div>
+              </button>
             );
           })}
         </div>
