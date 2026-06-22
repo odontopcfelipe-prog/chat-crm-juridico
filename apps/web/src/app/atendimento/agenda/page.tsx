@@ -303,6 +303,18 @@ function formatTimeInput(isoStr: string): string {
   return `${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')}`;
 }
 
+/**
+ * Onda 17.59 — "hoje" no fuso FIXO de Maceió (UTC-3) como "YYYY-MM-DD".
+ * A app é naive-UTC (a hora LOCAL é guardada nos campos UTC). Usar new Date() cru
+ * pega o dia do fuso do BROWSER/UTC — à noite o UTC já virou o dia seguinte, então
+ * a agenda abria no dia ERRADO (vazia) enquanto os eventos ficavam no dia local.
+ * Date.now()-3h lido via getUTC* dá o dia-calendário de Maceió, batendo com os eventos.
+ */
+function maceioTodayStr(): string {
+  const d = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+}
+
 // ─── Mini Calendário (sidebar) ────────────────────────
 
 const MONTH_NAMES_PT = [
@@ -338,12 +350,14 @@ function MiniCalendar({
   // Match no render checa os 2 formatos.
   holidays?: Map<string, string>;
 }) {
-  const today = new Date();
-  const [viewYear, setViewYear] = useState(today.getFullYear());
-  const [viewMonth, setViewMonth] = useState(today.getMonth());
+  // Onda 17.59 — "hoje" no fuso de Maceió (UTC-3), lido via getUTC* (não o fuso do
+  // browser/UTC, que à noite já virou o dia seguinte e marcava o dia errado).
+  const today = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  const [viewYear, setViewYear] = useState(today.getUTCFullYear());
+  const [viewMonth, setViewMonth] = useState(today.getUTCMonth());
   const [selected, setSelected] = useState<string | null>(null);
 
-  const todayStr = `${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
+  const todayStr = `${today.getUTCFullYear()}-${String(today.getUTCMonth()+1).padStart(2,'0')}-${String(today.getUTCDate()).padStart(2,'0')}`;
   const firstDow = new Date(viewYear, viewMonth, 1).getDay();
   const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
 
@@ -912,6 +926,9 @@ export default function AgendaPage() {
   const calendar = useNextCalendarApp({
     views: [createViewWeek(), createViewMonthGrid(), createViewDay()],
     defaultView: isMobile ? 'day' : 'week',
+    // Onda 17.59 — abre no dia de MACEIÓ (não no "today" interno do schedule-x, que
+    // é UTC e à noite já é o dia seguinte → agenda abria vazia no dia errado).
+    selectedDate: maceioTodayStr(),
     locale: 'pt-BR',
     firstDayOfWeek: 1,
     // Onda 17.56 — grade cobre o DIA INTEIRO (00:00–24:00) pra NUNCA esconder um
@@ -1309,6 +1326,28 @@ export default function AgendaPage() {
     fetchEvents(start, end);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // apenas no mount — onRangeUpdate atualiza o range nas navegações
+
+  // Onda 17.59 — o botão "Hoje" do schedule-x usa o "today" INTERNO (UTC), que à
+  // noite (após 21h em Maceió) já é o dia seguinte → levava a agenda pro dia errado
+  // (vazio). Intercepta o clique (fase de captura) e navega pro dia de MACEIÓ.
+  useEffect(() => {
+    if (!calendar) return;
+    const handler = (e: MouseEvent) => {
+      const el = e.target as HTMLElement | null;
+      const btn = el?.closest?.('button');
+      if (!btn) return;
+      const isTodayBtn =
+        (typeof btn.className === 'string' && btn.className.includes('today')) ||
+        (btn.textContent?.trim() === 'Hoje' && !!el?.closest?.('.sx-react-calendar-wrapper'));
+      if (isTodayBtn) {
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        navigateCalendarTo(maceioTodayStr(), calendar);
+      }
+    };
+    document.addEventListener('click', handler, true);
+    return () => document.removeEventListener('click', handler, true);
+  }, [calendar, navigateCalendarTo]);
 
   // Refetch quando filtro de usuario muda
   useEffect(() => {
