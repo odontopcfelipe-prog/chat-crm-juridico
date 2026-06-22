@@ -456,6 +456,12 @@ export class CalendarController {
     return this.calendarService.setBirthdayGreetingConfig(req.user?.tenant_id, body);
   }
 
+  // Onda 17.60 — aniversariantes de hoje + próximos N dias (pra tela do disparo).
+  @Get('birthday-greeting/upcoming')
+  getUpcomingBirthdays(@Request() req: any, @Query('days') days?: string) {
+    return this.calendarService.getUpcomingBirthdays(req.user?.tenant_id, days ? parseInt(days, 10) : 30);
+  }
+
   // Envia um teste da mensagem de confirmação pra um número (admin) — testa entrega.
   @Post('appointment-confirmation/send-test')
   @Roles('ADMIN')

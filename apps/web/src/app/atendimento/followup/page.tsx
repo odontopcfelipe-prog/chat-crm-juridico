@@ -16,8 +16,9 @@ import { RemindersTab } from './components/RemindersTab';
 import { PosAtendimentoTab } from './components/PosAtendimentoTab';
 import { DentistSummaryTab } from './components/DentistSummaryTab';
 import { DisparosHistoryTab } from './components/DisparosHistoryTab';
+import { AniversarioTab } from './components/AniversarioTab';
 
-type View = 'hub' | 'lembretes' | 'pos-atendimento' | 'dentista' | 'historico';
+type View = 'hub' | 'lembretes' | 'pos-atendimento' | 'dentista' | 'historico' | 'aniversario';
 
 export default function FollowupPage() {
   const [view, setView] = useState<View>('hub');
@@ -30,7 +31,7 @@ export default function FollowupPage() {
         {view === 'hub' ? (
           <OperacionalPanel
             onOpenTab={(t) => {
-              if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista' || t === 'historico') {
+              if (t === 'lembretes' || t === 'pos-atendimento' || t === 'dentista' || t === 'historico' || t === 'aniversario') {
                 setView(t);
               }
             }}
@@ -48,6 +49,7 @@ export default function FollowupPage() {
             {view === 'pos-atendimento' && <PosAtendimentoTab />}
             {view === 'dentista' && <DentistSummaryTab />}
             {view === 'historico' && <DisparosHistoryTab />}
+            {view === 'aniversario' && <AniversarioTab />}
           </>
         )}
       </div>

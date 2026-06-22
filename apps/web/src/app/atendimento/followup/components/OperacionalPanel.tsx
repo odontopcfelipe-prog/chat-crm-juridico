@@ -94,7 +94,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       sub: data.aniversario.enabled
         ? <>aniversariantes · <b className="font-semibold text-foreground">parabéns às {fmtHora(data.aniversario.sendAt)}</b></>
         : <>aniversariantes hoje · <b className="font-semibold text-foreground">envio desligado</b></>,
-      onOpen: () => router.push('/atendimento/pacientes'),
+      onOpen: () => onOpenTab('aniversario'),
     },
   ] : []).filter(Boolean) as Array<{
     which: Which; title: string; Icon: typeof Bell; color: string;
