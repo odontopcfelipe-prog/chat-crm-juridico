@@ -1395,6 +1395,7 @@ export default function AgendaPage() {
           const c = conflicts.data[0];
           const hh = (s: string) => new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
           showError(`Conflito com "${c.title}" (${hh(c.start_at)}–${hh(c.end_at)}) — escolha outro horario`);
+          setSavingEvent(false); // Onda 17.59 — solta o botão; antes ficava preso em "Salvando…"
           return;
         }
       } catch (e) { swallow('conflict check falhou — segue com save (server valida tb)')(e); }
