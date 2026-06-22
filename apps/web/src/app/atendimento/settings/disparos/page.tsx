@@ -141,7 +141,7 @@ export default function CentralDisparosPage() {
         >
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
-        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} />}
+        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}

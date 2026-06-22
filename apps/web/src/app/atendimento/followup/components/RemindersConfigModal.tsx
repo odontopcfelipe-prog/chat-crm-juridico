@@ -121,9 +121,13 @@ interface Props {
   /** Onda 17.56 — editor INDIVIDUAL: mostra só o texto desta faixa e esconde a
    *  lista de antecedências, pra clicar num lembrete e editar só ele. */
   onlyTemplate?: 'consulta_24h' | 'consulta_1h' | 'consulta_15min';
+  /** Onda 17.59 — rótulo do lembrete CLICADO na Central (ex.: "Lembrete · 15
+   *  minutos antes"), usado como título do editor individual pra bater com a
+   *  lista (evita "fora 15min, dentro < 1h"). */
+  itemLabel?: string;
 }
 
-export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemplate }: Props) {
+export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemplate, itemLabel }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<ReminderConfig | null>(null);
@@ -363,12 +367,22 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
                 const Icon = info.icon;
                 const value = config.templates[info.key];
                 const preview = applyPreview(value, { ...PREVIEW_VARS, local: clinicAddress });
+                // Onda 17.59 — no editor individual, título = lembrete clicado (bate com
+                // a lista) e a legenda explica a FAIXA que esse texto cobre (15min e <1h
+                // são o mesmo template, por isso "fora 15min, dentro <1h" confundia).
+                const coverage: Record<string, string> = {
+                  consulta_24h: 'Vale pra qualquer lembrete de 1 dia (24h ou mais) antes',
+                  consulta_1h: 'Vale pra qualquer lembrete de 1h a 23h antes',
+                  consulta_15min: 'Vale pra qualquer lembrete a menos de 1h antes (ex.: 15 min)',
+                };
+                const title = onlyTemplate && itemLabel ? itemLabel : info.title;
+                const sub = onlyTemplate ? coverage[info.key] : info.sub;
                 return (
                   <div key={info.key} className="mb-4 last:mb-0">
                     <div className="flex items-center gap-2 mb-1.5">
                       <Icon size={12} className="text-muted-foreground" />
-                      <h4 className="text-xs font-bold text-foreground">{info.title}</h4>
-                      <span className="text-[10px] text-muted-foreground italic">— {info.sub}</span>
+                      <h4 className="text-xs font-bold text-foreground">{title}</h4>
+                      <span className="text-[10px] text-muted-foreground italic">— {sub}</span>
                     </div>
 
                     {/* Botoes pra inserir variavel rapida */}
