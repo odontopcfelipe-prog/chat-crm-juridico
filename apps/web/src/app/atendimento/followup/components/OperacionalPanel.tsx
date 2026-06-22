@@ -16,11 +16,11 @@ type Which = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario';
 // Onda 17.60 — cada card traz enviadosHoje + aEnviar pra mostrar "X enviados · Y a
 // enviar" por fora (opcionais p/ resiliencia com backend antigo).
 interface OperacionalData {
-  confirmacao: { enabled: boolean; enviadasHoje: number; confirmadasHoje: number; pct: number; enviadosHoje?: number; aEnviar?: number };
-  lembrete: { enabled: boolean; enviadosHoje: number; antecedenciaLabel: string; aEnviar?: number };
-  pos: { enabled: boolean; nps: number | null; respostasHoje: number; media30d: number | null; responded: number; enviadosHoje?: number; aEnviar?: number };
-  dentista: { enabled: boolean; sendAt: string; dentistasHoje: number; enviadosHoje?: number; aEnviar?: number };
-  aniversario: { enabled: boolean; sendAt: string; aniversariantesHoje: number; enviadosHoje?: number; aEnviar?: number };
+  confirmacao: { enabled: boolean; enviadasHoje: number; confirmadasHoje: number; pct: number; enviadosHoje?: number; aEnviar?: number; enviadosMes?: number };
+  lembrete: { enabled: boolean; enviadosHoje: number; antecedenciaLabel: string; aEnviar?: number; enviadosMes?: number };
+  pos: { enabled: boolean; nps: number | null; respostasHoje: number; media30d: number | null; responded: number; enviadosHoje?: number; aEnviar?: number; enviadosMes?: number };
+  dentista: { enabled: boolean; sendAt: string; dentistasHoje: number; enviadosHoje?: number; aEnviar?: number; enviadosMes?: number };
+  aniversario: { enabled: boolean; sendAt: string; aniversariantesHoje: number; enviadosHoje?: number; aEnviar?: number; enviadosMes?: number };
 }
 
 const COLOR: Record<string, string> = {
@@ -64,6 +64,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       enabled: data.confirmacao.enabled,
       enviados: data.confirmacao.enviadosHoje ?? data.confirmacao.enviadasHoje ?? 0,
       aEnviar: data.confirmacao.aEnviar ?? 0,
+      enviadosMes: data.confirmacao.enviadosMes ?? 0,
       sub: data.confirmacao.enviadasHoje > 0
         ? <><b className="font-semibold text-foreground">{data.confirmacao.confirmadasHoje} de {data.confirmacao.enviadasHoje}</b> confirmaram hoje</>
         : <>consultas a confirmar nas próximas 24h</>,
@@ -74,6 +75,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       enabled: data.lembrete.enabled,
       enviados: data.lembrete.enviadosHoje ?? 0,
       aEnviar: data.lembrete.aEnviar ?? 0,
+      enviadosMes: data.lembrete.enviadosMes ?? 0,
       sub: <>antecedência: <b className="font-semibold text-foreground">{data.lembrete.antecedenciaLabel}</b></>,
       onOpen: () => onOpenTab('lembretes'),
     },
@@ -82,6 +84,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       enabled: data.pos.enabled,
       enviados: data.pos.enviadosHoje ?? 0,
       aEnviar: data.pos.aEnviar ?? 0,
+      enviadosMes: data.pos.enviadosMes ?? 0,
       sub: <>{data.pos.nps != null ? <><b className="font-semibold text-foreground">NPS {data.pos.nps}</b> · </> : null}{data.pos.respostasHoje} respostas hoje</>,
       onOpen: () => onOpenTab('pos-atendimento'),
     },
@@ -90,6 +93,7 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       enabled: data.dentista.enabled,
       enviados: data.dentista.enviadosHoje ?? 0,
       aEnviar: data.dentista.aEnviar ?? data.dentista.dentistasHoje ?? 0,
+      enviadosMes: data.dentista.enviadosMes ?? 0,
       sub: <>às <b className="font-semibold text-foreground">{fmtHora(data.dentista.sendAt)}</b> · {data.dentista.dentistasHoje} com agenda hoje</>,
       onOpen: () => onOpenTab('dentista'),
     },
@@ -98,12 +102,13 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
       enabled: data.aniversario.enabled,
       enviados: data.aniversario.enviadosHoje ?? 0,
       aEnviar: data.aniversario.aEnviar ?? data.aniversario.aniversariantesHoje ?? 0,
+      enviadosMes: data.aniversario.enviadosMes ?? 0,
       sub: <>parabéns às <b className="font-semibold text-foreground">{fmtHora(data.aniversario.sendAt)}</b></>,
       onOpen: () => onOpenTab('aniversario'),
     },
   ] : []).filter(Boolean) as Array<{
     which: Which; title: string; Icon: typeof Bell; color: string;
-    enabled: boolean; enviados: number; aEnviar: number; sub: ReactNode; onOpen: () => void;
+    enabled: boolean; enviados: number; aEnviar: number; enviadosMes: number; sub: ReactNode; onOpen: () => void;
   }>;
 
   const ligados = cards.filter((c) => c.enabled).length;
@@ -164,16 +169,23 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
                   />
                 </div>
                 <p className="text-sm font-medium text-foreground mt-3 group-hover:text-primary transition-colors">{c.title}</p>
-                {/* Onda 17.60 — "enviados · a enviar" por fora, sem precisar abrir. */}
-                <div className="flex items-end gap-4 mt-2">
-                  <div>
-                    <div className="text-2xl font-extrabold leading-none text-foreground">{c.enviados}</div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">enviados hoje</div>
+                {/* Onda 17.60 — "enviados hoje · a enviar" à esquerda (operacional) e
+                    "no mês" à direita (volume), tudo por fora, sem precisar abrir. */}
+                <div className="flex items-end justify-between mt-2 gap-2">
+                  <div className="flex items-end gap-4">
+                    <div>
+                      <div className="text-2xl font-extrabold leading-none text-foreground">{c.enviados}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">enviados hoje</div>
+                    </div>
+                    <div className="w-px h-8 bg-border" />
+                    <div>
+                      <div className={`text-2xl font-extrabold leading-none ${c.aEnviar > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{c.aEnviar}</div>
+                      <div className="text-[10px] text-muted-foreground mt-0.5">a enviar</div>
+                    </div>
                   </div>
-                  <div className="w-px h-8 bg-border" />
-                  <div>
-                    <div className={`text-2xl font-extrabold leading-none ${c.aEnviar > 0 ? 'text-amber-600 dark:text-amber-400' : 'text-muted-foreground'}`}>{c.aEnviar}</div>
-                    <div className="text-[10px] text-muted-foreground mt-0.5">a enviar</div>
+                  <div className="text-right">
+                    <div className="text-lg font-bold leading-none text-muted-foreground">{c.enviadosMes}</div>
+                    <div className="text-[10px] text-muted-foreground mt-0.5">no mês</div>
                   </div>
                 </div>
                 <p className="text-xs text-muted-foreground mt-2">{c.sub}</p>
