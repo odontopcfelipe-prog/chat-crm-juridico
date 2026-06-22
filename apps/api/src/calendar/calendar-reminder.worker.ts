@@ -566,16 +566,23 @@ export class CalendarReminderWorker extends WorkerHost {
         select: { id: true, instance_name: true },
       }).catch(() => null);
 
-      // Resolve instância WhatsApp em 4 níveis: conversa ativa → encerrada → banco → env
-      // Cobre clientes sem histórico no chat (cadastrados via processos/DJEN)
-      const reminderInstanceName = await this.resolveInstanceName(event.lead.id);
+      // Onda 17.59 — CONSULTA odonto resolve a instância por TENANT e passa o
+      // tenantId pro sendText (IGUAL à "agendada"/Notificar que FUNCIONAM). O
+      // caminho antigo (instância por lead, sem tenantId) fazia o lembrete de
+      // consulta falhar calado, porque o sendText resolve a config da Evolution
+      // pelo tenant. Audiência/perícia mantêm o caminho legado por lead.
+      const reminderInstanceName = isConsulta && event.tenant_id
+        ? await this.resolveTenantInstance(event.tenant_id)
+        : await this.resolveInstanceName(event.lead.id);
 
       let reminderSendResult: any;
       try {
         reminderSendResult = await this.whatsapp.sendText(
           clientPhone,
           clientMsg,
-          reminderInstanceName,
+          reminderInstanceName ?? undefined,
+          undefined,
+          isConsulta ? event.tenant_id : undefined,
         );
         // sendText() retorna objeto de erro em vez de lançar exceção em falhas HTTP
         if (!reminderSendResult || reminderSendResult?.statusCode >= 400 || reminderSendResult?.error) {
@@ -1030,6 +1037,27 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
 
     this.logger.warn(`[INSTANCE] Lead ${leadId}: nenhuma instância WhatsApp encontrada. Envio pode falhar.`);
     return undefined;
+  }
+
+  // ─── Resolução da instância por TENANT (Onda 17.59) ──────────────────────────
+  //
+  // Espelha resolveTenantWhatsappInstance do CalendarService — a engine da
+  // "agendada"/Notificar que FUNCIONAM. Escopar por tenant_id (em vez de por lead)
+  // é o que faltava pro lembrete de CONSULTA odonto entregar: conversa do tenant →
+  // instância do tenant. Pode voltar null — aí o sendText resolve via tenantId.
+  private async resolveTenantInstance(tenantId: string): Promise<string | null> {
+    const convo = await this.prisma.conversation.findFirst({
+      where: { instance_name: { not: null }, tenant_id: tenantId },
+      orderBy: { last_message_at: 'desc' },
+      select: { instance_name: true },
+    }).catch(() => null);
+    if (convo?.instance_name) return convo.instance_name;
+    const inst = await this.prisma.instance.findFirst({
+      where: { type: 'whatsapp', tenant_id: tenantId },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    }).catch(() => null);
+    return inst?.name ?? null;
   }
 
   // ─── Email reminder (portado do worker em 2026-04-20 — Divida 3) ────────
