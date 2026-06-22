@@ -2636,6 +2636,8 @@ export class CalendarService {
         status: true,
         title: true,
         lead: { select: { phone: true } },
+        // Onda 17.59 — consulta odonto guarda o contato no PACIENTE (não no lead)
+        patient: { select: { phone: true } },
       },
     });
 
@@ -2643,15 +2645,20 @@ export class CalendarService {
       throw new NotFoundException(`Evento ${eventId} não encontrado`);
     }
 
-    if (!['AUDIENCIA', 'PERICIA'].includes(event.type)) {
+    // Onda 17.59 — antes só AUDIENCIA/PERICIA (legado jurídico). Agora também
+    // CONSULTA/PROCEDIMENTO/RETORNO (odonto): o "Notificar" dispara o lembrete na
+    // hora, via a MESMA engine dos lembretes agendados — vira teste de 1 clique.
+    const isHearing = ['AUDIENCIA', 'PERICIA'].includes(event.type);
+    const isClinical = this.isClinicalEvent(event.type);
+    if (!isHearing && !isClinical) {
       throw new BadRequestException(
-        `Notificação manual disponível apenas para Audiência e Perícia (tipo atual: ${event.type})`,
+        `Notificação manual não disponível para o tipo ${event.type}`,
       );
     }
 
-    if (!event.lead?.phone) {
+    if (!event.patient?.phone && !event.lead?.phone) {
       throw new BadRequestException(
-        'Cliente vinculado ao evento não possui telefone cadastrado',
+        'Paciente/cliente vinculado ao evento não possui telefone cadastrado',
       );
     }
 
@@ -2661,13 +2668,29 @@ export class CalendarService {
       );
     }
 
-    // Remove job pendente anterior para evitar duplicata
+    // CONSULTA odonto → envia o lembrete (template 15min) na hora.
+    if (isClinical) {
+      await this.reminderQueue.add(
+        'notify-consulta-now',
+        { eventId, minutesBefore: 15 },
+        {
+          jobId: `consulta-notify-manual-${eventId}-${Date.now()}`,
+          attempts: 3,
+          backoff: { type: 'exponential', delay: 5000 },
+          removeOnComplete: true,
+          removeOnFail: 50,
+        },
+      );
+      this.logger.log(`[NOTIFY] Lembrete manual (consulta) enfileirado para evento ${eventId} ("${event.title}")`);
+      return { queued: true, message: 'Lembrete enviado ao paciente no WhatsApp' };
+    }
+
+    // AUDIENCIA/PERICIA (legado): remove job pendente e re-enfileira sem delay.
     try {
       const existing = await this.reminderQueue.getJob(`hearing-notify-${eventId}`);
       if (existing) await existing.remove();
     } catch {}
 
-    // Enfileira sem delay (envio imediato)
     await this.reminderQueue.add(
       'notify-hearing-scheduled',
       { eventId },
