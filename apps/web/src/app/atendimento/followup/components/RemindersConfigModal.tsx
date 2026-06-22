@@ -157,7 +157,13 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
       }
     };
     load();
-  }, [open, onClose]);
+    // Onda 17.59 — depende SÓ de `open`. Antes incluía `onClose`, que a página
+    // recria a cada render (arrow inline `() => {}`); com o onCurrentTextChange
+    // disparando re-render a cada tecla, o load re-rodava e RE-BUSCAVA a config,
+    // sobrescrevendo o que o usuário acabou de digitar ("a página atualiza /
+    // não consigo alterar o texto"). onClose só é usado no catch (no-op embedded).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   // Onda 17.59 — reporta o texto do template em edição (modo individual) pro botão
   // "Enviar teste" mandar exatamente o que está na tela, mesmo antes de salvar.
@@ -167,7 +173,10 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
 
   const handleSave = async () => {
     if (!config) return;
-    if (config.default_antecedencias.length === 0) {
+    // Onda 17.59 — no editor INDIVIDUAL (onlyTemplate) edita-se só o TEXTO; a seção
+    // de antecedências fica oculta, então NÃO exige antecedência aqui — senão um
+    // config sem antecedência travava o salvar do texto sem o usuário ver o porquê.
+    if (!onlyTemplate && config.default_antecedencias.length === 0) {
       showError('Defina ao menos uma antecedência padrão');
       return;
     }
