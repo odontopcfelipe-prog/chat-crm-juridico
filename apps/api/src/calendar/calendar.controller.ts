@@ -466,8 +466,8 @@ export class CalendarController {
   // Teste genérico — envia a mensagem de qualquer disparo pra um número (admin).
   @Post('disparo/send-test')
   @Roles('ADMIN')
-  sendTestDisparo(@Body() body: { disparo: string; phone: string }, @Request() req: any) {
-    return this.calendarService.sendTestDisparo(req.user?.tenant_id, body?.disparo, body?.phone);
+  sendTestDisparo(@Body() body: { disparo: string; phone: string; text?: string }, @Request() req: any) {
+    return this.calendarService.sendTestDisparo(req.user?.tenant_id, body?.disparo, body?.phone, body?.text);
   }
 
   // Trigger manual — admin clica "Enviar agora" pra teste ou disparo

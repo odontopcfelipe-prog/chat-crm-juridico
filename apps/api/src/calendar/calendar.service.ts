@@ -1601,7 +1601,7 @@ export class CalendarService {
 
   /** Onda 17.56 — teste GENÉRICO: envia a mensagem de QUALQUER disparo (com dados
    *  de exemplo) pra um número, pra ver na hora se o WhatsApp da clínica entrega. */
-  async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string) {
+  async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string, text?: string) {
     let num = (phone || '').replace(/\D/g, '');
     if (num.length < 10) {
       throw new BadRequestException('Telefone inválido — use DDD + número (ex.: 82999998888)');
@@ -1664,7 +1664,12 @@ export class CalendarService {
         .trim();
 
     let msg = '';
-    switch (disparo) {
+    // Onda 17.59 — se o editor mandou o texto ATUAL da tela (`text`), testa ELE
+    // (fiel ao que o usuário vê, mesmo ANTES de salvar). Senão, lê o texto SALVO
+    // do disparo (comportamento antigo). Mesma substituição de variáveis nos dois.
+    if (text && text.trim()) {
+      msg = apply(text);
+    } else switch (disparo) {
       case 'confirmacao':
         msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
         break;

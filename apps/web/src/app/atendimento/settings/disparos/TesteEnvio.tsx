@@ -8,14 +8,16 @@ import { Loader2, Send } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
-export function TesteEnvio({ disparo }: { disparo: string }) {
+export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }) {
   const [phone, setPhone] = useState('');
   const [sending, setSending] = useState(false);
 
   const send = async () => {
     setSending(true);
     try {
-      await api.post('/calendar/disparo/send-test', { disparo, phone });
+      // Onda 17.59 — manda o `text` ATUAL da tela quando o editor fornece (fiel ao
+      // que está escrito, mesmo sem salvar). Sem `text`, o backend usa o texto salvo.
+      await api.post('/calendar/disparo/send-test', { disparo, phone, text });
       showSuccess('Teste enviado — confira o WhatsApp desse número');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao enviar o teste');
@@ -45,8 +47,9 @@ export function TesteEnvio({ disparo }: { disparo: string }) {
         </button>
       </div>
       <p className="text-[10px] text-muted-foreground mt-1">
-        Manda a mensagem deste disparo (com dados de exemplo) pro número acima. Precisa do WhatsApp
-        da clínica conectado.
+        {text != null
+          ? 'Manda o texto que está NA TELA agora (com dados de exemplo) — você não precisa salvar pra testar. Precisa do WhatsApp da clínica conectado.'
+          : 'Manda a mensagem deste disparo (com dados de exemplo) pro número acima. Precisa do WhatsApp da clínica conectado.'}
       </p>
     </div>
   );

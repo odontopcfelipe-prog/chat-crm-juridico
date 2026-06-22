@@ -22,6 +22,9 @@ export interface MensagemEditorProps {
   /** Se true, busca o endereço real da clínica pra {local_line}/{local}. */
   usaLocal?: boolean;
   maxLen?: number;
+  /** Onda 17.59 — reporta o texto ATUAL pro "Enviar teste" mandar o que está na
+   *  tela, sem precisar salvar antes. */
+  onCurrentTextChange?: (text: string) => void;
 }
 
 function applyPreview(t: string, vars: Record<string, string>, local: string): string {
@@ -33,11 +36,14 @@ function applyPreview(t: string, vars: Record<string, string>, local: string): s
     .trim();
 }
 
-export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500 }: MensagemEditorProps) {
+export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange }: MensagemEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
   const [clinicAddress, setClinicAddress] = useState(usaLocal ? 'Rua das Acácias, 123 — Sala 4 (exemplo)' : '');
+
+  // Onda 17.59 — reporta o texto atual pro "Enviar teste" testar o que está na tela.
+  useEffect(() => { onCurrentTextChange?.(template); }, [template, onCurrentTextChange]);
 
   useEffect(() => {
     api.get(endpoint)
@@ -86,15 +92,15 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
           <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
             <Variable size={11} /> Variáveis disponíveis
           </div>
-          <div className="flex flex-wrap gap-1.5">
+          {/* Onda 17.59 — significado VISÍVEL de cada variável (não só no hover). */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
             {variaveis.map((v) => (
-              <span
-                key={v.key}
-                title={v.desc}
-                className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono bg-primary/10 text-primary border border-primary/20"
-              >
-                {`{${v.key}}`}
-              </span>
+              <div key={v.key} className="flex items-baseline gap-1.5 text-[11px]">
+                <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap">
+                  {`{${v.key}}`}
+                </code>
+                <span className="text-muted-foreground leading-tight">{v.desc}</span>
+              </div>
             ))}
           </div>
           {usaLocal && (

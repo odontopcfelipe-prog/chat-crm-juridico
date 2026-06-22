@@ -125,9 +125,12 @@ interface Props {
    *  minutos antes"), usado como título do editor individual pra bater com a
    *  lista (evita "fora 15min, dentro < 1h"). */
   itemLabel?: string;
+  /** Onda 17.59 — reporta o texto ATUAL do template editado (só no modo
+   *  `onlyTemplate`) pra o "Enviar teste" mandar o que está na tela, sem salvar. */
+  onCurrentTextChange?: (text: string) => void;
 }
 
-export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemplate, itemLabel }: Props) {
+export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemplate, itemLabel, onCurrentTextChange }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [config, setConfig] = useState<ReminderConfig | null>(null);
@@ -155,6 +158,12 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
     };
     load();
   }, [open, onClose]);
+
+  // Onda 17.59 — reporta o texto do template em edição (modo individual) pro botão
+  // "Enviar teste" mandar exatamente o que está na tela, mesmo antes de salvar.
+  useEffect(() => {
+    if (onlyTemplate && config) onCurrentTextChange?.(config.templates[onlyTemplate]);
+  }, [config, onlyTemplate, onCurrentTextChange]);
 
   const handleSave = async () => {
     if (!config) return;
@@ -346,16 +355,23 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
                 <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
                   <Variable size={11} /> Variáveis disponíveis
                 </div>
-                <div className="flex flex-wrap gap-1.5">
+                {/* Onda 17.59 — significado VISÍVEL de cada variável (não só no hover),
+                    pra quem for editar no futuro saber o que cada uma faz. */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                   {VARIABLES.map((v) => (
-                    <span
-                      key={v.key}
-                      className="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-mono bg-primary/10 text-primary border border-primary/20"
-                      title={v.desc}
-                    >
-                      {`{${v.key}}`}
-                    </span>
+                    <div key={v.key} className="flex items-baseline gap-1.5 text-[11px]">
+                      <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap">
+                        {`{${v.key}}`}
+                      </code>
+                      <span className="text-muted-foreground leading-tight">{v.desc}</span>
+                    </div>
                   ))}
+                  <div className="flex items-baseline gap-1.5 text-[11px]">
+                    <code className="font-mono text-primary bg-primary/10 border border-primary/20 px-1.5 py-0.5 rounded whitespace-nowrap">
+                      {'{local_line}'}
+                    </code>
+                    <span className="text-muted-foreground leading-tight">📍 + endereço + quebra de linha (use no lugar de {'{local}'})</span>
+                  </div>
                 </div>
                 <p className="text-[10px] text-muted-foreground mt-2 italic">
                   💡 Dica: use <code className="bg-muted/50 px-1 rounded">{'{local_line}'}</code> em vez de <code>{'{local}'}</code> sozinho — ele já adiciona o emoji 📍 e quebra de linha automática.

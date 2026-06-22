@@ -47,6 +47,11 @@ export default function CentralDisparosPage() {
   const [saving, setSaving] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [fixingPhones, setFixingPhones] = useState(false);
+  // Onda 17.59 — texto ATUAL do editor aberto (reportado por RemindersConfigModal/
+  // MensagemEditor) pro "Enviar teste" testar o que está na tela, sem precisar salvar.
+  const [liveText, setLiveText] = useState<string | undefined>(undefined);
+  // Some o texto vivo ao trocar de disparo (evita vazar o texto de um editor pro outro).
+  useEffect(() => { setLiveText(undefined); }, [openId]);
 
   const load = useCallback(async () => {
     const [opRes, cfgRes] = await Promise.allSettled([
@@ -141,7 +146,7 @@ export default function CentralDisparosPage() {
         >
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
-        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} />}
+        {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} onCurrentTextChange={setLiveText} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'pos' && <PosAtendimentoTab />}
         {openItem.editor === 'dentista' && <DentistSummaryTab />}
@@ -159,6 +164,7 @@ export default function CentralDisparosPage() {
               { key: 'local', desc: 'Endereço da clínica' },
             ]}
             preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '22/06', hora: '15:00' }}
+            onCurrentTextChange={setLiveText}
           />
         )}
         {openItem.editor === 'aniversario' && (
@@ -171,9 +177,10 @@ export default function CentralDisparosPage() {
               { key: 'clinica', desc: 'Nome da clínica' },
             ]}
             preview={{ nome: 'Felipe', clinica: 'sua clínica' }}
+            onCurrentTextChange={setLiveText}
           />
         )}
-        <TesteEnvio disparo={openItem.id} />
+        <TesteEnvio disparo={openItem.id} text={liveText} />
       </div>
     );
   }
