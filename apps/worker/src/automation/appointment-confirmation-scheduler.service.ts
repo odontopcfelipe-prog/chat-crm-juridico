@@ -62,7 +62,7 @@ export class AppointmentConfirmationSchedulerService {
       // Onda 17.57 — cache do endereço da clínica por tenant (fallback do {local})
       const addressByTenant = new Map<string, string>();
       const DEFAULT_TPL =
-        'Olá {nome}! Confirmando sua consulta com {dentista} amanhã ({data}) às {hora}.\n{local_line}\nResponda 1 para CONFIRMAR ou 2 para REMARCAR.';
+        'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
 
       for (const ev of eligible) {
         if (!ev.patient?.phone) {

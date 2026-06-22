@@ -1530,7 +1530,7 @@ export class CalendarService {
   // APPOINTMENT_CONFIRMATION_TEMPLATE_<tenant>. O worker scheduler aplica.
   async getAppointmentConfirmationConfig(tenant_id?: string) {
     const DEFAULT =
-      'Olá {nome}! Confirmando sua consulta com {dentista} amanhã ({data}) às {hora}.\n{local_line}\nResponda 1 para CONFIRMAR ou 2 para REMARCAR.';
+      'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
     const key = tenant_id ? `APPOINTMENT_CONFIRMATION_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_TEMPLATE';
     try {
       const setting = await this.prisma.globalSetting.findUnique({ where: { key } });

@@ -62,10 +62,10 @@ export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
   ],
   templates: {
     consulta_confirmacao:
-      'Olá {nome}! 😊\n\n' +
-      'Sua consulta com {dentista} está agendada para *{data}* às *{hora}*.\n' +
+      'Oi {nome}, tudo bem? 😊\n\n' +
+      'Aqui é pra confirmar seu atendimento com {dentista}, marcado pro dia *{data}* às *{hora}*.\n' +
       '{local_line}\n' +
-      'Posso confirmar sua presença? Responda *SIM* pra confirmar — ou me avise se precisar remarcar que a gente ajeita. 🙂',
+      'Posso confirmar sua presença? 🙂 Se surgir algum imprevisto e precisar mudar o horário, é só me avisar que a gente reorganiza pra você.',
     consulta_24h:
       'Oi {nome}! 😊\n\n' +
       'Passando só pra lembrar da sua consulta com {dentista} amanhã, *{data}* às *{hora}*.\n' +

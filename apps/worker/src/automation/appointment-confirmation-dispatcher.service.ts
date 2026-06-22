@@ -118,7 +118,7 @@ export class AppointmentConfirmationDispatcherService {
             `${apiUrl}/message/sendText/${instance}`,
             {
               number: toBrazilWhatsappNumber(phone),
-              text: c.message_text || 'Confirmando sua consulta amanha. Responda 1 para CONFIRMAR ou 2 para REMARCAR.',
+              text: c.message_text || 'Oi, tudo bem? 😊 Aqui é pra confirmar seu atendimento amanhã. Posso confirmar sua presença? Qualquer imprevisto, me avisa que a gente ajeita um novo horário. 🙂',
             },
             { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 },
           );
