@@ -30,6 +30,7 @@ interface Antecedencia {
 }
 
 interface Templates {
+  consulta_confirmacao: string;
   consulta_24h: string;
   consulta_1h: string;
   consulta_15min: string;
@@ -72,9 +73,15 @@ const VARIABLES = [
 
 const TEMPLATE_INFO = [
   {
+    key: 'consulta_confirmacao' as const,
+    title: 'Confirmação de presença (48h antes)',
+    sub: 'PEDE pra confirmar — a IA processa a resposta do paciente',
+    icon: Clock,
+  },
+  {
     key: 'consulta_24h' as const,
-    title: 'Lembrete de 24h+ antes',
-    sub: 'Geralmente convite a confirmar (lembrete 1 dia antes)',
+    title: 'Lembrete de 24h antes',
+    sub: 'Só lembra (a confirmação é a mensagem de 48h)',
     icon: Clock,
   },
   {
@@ -120,7 +127,7 @@ interface Props {
   embedded?: boolean;
   /** Onda 17.56 — editor INDIVIDUAL: mostra só o texto desta faixa e esconde a
    *  lista de antecedências, pra clicar num lembrete e editar só ele. */
-  onlyTemplate?: 'consulta_24h' | 'consulta_1h' | 'consulta_15min';
+  onlyTemplate?: 'consulta_confirmacao' | 'consulta_24h' | 'consulta_1h' | 'consulta_15min';
   /** Onda 17.59 — rótulo do lembrete CLICADO na Central (ex.: "Lembrete · 15
    *  minutos antes"), usado como título do editor individual pra bater com a
    *  lista (evita "fora 15min, dentro < 1h"). */
@@ -396,7 +403,8 @@ export function RemindersConfigModal({ open, onClose, embedded = false, onlyTemp
                 // a lista) e a legenda explica a FAIXA que esse texto cobre (15min e <1h
                 // são o mesmo template, por isso "fora 15min, dentro <1h" confundia).
                 const coverage: Record<string, string> = {
-                  consulta_24h: 'Vale pra qualquer lembrete de 1 dia (24h ou mais) antes',
+                  consulta_confirmacao: 'A mensagem que PEDE confirmação (o lembrete de maior antecedência, ex.: 48h)',
+                  consulta_24h: 'Lembrete de 1 dia (24h) antes — só lembra',
                   consulta_1h: 'Vale pra qualquer lembrete de 1h a 23h antes',
                   consulta_15min: 'Vale pra qualquer lembrete a menos de 1h antes (ex.: 15 min)',
                 };

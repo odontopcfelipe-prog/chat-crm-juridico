@@ -112,6 +112,7 @@ function templateClienteConsulta(
   minutesBefore: number,
   config: ReminderConfig,
   tenantAddr: string,
+  forceKey?: keyof ReminderConfig['templates'],
 ): string {
   const nomeFull = event.lead?.name || 'paciente';
   const nome = nomeFull.split(' ')[0];
@@ -124,8 +125,8 @@ function templateClienteConsulta(
   const horaStr = `${String(event.start_at.getUTCHours()).padStart(2, '0')}:${String(event.start_at.getUTCMinutes()).padStart(2, '0')}`;
   const antecedenciaLabel = minutesLabel(minutesBefore);
 
-  // Escolhe qual template aplicar pela faixa de antecedencia
-  const templateKey = pickTemplateKey(minutesBefore);
+  // Escolhe qual template aplicar: forçado (confirmação) ou pela faixa de antecedência.
+  const templateKey = forceKey ?? pickTemplateKey(minutesBefore);
   const template = config.templates[templateKey];
 
   return applyTemplate(template, {
@@ -350,6 +351,9 @@ export class CalendarReminderWorker extends WorkerHost {
         // v31: patient como fallback quando evento foi criado direto via ficha
         // (sem lead vinculado). Worker mescla lead || patient ao processar.
         patient: { select: { id: true, name: true, phone: true } },
+        // Onda 17.60 — pra saber se ESTE lembrete é o de MAIOR antecedência
+        // (= a confirmação) ou só um lembrete intermediário.
+        reminders: { select: { minutes_before: true } },
       },
     });
 
@@ -538,16 +542,22 @@ export class CalendarReminderWorker extends WorkerHost {
     const shouldNotifyClient = (isAudiencia || isConsulta) && event.lead?.phone;
     if (shouldNotifyClient) {
       const clientPhone = event.lead.phone.replace(/\D/g, '');
+      // Onda 17.60 — a CONFIRMAÇÃO é o lembrete de MAIOR antecedência (>=24h) do
+      // evento; os demais só LEMBRAM. Se a clínica tem o de 48h, ELE confirma; se
+      // não tem, o de 24h vira a confirmação (mantém o comportamento atual — sem
+      // regressão pra quem já usa só 1d/1h/15min).
+      const maxAnt = Math.max(0, ...((event.reminders as any[]) || []).map((r) => r.minutes_before || 0));
+      const isConfirmation = isConsulta && minutesBefore >= 1440 && minutesBefore === maxAnt;
       let clientMsg: string;
 
       if (isConsulta) {
-        // CONSULTA: usa template natural odonto (sem IA pra ser consistente
-        // e nao gerar mensagem fora do tom). Lembrete 24h convida confirmar.
+        // CONSULTA: usa template natural odonto (sem IA pra ser consistente e nao
+        // gerar mensagem fora do tom). A confirmação usa o template consulta_confirmacao.
         // v27: carrega config do tenant pra usar templates customizaveis.
         const config = await this.loadReminderConfig(event.tenant_id);
         const tenantAddr = await this.loadTenantAddress(event.tenant_id);
-        clientMsg = templateClienteConsulta(event, minutesBefore, config, tenantAddr);
-        this.logger.log(`[REMINDER] Template CONSULTA gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
+        clientMsg = templateClienteConsulta(event, minutesBefore, config, tenantAddr, isConfirmation ? 'consulta_confirmacao' : undefined);
+        this.logger.log(`[REMINDER] Template CONSULTA${isConfirmation ? ' (CONFIRMAÇÃO)' : ''} gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
       } else {
         // AUDIENCIA/PERICIA: tenta IA, fallback pra template juridico
         try {
@@ -610,10 +620,11 @@ export class CalendarReminderWorker extends WorkerHost {
               status: 'enviado',
             },
           });
-          // Onda 5e v17: flag awaiting_confirmation pro lembrete 24h
-          // (>=1440 min antes). IA detecta resposta do paciente e processa
-          // como confirmacao ou pedido de remarcacao via AGENDAMENTO_OVERRIDES.
-          const awaitingConfirmation = isConsulta && minutesBefore >= 1440;
+          // Onda 17.60 — flag awaiting_confirmation SÓ no disparo de CONFIRMAÇÃO
+          // (o lembrete de MAIOR antecedência do evento — 48h se houver, senão 24h).
+          // Antes era qualquer >=1440, o que faria 48h E 24h pedirem confirmação.
+          // A IA detecta a resposta e processa via AGENDAMENTO_OVERRIDES.
+          const awaitingConfirmation = isConfirmation;
           await this.prisma.conversation.update({
             where: { id: lastConvo.id },
             data: {

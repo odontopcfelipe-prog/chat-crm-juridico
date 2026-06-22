@@ -132,8 +132,9 @@ export default function CentralDisparosPage() {
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
   if (openItem && openItem.editor) {
     // lembrete individual: edita só o texto da sua faixa (1 dia→24h, 1h→1h, 15min→<1h)
-    const tplKey: 'consulta_24h' | 'consulta_1h' | 'consulta_15min' | undefined =
+    const tplKey: 'consulta_confirmacao' | 'consulta_24h' | 'consulta_1h' | 'consulta_15min' | undefined =
       openItem.antecedenciaMin == null ? undefined
+        : openItem.antecedenciaMin >= 2880 ? 'consulta_confirmacao'
         : openItem.antecedenciaMin >= 1440 ? 'consulta_24h'
         : openItem.antecedenciaMin >= 60 ? 'consulta_1h'
         : 'consulta_15min';

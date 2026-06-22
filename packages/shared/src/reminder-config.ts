@@ -26,7 +26,14 @@ export interface ReminderAntecedencia {
 }
 
 export interface ReminderTemplates {
-  /** Lembrete >= 24h antes (convite a confirmar) */
+  /**
+   * Onda 17.60 — CONFIRMAÇÃO (não é lembrete): a mensagem MAIS ANTIGA configurada
+   * (ex.: 48h antes) PEDE pra confirmar a presença. A IA processa a resposta
+   * ("sim" → CONFIRMADO; "não posso/remarcar" → libera a vaga + oferece horários).
+   * Usada quando o lembrete é o de maior antecedência (>=24h) do evento.
+   */
+  consulta_confirmacao: string;
+  /** Lembrete >= 24h antes (só LEMBRA — quem pede confirmação é o consulta_confirmacao) */
   consulta_24h: string;
   /** Lembrete entre 1h e 23h antes (lembrete pratico) */
   consulta_1h: string;
@@ -48,16 +55,22 @@ export interface ReminderConfig {
 export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
   enabled: true,
   default_antecedencias: [
-    { minutes_before: 1440, channel: 'WHATSAPP' },
-    { minutes_before: 60, channel: 'WHATSAPP' },
-    { minutes_before: 15, channel: 'WHATSAPP' },
+    { minutes_before: 2880, channel: 'WHATSAPP' }, // 48h — CONFIRMAÇÃO (pede pra confirmar)
+    { minutes_before: 1440, channel: 'WHATSAPP' }, // 24h — lembrete
+    { minutes_before: 60, channel: 'WHATSAPP' },   // 1h  — lembrete
+    { minutes_before: 15, channel: 'WHATSAPP' },   // 15min — lembrete
   ],
   templates: {
-    consulta_24h:
-      'Oi {nome}! Tudo bem? 😊\n\n' +
-      'Passando aqui só pra lembrar da sua avaliação com {dentista} amanhã, {data}.\n' +
+    consulta_confirmacao:
+      'Olá {nome}! 😊\n\n' +
+      'Sua consulta com {dentista} está agendada para *{data}* às *{hora}*.\n' +
       '{local_line}\n' +
-      'Está tudo certo do seu lado? Pode me confirmar pra eu já deixar tudo organizado pra você?',
+      'Posso confirmar sua presença? Responda *SIM* pra confirmar — ou me avise se precisar remarcar que a gente ajeita. 🙂',
+    consulta_24h:
+      'Oi {nome}! 😊\n\n' +
+      'Passando só pra lembrar da sua consulta com {dentista} amanhã, *{data}* às *{hora}*.\n' +
+      '{local_line}\n' +
+      'Até lá! Qualquer coisa é só chamar por aqui.',
     consulta_1h:
       'Oi {nome}! 👋\n\n' +
       'Sua avaliação com {dentista} é em cerca de 1 hora ({data}).\n' +

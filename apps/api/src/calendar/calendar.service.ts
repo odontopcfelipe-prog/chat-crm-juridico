@@ -1685,6 +1685,9 @@ export class CalendarService {
       case 'lembrete_15min':
         msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_15min);
         break;
+      case 'confirmacao_48h':
+        msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_confirmacao);
+        break;
       case 'aniversario':
         msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).template);
         break;
