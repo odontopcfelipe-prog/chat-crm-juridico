@@ -230,9 +230,21 @@ function toLocalDateTime(isoStr: string): string {
 function temporalToISO(dt: any): string {
   if (!dt) return '';
   if (typeof dt === 'string') return dt;
-  // Temporal.ZonedDateTime — usar toInstant().toString() p/ UTC ISO
+  // Onda 17.59 — Temporal.ZonedDateTime: usa os COMPONENTES LOCAIS como "naive UTC"
+  // (a app guarda a hora LOCAL de Maceió nos campos UTC). ANTES usava toInstant() =
+  // UTC REAL, que deslocava o range +3h e escondia eventos perto da virada do dia
+  // (madrugada e fim de noite) — eles caíam FORA do range buscado e sumiam da agenda.
+  if (typeof dt.toInstant === 'function' && typeof dt.year === 'number') {
+    const y = String(dt.year).padStart(4, '0');
+    const mo = String(dt.month).padStart(2, '0');
+    const d = String(dt.day).padStart(2, '0');
+    const h = String(dt.hour ?? 0).padStart(2, '0');
+    const mi = String(dt.minute ?? 0).padStart(2, '0');
+    return `${y}-${mo}-${d}T${h}:${mi}:00.000Z`;
+  }
+  // Fallback: objeto com toInstant mas sem componentes locais
   if (typeof dt.toInstant === 'function') {
-    return dt.toInstant().toString(); // "2026-03-09T00:00:00Z"
+    return dt.toInstant().toString();
   }
   // Temporal.PlainDate / PlainDateTime — construir manualmente
   if (typeof dt.year === 'number') {
@@ -1284,11 +1296,16 @@ export default function AgendaPage() {
     rangeEnd.setHours(23, 59, 59, 999);
     const start = rangeStart.toISOString();
     const end = rangeEnd.toISOString();
-    // rangeRef aponta para a semana atual (para refetch correto ao mudar filtros)
+    // rangeRef aponta para a semana atual (para refetch correto ao mudar filtros).
+    // Onda 17.59 — em naive-UTC (componentes locais tratados como UTC) pra bater
+    // com o formato dos eventos; .toISOString() jogava +3h e podia excluir um
+    // evento recém-criado no refetch pós-save (antes do onRangeUpdate corrigir).
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
     sunday.setHours(23, 59, 59, 999);
-    rangeRef.current = { start: monday.toISOString(), end: sunday.toISOString() };
+    const toNaiveISO = (dt: Date) =>
+      `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}T${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}:00.000Z`;
+    rangeRef.current = { start: toNaiveISO(monday), end: toNaiveISO(sunday) };
     fetchEvents(start, end);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // apenas no mount — onRangeUpdate atualiza o range nas navegações
@@ -1662,8 +1679,13 @@ export default function AgendaPage() {
 
   // ─── Proximo eventos (sidebar) ──────────────────────
 
+  // Onda 17.59 — "agora" no fuso naive de Maceió (UTC-3). Os eventos são naive-UTC
+  // (hora local guardada nos campos UTC); comparar com new Date() cru (UTC real)
+  // escondia eventos da noite — após as 21h o UTC já virava o dia seguinte e o
+  // evento era tratado como "passado", sumindo de "Próximos".
+  const nowNaive = new Date(Date.now() - 3 * 60 * 60 * 1000);
   const upcomingEvents = events
-    .filter(e => new Date(e.start_at) >= new Date() && e.status !== 'CANCELADO' && e.status !== 'CONCLUIDO')
+    .filter(e => new Date(e.start_at) >= nowNaive && e.status !== 'CANCELADO' && e.status !== 'CONCLUIDO')
     .filter(e => filterTypes.includes(e.type))
     .sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
     .slice(0, 8);
