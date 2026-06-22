@@ -1668,6 +1668,9 @@ export class CalendarService {
       case 'confirmacao':
         msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
         break;
+      case 'reagendamento':
+        msg = apply((await this.getAppointmentRescheduledConfig(tenant_id)).template);
+        break;
       case 'lembrete_1dia':
         msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_24h);
         break;
