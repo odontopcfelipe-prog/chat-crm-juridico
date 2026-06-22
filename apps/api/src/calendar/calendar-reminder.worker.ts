@@ -542,12 +542,11 @@ export class CalendarReminderWorker extends WorkerHost {
     const shouldNotifyClient = (isAudiencia || isConsulta) && event.lead?.phone;
     if (shouldNotifyClient) {
       const clientPhone = event.lead.phone.replace(/\D/g, '');
-      // Onda 17.60 — a CONFIRMAÇÃO é o lembrete de MAIOR antecedência (>=24h) do
-      // evento; os demais só LEMBRAM. Se a clínica tem o de 48h, ELE confirma; se
-      // não tem, o de 24h vira a confirmação (mantém o comportamento atual — sem
-      // regressão pra quem já usa só 1d/1h/15min).
-      const maxAnt = Math.max(0, ...((event.reminders as any[]) || []).map((r) => r.minutes_before || 0));
-      const isConfirmation = isConsulta && minutesBefore >= 1440 && minutesBefore === maxAnt;
+      // Onda 17.60 — cada disparo é EXPLÍCITO (você liga o que quer): a CONFIRMAÇÃO
+      // é o disparo de 48h (>=2880 min) — usa consulta_confirmacao e pede pra
+      // confirmar. Os lembretes (24h/1h/15min) só LEMBRAM, nunca pedem confirmação.
+      // (Confirmação por 24h fica no disparo separado "Confirmação de agendamento".)
+      const isConfirmation = isConsulta && minutesBefore >= 2880;
       let clientMsg: string;
 
       if (isConsulta) {
