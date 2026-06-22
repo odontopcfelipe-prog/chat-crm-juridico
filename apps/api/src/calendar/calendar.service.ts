@@ -1916,40 +1916,40 @@ export class CalendarService {
   }
 
   /**
-   * Onda 17.60 — aniversariantes de HOJE + dos próximos `days` dias (fuso Maceió),
-   * pra tela do disparo de Aniversário. Em vez de aritmética de data (frágil com
-   * wrap de ano/mês e 29/02), monta a lista de pares (mês, dia) dos próximos dias
-   * e casa com o birth_date. Retorna ordenado por quão perto está o aniversário.
+   * Onda 17.60 — aniversariantes ATIVOS, do HOJE até `days` dias à frente (fuso
+   * Maceió). `days=366` cobre o ANO inteiro. Carrega os pacientes com data de
+   * nascimento e calcula o "próximo aniversário" de cada um no Node (lida com
+   * wrap de ano e 29/02 — JS normaliza Date.UTC). Ordena por quão perto está.
    */
   async getUpcomingBirthdays(tenant_id: string, days = 30) {
     if (!tenant_id) return { total: 0, today: 0, items: [] as any[] };
-    const N = Math.min(Math.max(days, 0), 90);
+    const N = Math.min(Math.max(days, 0), 366);
     const today = new Date(Date.now() - 3 * 60 * 60 * 1000); // dia de Maceió
-    const pairs: { m: number; d: number; daysUntil: number; iso: string }[] = [];
-    for (let i = 0; i <= N; i++) {
-      const dt = new Date(today.getTime() + i * 86400000);
-      pairs.push({ m: dt.getUTCMonth() + 1, d: dt.getUTCDate(), daysUntil: i, iso: dt.toISOString().slice(0, 10) });
-    }
-    // valores inteiros calculados por nós (sem input do usuário) → seguro inline
-    const tupleList = pairs.map((p) => `(${p.m},${p.d})`).join(',');
+    const todayY = today.getUTCFullYear();
+    const todayMs = Date.UTC(todayY, today.getUTCMonth(), today.getUTCDate());
     const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null; birth_date: Date }>>(
       `SELECT id, name, phone, birth_date FROM patients
        WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-         AND (EXTRACT(MONTH FROM birth_date)::int, EXTRACT(DAY FROM birth_date)::int) IN (${tupleList})
-       LIMIT 500`,
+       LIMIT 5000`,
       tenant_id,
     ).catch(() => [] as any[]);
-    const byPair = new Map(pairs.map((p) => [`${p.m}-${p.d}`, p]));
     const items = (rows as any[]).map((r) => {
       const bd = new Date(r.birth_date);
-      const p = byPair.get(`${bd.getUTCMonth() + 1}-${bd.getUTCDate()}`);
+      const bm = bd.getUTCMonth();
+      const bdd = bd.getUTCDate();
+      // próximo aniversário a partir de hoje (se já passou este ano, vai pro ano que vem)
+      let nextMs = Date.UTC(todayY, bm, bdd);
+      if (nextMs < todayMs) nextMs = Date.UTC(todayY + 1, bm, bdd);
+      const daysUntil = Math.round((nextMs - todayMs) / 86400000);
       return {
         id: r.id, name: r.name, phone: r.phone,
-        birth_day: bd.getUTCDate(), birth_month: bd.getUTCMonth() + 1,
-        days_until: p?.daysUntil ?? 0, is_today: (p?.daysUntil ?? 0) === 0,
-        next_date: p?.iso ?? null,
+        birth_day: bdd, birth_month: bm + 1,
+        days_until: daysUntil, is_today: daysUntil === 0,
+        next_date: new Date(nextMs).toISOString().slice(0, 10),
       };
-    }).sort((a, b) => a.days_until - b.days_until || a.name.localeCompare(b.name));
+    })
+      .filter((i) => i.days_until <= N)
+      .sort((a, b) => a.days_until - b.days_until || a.name.localeCompare(b.name));
     return { total: items.length, today: items.filter((i) => i.is_today).length, items };
   }
 

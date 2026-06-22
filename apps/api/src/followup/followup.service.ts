@@ -239,7 +239,7 @@ export class FollowupService {
     opts: { days?: number; limit?: number; type?: string; status?: string } = {},
   ) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const days = Math.min(Math.max(opts.days ?? 7, 1), 90);
+    const days = Math.min(Math.max(opts.days ?? 7, 1), 366);
     const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000);
     const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 
