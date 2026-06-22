@@ -160,6 +160,20 @@ export class FollowupService {
       ).catch(() => [{ count: 0 }] as Array<{ count: number }>),
     ]);
 
+    // Onda 17.60 — contadores "enviados hoje · a enviar" pra cada card mostrar o
+    // estado operacional por FORA (sem abrir). "a enviar" = pendente/agendado que
+    // ainda vai sair. DispatchLog (aniversário/resumo) cai em 0 se a tabela não
+    // existir ainda (pré db push).
+    const naiveNow = new Date(Date.now() - 3 * 60 * 60 * 1000); // "agora" de Maceió
+    const [confAEnviar, lembreteAEnviar, posEnviadosHoje, posAEnviar, aniversarioEnviados, resumoEnviados] = await Promise.all([
+      this.prisma.appointmentConfirmation.count({ where: { sent_at: null, appointment: { tenant_id: tenantId, start_at: { gte: naiveNow } } } }),
+      this.prisma.eventReminder.count({ where: { sent_at: null, event: { tenant_id: tenantId, start_at: { gte: naiveNow }, status: { notIn: ['CANCELADO', 'CONCLUIDO'] } } } }),
+      this.prisma.postCareSurvey.count({ where: { tenant_id: tenantId, sent_at: { gte: dayStart, lt: dayEnd } } }),
+      this.prisma.postCareSurvey.count({ where: { tenant_id: tenantId, status: 'PENDING' } }),
+      this.prisma.dispatchLog.count({ where: { tenant_id: tenantId, type: 'aniversario', status: { in: ['SENT', 'DELIVERED', 'READ'] }, sent_at: { gte: dayStart, lt: dayEnd } } }).catch(() => 0),
+      this.prisma.dispatchLog.count({ where: { tenant_id: tenantId, type: 'resumo_dentista', status: { in: ['SENT', 'DELIVERED', 'READ'] }, sent_at: { gte: dayStart, lt: dayEnd } } }).catch(() => 0),
+    ]);
+
     // Confirmacao: % das ENVIADAS hoje que viraram CONFIRMADO. Sinal confiavel =
     // status da consulta (o respond do paciente vira CalendarEvent CONFIRMADO);
     // response_status como reforco.
@@ -193,11 +207,11 @@ export class FollowupService {
     const aniversariantesHoje = Number(aniversariantesRows?.[0]?.count ?? 0);
 
     return {
-      confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct },
-      lembrete: { enabled: reminderEnabled, enviadosHoje: lembretesHoje, antecedenciaLabel },
-      pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded },
-      dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje },
-      aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje },
+      confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct, enviadosHoje: enviadasHoje, aEnviar: confAEnviar },
+      lembrete: { enabled: reminderEnabled, enviadosHoje: lembretesHoje, antecedenciaLabel, aEnviar: lembreteAEnviar },
+      pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded, enviadosHoje: posEnviadosHoje, aEnviar: posAEnviar },
+      dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje, enviadosHoje: resumoEnviados, aEnviar: dentistasHoje },
+      aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje, enviadosHoje: aniversarioEnviados, aEnviar: aniversariantesHoje },
       reagendamento: { enabled: reagEnabled },
     };
   }
