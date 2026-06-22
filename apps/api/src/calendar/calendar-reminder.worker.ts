@@ -318,12 +318,6 @@ export class CalendarReminderWorker extends WorkerHost {
       return this.processHearingScheduled(job.data.eventId, true);
     }
 
-    // ── Envio IMEDIATO do lembrete de CONSULTA odonto (botão "Notificar" / teste
-    //    manual). Reusa a MESMA engine dos lembretes agendados, sem esperar. ──────
-    if (job.name === 'notify-consulta-now') {
-      return this.processConsultaNotifyNow(job.data.eventId, job.data.minutesBefore ?? 15);
-    }
-
     // ── Lembretes antes do evento (fluxo original) ────────────────────────────
     const { reminderId, eventId, channel } = job.data;
 
@@ -688,39 +682,6 @@ export class CalendarReminderWorker extends WorkerHost {
     } catch {
       return '';
     }
-  }
-
-  // ─── Envio imediato do lembrete de CONSULTA odonto (Notificar / teste) ──────
-  //
-  // Onda 17.59 — reusa EXATAMENTE sendWhatsAppReminders (a engine dos lembretes
-  // agendados) pra mandar o lembrete na hora, sem esperar o schedule. Serve de
-  // teste de 1 clique e de re-envio manual. Se chegar aqui, a engine de envio
-  // (instância, +55, template) está OK — qualquer "não chegou" do lembrete
-  // agendado é upstream (anexar/agendar), não no envio.
-  private async processConsultaNotifyNow(eventId: string, minutesBefore: number) {
-    const event = await this.prisma.calendarEvent.findUnique({
-      where: { id: eventId },
-      include: {
-        assigned_user: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true } },
-        patient: { select: { id: true, name: true, phone: true } },
-      },
-    });
-    if (!event) {
-      this.logger.warn(`[NOTIFY-CONSULTA] Evento ${eventId} não encontrado`);
-      return;
-    }
-    // patient → lead: sendWhatsAppReminders usa event.lead pra telefone/template
-    if (!event.lead && (event as any).patient) {
-      const p = (event as any).patient;
-      (event as any).lead = { id: p.id, name: p.name, phone: p.phone };
-    }
-    if (!event.lead?.phone) {
-      this.logger.warn(`[NOTIFY-CONSULTA] Evento ${eventId} sem telefone do paciente`);
-      throw new Error('Paciente sem telefone cadastrado');
-    }
-    await this.sendWhatsAppReminders(event, minutesBefore);
-    this.logger.log(`[NOTIFY-CONSULTA] lembrete (${minutesBefore}min) enviado manualmente — evento ${eventId}`);
   }
 
   // ─── Notificação imediata de audiência agendada ───────────────────────────

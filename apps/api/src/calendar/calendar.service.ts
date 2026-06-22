@@ -2668,21 +2668,29 @@ export class CalendarService {
       );
     }
 
-    // CONSULTA odonto → envia o lembrete (template 15min) na hora.
+    // CONSULTA odonto → envia AGORA pela MESMA engine da "agendada" (tenant-aware,
+    // passa tenantId pro sendText), SÍNCRONO, e retorna o resultado REAL — não só
+    // "enfileirado". Se o WhatsApp não sair, o toast mostra o MOTIVO (sem instância,
+    // sem telefone, Evolution recusou) em vez de mentir "enviado".
     if (isClinical) {
-      await this.reminderQueue.add(
-        'notify-consulta-now',
-        { eventId, minutesBefore: 15 },
-        {
-          jobId: `consulta-notify-manual-${eventId}-${Date.now()}`,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
-          removeOnComplete: true,
-          removeOnFail: 50,
+      const fullEvent = await this.prisma.calendarEvent.findUnique({
+        where: { id: eventId },
+        include: {
+          assigned_user: { select: { id: true, name: true } },
+          lead: { select: { id: true, name: true, phone: true } },
         },
+      });
+      if (!fullEvent?.tenant_id) {
+        throw new BadRequestException('Evento sem clínica vinculada — não dá pra notificar');
+      }
+      const r = await this.sendAppointmentEventWhatsapp(
+        fullEvent, fullEvent.patient_id, fullEvent.lead_id, fullEvent.tenant_id, 'created',
       );
-      this.logger.log(`[NOTIFY] Lembrete manual (consulta) enfileirado para evento ${eventId} ("${event.title}")`);
-      return { queued: true, message: 'Lembrete enviado ao paciente no WhatsApp' };
+      if (!r.sent) {
+        throw new BadRequestException(r.reason || 'Não foi possível enviar o WhatsApp ao paciente');
+      }
+      this.logger.log(`[NOTIFY] WhatsApp manual (consulta) enviado para evento ${eventId} ("${event.title}")`);
+      return { queued: true, message: 'WhatsApp enviado ao paciente ✅' };
     }
 
     // AUDIENCIA/PERICIA (legado): remove job pendente e re-enfileira sem delay.
@@ -2954,7 +2962,7 @@ export class CalendarService {
     leadId: string | null | undefined,
     tenantId: string,
     kind: 'created' | 'rescheduled',
-  ): Promise<void> {
+  ): Promise<{ sent: boolean; reason?: string }> {
     try {
       // O re-agendamento ("remarcada") respeita o toggle da Central
       // (APPOINTMENT_RESCHEDULED_ENABLED, default LIGADO). O "agendada" sai sempre
@@ -2963,7 +2971,9 @@ export class CalendarService {
         const s = await this.prisma.globalSetting.findUnique({
           where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` },
         });
-        if ((s?.value ?? 'true') === 'false') return; // desligado na Central
+        if ((s?.value ?? 'true') === 'false') {
+          return { sent: false, reason: 'Aviso de re-agendamento está desligado na Central de Disparos' };
+        }
       }
 
       // Prioriza o TELEFONE DO PACIENTE; cai pro lead se o paciente não tiver.
@@ -2988,13 +2998,13 @@ export class CalendarService {
       }
       if (!phone) {
         this.logger.warn(`[AUTO-WPP] agendamento_${kind}: paciente/lead SEM telefone no cadastro (evento ${event.id}) — só o e-mail saiu`);
-        return;
+        return { sent: false, reason: 'Paciente sem telefone cadastrado' };
       }
 
       const instanceName = await this.resolveTenantWhatsappInstance(tenantId);
       if (!instanceName) {
         this.logger.warn(`[AUTO-WPP] agendamento_${kind}: sem instância WhatsApp pro tenant ${tenantId}`);
-        return;
+        return { sent: false, reason: 'Sem instância WhatsApp conectada pra esta clínica' };
       }
 
       // Mesma leitura de hora dos outros disparos (naive-local-as-UTC).
@@ -3040,10 +3050,19 @@ export class CalendarService {
           `\nQualquer dúvida, é só chamar por aqui!`;
       }
 
-      await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
+      // sendText retorna OBJETO DE ERRO em vez de lançar em falhas HTTP da Evolution
+      // (ex.: instância offline, número sem WhatsApp). Checa pra reportar a verdade.
+      const sendResult: any = await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
+      if (!sendResult || sendResult?.statusCode >= 400 || sendResult?.error) {
+        const reason = `Evolution recusou o envio${sendResult?.statusCode ? ` (HTTP ${sendResult.statusCode})` : ''}${sendResult?.error ? `: ${sendResult.error}` : ' — instância pode estar offline'}`;
+        this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou no envio (evento ${event.id}): ${reason}`);
+        return { sent: false, reason };
+      }
       this.logger.log(`[AUTO-WPP] agendamento_${kind} enviado ao paciente (evento ${event.id})`);
+      return { sent: true };
     } catch (e: any) {
       this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou: ${e?.message}`);
+      return { sent: false, reason: e?.message || 'Falha desconhecida ao enviar WhatsApp' };
     }
   }
 
