@@ -928,7 +928,13 @@ export default function AgendaPage() {
     defaultView: isMobile ? 'day' : 'week',
     // Onda 17.59 — abre no dia de MACEIÓ (não no "today" interno do schedule-x, que
     // é UTC e à noite já é o dia seguinte → agenda abria vazia no dia errado).
-    selectedDate: maceioTodayStr(),
+    // schedule-x v4 EXIGE Temporal.PlainDate aqui (não string); guarda p/ SSR.
+    selectedDate: (() => {
+      const T = (globalThis as any).Temporal;
+      if (!T?.PlainDate) return undefined;
+      const [y, mo, d] = maceioTodayStr().split('-').map(Number);
+      try { return T.PlainDate.from({ year: y, month: mo, day: d }); } catch { return undefined; }
+    })(),
     locale: 'pt-BR',
     firstDayOfWeek: 1,
     // Onda 17.56 — grade cobre o DIA INTEIRO (00:00–24:00) pra NUNCA esconder um
