@@ -29,6 +29,20 @@ interface DossieCompleto {
   data_hora_atual: string; dia_semana: string;
 }
 
+// Onda 17.60 — linha normalizada do histórico unificado de disparos.
+export interface DisparoRow {
+  id: string;
+  type: string;
+  type_label: string;
+  recipient_name: string | null;
+  recipient_phone: string | null;
+  status: string; // SENT | DELIVERED | READ | FAILED | RESPONDED | PENDENTE
+  channel: string;
+  sent_at: string | null;
+  error: string | null;
+  ref_title: string | null;
+}
+
 @Injectable()
 export class FollowupService {
   private readonly logger = new Logger(FollowupService.name);
@@ -186,6 +200,121 @@ export class FollowupService {
       aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje },
       reagendamento: { enabled: reagEnabled },
     };
+  }
+
+  // ─── Histórico unificado de disparos (Onda 17.60) ──────────────────────────
+  // Junta TODOS os disparos feitos pro paciente/dentista num formato comum:
+  //   - Lembrete        → EventReminder (via event.tenant_id)
+  //   - Confirmação     → AppointmentConfirmation (via appointment.tenant_id)
+  //   - NPS             → PostCareSurvey (tenant_id direto)
+  //   - Aniversário / Resumo / Agendada / Remarcada → DispatchLog (tenant_id direto)
+  // Filtra por janela (sent_at >= since) e devolve ordenado por data desc + resumo.
+  async getDisparoHistory(
+    tenantId: string,
+    opts: { days?: number; limit?: number; type?: string; status?: string } = {},
+  ) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const days = Math.min(Math.max(opts.days ?? 7, 1), 90);
+    const limit = Math.min(Math.max(opts.limit ?? 200, 1), 1000);
+    const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+
+    const TYPE_LABEL: Record<string, string> = {
+      lembrete: 'Lembrete de consulta',
+      confirmacao: 'Confirmação de agendamento',
+      nps: 'Pós-atendimento (NPS)',
+      aniversario: 'Aniversário',
+      resumo_dentista: 'Resumo do dentista',
+      agendamento_criado: 'Consulta agendada',
+      agendamento_remarcado: 'Consulta remarcada',
+    };
+
+    const rows: DisparoRow[] = [];
+
+    const safe = <T>(p: Promise<T>, fb: T): Promise<T> => p.catch((e: any) => {
+      this.logger.warn(`[DISPAROS] fonte falhou: ${e?.message}`);
+      return fb;
+    });
+
+    const [logs, reminders, confs, surveys] = await Promise.all([
+      // 1. DispatchLog — aniversário, resumo, agendada/remarcada
+      safe(this.prisma.dispatchLog.findMany({
+        where: { tenant_id: tenantId, sent_at: { gte: since } },
+        orderBy: { sent_at: 'desc' }, take: limit,
+      }), [] as any[]),
+      // 2. EventReminder — lembretes enviados
+      safe(this.prisma.eventReminder.findMany({
+        where: { sent_at: { gte: since }, event: { tenant_id: tenantId } },
+        include: { event: { select: { title: true, lead: { select: { name: true, phone: true } }, patient: { select: { name: true, phone: true } } } } },
+        orderBy: { sent_at: 'desc' }, take: limit,
+      }), [] as any[]),
+      // 3. AppointmentConfirmation — confirmações
+      safe(this.prisma.appointmentConfirmation.findMany({
+        where: { sent_at: { gte: since }, appointment: { tenant_id: tenantId } },
+        include: { appointment: { select: { title: true, lead: { select: { name: true, phone: true } }, patient: { select: { name: true, phone: true } } } } },
+        orderBy: { sent_at: 'desc' }, take: limit,
+      }), [] as any[]),
+      // 4. PostCareSurvey — NPS enviados
+      safe(this.prisma.postCareSurvey.findMany({
+        where: { tenant_id: tenantId, sent_at: { gte: since } },
+        include: { patient: { select: { name: true, phone: true } } },
+        orderBy: { sent_at: 'desc' }, take: limit,
+      }), [] as any[]),
+    ]);
+
+    for (const l of logs as any[]) {
+      rows.push({
+        id: `dl_${l.id}`, type: l.type, type_label: TYPE_LABEL[l.type] ?? l.type,
+        recipient_name: l.recipient_name, recipient_phone: l.recipient_phone,
+        status: l.status, channel: l.channel,
+        sent_at: l.sent_at ? new Date(l.sent_at).toISOString() : null, error: l.error, ref_title: null,
+      });
+    }
+    for (const r of reminders as any[]) {
+      const recip = r.event?.patient ?? r.event?.lead;
+      const status = r.read_at ? 'READ' : r.delivered_at ? 'DELIVERED' : r.last_error ? 'FAILED' : 'SENT';
+      rows.push({
+        id: `er_${r.id}`, type: 'lembrete', type_label: TYPE_LABEL.lembrete,
+        recipient_name: recip?.name ?? null, recipient_phone: recip?.phone ?? null,
+        status, channel: r.channel ?? 'WHATSAPP',
+        sent_at: r.sent_at ? new Date(r.sent_at).toISOString() : null, error: r.last_error, ref_title: r.event?.title ?? null,
+      });
+    }
+    for (const c of confs as any[]) {
+      const recip = c.appointment?.patient ?? c.appointment?.lead;
+      const status = c.response_status === 'CONFIRMADO' ? 'RESPONDED' : (c.delivery_status || 'SENT');
+      rows.push({
+        id: `ac_${c.id}`, type: 'confirmacao', type_label: TYPE_LABEL.confirmacao,
+        recipient_name: recip?.name ?? null, recipient_phone: recip?.phone ?? null,
+        status, channel: c.channel ?? 'WHATSAPP',
+        sent_at: c.sent_at ? new Date(c.sent_at).toISOString() : null, error: null, ref_title: c.appointment?.title ?? null,
+      });
+    }
+    for (const s of surveys as any[]) {
+      const status = s.status === 'RESPONDED' ? 'RESPONDED' : s.status === 'FAILED' ? 'FAILED' : 'SENT';
+      rows.push({
+        id: `ps_${s.id}`, type: 'nps', type_label: TYPE_LABEL.nps,
+        recipient_name: s.patient?.name ?? null, recipient_phone: s.patient?.phone ?? null,
+        status, channel: 'WHATSAPP',
+        sent_at: s.sent_at ? new Date(s.sent_at).toISOString() : null, error: s.last_error, ref_title: s.procedure_summary ?? null,
+      });
+    }
+
+    let filtered = rows;
+    if (opts.type) filtered = filtered.filter((r) => r.type === opts.type);
+    if (opts.status) filtered = filtered.filter((r) => r.status === opts.status);
+    filtered.sort((a, b) => (b.sent_at ?? '').localeCompare(a.sent_at ?? ''));
+
+    const summary = {
+      total: rows.length,
+      enviados: rows.filter((r) => ['SENT', 'DELIVERED', 'READ', 'RESPONDED'].includes(r.status)).length,
+      entregues: rows.filter((r) => ['DELIVERED', 'READ'].includes(r.status)).length,
+      falhas: rows.filter((r) => r.status === 'FAILED').length,
+      por_tipo: Object.fromEntries(
+        Object.keys(TYPE_LABEL).map((t) => [t, rows.filter((r) => r.type === t).length]),
+      ),
+    };
+
+    return { period: { days, since: since.toISOString() }, summary, items: filtered.slice(0, limit) };
   }
 
   /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le). */

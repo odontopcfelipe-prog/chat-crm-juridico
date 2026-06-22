@@ -18,6 +18,23 @@ export class FollowupController {
   @Get('operacional')
   getOperacional(@Request() req: any) { return this.svc.getOperacional(req.user?.tenant_id); }
 
+  // ─── Histórico unificado de disparos (Onda 17.60) ─────────────────────────
+  @Get('disparos')
+  getDisparoHistory(
+    @Request() req: any,
+    @Query('days') days?: string,
+    @Query('limit') limit?: string,
+    @Query('type') type?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.svc.getDisparoHistory(req.user?.tenant_id, {
+      days: days ? parseInt(days, 10) : undefined,
+      limit: limit ? parseInt(limit, 10) : undefined,
+      type: type || undefined,
+      status: status || undefined,
+    });
+  }
+
   @Patch('operacional/toggle')
   setOperacionalToggle(@Body() body: { which: string; enabled: boolean }, @Request() req: any) {
     // Ler as metricas e liberado pra view_marketing (crc+admin), mas LIGAR/DESLIGAR

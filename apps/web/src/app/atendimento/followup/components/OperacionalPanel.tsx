@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { useRouter } from 'next/navigation';
-import { CalendarCheck, Bell, Heart, FileText, Cake, ArrowRight, Loader2, Bot } from 'lucide-react';
+import { CalendarCheck, Bell, Heart, FileText, Cake, ArrowRight, Loader2, Bot, History } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
@@ -132,6 +132,21 @@ export function OperacionalPanel({ onOpenTab }: { onOpenTab: (tab: string) => vo
           </span>
         )}
       </div>
+
+      {/* Onda 17.60 — acesso ao histórico unificado de todos os disparos. */}
+      <button
+        onClick={() => onOpenTab('historico')}
+        className="w-full mb-4 flex items-center gap-3 p-3.5 rounded-2xl border border-border bg-gradient-to-r from-primary/5 to-transparent hover:from-primary/10 transition-colors text-left"
+      >
+        <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+          <History size={20} />
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-bold text-foreground">Histórico de Disparos</div>
+          <div className="text-[11px] text-muted-foreground">Tudo que saiu pro paciente — lembretes, confirmações, NPS, aniversário e mais — num lugar só.</div>
+        </div>
+        <ArrowRight size={16} className="text-muted-foreground shrink-0" />
+      </button>
 
       {loading ? (
         <div className="py-10 flex items-center justify-center text-muted-foreground">

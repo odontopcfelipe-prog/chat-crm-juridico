@@ -1835,14 +1835,17 @@ export class CalendarService {
       // WHATSAPP
       if (!u.phone) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: 'sem telefone cadastrado' });
+        void this.logDispatch({ tenantId: tenant_id, type: 'resumo_dentista', recipientName: u.name, status: 'FAILED', error: 'Dentista sem telefone cadastrado', refUserId: u.id });
         continue;
       }
       const phone = u.phone.replace(/\D/g, '');
       try {
         await this.whatsapp.sendText(phone, msg, summaryInstanceName ?? undefined, undefined, tenant_id);
         results.push({ user_id: u.id, name: u.name, sent: true });
+        void this.logDispatch({ tenantId: tenant_id, type: 'resumo_dentista', recipientName: u.name, recipientPhone: phone, status: 'SENT', refUserId: u.id });
       } catch (e: any) {
         results.push({ user_id: u.id, name: u.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
+        void this.logDispatch({ tenantId: tenant_id, type: 'resumo_dentista', recipientName: u.name, recipientPhone: phone, status: 'FAILED', error: e?.message, refUserId: u.id });
       }
     }
 
@@ -1924,6 +1927,7 @@ export class CalendarService {
     for (const p of patients) {
       if (!p.phone) {
         results.push({ patient_id: p.id, name: p.name, sent: false, reason: 'sem telefone' });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, status: 'FAILED', error: 'Paciente sem telefone cadastrado', refPatientId: p.id });
         continue;
       }
       const firstName = (p.name || '').split(' ')[0] || p.name;
@@ -1937,8 +1941,10 @@ export class CalendarService {
         // Passa tenant_id pra sair da instancia Evolution DA CLINICA (multi-tenant).
         await this.whatsapp.sendText(phone, msg, undefined, undefined, tenant_id);
         results.push({ patient_id: p.id, name: p.name, sent: true });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'SENT', refPatientId: p.id });
       } catch (e: any) {
         results.push({ patient_id: p.id, name: p.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'FAILED', error: e?.message, refPatientId: p.id });
       }
     }
 
@@ -3061,16 +3067,60 @@ export class CalendarService {
       // sendText retorna OBJETO DE ERRO em vez de lançar em falhas HTTP da Evolution
       // (ex.: instância offline, número sem WhatsApp). Checa pra reportar a verdade.
       const sendResult: any = await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
+      const dispatchType = kind === 'rescheduled' ? 'agendamento_remarcado' : 'agendamento_criado';
       if (!sendResult || sendResult?.statusCode >= 400 || sendResult?.error) {
         const reason = `Evolution recusou o envio${sendResult?.statusCode ? ` (HTTP ${sendResult.statusCode})` : ''}${sendResult?.error ? `: ${sendResult.error}` : ' — instância pode estar offline'}`;
         this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou no envio (evento ${event.id}): ${reason}`);
+        void this.logDispatch({ tenantId, type: dispatchType, recipientName: name, recipientPhone: phone, status: 'FAILED', error: reason, refEventId: event.id, refPatientId: patientId });
         return { sent: false, reason };
       }
       this.logger.log(`[AUTO-WPP] agendamento_${kind} enviado ao paciente (evento ${event.id})`);
+      void this.logDispatch({ tenantId, type: dispatchType, recipientName: name, recipientPhone: phone, status: 'SENT', externalMessageId: sendResult?.data?.key?.id ?? null, refEventId: event.id, refPatientId: patientId });
       return { sent: true };
     } catch (e: any) {
       this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou: ${e?.message}`);
+      void this.logDispatch({ tenantId, type: kind === 'rescheduled' ? 'agendamento_remarcado' : 'agendamento_criado', status: 'FAILED', error: e?.message, refEventId: event?.id, refPatientId: patientId });
       return { sent: false, reason: e?.message || 'Falha desconhecida ao enviar WhatsApp' };
+    }
+  }
+
+  /**
+   * Onda 17.60 — registra um disparo no histórico unificado (DispatchLog). Só
+   * pros tipos SEM tabela própria (aniversário, resumo do dentista, agendada/
+   * remarcada). Lembrete/Confirmação/NPS já têm tabela e são lidos direto.
+   * Best-effort: NUNCA lança — logar não pode quebrar o disparo.
+   */
+  private async logDispatch(params: {
+    tenantId?: string | null;
+    type: string;
+    channel?: string;
+    recipientName?: string | null;
+    recipientPhone?: string | null;
+    status: 'SENT' | 'FAILED' | 'DELIVERED' | 'READ';
+    error?: string | null;
+    externalMessageId?: string | null;
+    refEventId?: string | null;
+    refPatientId?: string | null;
+    refUserId?: string | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: params.tenantId ?? null,
+          type: params.type,
+          channel: params.channel ?? 'WHATSAPP',
+          recipient_name: params.recipientName ?? null,
+          recipient_phone: params.recipientPhone ?? null,
+          status: params.status,
+          error: params.error ?? null,
+          external_message_id: params.externalMessageId ?? null,
+          ref_event_id: params.refEventId ?? null,
+          ref_patient_id: params.refPatientId ?? null,
+          ref_user_id: params.refUserId ?? null,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[DISPATCH_LOG] falha ao registrar ${params.type}: ${e?.message}`);
     }
   }
 

@@ -732,6 +732,35 @@ model Instance {
   @@index([inbox_id])
 }
 
+// ─── Histórico unificado de disparos (Onda 17.60) ─────────────────────────────
+// Registra CADA disparo automático pro paciente/dentista que NÃO tem tabela
+// própria: aniversário, resumo do dentista e a "consulta agendada/remarcada"
+// imediata. Lembrete (EventReminder), Confirmação (AppointmentConfirmation) e NPS
+// (PostCareSurvey) já têm tabela — o histórico unificado LÊ esta + aquelas. Tabela
+// additive (db push só cria, não toca nas existentes). Status atualizável depois
+// via webhook pelo external_message_id.
+model DispatchLog {
+  id                  String   @id @default(uuid())
+  tenant_id           String?
+  // aniversario | resumo_dentista | agendamento_criado | agendamento_remarcado
+  type                String
+  channel             String   @default("WHATSAPP") // WHATSAPP | EMAIL | PUSH
+  recipient_name      String?
+  recipient_phone     String?
+  status              String   @default("SENT") // SENT | FAILED | DELIVERED | READ
+  error               String?
+  external_message_id String?
+  ref_event_id        String? // CalendarEvent, quando aplicável
+  ref_patient_id      String?
+  ref_user_id         String? // dentista (resumo), quando aplicável
+  sent_at             DateTime @default(now())
+  created_at          DateTime @default(now())
+
+  @@index([tenant_id, sent_at])
+  @@index([external_message_id])
+  @@index([type])
+}
+
 // ─── CRM Dinâmico — Fase 1 ────────────────────────────────────────────────
 // Múltiplos funis por tenant (ex: "Odontologia", "Estética Facial", "B2B").
 // Cada funil tem etapas configuráveis via UI (settings/pipelines). A IA carrega
