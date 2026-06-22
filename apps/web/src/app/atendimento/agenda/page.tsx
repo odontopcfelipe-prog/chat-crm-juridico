@@ -1467,9 +1467,20 @@ export default function AgendaPage() {
       } catch (e) { swallow('conflict check falhou — segue com save (server valida tb)')(e); }
     }
 
+    // Onda 17.59 — RE-ANEXA os lembretes. O modal simplificado tirou o campo de
+    // reminders da UI, mas eles NÃO podem sumir do evento: sem isso o create()
+    // grava o evento SEM lembrete e os disparos "Lembrete 1h/15min" NUNCA são
+    // agendados. Recalcula os defaults (canal WhatsApp, filtrados pelo tempo
+    // restante até o evento) com base na data/hora FINAL e envia no payload.
+    // Usa a string local SEM "Z" (igual openCreateModal) pro cálculo de tempo
+    // restante ficar no fuso de Maceió.
+    const remindersPayload = getDefaultReminders(
+      reminderAntecedenciasRef.current,
+      `${formData.date}T${formData.startTime}:00`,
+    );
+
     // Modal simplificado — só envia campos visiveis no UI. Description,
-    // location, reminders e recurrence sairam da UI (decisao do usuario).
-    // Backend mantem o que ja estiver no banco quando os campos nao vierem.
+    // location e recurrence sairam da UI (decisao do usuario).
     const payload: any = {
       type: formData.type,
       title: formData.title.trim(),
@@ -1480,6 +1491,7 @@ export default function AgendaPage() {
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
       patient_id: formData.patient_id || null,
+      reminders: remindersPayload,
     };
 
     console.log('[handleSave] enviando payload pro backend', {
