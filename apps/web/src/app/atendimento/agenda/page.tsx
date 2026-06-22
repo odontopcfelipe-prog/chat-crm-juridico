@@ -670,6 +670,10 @@ export default function AgendaPage() {
 
   useEffect(() => { setMounted(true); }, []);
 
+  // Onda 17.59 — toda vez que o modal abre, garante o botão "Salvar" limpo (não
+  // herda um "Salvando…" que tenha ficado preso de uma ação anterior).
+  useEffect(() => { if (showModal) setSavingEvent(false); }, [showModal]);
+
   // Atalho de teclado: 'N' abre modal de criação
   // openCreateModal é estável via useCallback([currentUserId]) — sem stale closure
   useEffect(() => {
