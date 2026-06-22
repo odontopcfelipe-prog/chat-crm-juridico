@@ -165,7 +165,9 @@ export function RemindersTab() {
   const [summary, setSummary] = useState<Summary | null>(null);
   const [reminders, setReminders] = useState<ReminderRow[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<StatusFilter>('pendente');
+  // Onda 17.60 — abre em "Todos" (antes era "Pendentes"): o usuário quer ver tudo
+  // de cara, não só o que falta disparar.
+  const [filter, setFilter] = useState<StatusFilter>('todos');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
 
   // v23: filtros avancados
