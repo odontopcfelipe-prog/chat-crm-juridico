@@ -160,23 +160,37 @@ export class CalendarCronService {
       for (const s of settings) {
         let cfg: any;
         try { cfg = JSON.parse(s.value || '{}'); } catch { continue; }
-        if (!cfg.enabled) continue;
-        const sendHH = String(cfg.send_at || '09:00').split(':')[0];
-        if (sendHH !== maceioHH) continue;
-        if (cfg.last_run_date === todayMaceio) continue; // ja disparou hoje
 
         const tenantId = s.key === 'BIRTHDAY_GREETING'
           ? undefined
           : s.key.replace(/^BIRTHDAY_GREETING_/, '');
         if (!tenantId) continue; // aniversario e sempre por-tenant
 
-        try {
-          // Marca a data ANTES de enviar — idempotencia diaria (sem disparo duplo).
-          await this.calendarService.setBirthdayGreetingConfig(tenantId, { last_run_date: todayMaceio });
-          await this.calendarService.sendBirthdayGreetingsNow(tenantId);
-          this.logger.log(`[CRON] Parabens de aniversario disparados pra tenant ${tenantId} (${maceioHH}:00 Maceio)`);
-        } catch (e: any) {
-          this.logger.error(`[CRON] Erro no disparo de aniversario tenant ${tenantId}: ${e.message}`);
+        // Onda 17.61 — DUAS mensagens no dia (o desejo e o presente), cada uma no
+        // seu horario e com dedup proprio (last_run_date / message2_last_run_date).
+        const msg1HH = String(cfg.send_at || '00:00').split(':')[0].padStart(2, '0');
+        const msg2HH = String(cfg.message2_send_at || '12:00').split(':')[0].padStart(2, '0');
+
+        // Mensagem 1 — o desejo
+        if (cfg.enabled && msg1HH === maceioHH && cfg.last_run_date !== todayMaceio) {
+          try {
+            await this.calendarService.setBirthdayGreetingConfig(tenantId, { last_run_date: todayMaceio });
+            await this.calendarService.sendBirthdayGreetingsNow(tenantId, 1);
+            this.logger.log(`[CRON] Aniversario msg1 (desejo) disparada pra tenant ${tenantId} (${maceioHH}:00 Maceio)`);
+          } catch (e: any) {
+            this.logger.error(`[CRON] Erro no disparo msg1 aniversario tenant ${tenantId}: ${e.message}`);
+          }
+        }
+
+        // Mensagem 2 — o presente
+        if (cfg.message2_enabled && msg2HH === maceioHH && cfg.message2_last_run_date !== todayMaceio) {
+          try {
+            await this.calendarService.setBirthdayGreetingConfig(tenantId, { message2_last_run_date: todayMaceio });
+            await this.calendarService.sendBirthdayGreetingsNow(tenantId, 2);
+            this.logger.log(`[CRON] Aniversario msg2 (presente) disparada pra tenant ${tenantId} (${maceioHH}:00 Maceio)`);
+          } catch (e: any) {
+            this.logger.error(`[CRON] Erro no disparo msg2 aniversario tenant ${tenantId}: ${e.message}`);
+          }
         }
       }
     } catch (e: any) {

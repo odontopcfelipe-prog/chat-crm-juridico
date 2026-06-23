@@ -19,6 +19,7 @@ import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 import { ConfirmacaoEditor } from './ConfirmacaoEditor';
 import { MensagemEditor } from './MensagemEditor';
+import { AniversarioEditor } from './AniversarioEditor';
 import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
@@ -169,17 +170,7 @@ export default function CentralDisparosPage() {
           />
         )}
         {openItem.editor === 'aniversario' && (
-          <MensagemEditor
-            titulo="Mensagem de aniversário"
-            descricao="Enviada ao paciente no dia do aniversário, de manhã."
-            endpoint="/calendar/birthday-greeting/config"
-            variaveis={[
-              { key: 'nome', desc: 'Primeiro nome do paciente' },
-              { key: 'clinica', desc: 'Nome da clínica' },
-            ]}
-            preview={{ nome: 'Felipe', clinica: 'sua clínica' }}
-            onCurrentTextChange={setLiveText}
-          />
+          <AniversarioEditor onCurrentTextChange={setLiveText} />
         )}
         <TesteEnvio disparo={openItem.id} text={liveText} />
       </div>

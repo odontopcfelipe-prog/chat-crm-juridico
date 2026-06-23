@@ -1877,14 +1877,22 @@ export class CalendarService {
 
   async setBirthdayGreetingConfig(
     tenant_id: string | undefined,
-    config: { enabled?: boolean; send_at?: string; template?: string; last_run_date?: string },
+    config: {
+      enabled?: boolean; send_at?: string; template?: string; last_run_date?: string;
+      message2_enabled?: boolean; message2_send_at?: string; message2_template?: string; message2_last_run_date?: string;
+    },
   ) {
     if (config.send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.send_at)) {
       throw new BadRequestException('send_at deve estar no formato HH:MM');
     }
-    if (config.template !== undefined) {
-      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
-      if (config.template.length > 2000) throw new BadRequestException('template ultrapassa 2000 caracteres');
+    if (config.message2_send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.message2_send_at)) {
+      throw new BadRequestException('message2_send_at deve estar no formato HH:MM');
+    }
+    for (const [field, val] of [['template', config.template], ['message2_template', config.message2_template]] as const) {
+      if (val !== undefined) {
+        if (typeof val !== 'string') throw new BadRequestException(`${field} deve ser string`);
+        if (val.length > 2000) throw new BadRequestException(`${field} ultrapassa 2000 caracteres`);
+      }
     }
     const key = tenant_id ? `BIRTHDAY_GREETING_${tenant_id}` : 'BIRTHDAY_GREETING';
     const current = await this.getBirthdayGreetingConfig(tenant_id);
@@ -2082,10 +2090,12 @@ export class CalendarService {
    * Manda o parabéns pra todos os aniversariantes de hoje do tenant.
    * Usado pelo cron diário e pelo "Enviar agora" manual.
    */
-  async sendBirthdayGreetingsNow(tenant_id: string) {
+  async sendBirthdayGreetingsNow(tenant_id: string, which: 1 | 2 = 1) {
     const config = await this.getBirthdayGreetingConfig(tenant_id);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenant_id }, select: { name: true } });
     const clinica = tenant?.name || 'nossa clínica';
+    // Onda 17.61 — qual mensagem disparar (1 = o desejo, 2 = o presente).
+    const template = which === 2 ? (config.message2_template || config.template) : config.template;
 
     const patients = await this.birthdayPatientsToday(tenant_id);
     const results: { patient_id: string; name: string; sent: boolean; reason?: string }[] = [];
@@ -2097,7 +2107,7 @@ export class CalendarService {
         continue;
       }
       const firstName = (p.name || '').split(' ')[0] || p.name;
-      const msg = config.template
+      const msg = template
         .replace(/\{nome\}/g, firstName)
         .replace(/\{clinica\}/g, clinica)
         .replace(/\n{3,}/g, '\n\n')
@@ -2115,7 +2125,7 @@ export class CalendarService {
     }
 
     this.logger.log(
-      `[BIRTHDAY_GREETING] disparado: ${results.filter((r) => r.sent).length}/${patients.length} aniversariantes (tenant ${tenant_id})`,
+      `[BIRTHDAY_GREETING] msg${which} disparada: ${results.filter((r) => r.sent).length}/${patients.length} aniversariantes (tenant ${tenant_id})`,
     );
     return { total: patients.length, results };
   }

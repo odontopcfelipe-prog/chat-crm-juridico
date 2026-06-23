@@ -119,8 +119,10 @@ export class FollowupService {
     const posEnabled = posCfg?.enabled !== false;
     const dentEnabled = dentCfg?.enabled === true;
     const dentSendAt = (dentCfg?.send_at as string) || '07:00';
-    const birthdayEnabled = birthdayCfg?.enabled === true;
-    const birthdaySendAt = (birthdayCfg?.send_at as string) || '09:00';
+    // Onda 17.61 — aniversário tem 2 mensagens (desejo + presente). A linha do
+    // Operacional fica "ligada" se QUALQUER uma estiver ativa.
+    const birthdayEnabled = birthdayCfg?.enabled === true || birthdayCfg?.message2_enabled === true;
+    const birthdaySendAt = (birthdayCfg?.send_at as string) || '00:00';
 
     const [confs, lembretesHoje, posSurveys, posRespHoje, dentistEvents, dentistUsers, aniversariantesRows] = await Promise.all([
       this.prisma.appointmentConfirmation.findMany({
@@ -370,7 +372,9 @@ export class FollowupService {
         await mergeJson(`DENTIST_DAILY_SUMMARY_${tenantId}`, { enabled });
         break;
       case 'aniversario':
-        await mergeJson(`BIRTHDAY_GREETING_${tenantId}`, { enabled });
+        // Onda 17.61 — desligar a linha para AS DUAS mensagens (desejo + presente);
+        // ligar reativa a msg 1 (a msg 2 a pessoa liga no editor, se quiser).
+        await mergeJson(`BIRTHDAY_GREETING_${tenantId}`, enabled ? { enabled: true } : { enabled: false, message2_enabled: false });
         break;
       case 'reagendamento': {
         const key = `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}`;

@@ -71,7 +71,7 @@ export const DISPAROS: DisparoItem[] = [
 
   // ── Datas e relacionamento ──
   { id: 'aniversario', nome: 'Aniversariantes do dia', categoria: 'datas',
-    gatilho: 'No aniversário · 9h', canal: 'WhatsApp', tags: ['Template'],
+    gatilho: 'No aniversário · desejo 00:01 + presente 12h', canal: 'WhatsApp', tags: ['Template', '2 msgs'],
     editor: 'aniversario', operacionalKey: 'aniversario' },
   { id: 'datas_sazonais', nome: 'Datas sazonais', categoria: 'datas',
     gatilho: 'Data fixa da campanha', canal: 'WhatsApp', tags: ['Template'], editor: null, emBreve: true },
