@@ -163,6 +163,13 @@ export default function LoginPage() {
             </div>
           </div>
 
+          {/* Declaração de fé — ocupa o espaço central do painel (flex justify-between) */}
+          <div className="relative z-10 text-center py-6">
+            <p className="text-5xl xl:text-6xl font-black leading-[1.05] tracking-tight bg-gradient-to-r from-emerald-300 via-white to-emerald-200 bg-clip-text text-transparent drop-shadow-[0_2px_24px_rgba(52,211,153,0.3)]">
+              Jesus vive<br />em mim
+            </p>
+          </div>
+
           {/* Stats + trust embaixo */}
           <div className="relative z-10 mt-12">
             <div className="grid grid-cols-3 gap-4 mb-6 pb-6 border-b border-white/10">
