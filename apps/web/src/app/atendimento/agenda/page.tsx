@@ -2527,23 +2527,6 @@ export default function AgendaPage() {
               </div>
             )}
 
-            {/* Onda 17.61 — Confirmar manualmente: opção clara (ex.: paciente confirmou
-                por telefone). Aparece só em atendimento AGENDADO (ainda não confirmado). */}
-            {editingEvent && canEdit && editingEvent.status === 'AGENDADO'
-              && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
-              <div className="px-5 pt-3">
-                <button
-                  onClick={() => handleStatusChange('CONFIRMADO')}
-                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
-                >
-                  <CheckCircle2 size={16} /> Confirmar agendamento
-                </button>
-                <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
-                  Marca como <b>Confirmado</b> manualmente (ex.: o paciente confirmou por telefone).
-                </p>
-              </div>
-            )}
-
             {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
             {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
               <div className="px-5 pt-3">
@@ -2745,11 +2728,21 @@ export default function AgendaPage() {
                     <Bell size={12} /> <span className="hidden md:inline">{sendingNotify ? 'Enviando…' : 'Notificar'}</span>
                   </button>
                 )}
-                {/* Atender — abre ficha do paciente direto na aba Odontograma.
-                    So aparece quando ha paciente vinculado e tipo clinico (sem
-                    sentido pra BLOQUEIO/TAREFA). Mesmo destino do antigo botao
-                    Atender que existia no Kanban CRM (commit 0b90a40c). */}
-                {editingEvent && editingEvent.patient_id && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+                {/* Onda 17.61 — neste slot (era "Avaliação"): se o atendimento clínico
+                    está AGENDADO, mostra "Confirmar" (confirmação manual num clique, ex.:
+                    paciente confirmou por telefone). Já confirmado/concluído volta a mostrar
+                    "Avaliação" (atalho pro odontograma do paciente — não se perde). */}
+                {editingEvent && canEdit && editingEvent.status === 'AGENDADO'
+                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) ? (
+                  <button
+                    onClick={() => handleStatusChange('CONFIRMADO')}
+                    className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
+                    title="Confirmar agendamento manualmente (ex.: paciente confirmou por telefone)"
+                  >
+                    <CheckCircle2 size={12} /> <span className="hidden md:inline">Confirmar</span>
+                  </button>
+                ) : editingEvent && editingEvent.patient_id
+                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) ? (
                   <button
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
                     className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
@@ -2757,7 +2750,7 @@ export default function AgendaPage() {
                   >
                     <Stethoscope size={12} /> <span className="hidden md:inline">Avaliação</span>
                   </button>
-                )}
+                ) : null}
               </div>
               <div className="flex gap-2 shrink-0 order-1 sm:order-2 ml-auto">
                 <button
