@@ -207,6 +207,39 @@ export class BookAppointmentHandler implements ToolHandler {
       if (linkedPatient) resolvedPatientId = linkedPatient.id;
     }
 
+    // Onda 17.61 — DEDUP: a IA não pode agendar 2x o mesmo paciente perto do mesmo
+    // horário (gera lembretes repetidos — caso da Ana 14:00 + 14:30, agravado pela
+    // duplicação de lead do 9º dígito). Se já há CONSULTA AGENDADO/CONFIRMADO desse
+    // lead/paciente dentro de ±3h do horário pedido, retorna o existente sem criar.
+    const DUP_WINDOW_MS = 3 * 60 * 60 * 1000;
+    const dupOwner: any[] = [];
+    if (context.leadId) dupOwner.push({ lead_id: context.leadId });
+    if (resolvedPatientId) dupOwner.push({ patient_id: resolvedPatientId });
+    if (dupOwner.length) {
+      const existing = await prisma.calendarEvent.findFirst({
+        where: {
+          type: 'CONSULTA',
+          status: { in: ['AGENDADO', 'CONFIRMADO'] },
+          tenant_id: convo.tenant_id || undefined,
+          OR: dupOwner,
+          start_at: {
+            gte: new Date(startAt.getTime() - DUP_WINDOW_MS),
+            lte: new Date(startAt.getTime() + DUP_WINDOW_MS),
+          },
+        },
+        select: { id: true },
+      });
+      if (existing) {
+        this.logger.warn(`[book_appointment] DEDUP — lead=${context.leadId} já tem agendamento ${existing.id} perto de ${startAt.toISOString()}; NÃO duplicando.`);
+        return {
+          success: true,
+          eventId: existing.id,
+          already_booked: true,
+          message: 'Esse paciente já tem um agendamento próximo desse horário — mantive o existente pra NÃO duplicar. Avise que já está marcado e não crie outro.',
+        };
+      }
+    }
+
     // Cria o CalendarEvent + reminders em uma só chamada
     const event = await prisma.calendarEvent.create({
       data: {
