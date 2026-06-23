@@ -9,15 +9,27 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }) {
+  // `phone` guarda só o DDD+número (sem o 55) — o +55 fica FIXO no campo pra nunca
+  // ser esquecido (esquecer o 55 = WhatsApp não entrega).
   const [phone, setPhone] = useState('');
   const [sending, setSending] = useState(false);
+
+  // Aceita só dígitos; se colar um número já COM o 55 (total > 11 dígitos), tira o
+  // 55 da frente pra não virar "5555…". DDD 55 (RS) tem 10–11 dígitos → preservado.
+  const onPhoneChange = (raw: string) => {
+    let d = raw.replace(/\D/g, '');
+    if (d.startsWith('55') && d.length > 11) d = d.slice(2);
+    setPhone(d.slice(0, 11));
+  };
 
   const send = async () => {
     setSending(true);
     try {
+      // Sempre manda COM o 55 na frente — o campo só tem o DDD+número.
+      const fullPhone = `55${phone}`;
       // Onda 17.59 — manda o `text` ATUAL da tela quando o editor fornece (fiel ao
       // que está escrito, mesmo sem salvar). Sem `text`, o backend usa o texto salvo.
-      await api.post('/calendar/disparo/send-test', { disparo, phone, text });
+      await api.post('/calendar/disparo/send-test', { disparo, phone: fullPhone, text });
       showSuccess('Teste enviado — confira o WhatsApp desse número');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao enviar o teste');
@@ -30,16 +42,19 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
     <div className="mt-4 bg-card border border-border rounded-2xl p-4">
       <div className="text-[11px] font-bold text-foreground mb-1.5">🧪 Testar entrega no WhatsApp</div>
       <div className="flex items-center gap-2 flex-wrap">
-        <input
-          type="tel"
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          placeholder="Seu WhatsApp com DDD (ex.: 82999998888)"
-          className="flex-1 min-w-[180px] px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
-        />
+        <div className="flex-1 min-w-[180px] flex items-center bg-background border border-border rounded-lg overflow-hidden focus-within:ring-1 focus-within:ring-primary/40">
+          <span className="px-2.5 py-2 text-sm font-semibold text-muted-foreground bg-muted/50 border-r border-border select-none whitespace-nowrap">🇧🇷 +55</span>
+          <input
+            type="tel"
+            value={phone}
+            onChange={(e) => onPhoneChange(e.target.value)}
+            placeholder="DDD + número (ex.: 82999998888)"
+            className="flex-1 min-w-0 px-3 py-2 text-sm bg-transparent focus:outline-none"
+          />
+        </div>
         <button
           onClick={send}
-          disabled={sending || !phone.trim()}
+          disabled={sending || phone.length < 10}
           className="inline-flex items-center gap-1.5 px-4 py-2 text-sm font-bold border border-border rounded-lg hover:bg-accent transition-colors disabled:opacity-50"
         >
           {sending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
@@ -47,9 +62,10 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
         </button>
       </div>
       <p className="text-[10px] text-muted-foreground mt-1">
+        O <b>+55</b> já vai fixo — digite só o DDD + número.{' '}
         {text != null
-          ? 'Manda o texto que está NA TELA agora (com dados de exemplo) — você não precisa salvar pra testar. Precisa do WhatsApp da clínica conectado.'
-          : 'Manda a mensagem deste disparo (com dados de exemplo) pro número acima. Precisa do WhatsApp da clínica conectado.'}
+          ? 'Manda o texto que está NA TELA agora (com dados de exemplo) — não precisa salvar pra testar. Precisa do WhatsApp da clínica conectado.'
+          : 'Manda a mensagem deste disparo (com dados de exemplo). Precisa do WhatsApp da clínica conectado.'}
       </p>
     </div>
   );
