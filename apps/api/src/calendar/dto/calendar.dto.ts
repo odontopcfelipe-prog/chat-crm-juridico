@@ -17,7 +17,9 @@ const EVENT_TYPES = [
   'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
   'AUDIENCIA', 'PERICIA', 'PRAZO',
 ] as const;
-const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO', 'ADIADO'] as const;
+// Onda 17.61 — mantém em sincronia com calendar.service.ts (fluxo de recepção):
+// + COMPARECEU (paciente chegou), EM_ATENDIMENTO, NO_SHOW (faltou). DESMARCOU usa CANCELADO.
+const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO', 'CANCELADO', 'NO_SHOW', 'ADIADO'] as const;
 
 // ─── Reminder sub-DTO ─────────────────────────────────
 

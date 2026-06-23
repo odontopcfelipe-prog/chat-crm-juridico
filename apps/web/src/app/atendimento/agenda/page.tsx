@@ -134,12 +134,17 @@ const EVENT_PRIORITIES = [
   { id: 'URGENTE', label: 'Urgente' },
 ];
 
+// Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Paciente chegou → Em
+// atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) / Adiado como saídas.
 const EVENT_STATUSES = [
   { id: 'AGENDADO', label: 'Agendado', color: '#3b82f6' },
   { id: 'CONFIRMADO', label: 'Confirmado', color: '#22c55e' },
-  { id: 'CONCLUIDO', label: 'Concluido', color: '#6b7280' },
-  { id: 'CANCELADO', label: 'Cancelado', color: '#ef4444' },
-  { id: 'ADIADO', label: 'Adiado', color: '#f59e0b' },
+  { id: 'COMPARECEU', label: 'Paciente chegou', color: '#0ea5e9' },
+  { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f59e0b' },
+  { id: 'CONCLUIDO', label: 'Concluído', color: '#6b7280' },
+  { id: 'CANCELADO', label: 'Desmarcou', color: '#ef4444' },
+  { id: 'NO_SHOW', label: 'Faltou', color: '#1f2937' },
+  { id: 'ADIADO', label: 'Adiado', color: '#eab308' },
 ];
 
 const PRIORITY_COLORS: Record<string, string> = {
@@ -216,7 +221,8 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
     case 'CANCELADO': return 'SLOT_CANCELLED';
     case 'ADIADO':    return 'SLOT_DEFERRED';
     case 'NO_SHOW':   return 'SLOT_NOSHOW';   // Onda 5e v18: paciente faltou
-    case 'COMPARECEU': return 'SLOT_DONE';     // tratamento similar a concluido
+    case 'COMPARECEU': return 'SLOT_CONFIRMED'; // chegou — verde (ativo)
+    case 'EM_ATENDIMENTO': return 'SLOT_CONFIRMED'; // em atendimento — verde (ativo)
     default:          return 'SLOT_BOOKED'; // AGENDADO / outros
   }
 }
@@ -1300,7 +1306,8 @@ export default function AgendaPage() {
           switch (e.status) {
             case 'CONFIRMADO':  statusIcon = '✅ '; break;
             case 'AGENDADO':    statusIcon = '⏰ '; break; // aguardando confirmação
-            case 'COMPARECEU':  statusIcon = '🩺 '; break;
+            case 'COMPARECEU':  statusIcon = '🚶 '; break; // paciente chegou
+            case 'EM_ATENDIMENTO': statusIcon = '🦷 '; break;
             case 'NO_SHOW':     statusIcon = '🚫 '; break;
             case 'ADIADO':      statusIcon = '⏸️ '; break;
             case 'CANCELADO':   statusIcon = '✖️ '; break;
@@ -2502,28 +2509,26 @@ export default function AgendaPage() {
               </select>
             </fieldset>
 
-            {/* Status pills (only when editing) */}
+            {/* Onda 17.61 — Status como DROPDOWN (estilo PRIORIDADE) com o fluxo de
+                recepção: Agendado → Confirmado → Paciente chegou → Em atendimento →
+                Concluído (+ Desmarcou / Faltou / Adiado). Troca o status na hora. */}
             {editingEvent && (
-              <div className="px-5 pt-3 flex flex-wrap gap-1.5">
-                {EVENT_STATUSES.map(s => (
-                  <button
-                    key={s.id}
-                    onClick={() => canEdit && handleStatusChange(s.id)}
-                    disabled={!canEdit}
-                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all border ${
-                      editingEvent.status === s.id
-                        ? 'text-white shadow-sm'
-                        : 'opacity-50 hover:opacity-80'
-                    } ${!canEdit ? 'cursor-not-allowed' : ''}`}
-                    style={{
-                      borderColor: s.color + '60',
-                      background: editingEvent.status === s.id ? s.color : 'transparent',
-                      color: editingEvent.status === s.id ? '#fff' : s.color,
-                    }}
-                  >
-                    {s.label}
-                  </button>
-                ))}
+              <div className="px-5 pt-3">
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Status</label>
+                <select
+                  value={editingEvent.status}
+                  onChange={e => canEdit && handleStatusChange(e.target.value)}
+                  disabled={!canEdit}
+                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-bold outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{
+                    color: EVENT_STATUSES.find(s => s.id === editingEvent.status)?.color,
+                    borderColor: (EVENT_STATUSES.find(s => s.id === editingEvent.status)?.color || '#cbd5e1') + '60',
+                  }}
+                >
+                  {EVENT_STATUSES.map(s => (
+                    <option key={s.id} value={s.id} className="text-foreground font-medium">{s.label}</option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -2728,21 +2733,10 @@ export default function AgendaPage() {
                     <Bell size={12} /> <span className="hidden md:inline">{sendingNotify ? 'Enviando…' : 'Notificar'}</span>
                   </button>
                 )}
-                {/* Onda 17.61 — neste slot (era "Avaliação"): se o atendimento clínico
-                    está AGENDADO, mostra "Confirmar" (confirmação manual num clique, ex.:
-                    paciente confirmou por telefone). Já confirmado/concluído volta a mostrar
-                    "Avaliação" (atalho pro odontograma do paciente — não se perde). */}
-                {editingEvent && canEdit && editingEvent.status === 'AGENDADO'
-                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) ? (
-                  <button
-                    onClick={() => handleStatusChange('CONFIRMADO')}
-                    className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
-                    title="Confirmar agendamento manualmente (ex.: paciente confirmou por telefone)"
-                  >
-                    <CheckCircle2 size={12} /> <span className="hidden md:inline">Confirmar</span>
-                  </button>
-                ) : editingEvent && editingEvent.patient_id
-                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) ? (
+                {/* Avaliação — abre a ficha do paciente na aba Odontograma (atalho clínico).
+                    O status agora é controlado pelo dropdown de Status (Onda 17.61). */}
+                {editingEvent && editingEvent.patient_id
+                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
                   <button
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
                     className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
@@ -2750,7 +2744,7 @@ export default function AgendaPage() {
                   >
                     <Stethoscope size={12} /> <span className="hidden md:inline">Avaliação</span>
                   </button>
-                ) : null}
+                )}
               </div>
               <div className="flex gap-2 shrink-0 order-1 sm:order-2 ml-auto">
                 <button

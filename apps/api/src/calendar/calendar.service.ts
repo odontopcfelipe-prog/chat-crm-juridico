@@ -19,7 +19,11 @@ const EVENT_TYPES = [
   'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
   'AUDIENCIA', 'PERICIA', 'PRAZO',
 ] as const;
-const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'CONCLUIDO', 'CANCELADO', 'ADIADO'] as const;
+// Onda 17.61 — fluxo de recepção mais rico: + COMPARECEU (paciente chegou),
+// EM_ATENDIMENTO e NO_SHOW (faltou). DESMARCOU usa CANCELADO (mesmo efeito: libera
+// o slot / dispara lista de espera). Os já-existentes (CANCELADO/CONCLUIDO/ADIADO)
+// seguem com a mesma lógica de disparo/waitlist; os novos são estados intermediários.
+const EVENT_STATUSES = ['AGENDADO', 'CONFIRMADO', 'COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO', 'CANCELADO', 'NO_SHOW', 'ADIADO'] as const;
 
 @Injectable()
 export class CalendarService {
