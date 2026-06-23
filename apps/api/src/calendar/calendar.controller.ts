@@ -546,14 +546,14 @@ export class CalendarController {
 
   @Patch('holidays/:id')
   @Roles('ADMIN')
-  updateHoliday(@Param('id') id: string, @Body() data: UpdateHolidayDto) {
-    return this.calendarService.updateHoliday(id, data);
+  updateHoliday(@Param('id') id: string, @Body() data: UpdateHolidayDto, @Request() req: any) {
+    return this.calendarService.updateHoliday(id, data, req.user?.tenant_id);
   }
 
   @Delete('holidays/:id')
   @Roles('ADMIN')
-  deleteHoliday(@Param('id') id: string) {
-    return this.calendarService.deleteHoliday(id);
+  deleteHoliday(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.deleteHoliday(id, req.user?.tenant_id);
   }
 
   // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ──────────
@@ -607,7 +607,7 @@ export class CalendarController {
       if (!isAdmin && target.user_id !== req.user?.id) {
         throw new ForbiddenException('Sem permissao pra editar esse bloqueio');
       }
-      return this.calendarService.updateScheduleBlock(id, data);
+      return this.calendarService.updateScheduleBlock(id, data, req.user?.tenant_id);
     })();
   }
 
@@ -623,7 +623,7 @@ export class CalendarController {
       if (!isAdmin && target.user_id !== req.user?.id) {
         throw new ForbiddenException('Sem permissao pra remover esse bloqueio');
       }
-      return this.calendarService.deleteScheduleBlock(id);
+      return this.calendarService.deleteScheduleBlock(id, req.user?.tenant_id);
     })();
   }
 

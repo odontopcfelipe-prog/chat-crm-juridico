@@ -2,11 +2,15 @@ import { Controller, Post, Body, UnauthorizedException, HttpCode, HttpStatus, Re
 import { AuthService } from './auth.service';
 import { SignInDto } from './dto/sign-in.dto';
 import { Public } from './decorators/public.decorator';
+import { Throttle } from '@nestjs/throttler';
 
 @Controller('auth')
 export class AuthController {
   constructor(private authService: AuthService) {}
 
+  // Onda 17.61 (segurança/JWT-04) — rate-limit dedicado no login (anti brute-force/
+  // credential-stuffing): 10 tentativas por minuto por IP.
+  @Throttle({ default: { ttl: 60000, limit: 10 } })
   @Public()
   @HttpCode(HttpStatus.OK)
   @Post('login')

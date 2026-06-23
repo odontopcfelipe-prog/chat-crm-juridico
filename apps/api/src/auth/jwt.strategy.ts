@@ -17,6 +17,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
       secretOrKey: secret || '__INSECURE_DEV_FALLBACK_CHANGE_ME__',
+      // Onda 17.61 (segurança/JWT) — fixa HS256 (evita ataque de confusão de algoritmo).
+      algorithms: ['HS256'],
     });
   }
 

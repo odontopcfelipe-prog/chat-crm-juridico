@@ -2352,7 +2352,8 @@ export class CalendarService {
     });
   }
 
-  async updateHoliday(id: string, data: { date?: string; name?: string; recurring_yearly?: boolean }) {
+  async updateHoliday(id: string, data: { date?: string; name?: string; recurring_yearly?: boolean }, tenantId?: string) {
+    await this.assertHolidayTenant(id, tenantId);
     const updateData: any = {};
     if (data.date) updateData.date = new Date(data.date);
     if (data.name !== undefined) updateData.name = data.name;
@@ -2360,9 +2361,19 @@ export class CalendarService {
     return this.prisma.holiday.update({ where: { id }, data: updateData });
   }
 
-  async deleteHoliday(id: string) {
+  async deleteHoliday(id: string, tenantId?: string) {
+    await this.assertHolidayTenant(id, tenantId);
     await this.prisma.holiday.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  // Onda 17.61 (segurança/IDOR) — feriado tem que ser do tenant do chamador.
+  private async assertHolidayTenant(id: string, tenantId?: string) {
+    if (!tenantId) return;
+    const h = await this.prisma.holiday.findUnique({ where: { id }, select: { tenant_id: true } });
+    if (!h || (h.tenant_id && h.tenant_id !== tenantId)) {
+      throw new NotFoundException('Feriado não encontrado');
+    }
   }
 
   // ─── Schedule Blocks (Fase 25 — Onda 5e v9) ───────────
@@ -2418,7 +2429,9 @@ export class CalendarService {
   async updateScheduleBlock(
     id: string,
     data: { start_at?: string; end_at?: string; all_day?: boolean; reason?: string; notes?: string },
+    tenantId?: string,
   ) {
+    await this.assertScheduleBlockTenant(id, tenantId);
     const updateData: any = {};
     if (data.start_at) updateData.start_at = new Date(data.start_at);
     if (data.end_at) updateData.end_at = new Date(data.end_at);
@@ -2428,7 +2441,17 @@ export class CalendarService {
     return this.prisma.scheduleBlock.update({ where: { id }, data: updateData });
   }
 
-  async deleteScheduleBlock(id: string) {
+  // Onda 17.61 (segurança/IDOR) — bloqueio de agenda tem que ser do tenant do chamador.
+  private async assertScheduleBlockTenant(id: string, tenantId?: string) {
+    if (!tenantId) return;
+    const b = await this.prisma.scheduleBlock.findUnique({ where: { id }, select: { tenant_id: true } });
+    if (!b || (b.tenant_id && b.tenant_id !== tenantId)) {
+      throw new NotFoundException('Bloqueio não encontrado');
+    }
+  }
+
+  async deleteScheduleBlock(id: string, tenantId?: string) {
+    await this.assertScheduleBlockTenant(id, tenantId);
     await this.prisma.scheduleBlock.delete({ where: { id } });
     return { deleted: true };
   }
