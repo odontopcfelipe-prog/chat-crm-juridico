@@ -529,3 +529,14 @@
   font-weight: 800 !important;
   box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-primary, #7c5cf0) 40%, transparent);
 }
+
+/* Onda 17.61 — corrige o horário desalinhado em eventos curtos. O layout compacto
+   do schedule-x (.sx__title-and-time-compact) usa align-items:center; como nosso
+   título agora tem 2 linhas (paciente—procedimento + dentista), o horário caía no
+   MEIO. Top-aligna pra o horário ficar lado a lado com a 1ª linha do título. */
+.sx-react-calendar-wrapper .sx__title-and-time-compact {
+  align-items: flex-start !important;
+}
+.sx-react-calendar-wrapper .sx__title-and-time-compact .sx__time-grid-event-time {
+  margin-top: 0 !important;
+}
