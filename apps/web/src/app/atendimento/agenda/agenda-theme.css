@@ -509,3 +509,23 @@
   background-color: var(--bg-elevated) !important;
   border-radius: 8px !important;
 }
+
+/* Dia de HOJE com o número num círculo cheio (cor de acento), igual à referência.
+   Os seletores com .sx__sunday / .sx__holiday têm a MESMA especificidade das regras
+   vermelhas de domingo/feriado e vêm DEPOIS no arquivo → vencem (senão o número de
+   hoje ficaria vermelho num domingo/feriado). Cobre week e day view. */
+.sx-react-calendar-wrapper .sx__week-grid__date--is-today .sx__week-grid__date-number,
+.sx-react-calendar-wrapper .sx__week-grid__date--is-today.sx__sunday .sx__week-grid__date-number,
+.sx-react-calendar-wrapper .sx__week-grid__date--is-today.sx__holiday .sx__week-grid__date-number {
+  background: var(--accent-primary, #7c5cf0) !important;
+  color: #fff !important;
+  border-radius: 999px !important;
+  min-width: 1.7em;
+  height: 1.7em;
+  padding: 0 0.3em;
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800 !important;
+  box-shadow: 0 2px 6px color-mix(in srgb, var(--accent-primary, #7c5cf0) 40%, transparent);
+}
