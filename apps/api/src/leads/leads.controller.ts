@@ -170,8 +170,8 @@ export class LeadsController {
   // DELETE /leads/:id — exclui contato e TODOS os seus dados (somente ADMIN)
   @Delete(':id')
   @Roles('ADMIN')
-  deleteContact(@Param('id') id: string) {
-    return this.leadsService.deleteContact(id);
+  deleteContact(@Param('id') id: string, @Request() req: any) {
+    return this.leadsService.deleteContact(id, req.user?.tenant_id);
   }
 
   @Post('cleanup/deduplicate')

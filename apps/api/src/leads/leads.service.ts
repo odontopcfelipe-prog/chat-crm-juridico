@@ -1145,9 +1145,15 @@ export class LeadsService {
   // ─── DELETE CONTACT (somente ADMIN) ──────────────────────────────────────
   // Exclui o contato e TODOS os seus dados: conversas, mensagens, memória IA,
   // casos jurídicos, tarefas, eventos, publicações DJEN.
-  async deleteContact(id: string): Promise<{ ok: boolean }> {
-    const lead = await this.prisma.lead.findUnique({ where: { id }, select: { id: true } });
+  async deleteContact(id: string, tenantId?: string): Promise<{ ok: boolean }> {
+    const lead = await this.prisma.lead.findUnique({ where: { id }, select: { id: true, tenant_id: true } });
     if (!lead) throw new NotFoundException('Contato não encontrado');
+    // Onda 17.61 (segurança/CRÍTICO) — isolamento de tenant ANTES do cascade. Destrutivo
+    // e irreversível: chamador escopado só apaga contato do PRÓPRIO tenant (null-tenant
+    // legado também bloqueado). SUPER_ADMIN (tenantId undefined) segue cross-tenant.
+    if (tenantId && lead.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado a este recurso');
+    }
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Coleta todos os IDs relacionados

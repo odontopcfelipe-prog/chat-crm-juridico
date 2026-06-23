@@ -53,14 +53,19 @@ export class UsersService {
     private mail: MailService,
   ) {}
 
+  // Onda 17.61 (segurança/RBAC-01) — chamador escopado a um tenant vê/age SÓ no
+  // próprio tenant. Antes o `OR { tenant_id: null }` vazava SUPER_ADMIN na lista, e
+  // o ownership deixava o ADMIN agir em conta `tenant_id=null` (→ reset de senha de
+  // SUPER_ADMIN = takeover do SaaS). SUPER_ADMIN (tenantId undefined) segue cross-tenant.
   private tenantWhere(tenantId?: string) {
-    return tenantId ? { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } : {};
+    return tenantId ? { tenant_id: tenantId } : {};
   }
 
   private async verifyTenantOwnership(id: string, tenantId?: string) {
-    if (!tenantId) return;
+    if (!tenantId) return; // SUPER_ADMIN / contexto sem tenant: cross-tenant intencional
     const user = await this.prisma.user.findUnique({ where: { id }, select: { tenant_id: true } });
-    if (user?.tenant_id && user.tenant_id !== tenantId) {
+    // O alvo TEM que ser do mesmo tenant. tenant_id=null (SUPER_ADMIN) ou outro tenant → negado.
+    if (!user || user.tenant_id !== tenantId) {
       throw new ForbiddenException('Acesso negado a este recurso');
     }
   }
