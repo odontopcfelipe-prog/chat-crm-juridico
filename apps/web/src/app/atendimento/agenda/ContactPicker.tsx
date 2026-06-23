@@ -19,6 +19,7 @@
  *   - onChange recebe { patient_id: null, lead_id: null }
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, X, User, ChevronDown, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
 
@@ -69,7 +70,12 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // Onda 17.61 — popover em PORTAL (position:fixed) pra escapar do overflow do modal
+  // (que cortava a lista). pos = ancoragem calculada a partir do trigger.
+  const [pos, setPos] = useState<{ top: number; left: number; width: number; listMaxHeight: number } | null>(null);
 
   // v31: carrega pacientes + leads na primeira abertura (lazy).
   // Bug resolvido: filtro status=ACTIVE excluia pacientes recem-cadastrados
@@ -130,16 +136,46 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
       });
   }, [open, patients.length, leads.length]);
 
-  // Fecha popover ao clicar fora
+  // Fecha popover ao clicar fora (trigger OU popover portalizado)
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      const t = e.target as Node;
+      if (containerRef.current?.contains(t)) return;
+      if (popoverRef.current?.contains(t)) return; // clique dentro do popover (portal)
+      setOpen(false);
     };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
+  }, [open]);
+
+  // Onda 17.61 — posição do popover (portal) ancorada no trigger; recalcula em
+  // scroll/resize. Abre pra baixo; se não couber, pra cima. A lista cresce com o espaço.
+  useEffect(() => {
+    if (!open) { setPos(null); return; }
+    const compute = () => {
+      const r = triggerRef.current?.getBoundingClientRect();
+      if (!r) return;
+      const M = 8, CHROME = 96; // header de busca + rodapé
+      const below = window.innerHeight - r.bottom - M;
+      const above = r.top - M;
+      const openUp = below < 200 && above > below;
+      const space = openUp ? above : below;
+      const listMaxHeight = Math.min(380, Math.max(space - CHROME, 140));
+      setPos({
+        top: openUp ? Math.max(M, r.top - 4 - (listMaxHeight + CHROME)) : r.bottom + 4,
+        left: r.left,
+        width: r.width,
+        listMaxHeight,
+      });
+    };
+    compute();
+    window.addEventListener('resize', compute);
+    window.addEventListener('scroll', compute, true);
+    return () => {
+      window.removeEventListener('resize', compute);
+      window.removeEventListener('scroll', compute, true);
+    };
   }, [open]);
 
   // v32: Bug fix — ContactPicker eh LAZY (carrega lista so ao abrir popover).
@@ -253,6 +289,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     <div ref={containerRef} className="relative">
       {/* Trigger */}
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-left flex items-center justify-between gap-2 hover:border-primary/40 focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -289,9 +326,13 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
         </div>
       </button>
 
-      {/* Popover */}
-      {open && (
-        <div className="absolute top-full left-0 right-0 mt-1 z-50 bg-card border border-border rounded-lg shadow-2xl overflow-hidden">
+      {/* Popover — Onda 17.61: PORTAL (position:fixed) pra não ser cortado pelo overflow do modal */}
+      {open && pos && createPortal(
+        <div
+          ref={popoverRef}
+          style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
+          className="bg-card border border-border rounded-lg shadow-2xl overflow-hidden"
+        >
           <div className="p-2 border-b border-border">
             <div className="relative">
               <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -312,7 +353,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
             </div>
           )}
 
-          <div className="max-h-72 overflow-y-auto">
+          <div className="overflow-y-auto" style={{ maxHeight: pos.listMaxHeight }}>
             {loading ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
                 <Loader2 size={14} className="inline animate-spin mr-1" /> Carregando pacientes e leads...
@@ -369,7 +410,8 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
               Mostrando {options.length} resultado(s){search.trim() ? '' : ' — digite pra filtrar'}
             </div>
           )}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );
