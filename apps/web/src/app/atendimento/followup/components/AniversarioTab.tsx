@@ -14,9 +14,29 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import { Cake, Loader2, RefreshCw, Search, Inbox } from 'lucide-react';
+import { Cake, Loader2, RefreshCw, Search, Inbox, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+
+const MESES = ['JANEIRO', 'FEVEREIRO', 'MARÇO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+const AVATAR_COLORS = ['bg-fuchsia-500', 'bg-pink-500', 'bg-teal-500', 'bg-amber-500', 'bg-blue-500', 'bg-violet-500', 'bg-emerald-500', 'bg-rose-500'];
+
+function initials(name: string): string {
+  const parts = (name || '').trim().split(/\s+/).filter(Boolean);
+  if (!parts.length) return '?';
+  const a = parts[0][0] || '';
+  const b = parts.length > 1 ? parts[parts.length - 1][0] : '';
+  return (a + b).toUpperCase();
+}
+function avatarColor(name: string): string {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+  return AVATAR_COLORS[h % AVATAR_COLORS.length];
+}
+function waNum(phone: string | null): string {
+  const d = (phone || '').replace(/\D/g, '');
+  return d.startsWith('55') ? d : `55${d}`;
+}
 
 interface UpcomingItem {
   id: string; name: string; phone: string | null;
@@ -102,6 +122,18 @@ export function AniversarioTab() {
   const histRows = useMemo(() => (
     q ? history.filter((h) => (h.recipient_name || '').toLowerCase().includes(q) || (h.recipient_phone || '').includes(q)) : history
   ), [history, q]);
+
+  // Onda 17.61 — agrupa a lista (já ordenada por quem vem primeiro) por MÊS,
+  // emitindo um cabeçalho de mês a cada virada (modelo de referência do usuário).
+  const grouped = useMemo(() => {
+    const out: Array<{ kind: 'header'; month: number } | { kind: 'row'; item: UpcomingItem }> = [];
+    let last = -1;
+    for (const p of upRows) {
+      if (p.birth_month !== last) { out.push({ kind: 'header', month: p.birth_month }); last = p.birth_month; }
+      out.push({ kind: 'row', item: p });
+    }
+    return out;
+  }, [upRows]);
 
   if (loading) {
     return <div className="py-16 flex items-center justify-center text-muted-foreground"><Loader2 size={20} className="animate-spin" /></div>;
@@ -205,25 +237,40 @@ export function AniversarioTab() {
         )
       ) : (
         upRows.length === 0 ? empty(tab === 'proximos' ? 'Ninguém faz aniversário nos próximos 30 dias.' : 'Nenhum paciente ativo com data de nascimento cadastrada. Preencha o nascimento nos cadastros pra eles aparecerem aqui.') : (
-          <div className="bg-card border border-border rounded-2xl overflow-hidden">
-            <div className="hidden sm:grid grid-cols-[1fr_auto_auto] gap-3 px-4 py-2 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-b border-border">
-              <div>Paciente</div><div className="text-right">Aniversário</div><div className="text-right">Quando</div>
-            </div>
-            <div className="divide-y divide-border">
-              {upRows.map((p) => (
-                <div key={p.id} className={`grid grid-cols-[1fr_auto] sm:grid-cols-[1fr_auto_auto] gap-3 px-4 py-2.5 items-center ${p.is_today ? 'bg-fuchsia-500/5' : ''}`}>
-                  <div className="min-w-0 flex items-center gap-2.5">
-                    <div className={`shrink-0 w-8 h-8 rounded-lg flex items-center justify-center ${p.is_today ? 'bg-fuchsia-500/15 text-fuchsia-600' : 'bg-muted text-muted-foreground'}`}><Cake size={14} /></div>
-                    <div className="min-w-0">
-                      <div className="text-sm font-semibold truncate">{p.name}</div>
-                      <div className="text-[11px] text-muted-foreground truncate">{maskPhone(p.phone) || 'sem telefone'}</div>
-                    </div>
-                  </div>
-                  <div className="text-sm font-bold justify-self-end">{String(p.birth_day).padStart(2, '0')}/{String(p.birth_month).padStart(2, '0')}</div>
-                  <div className={`text-[11px] font-semibold hidden sm:block text-right ${p.is_today ? 'text-fuchsia-600 dark:text-fuchsia-400' : 'text-muted-foreground'}`}>{diasLabel(p.days_until)}</div>
+          <div className="bg-card border border-border rounded-2xl overflow-hidden divide-y divide-border">
+            {grouped.map((g) => g.kind === 'header' ? (
+              <div key={`h-${g.month}`} className="px-4 py-1.5 bg-muted/40 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+                {MESES[g.month - 1]}
+              </div>
+            ) : (
+              <div key={g.item.id} className={`flex items-center gap-3 px-4 py-2.5 ${g.item.is_today ? 'bg-fuchsia-500/5' : ''}`}>
+                <div className={`shrink-0 w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ${avatarColor(g.item.name)}`}>
+                  {initials(g.item.name)}
                 </div>
-              ))}
-            </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm font-semibold truncate">{g.item.name}</div>
+                  <div className="text-[11px] text-muted-foreground truncate">{maskPhone(g.item.phone) || 'sem telefone'}</div>
+                </div>
+                <div className="shrink-0 text-right">
+                  <div className="text-sm font-bold leading-tight">{String(g.item.birth_day).padStart(2, '0')}/{String(g.item.birth_month).padStart(2, '0')}</div>
+                  <div className={`text-[10px] font-semibold mt-0.5 inline-block px-1.5 py-0.5 rounded-full ${g.item.is_today ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400' : 'bg-muted text-muted-foreground'}`}>{diasLabel(g.item.days_until)}</div>
+                </div>
+                {g.item.phone ? (
+                  <a
+                    href={`https://wa.me/${waNum(g.item.phone)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => e.stopPropagation()}
+                    title={`Abrir WhatsApp de ${g.item.name}`}
+                    className="shrink-0 w-9 h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <MessageCircle size={16} />
+                  </a>
+                ) : (
+                  <div className="shrink-0 w-9 h-9" />
+                )}
+              </div>
+            ))}
           </div>
         )
       )}
