@@ -149,15 +149,13 @@ export class FollowupService {
         distinct: ['assigned_user_id'],
       }),
       this.prisma.user.findMany({ where: { tenant_id: tenantId, roles: { has: 'DENTIST' } }, select: { id: true } }),
-      this.prisma.$queryRawUnsafe<Array<{ count: number }>>(
-        `SELECT count(*)::int as count FROM patients
-         WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-           AND EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM $2::date)
-           AND EXTRACT(DAY FROM birth_date) = EXTRACT(DAY FROM $2::date)`,
-        tenantId, todayMaceio,
-        // Resiliente: se ESSA query falhar, aniversario vira 0 em vez de derrubar
-        // o painel inteiro (500). As outras 6 metricas continuam.
-      ).catch(() => [{ count: 0 }] as Array<{ count: number }>),
+      // Onda 17.60 — Prisma ORM (não SQL cru `FROM patients`, que voltava vazio).
+      // Carrega os ativos com data de nascimento; o filtro de "hoje" é no Node.
+      this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, status: 'ACTIVE', birth_date: { not: null } },
+        select: { birth_date: true },
+        take: 5000,
+      }).catch(() => [] as any[]),
     ]);
 
     // Onda 17.60 — contadores "enviados hoje · a enviar" pra cada card mostrar o
@@ -215,7 +213,12 @@ export class FollowupService {
     const dentistasHoje = dentistEvents.filter((e) => e.assigned_user_id && dentistIds.has(e.assigned_user_id)).length;
 
     // Aniversariantes ATIVOS de hoje (count cru).
-    const aniversariantesHoje = Number(aniversariantesRows?.[0]?.count ?? 0);
+    // Aniversariantes de HOJE (Maceió) — filtra mês/dia no Node sobre os ativos.
+    const [, mesHoje, diaHoje] = todayMaceio.split('-').map(Number);
+    const aniversariantesHoje = (aniversariantesRows as any[]).filter((r) => {
+      const bd = new Date(r.birth_date);
+      return bd.getUTCMonth() + 1 === mesHoje && bd.getUTCDate() === diaHoje;
+    }).length;
 
     return {
       confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct, enviadosHoje: enviadasHoje, aEnviar: confAEnviar, enviadosMes: confMes },

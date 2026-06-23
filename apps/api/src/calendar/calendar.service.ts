@@ -1898,21 +1898,24 @@ export class CalendarService {
     return merged;
   }
 
-  /** Aniversariantes ATIVOS de hoje (mesma regra do /patients/birthdays). */
+  /** Aniversariantes ATIVOS de hoje (fuso Maceió). Prisma ORM + filtro no Node —
+   *  o SQL cru `FROM patients` voltava vazio (nome de tabela/coluna). "Hoje" é o
+   *  dia de Maceió (UTC-3), lido via getUTC* do instante now-3h. */
   private async birthdayPatientsToday(tenant_id: string) {
-    // "Hoje" no fuso America/Maceio (UTC-3) calculado no Node — NAO usa
-    // CURRENT_DATE do Postgres (que roda em UTC) pra nao pegar o dia errado
-    // perto da meia-noite (ex: send_at noturno pegaria os aniversariantes de
-    // amanha). Mesma base que o cron usa pra decidir a hora.
-    const todayMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
-    return this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null }>>(
-      `SELECT id, name, phone FROM patients
-       WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-         AND EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM $2::date)
-         AND EXTRACT(DAY FROM birth_date) = EXTRACT(DAY FROM $2::date)
-       LIMIT 200`,
-      tenant_id, todayMaceio,
-    );
+    const today = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const tm = today.getUTCMonth();
+    const td = today.getUTCDate();
+    const rows = await this.prisma.patient.findMany({
+      where: { tenant_id, status: 'ACTIVE', birth_date: { not: null } },
+      select: { id: true, name: true, phone: true, birth_date: true },
+      take: 5000,
+    }).catch(() => [] as any[]);
+    return (rows as any[])
+      .filter((r) => {
+        const bd = new Date(r.birth_date);
+        return bd.getUTCMonth() === tm && bd.getUTCDate() === td;
+      })
+      .map((r) => ({ id: r.id as string, name: r.name as string, phone: (r.phone ?? null) as string | null }));
   }
 
   /**
@@ -1928,14 +1931,16 @@ export class CalendarService {
     const todayY = today.getUTCFullYear();
     const todayMs = Date.UTC(todayY, today.getUTCMonth(), today.getUTCDate());
     const [rows, totalAtivos, semData] = await Promise.all([
-      this.prisma.$queryRawUnsafe<Array<{ id: string; name: string; phone: string | null; birth_date: Date }>>(
-        `SELECT id, name, phone, birth_date FROM patients
-         WHERE tenant_id = $1 AND status = 'ACTIVE' AND birth_date IS NOT NULL
-         LIMIT 5000`,
-        tenant_id,
-      ).catch(() => [] as any[]),
-      // Onda 17.60 — quantos pacientes ATIVOS existem e quantos estão SEM data de
-      // nascimento (pra a tela mostrar "X sem nascimento — preencha pra aparecerem").
+      // Onda 17.60 — Prisma ORM (não SQL cru): o $queryRawUnsafe com `FROM patients`
+      // voltava vazio (a contagem por ORM achava 6, a lista crua dava 0). O ORM usa
+      // o nome certo de tabela/coluna do schema.
+      this.prisma.patient.findMany({
+        where: { tenant_id, status: 'ACTIVE', birth_date: { not: null } },
+        select: { id: true, name: true, phone: true, birth_date: true },
+        take: 5000,
+      }).catch(() => [] as any[]),
+      // quantos pacientes ATIVOS existem e quantos estão SEM data de nascimento (pra
+      // a tela mostrar "X sem nascimento — preencha pra aparecerem").
       this.prisma.patient.count({ where: { tenant_id, status: 'ACTIVE' } }).catch(() => 0),
       this.prisma.patient.count({ where: { tenant_id, status: 'ACTIVE', birth_date: null } }).catch(() => 0),
     ]);
