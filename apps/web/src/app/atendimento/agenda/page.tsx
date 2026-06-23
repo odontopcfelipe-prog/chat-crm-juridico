@@ -116,6 +116,17 @@ const LEGEND_TYPE = [
   { label: 'Tarefa', color: '#22c55e' },
 ] as const;
 
+// Onda 17.61 — densidade (altura por hora) + "esconder madrugada" (grade começa às
+// 07:00 em vez de 00:00, cortando o vão vazio). Os dois mexem no schedule-x via
+// signal ($app.config.dayBoundaries/.weekOptions) — SEM recriar o calendário.
+const AGENDA_DENSITY_PER_HOUR = { compacto: 50, confortavel: 70, amplo: 100 } as const;
+type AgendaDensity = keyof typeof AGENDA_DENSITY_PER_HOUR;
+function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile: boolean): number {
+  const perHour = mobile ? Math.round(AGENDA_DENSITY_PER_HOUR[density] * 0.72) : AGENDA_DENSITY_PER_HOUR[density];
+  const visibleHours = hideMadrugada ? 17 : 24; // 24:00 − 07:00 = 17h
+  return perHour * visibleHours;
+}
+
 const EVENT_PRIORITIES = [
   { id: 'BAIXA', label: 'Baixa' },
   { id: 'NORMAL', label: 'Normal' },
@@ -941,6 +952,29 @@ export default function AgendaPage() {
     }
   }, [fetchEvents]);
 
+  // Onda 17.61 — preferências de exibição (persistidas). Lidas num effect (não no
+  // initializer) pra evitar mismatch de hidratação. Default: esconde a madrugada.
+  const [hideMadrugada, setHideMadrugada] = useState(true);
+  const [agendaDensity, setAgendaDensity] = useState<AgendaDensity>('confortavel');
+  useEffect(() => {
+    try {
+      setHideMadrugada(localStorage.getItem('agenda:hideMadrugada') !== 'false');
+      const v = localStorage.getItem('agenda:density');
+      if (v === 'compacto' || v === 'amplo') setAgendaDensity(v);
+    } catch { /* localStorage indisponível — usa defaults */ }
+  }, []);
+  const changeDensity = useCallback((d: AgendaDensity) => {
+    setAgendaDensity(d);
+    try { localStorage.setItem('agenda:density', d); } catch { /* ignore */ }
+  }, []);
+  const toggleMadrugada = useCallback(() => {
+    setHideMadrugada((v) => {
+      const n = !v;
+      try { localStorage.setItem('agenda:hideMadrugada', String(n)); } catch { /* ignore */ }
+      return n;
+    });
+  }, []);
+
   const calendar = useNextCalendarApp({
     views: [createViewWeek(), createViewMonthGrid(), createViewDay()],
     defaultView: isMobile ? 'day' : 'week',
@@ -958,8 +992,8 @@ export default function AgendaPage() {
     // Onda 17.56 — grade cobre o DIA INTEIRO (00:00–24:00) pra NUNCA esconder um
     // evento fora do horário comercial (ex.: 00:00). gridHeight maior compensa as
     // 24h pra manter as linhas legíveis; o usuário rola até o horário.
-    dayBoundaries: { start: '00:00', end: '24:00' },
-    weekOptions: { gridHeight: isMobile ? 1000 : 1600, gridStep: 30 },
+    dayBoundaries: { start: hideMadrugada ? '07:00' : '00:00', end: '24:00' },
+    weekOptions: { gridHeight: agendaGridHeight(agendaDensity, hideMadrugada, isMobile), gridStep: 30 },
     isDark: isDarkTheme,
     callbacks: {
       onRangeUpdate(range) {
@@ -1078,6 +1112,28 @@ export default function AgendaPage() {
       console.warn('[Agenda] setTheme failed:', e);
     }
   }, [calendar, isDarkTheme, themeMounted]);
+
+  // Onda 17.61 — aplica densidade + esconder-madrugada em runtime. dayBoundaries e
+  // weekOptions são signals reativos no core do schedule-x (.value) → muda sem
+  // recriar o calendário. Formato dos timePoints: 00:00=0, 07:00=700, 24:00=2400.
+  // try/catch defensivo: se o schedule-x mudar a estrutura interna, não quebra a agenda.
+  useEffect(() => {
+    const cfg = (calendar as any)?.$app?.config;
+    if (!cfg) return;
+    try {
+      if (cfg.dayBoundaries && 'value' in cfg.dayBoundaries) {
+        cfg.dayBoundaries.value = { start: hideMadrugada ? 700 : 0, end: 2400 };
+      }
+      if (cfg.weekOptions && 'value' in cfg.weekOptions) {
+        cfg.weekOptions.value = {
+          ...cfg.weekOptions.value,
+          gridHeight: agendaGridHeight(agendaDensity, hideMadrugada, isMobile),
+        };
+      }
+    } catch (e) {
+      console.warn('[Agenda] densidade/madrugada não aplicada:', e);
+    }
+  }, [calendar, hideMadrugada, agendaDensity, isMobile]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -1923,6 +1979,36 @@ export default function AgendaPage() {
             )}
           </div>
         )}
+
+        <div className="mx-2 border-t border-border/50 my-0.5" />
+
+        {/* Onda 17.61 — Exibição: densidade + esconder madrugada (mexe no schedule-x
+            via signal, sem recriar o calendário). */}
+        <div className="px-2 py-1">
+          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Exibição</p>
+          <div className="space-y-0.5">
+            {([['compacto', 'Compacto'], ['confortavel', 'Confortável'], ['amplo', 'Amplo']] as const).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => changeDensity(id)}
+                className={`w-full flex items-center gap-1.5 text-left px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
+                  agendaDensity === id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent/40'
+                }`}
+                title={`Densidade ${label}`}
+              >
+                <span className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 ${agendaDensity === id ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
+                {label}
+              </button>
+            ))}
+          </div>
+          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 mt-1 pt-1 border-t border-border/40 rounded px-1 hover:bg-accent/40 transition-colors">
+            <input type="checkbox" checked={!hideMadrugada} onChange={toggleMadrugada} className="sr-only" />
+            <span className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-all shrink-0 ${!hideMadrugada ? 'bg-primary border-primary' : 'border-muted-foreground/40 opacity-50'}`}>
+              {!hideMadrugada && <CheckCircle2 size={7} className="text-white" />}
+            </span>
+            <span className="text-[11px] font-medium text-muted-foreground">🌙 Mostrar madrugada (00–07h)</span>
+          </label>
+        </div>
 
         <div className="mx-2 border-t border-border/50 my-0.5" />
 
