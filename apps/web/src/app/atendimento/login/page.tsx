@@ -14,7 +14,7 @@ import {
   MessageSquare, CreditCard, FileSignature, CalendarDays,
   ShieldCheck, ArrowRight, Sparkles, Loader2, ArrowLeft,
 } from 'lucide-react';
-import api, { API_BASE_URL } from '@/lib/api';
+import api, { API_BASE_URL, clearSessionTraces } from '@/lib/api';
 
 export default function LoginPage() {
   const router = useRouter();
@@ -83,6 +83,9 @@ export default function LoginPage() {
     setLoading(true);
     try {
       const res = await api.post('/auth/login', { email, password });
+      // Onda 17.61 — limpa rastros locais de QUALQUER sessão anterior nesta máquina
+      // (recados/tarefas/rascunhos/filtros) antes de entrar com a nova conta.
+      clearSessionTraces();
       localStorage.setItem('token', res.data.access_token);
       if (rememberMe) {
         localStorage.setItem('remembered_email', email);

@@ -26,7 +26,32 @@ function isTokenExpired(token: string): boolean {
   return payload.exp * 1000 < Date.now();
 }
 
-/** Dispara logout limpo: remove token e notifica o app */
+/**
+ * Onda 17.61 — limpa RASTROS LOCAIS da sessão (recados/tarefas/rascunhos/filtros que
+ * não eram por-usuário e vazavam entre logins na mesma máquina). Mantém só as
+ * preferências de tela (sidebar, densidade da agenda...) e o `remembered_email`
+ * (opt-in do "Lembrar"). Chamado no login E no logout. NÃO mexe no `token`.
+ */
+export function clearSessionTraces() {
+  if (typeof window === 'undefined') return;
+  try {
+    const EXACT = [
+      'inbox_drafts',
+      'inbox_saved_filters',
+      'crm_selected_pipeline_id',
+      'auth_logout_reason',
+    ];
+    const PREFIXES = ['dashboard:note:', 'dashboard:tasks:', 'quote_down_payment_'];
+    for (const k of EXACT) localStorage.removeItem(k);
+    // chaves com sufixo dinâmico (data/id) → varre e remove por prefixo
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && PREFIXES.some((p) => key.startsWith(p))) localStorage.removeItem(key);
+    }
+  } catch { /* localStorage indisponível — ignora */ }
+}
+
+/** Dispara logout limpo: remove token + rastros locais e notifica o app */
 function triggerLogout(reason: 'expired' | 'unauthorized') {
   if (typeof window === 'undefined') return;
   if (_redirectingToLogin) return;
@@ -46,6 +71,7 @@ function triggerLogout(reason: 'expired' | 'unauthorized') {
     console.error(`[AUTH-LOGOUT] Token NÃO existe no localStorage`);
   }
   localStorage.removeItem('token');
+  clearSessionTraces();
   window.dispatchEvent(new CustomEvent('auth:logout', { detail: { reason } }));
   setTimeout(() => { _redirectingToLogin = false; }, 10_000);
 }

@@ -14,7 +14,7 @@ import {
   User, UserCog,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
-import { API_BASE_URL } from '@/lib/api';
+import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
 import { NotificationCenter } from '@/app/atendimento/components/NotificationCenter';
 // Onda 5c (Fase 25) — NotificationToggle removido da sidebar (duplicava o
@@ -1410,6 +1410,7 @@ export function Sidebar() {
               setShowUserMenu(false);
               localStorage.removeItem('token');
               localStorage.removeItem('remembered_email');
+              clearSessionTraces();
               router.push('/atendimento/login');
             }}
             className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-foreground hover:bg-accent transition-colors text-left"
@@ -1425,6 +1426,7 @@ export function Sidebar() {
             onClick={() => {
               setShowUserMenu(false);
               localStorage.removeItem('token');
+              clearSessionTraces();
               router.push('/atendimento/login');
             }}
             className="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-[13px] font-medium text-destructive hover:bg-destructive/10 transition-colors text-left"

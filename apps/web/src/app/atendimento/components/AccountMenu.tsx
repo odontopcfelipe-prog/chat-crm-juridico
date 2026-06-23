@@ -11,6 +11,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { User, LogOut, ChevronDown } from 'lucide-react';
+import { clearSessionTraces } from '@/lib/api';
 
 function readEmailFromToken(): string | null {
   if (typeof window === 'undefined') return null;
@@ -44,7 +45,7 @@ export function AccountMenu() {
   const initials = (email?.trim()?.slice(0, 2) || 'U').toUpperCase();
 
   const logout = () => {
-    try { localStorage.removeItem('token'); } catch { /* noop */ }
+    try { localStorage.removeItem('token'); clearSessionTraces(); } catch { /* noop */ }
     router.push('/atendimento/login');
   };
 
