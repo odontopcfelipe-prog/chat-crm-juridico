@@ -924,13 +924,24 @@ export class CalendarService {
     return this.prisma.appointmentType.create({ data });
   }
 
-  async updateAppointmentType(id: string, data: { name?: string; duration?: number; color?: string; active?: boolean }) {
+  async updateAppointmentType(id: string, data: { name?: string; duration?: number; color?: string; active?: boolean }, tenantId?: string) {
+    await this.assertAppointmentTypeTenant(id, tenantId);
     return this.prisma.appointmentType.update({ where: { id }, data });
   }
 
-  async deleteAppointmentType(id: string) {
+  async deleteAppointmentType(id: string, tenantId?: string) {
+    await this.assertAppointmentTypeTenant(id, tenantId);
     await this.prisma.appointmentType.delete({ where: { id } });
     return { deleted: true };
+  }
+
+  // Onda 17.61 (segurança/IDOR) — bloqueia editar/excluir tipo de agendamento de outro tenant.
+  private async assertAppointmentTypeTenant(id: string, tenantId?: string) {
+    if (!tenantId) return;
+    const t = await this.prisma.appointmentType.findUnique({ where: { id }, select: { tenant_id: true } });
+    if (!t || (t.tenant_id && t.tenant_id !== tenantId)) {
+      throw new NotFoundException('Tipo de agendamento não encontrado');
+    }
   }
 
   // ─── Listagem de Reminders pra Dashboard (Onda 5e v21, Fase 25) ─────

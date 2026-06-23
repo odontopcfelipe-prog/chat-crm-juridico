@@ -430,16 +430,26 @@ export class UsersService {
   }
 
   /** Lista estagiários vinculados a um dentista */
-  async findInterns(supervisorId: string) {
+  async findInterns(supervisorId: string, tenantId?: string) {
+    // Onda 17.61 (segurança/IDOR) — supervisor tem que ser do tenant + lista escopada.
+    await this.verifyTenantOwnership(supervisorId, tenantId);
     return this.prisma.user.findMany({
-      where: { supervisors: { some: { id: supervisorId } } },
+      where: { supervisors: { some: { id: supervisorId } }, ...(tenantId ? { tenant_id: tenantId } : {}) },
       select: { id: true, name: true, email: true, roles: true },
       orderBy: { name: 'asc' },
     });
   }
 
   /** Define os supervisores (dentistas) de um estagiário */
-  async linkSupervisors(internId: string, dentistIds: string[]) {
+  async linkSupervisors(internId: string, dentistIds: string[], tenantId?: string) {
+    // Onda 17.61 (segurança/IDOR) — estagiário E cada dentista têm que ser do tenant.
+    await this.verifyTenantOwnership(internId, tenantId);
+    if (tenantId && dentistIds.length) {
+      const count = await this.prisma.user.count({ where: { id: { in: dentistIds }, tenant_id: tenantId } });
+      if (count !== dentistIds.length) {
+        throw new ForbiddenException('Acesso negado a este recurso');
+      }
+    }
     return this.prisma.user.update({
       where: { id: internId },
       data: {

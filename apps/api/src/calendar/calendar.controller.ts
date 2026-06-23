@@ -304,14 +304,14 @@ export class CalendarController {
 
   @Patch('appointment-types/:id')
   @Roles('ADMIN')
-  updateAppointmentType(@Param('id') id: string, @Body() data: UpdateAppointmentTypeDto) {
-    return this.calendarService.updateAppointmentType(id, data);
+  updateAppointmentType(@Param('id') id: string, @Body() data: UpdateAppointmentTypeDto, @Request() req: any) {
+    return this.calendarService.updateAppointmentType(id, data, req.user?.tenant_id);
   }
 
   @Delete('appointment-types/:id')
   @Roles('ADMIN')
-  deleteAppointmentType(@Param('id') id: string) {
-    return this.calendarService.deleteAppointmentType(id);
+  deleteAppointmentType(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.deleteAppointmentType(id, req.user?.tenant_id);
   }
 
   // ─── Metricas (Onda 5e v18, Fase C.2) ────────────────

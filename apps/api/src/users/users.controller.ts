@@ -166,14 +166,15 @@ export class UsersController {
   }
 
   @Get(':id/interns')
-  findInterns(@Param('id') id: string) {
-    return this.usersService.findInterns(id);
+  @Roles('ADMIN')
+  findInterns(@Param('id') id: string, @Request() req: any) {
+    return this.usersService.findInterns(id, req.user?.tenant_id);
   }
 
   @Patch(':id/supervisors')
   @Roles('ADMIN')
-  linkSupervisors(@Param('id') id: string, @Body() data: { lawyerIds: string[] }) {
-    return this.usersService.linkSupervisors(id, data.lawyerIds);
+  linkSupervisors(@Param('id') id: string, @Body() data: { lawyerIds: string[] }, @Request() req: any) {
+    return this.usersService.linkSupervisors(id, data.lawyerIds, req.user?.tenant_id);
   }
 
   /** Resumo do que o usuário possui (para modal de transferência antes de excluir) */
