@@ -460,3 +460,52 @@
 .sx-react-calendar-wrapper .block-event:hover {
   filter: brightness(1.1);
 }
+
+/* ════════════════════════════════════════════════════════════════════
+ * Onda 17.61 — Polimento VISUAL (só aparência). NÃO mexe nas cores
+ * semânticas dos eventos nem na config do schedule-x (dayBoundaries /
+ * gridHeight). Cards mais suaves + hover, dias mais legíveis, header limpo.
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* Cards de evento: cantos mais suaves + sombra de "card" + hover sutil.
+   Mantém o outline de separação e o padding já tunados (regras acima). */
+.sx-react-calendar-wrapper .sx__time-grid-event {
+  border-radius: 8px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 5px rgba(0, 0, 0, 0.07) !important;
+  transition: box-shadow 0.15s ease, filter 0.15s ease !important;
+}
+.sx-react-calendar-wrapper .sx__time-grid-event:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
+  filter: brightness(1.04) saturate(1.04);
+  z-index: 2;
+}
+.sx-react-calendar-wrapper.is-dark .sx__time-grid-event:hover,
+[data-theme="noturno"] .sx-react-calendar-wrapper .sx__time-grid-event:hover,
+[data-theme="cyber"] .sx-react-calendar-wrapper .sx__time-grid-event:hover {
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4) !important;
+}
+
+/* Cabeçalho dos dias: nome compacto/uppercase + número do dia em destaque
+   (ambas as classes já são usadas no arquivo — seletores válidos). */
+.sx-react-calendar-wrapper .sx__week-grid__day-name {
+  font-size: 0.7em !important;
+  font-weight: 700 !important;
+  letter-spacing: 0.06em !important;
+  text-transform: uppercase;
+}
+.sx-react-calendar-wrapper .sx__week-grid__date-number {
+  font-weight: 700 !important;
+  font-size: 1.05em !important;
+}
+
+/* Botões do header (Hoje + setas): pílula limpa com hover. */
+.sx-react-calendar-wrapper .sx__today-button {
+  border-radius: 8px !important;
+  font-weight: 600 !important;
+  transition: background-color 0.15s ease !important;
+}
+.sx-react-calendar-wrapper .sx__today-button:hover,
+.sx-react-calendar-wrapper .sx__chevron-wrapper:hover {
+  background-color: var(--bg-elevated) !important;
+  border-radius: 8px !important;
+}

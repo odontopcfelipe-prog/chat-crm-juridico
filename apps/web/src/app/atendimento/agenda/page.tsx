@@ -98,6 +98,24 @@ const EVENT_TYPES = [
   { id: 'OUTRO', label: 'Outro', emoji: '⚪', color: '#6b7280' },
 ] as const;
 
+// Onda 17.61 — legenda da agenda com as cores REAIS dos cards (espelha `calendars`
+// do schedule-x). CONSULTA é colorida por STATUS; os demais tipos têm cor própria.
+// IMPORTANTE: usar estas cores (não EVENT_STATUSES, que tem hex diferente).
+const LEGEND_STATUS = [
+  { label: 'Agendado', color: '#E91E63' },
+  { label: 'Confirmado', color: '#28A745' },
+  { label: 'Concluído', color: '#6C757D' },
+  { label: 'Cancelado', color: '#DC3545' },
+  { label: 'Adiado', color: '#FFC107' },
+  { label: 'Faltou', color: '#1f2937' },
+] as const;
+const LEGEND_TYPE = [
+  { label: 'Procedimento', color: '#14b8a6' },
+  { label: 'Retorno', color: '#0ea5e9' },
+  { label: 'Bloqueio', color: '#dc2626' },
+  { label: 'Tarefa', color: '#22c55e' },
+] as const;
+
 const EVENT_PRIORITIES = [
   { id: 'BAIXA', label: 'Baixa' },
   { id: 'NORMAL', label: 'Normal' },
@@ -2244,6 +2262,34 @@ export default function AgendaPage() {
             </div>
           )}
         </div>
+        )}
+
+        {/* Onda 17.61 — legenda das cores (fiel ao card real). Só no calendário,
+            não no Kanban. Consulta = cor por STATUS; demais tipos = cor própria;
+            barra colorida à esquerda do card = dentista. */}
+        {!kanbanView && (
+          <div className="shrink-0 border-t border-border bg-card/40 px-3 py-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap text-[10px] leading-none">
+            <span className="font-bold uppercase tracking-wider text-muted-foreground/80">Consulta</span>
+            {LEGEND_STATUS.map((s) => (
+              <span key={s.label} className="inline-flex items-center gap-1 text-muted-foreground">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5" style={{ background: s.color }} />
+                {s.label}
+              </span>
+            ))}
+            <span className="w-px h-3 bg-border mx-0.5 hidden sm:block" />
+            <span className="font-bold uppercase tracking-wider text-muted-foreground/80">Tipos</span>
+            {LEGEND_TYPE.map((s) => (
+              <span key={s.label} className="inline-flex items-center gap-1 text-muted-foreground">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5" style={{ background: s.color }} />
+                {s.label}
+              </span>
+            ))}
+            <span className="w-px h-3 bg-border mx-0.5 hidden md:block" />
+            <span className="inline-flex items-center gap-1 text-muted-foreground/80 italic">
+              <span className="w-0.5 h-3 rounded-full shrink-0 bg-gradient-to-b from-fuchsia-500 to-cyan-500" />
+              barra à esquerda = dentista
+            </span>
+          </div>
         )}
 
       </div>{/* fim área principal */}
