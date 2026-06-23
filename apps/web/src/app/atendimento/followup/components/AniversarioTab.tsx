@@ -14,7 +14,6 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
-import Link from 'next/link';
 import { Cake, Loader2, RefreshCw, Search, Inbox, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -258,15 +257,17 @@ export function AniversarioTab() {
                   <div className={`text-[10px] font-semibold mt-0.5 inline-block px-1.5 py-0.5 rounded-full ${g.item.is_today ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400' : 'bg-muted text-muted-foreground'}`}>{diasLabel(g.item.days_until)}</div>
                 </div>
                 {g.item.conversation_id ? (
-                  // Conversa existe no sistema → abre o NOSSO chat (WhatsApp interno).
-                  <Link
+                  // Conversa existe no sistema → abre o NOSSO chat (WhatsApp interno) em nova aba.
+                  <a
                     href={`/atendimento/chat/${g.item.conversation_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
                     title={`Abrir conversa de ${g.item.name} no chat`}
                     className="shrink-0 w-9 h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
                   >
                     <MessageCircle size={16} />
-                  </Link>
+                  </a>
                 ) : g.item.phone ? (
                   // Sem conversa ainda no sistema → fallback pro WhatsApp externo.
                   <a
