@@ -1997,20 +1997,26 @@ export class CalendarService {
     if (!patient?.phone) return { conversation_id: null };
 
     const digits = patient.phone.replace(/\D/g, '');
-    const variants = new Set<string>();
-    if (digits) {
-      variants.add(digits);
-      variants.add(digits.startsWith('55') ? digits.slice(2) : `55${digits}`);
-    }
+    // Variantes BR do telefone (com/sem 55, com/sem o 9) — o número da conversa
+    // existente pode estar gravado em qualquer um desses formatos.
+    const variants = this.phoneVariants(patient.phone);
 
     // 1. lead por lead_id OU por telefone (tenant-scoped)
     let leadId: string | null = patient.lead_id || null;
-    if (!leadId && variants.size) {
+    if (!leadId && variants.length) {
       const lead = await this.prisma.lead.findFirst({
-        where: { tenant_id, phone: { in: Array.from(variants) } },
+        where: { tenant_id, phone: { in: variants } },
         select: { id: true },
       }).catch(() => null);
       leadId = lead?.id ?? null;
+    }
+
+    // Garante que o lead tenha o nome do paciente (senão o chat mostra "-").
+    if (leadId && patient.name) {
+      await this.prisma.lead.updateMany({
+        where: { id: leadId, OR: [{ name: null }, { name: '' }] },
+        data: { name: patient.name },
+      }).catch(() => {});
     }
 
     // 2. conversa existente do lead (mais recente, qualquer status)
@@ -2046,6 +2052,30 @@ export class CalendarService {
       select: { id: true },
     }).catch(() => null);
     return { conversation_id: conv?.id ?? null };
+  }
+
+  /**
+   * Variantes BR de um telefone pra casar com `Lead.phone` (que pode estar gravado
+   * em vários formatos): com/sem 55 e com/sem o 9 do celular. Ex.: "(82) 99964-6293"
+   * → ["5582999646293","82999646293","558299646293","8299646293", ...].
+   */
+  private phoneVariants(raw: string): string[] {
+    const d = (raw || '').replace(/\D/g, '');
+    if (!d) return [];
+    const set = new Set<string>();
+    const no55 = d.startsWith('55') ? d.slice(2) : d;
+    set.add(d);
+    set.add(no55);
+    set.add(`55${no55}`);
+    if (no55.length >= 10) {
+      const ddd = no55.slice(0, 2);
+      const local = no55.slice(2);
+      let alt: string | null = null;
+      if (local.length === 9 && local.startsWith('9')) alt = ddd + local.slice(1); // tira o 9
+      else if (local.length === 8) alt = ddd + '9' + local; // poe o 9
+      if (alt) { set.add(alt); set.add(`55${alt}`); }
+    }
+    return Array.from(set).filter(Boolean);
   }
 
   /**

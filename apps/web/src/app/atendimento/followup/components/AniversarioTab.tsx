@@ -144,7 +144,8 @@ export function AniversarioTab() {
     const goChat = (cid: string) => { if (w) w.location.href = `/atendimento/chat/${cid}`; };
     const goWa = () => { if (w) w.location.href = item.phone ? `https://wa.me/${waNum(item.phone)}` : 'about:blank'; };
     try {
-      if (item.conversation_id) { goChat(item.conversation_id); return; }
+      // sempre resolve no backend (busca robusta por telefone) — não usa o
+      // conversation_id pré-resolvido, que pode apontar pra conversa vazia.
       const { data } = await api.get('/calendar/birthday-greeting/open-conversation', { params: { patient_id: item.id } });
       if (data?.conversation_id) goChat(data.conversation_id);
       else goWa();
