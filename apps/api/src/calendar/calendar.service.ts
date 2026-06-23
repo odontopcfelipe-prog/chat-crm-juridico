@@ -343,8 +343,11 @@ export class CalendarService {
       void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
     }
 
-    // Enqueue WhatsApp + Email reminders
-    await this.enqueueReminders(event.id, event.start_at, event.reminders || []);
+    // Enqueue WhatsApp + Email reminders (bounded — não trava o create se o Redis pendurar)
+    await this.boundedQueueOp(
+      this.enqueueReminders(event.id, event.start_at, event.reminders || []),
+      'enqueueReminders(create)',
+    );
 
     // STUBBED: LegalCase removido Fase 0.2 — leadPhone vem direto do lead
     const leadPhone: string | undefined = event.lead?.phone || undefined;
@@ -376,6 +379,31 @@ export class CalendarService {
     }
 
     return event;
+  }
+
+  /**
+   * Onda 17.61 — Limita uma op de fila (Redis/BullMQ) por tempo. Se o Redis estiver
+   * lento/indisponível, NÃO trava a resposta do save/update (o evento já foi gravado
+   * no banco). Em timeout/erro, só loga — os lembretes viram best-effort em vez de
+   * deixar o botão "Salvando…" preso para sempre.
+   */
+  private async boundedQueueOp(p: Promise<unknown>, label: string, ms = 6000): Promise<void> {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve(p).catch((e: any) =>
+          this.logger.warn(`[boundedQueueOp] ${label} falhou: ${e?.message ?? e}`),
+        ),
+        new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            this.logger.warn(`[boundedQueueOp] ${label} excedeu ${ms}ms — seguindo sem travar o save`);
+            resolve();
+          }, ms);
+        }),
+      ]);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   private async enqueueReminders(eventId: string, startAt: Date, reminders: { id: string; minutes_before: number; channel: string }[]) {
@@ -528,8 +556,8 @@ export class CalendarService {
     // antigo se nao enviar (reminders existentes ficam intactos).
     let finalReminders = event.reminders;
     if (incomingReminders !== undefined) {
-      // Cancela jobs antigos no BullMQ ANTES de deletar do banco
-      await this.cancelReminderJobs(event.id);
+      // Cancela jobs antigos no BullMQ ANTES de deletar do banco (bounded — não trava o save)
+      await this.boundedQueueOp(this.cancelReminderJobs(event.id), 'cancelReminderJobs(update)');
       // Substitui no banco
       await this.prisma.eventReminder.deleteMany({ where: { event_id: event.id } });
       if (incomingReminders.length > 0) {
@@ -549,7 +577,11 @@ export class CalendarService {
     // Se start_at mudou OU reminders foram alterados, re-enfileirar
     const shouldReEnqueue = (data.start_at || incomingReminders !== undefined) && finalReminders?.length;
     if (shouldReEnqueue) {
-      await this.enqueueReminders(event.id, event.start_at, finalReminders);
+      // bounded — se o Redis pendurar, o save não fica preso (lembrete vira best-effort)
+      await this.boundedQueueOp(
+        this.enqueueReminders(event.id, event.start_at, finalReminders),
+        'enqueueReminders(update)',
+      );
       this.logger.log(`Lembretes re-enfileirados para evento ${event.id}`);
     }
 

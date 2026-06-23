@@ -3,6 +3,10 @@ import toast from 'react-hot-toast';
 
 const api = axios.create({
   baseURL: process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3005',
+  // Onda 17.61 — backstop: sem timeout, um request pendurado (ex.: backend travado
+  // no Redis ao re-enfileirar lembretes) deixava o botão "Salvando…" preso PARA SEMPRE.
+  // 120s é folgado pra ops longas (transcrição/sync) mas garante que nada trava infinito.
+  timeout: 120000,
 });
 
 // ─── Helpers de token ────────────────────────────────────────────────────────

@@ -1544,7 +1544,9 @@ export default function AgendaPage() {
       try {
         const params: any = { userId: formData.assigned_user_id, start: startIso, end: endIso };
         if (editingEvent) params.excludeId = editingEvent.id;
-        const conflicts = await api.get('/calendar/conflicts', { params });
+        // Onda 17.61 — checagem de conflito é não-crítica (catch abaixo segue o save);
+        // timeout curto pra ela nunca segurar o botão "Salvar".
+        const conflicts = await api.get('/calendar/conflicts', { params, timeout: 8000 });
         if (conflicts.data?.length > 0) {
           const c = conflicts.data[0];
           const hh = (s: string) => new Date(s).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' });
@@ -1589,12 +1591,14 @@ export default function AgendaPage() {
 
     try {
       let response: any;
+      // Onda 17.61 — timeout explícito no save: se o backend travar (ex.: Redis lento
+      // ao re-enfileirar lembretes), o botão volta com erro em 30s em vez de ficar preso.
       if (editingEvent) {
-        response = await api.patch(`/calendar/events/${editingEvent.id}`, payload);
+        response = await api.patch(`/calendar/events/${editingEvent.id}`, payload, { timeout: 30000 });
         console.log('[handleSave] PATCH success', response.data);
         showSuccess('Alterações salvas');
       } else {
-        response = await api.post('/calendar/events', payload);
+        response = await api.post('/calendar/events', payload, { timeout: 30000 });
         console.log('[handleSave] POST success', response.data);
         showSuccess('Evento criado');
       }
