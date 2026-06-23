@@ -5,6 +5,30 @@ import { PrismaService } from '../prisma/prisma.service';
 import { toBrazilWhatsappNumber } from '@crm/shared';
 import * as crypto from 'crypto';
 
+// Onda 17.61 — fallback do 9º dígito do celular BR. Vários DDDs (ex.: 82/Nordeste)
+// têm o número registrado no WhatsApp SEM o 9 extra, mas o sistema às vezes guarda
+// COM (ou vice-versa) — aí o envio falha. Estes helpers geram a variante alternada
+// e detectam a falha pra tentar de novo automaticamente.
+function toggleBr9thDigit(num: string): string | null {
+  const d = (num || '').replace(/\D/g, '');
+  if (!d.startsWith('55')) return null;
+  const rest = d.slice(2); // DDD + número local
+  if (rest.length < 10) return null;
+  const ddd = rest.slice(0, 2);
+  const local = rest.slice(2);
+  if (local.length === 9 && local[0] === '9') return `55${ddd}${local.slice(1)}`; // tira o 9
+  if (local.length === 8) return `55${ddd}9${local}`; // põe o 9
+  return null;
+}
+
+function evolutionSendFailed(res: any): boolean {
+  if (!res) return true;
+  if (res.statusCode >= 400 || res.error) return true;
+  // Evolution responde exists:false quando o número não está no WhatsApp.
+  try { if (/"exists"\s*:\s*false/.test(JSON.stringify(res))) return true; } catch { /* ignore */ }
+  return false;
+}
+
 @Injectable()
 export class WhatsappService {
   private readonly logger = new Logger(WhatsappService.name);
@@ -127,9 +151,25 @@ export class WhatsappService {
     }
     // Onda 17.56 — garante o codigo do pais (55) pra numero BR salvo sem DDI.
     // Cirurgico/idempotente: JID e numero ja-com-DDI passam intactos.
-    const payload: any = { number: toBrazilWhatsappNumber(number), text };
-    if (quoted) payload.quoted = quoted;
-    return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
+    const primary = toBrazilWhatsappNumber(number);
+    const doSend = (num: string) => {
+      const payload: any = { number: num, text };
+      if (quoted) payload.quoted = quoted;
+      return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
+    };
+
+    const res = await doSend(primary);
+    // Onda 17.61 — se falhou (erro/exists:false), tenta a variante do 9º dígito BR.
+    // Só roda no FALHO (caso normal de sucesso não tem overhead). JID passa intacto.
+    if (!primary.includes('@') && evolutionSendFailed(res)) {
+      const alt = toggleBr9thDigit(primary);
+      if (alt && alt !== primary) {
+        this.logger.warn(`[sendText] ${primary} falhou no WhatsApp — tentando variante do 9º dígito: ${alt}`);
+        const altRes = await doSend(alt);
+        if (!evolutionSendFailed(altRes)) return altRes;
+      }
+    }
+    return res;
   }
 
   async deleteForEveryone(instanceName: string, remoteJid: string, externalMessageId: string, fromMe: boolean) {
