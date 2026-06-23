@@ -208,7 +208,9 @@ export default function VendaRapidaPage() {
 
   // Busca paciente (debounced)
   useEffect(() => {
-    if (!patientQuery.trim() || patientQuery.length < 2) {
+    // Onda 17.61 — busca já na 1ª letra (antes exigia 2+, e o usuário digitava "F"
+    // e não acontecia nada). O debounce de 300ms abaixo segura o excesso de chamadas.
+    if (!patientQuery.trim()) {
       setPatientResults([]);
       return;
     }
