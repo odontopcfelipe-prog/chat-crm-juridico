@@ -60,7 +60,9 @@ export function AniversarioTab() {
   const [history, setHistory] = useState<HistoryItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [tab, setTab] = useState<Tab>('proximos');
+  // Onda 17.60 — abre já na lista do ANO (ordenada pelos próximos aniversários),
+  // pra ver de cara quem vem a seguir, mesmo que ninguém faça nos próximos 30 dias.
+  const [tab, setTab] = useState<Tab>('ano');
   const [search, setSearch] = useState('');
 
   const load = useCallback(async () => {
