@@ -14,6 +14,7 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import Link from 'next/link';
 import { Cake, Loader2, RefreshCw, Search, Inbox, MessageCircle } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -41,6 +42,7 @@ function waNum(phone: string | null): string {
 interface UpcomingItem {
   id: string; name: string; phone: string | null;
   birth_day: number; birth_month: number; days_until: number; is_today: boolean;
+  conversation_id?: string | null;
 }
 interface HistoryItem {
   id: string; recipient_name: string | null; recipient_phone: string | null;
@@ -255,14 +257,25 @@ export function AniversarioTab() {
                   <div className="text-sm font-bold leading-tight">{String(g.item.birth_day).padStart(2, '0')}/{String(g.item.birth_month).padStart(2, '0')}</div>
                   <div className={`text-[10px] font-semibold mt-0.5 inline-block px-1.5 py-0.5 rounded-full ${g.item.is_today ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400' : 'bg-muted text-muted-foreground'}`}>{diasLabel(g.item.days_until)}</div>
                 </div>
-                {g.item.phone ? (
+                {g.item.conversation_id ? (
+                  // Conversa existe no sistema → abre o NOSSO chat (WhatsApp interno).
+                  <Link
+                    href={`/atendimento/chat/${g.item.conversation_id}`}
+                    onClick={(e) => e.stopPropagation()}
+                    title={`Abrir conversa de ${g.item.name} no chat`}
+                    className="shrink-0 w-9 h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
+                  >
+                    <MessageCircle size={16} />
+                  </Link>
+                ) : g.item.phone ? (
+                  // Sem conversa ainda no sistema → fallback pro WhatsApp externo.
                   <a
                     href={`https://wa.me/${waNum(g.item.phone)}`}
                     target="_blank"
                     rel="noopener noreferrer"
                     onClick={(e) => e.stopPropagation()}
-                    title={`Abrir WhatsApp de ${g.item.name}`}
-                    className="shrink-0 w-9 h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
+                    title={`Sem conversa no sistema ainda — abrir WhatsApp de ${g.item.name}`}
+                    className="shrink-0 w-9 h-9 rounded-lg border border-border bg-muted/40 text-muted-foreground flex items-center justify-center hover:bg-muted transition-colors"
                   >
                     <MessageCircle size={16} />
                   </a>

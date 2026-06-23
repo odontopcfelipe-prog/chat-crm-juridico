@@ -1936,7 +1936,12 @@ export class CalendarService {
       // o nome certo de tabela/coluna do schema.
       this.prisma.patient.findMany({
         where: { tenant_id, status: 'ACTIVE', birth_date: { not: null } },
-        select: { id: true, name: true, phone: true, birth_date: true },
+        select: {
+          id: true, name: true, phone: true, birth_date: true,
+          // Onda 17.61 — conversa mais recente do paciente (Patient → lead →
+          // conversations) pro botão do WhatsApp abrir o chat INTERNO do sistema.
+          lead: { select: { conversations: { select: { id: true }, orderBy: { last_message_at: 'desc' }, take: 1 } } },
+        },
         take: 5000,
       }).catch(() => [] as any[]),
       // quantos pacientes ATIVOS existem e quantos estão SEM data de nascimento (pra
@@ -1957,6 +1962,7 @@ export class CalendarService {
         birth_day: bdd, birth_month: bm + 1,
         days_until: daysUntil, is_today: daysUntil === 0,
         next_date: new Date(nextMs).toISOString().slice(0, 10),
+        conversation_id: r.lead?.conversations?.[0]?.id ?? null,
       };
     })
       .filter((i) => i.days_until <= N)
