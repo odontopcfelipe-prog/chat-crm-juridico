@@ -1327,6 +1327,13 @@ export default function AgendaPage() {
           const dentistClass = e.assigned_user_id
             ? `dentist-color-${(hashStringToInt(e.assigned_user_id) % 8) + 1}`
             : 'dentist-color-none';
+          // Onda 17.61 — fundo do card pela cor do STATUS (atendimentos clínicos), via
+          // classe CSS ag-status-* (tinta translúcida em agenda-theme.css). É mais
+          // confiável que as cores do `calendars` do schedule-x — que só são lidas na
+          // CRIAÇÃO do calendário (HMR não recolore). Igual à técnica da borda do dentista.
+          const statusClass = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(e.type)
+            ? `ag-status-${(e.status || 'AGENDADO').toLowerCase()}`
+            : '';
 
           return {
             id: e.id,
@@ -1338,7 +1345,7 @@ export default function AgendaPage() {
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
             calendarId: getSemanticCalendarId(e),
             _customContent: {},
-            _options: { additionalClasses: [dentistClass] },
+            _options: { additionalClasses: [dentistClass, statusClass].filter(Boolean) },
           };
         });
 
