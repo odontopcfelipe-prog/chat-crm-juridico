@@ -576,13 +576,19 @@ export default function AgendaPage() {
   // Por padrão eventos cancelados ficam ESCONDIDOS — operador via toggle pra
   // ver histórico (ex: investigar cancelamento em massa, gerar relatório).
   // Persistido em localStorage pra preferência sobreviver reload.
+  // Onda 17.61 — PADRÃO MUDOU PARA "MOSTRAR". Antes, marcar Desmarcou/Cancelado fazia o
+  // evento SUMIR da agenda (parecia apagado), mas ele nunca foi removido — só escondido.
+  // O usuário quer que Desmarcou FIQUE REGISTRADO na agenda. Chave nova (_v2) pra a migração
+  // valer também pra quem já tinha o filtro off no localStorage antigo. Toggle segue existindo
+  // (quem quiser desentulhar a tela pode esconder, mas o evento continua salvo no histórico).
   const [showCancelled, setShowCancelled] = useState<boolean>(() => {
-    if (typeof window === 'undefined') return false;
-    return localStorage.getItem('agenda_show_cancelled') === 'true';
+    if (typeof window === 'undefined') return true;
+    const v = localStorage.getItem('agenda_show_cancelled_v2');
+    return v === null ? true : v === 'true'; // ausente → mostra
   });
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem('agenda_show_cancelled', String(showCancelled));
+      localStorage.setItem('agenda_show_cancelled_v2', String(showCancelled));
     }
   }, [showCancelled]);
 
