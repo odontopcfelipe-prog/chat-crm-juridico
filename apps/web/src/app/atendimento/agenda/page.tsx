@@ -1257,15 +1257,13 @@ export default function AgendaPage() {
           return !isNaN(startMs);
         })
         .map(e => {
-          // Nome do dentista responsavel SEMPRE visivel no card (numa linha
-          // propria, em cima do tipo/titulo). Mesmo quando filtramos por 1
-          // dentista, manter o nome reforca o padrao visual e evita confusao
-          // quando varias agendas estao abertas em abas diferentes.
-          const userLine = e.assigned_user ? `${e.assigned_user.name}\n` : '';
-          // Onda 17.59 — nome do PACIENTE (ou lead) em EVIDÊNCIA: vira a linha 1 do
-          // card (o que o schedule-x destaca). Sem paciente, mantém o padrão antigo.
+          // Onda 17.61 — card no formato da referência: linha 1 = "Paciente — Procedimento"
+          // (nome + título combinados numa linha só). Sem paciente, mostra só o procedimento.
+          // O dentista vai numa 2ª linha (e a barra colorida à esquerda já indica de quem é).
           const clientName = e.patient?.name || e.lead?.name || '';
-          const patientLine = clientName ? `${clientName}\n` : '';
+          const headline = clientName ? `${clientName} — ${e.title}` : e.title;
+          const dentistTail = e.assigned_user ? `\n${e.assigned_user.name}` : '';
+          const typeEmoji = EVENT_TYPES.find(t => t.id === e.type)?.emoji || '';
           const startLocal = toLocalDateTime(e.start_at); // "YYYY-MM-DD HH:mm"
           let endLocal: string;
           if (e.end_at && !isNaN(new Date(e.end_at).getTime())) {
@@ -1322,10 +1320,9 @@ export default function AgendaPage() {
 
           return {
             id: e.id,
-            // Ordem (Onda 17.59): linha 1 = PACIENTE (em evidência), linha 2 = dentista,
-            // linha 3 = tipo/procedimento. Horário aparece pelo schedule-x. Sem paciente,
-            // cai pro padrão antigo (dentista em cima).
-            title: `${patientLine}${userLine}${statusIcon}${EVENT_TYPES.find(t => t.id === e.type)?.emoji || ''} ${e.title}${caseTag}${recurringTag}${commentsTag}`,
+            // Onda 17.61: linha 1 = "Paciente — Procedimento" (status + emoji na frente),
+            // linha 2 = dentista. O horário (ex.: 08:30-09:00) o schedule-x já mostra.
+            title: `${statusIcon}${typeEmoji ? typeEmoji + ' ' : ''}${headline}${caseTag}${recurringTag}${commentsTag}${dentistTail}`,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
