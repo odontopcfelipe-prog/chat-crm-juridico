@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { CommissionRulesService } from './commission-rules.service';
 import { CommissionsService } from './commissions.service';
 import { GoalsService } from './goals.service';
@@ -15,6 +16,10 @@ function parseBool(v?: string): boolean | undefined {
 }
 
 @UseGuards(JwtAuthGuard)
+// Onda 17.61 (segurança/RBAC-03) — comissões/metas (folha) eram acessíveis a
+// QUALQUER logado. Gate de classe: só quem tem view_financial; operações que
+// mexem em dinheiro exigem manage_financial (abaixo).
+@RequiresPermission('view_financial')
 @Controller()
 export class CommissionsController {
   constructor(
@@ -118,6 +123,7 @@ export class CommissionsController {
     return this.commissions.update(tenantId, id, dto);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('commissions/:id/release')
   releaseCommission(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -125,6 +131,7 @@ export class CommissionsController {
     return this.commissions.release(tenantId, id);
   }
 
+  @RequiresPermission('manage_financial')
   @Post('commissions/:id/pay')
   payCommission(@Param('id') id: string, @Body() dto: PayCommissionDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

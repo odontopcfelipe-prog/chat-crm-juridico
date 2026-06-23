@@ -2,6 +2,7 @@ import {
   Controller, Get, Post, Patch, Delete, Body, Param, Query, Request, UseGuards, BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { ClinicsService } from './clinics.service';
 import { CreateClinicDto, UpdateClinicDto, AssignUserClinicDto } from './dto/clinic.dto';
 
@@ -15,6 +16,8 @@ function parseBool(v?: string): boolean | undefined {
 export class ClinicsController {
   constructor(private readonly service: ClinicsService) {}
 
+  // Onda 17.61 (segurança/RBAC-05) — CRUD de clínicas/unidades é gestão organizacional.
+  @RequiresPermission('manage_users')
   @Post('clinics')
   create(@Body() dto: CreateClinicDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -43,6 +46,7 @@ export class ClinicsController {
     return this.service.findOne(tenantId, id);
   }
 
+  @RequiresPermission('manage_users')
   @Patch('clinics/:id')
   update(@Param('id') id: string, @Body() dto: UpdateClinicDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -50,6 +54,7 @@ export class ClinicsController {
     return this.service.update(tenantId, id, dto);
   }
 
+  @RequiresPermission('manage_users')
   @Delete('clinics/:id')
   archive(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -57,6 +62,7 @@ export class ClinicsController {
     return this.service.archive(tenantId, id);
   }
 
+  @RequiresPermission('manage_users')
   @Post('clinics/:id/users')
   assignUser(@Param('id') id: string, @Body() dto: AssignUserClinicDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -64,6 +70,7 @@ export class ClinicsController {
     return this.service.assignUser(tenantId, id, dto);
   }
 
+  @RequiresPermission('manage_users')
   @Delete('clinics/:id/users/:userId')
   unassignUser(@Param('id') id: string, @Param('userId') userId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

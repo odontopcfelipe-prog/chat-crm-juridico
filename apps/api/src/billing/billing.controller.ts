@@ -4,6 +4,7 @@
 import { Controller, Get, Post, Body, Req, BadRequestException } from '@nestjs/common';
 import { BillingService } from './billing.service';
 import { Public } from '../auth/decorators/public.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('billing')
 export class BillingController {
@@ -25,6 +26,9 @@ export class BillingController {
   }
 
   /** Checkout: tenant escolhe plano + forma de pagamento. */
+  // Onda 17.61 (segurança/RBAC-02) — trocar o plano pago + criar assinatura
+  // recorrente é ação de admin/dono; antes qualquer usuário do tenant podia.
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Post('checkout')
   async checkout(@Req() req: any, @Body() body: any) {
     const tenantId = req.user?.tenant_id;
