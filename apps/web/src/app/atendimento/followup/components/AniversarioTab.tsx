@@ -136,6 +136,23 @@ export function AniversarioTab() {
     return out;
   }, [upRows]);
 
+  // Onda 17.61 — abre a conversa do paciente NO NOSSO chat (find-or-create por
+  // telefone). Abre a aba já no clique (gesto) pra não tomar bloqueio de popup,
+  // depois aponta pro chat interno (ou wa.me como último recurso).
+  const openConversa = useCallback(async (item: UpcomingItem) => {
+    const w = window.open('', '_blank');
+    const goChat = (cid: string) => { if (w) w.location.href = `/atendimento/chat/${cid}`; };
+    const goWa = () => { if (w) w.location.href = item.phone ? `https://wa.me/${waNum(item.phone)}` : 'about:blank'; };
+    try {
+      if (item.conversation_id) { goChat(item.conversation_id); return; }
+      const { data } = await api.get('/calendar/birthday-greeting/open-conversation', { params: { patient_id: item.id } });
+      if (data?.conversation_id) goChat(data.conversation_id);
+      else goWa();
+    } catch {
+      goWa();
+    }
+  }, []);
+
   if (loading) {
     return <div className="py-16 flex items-center justify-center text-muted-foreground"><Loader2 size={20} className="animate-spin" /></div>;
   }
@@ -256,30 +273,16 @@ export function AniversarioTab() {
                   <div className="text-sm font-bold leading-tight">{String(g.item.birth_day).padStart(2, '0')}/{String(g.item.birth_month).padStart(2, '0')}</div>
                   <div className={`text-[10px] font-semibold mt-0.5 inline-block px-1.5 py-0.5 rounded-full ${g.item.is_today ? 'bg-fuchsia-500/15 text-fuchsia-600 dark:text-fuchsia-400' : 'bg-muted text-muted-foreground'}`}>{diasLabel(g.item.days_until)}</div>
                 </div>
-                {g.item.conversation_id ? (
-                  // Conversa existe no sistema → abre o NOSSO chat (WhatsApp interno) em nova aba.
-                  <a
-                    href={`/atendimento/chat/${g.item.conversation_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    title={`Abrir conversa de ${g.item.name} no chat`}
+                {(g.item.conversation_id || g.item.phone) ? (
+                  // Sempre abre NO NOSSO chat (find-or-create por telefone no backend).
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); openConversa(g.item); }}
+                    title={`Abrir conversa de ${g.item.name} no nosso chat`}
                     className="shrink-0 w-9 h-9 rounded-lg border border-emerald-500/30 bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 flex items-center justify-center hover:bg-emerald-500/20 transition-colors"
                   >
                     <MessageCircle size={16} />
-                  </a>
-                ) : g.item.phone ? (
-                  // Sem conversa ainda no sistema → fallback pro WhatsApp externo.
-                  <a
-                    href={`https://wa.me/${waNum(g.item.phone)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    onClick={(e) => e.stopPropagation()}
-                    title={`Sem conversa no sistema ainda — abrir WhatsApp de ${g.item.name}`}
-                    className="shrink-0 w-9 h-9 rounded-lg border border-border bg-muted/40 text-muted-foreground flex items-center justify-center hover:bg-muted transition-colors"
-                  >
-                    <MessageCircle size={16} />
-                  </a>
+                  </button>
                 ) : (
                   <div className="shrink-0 w-9 h-9" />
                 )}

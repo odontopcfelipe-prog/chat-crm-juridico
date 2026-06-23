@@ -1977,6 +1977,78 @@ export class CalendarService {
   }
 
   /**
+   * Onda 17.61 — abre (ou cria) a conversa INTERNA do paciente pra o ícone do
+   * WhatsApp da tela de aniversariantes SEMPRE cair no nosso chat, nunca no externo.
+   *
+   * Caminho:
+   *  1. Acha o lead do paciente — por `Patient.lead_id` OU pelo telefone (com/sem 55).
+   *     Isso conserta o caso "paciente já tem conversa mas o lead_id está null".
+   *  2. Se o lead tem conversa, devolve a mais recente.
+   *  3. Se não tem conversa (ou nem lead), cria lead (se preciso) + conversa ABERTO
+   *     usando a instância do tenant — assim o operador abre a conversa vazia e já
+   *     manda a primeira mensagem pelo nosso WhatsApp.
+   */
+  async openOrCreateConversation(tenant_id: string, patient_id: string): Promise<{ conversation_id: string | null }> {
+    if (!tenant_id || !patient_id) return { conversation_id: null };
+    const patient = await this.prisma.patient.findFirst({
+      where: { id: patient_id, tenant_id },
+      select: { id: true, name: true, phone: true, lead_id: true },
+    }).catch(() => null);
+    if (!patient?.phone) return { conversation_id: null };
+
+    const digits = patient.phone.replace(/\D/g, '');
+    const variants = new Set<string>();
+    if (digits) {
+      variants.add(digits);
+      variants.add(digits.startsWith('55') ? digits.slice(2) : `55${digits}`);
+    }
+
+    // 1. lead por lead_id OU por telefone (tenant-scoped)
+    let leadId: string | null = patient.lead_id || null;
+    if (!leadId && variants.size) {
+      const lead = await this.prisma.lead.findFirst({
+        where: { tenant_id, phone: { in: Array.from(variants) } },
+        select: { id: true },
+      }).catch(() => null);
+      leadId = lead?.id ?? null;
+    }
+
+    // 2. conversa existente do lead (mais recente, qualquer status)
+    if (leadId) {
+      const conv = await this.prisma.conversation.findFirst({
+        where: { lead_id: leadId },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true },
+      }).catch(() => null);
+      if (conv) return { conversation_id: conv.id };
+    }
+
+    // 3. find-or-create: cria lead (se não houver) + conversa ABERTO
+    if (!leadId) {
+      const created = await this.prisma.lead.create({
+        data: { phone: digits || patient.phone, name: patient.name || null, tenant_id, origin: 'aniversario' },
+        select: { id: true },
+      }).catch(() => null);
+      leadId = created?.id ?? null;
+    }
+    if (!leadId) return { conversation_id: null };
+
+    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id).catch(() => null);
+    const conv = await this.prisma.conversation.create({
+      data: {
+        lead_id: leadId,
+        tenant_id,
+        channel: 'whatsapp',
+        status: 'ABERTO',
+        external_id: `${digits}@s.whatsapp.net`,
+        ...(instanceName ? { instance_name: instanceName } : {}),
+      },
+      select: { id: true },
+    }).catch(() => null);
+    return { conversation_id: conv?.id ?? null };
+  }
+
+  /**
    * Manda o parabéns pra todos os aniversariantes de hoje do tenant.
    * Usado pelo cron diário e pelo "Enviar agora" manual.
    */

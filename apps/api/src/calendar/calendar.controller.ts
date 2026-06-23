@@ -462,6 +462,13 @@ export class CalendarController {
     return this.calendarService.getUpcomingBirthdays(req.user?.tenant_id, days ? parseInt(days, 10) : 30);
   }
 
+  // Onda 17.61 — abre (ou cria) a conversa interna do paciente; o ícone do WhatsApp
+  // da tela de aniversariantes usa isso pra sempre cair no nosso chat.
+  @Get('birthday-greeting/open-conversation')
+  openConversation(@Request() req: any, @Query('patient_id') patientId?: string) {
+    return this.calendarService.openOrCreateConversation(req.user?.tenant_id, patientId || '');
+  }
+
   // Envia um teste da mensagem de confirmação pra um número (admin) — testa entrega.
   @Post('appointment-confirmation/send-test')
   @Roles('ADMIN')
