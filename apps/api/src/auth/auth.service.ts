@@ -133,8 +133,9 @@ export class AuthService {
     if (!token || token.length < 32) {
       throw new BadRequestException('Link inválido.');
     }
-    if (!newPassword || newPassword.trim().length < 6) {
-      throw new BadRequestException('A nova senha precisa ter pelo menos 6 caracteres.');
+    // Onda 17.61 (segurança) — piso de 8 caracteres pra senha nova (antes 6).
+    if (!newPassword || newPassword.trim().length < 8) {
+      throw new BadRequestException('A nova senha precisa ter pelo menos 8 caracteres.');
     }
     const user = await this.prisma.user.findFirst({
       where: { password_reset_token: token },
