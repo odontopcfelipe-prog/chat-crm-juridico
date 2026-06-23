@@ -132,7 +132,11 @@ export class CalendarController {
   }
 
   @Post('events/:id/notify')
-  async notifyEvent(@Param('id') id: string) {
+  async notifyEvent(@Param('id') id: string, @Request() req: any) {
+    // Onda 17.61 (segurança/IDOR) — era a única rota de evento sem checagem; dispara
+    // WhatsApp. Exige posse/tenant como as vizinhas antes de delegar.
+    const canAccess = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
+    if (!canAccess) throw new ForbiddenException('Sem permissao para notificar este evento');
     return this.calendarService.notifyEvent(id);
   }
 
@@ -375,19 +379,19 @@ export class CalendarController {
   }
 
   @Post('reminders/:id/resend')
-  resendReminder(@Param('id') id: string) {
-    return this.calendarService.resendReminder(id);
+  resendReminder(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.resendReminder(id, req.user?.tenant_id);
   }
 
   @Post('reminders/:id/cancel')
-  cancelReminder(@Param('id') id: string) {
-    return this.calendarService.cancelReminder(id);
+  cancelReminder(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.cancelReminder(id, req.user?.tenant_id);
   }
 
   // v24 (Onda B): preview do conteudo do lembrete + respostas do paciente
   @Get('reminders/:id/preview')
-  getReminderPreview(@Param('id') id: string) {
-    return this.calendarService.getReminderPreview(id);
+  getReminderPreview(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.getReminderPreview(id, req.user?.tenant_id);
   }
 
   // v27 (Onda config): admin gerencia defaults de antecedencia + templates de mensagem.

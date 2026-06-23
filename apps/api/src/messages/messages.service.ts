@@ -98,12 +98,38 @@ export class MessagesService {
     return { data, total, page: safePage, limit: safeLimit, totalPages: Math.ceil(total / safeLimit) };
   }
 
+  // ── Onda 17.61 (segurança/IDOR) — isolamento de tenant em msgs/conversas ──
+  /** Bloqueia operar numa conversa de OUTRO tenant (espelha o check do getMessages). */
+  private async assertConvTenant(conversationId: string, tenantId?: string) {
+    if (!tenantId) return;
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id: conversationId },
+      select: { tenant_id: true },
+    });
+    if (conv?.tenant_id && conv.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado a este recurso');
+    }
+  }
+
+  /** Bloqueia operar numa mensagem cuja conversa é de OUTRO tenant. */
+  private async assertMessageTenant(messageId: string, tenantId?: string) {
+    if (!tenantId) return;
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { conversation: { select: { tenant_id: true } } },
+    });
+    if (msg?.conversation?.tenant_id && msg.conversation.tenant_id !== tenantId) {
+      throw new ForbiddenException('Acesso negado a este recurso');
+    }
+  }
+
   /**
    * Fetches message history from Evolution API and imports missing messages.
    * Idempotent — already-saved messages (matched by external_message_id) are skipped.
    * Only runs when explicitly triggered (on chat open), never for inactive contacts.
    */
-  async syncHistoryFromWhatsApp(conversationId: string): Promise<{ imported: number; total: number }> {
+  async syncHistoryFromWhatsApp(conversationId: string, tenantId?: string): Promise<{ imported: number; total: number }> {
+    await this.assertConvTenant(conversationId, tenantId);
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
@@ -220,7 +246,8 @@ export class MessagesService {
     );
   }
 
-  async sendMessage(conversationId: string, text: string, replyToId?: string, senderId?: string, isInternal?: boolean) {
+  async sendMessage(conversationId: string, text: string, replyToId?: string, senderId?: string, isInternal?: boolean, tenantId?: string) {
+    await this.assertConvTenant(conversationId, tenantId);
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true }
@@ -355,7 +382,9 @@ export class MessagesService {
     conversationId: string,
     file: Express.Multer.File,
     senderId?: string,
+    tenantId?: string,
   ) {
+    await this.assertConvTenant(conversationId, tenantId);
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
@@ -460,7 +489,9 @@ export class MessagesService {
     file: Express.Multer.File,
     caption?: string,
     senderId?: string,
+    tenantId?: string,
   ) {
+    await this.assertConvTenant(conversationId, tenantId);
     const convo = await this.prisma.conversation.findUnique({
       where: { id: conversationId },
       include: { lead: true },
@@ -557,7 +588,8 @@ export class MessagesService {
     return msgWithMedia;
   }
 
-  async editMessage(messageId: string, newText: string) {
+  async editMessage(messageId: string, newText: string, tenantId?: string) {
+    await this.assertMessageTenant(messageId, tenantId);
     if (!newText?.trim()) throw new BadRequestException('Texto não pode ser vazio');
 
     const message = await this.prisma.message.findUnique({
@@ -596,7 +628,8 @@ export class MessagesService {
     return updated;
   }
 
-  async deleteMessage(messageId: string) {
+  async deleteMessage(messageId: string, tenantId?: string) {
+    await this.assertMessageTenant(messageId, tenantId);
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { conversation: { include: { lead: true } } },
@@ -634,7 +667,8 @@ export class MessagesService {
     return deleted;
   }
 
-  async transcribeAudio(messageId: string): Promise<{ transcription: string }> {
+  async transcribeAudio(messageId: string, tenantId?: string): Promise<{ transcription: string }> {
+    await this.assertMessageTenant(messageId, tenantId);
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { media: true },
@@ -774,7 +808,8 @@ export class MessagesService {
     }
   }
 
-  async reactToMessage(messageId: string, emoji: string, userId: string) {
+  async reactToMessage(messageId: string, emoji: string, userId: string, tenantId?: string) {
+    await this.assertMessageTenant(messageId, tenantId);
     const message = await this.prisma.message.findUnique({
       where: { id: messageId },
       include: { conversation: { include: { lead: true } } },

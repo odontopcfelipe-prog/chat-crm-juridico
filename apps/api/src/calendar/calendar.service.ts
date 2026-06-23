@@ -1032,9 +1032,13 @@ export class CalendarService {
   // ─── Preview do conteudo de um lembrete (Onda 5e v24, Onda B) ────────
   // Retorna texto enviado pro WhatsApp + respostas do paciente nas N horas
   // seguintes. Usado pelo modal "Ver mensagem" da aba Lembretes.
-  async getReminderPreview(reminderId: string) {
-    const reminder = await this.prisma.eventReminder.findUnique({
-      where: { id: reminderId },
+  async getReminderPreview(reminderId: string, tenantId?: string) {
+    const reminder = await this.prisma.eventReminder.findFirst({
+      where: {
+        id: reminderId,
+        // Onda 17.61 (segurança/IDOR) — escopa ao tenant via evento (404 se for de outro).
+        ...(tenantId ? { event: { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } } : {}),
+      },
       include: {
         event: {
           select: {
@@ -1308,9 +1312,12 @@ export class CalendarService {
    * imediatamente (delay de 1s). Util quando lembrete falhou e operador
    * quer tentar de novo manualmente.
    */
-  async resendReminder(reminderId: string) {
-    const reminder = await this.prisma.eventReminder.findUnique({
-      where: { id: reminderId },
+  async resendReminder(reminderId: string, tenantId?: string) {
+    const reminder = await this.prisma.eventReminder.findFirst({
+      where: {
+        id: reminderId,
+        ...(tenantId ? { event: { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } } : {}),
+      },
       include: { event: { select: { id: true, status: true, start_at: true } } },
     });
     if (!reminder) throw new BadRequestException('Lembrete não encontrado');
@@ -1352,9 +1359,12 @@ export class CalendarService {
    * Cancela lembrete pendente: remove do BullMQ + marca como sent_at agora
    * (impede reprocessamento). Nao deleta o registro pra ficar no historico.
    */
-  async cancelReminder(reminderId: string) {
-    const reminder = await this.prisma.eventReminder.findUnique({
-      where: { id: reminderId },
+  async cancelReminder(reminderId: string, tenantId?: string) {
+    const reminder = await this.prisma.eventReminder.findFirst({
+      where: {
+        id: reminderId,
+        ...(tenantId ? { event: { OR: [{ tenant_id: tenantId }, { tenant_id: null }] } } : {}),
+      },
     });
     if (!reminder) throw new BadRequestException('Lembrete não encontrado');
     if (reminder.sent_at) {

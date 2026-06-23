@@ -86,8 +86,8 @@ export class MessagesController {
   }
 
   @Post('conversation/:id/sync-history')
-  syncHistory(@Param('id') conversationId: string) {
-    return this.messagesService.syncHistoryFromWhatsApp(conversationId);
+  syncHistory(@Param('id') conversationId: string, @Req() req: any) {
+    return this.messagesService.syncHistoryFromWhatsApp(conversationId, req.user?.tenant_id);
   }
 
   @Throttle({ default: { ttl: 60000, limit: 30 } })
@@ -99,7 +99,7 @@ export class MessagesController {
     if (!dto.text || !dto.text.trim()) {
       throw new BadRequestException('Texto nao pode ser vazio');
     }
-    return this.messagesService.sendMessage(dto.conversationId, dto.text.trim(), dto.replyToId, req.user?.id, dto.isInternal);
+    return this.messagesService.sendMessage(dto.conversationId, dto.text.trim(), dto.replyToId, req.user?.id, dto.isInternal, req.user?.tenant_id);
   }
 
   @Throttle({ default: { ttl: 60000, limit: 10 } })
@@ -119,7 +119,7 @@ export class MessagesController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: any,
   ) {
-    return this.messagesService.sendAudio(conversationId, file, req.user?.id);
+    return this.messagesService.sendAudio(conversationId, file, req.user?.id, req.user?.tenant_id);
   }
 
   @Throttle({ default: { ttl: 60000, limit: 10 } })
@@ -140,7 +140,7 @@ export class MessagesController {
     @UploadedFile() file: Express.Multer.File,
     @Req() req: any,
   ) {
-    return this.messagesService.sendFile(conversationId, file, caption, req.user?.id);
+    return this.messagesService.sendFile(conversationId, file, caption, req.user?.id, req.user?.tenant_id);
   }
 
   @Post('ai-correct')
@@ -152,8 +152,8 @@ export class MessagesController {
   }
 
   @Post(':id/transcribe')
-  transcribeAudio(@Param('id') messageId: string) {
-    return this.messagesService.transcribeAudio(messageId);
+  transcribeAudio(@Param('id') messageId: string, @Req() req: any) {
+    return this.messagesService.transcribeAudio(messageId, req.user?.tenant_id);
   }
 
   @Post(':id/react')
@@ -162,19 +162,20 @@ export class MessagesController {
     @Body() dto: ReactMessageDto,
     @Req() req: any,
   ) {
-    return this.messagesService.reactToMessage(id, dto.emoji, req.user.id);
+    return this.messagesService.reactToMessage(id, dto.emoji, req.user.id, req.user?.tenant_id);
   }
 
   @Patch(':id')
   editMessage(
     @Param('id') messageId: string,
     @Body('text') text: string,
+    @Req() req: any,
   ) {
-    return this.messagesService.editMessage(messageId, text);
+    return this.messagesService.editMessage(messageId, text, req.user?.tenant_id);
   }
 
   @Delete(':id')
-  deleteMessage(@Param('id') messageId: string) {
-    return this.messagesService.deleteMessage(messageId);
+  deleteMessage(@Param('id') messageId: string, @Req() req: any) {
+    return this.messagesService.deleteMessage(messageId, req.user?.tenant_id);
   }
 }
