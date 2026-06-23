@@ -770,7 +770,7 @@ export class CalendarService {
     const end = new Date(endAt);
     const where: any = {
       assigned_user_id: userId,
-      status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+      status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
       // Overlap: evento começa antes do fim do range E (termina após início do range OU sem end_at mas começa dentro do range)
       start_at: { lt: end },
       OR: [
@@ -879,7 +879,7 @@ export class CalendarService {
           { end_at: { gte: dayStart } },
           { end_at: null, start_at: { gte: dayStart } },
         ],
-        status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+        status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
       },
       select: { start_at: true, end_at: true },
       orderBy: { start_at: 'asc' },
@@ -1341,7 +1341,7 @@ export class CalendarService {
           ...tenantFilter,
           start_at: { gte: now },
           type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
-          status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+          status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
         },
       }),
     ]);
@@ -2211,7 +2211,7 @@ export class CalendarService {
     const where: any = {
       start_at: { gte: new Date() },
       type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
-      status: { notIn: ['CANCELADO', 'CONCLUIDO'] },
+      status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
       lead_id: { not: null },
     };
     if (opts.tenant_id) {
@@ -3017,8 +3017,8 @@ export class CalendarService {
         type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
         validated_at: null,
         start_at: { gte: cutoffStart, lte: now },
-        // status nao deve ser CANCELADO/ADIADO (esses nao precisam validar)
-        status: { notIn: ['CANCELADO', 'ADIADO'] },
+        // status nao deve ser CANCELADO/ADIADO/NO_SHOW (esses nao precisam validar)
+        status: { notIn: ['CANCELADO', 'ADIADO', 'NO_SHOW'] },
         ...(filterByUser ? { assigned_user_id: params.actorUserId } : {}),
         ...(filterByUser ? {} : { assigned_user_id: { not: null } }),
       },
