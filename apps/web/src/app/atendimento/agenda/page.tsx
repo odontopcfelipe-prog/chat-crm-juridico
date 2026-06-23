@@ -212,8 +212,8 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
     case 'CANCELADO': return 'SLOT_CANCELLED';
     case 'ADIADO':    return 'SLOT_DEFERRED';
     case 'NO_SHOW':   return 'SLOT_NOSHOW';   // Onda 5e v18: paciente faltou
-    case 'COMPARECEU': return 'SLOT_CONFIRMED'; // chegou — verde (ativo)
-    case 'EM_ATENDIMENTO': return 'SLOT_CONFIRMED'; // em atendimento — verde (ativo)
+    case 'COMPARECEU': return 'SLOT_ARRIVED';   // chegou — ciano (Onda 17.61)
+    case 'EM_ATENDIMENTO': return 'SLOT_INSERVICE'; // em atendimento — âmbar (Onda 17.61)
     default:          return 'SLOT_BOOKED'; // AGENDADO / outros
   }
 }
@@ -1034,33 +1034,45 @@ export default function AgendaPage() {
     // Cores semanticas Clinicorp (Fase 12) — slots de consulta odontologica
     calendars: {
       // CONSULTA: mapeada por status via getSemanticCalendarId
-      SLOT_BOOKED: {
+      // Onda 17.61 — cores ALINHADAS ao dropdown de Status (EVENT_STATUSES): mudar o
+      // status recolora o card. main = a mesma cor da opção no dropdown.
+      SLOT_BOOKED: { // AGENDADO — azul
         colorName: 'agendado',
-        lightColors: { main: '#E91E63', container: '#F8D7DA', onContainer: '#5C0011' },
-        darkColors:  { main: '#F8D7DA', container: '#5C0011', onContainer: '#F8D7DA' },
+        lightColors: { main: '#3b82f6', container: '#dbeafe', onContainer: '#1e3a8a' },
+        darkColors:  { main: '#3b82f6', container: '#1e3a8a', onContainer: '#dbeafe' },
       },
-      SLOT_CONFIRMED: {
+      SLOT_CONFIRMED: { // CONFIRMADO — verde
         colorName: 'confirmado',
-        lightColors: { main: '#28A745', container: '#D4EDDA', onContainer: '#0F4416' },
-        darkColors:  { main: '#28A745', container: '#0F4416', onContainer: '#D4EDDA' },
+        lightColors: { main: '#22c55e', container: '#dcfce7', onContainer: '#14532d' },
+        darkColors:  { main: '#22c55e', container: '#14532d', onContainer: '#dcfce7' },
       },
-      SLOT_DONE: {
+      SLOT_ARRIVED: { // COMPARECEU (paciente chegou) — ciano
+        colorName: 'compareceu',
+        lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
+        darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
+      },
+      SLOT_INSERVICE: { // EM_ATENDIMENTO — âmbar
+        colorName: 'ematendimento',
+        lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
+        darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
+      },
+      SLOT_DONE: { // CONCLUIDO — cinza
         colorName: 'concluido',
-        lightColors: { main: '#6C757D', container: '#E9ECEF', onContainer: '#1A1D20' },
-        darkColors:  { main: '#9E9E9E', container: '#2A2D30', onContainer: '#E9ECEF' },
+        lightColors: { main: '#6b7280', container: '#e9ecef', onContainer: '#1a1d20' },
+        darkColors:  { main: '#9e9e9e', container: '#2a2d30', onContainer: '#e9ecef' },
       },
-      SLOT_CANCELLED: {
+      SLOT_CANCELLED: { // CANCELADO (desmarcou) — vermelho
         colorName: 'cancelado',
-        lightColors: { main: '#DC3545', container: '#F5C6CB', onContainer: '#491217' },
-        darkColors:  { main: '#FF5252', container: '#491217', onContainer: '#F5C6CB' },
+        lightColors: { main: '#ef4444', container: '#fee2e2', onContainer: '#7f1d1d' },
+        darkColors:  { main: '#f87171', container: '#7f1d1d', onContainer: '#fee2e2' },
       },
-      SLOT_DEFERRED: {
+      SLOT_DEFERRED: { // ADIADO — amarelo
         colorName: 'adiado',
-        lightColors: { main: '#FFC107', container: '#FFF3CD', onContainer: '#664D03' },
-        darkColors:  { main: '#FFD54F', container: '#664D03', onContainer: '#FFF3CD' },
+        lightColors: { main: '#eab308', container: '#fef9c3', onContainer: '#713f12' },
+        darkColors:  { main: '#facc15', container: '#713f12', onContainer: '#fef9c3' },
       },
       // Onda 5e v18: paciente faltou — preto/cinza escuro pra destacar negativo
-      SLOT_NOSHOW: {
+      SLOT_NOSHOW: { // NO_SHOW (faltou) — escuro
         colorName: 'noshow',
         lightColors: { main: '#1f2937', container: '#e5e7eb', onContainer: '#1f2937' },
         darkColors:  { main: '#9ca3af', container: '#1f2937', onContainer: '#e5e7eb' },
