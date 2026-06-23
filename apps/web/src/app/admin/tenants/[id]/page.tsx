@@ -135,7 +135,7 @@ export default function TenantDetailPage() {
 
       {tab === 'geral' && <GeralTab tenant={tenant} onReload={load} />}
       {tab === 'integracoes' && <IntegracoesTab tenantId={tenant.id} />}
-      {tab === 'uso' && <UsoTab tenant={tenant} />}
+      {tab === 'uso' && <UsoTab tenant={tenant} onUpdated={load} />}
     </div>
   );
 }
@@ -454,8 +454,9 @@ function SettingField({
   );
 }
 
-function UsoTab({ tenant }: { tenant: Tenant }) {
+function UsoTab({ tenant, onUpdated }: { tenant: Tenant; onUpdated: () => void }) {
   const [usage, setUsage] = useState<any>(null);
+  const [savingPlan, setSavingPlan] = useState(false);
 
   useEffect(() => {
     // /tenants/me/usage retorna o uso do tenant DO USER LOGADO. Pra ver
@@ -464,10 +465,43 @@ function UsoTab({ tenant }: { tenant: Tenant }) {
     setUsage(null); // placeholder — usa _count
   }, [tenant.id]);
 
+  // Onda 17.61 — SUPER_ADMIN troca o plano do tenant (PATCH /tenants/:id) — sobe o
+  // limite de usuários/pacientes na hora, sem deploy. PRO=20, ENTERPRISE/CUSTOM=ilimitado.
+  const changePlan = async (plan: string) => {
+    if (plan === tenant.plan) return;
+    setSavingPlan(true);
+    try {
+      await api.patch(`/tenants/${tenant.id}`, { plan });
+      showSuccess(`Plano alterado para ${plan}.`);
+      onUpdated();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao alterar o plano');
+    } finally {
+      setSavingPlan(false);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="bg-card border border-border rounded-xl p-4">
-        <h3 className="text-sm font-bold text-foreground mb-2">Plano: {tenant.plan}</h3>
+        <div className="flex items-center justify-between gap-3 flex-wrap mb-2">
+          <h3 className="text-sm font-bold text-foreground">Plano: {tenant.plan}</h3>
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-semibold text-muted-foreground">Trocar plano:</span>
+            <select
+              value={tenant.plan}
+              onChange={(e) => changePlan(e.target.value)}
+              disabled={savingPlan}
+              className="px-2 py-1 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40 disabled:opacity-50"
+            >
+              <option value="STARTER">STARTER (5 users)</option>
+              <option value="PRO">PRO (20 users)</option>
+              <option value="ENTERPRISE">ENTERPRISE (ilimitado)</option>
+              <option value="CUSTOM">CUSTOM (ilimitado)</option>
+            </select>
+            {savingPlan && <Loader2 size={14} className="animate-spin text-muted-foreground" />}
+          </div>
+        </div>
         <p className="text-xs text-muted-foreground">
           Limites por plano definidos em <code>apps/api/src/tenants/plan-limits.ts</code>.
         </p>
