@@ -10,6 +10,29 @@ import { showError, showSuccess } from '@/lib/toast';
 
 const PREVIEW = { nome: 'Felipe', clinica: 'sua clínica' };
 
+// Textos padrão (mesmos do backend) — usados quando a config ainda vem vazia, pra
+// o editor já mostrar a mensagem na hora (sem depender do deploy do backend).
+const DEFAULT_TPL: Record<1 | 2 | 3, string> = {
+  1:
+    'Feliz aniversário, {nome}! 🎉🎂\n\n' +
+    'A equipe da {clinica} deseja um dia maravilhoso pra você. Conte com a gente pra cuidar do seu sorriso! 😁',
+  2:
+    'Feliz aniversário, {nome}! 🎉\n' +
+    'Talvez a gente não tenha conseguido ser o primeiro a te desejar… mas a gente tentou. 😊 ' +
+    'Que neste dia tão especial — em que recordamos o dia do seu nascimento — o Senhor Jesus te ' +
+    'abençoe cada dia mais. Aproveite muito esse dia maravilhoso!\n' +
+    'Com carinho,\n\n' +
+    'Equipe {clinica} 🎂',
+  3:
+    '{nome}, a gente não poderia deixar essa data passar em branco. 💙\n' +
+    'E, do nosso jeito, queríamos te presentear com algo nosso: é com muito carinho que ' +
+    'preparamos pra você 50% de desconto em um clareamento dental. ✨🎁\n' +
+    'É só responder esta mensagem que a gente agenda pra você. Seu sorriso merece!\n' +
+    'Um abraço,\n\n' +
+    'Equipe {clinica}',
+};
+const DEFAULT_AT: Record<1 | 2 | 3, string> = { 1: '09:00', 2: '00:00', 3: '12:00' };
+
 const META: Record<1 | 2 | 3, { titulo: string; sub: string; tplField: string; atField: string; icon: React.ReactNode }> = {
   1: { titulo: 'Mensagem clássica', sub: 'A mensagem tradicional de parabéns', tplField: 'template', atField: 'send_at', icon: <Cake size={16} className="text-fuchsia-500" /> },
   2: { titulo: 'O desejo', sub: 'Na virada do dia (ex.: 00:01) — carinhoso', tplField: 'message2_template', atField: 'message2_send_at', icon: <Heart size={16} className="text-rose-500" /> },
@@ -34,8 +57,10 @@ export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2
   useEffect(() => {
     api.get('/calendar/birthday-greeting/config')
       .then((r) => {
-        setTemplate(r.data?.[meta.tplField] || '');
-        setSendAt(r.data?.[meta.atField] || (which === 2 ? '00:00' : which === 3 ? '12:00' : '09:00'));
+        // Se a config ainda não tem o texto dessa mensagem, mostra o padrão (pra
+        // aparecer na hora; salvar persiste). Não depende do deploy do backend.
+        setTemplate((r.data?.[meta.tplField] || '').trim() || DEFAULT_TPL[which]);
+        setSendAt(r.data?.[meta.atField] || DEFAULT_AT[which]);
       })
       .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar a mensagem'))
       .finally(() => setLoading(false));
