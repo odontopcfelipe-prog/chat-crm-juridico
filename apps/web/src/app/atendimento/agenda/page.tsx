@@ -2527,6 +2527,23 @@ export default function AgendaPage() {
               </div>
             )}
 
+            {/* Onda 17.61 — Confirmar manualmente: opção clara (ex.: paciente confirmou
+                por telefone). Aparece só em atendimento AGENDADO (ainda não confirmado). */}
+            {editingEvent && canEdit && editingEvent.status === 'AGENDADO'
+              && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+              <div className="px-5 pt-3">
+                <button
+                  onClick={() => handleStatusChange('CONFIRMADO')}
+                  className="w-full inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-bold hover:bg-emerald-700 transition-colors shadow-sm"
+                >
+                  <CheckCircle2 size={16} /> Confirmar agendamento
+                </button>
+                <p className="text-[11px] text-muted-foreground mt-1.5 text-center">
+                  Marca como <b>Confirmado</b> manualmente (ex.: o paciente confirmou por telefone).
+                </p>
+              </div>
+            )}
+
             {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
             {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
               <div className="px-5 pt-3">
