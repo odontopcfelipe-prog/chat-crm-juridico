@@ -32,10 +32,12 @@ export class AppointmentConfirmationSchedulerService {
       const in24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
       const in25h = new Date(now.getTime() + 25 * 60 * 60 * 1000);
 
-      // Agendamentos elegiveis: CONSULTA, AGENDADO, com paciente, em 24-25h
+      // Onda 17.61 — TODOS os atendimentos com paciente (CONSULTA + PROCEDIMENTO +
+      // RETORNO), AGENDADO, em 24-25h. Antes era so CONSULTA — procedimento/retorno
+      // nao recebiam a confirmacao de agendamento.
       const eligible = await this.prisma.calendarEvent.findMany({
         where: {
-          type: 'CONSULTA',
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
           status: 'AGENDADO',
           patient_id: { not: null },
           start_at: { gte: in24h, lt: in25h },

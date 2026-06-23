@@ -506,7 +506,10 @@ export class CalendarReminderWorker extends WorkerHost {
     minutesBefore: number,
   ): Promise<{ externalMsgId: string | null }> {
     const isAudiencia = event.type === 'AUDIENCIA' || event.type === 'PERICIA';
-    const isConsulta = event.type === 'CONSULTA';
+    // Onda 17.61 — lembretes pra TODOS os atendimentos da agenda: CONSULTA +
+    // PROCEDIMENTO + RETORNO (igual ao isClinicalEvent do backend). Bloqueio/
+    // tarefa/outro não têm paciente pra lembrar.
+    const isClinical = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(event.type);
 
     // Carrega contexto adicional do cliente (memória)
     // STUBBED: LegalCase/DjenPublication/FichaTrabalhista removidos Fase 0.2
@@ -539,24 +542,24 @@ export class CalendarReminderWorker extends WorkerHost {
     // Onda 5e v17: ANTES era `if (isAudiencia && ...)` — bug critico que excluia
     // CONSULTA odonto (paciente nunca recebia lembrete!). Agora envia pra
     // qualquer evento com lead.phone, usando template apropriado por tipo.
-    const shouldNotifyClient = (isAudiencia || isConsulta) && event.lead?.phone;
+    const shouldNotifyClient = (isAudiencia || isClinical) && event.lead?.phone;
     if (shouldNotifyClient) {
       const clientPhone = event.lead.phone.replace(/\D/g, '');
       // Onda 17.60 — cada disparo é EXPLÍCITO (você liga o que quer): a CONFIRMAÇÃO
       // é o disparo de 48h (>=2880 min) — usa consulta_confirmacao e pede pra
       // confirmar. Os lembretes (24h/1h/15min) só LEMBRAM, nunca pedem confirmação.
       // (Confirmação por 24h fica no disparo separado "Confirmação de agendamento".)
-      const isConfirmation = isConsulta && minutesBefore >= 2880;
+      const isConfirmation = isClinical && minutesBefore >= 2880;
       let clientMsg: string;
 
-      if (isConsulta) {
-        // CONSULTA: usa template natural odonto (sem IA pra ser consistente e nao
-        // gerar mensagem fora do tom). A confirmação usa o template consulta_confirmacao.
+      if (isClinical) {
+        // CONSULTA/PROCEDIMENTO/RETORNO: usa o template natural odonto (sem IA pra ser
+        // consistente). A confirmação (48h) usa o template consulta_confirmacao.
         // v27: carrega config do tenant pra usar templates customizaveis.
         const config = await this.loadReminderConfig(event.tenant_id);
         const tenantAddr = await this.loadTenantAddress(event.tenant_id);
         clientMsg = templateClienteConsulta(event, minutesBefore, config, tenantAddr, isConfirmation ? 'consulta_confirmacao' : undefined);
-        this.logger.log(`[REMINDER] Template CONSULTA${isConfirmation ? ' (CONFIRMAÇÃO)' : ''} gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
+        this.logger.log(`[REMINDER] Template ${event.type}${isConfirmation ? ' (CONFIRMAÇÃO)' : ''} gerado pra paciente ${clientPhone} (${minutesBefore}min antes)`);
       } else {
         // AUDIENCIA/PERICIA: tenta IA, fallback pra template juridico
         try {
@@ -580,7 +583,7 @@ export class CalendarReminderWorker extends WorkerHost {
       // caminho antigo (instância por lead, sem tenantId) fazia o lembrete de
       // consulta falhar calado, porque o sendText resolve a config da Evolution
       // pelo tenant. Audiência/perícia mantêm o caminho legado por lead.
-      const reminderInstanceName = isConsulta && event.tenant_id
+      const reminderInstanceName = isClinical && event.tenant_id
         ? await this.resolveTenantInstance(event.tenant_id)
         : await this.resolveInstanceName(event.lead.id);
 
@@ -591,7 +594,7 @@ export class CalendarReminderWorker extends WorkerHost {
           clientMsg,
           reminderInstanceName ?? undefined,
           undefined,
-          isConsulta ? event.tenant_id : undefined,
+          isClinical ? event.tenant_id : undefined,
         );
         // sendText() retorna objeto de erro em vez de lançar exceção em falhas HTTP
         if (!reminderSendResult || reminderSendResult?.statusCode >= 400 || reminderSendResult?.error) {
