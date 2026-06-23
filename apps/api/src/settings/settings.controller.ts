@@ -258,6 +258,7 @@ export class SettingsController {
   }
 
   @Get('skills')
+  @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — config de IA é admin-only.
   async getSkills() {
     return this.settingsService.getSkills();
   }
@@ -307,6 +308,7 @@ export class SettingsController {
   // ─── Skill Tools CRUD ─────────────────────────────────
 
   @Get('skills/:skillId/tools')
+  @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — tools (handler_config/url) admin-only.
   async getSkillTools(@Param('skillId') skillId: string) {
     return this.settingsService.getSkillTools(skillId);
   }
@@ -332,6 +334,7 @@ export class SettingsController {
   // ─── Skill Assets / References ──────────────────────────
 
   @Get('skills/:skillId/assets')
+  @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — assets de skill admin-only.
   async getSkillAssets(@Param('skillId') skillId: string) {
     return this.settingsService.getSkillAssets(skillId);
   }
@@ -390,6 +393,7 @@ export class SettingsController {
   }
 
   @Get('skills/assets/:assetId/download')
+  @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — download de asset admin-only.
   async downloadSkillAsset(@Param('assetId') assetId: string, @Res() res: any) {
     const asset = await this.settingsService.findSkillAssetById(assetId);
     if (!asset) throw new NotFoundException('Asset não encontrado');
