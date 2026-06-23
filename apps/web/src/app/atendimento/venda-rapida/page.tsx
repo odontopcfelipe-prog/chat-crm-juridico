@@ -214,7 +214,9 @@ export default function VendaRapidaPage() {
     }
     setSearchingPatient(true);
     const id = setTimeout(() => {
-      api.get<PatientOption[] | { data: PatientOption[] }>(`/patients?q=${encodeURIComponent(patientQuery)}&limit=8`)
+      // Onda 17.61 — o backend filtra por ?search= (NÃO ?q=). Com ?q= o param era
+      // ignorado e voltava a lista sem filtrar → a busca "não ia". Agora bate certo.
+      api.get<PatientOption[] | { data: PatientOption[] }>(`/patients?search=${encodeURIComponent(patientQuery)}&limit=8`)
         .then(({ data }) => {
           const list = Array.isArray(data) ? data : (data?.data || []);
           setPatientResults(list);
