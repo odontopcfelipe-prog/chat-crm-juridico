@@ -127,12 +127,15 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
   return perHour * visibleHours;
 }
 
-const EVENT_PRIORITIES = [
-  { id: 'BAIXA', label: 'Baixa' },
-  { id: 'NORMAL', label: 'Normal' },
-  { id: 'ALTA', label: 'Alta' },
-  { id: 'URGENTE', label: 'Urgente' },
-];
+// Onda 17.61 — Prioridade saiu do UI da agenda (substituída pelo Status). A borda
+// lateral do evento, que antes usava a prioridade, agora reflete o DENTISTA responsável
+// (mesmos hex das classes .dentist-color-N de agenda-theme.css). hashStringToInt é
+// declaração de função (hoisted) — ok referenciar aqui mesmo definida mais abaixo.
+const DENTIST_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
+function eventBorderColor(ev: { assigned_user_id?: string | null }): string {
+  if (!ev.assigned_user_id) return '#6b7280'; // sem dentista → neutro
+  return DENTIST_COLORS[hashStringToInt(ev.assigned_user_id) % DENTIST_COLORS.length];
+}
 
 // Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Paciente chegou → Em
 // atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) / Adiado como saídas.
@@ -147,19 +150,7 @@ const EVENT_STATUSES = [
   { id: 'ADIADO', label: 'Adiado', color: '#eab308' },
 ];
 
-const PRIORITY_COLORS: Record<string, string> = {
-  BAIXA: '#6b7280',
-  NORMAL: '#3b82f6',
-  ALTA: '#f59e0b',
-  URGENTE: '#ef4444',
-};
-
-const PRIORITY_LABELS: Record<string, string> = {
-  BAIXA: 'Baixa',
-  NORMAL: 'Normal',
-  ALTA: 'Alta',
-  URGENTE: 'Urgente',
-};
+// (PRIORITY_COLORS / PRIORITY_LABELS removidos — Prioridade saiu do UI na Onda 17.61.)
 
 const KANBAN_COLUMNS = [
   { id: 'AGENDADO',  label: 'A Fazer',      emoji: '📋', color: '#3b82f6' },
@@ -606,7 +597,7 @@ export default function AgendaPage() {
     startTime: '09:00',
     endTime: '10:00',
     all_day: false,
-    priority: 'NORMAL',
+    status: 'AGENDADO',
     location: '',
     assigned_user_id: '',
     lead_id: '',
@@ -713,7 +704,7 @@ export default function AgendaPage() {
       startTime: time,
       endTime: `${endH}:${endM}`,
       all_day: false,
-      priority: 'NORMAL',
+      status: 'AGENDADO',
       location: '',
       assigned_user_id: presetUserId || currentUserId,
       lead_id: '',
@@ -1474,7 +1465,7 @@ export default function AgendaPage() {
       startTime: formatTimeInput(ev.start_at),
       endTime: ev.end_at ? formatTimeInput(ev.end_at) : '',
       all_day: ev.all_day,
-      priority: ev.priority,
+      status: ev.status,
       location: ev.location || '',
       assigned_user_id: ev.assigned_user_id || '',
       lead_id: ev.lead_id || '',
@@ -1565,7 +1556,7 @@ export default function AgendaPage() {
       start_at: startIso,
       end_at: endIso || null,
       all_day: formData.all_day,
-      priority: formData.priority,
+      status: formData.status,
       assigned_user_id: formData.assigned_user_id || null,
       lead_id: formData.lead_id || null,
       patient_id: formData.patient_id || null,
@@ -1609,6 +1600,7 @@ export default function AgendaPage() {
     try {
       await api.patch(`/calendar/events/${editingEvent.id}/status`, { status: newStatus });
       setEditingEvent({ ...editingEvent, status: newStatus });
+      setFormData(f => ({ ...f, status: newStatus })); // mantém o form em sincronia (evita reverter ao salvar)
       if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
     } catch (e: any) {
       showError(e?.response?.data?.message || e?.message || 'Erro ao alterar status');
@@ -1733,7 +1725,7 @@ export default function AgendaPage() {
         startTime: formatTimeInput(editingEvent.start_at),
         endTime: editingEvent.end_at ? formatTimeInput(editingEvent.end_at) : '',
         all_day: editingEvent.all_day,
-        priority: editingEvent.priority,
+        status: 'AGENDADO', // cópia começa como novo agendamento
         location: editingEvent.location || '',
         assigned_user_id: editingEvent.assigned_user_id || '',
         lead_id: editingEvent.lead_id || '',
@@ -2037,7 +2029,7 @@ export default function AgendaPage() {
               {upcomingEvents.map(ev => {
                 const d = new Date(ev.start_at);
                 const typeColor = getEventColor(ev.type);
-                const priorityColor = PRIORITY_COLORS[ev.priority] ?? '#6b7280';
+                const borderColor = eventBorderColor(ev); // borda por dentista (Onda 17.61)
                 const isOverdue = new Date(ev.start_at) < new Date() && ev.status === 'AGENDADO';
                 return (
                   <button
@@ -2049,7 +2041,7 @@ export default function AgendaPage() {
                     }}
                     onMouseLeave={() => setHoverTooltip(null)}
                     className="w-full text-left p-2 rounded-xl border border-border/40 hover:bg-accent/50 hover:border-border transition-all group overflow-hidden relative"
-                    style={{ borderLeft: `3px solid ${priorityColor}` }}
+                    style={{ borderLeft: `3px solid ${borderColor}` }}
                   >
                     <div className="flex items-center gap-1.5 mb-0.5">
                       <span className="w-2 h-2 rounded-full shrink-0" style={{ background: typeColor }} />
@@ -2219,7 +2211,7 @@ export default function AgendaPage() {
                     {/* Cards */}
                     <div className="flex flex-col gap-2 flex-1 overflow-y-auto custom-scrollbar pb-4">
                       {colEvents.map(ev => {
-                        const priorityColor = PRIORITY_COLORS[ev.priority] ?? '#6b7280';
+                        const borderColor = eventBorderColor(ev); // borda por dentista (Onda 17.61)
                         const isOverdue = new Date(ev.start_at) < new Date() && col.id !== 'CONCLUIDO';
                         const daysOverdue = isOverdue
                           ? Math.max(0, Math.floor((Date.now() - new Date(ev.start_at).getTime()) / 86400000))
@@ -2228,7 +2220,7 @@ export default function AgendaPage() {
                           <div
                             key={ev.id}
                             className="bg-card border border-border rounded-xl p-3 cursor-pointer hover:shadow-md hover:border-primary/30 transition-all group"
-                            style={{ borderLeft: `3px solid ${priorityColor}` }}
+                            style={{ borderLeft: `3px solid ${borderColor}` }}
                             onClick={() => openEditModal(ev)}
                           >
                             <p className="text-sm font-semibold text-foreground mb-1 group-hover:text-primary transition-colors leading-snug">
@@ -2408,8 +2400,8 @@ export default function AgendaPage() {
             {hoverTooltip.event.legal_case?.lead?.name && (
               <p className="truncate">👤 {hoverTooltip.event.legal_case.lead.name}</p>
             )}
-            <p style={{ color: PRIORITY_COLORS[hoverTooltip.event.priority] }}>
-              ● {PRIORITY_LABELS[hoverTooltip.event.priority] ?? hoverTooltip.event.priority}
+            <p style={{ color: EVENT_STATUSES.find(s => s.id === hoverTooltip.event.status)?.color }}>
+              ● {EVENT_STATUSES.find(s => s.id === hoverTooltip.event.status)?.label ?? hoverTooltip.event.status}
             </p>
           </div>
         </div>,
@@ -2509,28 +2501,7 @@ export default function AgendaPage() {
               </select>
             </fieldset>
 
-            {/* Onda 17.61 — Status como DROPDOWN (estilo PRIORIDADE) com o fluxo de
-                recepção: Agendado → Confirmado → Paciente chegou → Em atendimento →
-                Concluído (+ Desmarcou / Faltou / Adiado). Troca o status na hora. */}
-            {editingEvent && (
-              <div className="px-5 pt-3">
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Status</label>
-                <select
-                  value={editingEvent.status}
-                  onChange={e => canEdit && handleStatusChange(e.target.value)}
-                  disabled={!canEdit}
-                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-bold outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 disabled:cursor-not-allowed"
-                  style={{
-                    color: EVENT_STATUSES.find(s => s.id === editingEvent.status)?.color,
-                    borderColor: (EVENT_STATUSES.find(s => s.id === editingEvent.status)?.color || '#cbd5e1') + '60',
-                  }}
-                >
-                  {EVENT_STATUSES.map(s => (
-                    <option key={s.id} value={s.id} className="text-foreground font-medium">{s.label}</option>
-                  ))}
-                </select>
-              </div>
-            )}
+            {/* (Status agora fica no slot que era da Prioridade, mais abaixo — Onda 17.61.) */}
 
             {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
             {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
@@ -2668,15 +2639,27 @@ export default function AgendaPage() {
                 </div>
               )}
 
-              {/* Prioridade */}
+              {/* Status — substitui a Prioridade (removida do UI na Onda 17.61). Na edição
+                  troca na hora (PATCH + lista de espera quando Desmarcou); na criação define
+                  o status inicial do evento. Fluxo: Agendado → Confirmado → Paciente chegou →
+                  Em atendimento → Concluído (+ Desmarcou / Faltou / Adiado). */}
               <div>
-                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Prioridade</label>
+                <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Status</label>
                 <select
-                  value={formData.priority}
-                  onChange={e => setFormData(f => ({ ...f, priority: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-border bg-background text-sm text-foreground outline-none focus:ring-2 focus:ring-primary/30"
+                  value={editingEvent ? editingEvent.status : formData.status}
+                  onChange={e => editingEvent
+                    ? (canEdit && handleStatusChange(e.target.value))
+                    : setFormData(f => ({ ...f, status: e.target.value }))}
+                  disabled={!!editingEvent && !canEdit}
+                  className="w-full px-3 py-2 rounded-lg border bg-background text-sm font-bold outline-none focus:ring-2 focus:ring-primary/30 disabled:opacity-60 disabled:cursor-not-allowed"
+                  style={{
+                    color: EVENT_STATUSES.find(s => s.id === (editingEvent ? editingEvent.status : formData.status))?.color,
+                    borderColor: (EVENT_STATUSES.find(s => s.id === (editingEvent ? editingEvent.status : formData.status))?.color || '#cbd5e1') + '60',
+                  }}
                 >
-                  {EVENT_PRIORITIES.map(p => <option key={p.id} value={p.id}>{p.label}</option>)}
+                  {EVENT_STATUSES.map(s => (
+                    <option key={s.id} value={s.id} className="text-foreground font-medium">{s.label}</option>
+                  ))}
                 </select>
               </div>
             </div>
