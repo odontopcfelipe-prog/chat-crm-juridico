@@ -33,6 +33,9 @@ export interface DisparoItem {
   /** Lembrete: o on/off é a PRESENÇA desta antecedência (minutos) na config do
    *  lembrete (/calendar/reminders/config) — cada lembrete liga/desliga sozinho. */
   antecedenciaMin?: number;
+  /** Aniversário: qual das 3 mensagens (1 clássica, 2 desejo, 3 presente). O on/off
+   *  liga/desliga o campo enabled/message2_enabled/message3_enabled da config. */
+  birthdayMsg?: 1 | 2 | 3;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
 
@@ -70,9 +73,15 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: '1 dia depois · se NPS alto', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
 
   // ── Datas e relacionamento ──
-  { id: 'aniversario', nome: 'Aniversariantes do dia', categoria: 'datas',
-    gatilho: 'No aniversário · desejo 00:01 + presente 12h', canal: 'WhatsApp', tags: ['Template', '2 msgs'],
-    editor: 'aniversario', operacionalKey: 'aniversario' },
+  { id: 'aniversario_classica', nome: 'Aniversário · mensagem clássica', categoria: 'datas',
+    gatilho: 'No aniversário · 9h', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'aniversario', birthdayMsg: 1 },
+  { id: 'aniversario_desejo', nome: 'Aniversário · o desejo', categoria: 'datas',
+    gatilho: 'Na virada do dia · 00:01', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'aniversario', birthdayMsg: 2 },
+  { id: 'aniversario_presente', nome: 'Aniversário · o presente', categoria: 'datas',
+    gatilho: 'No meio do dia · 12h · oferta', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'aniversario', birthdayMsg: 3 },
   { id: 'datas_sazonais', nome: 'Datas sazonais', categoria: 'datas',
     gatilho: 'Data fixa da campanha', canal: 'WhatsApp', tags: ['Template'], editor: null, emBreve: true },
 

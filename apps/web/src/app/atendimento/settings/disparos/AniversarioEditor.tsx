@@ -1,25 +1,20 @@
 'use client';
 
-// Onda 17.61 — editor das DUAS mensagens de aniversário (estratégia "mais humana"):
-//   • Mensagem 1 — o desejo, na virada do dia (00:01).
-//   • Mensagem 2 — o presente, no meio do dia (12:00).
-// Cada uma tem liga/desliga, horário e texto próprios. Salva tudo de uma vez no
-// mesmo config (/calendar/birthday-greeting/config).
+// Onda 17.61 — editor de UMA das mensagens de aniversário (a Central tem 3 itens
+// separados: clássica, o desejo, o presente). Cada item abre este editor com seu
+// `which`. O liga/desliga fica na linha da lista; aqui edita-se horário + texto.
 import { useEffect, useState } from 'react';
-import { Loader2, Save, Cake, Gift, Eye, Variable, Clock } from 'lucide-react';
+import { Loader2, Save, Cake, Gift, Heart, Eye, Variable, Clock } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
-interface Cfg {
-  enabled: boolean;
-  send_at: string;
-  template: string;
-  message2_enabled: boolean;
-  message2_send_at: string;
-  message2_template: string;
-}
-
 const PREVIEW = { nome: 'Felipe', clinica: 'sua clínica' };
+
+const META: Record<1 | 2 | 3, { titulo: string; sub: string; tplField: string; atField: string; icon: React.ReactNode }> = {
+  1: { titulo: 'Mensagem clássica', sub: 'A mensagem tradicional de parabéns', tplField: 'template', atField: 'send_at', icon: <Cake size={16} className="text-fuchsia-500" /> },
+  2: { titulo: 'O desejo', sub: 'Na virada do dia (ex.: 00:01) — carinhoso', tplField: 'message2_template', atField: 'message2_send_at', icon: <Heart size={16} className="text-rose-500" /> },
+  3: { titulo: 'O presente', sub: 'No meio do dia (ex.: 12:00) — oferta/agrado', tplField: 'message3_template', atField: 'message3_send_at', icon: <Gift size={16} className="text-amber-500" /> },
+};
 
 function applyPreview(t: string): string {
   return (t || '')
@@ -29,35 +24,32 @@ function applyPreview(t: string): string {
     .trim();
 }
 
-export function AniversarioEditor({ onCurrentTextChange }: { onCurrentTextChange?: (t: string) => void }) {
+export function AniversarioEditor({ which, onCurrentTextChange }: { which: 1 | 2 | 3; onCurrentTextChange?: (t: string) => void }) {
+  const meta = META[which];
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [cfg, setCfg] = useState<Cfg>({
-    enabled: false, send_at: '00:00', template: '',
-    message2_enabled: false, message2_send_at: '12:00', message2_template: '',
-  });
+  const [template, setTemplate] = useState('');
+  const [sendAt, setSendAt] = useState('09:00');
 
   useEffect(() => {
     api.get('/calendar/birthday-greeting/config')
-      .then((r) => setCfg((c) => ({ ...c, ...r.data })))
-      .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar as mensagens'))
+      .then((r) => {
+        setTemplate(r.data?.[meta.tplField] || '');
+        setSendAt(r.data?.[meta.atField] || (which === 2 ? '00:00' : which === 3 ? '12:00' : '09:00'));
+      })
+      .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar a mensagem'))
       .finally(() => setLoading(false));
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [which]);
 
-  // Reporta o texto da msg 1 pro "Enviar teste".
-  useEffect(() => { onCurrentTextChange?.(cfg.template); }, [cfg.template, onCurrentTextChange]);
-
-  const set = (patch: Partial<Cfg>) => setCfg((c) => ({ ...c, ...patch }));
+  useEffect(() => { onCurrentTextChange?.(template); }, [template, onCurrentTextChange]);
 
   const save = async () => {
     setSaving(true);
     try {
-      const r = await api.put('/calendar/birthday-greeting/config', {
-        enabled: cfg.enabled, send_at: cfg.send_at, template: cfg.template,
-        message2_enabled: cfg.message2_enabled, message2_send_at: cfg.message2_send_at, message2_template: cfg.message2_template,
-      });
-      setCfg((c) => ({ ...c, ...r.data }));
-      showSuccess('Mensagens de aniversário salvas');
+      const r = await api.put('/calendar/birthday-greeting/config', { [meta.tplField]: template, [meta.atField]: sendAt });
+      if (r.data?.[meta.tplField] != null) setTemplate(r.data[meta.tplField]);
+      showSuccess('Mensagem salva');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao salvar');
     } finally {
@@ -69,73 +61,16 @@ export function AniversarioEditor({ onCurrentTextChange }: { onCurrentTextChange
     return <div className="py-12 flex items-center justify-center text-muted-foreground"><Loader2 size={18} className="animate-spin" /></div>;
   }
 
-  const section = (opts: {
-    icon: React.ReactNode; titulo: string; sub: string;
-    enabled: boolean; onToggle: () => void;
-    sendAt: string; onSendAt: (v: string) => void;
-    template: string; onTemplate: (v: string) => void;
-    accent: string;
-  }) => (
-    <div className={`rounded-2xl border ${opts.enabled ? opts.accent : 'border-border'} overflow-hidden`}>
-      <div className="px-4 py-3 flex items-center gap-2 border-b border-border bg-muted/20">
-        {opts.icon}
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-bold truncate">{opts.titulo}</div>
-          <div className="text-[10px] text-muted-foreground truncate">{opts.sub}</div>
-        </div>
-        {/* liga/desliga */}
-        <button
-          type="button"
-          onClick={opts.onToggle}
-          className={`shrink-0 w-11 h-6 rounded-full transition-colors relative ${opts.enabled ? 'bg-emerald-500' : 'bg-muted-foreground/30'}`}
-          title={opts.enabled ? 'Ativado' : 'Desativado'}
-        >
-          <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${opts.enabled ? 'translate-x-5' : ''}`} />
-        </button>
-      </div>
-      <div className="p-4 space-y-3">
-        <div className="flex items-center gap-2">
-          <Clock size={13} className="text-muted-foreground" />
-          <span className="text-[11px] font-semibold text-muted-foreground">Horário do disparo</span>
-          <input
-            type="time"
-            value={opts.sendAt}
-            onChange={(e) => opts.onSendAt(e.target.value)}
-            className="px-2 py-1 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
-          />
-        </div>
-        <textarea
-          value={opts.template}
-          onChange={(e) => opts.onTemplate(e.target.value)}
-          rows={6}
-          maxLength={2000}
-          className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
-          placeholder="Texto da mensagem com {nome} e {clinica}…"
-        />
-        <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-1.5 flex items-center gap-1">
-            <Eye size={11} /> Preview
-          </div>
-          <div className="text-xs text-foreground whitespace-pre-wrap">
-            {applyPreview(opts.template) || <em className="text-muted-foreground">(mensagem vazia)</em>}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-
   return (
     <div className="bg-card border border-border rounded-2xl overflow-hidden">
       <div className="border-b border-border px-5 py-4 flex items-center gap-2">
-        <Cake size={16} className="text-fuchsia-500" />
-        <h2 className="text-base font-bold">Mensagens de aniversário</h2>
+        {meta.icon}
+        <div>
+          <h2 className="text-base font-bold">Aniversário · {meta.titulo}</h2>
+          <p className="text-[11px] text-muted-foreground">{meta.sub}</p>
+        </div>
       </div>
       <div className="p-5 space-y-4">
-        <p className="text-[11px] text-muted-foreground">
-          Duas mensagens no dia do aniversário pra ser mais humano: <b>o desejo</b> na virada do dia
-          e <b>o presente</b> no meio da tarde. Ligue/desligue cada uma e ajuste o horário e o texto.
-        </p>
-
         <div className="p-3 rounded-xl bg-muted/30 border border-border">
           <div className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
             <Variable size={11} /> Variáveis disponíveis
@@ -152,31 +87,36 @@ export function AniversarioEditor({ onCurrentTextChange }: { onCurrentTextChange
           </div>
         </div>
 
-        {section({
-          icon: <Cake size={16} className="text-fuchsia-500 shrink-0" />,
-          titulo: 'Mensagem 1 — o desejo',
-          sub: 'Na virada do dia (ex.: 00:01)',
-          enabled: cfg.enabled,
-          onToggle: () => set({ enabled: !cfg.enabled }),
-          sendAt: cfg.send_at,
-          onSendAt: (v) => set({ send_at: v }),
-          template: cfg.template,
-          onTemplate: (v) => set({ template: v }),
-          accent: 'border-fuchsia-500/40',
-        })}
+        <div className="flex items-center gap-2">
+          <Clock size={13} className="text-muted-foreground" />
+          <span className="text-[11px] font-semibold text-muted-foreground">Horário do disparo</span>
+          <input
+            type="time"
+            value={sendAt}
+            onChange={(e) => setSendAt(e.target.value)}
+            className="px-2 py-1 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-1 focus:ring-primary/40"
+          />
+          <span className="text-[10px] text-muted-foreground">(fuso de Maceió)</span>
+        </div>
 
-        {section({
-          icon: <Gift size={16} className="text-amber-500 shrink-0" />,
-          titulo: 'Mensagem 2 — o presente',
-          sub: 'No meio do dia (ex.: 12:00) · oferta/agrado',
-          enabled: cfg.message2_enabled,
-          onToggle: () => set({ message2_enabled: !cfg.message2_enabled }),
-          sendAt: cfg.message2_send_at,
-          onSendAt: (v) => set({ message2_send_at: v }),
-          template: cfg.message2_template,
-          onTemplate: (v) => set({ message2_template: v }),
-          accent: 'border-amber-500/40',
-        })}
+        <textarea
+          value={template}
+          onChange={(e) => setTemplate(e.target.value)}
+          rows={7}
+          maxLength={2000}
+          className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg font-mono text-xs focus:outline-none focus:ring-1 focus:ring-primary/40 resize-y"
+          placeholder="Texto da mensagem com {nome} e {clinica}…"
+        />
+        <div className="text-[10px] text-muted-foreground">{template.length}/2000 caracteres</div>
+
+        <div className="p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
+          <div className="text-[10px] font-bold uppercase tracking-wider text-emerald-700 dark:text-emerald-400 mb-1.5 flex items-center gap-1">
+            <Eye size={11} /> Preview (como o paciente vai receber)
+          </div>
+          <div className="text-xs text-foreground whitespace-pre-wrap">
+            {applyPreview(template) || <em className="text-muted-foreground">(mensagem vazia)</em>}
+          </div>
+        </div>
 
         <div className="flex justify-end">
           <button
@@ -185,7 +125,7 @@ export function AniversarioEditor({ onCurrentTextChange }: { onCurrentTextChange
             className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-bold bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50"
           >
             {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-            Salvar mensagens
+            Salvar
           </button>
         </div>
       </div>

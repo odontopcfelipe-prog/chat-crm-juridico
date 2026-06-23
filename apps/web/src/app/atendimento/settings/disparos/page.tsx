@@ -39,11 +39,15 @@ interface OperacionalData {
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }
+// Onda 17.61 — config das 3 mensagens de aniversário (clássica/desejo/presente).
+interface BirthdayCfg { enabled?: boolean; message2_enabled?: boolean; message3_enabled?: boolean }
+const BIRTHDAY_FIELD: Record<1 | 2 | 3, keyof BirthdayCfg> = { 1: 'enabled', 2: 'message2_enabled', 3: 'message3_enabled' };
 
 export default function CentralDisparosPage() {
   const { isAdmin } = useRole();
   const [op, setOp] = useState<OperacionalData | null>(null);
   const [cfg, setCfg] = useState<ReminderConfig | null>(null);
+  const [birthday, setBirthday] = useState<BirthdayCfg | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -55,12 +59,14 @@ export default function CentralDisparosPage() {
   useEffect(() => { setLiveText(undefined); }, [openId]);
 
   const load = useCallback(async () => {
-    const [opRes, cfgRes] = await Promise.allSettled([
+    const [opRes, cfgRes, bdRes] = await Promise.allSettled([
       api.get<OperacionalData>('/followup/operacional'),
       api.get<ReminderConfig>('/calendar/reminders/config'),
+      api.get<BirthdayCfg>('/calendar/birthday-greeting/config'),
     ]);
     if (opRes.status === 'fulfilled') setOp(opRes.value.data);
     if (cfgRes.status === 'fulfilled') setCfg(cfgRes.value.data);
+    if (bdRes.status === 'fulfilled') setBirthday(bdRes.value.data);
     if (opRes.status === 'rejected' && cfgRes.status === 'rejected') {
       showError('Falha ao carregar os disparos');
     }
@@ -68,10 +74,14 @@ export default function CentralDisparosPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // on/off de um disparo: lembrete = presença da antecedência; resto = Operacional
+  // on/off de um disparo: lembrete = presença da antecedência; aniversário = campo
+  // da config das 3 mensagens; resto = Operacional
   const enabledOf = (d: DisparoItem): boolean => {
     if (d.antecedenciaMin != null) {
       return !!cfg?.default_antecedencias?.some((a) => a.minutes_before === d.antecedenciaMin);
+    }
+    if (d.birthdayMsg != null) {
+      return !!birthday?.[BIRTHDAY_FIELD[d.birthdayMsg]];
     }
     return d.operacionalKey && op ? !!(op as any)[d.operacionalKey]?.enabled : false;
   };
@@ -110,8 +120,26 @@ export default function CentralDisparosPage() {
     }
   };
 
+  // Liga/desliga UMA das 3 mensagens de aniversário (campo enabled/message2_enabled/
+  // message3_enabled na config) — cada uma independente.
+  const toggleBirthday = async (msg: 1 | 2 | 3, enabled: boolean) => {
+    const field = BIRTHDAY_FIELD[msg];
+    setSaving(`bd_${msg}`);
+    setBirthday((b) => ({ ...(b || {}), [field]: enabled })); // otimista
+    try {
+      const r = await api.put<BirthdayCfg>('/calendar/birthday-greeting/config', { [field]: enabled });
+      if (r.data) setBirthday(r.data);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível salvar — revertendo');
+      setBirthday((b) => ({ ...(b || {}), [field]: !enabled }));
+    } finally {
+      setSaving(null);
+    }
+  };
+
   const toggle = (d: DisparoItem, enabled: boolean) => {
     if (d.antecedenciaMin != null) return toggleLembrete(d.antecedenciaMin, enabled);
+    if (d.birthdayMsg != null) return toggleBirthday(d.birthdayMsg, enabled);
     if (d.operacionalKey) return toggleOperacional(d.operacionalKey, enabled);
   };
 
@@ -170,14 +198,14 @@ export default function CentralDisparosPage() {
           />
         )}
         {openItem.editor === 'aniversario' && (
-          <AniversarioEditor onCurrentTextChange={setLiveText} />
+          <AniversarioEditor which={openItem.birthdayMsg || 1} onCurrentTextChange={setLiveText} />
         )}
         <TesteEnvio disparo={openItem.id} text={liveText} />
       </div>
     );
   }
 
-  const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null));
+  const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null));
   const ativos = configuraveis.filter((d) => enabledOf(d)).length;
 
   return (
@@ -226,9 +254,9 @@ export default function CentralDisparosPage() {
                 <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
                   {itens.map((d) => {
                     const clickable = !!d.editor && !d.emBreve;
-                    const hasToggle = (!!d.operacionalKey || d.antecedenciaMin != null) && !d.emBreve;
+                    const hasToggle = (!!d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null) && !d.emBreve;
                     const on = enabledOf(d);
-                    const savingThis = saving === d.operacionalKey || saving === `ant_${d.antecedenciaMin}`;
+                    const savingThis = saving === d.operacionalKey || saving === `ant_${d.antecedenciaMin}` || saving === `bd_${d.birthdayMsg}`;
                     return (
                       <div
                         key={d.id}

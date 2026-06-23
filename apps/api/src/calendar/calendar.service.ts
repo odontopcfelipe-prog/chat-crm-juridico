@@ -1689,7 +1689,14 @@ export class CalendarService {
         msg = apply((await this.getReminderConfig(tenant_id)).templates.consulta_confirmacao);
         break;
       case 'aniversario':
+      case 'aniversario_classica':
         msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).template);
+        break;
+      case 'aniversario_desejo':
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).message2_template || '');
+        break;
+      case 'aniversario_presente':
+        msg = apply((await this.getBirthdayGreetingConfig(tenant_id)).message3_template || '');
         break;
       case 'resumo_dentista':
         msg = apply((await this.getDentistDailySummaryConfig(tenant_id)).template);
@@ -1880,15 +1887,15 @@ export class CalendarService {
     config: {
       enabled?: boolean; send_at?: string; template?: string; last_run_date?: string;
       message2_enabled?: boolean; message2_send_at?: string; message2_template?: string; message2_last_run_date?: string;
+      message3_enabled?: boolean; message3_send_at?: string; message3_template?: string; message3_last_run_date?: string;
     },
   ) {
-    if (config.send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.send_at)) {
-      throw new BadRequestException('send_at deve estar no formato HH:MM');
+    for (const [field, val] of [['send_at', config.send_at], ['message2_send_at', config.message2_send_at], ['message3_send_at', config.message3_send_at]] as const) {
+      if (val !== undefined && !/^\d{2}:\d{2}$/.test(val)) {
+        throw new BadRequestException(`${field} deve estar no formato HH:MM`);
+      }
     }
-    if (config.message2_send_at !== undefined && !/^\d{2}:\d{2}$/.test(config.message2_send_at)) {
-      throw new BadRequestException('message2_send_at deve estar no formato HH:MM');
-    }
-    for (const [field, val] of [['template', config.template], ['message2_template', config.message2_template]] as const) {
+    for (const [field, val] of [['template', config.template], ['message2_template', config.message2_template], ['message3_template', config.message3_template]] as const) {
       if (val !== undefined) {
         if (typeof val !== 'string') throw new BadRequestException(`${field} deve ser string`);
         if (val.length > 2000) throw new BadRequestException(`${field} ultrapassa 2000 caracteres`);
@@ -2090,12 +2097,12 @@ export class CalendarService {
    * Manda o parabéns pra todos os aniversariantes de hoje do tenant.
    * Usado pelo cron diário e pelo "Enviar agora" manual.
    */
-  async sendBirthdayGreetingsNow(tenant_id: string, which: 1 | 2 = 1) {
+  async sendBirthdayGreetingsNow(tenant_id: string, which: 1 | 2 | 3 = 1) {
     const config = await this.getBirthdayGreetingConfig(tenant_id);
     const tenant = await this.prisma.tenant.findUnique({ where: { id: tenant_id }, select: { name: true } });
     const clinica = tenant?.name || 'nossa clínica';
-    // Onda 17.61 — qual mensagem disparar (1 = o desejo, 2 = o presente).
-    const template = which === 2 ? (config.message2_template || config.template) : config.template;
+    // Onda 17.61 — qual mensagem disparar (1 = clássica, 2 = o desejo, 3 = o presente).
+    const template = (which === 3 ? config.message3_template : which === 2 ? config.message2_template : config.template) || config.template;
 
     const patients = await this.birthdayPatientsToday(tenant_id);
     const results: { patient_id: string; name: string; sent: boolean; reason?: string }[] = [];

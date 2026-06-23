@@ -186,9 +186,9 @@ export const DEFAULT_DENTIST_DAILY_SUMMARY: DentistDailySummaryConfig = {
  * Persistido em GlobalSetting com key BIRTHDAY_GREETING_<tenant_id>.
  */
 export interface BirthdayGreetingConfig {
-  /** MENSAGEM 1 (o desejo) — liga/desliga */
+  /** MSG 1 — a CLÁSSICA (a antiga). liga/desliga */
   enabled: boolean;
-  /** Horário da msg 1 "HH:MM" (fuso America/Maceio) — padrão 00:00 (madrugada) */
+  /** Horário da msg 1 "HH:MM" (fuso America/Maceio) */
   send_at: string;
   /** Canal — só WHATSAPP por ora (paciente) */
   channel: 'WHATSAPP';
@@ -197,33 +197,42 @@ export interface BirthdayGreetingConfig {
   /** Última data (YYYY-MM-DD, Maceió) em que a msg 1 disparou — dedup diário */
   last_run_date?: string;
 
-  /** MENSAGEM 2 (o presente) — Onda 17.61. Disparo separado, mesmo dia, horário
-   *  diferente (padrão 12:00) pra ser mais humano (desejo de manhã, presente à tarde). */
+  /** MSG 2 — o DESEJO (na virada do dia, ~00:01). Onda 17.61. */
   message2_enabled?: boolean;
-  /** Horário da msg 2 "HH:MM" (fuso America/Maceio) — padrão 12:00 */
   message2_send_at?: string;
-  /** Template da msg 2 com {nome} e {clinica} */
   message2_template?: string;
-  /** Última data (YYYY-MM-DD, Maceió) em que a msg 2 disparou — dedup diário próprio */
   message2_last_run_date?: string;
+
+  /** MSG 3 — o PRESENTE/oferta (no meio do dia, ~12:00). Onda 17.61. */
+  message3_enabled?: boolean;
+  message3_send_at?: string;
+  message3_template?: string;
+  message3_last_run_date?: string;
 }
 
 export const DEFAULT_BIRTHDAY_GREETING: BirthdayGreetingConfig = {
-  // Mensagem 1 — o desejo, na virada do dia (00:01 ≈ hora 00).
+  // MSG 1 — a clássica (a antiga), de manhã.
   enabled: false,
-  send_at: '00:00',
+  send_at: '09:00',
   channel: 'WHATSAPP',
   template:
+    'Feliz aniversário, {nome}! 🎉🎂\n\n' +
+    'A equipe da {clinica} deseja um dia maravilhoso pra você. ' +
+    'Conte com a gente pra cuidar do seu sorriso! 😁',
+  // MSG 2 — o desejo, na virada do dia (00:01 ≈ hora 00).
+  message2_enabled: false,
+  message2_send_at: '00:00',
+  message2_template:
     'Feliz aniversário, {nome}! 🎉\n' +
     'Talvez a gente não tenha conseguido ser o primeiro a te desejar… mas a gente tentou. 😊 ' +
     'Que neste dia tão especial — em que recordamos o dia do seu nascimento — o Senhor Jesus te ' +
     'abençoe cada dia mais. Aproveite muito esse dia maravilhoso!\n' +
     'Com carinho,\n\n' +
     'Equipe {clinica} 🎂',
-  // Mensagem 2 — o presente, no meio do dia.
-  message2_enabled: false,
-  message2_send_at: '12:00',
-  message2_template:
+  // MSG 3 — o presente, no meio do dia.
+  message3_enabled: false,
+  message3_send_at: '12:00',
+  message3_template:
     '{nome}, a gente não poderia deixar essa data passar em branco. 💙\n' +
     'E, do nosso jeito, queríamos te presentear com algo nosso: é com muito carinho que ' +
     'preparamos pra você 50% de desconto em um clareamento dental. ✨🎁\n' +
