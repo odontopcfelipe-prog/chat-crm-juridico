@@ -47,6 +47,8 @@
 .cjogo .cj-meta-empty { margin-top: 20px; background: rgba(255,255,255,.08); border: 1px dashed rgba(255,255,255,.25); border-radius: 14px; padding: 16px 18px; }
 .cjogo .cj-meta-empty .t { font-size: 14px; font-weight: 800; }
 .cjogo .cj-meta-empty .s { font-size: 12.5px; color: rgba(255,255,255,.78); margin-top: 4px; }
+.cjogo .cj-meta-btn { margin-top: 12px; background: linear-gradient(135deg, var(--cj-gold-2), var(--cj-gold)); color: #3a2606; border: 0; border-radius: 10px; padding: 9px 16px; font: inherit; font-size: 13px; font-weight: 800; cursor: pointer; }
+.cjogo .cj-link { background: none; border: 0; color: #fde68a; font: inherit; font-weight: 700; text-decoration: underline; cursor: pointer; padding: 0; }
 
 /* ===== carteira (estados reais vestidos de jogo) ===== */
 .cjogo .cj-vault { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }

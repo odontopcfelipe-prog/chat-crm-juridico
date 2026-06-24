@@ -25,7 +25,7 @@ type Player = {
   temRegra: boolean;
   carteira: { devida: number; disponivel: number; paga: number };
   resgatavel: { total: number; ids: string[] };
-  meta: null | { alvo: number; atual: number };
+  meta: null | { id: string; alvo: number; atual: number };
   streakSemanas: null | number;
 };
 
@@ -35,6 +35,13 @@ function mesLabelOf(ym: string): string {
   const [y, m] = (ym || '').split('-');
   const i = parseInt(m, 10) - 1;
   return i >= 0 && i < 12 ? `${MESES[i]} de ${y}` : ym;
+}
+function periodOfMonth(ym: string) {
+  const [y, m] = (ym || '').split('-').map(Number);
+  return {
+    start: new Date(Date.UTC(y, m - 1, 1)).toISOString(),
+    end: new Date(Date.UTC(y, m, 0, 23, 59, 59)).toISOString(),
+  };
 }
 
 export default function ModoJogoView() {
@@ -46,6 +53,8 @@ export default function ModoJogoView() {
 
   const load = () => {
     setLoading(true);
+    // Atualiza o cache das metas (current_value) em segundo plano — barra fica fresca.
+    api.post('/goals/recalculate-all').catch(() => {});
     api
       .get<{ reference_month: string; players: Player[] }>('/commissions/game')
       .then(({ data }) => {
@@ -82,6 +91,44 @@ export default function ModoJogoView() {
       load();
     } finally {
       setResgatando(false);
+    }
+  }
+
+  // Fase 2 — define/ajusta a META do mês reusando o Goal (SALES_VALUE, PROFESSIONAL,
+  // MONTHLY). É a produção (orçamentos aceitos) do profissional → acende a barra de XP.
+  async function definirMeta() {
+    if (!sel) return;
+    const raw = window.prompt(
+      `Meta de produção (R$) de ${sel.nome} para ${mesLabelOf(month)}:\n\n` +
+        `É o total de orçamentos aceitos no mês — a barra enche conforme ele produz.`,
+      String(sel.meta?.alvo ?? ''),
+    );
+    if (raw == null) return;
+    const alvo = Number(raw.replace(/\./g, '').replace(',', '.').replace(/[^\d.]/g, ''));
+    if (!alvo || alvo <= 0) {
+      alert('Informe um valor válido (ex.: 9000).');
+      return;
+    }
+    try {
+      if (sel.meta?.id) {
+        await api.patch(`/goals/${sel.meta.id}`, { target_value: alvo });
+        await api.post(`/goals/${sel.meta.id}/recalculate`).catch(() => {});
+      } else {
+        const { start, end } = periodOfMonth(month);
+        await api.post('/goals', {
+          metric: 'SALES_VALUE',
+          scope: 'PROFESSIONAL',
+          professional_user_id: sel.professional_user_id,
+          direction: 'ACHIEVE',
+          target_value: alvo,
+          period_type: 'MONTHLY',
+          period_start: start,
+          period_end: end,
+        });
+      }
+      load();
+    } catch {
+      alert('Não consegui salvar a meta. Verifique sua permissão (financeiro).');
     }
   }
 
@@ -140,14 +187,38 @@ export default function ModoJogoView() {
               {/* streak omitido — sem tracking real ainda (estado vazio honesto) */}
             </div>
 
-            {/* Meta: sem modelo ainda → estado vazio honesto (NUNCA barra chutada) */}
-            <div className="cj-meta-empty">
-              <div className="t">🎯 Defina sua meta de {mesLabelOf(month).split(' de ')[0]}</div>
-              <div className="s">
-                A barra de progresso e os níveis ligam quando a meta do mês existir. Por enquanto,
-                bora começar — sua carteira já está rolando abaixo. 💪
+            {/* Meta: barra de XP REAL (Goal SALES_VALUE) OU estado vazio honesto + CTA */}
+            {sel.meta ? (
+              <div className="cj-xpwrap">
+                <div className="cj-xplabels">
+                  <span className="l">Progresso da meta de {mesLabelOf(month).split(' de ')[0]}</span>
+                  <span className="r">{fmt(sel.meta.atual)} / {fmt(sel.meta.alvo)}</span>
+                </div>
+                <div className="cj-xpbar">
+                  <div
+                    className="cj-xpfill"
+                    style={{ width: `${Math.max(0, Math.min(100, sel.meta.alvo > 0 ? (sel.meta.atual / sel.meta.alvo) * 100 : 0))}%` }}
+                  />
+                </div>
+                <div className="cj-xpsub">
+                  {sel.meta.atual >= sel.meta.alvo ? (
+                    <>Meta batida! 🎉</>
+                  ) : (
+                    <>Faltam <b>{fmt(sel.meta.alvo - sel.meta.atual)}</b> pra bater a meta do mês. 💪</>
+                  )}{' '}
+                  <button className="cj-link" onClick={definirMeta}>ajustar</button>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="cj-meta-empty">
+                <div className="t">🎯 Defina a meta de {mesLabelOf(month).split(' de ')[0]}</div>
+                <div className="s">
+                  A meta é a produção (orçamentos aceitos) do profissional no mês. Com ela, a barra de
+                  progresso liga e mostra “faltam R$ X”.
+                </div>
+                <button className="cj-meta-btn" onClick={definirMeta}>Definir meta</button>
+              </div>
+            )}
           </div>
 
           {/* ===== Carteira (estados reais vestidos de jogo) ===== */}

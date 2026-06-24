@@ -291,6 +291,38 @@ export class CommissionsService {
       dispByProf.set(c.professional_user_id, e);
     }
 
+    // Onda 17.62 Fase 2 — META MENSAL: reusa o Goal que JÁ existe (metric SALES_VALUE,
+    // scope PROFESSIONAL, MONTHLY). alvo = target_value; atual = current_value (cache do
+    // goals.recalculate / cron). Best-effort: sem meta → null → estado vazio honesto no front.
+    const goalByProf = new Map<string, { id: string; alvo: number; atual: number }>();
+    try {
+      const [gy, gm] = month.split('-').map(Number);
+      const mStart = new Date(Date.UTC(gy, gm - 1, 1));
+      const mEnd = new Date(Date.UTC(gy, gm, 0, 23, 59, 59));
+      const goals = await this.prisma.goal.findMany({
+        where: {
+          tenant_id: tenantId,
+          active: true,
+          metric: 'SALES_VALUE',
+          scope: 'PROFESSIONAL',
+          professional_user_id: { not: null },
+          period_start: { lte: mEnd },
+          period_end: { gte: mStart },
+        },
+        select: { id: true, professional_user_id: true, target_value: true, current_value: true },
+      });
+      for (const g of goals) {
+        if (!g.professional_user_id) continue;
+        goalByProf.set(g.professional_user_id, {
+          id: g.id,
+          alvo: Number(g.target_value),
+          atual: Number(g.current_value ?? 0),
+        });
+      }
+    } catch {
+      /* sem metas (ou tabela ainda sem dados) → null → estado vazio honesto */
+    }
+
     const players = rows.map((r) => {
       const profRules = rules.filter((x) => x.professional_user_id === r.professional_user_id);
       const geral = profRules.find((x) => !x.procedure_id && !x.procedure_category);
@@ -311,8 +343,8 @@ export class CommissionsService {
         temRegra: profRules.length > 0,
         carteira: { devida: r.devida, disponivel: r.disponivel, paga: r.paga },
         resgatavel: { total: d?.total ?? 0, ids: d?.ids ?? [] },
-        // Fase 2 (dado novo) — estado vazio honesto no front enquanto null/vazio:
-        meta: null as null | { alvo: number; atual: number },
+        // Fase 2 — meta mensal real (Goal SALES_VALUE); sem meta → null → estado vazio honesto:
+        meta: goalByProf.get(r.professional_user_id) ?? null,
         streakSemanas: null as null | number,
         trilha: [] as { nome: string; percentual: number; estado: string; faixaInfo: string }[],
         missoes: [] as { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean }[],
