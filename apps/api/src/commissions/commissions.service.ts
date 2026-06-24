@@ -238,23 +238,40 @@ export class CommissionsService {
       byKey.set(key, existing);
     }
 
-    // Onda 17.61 — inclui TODOS os profissionais com regra de comissão ATIVA, mesmo sem
-    // comissão no período (zerados). Assim o "Resumo mensal" mostra a lista completa
-    // "por profissional cadastrado", não só quem já gerou comissão.
+    // Onda 17.62 — zera TODOS os DENTISTAS da clínica (mesmo sem regra) + qualquer profissional
+    // com regra. Assim "Resumo mensal" e "Modo jogo" NUNCA ficam vazios: mostram a equipe, pra
+    // a clínica configurar a regra/meta de cada um. (Dentista = mesma regra do findLawyers.)
     const fillMonth = opts.reference_month || monthKey(new Date());
+    const fillProfs = new Map<string, string>(); // id -> nome
+    try {
+      const dentists = await this.prisma.user.findMany({
+        where: {
+          AND: [
+            { OR: [{ roles: { has: 'DENTIST' } }, { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } }] },
+            { tenant_id: tenantId },
+          ],
+        },
+        select: { id: true, name: true },
+      });
+      for (const d of dentists) fillProfs.set(d.id, d.name || 'Sem nome');
+    } catch {
+      /* sem dentistas → segue com quem tem regra */
+    }
     const ruleProfs = await this.prisma.commissionRule.findMany({
       where: { tenant_id: tenantId, active: true },
       select: { professional_user_id: true, professional: { select: { name: true } } },
     });
-    const seenProf = new Set<string>();
     for (const rp of ruleProfs) {
-      if (seenProf.has(rp.professional_user_id)) continue;
-      seenProf.add(rp.professional_user_id);
-      const key = `${rp.professional_user_id}|${fillMonth}`;
+      if (!fillProfs.has(rp.professional_user_id)) {
+        fillProfs.set(rp.professional_user_id, rp.professional?.name || 'Sem nome');
+      }
+    }
+    for (const [profId, profName] of fillProfs) {
+      const key = `${profId}|${fillMonth}`;
       if (!byKey.has(key)) {
         byKey.set(key, {
-          professional_user_id: rp.professional_user_id,
-          professional_name: rp.professional?.name || 'Sem nome',
+          professional_user_id: profId,
+          professional_name: profName,
           reference_month: fillMonth,
           devida: 0,
           disponivel: 0,

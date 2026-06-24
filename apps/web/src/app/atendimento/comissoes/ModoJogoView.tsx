@@ -147,8 +147,8 @@ export default function ModoJogoView() {
   if (players.length === 0) {
     return (
       <div className="p-12 text-center text-sm text-muted-foreground">
-        Nenhum profissional com regra de comissão cadastrada. Crie regras em{' '}
-        <strong>Configurações → Regras de Comissão</strong> pra ativar o Modo Jogo.
+        Nenhum dentista cadastrado nesta clínica ainda. Cadastre a equipe e crie as regras em{' '}
+        <strong>Configurações → Regras de Comissão</strong> pra o Modo Jogo ganhar vida.
       </div>
     );
   }
