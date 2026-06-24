@@ -162,7 +162,45 @@ export class PaymentGatewayService {
     this.logger.log(
       `[caixa] RECEITA ${tx.id} (R$ ${charge.amount}, ${method}${inClinic ? ', clínica' : ''}) p/ cobrança ${charge.id}`,
     );
+    // Onda 17.61 — paciente PAGOU → libera as comissões DEVIDA deste plano (trigger
+    // ON_PAYMENT). Cobre clínica E Asaas (ambos passam por aqui). Best-effort.
+    await this.releaseCommissionsForPlan(charge.tenant_id, charge.treatment_plan_id, now);
     return tx.id;
+  }
+
+  /**
+   * Onda 17.61 — Libera (DEVIDA → DISPONIVEL) as comissões do plano cujo pagamento foi
+   * recebido. Fechava o buraco crítico: comissões com trigger ON_PAYMENT (o padrão das
+   * regras) nasciam DEVIDA e ficavam PRESAS pra sempre — não havia gancho de "paciente
+   * pagou", então nunca chegavam à tela "A pagar".
+   *
+   * Libera na PRIMEIRA cobrança recebida do plano; quem já está DISPONIVEL/PAGA não é
+   * tocado (só DEVIDA vira DISPONIVEL → idempotente em parcelamentos). O pagamento
+   * efetivo ao profissional segue MANUAL (DISPONIVEL → PAGA), então a clínica mantém o
+   * controle de quando de fato pagar. Best-effort: nunca derruba o lançamento da receita.
+   */
+  private async releaseCommissionsForPlan(tenantId: string | null, treatmentPlanId: string | null, now: Date) {
+    if (!tenantId || !treatmentPlanId) return;
+    try {
+      const pending = await this.prisma.commission.findMany({
+        where: {
+          tenant_id: tenantId,
+          status: 'DEVIDA',
+          treatment_plan_item: { treatment_plan_id: treatmentPlanId },
+        },
+        select: { id: true },
+      });
+      if (pending.length === 0) return;
+      const res = await this.prisma.commission.updateMany({
+        where: { id: { in: pending.map((c) => c.id) } },
+        data: { status: 'DISPONIVEL', available_at: now },
+      });
+      this.logger.log(
+        `[Commission] ${res.count} comissao(oes) liberada(s) DEVIDA->DISPONIVEL (plano ${treatmentPlanId} pago)`,
+      );
+    } catch (e: any) {
+      this.logger.warn(`[Commission] Falha ao liberar comissoes do plano ${treatmentPlanId}: ${e?.message ?? e}`);
+    }
   }
 
   /**
