@@ -158,18 +158,49 @@ export class WhatsappService {
       return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
     };
 
-    const res = await doSend(primary);
-    // Onda 17.61 — se falhou (erro/exists:false), tenta a variante do 9º dígito BR.
-    // Só roda no FALHO (caso normal de sucesso não tem overhead). JID passa intacto.
-    if (!primary.includes('@') && evolutionSendFailed(res)) {
+    // Onda 17.62 — 9º dígito BR: ANTES de enviar, descobre qual variante (com/sem o 9)
+    // EXISTE no WhatsApp e manda UMA vez só nela. Corrige o DUPLO disparo (antes enviava
+    // no primary e re-enviava no alt em "exists:false", gerando 2 mensagens em 2 conversas).
+    // JID (@) passa direto. Se o check não responder, cai no fallback antigo (send+retry).
+    if (!primary.includes('@')) {
       const alt = toggleBr9thDigit(primary);
       if (alt && alt !== primary) {
-        this.logger.warn(`[sendText] ${primary} falhou no WhatsApp — tentando variante do 9º dígito: ${alt}`);
-        const altRes = await doSend(alt);
-        if (!evolutionSendFailed(altRes)) return altRes;
+        const existing = await this.firstExistingNumber([primary, alt], targetInstance, tenantId);
+        if (existing) return doSend(existing); // envia 1x no número que de fato existe
+        // Check indisponível → fallback: envia no primary e só re-tenta o alt se falhar.
+        const res = await doSend(primary);
+        if (evolutionSendFailed(res)) {
+          this.logger.warn(`[sendText] ${primary} falhou e check indisponível — fallback variante 9º dígito: ${alt}`);
+          const altRes = await doSend(alt);
+          if (!evolutionSendFailed(altRes)) return altRes;
+        }
+        return res;
       }
     }
-    return res;
+    return doSend(primary);
+  }
+
+  /**
+   * Onda 17.62 — Descobre qual dos números informados EXISTE no WhatsApp (Evolution
+   * /chat/whatsappNumbers), preservando a ordem (prefere o 1º). Retorna null se o check
+   * falhar/indisponível — aí o chamador usa o fluxo de fallback. Evita o duplo disparo do
+   * 9º dígito mandando 1 vez só no número certo, em vez de enviar+reenviar.
+   */
+  private async firstExistingNumber(numbers: string[], instance: string, tenantId?: string | null): Promise<string | null> {
+    try {
+      const res: any = await this.request('POST', `chat/whatsappNumbers/${instance}`, { numbers }, 10000, tenantId);
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : null;
+      if (!arr || arr.length === 0) return null;
+      const digits = (s: any) => String(s || '').replace(/\D/g, '');
+      for (const n of numbers) {
+        const dn = digits(n);
+        const hit = arr.find((r: any) => r && r.exists === true && (digits(r.number) === dn || digits(r.jid) === dn));
+        if (hit) return n;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   async deleteForEveryone(instanceName: string, remoteJid: string, externalMessageId: string, fromMe: boolean) {
