@@ -35,7 +35,9 @@ const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 export default function ComissoesPage() {
-  const [view, setView] = useState<'summary' | 'payable' | 'jogo'>('payable');
+  // Onda 17.62 — abre no "Resumo mensal" (mostra a equipe) em vez de "A pagar" (vazio até
+  // ter algo pago). Evita a impressão de "não aparece nada" numa clínica começando.
+  const [view, setView] = useState<'summary' | 'payable' | 'jogo'>('summary');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [payable, setPayable] = useState<PayableGroup[]>([]);
