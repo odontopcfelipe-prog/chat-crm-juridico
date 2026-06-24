@@ -14,7 +14,7 @@ import { useState, FormEvent, useEffect } from 'react';
 import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins, Tag } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { maskCPFInput, maskPhoneInput, maskCEPInput } from '@/lib/utils';
+import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
 
 interface PatientFull {
@@ -86,6 +86,9 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   const [email, setEmail] = useState(patient.email || '');
 
   const [zipCode, setZipCode] = useState(patient.zip_code || '');
+  // Onda 17.62 — erros de validação por campo (trava de dígitos com feedback vermelho).
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const setErr = (k: string, msg: string) => setErrors((e) => ({ ...e, [k]: msg }));
   const [address, setAddress] = useState(patient.address || '');
   const [addressNumber, setAddressNumber] = useState(patient.address_number || '');
   const [addressComplement, setAddressComplement] = useState(patient.address_complement || '');
@@ -175,6 +178,15 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
     e.preventDefault();
     if (!name.trim()) {
       showError('Nome é obrigatório');
+      return;
+    }
+    // Onda 17.62 — trava de FORMATO (dígitos): bloqueia e marca em vermelho o que estiver errado.
+    const fmt: Record<string, string> = { phone: vPhone(phone), cpf: vCPF(cpf), zipCode: vCEP(zipCode), rg: vRG(rg), birthDate: vBirth(birthDate) };
+    const ruim = Object.entries(fmt).filter(([, m]) => m);
+    if (ruim.length > 0) {
+      setErrors((e) => ({ ...e, ...fmt }));
+      const nome: Record<string, string> = { phone: 'Telefone', cpf: 'CPF', zipCode: 'CEP', rg: 'RG', birthDate: 'Data de nascimento' };
+      showError(`Corrija: ${ruim.map(([k]) => nome[k]).join(', ')}.`);
       return;
     }
     setSaving(true);
@@ -288,10 +300,12 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
             </div>
             <div className="grid grid-cols-3 gap-3">
               <Field label="CPF">
-                <input value={cpf} onChange={(e) => setCpf(maskCPFInput(e.target.value))} placeholder="000.000.000-00" className={inputCls} />
+                <input value={cpf} onChange={(e) => { const v = maskCPFInput(e.target.value); setCpf(v); setErr('cpf', vCPF(v)); }} placeholder="000.000.000-00" className={`${inputCls}${errors.cpf ? ' !border-red-500' : ''}`} />
+                {errors.cpf && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.cpf}</p>}
               </Field>
               <Field label="RG">
-                <input value={rg} onChange={(e) => setRg(e.target.value)} className={inputCls} />
+                <input value={rg} onChange={(e) => { setRg(e.target.value); setErr('rg', vRG(e.target.value)); }} className={`${inputCls}${errors.rg ? ' !border-red-500' : ''}`} />
+                {errors.rg && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.rg}</p>}
               </Field>
               <Field label="Ficha (nº)">
                 <input value={recordNumber} onChange={(e) => setRecordNumber(e.target.value)} placeholder="ex: 0482" className={inputCls} />
@@ -299,7 +313,8 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
             </div>
             <div className="grid grid-cols-3 gap-3">
               <Field label="Data de nascimento">
-                <input type="date" value={birthDate} onChange={(e) => setBirthDate(e.target.value)} className={inputCls} />
+                <input type="date" value={birthDate} onChange={(e) => { setBirthDate(e.target.value); setErr('birthDate', vBirth(e.target.value)); }} className={`${inputCls}${errors.birthDate ? ' !border-red-500' : ''}`} />
+                {errors.birthDate && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.birthDate}</p>}
               </Field>
               <Field label="Sexo">
                 <select value={gender} onChange={(e) => setGender(e.target.value)} className={inputCls}>
@@ -317,7 +332,8 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Telefone / Celular">
-                <input type="tel" value={phone} onChange={(e) => setPhone(maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
+                <input type="tel" value={phone} onChange={(e) => { const v = maskPhoneInput(e.target.value); setPhone(v); setErr('phone', vPhone(v)); }} placeholder="(82) 99999-9999" className={`${inputCls}${errors.phone ? ' !border-red-500' : ''}`} />
+                {errors.phone && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.phone}</p>}
               </Field>
               <Field label="E-mail">
                 <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputCls} />
@@ -339,11 +355,12 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
               <Field label={`CEP ${cepLoading ? '(buscando...)' : ''}`}>
                 <input
                   value={zipCode}
-                  onChange={(e) => setZipCode(maskCEPInput(e.target.value))}
+                  onChange={(e) => { const v = maskCEPInput(e.target.value); setZipCode(v); setErr('zipCode', vCEP(v)); }}
                   placeholder="00000-000"
                   maxLength={9}
-                  className={inputCls}
+                  className={`${inputCls}${errors.zipCode ? ' !border-red-500' : ''}`}
                 />
+                {errors.zipCode && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.zipCode}</p>}
               </Field>
               <Field label="Logradouro" className="md:col-span-2">
                 <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputCls} />

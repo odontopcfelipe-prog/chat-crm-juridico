@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { maskCPFInput, maskPhoneInput, maskCEPInput } from '@/lib/utils';
+import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
 
 interface Props {
@@ -57,49 +57,6 @@ const EMPTY_FORM = {
 };
 
 const AFFILIATE_COMMISSION_PCT = 3;
-
-// Onda 17.62 — validação de dígitos com feedback inline. Trava: o campo fica vermelho + mensagem
-// em cima quando falta dígito / valor inválido. Os validadores só erram em valor PREENCHIDO e
-// errado (retornam '' pra vazio) — respeita o "Paciente Antigo" (que deixa campos opcionais).
-const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
-function isValidCPF(cpf: string): boolean {
-  const d = onlyDigits(cpf);
-  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
-  let s = 0;
-  for (let i = 0; i < 9; i++) s += parseInt(d[i], 10) * (10 - i);
-  let r = (s * 10) % 11; if (r >= 10) r = 0;
-  if (r !== parseInt(d[9], 10)) return false;
-  s = 0;
-  for (let i = 0; i < 10; i++) s += parseInt(d[i], 10) * (11 - i);
-  r = (s * 10) % 11; if (r >= 10) r = 0;
-  return r === parseInt(d[10], 10);
-}
-function vPhone(v: string): string {
-  const d = onlyDigits(v); if (!d) return '';
-  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s) — celular tem 11 (DDD + 9 + nº)`;
-  return d.length > 11 ? 'Número inválido' : '';
-}
-function vCPF(v: string): string {
-  const d = onlyDigits(v); if (!d) return '';
-  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s)`;
-  return isValidCPF(d) ? '' : 'CPF inválido';
-}
-function vCEP(v: string): string {
-  const d = onlyDigits(v); if (!d) return '';
-  if (d.length < 8) return `Faltam ${8 - d.length} dígito(s)`;
-  return d.length > 8 ? 'CEP inválido' : '';
-}
-function vRG(v: string): string {
-  const d = (v || '').replace(/[^0-9a-zA-Z]/g, ''); if (!d) return '';
-  return d.length < 5 ? 'RG incompleto' : '';
-}
-function vBirth(v: string): string {
-  if (!v) return '';
-  const dt = new Date(v + 'T00:00:00');
-  if (isNaN(dt.getTime())) return 'Data inválida';
-  if (dt.getTime() > Date.now()) return 'Data no futuro';
-  return dt.getFullYear() < 1900 ? 'Ano inválido' : '';
-}
 
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
@@ -266,11 +223,12 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
     const fmt: Record<string, string> = {
       phone: vPhone(form.phone), cpf: vCPF(form.cpf), zipCode: vCEP(form.zipCode),
       rg: vRG(form.rg), birthDate: vBirth(form.birthDate),
+      emergencyPhone: vPhone(form.emergencyPhone), guardianCpf: vCPF(form.guardianCpf), guardianPhone: vPhone(form.guardianPhone),
     };
     const ruim = Object.entries(fmt).filter(([, m]) => m);
     if (ruim.length > 0) {
       setErrors((e) => ({ ...e, ...fmt }));
-      const nome: Record<string, string> = { phone: 'Telefone', cpf: 'CPF', zipCode: 'CEP', rg: 'RG', birthDate: 'Data de nascimento' };
+      const nome: Record<string, string> = { phone: 'Telefone', cpf: 'CPF', zipCode: 'CEP', rg: 'RG', birthDate: 'Data de nascimento', emergencyPhone: 'Telefone de emergência', guardianCpf: 'CPF do responsável', guardianPhone: 'Telefone do responsável' };
       showError(`Corrija: ${ruim.map(([k]) => nome[k]).join(', ')}.`);
       return false;
     }
@@ -630,7 +588,8 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                 </div>
                 <div>
                   <label className="block text-xs font-medium mb-1">Emergência (telefone)</label>
-                  <input type="tel" value={form.emergencyPhone} onChange={(e) => set('emergencyPhone', maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
+                  <input type="tel" value={form.emergencyPhone} onChange={(e) => { const v = maskPhoneInput(e.target.value); set('emergencyPhone', v); setErr('emergencyPhone', vPhone(v)); }} placeholder="(82) 99999-9999" className={`${inputCls}${errors.emergencyPhone ? ' !border-red-500' : ''}`} />
+                  {errors.emergencyPhone && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.emergencyPhone}</p>}
                 </div>
               </div>
             </Section>
@@ -656,11 +615,13 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">CPF do responsável</label>
-                    <input value={form.guardianCpf} onChange={(e) => set('guardianCpf', maskCPFInput(e.target.value))} placeholder="000.000.000-00" className={inputCls} />
+                    <input value={form.guardianCpf} onChange={(e) => { const v = maskCPFInput(e.target.value); set('guardianCpf', v); setErr('guardianCpf', vCPF(v)); }} placeholder="000.000.000-00" className={`${inputCls}${errors.guardianCpf ? ' !border-red-500' : ''}`} />
+                    {errors.guardianCpf && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.guardianCpf}</p>}
                   </div>
                   <div>
                     <label className="block text-xs font-medium mb-1">Telefone do responsável</label>
-                    <input type="tel" value={form.guardianPhone} onChange={(e) => set('guardianPhone', maskPhoneInput(e.target.value))} placeholder="(82) 99999-9999" className={inputCls} />
+                    <input type="tel" value={form.guardianPhone} onChange={(e) => { const v = maskPhoneInput(e.target.value); set('guardianPhone', v); setErr('guardianPhone', vPhone(v)); }} placeholder="(82) 99999-9999" className={`${inputCls}${errors.guardianPhone ? ' !border-red-500' : ''}`} />
+                    {errors.guardianPhone && <p className="text-[11px] font-medium text-red-600 mt-1">{errors.guardianPhone}</p>}
                   </div>
                 </div>
               )}

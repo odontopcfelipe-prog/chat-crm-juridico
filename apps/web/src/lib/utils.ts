@@ -105,6 +105,52 @@ export function maskCEPInput(value: string): string {
   return `${d.slice(0, 5)}-${d.slice(5)}`;
 }
 
+// Onda 17.62 — VALIDADORES de dígitos (feedback inline nos cadastros). Retornam '' quando OK
+// ou vazio — só erram em valor PREENCHIDO e errado (respeita campos opcionais / "Paciente Antigo").
+function onlyDigits(s: string): string { return (s || '').replace(/\D/g, ''); }
+
+export function isValidCPF(cpf: string): boolean {
+  const d = onlyDigits(cpf);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  let s = 0;
+  for (let i = 0; i < 9; i++) s += parseInt(d[i], 10) * (10 - i);
+  let r = (s * 10) % 11; if (r >= 10) r = 0;
+  if (r !== parseInt(d[9], 10)) return false;
+  s = 0;
+  for (let i = 0; i < 10; i++) s += parseInt(d[i], 10) * (11 - i);
+  r = (s * 10) % 11; if (r >= 10) r = 0;
+  return r === parseInt(d[10], 10);
+}
+/** Telefone BR (celular): exige 11 dígitos (DDD + 9 + número). Tira o DDI 55 antes (o telefone
+ *  salvo pode vir com +55 — sem isso, marcaria número válido como inválido). */
+export function vPhone(v: string): string {
+  let d = onlyDigits(v); if (!d) return '';
+  if (d.startsWith('55') && d.length > 11) d = d.slice(2);
+  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s) — celular tem 11 (DDD + 9 + nº)`;
+  return d.length > 11 ? 'Número inválido' : '';
+}
+export function vCPF(v: string): string {
+  const d = onlyDigits(v); if (!d) return '';
+  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s)`;
+  return isValidCPF(d) ? '' : 'CPF inválido';
+}
+export function vCEP(v: string): string {
+  const d = onlyDigits(v); if (!d) return '';
+  if (d.length < 8) return `Faltam ${8 - d.length} dígito(s)`;
+  return d.length > 8 ? 'CEP inválido' : '';
+}
+export function vRG(v: string): string {
+  const d = (v || '').replace(/[^0-9a-zA-Z]/g, ''); if (!d) return '';
+  return d.length < 5 ? 'RG incompleto' : '';
+}
+export function vBirth(v: string): string {
+  if (!v) return '';
+  const dt = new Date(v + 'T00:00:00');
+  if (isNaN(dt.getTime())) return 'Data inválida';
+  if (dt.getTime() > Date.now()) return 'Data no futuro';
+  return dt.getFullYear() < 1900 ? 'Ano inválido' : '';
+}
+
 /** Onda 17.57 — endereco da clinica (campos do Tenant) numa linha, igual ao
  *  backend (formatTenantAddress). Usado nos previews dos disparos ({local}). */
 export function formatClinicAddress(t: {
