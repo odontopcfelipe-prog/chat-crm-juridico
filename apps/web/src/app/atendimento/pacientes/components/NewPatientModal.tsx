@@ -58,10 +58,56 @@ const EMPTY_FORM = {
 
 const AFFILIATE_COMMISSION_PCT = 3;
 
+// Onda 17.62 — validação de dígitos com feedback inline. Trava: o campo fica vermelho + mensagem
+// em cima quando falta dígito / valor inválido. Os validadores só erram em valor PREENCHIDO e
+// errado (retornam '' pra vazio) — respeita o "Paciente Antigo" (que deixa campos opcionais).
+const onlyDigits = (s: string) => (s || '').replace(/\D/g, '');
+function isValidCPF(cpf: string): boolean {
+  const d = onlyDigits(cpf);
+  if (d.length !== 11 || /^(\d)\1{10}$/.test(d)) return false;
+  let s = 0;
+  for (let i = 0; i < 9; i++) s += parseInt(d[i], 10) * (10 - i);
+  let r = (s * 10) % 11; if (r >= 10) r = 0;
+  if (r !== parseInt(d[9], 10)) return false;
+  s = 0;
+  for (let i = 0; i < 10; i++) s += parseInt(d[i], 10) * (11 - i);
+  r = (s * 10) % 11; if (r >= 10) r = 0;
+  return r === parseInt(d[10], 10);
+}
+function vPhone(v: string): string {
+  const d = onlyDigits(v); if (!d) return '';
+  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s) — celular tem 11 (DDD + 9 + nº)`;
+  return d.length > 11 ? 'Número inválido' : '';
+}
+function vCPF(v: string): string {
+  const d = onlyDigits(v); if (!d) return '';
+  if (d.length < 11) return `Faltam ${11 - d.length} dígito(s)`;
+  return isValidCPF(d) ? '' : 'CPF inválido';
+}
+function vCEP(v: string): string {
+  const d = onlyDigits(v); if (!d) return '';
+  if (d.length < 8) return `Faltam ${8 - d.length} dígito(s)`;
+  return d.length > 8 ? 'CEP inválido' : '';
+}
+function vRG(v: string): string {
+  const d = (v || '').replace(/[^0-9a-zA-Z]/g, ''); if (!d) return '';
+  return d.length < 5 ? 'RG incompleto' : '';
+}
+function vBirth(v: string): string {
+  if (!v) return '';
+  const dt = new Date(v + 'T00:00:00');
+  if (isNaN(dt.getTime())) return 'Data inválida';
+  if (dt.getTime() > Date.now()) return 'Data no futuro';
+  return dt.getFullYear() < 1900 ? 'Ano inválido' : '';
+}
+
 export default function NewPatientModal({ onClose, onCreated }: Props) {
   const [loading, setLoading] = useState(false);
   const [cepLoading, setCepLoading] = useState(false);
   const [form, setForm] = useState({ ...EMPTY_FORM });
+  // Onda 17.62 — erros de validação por campo (telefone/CPF/CEP/RG/nascimento).
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const setErr = (k: string, msg: string) => setErrors((e) => ({ ...e, [k]: msg }));
   // Onda 17.56 — DDI (código do país) editável, default 55 (Brasil). Antes o
   // telefone era gravado SEM o 55 e o WhatsApp não entregava (exists:false).
   const [ddi, setDdi] = useState('55');
@@ -214,6 +260,18 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
         `Preencha: ${faltando.join(', ')}.` +
           (semDoc ? ' Ficha antiga incompleta? Marque a etiqueta “Paciente Antigo”.' : ''),
       );
+      return false;
+    }
+    // Onda 17.62 — trava de FORMATO (dígitos): bloqueia e marca em vermelho o que estiver errado.
+    const fmt: Record<string, string> = {
+      phone: vPhone(form.phone), cpf: vCPF(form.cpf), zipCode: vCEP(form.zipCode),
+      rg: vRG(form.rg), birthDate: vBirth(form.birthDate),
+    };
+    const ruim = Object.entries(fmt).filter(([, m]) => m);
+    if (ruim.length > 0) {
+      setErrors((e) => ({ ...e, ...fmt }));
+      const nome: Record<string, string> = { phone: 'Telefone', cpf: 'CPF', zipCode: 'CEP', rg: 'RG', birthDate: 'Data de nascimento' };
+      showError(`Corrija: ${ruim.map(([k]) => nome[k]).join(', ')}.`);
       return false;
     }
     setLoading(true);
@@ -388,6 +446,7 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Telefone</label>
+                {errors.phone && <p className="text-[11px] font-medium text-red-600 mb-1">{errors.phone}</p>}
                 <div className="flex items-stretch gap-1.5">
                   <div className="flex items-center rounded-lg bg-background border border-border px-2 shrink-0">
                     <span className="text-sm text-muted-foreground">+</span>
@@ -402,20 +461,21 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
                   <input
                     type="tel"
                     value={form.phone}
-                    onChange={(e) => set('phone', maskPhoneInput(e.target.value))}
+                    onChange={(e) => { const v = maskPhoneInput(e.target.value); set('phone', v); setErr('phone', vPhone(v)); }}
                     placeholder="(82) 99999-9999"
-                    className={inputCls}
+                    className={`${inputCls}${errors.phone ? ' !border-red-500' : ''}`}
                   />
                 </div>
               </div>
               <div>
                 <label className="block text-xs font-medium mb-1">CPF{!antigoSelected && ' *'}</label>
+                {errors.cpf && <p className="text-[11px] font-medium text-red-600 mb-1">{errors.cpf}</p>}
                 <input
                   type="text"
                   value={form.cpf}
-                  onChange={(e) => set('cpf', maskCPFInput(e.target.value))}
+                  onChange={(e) => { const v = maskCPFInput(e.target.value); set('cpf', v); setErr('cpf', vCPF(v)); }}
                   placeholder="000.000.000-00"
-                  className={inputCls}
+                  className={`${inputCls}${errors.cpf ? ' !border-red-500' : ''}`}
                 />
               </div>
               {/* Onda 17.32.184 — ficha/prontuario fisico; pesquisavel na busca */}
@@ -434,11 +494,12 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             {(
               <div>
                 <label className="block text-xs font-medium mb-1">RG</label>
+                {errors.rg && <p className="text-[11px] font-medium text-red-600 mb-1">{errors.rg}</p>}
                 <input
                   type="text"
                   value={form.rg}
-                  onChange={(e) => set('rg', e.target.value)}
-                  className={inputCls}
+                  onChange={(e) => { set('rg', e.target.value); setErr('rg', vRG(e.target.value)); }}
+                  className={`${inputCls}${errors.rg ? ' !border-red-500' : ''}`}
                 />
               </div>
             )}
@@ -456,11 +517,12 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium mb-1">Data de nascimento{!antigoSelected && ' *'}</label>
+                {errors.birthDate && <p className="text-[11px] font-medium text-red-600 mb-1">{errors.birthDate}</p>}
                 <input
                   type="date"
                   value={form.birthDate}
-                  onChange={(e) => set('birthDate', e.target.value)}
-                  className={inputCls}
+                  onChange={(e) => { set('birthDate', e.target.value); setErr('birthDate', vBirth(e.target.value)); }}
+                  className={`${inputCls}${errors.birthDate ? ' !border-red-500' : ''}`}
                 />
               </div>
               <div>
@@ -508,12 +570,13 @@ export default function NewPatientModal({ onClose, onCreated }: Props) {
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-medium mb-1">CEP{!antigoSelected && ' *'} {cepLoading && <span className="text-muted-foreground">(buscando...)</span>}</label>
+                  {errors.zipCode && <p className="text-[11px] font-medium text-red-600 mb-1">{errors.zipCode}</p>}
                   <input
                     value={form.zipCode}
-                    onChange={(e) => set('zipCode', maskCEPInput(e.target.value))}
+                    onChange={(e) => { const v = maskCEPInput(e.target.value); set('zipCode', v); setErr('zipCode', vCEP(v)); }}
                     placeholder="00000-000"
                     maxLength={9}
-                    className={inputCls}
+                    className={`${inputCls}${errors.zipCode ? ' !border-red-500' : ''}`}
                   />
                 </div>
                 <div className="md:col-span-2">
