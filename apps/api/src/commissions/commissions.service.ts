@@ -203,6 +203,32 @@ export class CommissionsService {
       byKey.set(key, existing);
     }
 
+    // Onda 17.61 — inclui TODOS os profissionais com regra de comissão ATIVA, mesmo sem
+    // comissão no período (zerados). Assim o "Resumo mensal" mostra a lista completa
+    // "por profissional cadastrado", não só quem já gerou comissão.
+    const fillMonth = opts.reference_month || monthKey(new Date());
+    const ruleProfs = await this.prisma.commissionRule.findMany({
+      where: { tenant_id: tenantId, active: true },
+      select: { professional_user_id: true, professional: { select: { name: true } } },
+    });
+    const seenProf = new Set<string>();
+    for (const rp of ruleProfs) {
+      if (seenProf.has(rp.professional_user_id)) continue;
+      seenProf.add(rp.professional_user_id);
+      const key = `${rp.professional_user_id}|${fillMonth}`;
+      if (!byKey.has(key)) {
+        byKey.set(key, {
+          professional_user_id: rp.professional_user_id,
+          professional_name: rp.professional?.name || 'Sem nome',
+          reference_month: fillMonth,
+          devida: 0,
+          disponivel: 0,
+          paga: 0,
+          total: 0,
+        });
+      }
+    }
+
     return Array.from(byKey.values()).sort((a, b) => {
       if (a.reference_month !== b.reference_month) return b.reference_month.localeCompare(a.reference_month);
       return a.professional_name.localeCompare(b.professional_name);

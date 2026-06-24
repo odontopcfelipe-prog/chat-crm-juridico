@@ -147,6 +147,9 @@ function PayableView({
       <div className="p-12 text-center text-sm text-muted-foreground">
         <CheckCircle size={28} className="mx-auto mb-2 opacity-50" />
         Nenhuma comissao disponivel para pagamento.
+        <div className="mt-2 text-xs">
+          Veja todos os profissionais cadastrados (mesmo zerados) na aba <strong>Resumo mensal</strong>.
+        </div>
       </div>
     );
   }
