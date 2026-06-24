@@ -9,6 +9,41 @@ function monthKey(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 }
 
+// ─── Faixas (trilha) — Onda 17.62 Fase 2b ────────────────────────────────────
+type FaixaTier = { nome: string; emoji: string; ate: number | null; percentual: number };
+type TiersConfig = { enabled: boolean; tiers: FaixaTier[] };
+
+// Faixas SUGERIDAS (exemplo editável). enabled=false → a trilha é só PREVIEW e NÃO muda o
+// pagamento; a clínica revisa os números e ativa depois (front+regra na mesma fonte).
+const DEFAULT_TIERS: TiersConfig = {
+  enabled: false,
+  tiers: [
+    { nome: 'Bronze', emoji: '🥉', ate: 4000, percentual: 6 },
+    { nome: 'Prata', emoji: '🥈', ate: 9000, percentual: 8 },
+    { nome: 'Ouro', emoji: '🥇', ate: 15000, percentual: 10 },
+    { nome: 'Diamante', emoji: '💎', ate: null, percentual: 12 },
+  ],
+};
+
+/** Monta a trilha (done/cur/locked) a partir das faixas + produção do mês do profissional. */
+function buildTrilha(tiers: FaixaTier[], producao: number) {
+  const intl = (n: number) => n.toLocaleString('pt-BR');
+  let curIdx = tiers.findIndex((t) => t.ate == null || producao <= t.ate);
+  if (curIdx < 0) curIdx = Math.max(0, tiers.length - 1);
+  let lo = 0;
+  return tiers.map((t, i) => {
+    const faixaInfo = t.ate == null ? `R$ ${intl(lo)}+ /mês` : `R$ ${intl(lo)}–${intl(t.ate)} /mês`;
+    if (t.ate != null) lo = t.ate;
+    return {
+      nome: t.nome,
+      emoji: t.emoji ?? '',
+      percentual: t.percentual,
+      estado: i < curIdx ? 'done' : i === curIdx ? 'cur' : 'locked',
+      faixaInfo,
+    };
+  });
+}
+
 @Injectable()
 export class CommissionsService {
   constructor(private prisma: PrismaService) {}
@@ -323,6 +358,26 @@ export class CommissionsService {
       /* sem metas (ou tabela ainda sem dados) → null → estado vazio honesto */
     }
 
+    // Fase 2b — TRILHA DE FAIXAS: config (opt-in) + produção do mês por profissional
+    // (orçamentos aceitos = mesma base do SALES_VALUE). Best-effort.
+    const tiersCfg = await this.getTiers(tenantId);
+    const prodByProf = new Map<string, number>();
+    try {
+      const [py, pm] = month.split('-').map(Number);
+      const pStart = new Date(Date.UTC(py, pm - 1, 1));
+      const pEnd = new Date(Date.UTC(py, pm, 0, 23, 59, 59));
+      const quotes = await this.prisma.quote.findMany({
+        where: { patient: { tenant_id: tenantId }, status: 'ACCEPTED', accepted_at: { gte: pStart, lte: pEnd } },
+        select: { created_by_user_id: true, total_value: true },
+      });
+      for (const q of quotes) {
+        if (!q.created_by_user_id) continue;
+        prodByProf.set(q.created_by_user_id, (prodByProf.get(q.created_by_user_id) ?? 0) + Number(q.total_value));
+      }
+    } catch {
+      /* sem produção → faixa base */
+    }
+
     const players = rows.map((r) => {
       const profRules = rules.filter((x) => x.professional_user_id === r.professional_user_id);
       const geral = profRules.find((x) => !x.procedure_id && !x.procedure_category);
@@ -357,12 +412,36 @@ export class CommissionsService {
         // Fase 2 — meta mensal real (Goal SALES_VALUE); sem meta → null → estado vazio honesto:
         meta,
         streakSemanas: null as null | number,
-        trilha: [] as { nome: string; percentual: number; estado: string; faixaInfo: string }[],
+        // Fase 2b — trilha de faixas (preview até a clínica ATIVAR no cálculo):
+        producaoMes: prodByProf.get(r.professional_user_id) ?? 0,
+        tiersAtivo: tiersCfg.enabled,
+        trilha: buildTrilha(tiersCfg.tiers, prodByProf.get(r.professional_user_id) ?? 0),
         missoes: [] as { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean }[],
         conquistas,
       };
     });
 
     return { reference_month: month, players };
+  }
+
+  /** Fase 2b — lê a config de faixas (GlobalSetting por tenant). Default: sugeridas, OFF. */
+  async getTiers(tenantId: string): Promise<TiersConfig> {
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: `COMMISSION_TIERS_${tenantId}` } });
+      if (!row?.value) return DEFAULT_TIERS;
+      const parsed = JSON.parse(row.value);
+      if (!parsed || !Array.isArray(parsed.tiers)) return DEFAULT_TIERS;
+      return { enabled: !!parsed.enabled, tiers: parsed.tiers };
+    } catch {
+      return DEFAULT_TIERS;
+    }
+  }
+
+  /** Fase 2b — salva a config de faixas. enabled=true (opt-in) é o que liga o % no cálculo. */
+  async setTiers(tenantId: string, cfg: { enabled?: boolean; tiers: FaixaTier[] }) {
+    const value = JSON.stringify({ enabled: !!cfg.enabled, tiers: cfg.tiers });
+    const key = `COMMISSION_TIERS_${tenantId}`;
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    return this.getTiers(tenantId);
   }
 }

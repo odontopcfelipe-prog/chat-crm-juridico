@@ -84,6 +84,23 @@
 .cjogo .cj-ach.lock .em { background: #f1f2f6; border-color: var(--cj-line-2); filter: grayscale(1); opacity: .5; }
 .cjogo .cj-ach .al { font-size: 10.5px; color: var(--cj-ink-2); font-weight: 600; margin-top: 5px; line-height: 1.2; }
 
+/* trilha de faixas */
+.cjogo .cj-badge-soft { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .06em; color: #854f0b; background: var(--cj-gold-soft); padding: 3px 9px; border-radius: 999px; margin-left: 6px; }
+.cjogo .cj-trail { position: relative; padding-left: 4px; }
+.cjogo .cj-step { display: flex; align-items: center; gap: 14px; padding: 9px 0; position: relative; }
+.cjogo .cj-node { width: 42px; height: 42px; border-radius: 13px; flex-shrink: 0; display: grid; place-items: center; font-size: 18px; border: 2px solid var(--cj-line-2); background: #fff; position: relative; z-index: 1; }
+.cjogo .cj-step.done .cj-node { background: var(--cj-gold-soft); border-color: var(--cj-gold-2); }
+.cjogo .cj-step.cur .cj-node { background: linear-gradient(135deg, var(--cj-violet), var(--cj-violet-2)); border-color: var(--cj-violet); color: #fff; box-shadow: 0 0 0 4px rgba(124,58,237,.16); }
+.cjogo .cj-si { flex: 1; }
+.cjogo .cj-sn { font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 8px; }
+.cjogo .cj-pct { font-size: 11px; font-weight: 800; color: var(--cj-violet-strong); background: var(--cj-violet-soft); padding: 2px 8px; border-radius: 999px; }
+.cjogo .cj-sd { font-size: 12px; color: var(--cj-ink-3); margin-top: 2px; }
+.cjogo .cj-step.locked { opacity: .55; }
+.cjogo .cj-badge { font-size: 10.5px; font-weight: 800; padding: 3px 9px; border-radius: 999px; }
+.cjogo .cj-badge.now { background: var(--cj-violet); color: #fff; }
+.cjogo .cj-badge.ok { background: var(--cj-green-soft); color: var(--cj-green); }
+.cjogo .cj-connector { position: absolute; left: 24px; top: 8px; bottom: 8px; width: 2px; background: var(--cj-line-2); z-index: 0; }
+
 /* selector + titlebar */
 .cjogo .cj-tag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #fff; background: linear-gradient(135deg, var(--cj-violet), var(--cj-violet-2)); padding: 4px 10px; border-radius: 999px; }
 .cjogo .cj-select { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cj-line-2); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: var(--cj-ink); min-width: 220px; }

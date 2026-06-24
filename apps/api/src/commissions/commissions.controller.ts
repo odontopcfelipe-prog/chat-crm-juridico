@@ -117,6 +117,22 @@ export class CommissionsController {
     return this.commissions.gameView(tenantId, { reference_month });
   }
 
+  // Fase 2b — config das faixas (trilha). GET lê; POST salva (opt-in: enabled liga no cálculo).
+  @Get('commissions/tiers')
+  getTiers(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.commissions.getTiers(tenantId);
+  }
+
+  @RequiresPermission('manage_financial')
+  @Post('commissions/tiers')
+  setTiers(@Request() req: any, @Body() body: { enabled?: boolean; tiers: any[] }) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.commissions.setTiers(tenantId, { enabled: body.enabled, tiers: body.tiers });
+  }
+
   @Get('commissions/:id')
   getCommission(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

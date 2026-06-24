@@ -27,6 +27,9 @@ type Player = {
   resgatavel: { total: number; ids: string[] };
   meta: null | { id: string; alvo: number; atual: number };
   streakSemanas: null | number;
+  producaoMes: number;
+  tiersAtivo: boolean;
+  trilha: { nome: string; emoji: string; percentual: number; estado: string; faixaInfo: string }[];
   conquistas: { emoji: string; label: string; desbloqueada: boolean }[];
 };
 
@@ -249,6 +252,34 @@ export default function ModoJogoView() {
             </div>
           </div>
 
+          {/* ===== Trilha de faixas (Fase 2b — PREVIEW até ativar no cálculo) ===== */}
+          <div className="cj-panel" style={{ marginBottom: 16 }}>
+            <div className="cj-ph">
+              <Trophy size={18} className="text-violet-600" /> Trilha de faixas
+              <span className="cj-badge-soft">{sel.tiersAtivo ? 'ATIVO' : 'PREVIEW'}</span>
+            </div>
+            <p className="text-xs text-muted-foreground -mt-1 mb-3">
+              Produção do mês: <b>{fmt(sel.producaoMes)}</b>.{' '}
+              {sel.tiersAtivo
+                ? 'As faixas valem no cálculo da comissão.'
+                : 'Estrutura sugerida — ainda NÃO muda o pagamento. Me passe seus números (limites/%) e eu ativo no cálculo, validando.'}
+            </p>
+            <div className="cj-trail">
+              <div className="cj-connector" />
+              {sel.trilha.map((s, i) => (
+                <div key={i} className={`cj-step ${s.estado}`}>
+                  <div className="cj-node">{s.emoji}</div>
+                  <div className="cj-si">
+                    <div className="cj-sn">{s.nome} <span className="cj-pct">{s.percentual}%</span></div>
+                    <div className="cj-sd">{s.faixaInfo}</div>
+                  </div>
+                  {s.estado === 'cur' && <span className="cj-badge now">AGORA</span>}
+                  {s.estado === 'done' && <span className="cj-badge ok">✓</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+
           {/* ===== Conquistas (Fase 2b — selos derivados de dado REAL) ===== */}
           <div className="cj-panel" style={{ marginBottom: 16 }}>
             <div className="cj-ph"><Trophy size={18} className="text-violet-600" /> Conquistas</div>
@@ -272,8 +303,7 @@ export default function ModoJogoView() {
               Precisam de configuração (regra financeira, validada com você). Nada inventado.
             </p>
             <ul className="cj-soon-list">
-              <li><span className="ico"><Trophy size={15} /></span> <b>Trilha de faixas</b> (Bronze→Diamante) — cada faixa destrava uma % maior, ligada à comissão real. Precisa dos limites e % de cada faixa.</li>
-              <li><span className="ico"><Star size={15} /></span> <b>Missões da semana</b> — ex.: “3 clareamentos”, “zero faltas”, com bônus.</li>
+              <li><span className="ico"><Star size={15} /></span> <b>Missões da semana</b> — ex.: “3 clareamentos”, “zero faltas”, com bônus. Precisa de tracking de fatos reais.</li>
             </ul>
           </div>
         </>
