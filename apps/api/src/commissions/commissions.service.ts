@@ -334,6 +334,17 @@ export class CommissionsService {
       const iniciais =
         r.professional_name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase()).join('') || '?';
       const d = dispByProf.get(r.professional_user_id);
+      const meta = goalByProf.get(r.professional_user_id) ?? null;
+      // Fase 2b — CONQUISTAS derivadas de dado REAL (carteira do mês + meta). Sem promessa
+      // de dinheiro — são só selos. Bloqueadas (desbloqueada=false) aparecem em cinza no front.
+      const totalMes = r.devida + r.disponivel + r.paga;
+      const conquistas = [
+        { emoji: '⚡', label: 'Comissão gerada', desbloqueada: totalMes > 0 },
+        { emoji: '🪙', label: 'Primeiro resgate', desbloqueada: r.paga > 0 },
+        { emoji: '🎯', label: 'Meta batida', desbloqueada: !!(meta && meta.alvo > 0 && meta.atual >= meta.alvo) },
+        { emoji: '💰', label: 'R$ 1k no mês', desbloqueada: totalMes >= 1000 },
+        { emoji: '🏆', label: 'R$ 5k no mês', desbloqueada: totalMes >= 5000 },
+      ];
       return {
         professional_user_id: r.professional_user_id,
         nome: r.professional_name,
@@ -344,10 +355,11 @@ export class CommissionsService {
         carteira: { devida: r.devida, disponivel: r.disponivel, paga: r.paga },
         resgatavel: { total: d?.total ?? 0, ids: d?.ids ?? [] },
         // Fase 2 — meta mensal real (Goal SALES_VALUE); sem meta → null → estado vazio honesto:
-        meta: goalByProf.get(r.professional_user_id) ?? null,
+        meta,
         streakSemanas: null as null | number,
         trilha: [] as { nome: string; percentual: number; estado: string; faixaInfo: string }[],
         missoes: [] as { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean }[],
+        conquistas,
       };
     });
 

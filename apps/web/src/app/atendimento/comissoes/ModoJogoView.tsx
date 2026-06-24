@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
-import { Loader2, Coins, Star, Trophy, Target, Sparkles } from 'lucide-react';
+import { Loader2, Coins, Star, Trophy, Sparkles } from 'lucide-react';
 import './comissoes-jogo.css';
 
 type Player = {
@@ -27,6 +27,7 @@ type Player = {
   resgatavel: { total: number; ids: string[] };
   meta: null | { id: string; alvo: number; atual: number };
   streakSemanas: null | number;
+  conquistas: { emoji: string; label: string; desbloqueada: boolean }[];
 };
 
 const fmt = (n: number) => Number(n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
@@ -248,21 +249,31 @@ export default function ModoJogoView() {
             </div>
           </div>
 
-          {/* ===== Em breve (Fase 2 — dado/regra novos) ===== */}
+          {/* ===== Conquistas (Fase 2b — selos derivados de dado REAL) ===== */}
+          <div className="cj-panel" style={{ marginBottom: 16 }}>
+            <div className="cj-ph"><Trophy size={18} className="text-violet-600" /> Conquistas</div>
+            <div className="cj-shelf">
+              {sel.conquistas.map((c, i) => (
+                <div key={i} className={`cj-ach ${c.desbloqueada ? '' : 'lock'}`} title={c.desbloqueada ? 'Desbloqueada' : 'Bloqueada'}>
+                  <div className="em">{c.emoji}</div>
+                  <div className="al">{c.label}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* ===== Próximos desbloqueios (Fase 2b — precisam de config/validação) ===== */}
           <div className="cj-panel">
             <div className="cj-ph">
-              <Sparkles size={18} className="text-violet-600" /> Progressão
-              <span className="cj-soon">FASE 2</span>
+              <Sparkles size={18} className="text-violet-600" /> Próximos desbloqueios
+              <span className="cj-soon">FASE 2B</span>
             </div>
             <p className="text-sm text-muted-foreground -mt-1 mb-1">
-              O jogo completo destrava quando configurarmos os dados abaixo (regra financeira, em
-              etapa separada). Nada aqui é número inventado.
+              Precisam de configuração (regra financeira, validada com você). Nada inventado.
             </p>
             <ul className="cj-soon-list">
-              <li><span className="ico"><Target size={15} /></span> <b>Meta do mês</b> — barra de XP e “faltam R$ X pra bater”.</li>
-              <li><span className="ico"><Trophy size={15} /></span> <b>Trilha de faixas</b> (Bronze → Diamante) — cada faixa destrava uma % maior, ligada à comissão real.</li>
+              <li><span className="ico"><Trophy size={15} /></span> <b>Trilha de faixas</b> (Bronze→Diamante) — cada faixa destrava uma % maior, ligada à comissão real. Precisa dos limites e % de cada faixa.</li>
               <li><span className="ico"><Star size={15} /></span> <b>Missões da semana</b> — ex.: “3 clareamentos”, “zero faltas”, com bônus.</li>
-              <li><span className="ico"><Sparkles size={15} /></span> <b>Conquistas</b> — selos derivados do histórico.</li>
             </ul>
           </div>
         </>

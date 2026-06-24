@@ -77,6 +77,13 @@
 .cjogo .cj-soon-list li:first-child { border-top: 0; }
 .cjogo .cj-soon-list .ico { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 15px; background: var(--cj-violet-soft); flex-shrink: 0; }
 
+/* conquistas (prateleira de selos) */
+.cjogo .cj-shelf { display: flex; gap: 12px; flex-wrap: wrap; }
+.cjogo .cj-ach { width: 72px; text-align: center; }
+.cjogo .cj-ach .em { width: 54px; height: 54px; border-radius: 16px; display: grid; place-items: center; font-size: 24px; background: var(--cj-gold-soft); border: 1px solid #f6e2b0; margin: 0 auto; }
+.cjogo .cj-ach.lock .em { background: #f1f2f6; border-color: var(--cj-line-2); filter: grayscale(1); opacity: .5; }
+.cjogo .cj-ach .al { font-size: 10.5px; color: var(--cj-ink-2); font-weight: 600; margin-top: 5px; line-height: 1.2; }
+
 /* selector + titlebar */
 .cjogo .cj-tag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #fff; background: linear-gradient(135deg, var(--cj-violet), var(--cj-violet-2)); padding: 4px 10px; border-radius: 999px; }
 .cjogo .cj-select { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cj-line-2); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: var(--cj-ink); min-width: 220px; }
