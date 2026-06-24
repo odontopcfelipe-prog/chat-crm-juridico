@@ -1,0 +1,85 @@
+/* Onda 17.62 — "Modo Jogo" das Comissões (skill comissoes-gamificadas).
+   Camada VISUAL. Tudo recebe números por props; nenhum estilo calcula meta/faixa.
+   Escopado em .cjogo pra não vazar no resto do app. */
+
+.cjogo {
+  --cj-violet: #7c3aed; --cj-violet-2: #9333ea; --cj-violet-strong: #6d28d9; --cj-violet-soft: #f1ebff;
+  --cj-ink: #1e2330; --cj-ink-2: #5b6172; --cj-ink-3: #9aa0b0;
+  --cj-line: #eceef3; --cj-line-2: #e2e5ed; --cj-card: #ffffff;
+  --cj-gold: #f59e0b; --cj-gold-2: #fbbf24; --cj-gold-soft: #fef6e3;
+  --cj-green: #16a34a; --cj-green-2: #22c55e; --cj-green-soft: #e9f9ee;
+  color: var(--cj-ink);
+}
+
+/* ===== HUD hero ===== */
+.cjogo .cj-hud {
+  border-radius: 22px; padding: 24px 26px; color: #fff; position: relative; overflow: hidden; margin-bottom: 16px;
+  background:
+    radial-gradient(600px 280px at 90% -40%, rgba(251,191,36,.35), transparent 60%),
+    radial-gradient(500px 300px at 0% 130%, rgba(6,182,212,.30), transparent 55%),
+    linear-gradient(135deg, #4c1d95, #6d28d9 55%, #7c3aed);
+  box-shadow: 0 24px 60px -28px rgba(76,29,149,.6);
+}
+.cjogo .cj-hud::after { content: ""; position: absolute; inset: 0; border-radius: 22px; border: 1px solid rgba(255,255,255,.08); pointer-events: none; }
+.cjogo .cj-hud-top { display: flex; justify-content: space-between; gap: 24px; flex-wrap: wrap; align-items: center; }
+.cjogo .cj-player { display: flex; align-items: center; gap: 16px; }
+.cjogo .cj-ava { position: relative; width: 62px; height: 62px; flex-shrink: 0; }
+.cjogo .cj-ring { width: 62px; height: 62px; border-radius: 50%; padding: 3px; }
+.cjogo .cj-face { width: 100%; height: 100%; border-radius: 50%; background: linear-gradient(135deg, #a78bfa, #7c3aed); display: grid; place-items: center; font-weight: 800; font-size: 20px; color: #fff; }
+.cjogo .cj-lvl { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); background: var(--cj-gold); color: #3a2606; font-size: 11px; font-weight: 900; padding: 2px 9px; border-radius: 999px; border: 2px solid #4c1d95; white-space: nowrap; }
+.cjogo .cj-nm { font-size: 20px; font-weight: 800; letter-spacing: -.01em; }
+.cjogo .cj-tier { display: inline-flex; align-items: center; gap: 6px; margin-top: 5px; font-size: 12.5px; font-weight: 700; color: #fde68a; }
+.cjogo .cj-streak { display: flex; align-items: center; gap: 7px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.14); padding: 9px 14px; border-radius: 13px; font-size: 13px; font-weight: 700; }
+
+/* barra de XP da meta (ou estado vazio) */
+.cjogo .cj-xpwrap { margin-top: 22px; }
+.cjogo .cj-xplabels { display: flex; justify-content: space-between; align-items: flex-end; margin-bottom: 8px; }
+.cjogo .cj-xplabels .l { font-size: 12.5px; color: rgba(255,255,255,.7); font-weight: 600; }
+.cjogo .cj-xplabels .r { font-size: 13px; color: #fde68a; font-weight: 700; }
+.cjogo .cj-xpbar { height: 16px; border-radius: 999px; background: rgba(255,255,255,.14); overflow: hidden; position: relative; }
+.cjogo .cj-xpfill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--cj-gold), var(--cj-gold-2)); position: relative; box-shadow: 0 0 16px rgba(251,191,36,.6); transition: width .6s ease; }
+.cjogo .cj-xpfill::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent); transform: translateX(-100%); animation: cj-shimmer 2.4s infinite; }
+@keyframes cj-shimmer { 100% { transform: translateX(200%); } }
+.cjogo .cj-xpsub { margin-top: 9px; font-size: 12.5px; color: rgba(255,255,255,.75); }
+.cjogo .cj-xpsub b { color: #fff; }
+
+/* estado vazio honesto (sem meta) dentro do HUD */
+.cjogo .cj-meta-empty { margin-top: 20px; background: rgba(255,255,255,.08); border: 1px dashed rgba(255,255,255,.25); border-radius: 14px; padding: 16px 18px; }
+.cjogo .cj-meta-empty .t { font-size: 14px; font-weight: 800; }
+.cjogo .cj-meta-empty .s { font-size: 12.5px; color: rgba(255,255,255,.78); margin-top: 4px; }
+
+/* ===== carteira (estados reais vestidos de jogo) ===== */
+.cjogo .cj-vault { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-bottom: 16px; }
+.cjogo .cj-coin { background: var(--cj-card); border: 1px solid var(--cj-line); border-radius: 16px; padding: 18px; position: relative; overflow: hidden; }
+.cjogo .cj-ct { font-size: 12px; font-weight: 700; color: var(--cj-ink-2); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cjogo .cj-ct .dot { width: 9px; height: 9px; border-radius: 50%; }
+.cjogo .cj-orig { font-size: 10.5px; color: var(--cj-ink-3); font-weight: 600; letter-spacing: .04em; }
+.cjogo .cj-cv { font-size: 26px; font-weight: 900; letter-spacing: -.02em; margin-top: 10px; }
+.cjogo .cj-cs { font-size: 12px; color: var(--cj-ink-3); margin-top: 2px; }
+.cjogo .cj-coin.prod .dot { background: var(--cj-ink-3); }
+.cjogo .cj-coin.disp { border-color: #bbf7d0; background: linear-gradient(180deg, var(--cj-green-soft), #fff 70%); }
+.cjogo .cj-coin.disp .dot { background: var(--cj-green-2); }
+.cjogo .cj-coin.disp .cj-cv { color: var(--cj-green); }
+.cjogo .cj-coin.pago .dot { background: var(--cj-violet); }
+.cjogo .cj-claim { margin-top: 14px; width: 100%; border: 0; border-radius: 11px; padding: 11px; font: inherit; font-size: 13.5px; font-weight: 800; cursor: pointer; background: linear-gradient(135deg, var(--cj-green-2), var(--cj-green)); color: #fff; display: flex; align-items: center; justify-content: center; gap: 8px; box-shadow: 0 8px 18px -8px rgba(22,163,74,.6); animation: cj-bob 2.2s ease-in-out infinite; }
+.cjogo .cj-claim:disabled { opacity: .6; cursor: default; animation: none; }
+@keyframes cj-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-2px); } }
+.cjogo .cj-claim-empty { margin-top: 14px; font-size: 12.5px; color: var(--cj-ink-3); font-weight: 600; text-align: center; }
+
+/* ===== painel "em breve" (Fase 2) ===== */
+.cjogo .cj-panel { background: var(--cj-card); border: 1px solid var(--cj-line); border-radius: 18px; padding: 20px; }
+.cjogo .cj-ph { display: flex; align-items: center; gap: 9px; font-size: 15px; font-weight: 800; margin-bottom: 12px; }
+.cjogo .cj-soon { display: inline-block; font-size: 10px; font-weight: 800; letter-spacing: .06em; color: var(--cj-violet-strong); background: var(--cj-violet-soft); padding: 3px 9px; border-radius: 999px; margin-left: 6px; }
+.cjogo .cj-soon-list { list-style: none; padding: 0; margin: 8px 0 0; }
+.cjogo .cj-soon-list li { font-size: 13px; color: var(--cj-ink-2); padding: 7px 0; border-top: 1px solid var(--cj-line); display: flex; gap: 9px; align-items: center; }
+.cjogo .cj-soon-list li:first-child { border-top: 0; }
+.cjogo .cj-soon-list .ico { width: 30px; height: 30px; border-radius: 9px; display: grid; place-items: center; font-size: 15px; background: var(--cj-violet-soft); flex-shrink: 0; }
+
+/* selector + titlebar */
+.cjogo .cj-tag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #fff; background: linear-gradient(135deg, var(--cj-violet), var(--cj-violet-2)); padding: 4px 10px; border-radius: 999px; }
+.cjogo .cj-select { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cj-line-2); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: var(--cj-ink); min-width: 220px; }
+
+@media (max-width: 860px) { .cjogo .cj-vault { grid-template-columns: 1fr; } }
+@media (prefers-reduced-motion: reduce) {
+  .cjogo .cj-xpfill::after, .cjogo .cj-claim { animation: none; }
+}

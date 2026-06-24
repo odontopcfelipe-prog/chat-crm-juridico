@@ -109,6 +109,14 @@ export class CommissionsController {
     return this.commissions.payable(tenantId);
   }
 
+  // Onda 17.62 — "Modo Jogo": viewModel gamificado por profissional (antes do :id pra não colidir)
+  @Get('commissions/game')
+  gameView(@Request() req: any, @Query('reference_month') reference_month?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.commissions.gameView(tenantId, { reference_month });
+  }
+
   @Get('commissions/:id')
   getCommission(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

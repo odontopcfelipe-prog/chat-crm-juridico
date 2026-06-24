@@ -263,4 +263,62 @@ export class CommissionsService {
 
     return Array.from(byProfessional.values()).sort((a, b) => b.total - a.total);
   }
+
+  /**
+   * Onda 17.62 — "Modo Jogo": viewModel por profissional pra tela gamificada.
+   * SÓ dado REAL: carteira (devida/disponivel/paga, do summary) + faixa (a % real da
+   * regra geral do profissional) + ids resgatáveis (DISPONIVEL). meta/missoes/trilha/
+   * conquistas = null/[] (dado novo, Fase 2) → o front rende estado vazio honesto.
+   * O servidor é a fonte: o componente não calcula nada.
+   */
+  async gameView(tenantId: string, opts: { reference_month?: string } = {}) {
+    const month = opts.reference_month || monthKey(new Date());
+    const rows = await this.summary(tenantId, { reference_month: month });
+
+    const rules = await this.prisma.commissionRule.findMany({
+      where: { tenant_id: tenantId, active: true },
+      select: { professional_user_id: true, percentage: true, procedure_id: true, procedure_category: true },
+    });
+    const disp = await this.prisma.commission.findMany({
+      where: { tenant_id: tenantId, status: 'DISPONIVEL' },
+      select: { id: true, professional_user_id: true, amount: true },
+    });
+    const dispByProf = new Map<string, { ids: string[]; total: number }>();
+    for (const c of disp) {
+      const e = dispByProf.get(c.professional_user_id) || { ids: [], total: 0 };
+      e.ids.push(c.id);
+      e.total += Number(c.amount);
+      dispByProf.set(c.professional_user_id, e);
+    }
+
+    const players = rows.map((r) => {
+      const profRules = rules.filter((x) => x.professional_user_id === r.professional_user_id);
+      const geral = profRules.find((x) => !x.procedure_id && !x.procedure_category);
+      const faixaPct = geral?.percentage != null ? Number(geral.percentage) : null;
+      const faixaLabel =
+        faixaPct != null ? `${faixaPct}% de comissão`
+        : profRules.length > 0 ? 'Comissão por procedimento'
+        : 'Sem regra cadastrada';
+      const iniciais =
+        r.professional_name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]?.toUpperCase()).join('') || '?';
+      const d = dispByProf.get(r.professional_user_id);
+      return {
+        professional_user_id: r.professional_user_id,
+        nome: r.professional_name,
+        iniciais,
+        faixaPct,
+        faixaLabel,
+        temRegra: profRules.length > 0,
+        carteira: { devida: r.devida, disponivel: r.disponivel, paga: r.paga },
+        resgatavel: { total: d?.total ?? 0, ids: d?.ids ?? [] },
+        // Fase 2 (dado novo) — estado vazio honesto no front enquanto null/vazio:
+        meta: null as null | { alvo: number; atual: number },
+        streakSemanas: null as null | number,
+        trilha: [] as { nome: string; percentual: number; estado: string; faixaInfo: string }[],
+        missoes: [] as { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean }[],
+      };
+    });
+
+    return { reference_month: month, players };
+  }
 }

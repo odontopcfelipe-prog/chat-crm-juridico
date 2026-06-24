@@ -1,9 +1,10 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Banknote, Loader2, Wallet, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import { Banknote, Loader2, Wallet, CheckCircle, Clock, AlertCircle, Gamepad2 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import ModoJogoView from './ModoJogoView';
 
 interface SummaryRow {
   professional_user_id: string;
@@ -34,7 +35,7 @@ const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
 
 export default function ComissoesPage() {
-  const [view, setView] = useState<'summary' | 'payable'>('payable');
+  const [view, setView] = useState<'summary' | 'payable' | 'jogo'>('payable');
   const [loading, setLoading] = useState(true);
   const [summary, setSummary] = useState<SummaryRow[]>([]);
   const [payable, setPayable] = useState<PayableGroup[]>([]);
@@ -115,6 +116,14 @@ export default function ComissoesPage() {
           >
             <Banknote size={14} className="inline mr-1" /> Resumo mensal
           </button>
+          <button
+            onClick={() => setView('jogo')}
+            className={`px-3 py-1.5 rounded text-sm font-medium ${
+              view === 'jogo' ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            <Gamepad2 size={14} className="inline mr-1" /> Modo jogo
+          </button>
         </div>
         {view === 'summary' && (
           <input
@@ -126,7 +135,9 @@ export default function ComissoesPage() {
         )}
       </div>
 
-      {loading ? (
+      {view === 'jogo' ? (
+        <ModoJogoView />
+      ) : loading ? (
         <div className="p-12 flex items-center justify-center text-muted-foreground">
           <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
         </div>
