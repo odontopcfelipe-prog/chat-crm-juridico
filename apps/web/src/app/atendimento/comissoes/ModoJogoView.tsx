@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import api from '@/lib/api';
-import { Loader2, Coins, Star, Trophy, Sparkles } from 'lucide-react';
+import { Loader2, Coins, Star, Trophy } from 'lucide-react';
 import './comissoes-jogo.css';
 
 type Player = {
@@ -30,6 +30,7 @@ type Player = {
   producaoMes: number;
   tiersAtivo: boolean;
   trilha: { nome: string; emoji: string; percentual: number; estado: string; faixaInfo: string }[];
+  missoes: { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean; detalhe: string }[];
   conquistas: { emoji: string; label: string; desbloqueada: boolean }[];
 };
 
@@ -293,19 +294,28 @@ export default function ModoJogoView() {
             </div>
           </div>
 
-          {/* ===== Próximos desbloqueios (Fase 2b — precisam de config/validação) ===== */}
-          <div className="cj-panel">
-            <div className="cj-ph">
-              <Sparkles size={18} className="text-violet-600" /> Próximos desbloqueios
-              <span className="cj-soon">FASE 2B</span>
+          {/* ===== Missões da semana (Fase 2b — tracking REAL; recompensa é rótulo) ===== */}
+          {sel.missoes.length > 0 && (
+            <div className="cj-panel">
+              <div className="cj-ph"><Star size={18} className="text-violet-600" /> Missões da semana</div>
+              {sel.missoes.map((m, i) => {
+                const pct = Math.max(0, Math.min(100, m.alvo > 0 ? (m.progresso / m.alvo) * 100 : 0));
+                return (
+                  <div key={i} className={`cj-mission ${m.concluida ? 'done' : ''}`}>
+                    <div className="cj-mh">
+                      <span className="cj-mt">{m.titulo}</span>
+                      <span className="cj-rew">{m.concluida ? '✓ Conquistado' : m.recompensa}</span>
+                    </div>
+                    <div className="cj-mbar"><div className="cj-mfill" style={{ width: `${pct}%` }} /></div>
+                    <div className="cj-mp">{m.detalhe}{m.concluida ? ' · bônus liberado!' : ''}</div>
+                  </div>
+                );
+              })}
+              <p className="text-[11px] text-muted-foreground mt-2">
+                Progresso real (procedimentos executados / faltas na semana). A recompensa é um bônus — o pagamento fica a critério da clínica.
+              </p>
             </div>
-            <p className="text-sm text-muted-foreground -mt-1 mb-1">
-              Precisam de configuração (regra financeira, validada com você). Nada inventado.
-            </p>
-            <ul className="cj-soon-list">
-              <li><span className="ico"><Star size={15} /></span> <b>Missões da semana</b> — ex.: “3 clareamentos”, “zero faltas”, com bônus. Precisa de tracking de fatos reais.</li>
-            </ul>
-          </div>
+          )}
         </>
       )}
     </div>

@@ -44,6 +44,20 @@ function buildTrilha(tiers: FaixaTier[], producao: number) {
   });
 }
 
+// ─── Missões — Onda 17.62 Fase 2b ────────────────────────────────────────────
+type MissionDef = { id: string; titulo: string; metrica: string; alvo: number; recompensa: string };
+type MissionsConfig = { enabled: boolean; missions: MissionDef[] };
+
+// Missões SUGERIDAS (tracking de fatos REAIS; recompensa é só rótulo — bônus em dinheiro
+// é decisão manual da clínica, NÃO credita no client). metrica: 'procedimentos' | 'zero_faltas'.
+const DEFAULT_MISSIONS: MissionsConfig = {
+  enabled: true,
+  missions: [
+    { id: 'proc', titulo: 'Execute 5 procedimentos', metrica: 'procedimentos', alvo: 5, recompensa: '+R$ 100' },
+    { id: 'faltas', titulo: 'Zero faltas na agenda', metrica: 'zero_faltas', alvo: 1, recompensa: '+R$ 80' },
+  ],
+};
+
 @Injectable()
 export class CommissionsService {
   constructor(private prisma: PrismaService) {}
@@ -395,6 +409,34 @@ export class CommissionsService {
       /* sem produção → faixa base */
     }
 
+    // Fase 2b — MISSÕES da semana: tracking REAL (procedimentos executados + faltas/no-show).
+    const missionsCfg = await this.getMissions(tenantId);
+    const procByProf = new Map<string, number>();
+    const faltasByProf = new Map<string, number>();
+    try {
+      const now2 = new Date();
+      const dow = now2.getUTCDay(); // 0=domingo
+      const toMon = dow === 0 ? -6 : 1 - dow;
+      const weekStart = new Date(Date.UTC(now2.getUTCFullYear(), now2.getUTCMonth(), now2.getUTCDate() + toMon, 0, 0, 0));
+      const weekEnd = new Date(weekStart.getTime() + 7 * 24 * 3600 * 1000 - 1);
+      const execItems = await this.prisma.treatmentPlanItem.findMany({
+        where: { status: 'DONE', executed_at: { gte: weekStart, lte: weekEnd }, treatment_plan: { patient: { tenant_id: tenantId } } },
+        select: { executed_by_user_id: true },
+      });
+      for (const it of execItems) {
+        if (it.executed_by_user_id) procByProf.set(it.executed_by_user_id, (procByProf.get(it.executed_by_user_id) ?? 0) + 1);
+      }
+      const noShows = await this.prisma.calendarEvent.findMany({
+        where: { tenant_id: tenantId, status: 'NO_SHOW', start_at: { gte: weekStart, lte: weekEnd } },
+        select: { assigned_user_id: true },
+      });
+      for (const ev of noShows) {
+        if (ev.assigned_user_id) faltasByProf.set(ev.assigned_user_id, (faltasByProf.get(ev.assigned_user_id) ?? 0) + 1);
+      }
+    } catch {
+      /* sem tracking → missões zeradas */
+    }
+
     const players = rows.map((r) => {
       const profRules = rules.filter((x) => x.professional_user_id === r.professional_user_id);
       const geral = profRules.find((x) => !x.procedure_id && !x.procedure_category);
@@ -417,6 +459,25 @@ export class CommissionsService {
         { emoji: '💰', label: 'R$ 1k no mês', desbloqueada: totalMes >= 1000 },
         { emoji: '🏆', label: 'R$ 5k no mês', desbloqueada: totalMes >= 5000 },
       ];
+      const procSemana = procByProf.get(r.professional_user_id) ?? 0;
+      const faltasSemana = faltasByProf.get(r.professional_user_id) ?? 0;
+      const missoes = missionsCfg.enabled
+        ? missionsCfg.missions.map((m) => {
+            if (m.metrica === 'zero_faltas') {
+              return {
+                titulo: m.titulo, recompensa: m.recompensa, alvo: 1,
+                progresso: faltasSemana === 0 ? 1 : 0, concluida: faltasSemana === 0,
+                detalhe: faltasSemana === 0 ? 'Sem faltas esta semana 🎉' : `${faltasSemana} falta(s) esta semana`,
+              };
+            }
+            const prog = Math.min(procSemana, m.alvo);
+            return {
+              titulo: m.titulo, recompensa: m.recompensa, alvo: m.alvo,
+              progresso: prog, concluida: procSemana >= m.alvo,
+              detalhe: `${prog} de ${m.alvo} concluídos`,
+            };
+          })
+        : [];
       return {
         professional_user_id: r.professional_user_id,
         nome: r.professional_name,
@@ -433,7 +494,7 @@ export class CommissionsService {
         producaoMes: prodByProf.get(r.professional_user_id) ?? 0,
         tiersAtivo: tiersCfg.enabled,
         trilha: buildTrilha(tiersCfg.tiers, prodByProf.get(r.professional_user_id) ?? 0),
-        missoes: [] as { titulo: string; recompensa: string; alvo: number; progresso: number; concluida: boolean }[],
+        missoes,
         conquistas,
       };
     });
@@ -460,5 +521,18 @@ export class CommissionsService {
     const key = `COMMISSION_TIERS_${tenantId}`;
     await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     return this.getTiers(tenantId);
+  }
+
+  /** Fase 2b — config de missões (GlobalSetting). Default: missões sugeridas, ON. */
+  async getMissions(tenantId: string): Promise<MissionsConfig> {
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: `COMMISSION_MISSIONS_${tenantId}` } });
+      if (!row?.value) return DEFAULT_MISSIONS;
+      const parsed = JSON.parse(row.value);
+      if (!parsed || !Array.isArray(parsed.missions)) return DEFAULT_MISSIONS;
+      return { enabled: parsed.enabled !== false, missions: parsed.missions };
+    } catch {
+      return DEFAULT_MISSIONS;
+    }
   }
 }

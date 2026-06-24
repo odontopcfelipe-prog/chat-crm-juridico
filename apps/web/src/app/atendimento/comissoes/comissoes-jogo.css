@@ -101,6 +101,19 @@
 .cjogo .cj-badge.ok { background: var(--cj-green-soft); color: var(--cj-green); }
 .cjogo .cj-connector { position: absolute; left: 24px; top: 8px; bottom: 8px; width: 2px; background: var(--cj-line-2); z-index: 0; }
 
+/* missões */
+.cjogo .cj-mission { border: 1px solid var(--cj-line); border-radius: 14px; padding: 14px; margin-bottom: 11px; }
+.cjogo .cj-mission:last-of-type { margin-bottom: 0; }
+.cjogo .cj-mh { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.cjogo .cj-mt { font-size: 13.5px; font-weight: 700; }
+.cjogo .cj-rew { font-size: 12px; font-weight: 800; color: #854f0b; background: var(--cj-gold-soft); padding: 3px 9px; border-radius: 999px; white-space: nowrap; }
+.cjogo .cj-mbar { height: 9px; border-radius: 999px; background: #efedf6; margin-top: 11px; overflow: hidden; }
+.cjogo .cj-mfill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--cj-violet), var(--cj-violet-2)); transition: width .5s ease; }
+.cjogo .cj-mp { font-size: 11.5px; color: var(--cj-ink-3); margin-top: 6px; font-weight: 600; }
+.cjogo .cj-mission.done { background: var(--cj-green-soft); border-color: #bbf7d0; }
+.cjogo .cj-mission.done .cj-mfill { background: linear-gradient(90deg, var(--cj-green-2), var(--cj-green)); }
+.cjogo .cj-mission.done .cj-rew { color: var(--cj-green); background: #fff; }
+
 /* selector + titlebar */
 .cjogo .cj-tag { font-size: 10.5px; font-weight: 800; letter-spacing: .08em; color: #fff; background: linear-gradient(135deg, var(--cj-violet), var(--cj-violet-2)); padding: 4px 10px; border-radius: 999px; }
 .cjogo .cj-select { padding: 8px 12px; border-radius: 10px; border: 1px solid var(--cj-line-2); background: #fff; font: inherit; font-size: 14px; font-weight: 600; color: var(--cj-ink); min-width: 220px; }
