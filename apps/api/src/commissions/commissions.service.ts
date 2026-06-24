@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { Prisma } from '@crm/shared';
 import {
@@ -60,6 +60,7 @@ const DEFAULT_MISSIONS: MissionsConfig = {
 
 @Injectable()
 export class CommissionsService {
+  private readonly logger = new Logger(CommissionsService.name);
   constructor(private prisma: PrismaService) {}
 
   /**
@@ -192,15 +193,41 @@ export class CommissionsService {
     if (c.status !== 'DISPONIVEL') {
       throw new BadRequestException(`Comissao esta ${c.status}, so pode pagar de DISPONIVEL`);
     }
-    return this.prisma.commission.update({
+    const paidAt = dto.paid_at ? new Date(dto.paid_at) : new Date();
+    const updated = await this.prisma.commission.update({
       where: { id },
       data: {
         status: 'PAGA',
-        paid_at: dto.paid_at ? new Date(dto.paid_at) : new Date(),
+        paid_at: paidAt,
         payment_method: dto.payment_method,
         notes: dto.notes,
       },
     });
+    // Onda 17.62 — TODA saída de comissão ao profissional vira DESPESA no caixa (entrada E
+    // saída ligadas ao financeiro). Best-effort: não derruba o pagamento se o lançamento falhar.
+    try {
+      await this.prisma.financialTransaction.create({
+        data: {
+          tenant_id: tenantId,
+          type: 'DESPESA',
+          category: 'COMISSAO',
+          description: `Comissão — ${c.professional?.name || 'Profissional'}${c.reference_month ? ` (${c.reference_month})` : ''}`,
+          amount: c.amount,
+          date: paidAt,
+          paid_at: paidAt,
+          payment_method: dto.payment_method,
+          status: 'PAGO',
+          dentist_id: c.professional_user_id,
+          reference_id: c.id,
+          visible_to_dentist: false,
+          notes: dto.notes ?? `Pagamento de comissão (ref. ${c.id.slice(0, 8)})`,
+        },
+      });
+      this.logger.log(`[Commission] DESPESA lançada no caixa p/ comissão ${id} (R$ ${c.amount})`);
+    } catch (e: any) {
+      this.logger.warn(`[Commission] Falha ao lançar DESPESA da comissão ${id}: ${e?.message ?? e}`);
+    }
+    return updated;
   }
 
   /**
