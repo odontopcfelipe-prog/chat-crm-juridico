@@ -95,6 +95,7 @@ const STATUS_LABEL: Record<string, { label: string; tone: 'ok' | 'warn' | 'err' 
   qr:            { label: 'Aguardando QR',   tone: 'warn' },
   close:         { label: 'Desconectado',    tone: 'err' },
   disconnected:  { label: 'Desconectado',    tone: 'err' },
+  unknown:       { label: 'Verificando…',    tone: 'warn' },
 };
 
 function statusOf(s: string): { label: string; tone: 'ok' | 'warn' | 'err' } {

@@ -313,10 +313,10 @@ export class WhatsappService {
 
   // --- GESTÃO DE INSTÂNCIAS ---
 
-  async listInstances(tenantId?: string | null) {
+  async listInstances(tenantId?: string | null, timeoutMs?: number) {
     // Onda 17.32.129 — Fase 6.1: per-tenant. Passa tenantId pro request
     // pra usar a Evolution config do tenant (URL + key) em vez do global.
-    const data = await this.request('GET', 'instance/fetchInstances', undefined, undefined, tenantId);
+    const data = await this.request('GET', 'instance/fetchInstances', undefined, timeoutMs, tenantId);
     // Na v2, a Evolution retorna [{ instance: { ... } }] ou um objeto com { data: [...] }
     let instancesArray = (data as any)?.instances || (data as any)?.data || data;
     
@@ -529,50 +529,59 @@ export class WhatsappService {
    */
   async listForTenant(tenantId: string) {
     const prefix = this.tenantPrefix(tenantId);
-    const [all, legacy, displayMap] = await Promise.all([
-      this.listInstances().catch(() => []),
-      this.getLegacyInstanceName(tenantId),
-      this.getInstanceDisplayMap(tenantId),
+    const [evoRaw, legacy, displayMap] = await Promise.all([
+      this.listInstances(null, 8000).catch(() => []),
+      this.getLegacyInstanceName(tenantId).catch(() => null),
+      this.getInstanceDisplayMap(tenantId).catch(() => ({} as Record<string, string>)),
     ]);
 
-    const mine = (all as any[]).filter((i) => {
-      const name: string = i.instanceName || '';
-      if (name.startsWith(`${prefix}-`)) return true;
-      if (legacy && name === legacy) return true;
-      return false;
+    // BLINDAGEM (Onda 17.64.x): quando o fetchInstances da Evolution dá TIMEOUT,
+    // o request retorna {statusCode:408} (objeto, NÃO array). Fazer .filter nisso
+    // quebrava a listagem inteira (500 "não carregou"). Agora: se não vier array,
+    // trata como vazio e cai na fonte estável (nosso banco) — os chips NÃO somem.
+    const evo: any[] = Array.isArray(evoRaw) ? evoRaw : [];
+
+    const evoMine = evo.filter((i) => {
+      const name: string = i?.instanceName || '';
+      return name.startsWith(`${prefix}-`) || (!!legacy && name === legacy);
     });
 
-    // Onda 17.33 — Self-healing: garante que cada instancia do tenant esta
-    // registrada na tabela Instance + vinculada a Inbox (e backfilla conversas
-    // orfaas). Repara instancias criadas pelo quickConnect antes deste fix.
-    // Best-effort em paralelo; nao bloqueia a listagem se falhar.
+    // Self-healing (best-effort, nunca bloqueia a listagem): registra na tabela
+    // Instance + vincula Inbox os chips que a Evolution retornou.
     await Promise.all(
-      mine
+      evoMine
         .filter((i) => (i.instanceName || '').startsWith(`${prefix}-`))
-        .map((i) =>
-          this.ensureInstanceRegistered(
-            tenantId,
-            i.instanceName,
-            displayMap[i.instanceName],
-          ),
-        ),
-    );
+        .map((i) => this.ensureInstanceRegistered(tenantId, i.instanceName, displayMap[i.instanceName])),
+    ).catch(() => {});
 
-    // Onda 17.64 — anexa a FUNÇÃO de cada chip (COMERCIAL|CLINICA|null), lida da
-    // tabela Instance escopada por tenant (NÃO da Evolution). O self-heal acima
-    // já garantiu o registro, então o purpose existe pros chips do tenant.
+    // Fonte de verdade dos CHIPS = nossa tabela Instance (não some se a Evolution
+    // cair). A Evolution só sobrepõe status/perfil quando responde.
     const dbRows = await this.prisma.instance.findMany({
-      where: { tenant_id: tenantId },
+      where: { tenant_id: tenantId, type: 'whatsapp' },
       select: { name: true, purpose: true },
     });
-    const purposeByName = new Map(dbRows.map((r) => [r.name, r.purpose]));
+    const purposeByName = new Map<string, any>(dbRows.map((r) => [r.name, r.purpose]));
+    const evoByName = new Map<string, any>(evoMine.map((i) => [i.instanceName, i]));
 
-    return mine.map((i) => ({
-      ...i,
-      displayName: displayMap[i.instanceName] || this.guessDisplayName(i.instanceName, prefix),
-      isLegacy: legacy ? i.instanceName === legacy : false,
-      purpose: purposeByName.get(i.instanceName) ?? null,
-    }));
+    // União deduplicada: chips do banco (sempre) + os que só a Evolution trouxe + legacy.
+    const names = new Set<string>();
+    for (const r of dbRows) if (r.name.startsWith(`${prefix}-`)) names.add(r.name);
+    for (const i of evoMine) if (i.instanceName) names.add(i.instanceName);
+    if (legacy) names.add(legacy);
+
+    return [...names].map((name) => {
+      const e = evoByName.get(name) || {};
+      return {
+        ...e,
+        instanceName: name,
+        displayName: displayMap[name] || this.guessDisplayName(name, prefix),
+        isLegacy: !!legacy && name === legacy,
+        purpose: purposeByName.get(name) ?? null,
+        // Status da Evolution quando disponível; senão 'unknown' (chip aparece,
+        // só não confirma o status ao vivo — melhor que sumir + erro).
+        status: e.status || 'unknown',
+      };
+    });
   }
 
   /** Pega "Linha 1" de "t1234abcd-1" ou usa o proprio nome se for legacy. */
