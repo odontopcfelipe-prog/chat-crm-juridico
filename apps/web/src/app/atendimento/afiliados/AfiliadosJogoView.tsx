@@ -170,17 +170,7 @@ export default function AfiliadosJogoView() {
         </div>
       </section>
 
-      {semAfiliados ? (
-        <div className="rounded-2xl border border-dashed border-border p-10 text-center text-muted-foreground">
-          <Users size={30} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm font-medium">Nenhum afiliado na corrida ainda</p>
-          <p className="text-xs mt-1">
-            Marque pacientes como afiliados (botão <b>“+ Adicionar afiliado”</b>). Quando indicarem e o
-            tratamento fechar, eles aparecem no ranking aqui — sem número inventado.
-          </p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
           {/* ===== Ranking (2 colunas) ===== */}
           <section className="lg:col-span-2 rounded-2xl border border-border bg-card overflow-hidden">
             <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
@@ -192,6 +182,17 @@ export default function AfiliadosJogoView() {
               </button>
             </header>
 
+            {semAfiliados ? (
+              <div className="p-10 text-center text-muted-foreground">
+                <Users size={30} className="mx-auto mb-2 opacity-40" />
+                <p className="text-sm font-medium">Nenhum afiliado na corrida ainda</p>
+                <p className="text-xs mt-1 max-w-md mx-auto">
+                  Marque pacientes como afiliados (botão <b>“+ Adicionar afiliado”</b>). Quando indicarem e
+                  o tratamento fechar, eles sobem no ranking aqui — sem número inventado.
+                </p>
+              </div>
+            ) : (
+            <>
             {/* Pódio top 3 */}
             <div className="flex items-end justify-center gap-3 md:gap-5 px-4 pt-6 pb-4">
               {[1, 0, 2].map((slot) => {
@@ -254,6 +255,8 @@ export default function AfiliadosJogoView() {
                   </div>
                 ))}
               </div>
+            )}
+            </>
             )}
           </section>
 
@@ -349,7 +352,6 @@ export default function AfiliadosJogoView() {
             )}
           </div>
         </div>
-      )}
     </div>
   );
 }
