@@ -1,4 +1,5 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { MaintenanceService } from '../maintenance/maintenance.service';
@@ -13,11 +14,34 @@ export class TreatmentPlansService {
   private readonly logger = new Logger(TreatmentPlansService.name);
   constructor(
     private prisma: PrismaService,
+    private moduleRef: ModuleRef,
     @Optional() @Inject(forwardRef(() => ReferralsService)) private referralsService?: ReferralsService,
     // Onda 5 (Fase 25) — opcional pra evitar quebrar testes existentes;
     // quando ausente, no-op silente
     @Optional() private maintenance?: MaintenanceService,
   ) {}
+
+  /**
+   * HOOK (Programa de Afiliado) — quando o plano é CANCELADO, reverte a comissão
+   * do afiliado gerada por aquele orçamento (negócio caiu). Best-effort +
+   * idempotente. Resolve a AffiliateService via ModuleRef (evita ciclo de módulo).
+   */
+  private async reverseAffiliateReferral(
+    quoteId: string,
+    tenantId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { AffiliateService } = require('../patients/affiliate.service');
+      const svc = this.moduleRef.get(AffiliateService, { strict: false });
+      if (svc) await svc.reverseReferralForQuote(quoteId, tenantId, reason);
+    } catch (e: any) {
+      this.logger.warn(
+        `[PLAN→AFFILIATE] Falha ao reverter comissão (quote ${quoteId}): ${e?.message}`,
+      );
+    }
+  }
 
   async findByPatient(patientId: string, tenantId: string) {
     await this.assertPatientBelongsToTenant(patientId, tenantId);
@@ -159,11 +183,31 @@ export class TreatmentPlansService {
   }
 
   async update(id: string, tenantId: string, data: Prisma.TreatmentPlanUncheckedUpdateInput) {
-    await this.findOne(id, tenantId);
+    const before = await this.findOne(id, tenantId);
     const patch: Prisma.TreatmentPlanUncheckedUpdateInput = { ...data };
     if (data.start_date) patch.start_date = new Date(data.start_date as any);
     if (data.end_date) patch.end_date = new Date(data.end_date as any);
-    return this.prisma.treatmentPlan.update({ where: { id }, data: patch });
+    const updated = await this.prisma.treatmentPlan.update({ where: { id }, data: patch });
+
+    // Hook afiliado: plano CANCELADO (negócio caiu) → reverte a comissão do
+    // afiliado daquele orçamento. `data.status` pode vir como string crua ou
+    // como { set } (Prisma) — normaliza antes de comparar.
+    const newStatus =
+      typeof data.status === 'string'
+        ? data.status
+        : (data.status as any)?.set;
+    if (
+      newStatus === 'CANCELLED' &&
+      before.status !== 'CANCELLED' &&
+      before.quote_id
+    ) {
+      await this.reverseAffiliateReferral(
+        before.quote_id,
+        tenantId,
+        `Plano de tratamento ${id} cancelado`,
+      );
+    }
+    return updated;
   }
 
   /** Atalho: ativar plano (ex: apos assinatura manual em TCLE externo) */

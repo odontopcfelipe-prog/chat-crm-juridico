@@ -666,4 +666,60 @@ export class AffiliateService {
       );
     }
   }
+
+  /**
+   * REVERTIDA (skill, Gancho 3) — desfaz a comissão de afiliado quando o negócio
+   * CAI (plano de tratamento cancelado). O crédito nasce na aceitação; se a
+   * aceitação é desfeita, a comissão tem que sumir do saldo — senão o afiliado
+   * saca dinheiro de um tratamento que não vai acontecer.
+   *
+   * Marca o AffiliateReferral 'creditado'→'cancelado' (sai do saldo, que só
+   * conta 'creditado'). Idempotente: se já está cancelado/não existe, no-op.
+   * Best-effort: erro é logado, não bloqueia o cancelamento do plano.
+   *
+   * Skill: "Se a comissão já foi PAGA/sacada e o fechamento depois cai, vira
+   * saldo negativo — não silenciar." Aqui, se o afiliado já sacou além do que
+   * sobra, logamos ALERTA pro admin (descontar de comissão futura é o usual).
+   */
+  async reverseReferralForQuote(
+    quoteId: string,
+    tenantId: string,
+    reason: string,
+  ): Promise<void> {
+    try {
+      const referral = await this.prisma.affiliateReferral.findFirst({
+        where: { tenant_id: tenantId, quote_id: quoteId, status: 'creditado' },
+      });
+      if (!referral) return; // nada a reverter (ou já cancelado)
+
+      await this.prisma.affiliateReferral.update({
+        where: { id: referral.id },
+        data: {
+          status: 'cancelado',
+          notes: [referral.notes, `Revertido: ${reason}`].filter(Boolean).join(' | '),
+        },
+      });
+      this.logger.log(
+        `[AFFILIATE] Referral ${referral.id} REVERTIDO (quote ${quoteId}): ${reason} — ` +
+        `R$${Number(referral.commission_value)} saiu do saldo do afiliado ${referral.referrer_id}`,
+      );
+
+      // Não silenciar saldo negativo: se já sacou/pediu além do que restou.
+      const dash = await this.getDashboard(referral.referrer_id, tenantId).catch(() => null);
+      if (dash) {
+        const comprometido = dash.stats.totalSacado + dash.stats.pendenteSaque;
+        if (comprometido > dash.stats.totalAcumulado + 0.001) {
+          this.logger.warn(
+            `[AFFILIATE] SALDO NEGATIVO após reversão: afiliado ${referral.referrer_id} ` +
+            `já sacou/pendente R$${comprometido.toFixed(2)} > acumulado R$${dash.stats.totalAcumulado.toFixed(2)}. ` +
+            `Descontar de comissão futura (revisar manualmente).`,
+          );
+        }
+      }
+    } catch (e: any) {
+      this.logger.warn(
+        `[AFFILIATE] Falha ao reverter referral da quote ${quoteId}: ${e?.message}`,
+      );
+    }
+  }
 }
