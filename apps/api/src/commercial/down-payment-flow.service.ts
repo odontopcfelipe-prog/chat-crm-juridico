@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from '@nestjs/common';
+import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { PaymentGatewayService } from '../payment-gateway/payment-gateway.service';
 import { AsaasClient } from '../payment-gateway/asaas/asaas-client';
@@ -43,7 +44,36 @@ export class DownPaymentFlowService {
     private prisma: PrismaService,
     private paymentGateway: PaymentGatewayService,
     private asaas: AsaasClient,
+    private moduleRef: ModuleRef,
   ) {}
+
+  /**
+   * HOOK 5 (Programa de Afiliado) — credita a comissão do afiliado quando a
+   * Quote vira ACCEPTED pelo auto-aceite tardio (sinal pago). Best-effort +
+   * idempotente por quote_id (a AffiliateService pula se já existe referral).
+   * Sem isso, fechamento via Opção B (financiamento/sinal) não comissionava.
+   */
+  private recordAffiliateReferral(
+    quoteId: string,
+    patientId: string,
+    treatmentValue: number,
+    tenantId: string,
+  ): void {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { AffiliateService } = require('../patients/affiliate.service');
+      const affiliateService = this.moduleRef.get(AffiliateService, { strict: false });
+      if (affiliateService) {
+        affiliateService
+          .recordReferralFromAcceptedQuote({ quoteId, patientId, treatmentValue, tenantId })
+          .catch((err: any) =>
+            this.logger.warn(`[DOWN-PMT→AFFILIATE] Hook falhou (quote ${quoteId}): ${err?.message}`),
+          );
+      }
+    } catch (e: any) {
+      this.logger.warn(`[DOWN-PMT→AFFILIATE] AffiliateService indisponivel: ${e?.message}`);
+    }
+  }
 
   /**
    * Wrapper: aceita quoteId e resolve o treatment_plan_id correspondente.
@@ -338,7 +368,7 @@ export class DownPaymentFlowService {
   async handleChargePaid(chargeId: string) {
     const charge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { id: chargeId },
-      select: { treatment_plan_id: true, kind: true },
+      select: { treatment_plan_id: true, kind: true, tenant_id: true },
     });
     if (!charge?.treatment_plan_id) return; // nao eh do fluxo down-payment
     if (charge.kind !== 'SINAL' && charge.kind !== 'ENTRADA') return; // installments nao disparam trigger
@@ -355,7 +385,12 @@ export class DownPaymentFlowService {
       if (plan?.quote_id) {
         const quote = await this.prisma.quote.findUnique({
           where: { id: plan.quote_id },
-          select: { id: true, status: true },
+          select: {
+            id: true,
+            status: true,
+            patient_id: true,
+            total_value: true,
+          },
         });
         if (quote && (quote.status === 'DRAFT' || quote.status === 'SENT')) {
           const now = new Date();
@@ -379,6 +414,16 @@ export class DownPaymentFlowService {
             `[DOWN-PMT] Auto-aceite tardio: sinal pago → quote ${quote.id} ` +
             `${quote.status}→ACCEPTED + plan ${plan.id} ACTIVE.`,
           );
+          // HOOK 5 — auto-aceite por sinal pago: credita o afiliado (Opção B).
+          // tenant_id vem da charge (Quote não tem coluna própria de tenant).
+          if (charge.tenant_id) {
+            this.recordAffiliateReferral(
+              quote.id,
+              quote.patient_id,
+              Number(quote.total_value),
+              charge.tenant_id,
+            );
+          }
         }
       }
     }

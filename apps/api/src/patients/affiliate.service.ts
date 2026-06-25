@@ -247,14 +247,18 @@ export class AffiliateService {
     }
 
     const paidAt = new Date();
-    await this.prisma.affiliateWithdrawal.update({
-      where: { id: withdrawalId },
-      data: {
-        status: 'pago',
-        paid_at: paidAt,
-        paid_by_user_id: paidByUserId,
-      },
+    // ATÔMICO contra corrida (duplo-clique / 2 admins / 2 abas): só o vencedor
+    // que muda 'solicitado'→'pago' segue e lança a DESPESA. O updateMany
+    // condicional por status fecha a janela TOCTOU sem precisar de transação —
+    // `UPDATE ... WHERE status='solicitado'` afeta exatamente 1 linha no Postgres.
+    const res = await this.prisma.affiliateWithdrawal.updateMany({
+      where: { id: withdrawalId, tenant_id: tenantId, status: 'solicitado' },
+      data: { status: 'pago', paid_at: paidAt, paid_by_user_id: paidByUserId },
     });
+    if (res.count === 0) {
+      // Outra requisição concorrente já pagou (ou recusou) — NÃO lança 2ª DESPESA.
+      return { ok: true, idempotent: true };
+    }
 
     this.logger.log(
       `[AFFILIATE_WITHDRAWAL] Pago: id=${withdrawalId} by=${paidByUserId}`,

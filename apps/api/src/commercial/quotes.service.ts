@@ -1041,6 +1041,13 @@ export class QuotesService {
           `[FINANCING] Aceite leve: quote ${quoteId} ${quoteCheck.status}→ACCEPTED ` +
           `(plano tentativo ${existingPlan.id} ja existia).`,
         );
+        // HOOK 5 — aceite leve NÃO passa por accept(): credita o afiliado aqui.
+        this.recordAffiliateReferral(
+          quoteId,
+          quoteCheck.patient_id,
+          Number(quoteCheck.total_value),
+          tenantId,
+        );
       } else {
         // Caminho legado: aceita normalmente (cria quote + plan + snapshot + ClickSign)
         await this.accept(quoteId, tenantId, userId);
@@ -1217,31 +1224,42 @@ export class QuotesService {
     }
 
     // ─── HOOK 5 (Onda 5e v34): Programa de Afiliado ─────────────────────
-    // Se o paciente desta quote tem referred_by_id apontando pra um Patient
-    // afiliado, cria AffiliateReferral creditando 3% (ou pct configurado)
-    // do valor total no saldo do afiliado. Idempotente (pula se ja existe
-    // referral pra essa quote_id) e best-effort (nao bloqueia o accept).
+    // Credita a comissão do afiliado que indicou o paciente. Best-effort +
+    // idempotente por quote_id. Extraído pra helper porque a Quote também vira
+    // ACCEPTED por OUTROS caminhos (aceite leve do financiamento, aprovação
+    // parcial, auto-aceite por sinal pago) — todos precisam creditar o afiliado.
+    this.recordAffiliateReferral(id, quote.patient_id, Number(quote.total_value), tenantId);
+
+    return result;
+  }
+
+  /**
+   * HOOK 5 (Programa de Afiliado) — credita a comissão do afiliado que indicou
+   * o paciente quando uma Quote vira ACCEPTED. Best-effort (não bloqueia o
+   * fechamento) e idempotente por quote_id (a AffiliateService pula se já existe
+   * referral pra essa quote). DEVE ser chamado em TODO caminho que promove a
+   * Quote a ACCEPTED — senão o afiliado não recebe naquela venda.
+   */
+  private recordAffiliateReferral(
+    quoteId: string,
+    patientId: string,
+    treatmentValue: number,
+    tenantId: string,
+  ): void {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { AffiliateService } = require('../patients/affiliate.service');
       const affiliateService = this.moduleRef.get(AffiliateService, { strict: false });
       if (affiliateService) {
         affiliateService
-          .recordReferralFromAcceptedQuote({
-            quoteId: id,
-            patientId: quote.patient_id,
-            treatmentValue: Number(quote.total_value),
-            tenantId,
-          })
+          .recordReferralFromAcceptedQuote({ quoteId, patientId, treatmentValue, tenantId })
           .catch((err: any) =>
-            this.logger.warn(`[ACCEPT→AFFILIATE] Hook falhou: ${err?.message}`),
+            this.logger.warn(`[ACCEPT→AFFILIATE] Hook falhou (quote ${quoteId}): ${err?.message}`),
           );
       }
     } catch (e: any) {
       this.logger.warn(`[ACCEPT→AFFILIATE] AffiliateService indisponivel: ${e?.message}`);
     }
-
-    return result;
   }
 
   /**
@@ -1361,7 +1379,7 @@ export class QuotesService {
 
     // Transaction: remove items selecionados do original + recalcula totais
     // + cria novo Quote ACCEPTED com items copiados + TreatmentPlan
-    return this.prisma.$transaction(async (tx) => {
+    const partial = await this.prisma.$transaction(async (tx) => {
       // 1. Onda 3.8 — Remove os items SELECIONADOS do original (eles foram
       // pro novo). Os items NAO selecionados ficam no original pra venda
       // futura. Original mantem status (DRAFT continua DRAFT, SENT continua
@@ -1496,6 +1514,17 @@ export class QuotesService {
         remaining_total_value: remainingTotalValue,
       };
     });
+
+    // HOOK 5 — aprovação parcial cria um quote NOVO já ACCEPTED (não passa por
+    // accept()): credita o afiliado sobre o valor PARCIAL aprovado.
+    this.recordAffiliateReferral(
+      partial.accepted_quote.id,
+      quote.patient_id,
+      Number(partial.accepted_quote.total_value),
+      tenantId,
+    );
+
+    return partial;
   }
 
   async reject(id: string, tenantId: string, reason?: string, userId?: string) {
