@@ -161,6 +161,82 @@ export class PatientsController {
     return { graduated: !!lead, lead_id: lead?.id ?? null };
   }
 
+  // ─── Afiliados (rotas LITERAIS) ─────────────────────────────────────────
+  // CRÍTICO: TODO o cluster 'affiliates' fica ANTES de @Get(':id'). No NestJS as
+  // rotas casam por ORDEM de declaracao; se 'affiliates' vier depois, GET
+  // /patients/affiliates bate em @Get(':id') (id='affiliates') e retorna
+  // "Paciente nao encontrado" (404) — o dashboard de afiliados nunca carrega.
+  @Get('affiliates')
+  listAffiliatesDashboard(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver dashboard de afiliados');
+    }
+    return this.affiliateService.listAffiliatesDashboard(tenantId);
+  }
+
+  /** Onda 5e v36 — lista de saques pendentes pra aprovacao (admin). */
+  @Get('affiliates/pending-withdrawals')
+  listPendingWithdrawals(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode listar saques');
+    }
+    return this.affiliateService.listPendingWithdrawals(tenantId);
+  }
+
+  /** Onda 17.63 — config de FAIXAS de afiliado por volume (admin lê/edita). */
+  @Get('affiliates/tiers')
+  getAffiliateTiers(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver faixas de afiliado');
+    }
+    return this.affiliateService.getTiers(tenantId);
+  }
+
+  @Patch('affiliates/tiers')
+  setAffiliateTiers(
+    @Body()
+    body: {
+      enabled?: boolean;
+      tiers: { label: string; min: number; pct: number }[];
+    },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode editar faixas de afiliado');
+    }
+    return this.affiliateService.setTiers(tenantId, body);
+  }
+
+  /** Onda 17.64 — "Modo Jogo" dos afiliados (temporada + ranking + faixas + missões). */
+  @Get('affiliates/game')
+  affiliateGame(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver o Modo Jogo de afiliados');
+    }
+    return this.affiliateService.affiliateGameView(tenantId);
+  }
+
+  /** Onda 17.64 — define a meta coletiva da temporada (0 = remove). */
+  @Patch('affiliates/season-goal')
+  setAffiliateSeasonGoal(@Body() body: { goal?: number }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode definir a meta da temporada');
+    }
+    return this.affiliateService.setSeasonGoal(tenantId, Number(body?.goal) || 0);
+  }
+
   @RequiresPermission('view_patients')
   @Get(':id')
   findOne(@Param('id') id: string, @Request() req: any) {
@@ -441,90 +517,6 @@ export class PatientsController {
   }
 
   // ─── Programa de Afiliado (Onda 5e v34, Fase 25) ─────────────────────
-
-  /**
-   * Onda 5e v36 — dashboard GLOBAL de afiliados do tenant (admin only).
-   * Lista todos os afiliados ativos com KPIs agregados + top 5 do mes.
-   * Usado pela rota /atendimento/afiliados.
-   *
-   * IMPORTANTE: declarado ANTES de :id/affiliate pra Nest nao tratar
-   * 'affiliates' como id de paciente.
-   */
-  @Get('affiliates')
-  listAffiliatesDashboard(@Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode ver dashboard de afiliados');
-    }
-    return this.affiliateService.listAffiliatesDashboard(tenantId);
-  }
-
-  /**
-   * Onda 5e v36 — lista de saques pendentes pra aprovacao (admin).
-   */
-  @Get('affiliates/pending-withdrawals')
-  listPendingWithdrawals(@Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode listar saques');
-    }
-    return this.affiliateService.listPendingWithdrawals(tenantId);
-  }
-
-  /**
-   * Onda 17.63 — config de FAIXAS de afiliado por volume (admin lê/edita).
-   * Declarado ANTES de :id pra Nest nao tratar 'affiliates' como id.
-   */
-  @Get('affiliates/tiers')
-  getAffiliateTiers(@Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode ver faixas de afiliado');
-    }
-    return this.affiliateService.getTiers(tenantId);
-  }
-
-  @Patch('affiliates/tiers')
-  setAffiliateTiers(
-    @Body()
-    body: {
-      enabled?: boolean;
-      tiers: { label: string; min: number; pct: number }[];
-    },
-    @Request() req: any,
-  ) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode editar faixas de afiliado');
-    }
-    return this.affiliateService.setTiers(tenantId, body);
-  }
-
-  /** Onda 17.64 — "Modo Jogo" dos afiliados (temporada + ranking + faixas + missões). */
-  @Get('affiliates/game')
-  affiliateGame(@Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode ver o Modo Jogo de afiliados');
-    }
-    return this.affiliateService.affiliateGameView(tenantId);
-  }
-
-  /** Onda 17.64 — define a meta coletiva da temporada (0 = remove). */
-  @Patch('affiliates/season-goal')
-  setAffiliateSeasonGoal(@Body() body: { goal?: number }, @Request() req: any) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isAdmin(req.user?.roles)) {
-      throw new ForbiddenException('Apenas ADMIN pode definir a meta da temporada');
-    }
-    return this.affiliateService.setSeasonGoal(tenantId, Number(body?.goal) || 0);
-  }
 
   /**
    * Dashboard do afiliado: saldo (disponivel/acumulado/sacado/pendente)
