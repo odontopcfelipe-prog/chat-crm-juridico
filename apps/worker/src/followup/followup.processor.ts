@@ -97,6 +97,22 @@ export class FollowupProcessor extends WorkerHost {
 
     if (!enrollment || enrollment.status !== 'ATIVO') return;
 
+    // Onda 17.64 — REDE DE SEGURANÇA: se o lead virou PACIENTE (is_client), não manda
+    // nutrição de LEAD. Cancela o enrollment e para. Cobre qualquer enrollment que ficou
+    // ATIVO após a conversão (pagamento, finalização, ou mensagem no chip Clínica). Só
+    // mira sequências 'LEADS' — 'CLIENTS' (manutenção) é PRA paciente, segue normal.
+    const seqCat = (enrollment as any).sequence?.category;
+    if ((enrollment as any).lead?.is_client && (seqCat === 'LEADS' || seqCat === 'REENGAJAMENTO')) {
+      await this.prisma.followupEnrollment.update({
+        where: { id: enrollmentId },
+        data: { status: 'CANCELADO' },
+      });
+      this.logger.log(
+        `[FOLLOWUP] Lead ${enrollment.lead_id} é paciente — enrollment ${enrollmentId} cancelado (sem nutrição de lead)`,
+      );
+      return;
+    }
+
     const step = enrollment.sequence.steps.find(s => s.position === enrollment.current_step);
     if (!step) {
       // Sequência concluída
@@ -191,9 +207,29 @@ export class FollowupProcessor extends WorkerHost {
   private async sendMessage(messageId: string) {
     const msg = await this.prisma.followupMessage.findUnique({
       where: { id: messageId },
-      include: { enrollment: { include: { lead: true } }, step: true },
+      include: { enrollment: { include: { lead: true, sequence: true } }, step: true },
     });
     if (!msg || msg.status === 'ENVIADO') return;
+
+    // Onda 17.64 — REDE DE SEGURANÇA no path de APROVAÇÃO MANUAL (não passa pelo
+    // processStep). Se a msg é de sequência de LEAD e o lead já virou PACIENTE
+    // (is_client), NÃO envia — rejeita a msg + cancela o enrollment. Cobre a
+    // mensagem que ficou pendente de aprovação e o lead converteu no meio.
+    const cat = (msg as any).enrollment?.sequence?.category;
+    if ((msg as any).enrollment?.lead?.is_client && (cat === 'LEADS' || cat === 'REENGAJAMENTO')) {
+      await this.prisma.followupMessage.update({
+        where: { id: messageId },
+        data: { status: 'REJEITADO' },
+      });
+      if ((msg as any).enrollment?.id) {
+        await this.prisma.followupEnrollment.update({
+          where: { id: (msg as any).enrollment.id },
+          data: { status: 'CANCELADO' },
+        }).catch(() => {});
+      }
+      this.logger.log(`[FOLLOWUP] Msg ${messageId}: lead virou paciente — não envia nutrição de lead (rejeitada)`);
+      return;
+    }
 
     const convo = await this.prisma.conversation.findFirst({
       where: { lead_id: msg.lead_id, status: 'ABERTO' },

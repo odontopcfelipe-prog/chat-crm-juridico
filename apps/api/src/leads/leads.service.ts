@@ -1032,6 +1032,39 @@ export class LeadsService {
       `[LEAD→CLIENT] Lead ${lead.id} (patient ${patientId}) promovido a cliente (is_client=true)`,
     );
 
+    // Onda 17.64 — virou paciente → cancela follow-ups de LEAD em andamento (não
+    // recebe mais nutrição comercial). Só sequências 'LEADS' — mantém 'CLIENTS'
+    // (manutenção) e 'COBRANCA'. Best-effort: não derruba a conversão.
+    // (updateMany não filtra por relação no where → findMany por categoria + updateMany por id.)
+    try {
+      const leadEnrolls = await this.prisma.followupEnrollment.findMany({
+        where: {
+          lead_id: lead.id,
+          status: { in: ['ATIVO', 'PAUSADO'] },
+          sequence: { category: { in: ['LEADS', 'REENGAJAMENTO'] } },
+        },
+        select: { id: true },
+      });
+      if (leadEnrolls.length) {
+        const ids = leadEnrolls.map((e) => e.id);
+        await this.prisma.followupEnrollment.updateMany({
+          where: { id: { in: ids } },
+          data: { status: 'CANCELADO', paused_reason: 'Lead virou paciente' },
+        });
+        // Limpa mensagens PENDENTES DE APROVAÇÃO desses enrollments — senão o operador
+        // poderia aprovar e enviar nutrição de lead pro paciente (path fora do processStep).
+        await this.prisma.followupMessage.updateMany({
+          where: { enrollment_id: { in: ids }, status: 'PENDENTE_APROVACAO' },
+          data: { status: 'REJEITADO' },
+        });
+        this.logger.log(
+          `[LEAD→CLIENT] ${leadEnrolls.length} follow-up(s) de lead cancelado(s) pro lead ${lead.id}`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`[LEAD→CLIENT] Falha ao cancelar follow-ups de lead: ${e?.message}`);
+    }
+
     // PASSO 2: Tenta tambem mover stage pra FINALIZADO (best-effort).
     // Se ja esta em FINALIZADO/PERDIDO, skip. Se falhar (ex: gate de
     // specialty), apenas loga — is_client ja garantiu o essencial.

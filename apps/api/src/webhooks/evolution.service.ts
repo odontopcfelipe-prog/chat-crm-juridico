@@ -241,9 +241,25 @@ export class EvolutionService implements OnApplicationBootstrap {
         inboxId, // isola notificacao de lead novo ao inbox do setor
       );
 
-      // 1b. Lead PERDIDO/FINALIZADO voltou a falar → reativar para QUALIFICANDO
+      // 1a. Onda 17.64 — o CHIP classifica lead × paciente na entrada. O número da
+      // CLÍNICA é privado (só quem já é paciente tem) → quem fala nele JÁ é paciente:
+      // marca is_client=true (vai pra aba Clientes / time clínico, sem nutrição de
+      // lead). O número COMERCIAL (Instagram) mantém o padrão de lead. Promove,
+      // NUNCA rebaixa. `inbox` aqui é a Instance (findByInstanceName) → tem `purpose`.
+      const isClinicaChip = (inbox as any)?.purpose === 'CLINICA';
+      if (isClinicaChip && !lead.is_client) {
+        await this.prisma.lead.update({
+          where: { id: lead.id },
+          data: { is_client: true, became_client_at: (lead as any).became_client_at ?? new Date() },
+        });
+        (lead as any).is_client = true;
+        this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) via chip CLINICA → paciente (is_client=true)`);
+      }
+
+      // 1b. Lead PERDIDO/FINALIZADO voltou a falar → reativar para QUALIFICANDO.
+      // SÓ pra chip comercial/legado: paciente da clínica não é "lead dormente reativado".
       // Sem isso, a conversa existe mas fica invisível no inbox (filtro de stage).
-      if (!isFromMe && ['PERDIDO', 'FINALIZADO'].includes(lead.stage)) {
+      if (!isFromMe && !isClinicaChip && ['PERDIDO', 'FINALIZADO'].includes(lead.stage)) {
         await this.prisma.lead.update({
           where: { id: lead.id },
           data: {

@@ -71,6 +71,9 @@ export class FollowupCronService {
         const leads = await this.prisma.lead.findMany({
           where: {
             stage: config.stage, updated_at: { lt: cutoff },
+            // Onda 17.64 — PACIENTE (is_client) não recebe follow-up de lead. Este cron
+            // legado envia direto (axios), fora do processStep, então precisa do filtro aqui.
+            is_client: false,
             OR: [{ last_followup_at: null }, { last_followup_at: { lt: cutoff } }],
             // Pular leads que já estão em alguma sequência ativa
             followup_enrollments: { none: { status: 'ATIVO' } },

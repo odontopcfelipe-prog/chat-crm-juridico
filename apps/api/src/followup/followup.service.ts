@@ -916,7 +916,20 @@ Gere APENAS o texto da mensagem, sem introduções ou explicações.`;
     const sequences = await this.prisma.followupSequence.findMany({
       where: { active: true, auto_enroll_stages: { has: stage } },
     });
+    if (sequences.length === 0) return;
+    // Onda 17.64 — PACIENTE (is_client) não entra em sequência de LEAD. Crítico: contato
+    // novo da Clínica nasce em stage NOVO e o auto-enroll de "Novo Lead" pegaria um paciente.
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { is_client: true },
+    });
+    const isClient = !!lead?.is_client;
     for (const seq of sequences) {
+      const cat = (seq as any).category;
+      if (isClient && (cat === 'LEADS' || cat === 'REENGAJAMENTO')) {
+        this.logger.log(`[FOLLOWUP] Pula auto-enroll "${seq.name}" (${cat}) — lead ${leadId} é paciente`);
+        continue;
+      }
       try {
         await this.enrollLead(leadId, seq.id);
         this.logger.log(`[FOLLOWUP] Auto-enroll lead ${leadId} → sequência "${seq.name}" (stage: ${stage})`);
