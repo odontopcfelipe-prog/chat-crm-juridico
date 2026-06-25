@@ -1566,7 +1566,21 @@ export class CalendarService {
   /** Onda 17.56 — instância Evolution REAL do tenant: prefere a de uma conversa
    *  recente (a que o chat usa de verdade) e cai na tabela Instance como fallback.
    *  A tabela Instance às vezes tem um registro 'whatsapp' que a Evolution não tem. */
-  private async resolveTenantWhatsappInstance(tenant_id?: string): Promise<string | null> {
+  private async resolveTenantWhatsappInstance(
+    tenant_id?: string,
+    purpose?: 'COMERCIAL' | 'CLINICA',
+  ): Promise<string | null> {
+    // Onda 17.64 — se a clínica separou os chips por função, prefere o chip DAQUELA
+    // função (ex: disparo clínico sai pelo chip CLINICA). SEMPRE escopado por
+    // tenant_id — nunca resolve instância de outro tenant (sem listInstances).
+    if (purpose && tenant_id) {
+      const byPurpose = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id, purpose },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+      if (byPurpose?.name) return byPurpose.name;
+    }
     const convo = await this.prisma.conversation.findFirst({
       where: { instance_name: { not: null }, ...(tenant_id ? { tenant_id } : {}) },
       orderBy: { last_message_at: 'desc' },
@@ -1666,7 +1680,7 @@ export class CalendarService {
     // Adiciona o código do Brasil (55) quando vem só DDD + número (10–11 dígitos).
     if (num.length === 10 || num.length === 11) num = `55${num}`;
 
-    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id);
+    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, 'CLINICA');
     if (!instanceName) {
       throw new BadRequestException(
         'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
@@ -1873,7 +1887,7 @@ export class CalendarService {
     // Onda 17.56 — instância Evolution real do tenant (mesmo motivo do teste de
     // confirmação: sem nome, sendText cairia no default 'whatsapp' inexistente).
     const summaryInstanceName =
-      config.channel === 'WHATSAPP' ? await this.resolveTenantWhatsappInstance(tenant_id) : null;
+      config.channel === 'WHATSAPP' ? await this.resolveTenantWhatsappInstance(tenant_id, 'CLINICA') : null;
 
     const results: { user_id: string; name: string | null; sent: boolean; reason?: string }[] = [];
     for (const u of dentists) {
@@ -2111,7 +2125,7 @@ export class CalendarService {
     }
     if (!leadId) return { conversation_id: null };
 
-    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id).catch(() => null);
+    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, 'CLINICA').catch(() => null);
     const conv = await this.prisma.conversation.create({
       data: {
         lead_id: leadId,
@@ -3278,7 +3292,7 @@ export class CalendarService {
         return { sent: false, reason: 'Paciente sem telefone cadastrado' };
       }
 
-      const instanceName = await this.resolveTenantWhatsappInstance(tenantId);
+      const instanceName = await this.resolveTenantWhatsappInstance(tenantId, 'CLINICA');
       if (!instanceName) {
         this.logger.warn(`[AUTO-WPP] agendamento_${kind}: sem instância WhatsApp pro tenant ${tenantId}`);
         return { sent: false, reason: 'Sem instância WhatsApp conectada pra esta clínica' };

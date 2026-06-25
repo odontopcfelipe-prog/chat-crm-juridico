@@ -41,16 +41,29 @@ function parseError(e: any): string {
   return raw || 'Algo deu errado. Tente de novo.';
 }
 
+type Purpose = 'COMERCIAL' | 'CLINICA';
+
 interface MyNumber {
   instanceName: string;
   displayName: string;
   status: string;
   isLegacy?: boolean;
+  /** Onda 17.64 — função do chip: COMERCIAL (Leads) | CLINICA (Pacientes) | null (geral). */
+  purpose?: Purpose | null;
   profileName?: string;
   profilePictureUrl?: string;
   /** E.164 sem o '+' — ex: "5511999998888" */
   phoneNumber?: string;
   _count?: { contacts?: number; messages?: number; chats?: number };
+}
+
+// Onda 17.64 — funções do chip (máx 1 de cada por clínica).
+const PURPOSES: { value: Purpose; label: string; sub: string; badge: string }[] = [
+  { value: 'COMERCIAL', label: 'Comercial', sub: 'Gera Leads — time comercial', badge: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
+  { value: 'CLINICA', label: 'Clínica', sub: 'Atende Pacientes — recepção/dentistas', badge: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' },
+];
+function purposeMeta(p?: string | null) {
+  return PURPOSES.find((x) => x.value === p) || null;
 }
 
 /** "5511999998888" -> "+55 (11) 99999-8888" */
@@ -96,6 +109,7 @@ export default function WhatsappIntegrationPage() {
   // Modal "Conectar novo"
   const [showConnectModal, setShowConnectModal] = useState(false);
   const [newDisplayName, setNewDisplayName] = useState('');
+  const [newPurpose, setNewPurpose] = useState<Purpose | null>(null);
   const [connecting, setConnecting] = useState(false);
   const [qrInstance, setQrInstance] = useState<string | null>(null);
   const [qrPayload, setQrPayload] = useState<QrPayload | null>(null);
@@ -167,22 +181,38 @@ export default function WhatsappIntegrationPage() {
   }, [numbers, qrInstance]);
 
   const handleConnect = async () => {
+    if (!newPurpose) {
+      setToast({ type: 'error', message: 'Escolha a função do chip (Comercial ou Clínica).' });
+      return;
+    }
     setConnecting(true);
     try {
       const res = await api.post<{ instanceName: string; displayName: string; qr: QrPayload | null }>(
         '/whatsapp/my-numbers/connect',
-        { displayName: newDisplayName.trim() || undefined },
+        { displayName: newDisplayName.trim() || undefined, purpose: newPurpose },
       );
       setQrInstance(res.data.instanceName);
       setQrPayload(res.data.qr);
       setShowConnectModal(false);
       setNewDisplayName('');
+      setNewPurpose(null);
       fetchNumbers();
     } catch (e: any) {
       setToast({ type: 'error', message: parseError(e) });
       setShowConnectModal(false);
     } finally {
       setConnecting(false);
+    }
+  };
+
+  // Onda 17.64 — define/troca a função de um chip já conectado.
+  const handleSetPurpose = async (instanceName: string, purpose: Purpose) => {
+    try {
+      await api.patch(`/whatsapp/my-numbers/${encodeURIComponent(instanceName)}/purpose`, { purpose });
+      setToast({ type: 'success', message: `Função definida: ${purposeMeta(purpose)?.label}.` });
+      fetchNumbers();
+    } catch (e: any) {
+      setToast({ type: 'error', message: parseError(e) });
     }
   };
 
@@ -225,9 +255,14 @@ export default function WhatsappIntegrationPage() {
     }
   };
 
-  // Onda 17.32.132 — 1 WhatsApp por tenant. Quando ja tem, esconde botao
-  // de conectar e mostra mensagem clara em vez de oferecer multiplas linhas.
-  const hasConnected = numbers.length > 0;
+  // Onda 17.64 — até 2 WhatsApps por clínica: no máximo 1 Comercial + 1 Clínica.
+  const usedPurposes = new Set<Purpose>(
+    numbers.map((n) => n.purpose).filter((p): p is Purpose => p === 'COMERCIAL' || p === 'CLINICA'),
+  );
+  const freePurpose: Purpose | null =
+    !usedPurposes.has('CLINICA') ? 'CLINICA' : !usedPurposes.has('COMERCIAL') ? 'COMERCIAL' : null;
+  const canConnectMore = numbers.length < 2 && usedPurposes.size < 2;
+  const openConnect = () => { setNewPurpose(freePurpose); setShowConnectModal(true); };
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6 space-y-6">
@@ -239,14 +274,14 @@ export default function WhatsappIntegrationPage() {
             WhatsApp da clínica
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {hasConnected
-              ? 'Sua clínica já tem um WhatsApp conectado. Remova a linha atual antes de trocar de número.'
-              : 'Conecte o WhatsApp da clínica em segundos — basta escanear o QR Code com o app.'}
+            {canConnectMore
+              ? 'Conecte até 2 WhatsApps: 1 Comercial (Leads) e 1 Clínica (Pacientes). Cada equipe só vê o seu.'
+              : 'Você já tem os 2 WhatsApps (Comercial + Clínica). Remova uma linha antes de trocar de número.'}
           </p>
         </div>
-        {!hasConnected && !loading && (
+        {canConnectMore && !loading && (
           <button
-            onClick={() => setShowConnectModal(true)}
+            onClick={openConnect}
             className="bg-emerald-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 transition-all shadow-lg shadow-emerald-500/20"
           >
             <Plus size={18} />
@@ -271,16 +306,18 @@ export default function WhatsappIntegrationPage() {
           <span className="text-sm">Carregando suas linhas…</span>
         </div>
       ) : numbers.length === 0 ? (
-        <EmptyState onConnect={() => setShowConnectModal(true)} />
+        <EmptyState onConnect={openConnect} />
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {numbers.map((n) => (
             <NumberCard
               key={n.instanceName}
               number={n}
+              usedPurposes={usedPurposes}
               onReconnect={() => handleReconnect(n.instanceName)}
               onDelete={() => setConfirmDelete(n)}
               onRename={() => { setRenaming(n); setRenameValue(n.displayName); }}
+              onSetPurpose={(p) => handleSetPurpose(n.instanceName, p)}
             />
           ))}
         </div>
@@ -291,18 +328,47 @@ export default function WhatsappIntegrationPage() {
         <Modal onClose={() => setShowConnectModal(false)}>
           <h3 className="text-lg font-bold text-foreground mb-1">Conectar novo WhatsApp</h3>
           <p className="text-sm text-muted-foreground mb-4">
-            Dê um apelido pra essa linha (ex: <i>Vendas</i>, <i>Pós-atendimento</i>). Em seguida vamos gerar o QR Code.
+            Escolha a <b>função</b> deste chip — isso decide pra qual equipe as conversas vão. Depois geramos o QR Code.
           </p>
+
+          {/* Seletor de função (antes do QR) */}
+          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 block">Função do chip</label>
+          <div className="grid grid-cols-2 gap-2 mb-4">
+            {PURPOSES.map((p) => {
+              const used = usedPurposes.has(p.value);
+              const selected = newPurpose === p.value;
+              return (
+                <button
+                  key={p.value}
+                  type="button"
+                  disabled={used}
+                  onClick={() => setNewPurpose(p.value)}
+                  className={`text-left p-3 rounded-xl border transition-all ${
+                    selected
+                      ? 'border-emerald-500 bg-emerald-500/10 ring-1 ring-emerald-500/40'
+                      : used
+                      ? 'border-border bg-muted/30 opacity-50 cursor-not-allowed'
+                      : 'border-border hover:border-emerald-500/50 hover:bg-muted/30'
+                  }`}
+                >
+                  <div className="text-sm font-bold text-foreground">{p.label}</div>
+                  <div className="text-[11px] text-muted-foreground mt-0.5">{p.sub}</div>
+                  {used && <div className="text-[10px] font-bold text-amber-600 mt-1">já em uso</div>}
+                </button>
+              );
+            })}
+          </div>
+
+          <label className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Apelido (opcional)</label>
           <input
             type="text"
             value={newDisplayName}
             onChange={(e) => setNewDisplayName(e.target.value)}
-            placeholder="Ex: Vendas"
+            placeholder={newPurpose ? purposeMeta(newPurpose)?.label : 'Ex: Vendas'}
             maxLength={40}
             className="w-full bg-muted/50 border border-border rounded-xl px-4 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
-            autoFocus
           />
-          <p className="text-[11px] text-muted-foreground mt-2">Opcional — se deixar vazio, chamamos de "Linha {numbers.length + 1}".</p>
+          <p className="text-[11px] text-muted-foreground mt-2">Se deixar vazio, usamos o nome da função.</p>
           <div className="flex gap-2 mt-5 justify-end">
             <button
               onClick={() => setShowConnectModal(false)}
@@ -311,7 +377,7 @@ export default function WhatsappIntegrationPage() {
               Cancelar
             </button>
             <button
-              disabled={connecting}
+              disabled={connecting || !newPurpose}
               onClick={handleConnect}
               className="bg-emerald-500 text-white px-5 py-2 rounded-xl font-bold text-sm flex items-center gap-2 hover:bg-emerald-600 disabled:opacity-50"
             >
@@ -475,14 +541,17 @@ function EmptyState({ onConnect }: { onConnect: () => void }) {
 }
 
 function NumberCard({
-  number, onReconnect, onDelete, onRename,
+  number, usedPurposes, onReconnect, onDelete, onRename, onSetPurpose,
 }: {
   number: MyNumber;
+  usedPurposes: Set<Purpose>;
   onReconnect: () => void;
   onDelete: () => void;
   onRename: () => void;
+  onSetPurpose: (p: Purpose) => void;
 }) {
   const s = statusOf(number.status);
+  const pm = purposeMeta(number.purpose);
   const toneClass =
     s.tone === 'ok'   ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30' :
     s.tone === 'warn' ? 'bg-amber-500/10  text-amber-500  border-amber-500/30'  :
@@ -508,8 +577,13 @@ function NumberCard({
             </div>
           )}
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <h4 className="text-sm font-bold text-foreground truncate">{number.displayName}</h4>
+              {pm && (
+                <span className={`text-[9px] font-bold uppercase border px-1.5 py-0.5 rounded ${pm.badge}`}>
+                  {pm.label}
+                </span>
+              )}
               {number.isLegacy && (
                 <span className="text-[9px] font-bold uppercase bg-amber-500/20 text-amber-600 px-1.5 py-0.5 rounded">
                   legado
@@ -533,6 +607,33 @@ function NumberCard({
         <div className="flex gap-4 text-xs text-muted-foreground">
           <span>{number._count.contacts ?? 0} contatos</span>
           <span>{number._count.chats ?? 0} chats</span>
+        </div>
+      )}
+
+      {/* Onda 17.64 — chip sem função: pede pra definir. Legado (override
+          EVOLUTION_INSTANCE_NAME, sem prefixo do tenant) não suporta tag —
+          não oferece o botão pra não virar beco sem saída. */}
+      {!number.purpose && !number.isLegacy && (
+        <div className="flex items-center gap-2 flex-wrap text-xs">
+          <span className="text-muted-foreground font-medium">Definir função:</span>
+          {PURPOSES.map((p) => {
+            const used = usedPurposes.has(p.value);
+            return (
+              <button
+                key={p.value}
+                disabled={used}
+                onClick={() => onSetPurpose(p.value)}
+                title={used ? 'Já em uso pelo outro chip' : `Marcar como ${p.label}`}
+                className={`font-bold px-2.5 py-1 rounded-lg border ${
+                  used
+                    ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
+                    : `${p.badge} hover:brightness-95`
+                }`}
+              >
+                {p.label}
+              </button>
+            );
+          })}
         </div>
       )}
 

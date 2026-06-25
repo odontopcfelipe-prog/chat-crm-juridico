@@ -703,6 +703,9 @@ model Inbox {
   tenant_id     String?
   name          String
   color         String? // hex (#ef4444) escolhido na UI para identificação visual
+  // Onda 17.64 — função/equipe do inbox, espelha Instance.purpose (fonte da verdade
+  // é a Instance). null = legado "geral". 'COMERCIAL' (Leads) | 'CLINICA' (Pacientes).
+  purpose       String?
   auto_route    Boolean        @default(false) // se true, IA roteia automaticamente (antes vivia em Sector)
   rr_pointer    String? // ID do ultimo usuario atribuido (round-robin)
   is_active     Boolean        @default(true)
@@ -723,6 +726,10 @@ model Instance {
   name       String   @unique
   type       String   @default("whatsapp")
   connection String   @default("evolution")
+  // Onda 17.64 — função do chip, designada ANTES do QR. null = legado "geral"
+  // (comportamento atual). 'COMERCIAL' = gera Leads (time comercial) | 'CLINICA'
+  // = atende Pacientes (recepção/dentistas). Roteia entrada (via inbox) e saída.
+  purpose    String?
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
   tenant     Tenant?  @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
@@ -730,6 +737,7 @@ model Instance {
 
   @@index([tenant_id])
   @@index([inbox_id])
+  @@index([tenant_id, purpose])
 }
 
 // ─── Histórico unificado de disparos (Onda 17.60) ─────────────────────────────

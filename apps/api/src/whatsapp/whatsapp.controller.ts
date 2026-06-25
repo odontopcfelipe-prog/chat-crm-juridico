@@ -33,11 +33,23 @@ export class WhatsappController {
   @Post('my-numbers/connect')
   async connectMyNumber(
     @Request() req: any,
-    @Body() body: { displayName?: string },
+    @Body() body: { displayName?: string; purpose?: string },
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new ForbiddenException('Sem tenant no token');
-    return this.whatsappService.quickConnect(tenantId, body?.displayName);
+    return this.whatsappService.quickConnect(tenantId, body?.displayName, body?.purpose);
+  }
+
+  /** Onda 17.64 — define/troca a funcao do chip (COMERCIAL|CLINICA). */
+  @Patch('my-numbers/:name/purpose')
+  async setMyNumberPurpose(
+    @Request() req: any,
+    @Param('name') name: string,
+    @Body() body: { purpose?: string },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('Sem tenant no token');
+    return this.whatsappService.setPurposeForTenant(tenantId, name, body?.purpose);
   }
 
   /** Reconecta uma linha existente (gera novo QR — se cair, reescaneia). */

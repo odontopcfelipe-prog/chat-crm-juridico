@@ -584,7 +584,7 @@ export class CalendarReminderWorker extends WorkerHost {
       // consulta falhar calado, porque o sendText resolve a config da Evolution
       // pelo tenant. Audiência/perícia mantêm o caminho legado por lead.
       const reminderInstanceName = isClinical && event.tenant_id
-        ? await this.resolveTenantInstance(event.tenant_id)
+        ? await this.resolveTenantInstance(event.tenant_id, 'CLINICA')
         : await this.resolveInstanceName(event.lead.id);
 
       let reminderSendResult: any;
@@ -1058,7 +1058,20 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
   // "agendada"/Notificar que FUNCIONAM. Escopar por tenant_id (em vez de por lead)
   // é o que faltava pro lembrete de CONSULTA odonto entregar: conversa do tenant →
   // instância do tenant. Pode voltar null — aí o sendText resolve via tenantId.
-  private async resolveTenantInstance(tenantId: string): Promise<string | null> {
+  private async resolveTenantInstance(
+    tenantId: string,
+    purpose?: 'COMERCIAL' | 'CLINICA',
+  ): Promise<string | null> {
+    // Onda 17.64 — prefere o chip da função pedida (lembrete clínico sai pelo
+    // chip CLINICA). Sempre escopado por tenant_id; fallback = heurística atual.
+    if (purpose) {
+      const byPurpose = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id: tenantId, purpose },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      }).catch(() => null);
+      if (byPurpose?.name) return byPurpose.name;
+    }
     const convo = await this.prisma.conversation.findFirst({
       where: { instance_name: { not: null }, tenant_id: tenantId },
       orderBy: { last_message_at: 'desc' },

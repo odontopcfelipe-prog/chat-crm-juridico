@@ -558,10 +558,20 @@ export class WhatsappService {
         ),
     );
 
+    // Onda 17.64 — anexa a FUNÇÃO de cada chip (COMERCIAL|CLINICA|null), lida da
+    // tabela Instance escopada por tenant (NÃO da Evolution). O self-heal acima
+    // já garantiu o registro, então o purpose existe pros chips do tenant.
+    const dbRows = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId },
+      select: { name: true, purpose: true },
+    });
+    const purposeByName = new Map(dbRows.map((r) => [r.name, r.purpose]));
+
     return mine.map((i) => ({
       ...i,
       displayName: displayMap[i.instanceName] || this.guessDisplayName(i.instanceName, prefix),
       isLegacy: legacy ? i.instanceName === legacy : false,
+      purpose: purposeByName.get(i.instanceName) ?? null,
     }));
   }
 
@@ -570,6 +580,17 @@ export class WhatsappService {
     const m = instanceName.match(new RegExp(`^${prefix}-(\\d+)$`));
     if (m) return `Linha ${m[1]}`;
     return instanceName; // legacy: mostra o nome cru
+  }
+
+  /** Onda 17.64 — normaliza a função do chip: 'COMERCIAL' | 'CLINICA' | null. */
+  private normalizePurpose(purpose?: string | null): 'COMERCIAL' | 'CLINICA' | null {
+    const p = (purpose || '').trim().toUpperCase();
+    return p === 'COMERCIAL' || p === 'CLINICA' ? (p as 'COMERCIAL' | 'CLINICA') : null;
+  }
+
+  /** Rótulo amigável da função (pra mensagens/nome de inbox). */
+  private purposeLabel(purpose: string): string {
+    return purpose === 'COMERCIAL' ? 'Comercial' : purpose === 'CLINICA' ? 'Clínica' : 'WhatsApp';
   }
 
   /**
@@ -597,6 +618,7 @@ export class WhatsappService {
     tenantId: string,
     instanceName: string,
     displayName?: string,
+    purpose?: 'COMERCIAL' | 'CLINICA' | null,
   ): Promise<void> {
     const prefix = this.tenantPrefix(tenantId);
     if (!instanceName.startsWith(`${prefix}-`)) return; // legacy/foreign: nao mexe
@@ -608,29 +630,41 @@ export class WhatsappService {
       });
 
       // Ja registrada com tenant + inbox? Nada a fazer (caminho quente do
-      // listForTenant — 1 query e sai).
+      // listForTenant — 1 query e sai). purpose só é setado na CRIAÇÃO (via
+      // quickConnect) ou no setPurposeForTenant; o self-heal não re-tagueia.
       if (existing?.tenant_id && existing?.inbox_id) return;
 
-      // Resolve o inbox alvo: mais antigo do tenant sem instancia vinculada,
-      // senao cria um default.
+      // Resolve o inbox alvo. COM função (Onda 17.64): reusa/cria o inbox DAQUELA
+      // função (separa os times). SEM função (legado/self-heal): mais antigo do
+      // tenant sem instancia vinculada, senao cria um default — comportamento atual.
       let inboxId: string | null = existing?.inbox_id ?? null;
       if (!inboxId) {
-        const freeInbox = await this.prisma.inbox.findFirst({
-          where: { tenant_id: tenantId, instances: { none: {} } },
-          orderBy: { created_at: 'asc' },
-          select: { id: true },
-        });
-        if (freeInbox) {
-          inboxId = freeInbox.id;
+        if (purpose) {
+          const fnInbox = await this.prisma.inbox.findFirst({
+            where: { tenant_id: tenantId, purpose },
+            orderBy: { created_at: 'asc' },
+            select: { id: true },
+          });
+          if (fnInbox) inboxId = fnInbox.id;
         } else {
+          const freeInbox = await this.prisma.inbox.findFirst({
+            where: { tenant_id: tenantId, instances: { none: {} } },
+            orderBy: { created_at: 'asc' },
+            select: { id: true },
+          });
+          if (freeInbox) inboxId = freeInbox.id;
+        }
+        if (!inboxId) {
           const tenantUsers = await this.prisma.user.findMany({
             where: { tenant_id: tenantId },
             select: { id: true },
           });
           const createdInbox = await this.prisma.inbox.create({
             data: {
-              name: (displayName || '').trim() || 'WhatsApp da clinica',
+              name: (displayName || '').trim() ||
+                (purpose ? this.purposeLabel(purpose) : 'WhatsApp da clinica'),
               tenant_id: tenantId,
+              purpose: purpose ?? null,
               auto_route: false,
               users: tenantUsers.length > 0
                 ? { connect: tenantUsers.map((u) => ({ id: u.id })) }
@@ -640,7 +674,7 @@ export class WhatsappService {
           });
           inboxId = createdInbox.id;
           this.logger.log(
-            `[ENSURE-INSTANCE] Inbox default criado pro tenant ${tenantId} (${tenantUsers.length} usuarios conectados)`,
+            `[ENSURE-INSTANCE] Inbox ${purpose ? `(${purpose}) ` : 'default '}criado pro tenant ${tenantId} (${tenantUsers.length} usuarios conectados)`,
           );
         }
       }
@@ -652,10 +686,12 @@ export class WhatsappService {
           type: 'whatsapp',
           tenant_id: tenantId,
           inbox_id: inboxId,
+          ...(purpose ? { purpose } : {}),
         },
         update: {
           tenant_id: tenantId,
           inbox_id: inboxId,
+          ...(purpose ? { purpose } : {}),
         },
       });
 
@@ -693,15 +729,28 @@ export class WhatsappService {
    *   3. Salva o apelido em TenantSetting
    *   4. Retorna QR code pro tenant escanear
    */
-  async quickConnect(tenantId: string, displayName?: string) {
+  async quickConnect(tenantId: string, displayName?: string, purpose?: string) {
     const prefix = this.tenantPrefix(tenantId);
+    const normalizedPurpose = this.normalizePurpose(purpose);
     const existing = await this.listForTenant(tenantId);
 
-    // Onda 17.32.132 — SEGURANCA: cada tenant tem EXATAMENTE 1
-    // WhatsApp. Se ja tem instancia (mesmo se desconectada/sem QR),
-    // rejeita criar a 2a. Pra trocar de numero o tenant deve remover
-    // a atual primeiro.
-    if (existing.length > 0) {
+    // Onda 17.64 — limite por FUNÇÃO: no máximo 2 WhatsApps por clínica, no
+    // máximo 1 de cada função (COMERCIAL=Leads, CLINICA=Pacientes). Sem função
+    // informada (cliente antigo), mantém o limite legado de 1/tenant.
+    if (normalizedPurpose) {
+      const sameFn = (existing as any[]).find((e) => e.purpose === normalizedPurpose);
+      if (sameFn) {
+        throw new BadRequestException(
+          `Sua clinica ja tem um WhatsApp ${this.purposeLabel(normalizedPurpose)} ("${sameFn.displayName || sameFn.instanceName}"). ` +
+          `Pra trocar, remova a linha atual primeiro.`,
+        );
+      }
+      if (existing.length >= 2) {
+        throw new BadRequestException(
+          'Limite de 2 WhatsApps por clinica (1 Comercial + 1 Clinica) atingido.',
+        );
+      }
+    } else if (existing.length > 0) {
       const current = existing[0];
       throw new BadRequestException(
         `Sua clinica ja possui um WhatsApp conectado ("${current.displayName || current.instanceName}"). ` +
@@ -709,11 +758,26 @@ export class WhatsappService {
       );
     }
 
-    const nextN = 1; // sempre 1 — limite per-tenant
+    // Próximo índice livre dos nomes t<hash>-N (robusto a buracos: se só existe
+    // o "-2", o próximo vira "-1"; nunca colide com name @unique).
+    const usedN = new Set<number>(
+      (existing as any[])
+        .map((e) => {
+          const m = (e.instanceName || '').match(new RegExp(`^${prefix}-(\\d+)$`));
+          return m ? parseInt(m[1], 10) : null;
+        })
+        .filter((n): n is number => n != null),
+    );
+    let nextN = 1;
+    while (usedN.has(nextN)) nextN++;
     const instanceName = `${prefix}-${nextN}`;
-    const finalDisplayName = (displayName || '').trim() || `WhatsApp da clinica`;
+    const finalDisplayName = (displayName || '').trim() ||
+      (normalizedPurpose ? this.purposeLabel(normalizedPurpose) : 'WhatsApp da clinica');
 
-    this.logger.log(`[quickConnect] Criando instancia ${instanceName} pro tenant ${tenantId} ("${finalDisplayName}")`);
+    this.logger.log(
+      `[quickConnect] Criando instancia ${instanceName} pro tenant ${tenantId} ` +
+      `("${finalDisplayName}", funcao=${normalizedPurpose ?? 'geral'})`,
+    );
 
     // Cria a instancia (usa config global automaticamente)
     await this.createInstance(instanceName);
@@ -723,8 +787,8 @@ export class WhatsappService {
 
     // Onda 17.33 — Registra a instancia no Prisma (Instance + Inbox + backfill).
     // Sem isso o webhook da Evolution nao resolve o tenant e as mensagens
-    // recebidas viram conversas orfaas invisiveis.
-    await this.ensureInstanceRegistered(tenantId, instanceName, finalDisplayName);
+    // recebidas viram conversas orfaas invisiveis. Onda 17.64: leva a função.
+    await this.ensureInstanceRegistered(tenantId, instanceName, finalDisplayName, normalizedPurpose);
 
     // Busca QR
     let qr: any = null;
@@ -737,8 +801,79 @@ export class WhatsappService {
     return {
       instanceName,
       displayName: finalDisplayName,
+      purpose: normalizedPurpose,
       qr,
     };
+  }
+
+  /**
+   * Onda 17.64 — define/troca a FUNÇÃO de um chip já conectado (COMERCIAL|CLINICA).
+   * O tenant com 1 chip legado precisa marcar a função dele ANTES de adicionar o
+   * 2º (a UI gateia por isso). Valida ownership (prefixo/legacy), recusa se já há
+   * outro chip do tenant com essa função, e tagueia Instance.purpose + o Inbox
+   * VINCULADO (sem mover conversas/operadores — só carimba a função).
+   */
+  async setPurposeForTenant(tenantId: string, instanceName: string, purpose?: string) {
+    const prefix = this.tenantPrefix(tenantId);
+    const legacy = await this.getLegacyInstanceName(tenantId);
+    const isMine = instanceName.startsWith(`${prefix}-`) || instanceName === legacy;
+    if (!isMine) {
+      throw new BadRequestException('Essa linha de WhatsApp nao pertence a sua clinica');
+    }
+    const normalized = this.normalizePurpose(purpose);
+    if (!normalized) {
+      throw new BadRequestException('Funcao invalida (use COMERCIAL ou CLINICA)');
+    }
+
+    // Garante que a instância está registrada (self-heal) antes de taguear.
+    await this.ensureInstanceRegistered(tenantId, instanceName, undefined);
+
+    // Recusa se OUTRO chip do tenant já tem essa função (1 de cada).
+    const conflict = await this.prisma.instance.findFirst({
+      where: { tenant_id: tenantId, purpose: normalized, name: { not: instanceName } },
+      select: { name: true },
+    });
+    if (conflict) {
+      throw new BadRequestException(
+        `Sua clinica ja tem um WhatsApp ${this.purposeLabel(normalized)} ("${conflict.name}").`,
+      );
+    }
+
+    const inst = await this.prisma.instance.findUnique({
+      where: { name: instanceName },
+      select: { inbox_id: true, tenant_id: true, purpose: true },
+    });
+    if (!inst || inst.tenant_id !== tenantId) {
+      throw new BadRequestException(
+        'Linha ainda nao registrada pra sua clinica — reabra a tela e tente de novo.',
+      );
+    }
+    // Idempotente se já é a mesma função; recusa TROCAR de função (o inbox antigo
+    // ficaria com conversas da função errada — remover/reconectar é o caminho seguro).
+    if (inst.purpose === normalized) {
+      return { ok: true, purpose: normalized, idempotent: true };
+    }
+    if (inst.purpose) {
+      throw new BadRequestException(
+        `Esse chip já é ${this.purposeLabel(inst.purpose)}. Pra trocar a função, remova a linha e reconecte.`,
+      );
+    }
+
+    await this.prisma.instance.update({
+      where: { name: instanceName },
+      data: { purpose: normalized },
+    });
+    // Carimba a função no inbox VINCULADO (não move conversas/operadores).
+    if (inst.inbox_id) {
+      await this.prisma.inbox.update({
+        where: { id: inst.inbox_id },
+        data: { purpose: normalized },
+      });
+    }
+    this.logger.log(
+      `[setPurpose] ${instanceName} (tenant ${tenantId}) -> funcao=${normalized}`,
+    );
+    return { ok: true, purpose: normalized };
   }
 
   /**
@@ -754,6 +889,13 @@ export class WhatsappService {
       throw new BadRequestException('Essa linha de WhatsApp nao pertence a sua clinica');
     }
     await this.deleteInstance(instanceName);
+    // Onda 17.64 — apaga TAMBÉM a linha Instance do Prisma. Sem isso, o resolvedor
+    // por função (resolveTenantWhatsappInstance / resolveTenantInstance) continuaria
+    // roteando os disparos clínicos pra esse chip MORTO (entrega falharia calada,
+    // mesmo após reconectar). deleteMany = não lança se a linha já não existir.
+    await this.prisma.instance
+      .deleteMany({ where: { name: instanceName, tenant_id: tenantId } })
+      .catch((e: any) => this.logger.warn(`[deleteForTenant] Falha ao apagar linha Instance ${instanceName}: ${e?.message}`));
     await this.removeInstanceDisplayName(tenantId, instanceName).catch(() => {});
     return { ok: true };
   }
