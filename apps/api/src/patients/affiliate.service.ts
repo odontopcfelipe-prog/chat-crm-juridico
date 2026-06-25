@@ -551,6 +551,135 @@ export class AffiliateService {
     });
   }
 
+  /** Onda 17.64 — meta coletiva da temporada (GlobalSetting). null = não configurada. */
+  async getSeasonGoal(tenantId: string): Promise<number | null> {
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: `AFFILIATE_SEASON_GOAL_${tenantId}` },
+      });
+      const n = row?.value ? parseInt(row.value, 10) : NaN;
+      return Number.isFinite(n) && n > 0 ? n : null;
+    } catch {
+      return null;
+    }
+  }
+
+  async setSeasonGoal(tenantId: string, goal: number): Promise<{ goal: number | null }> {
+    const n = Math.max(0, Math.floor(Number(goal) || 0));
+    const key = `AFFILIATE_SEASON_GOAL_${tenantId}`;
+    if (!n) {
+      await this.prisma.globalSetting.deleteMany({ where: { key } });
+      return { goal: null };
+    }
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value: String(n) },
+      update: { value: String(n) },
+    });
+    return { goal: n };
+  }
+
+  /**
+   * Onda 17.64 — "Modo Jogo" dos afiliados: temporada (Corrida das Indicações) +
+   * ranking ao vivo + faixas + missões. TUDO de dado REAL; estado vazio honesto
+   * quando não há afiliado/indicação (skill comissoes-gamificadas: nunca inventar
+   * número). O componente não calcula nada — o servidor monta o viewModel.
+   */
+  async affiliateGameView(tenantId: string) {
+    const now = new Date();
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
+    const reference_month = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
+
+    const [affiliates, allReferrals, tiersCfg, seasonGoal] = await Promise.all([
+      this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, is_affiliate: true, status: 'ACTIVE' },
+        select: { id: true, name: true, phone: true, affiliate_code: true, affiliate_commission_pct: true },
+      }),
+      this.prisma.affiliateReferral.findMany({
+        where: { tenant_id: tenantId, status: 'creditado' },
+        select: { referrer_id: true, commission_value: true, closed_at: true },
+      }),
+      this.getTiers(tenantId),
+      this.getSeasonGoal(tenantId),
+    ]);
+
+    type Agg = { mes: number; total: number; ganhoMes: number; ganhoTotal: number };
+    const agg = new Map<string, Agg>();
+    for (const a of affiliates) agg.set(a.id, { mes: 0, total: 0, ganhoMes: 0, ganhoTotal: 0 });
+    let fechadosMes = 0;
+    let geradoMes = 0;
+    for (const r of allReferrals) {
+      const isMes = r.closed_at >= monthStart;
+      if (isMes) {
+        fechadosMes += 1;
+        geradoMes += Number(r.commission_value);
+      }
+      const row = agg.get(r.referrer_id);
+      if (!row) continue;
+      row.total += 1;
+      row.ganhoTotal += Number(r.commission_value);
+      if (isMes) {
+        row.mes += 1;
+        row.ganhoMes += Number(r.commission_value);
+      }
+    }
+
+    const initials = (name: string) =>
+      (name || '').trim().split(/\s+/).slice(0, 2).map((p) => p[0]?.toUpperCase() || '').join('') || '?';
+
+    const ranking = affiliates
+      .map((a) => {
+        const ag = agg.get(a.id)!;
+        const tierAtual = tiersCfg.enabled ? resolveAffiliateTier(ag.total, tiersCfg.tiers) : null;
+        const prox = tiersCfg.enabled ? nextAffiliateTier(ag.total, tiersCfg.tiers) : null;
+        return {
+          id: a.id,
+          nome: a.name,
+          iniciais: initials(a.name),
+          affiliate_code: a.affiliate_code,
+          indicacoesMes: ag.mes,
+          indicacoesTotal: ag.total,
+          ganhoTemporada: ag.ganhoMes,
+          ganhoTotal: ag.ganhoTotal,
+          faixaLabel: tierAtual ? tierAtual.label : null,
+          faixaPct: tierAtual ? tierAtual.pct : Number(a.affiliate_commission_pct ?? 3),
+          proxima: prox ? { label: prox.label, pct: prox.pct, faltam: Math.max(0, prox.min - ag.total) } : null,
+        };
+      })
+      .sort(
+        (a, b) =>
+          b.indicacoesMes - a.indicacoesMes ||
+          b.ganhoTemporada - a.ganhoTemporada ||
+          b.indicacoesTotal - a.indicacoesTotal,
+      );
+
+    // Faixas com range de exibição (Bronze 0–2, Prata 3–5, … último N+).
+    const sortedTiers = [...tiersCfg.tiers].sort((a, b) => a.min - b.min);
+    const faixas = sortedTiers.map((t, i) => {
+      const next = sortedTiers[i + 1];
+      const range = next ? `${t.min}–${next.min - 1} fechadas` : `${t.min}+ fechadas`;
+      return { label: t.label, pct: t.pct, min: t.min, range };
+    });
+
+    // Missões coletivas da temporada — progresso REAL (indicações fechadas no mês).
+    const missoes = [
+      { titulo: '1ª indicação da temporada', recompensa: '🎁 Brinde', alvo: 1, progresso: Math.min(fechadosMes, 1), concluida: fechadosMes >= 1 },
+      { titulo: '3 indicações no mês', recompensa: '+R$ 50', alvo: 3, progresso: Math.min(fechadosMes, 3), concluida: fechadosMes >= 3 },
+      ...(seasonGoal
+        ? [{ titulo: 'Bater a meta da temporada', recompensa: '🏆 Prêmio do mês', alvo: seasonGoal, progresso: Math.min(fechadosMes, seasonGoal), concluida: fechadosMes >= seasonGoal }]
+        : []),
+    ];
+
+    return {
+      reference_month,
+      kpis: { afiliadosAtivos: affiliates.length, geradoTemporada: geradoMes },
+      meta: { fechados: fechadosMes, alvo: seasonGoal },
+      ranking,
+      faixas: { enabled: tiersCfg.enabled, tiers: faixas },
+      missoes,
+    };
+  }
+
   /**
    * Hook chamado pelo QuotesService quando uma Quote vira ACCEPTED.
    *

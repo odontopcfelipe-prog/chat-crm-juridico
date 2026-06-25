@@ -504,6 +504,28 @@ export class PatientsController {
     return this.affiliateService.setTiers(tenantId, body);
   }
 
+  /** Onda 17.64 — "Modo Jogo" dos afiliados (temporada + ranking + faixas + missões). */
+  @Get('affiliates/game')
+  affiliateGame(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver o Modo Jogo de afiliados');
+    }
+    return this.affiliateService.affiliateGameView(tenantId);
+  }
+
+  /** Onda 17.64 — define a meta coletiva da temporada (0 = remove). */
+  @Patch('affiliates/season-goal')
+  setAffiliateSeasonGoal(@Body() body: { goal?: number }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode definir a meta da temporada');
+    }
+    return this.affiliateService.setSeasonGoal(tenantId, Number(body?.goal) || 0);
+  }
+
   /**
    * Dashboard do afiliado: saldo (disponivel/acumulado/sacado/pendente)
    * + indicacoes + historico de saques.

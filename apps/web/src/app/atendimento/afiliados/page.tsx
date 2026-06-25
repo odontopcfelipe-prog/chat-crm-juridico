@@ -22,11 +22,12 @@ import { useRouter } from 'next/navigation';
 import {
   HandCoins, Users, TrendingUp, Wallet, Clock, ExternalLink,
   Trophy, Loader2, RefreshCw, CheckCircle2, XCircle, AlertCircle,
-  Plus, Search, X, ArrowRight, Layers, ChevronDown, Save, Trash2,
+  Plus, Search, X, ArrowRight, Layers, ChevronDown, Save, Trash2, Gamepad2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
 import { showError, showSuccess } from '@/lib/toast';
+import AfiliadosJogoView from './AfiliadosJogoView';
 
 interface Affiliate {
   id: string;
@@ -97,6 +98,8 @@ export default function AfiliadosPage() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   // v37 — modal de "Adicionar afiliado" (selecionar existente OU criar novo)
   const [addModalOpen, setAddModalOpen] = useState(false);
+  // Onda 17.64 — abas: Painel (dashboard) | Modo jogo (Corrida das Indicações)
+  const [view, setView] = useState<'painel' | 'jogo'>('painel');
 
   const fetchAll = useCallback(async () => {
     setLoading(true);
@@ -218,6 +221,26 @@ export default function AfiliadosPage() {
           />
         )}
 
+        {/* Abas: Painel | Modo jogo */}
+        <div className="flex gap-1 bg-card border border-border rounded-lg p-1 w-fit">
+          <button
+            onClick={() => setView('painel')}
+            className={`px-3 py-1.5 rounded text-sm font-semibold ${view === 'painel' ? 'bg-emerald-600 text-white' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Wallet size={14} className="inline mr-1" /> Painel
+          </button>
+          <button
+            onClick={() => setView('jogo')}
+            className={`px-3 py-1.5 rounded text-sm font-semibold ${view === 'jogo' ? 'bg-emerald-600 text-white' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Gamepad2 size={14} className="inline mr-1" /> Modo jogo
+          </button>
+        </div>
+
+        {view === 'jogo' ? (
+          <AfiliadosJogoView />
+        ) : (
+        <>
         {/* KPIs */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           <KpiCard
@@ -438,6 +461,8 @@ export default function AfiliadosPage() {
             </div>
           )}
         </section>
+        </>
+        )}
       </div>
     </div>
   );
