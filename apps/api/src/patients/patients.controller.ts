@@ -474,6 +474,37 @@ export class PatientsController {
   }
 
   /**
+   * Onda 17.63 — config de FAIXAS de afiliado por volume (admin lê/edita).
+   * Declarado ANTES de :id pra Nest nao tratar 'affiliates' como id.
+   */
+  @Get('affiliates/tiers')
+  getAffiliateTiers(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode ver faixas de afiliado');
+    }
+    return this.affiliateService.getTiers(tenantId);
+  }
+
+  @Patch('affiliates/tiers')
+  setAffiliateTiers(
+    @Body()
+    body: {
+      enabled?: boolean;
+      tiers: { label: string; min: number; pct: number }[];
+    },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode editar faixas de afiliado');
+    }
+    return this.affiliateService.setTiers(tenantId, body);
+  }
+
+  /**
    * Dashboard do afiliado: saldo (disponivel/acumulado/sacado/pendente)
    * + indicacoes + historico de saques.
    */

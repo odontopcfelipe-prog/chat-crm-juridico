@@ -20,7 +20,7 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   HandCoins, TrendingUp, Wallet, Download, Users, Clock,
-  ArrowDownToLine, CheckCircle2, AlertCircle, Info, Loader2, RefreshCw,
+  ArrowDownToLine, CheckCircle2, AlertCircle, Info, Loader2, RefreshCw, Award,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -53,8 +53,18 @@ interface Withdrawal {
   pix_key?: string | null;
 }
 
+interface FaixaInfo {
+  ativo: boolean;
+  atual?: { label: string; min: number; pct: number };
+  proxima?: { label: string; min: number; pct: number } | null;
+  faltam?: number;
+  pctFixo?: number;
+  indicacoesCreditadas: number;
+}
+
 interface DashboardData {
   stats: { disponivel: number; totalAcumulado: number; totalSacado: number; pendenteSaque: number };
+  faixa?: FaixaInfo;
   referrals: Referral[];
   withdrawals: Withdrawal[];
   patient: { affiliate_commission_pct: number };
@@ -92,7 +102,10 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
   const referrals = data?.referrals ?? [];
   const withdrawals = data?.withdrawals ?? [];
   const stats = data?.stats ?? { disponivel: 0, totalAcumulado: 0, totalSacado: 0, pendenteSaque: 0 };
-  const COMMISSION_PCT = data?.patient?.affiliate_commission_pct ?? 3;
+  const faixa = data?.faixa;
+  // Quando as faixas estão ligadas, o % vigente é o da faixa atual; senão, o fixo do cadastro.
+  const COMMISSION_PCT =
+    faixa?.ativo && faixa.atual ? faixa.atual.pct : data?.patient?.affiliate_commission_pct ?? 3;
 
   // Conta indicacoes por status
   const referralsByStatus = useMemo(() => {
@@ -145,6 +158,42 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
           </button>
         </div>
       </div>
+
+      {/* Faixa atual + progresso pra próxima (só quando as faixas estão ligadas) */}
+      {faixa?.ativo && faixa.atual && (
+        <div className="rounded-xl border border-emerald-300 dark:border-emerald-800 bg-gradient-to-r from-emerald-50 to-transparent dark:from-emerald-950/30 dark:to-transparent p-4">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Award size={16} className="text-emerald-600" />
+              <span className="text-sm font-bold text-foreground">Faixa {faixa.atual.label}</span>
+              <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400">
+                {faixa.atual.pct}%
+              </span>
+            </div>
+            {faixa.proxima ? (
+              <span className="text-xs text-muted-foreground">
+                faltam <strong className="text-foreground">{faixa.faltam}</strong>{' '}
+                indicaç{faixa.faltam === 1 ? 'ão' : 'ões'} pra{' '}
+                <strong className="text-foreground">{faixa.proxima.label}</strong> ({faixa.proxima.pct}%)
+              </span>
+            ) : (
+              <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-400">
+                Faixa máxima atingida 🏆
+              </span>
+            )}
+          </div>
+          {faixa.proxima && (
+            <div className="mt-2 h-2 rounded-full bg-emerald-100 dark:bg-emerald-950/50 overflow-hidden">
+              <div
+                className="h-full bg-emerald-500 rounded-full transition-all"
+                style={{
+                  width: `${Math.min(100, Math.round((faixa.indicacoesCreditadas / Math.max(1, faixa.proxima.min)) * 100))}%`,
+                }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Cards de saldo */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3">

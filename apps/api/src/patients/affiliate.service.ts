@@ -27,6 +27,40 @@ import { PrismaService } from '../prisma/prisma.service';
 const VALID_METHODS = ['PIX', 'DINHEIRO', 'CREDITO_TRATAMENTO'] as const;
 type WithdrawalMethod = (typeof VALID_METHODS)[number];
 
+// ─── Faixas de afiliado por VOLUME (Onda 17.63) ──────────────────────────────
+// Decisão do dono: o % do afiliado SOBE conforme ele acumula indicações que
+// fecham — e o % maior vale só pras PRÓXIMAS indicações (não-retroativo,
+// garantido pelo snapshot de `commission_pct` gravado em cada AffiliateReferral).
+// Config por tenant em GlobalSetting `AFFILIATE_TIERS_<tenant>`. `enabled=false`
+// por padrão: a clínica confere os números e LIGA — não trocamos % de comissão
+// caladamente num deploy (skill: "default conservador + confirmar").
+export type AffiliateTier = { label: string; min: number; pct: number };
+type AffiliateTiersConfig = { enabled: boolean; tiers: AffiliateTier[] };
+
+const DEFAULT_AFFILIATE_TIERS: AffiliateTiersConfig = {
+  enabled: false,
+  tiers: [
+    { label: 'Bronze', min: 0, pct: 3 },
+    { label: 'Prata', min: 5, pct: 4 },
+    { label: 'Ouro', min: 12, pct: 5 },
+    { label: 'Diamante', min: 25, pct: 6 },
+  ],
+};
+
+/** Faixa atual = a de maior `min` que o volume já alcançou. */
+function resolveAffiliateTier(volume: number, tiers: AffiliateTier[]): AffiliateTier {
+  const sorted = [...tiers].sort((a, b) => a.min - b.min);
+  let cur: AffiliateTier = sorted[0] ?? { label: '—', min: 0, pct: 3 };
+  for (const t of sorted) if (volume >= t.min) cur = t;
+  return cur;
+}
+
+/** Próxima faixa (menor `min` ainda acima do volume), ou null se já no topo. */
+function nextAffiliateTier(volume: number, tiers: AffiliateTier[]): AffiliateTier | null {
+  const above = [...tiers].filter((t) => t.min > volume).sort((a, b) => a.min - b.min);
+  return above[0] ?? null;
+}
+
 @Injectable()
 export class AffiliateService {
   private readonly logger = new Logger(AffiliateService.name);
@@ -78,6 +112,29 @@ export class AffiliateService {
       .reduce((a, w) => a + Number(w.amount), 0);
     const disponivel = Math.max(0, totalAcumulado - totalSacado - pendenteSaque);
 
+    // Faixa por volume (nº de indicações creditadas). Quando as faixas estão
+    // ligadas, mostramos a faixa atual + quanto falta pra próxima; senão, o %
+    // fixo do cadastro.
+    const tiersCfg = await this.getTiers(tenantId);
+    const indicacoesCreditadas = referrals.filter((r) => r.status === 'creditado').length;
+    const faixa = tiersCfg.enabled
+      ? (() => {
+          const atual = resolveAffiliateTier(indicacoesCreditadas, tiersCfg.tiers);
+          const proxima = nextAffiliateTier(indicacoesCreditadas, tiersCfg.tiers);
+          return {
+            ativo: true,
+            atual,
+            proxima,
+            faltam: proxima ? Math.max(0, proxima.min - indicacoesCreditadas) : 0,
+            indicacoesCreditadas,
+          };
+        })()
+      : {
+          ativo: false,
+          pctFixo: Number(patient.affiliate_commission_pct ?? 3),
+          indicacoesCreditadas,
+        };
+
     return {
       patient: {
         id: patient.id,
@@ -88,6 +145,7 @@ export class AffiliateService {
         affiliate_notes: patient.affiliate_notes,
       },
       stats: { disponivel, totalAcumulado, totalSacado, pendenteSaque },
+      faixa,
       referrals: referrals.map((r) => ({
         id: r.id,
         indicated_name: r.referred?.name ?? '—',
@@ -188,11 +246,12 @@ export class AffiliateService {
       throw new BadRequestException('Saque ja foi recusado — nao pode pagar');
     }
 
+    const paidAt = new Date();
     await this.prisma.affiliateWithdrawal.update({
       where: { id: withdrawalId },
       data: {
         status: 'pago',
-        paid_at: new Date(),
+        paid_at: paidAt,
         paid_by_user_id: paidByUserId,
       },
     });
@@ -200,6 +259,43 @@ export class AffiliateService {
     this.logger.log(
       `[AFFILIATE_WITHDRAWAL] Pago: id=${withdrawalId} by=${paidByUserId}`,
     );
+
+    // Onda 17.63 — saída REAL de dinheiro pro afiliado vira DESPESA no caixa
+    // (mesma regra das comissões dos dentistas: toda saída repassada entra no
+    // financeiro). CREDITO_TRATAMENTO NÃO entra: é abatimento no próprio
+    // tratamento do afiliado (encontro de contas), não saída de espécie.
+    // Best-effort: não derruba o pagamento se o lançamento falhar.
+    if (w.method === 'PIX' || w.method === 'DINHEIRO') {
+      try {
+        const aff = await this.prisma.patient.findUnique({
+          where: { id: w.patient_id },
+          select: { name: true },
+        });
+        await this.prisma.financialTransaction.create({
+          data: {
+            tenant_id: tenantId,
+            type: 'DESPESA',
+            category: 'COMISSAO_AFILIADO',
+            description: `Saque afiliado — ${aff?.name || 'Paciente'}`,
+            amount: w.amount,
+            date: paidAt,
+            paid_at: paidAt,
+            payment_method: w.method,
+            status: 'PAGO',
+            reference_id: w.id,
+            visible_to_dentist: false,
+            notes: w.notes ?? `Pagamento de saque de afiliado (ref. ${w.id.slice(0, 8)})`,
+          },
+        });
+        this.logger.log(
+          `[AFFILIATE_WITHDRAWAL] DESPESA lançada no caixa p/ saque ${withdrawalId} (R$ ${Number(w.amount)})`,
+        );
+      } catch (e: any) {
+        this.logger.warn(
+          `[AFFILIATE_WITHDRAWAL] Falha ao lançar DESPESA do saque ${withdrawalId}: ${e?.message ?? e}`,
+        );
+      }
+    }
     return { ok: true };
   }
 
@@ -284,6 +380,7 @@ export class AffiliateService {
       if (w.status === 'solicitado') row.pendente_saque += Number(w.amount);
     }
 
+    const tiersCfg = await this.getTiers(tenantId);
     const enriched = affiliates.map((a) => {
       const ag = agg.get(a.id) ?? {
         indicacoes_total: 0,
@@ -296,12 +393,17 @@ export class AffiliateService {
         0,
         ag.creditado_total - ag.sacado_total - ag.pendente_saque,
       );
+      // Faixa atual quando ligada: o % vigente sai do volume de indicações.
+      const tier = tiersCfg.enabled
+        ? resolveAffiliateTier(ag.indicacoes_total, tiersCfg.tiers)
+        : null;
       return {
         id: a.id,
         name: a.name,
         phone: a.phone,
         affiliate_code: a.affiliate_code,
-        commission_pct: Number(a.affiliate_commission_pct ?? 3),
+        commission_pct: tier ? tier.pct : Number(a.affiliate_commission_pct ?? 3),
+        faixa_label: tier ? tier.label : null,
         created_at: a.created_at.toISOString(),
         indicacoes_total: ag.indicacoes_total,
         indicacoes_mes: ag.indicacoes_mes,
@@ -335,6 +437,7 @@ export class AffiliateService {
     return {
       kpis,
       top5,
+      tiers: tiersCfg,
       affiliates: enriched.sort((a, b) => b.saldo_disponivel - a.saldo_disponivel),
     };
   }
@@ -388,6 +491,63 @@ export class AffiliateService {
   }
 
   /**
+   * Lê a config de faixas do tenant. Default: faixas sugeridas, DESLIGADAS
+   * (a clínica confere os números e liga). enabled=true é o que faz o % sair
+   * da faixa no momento do crédito.
+   */
+  async getTiers(tenantId: string): Promise<AffiliateTiersConfig> {
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: `AFFILIATE_TIERS_${tenantId}` },
+      });
+      if (!row?.value) return DEFAULT_AFFILIATE_TIERS;
+      const parsed = JSON.parse(row.value);
+      if (!parsed || !Array.isArray(parsed.tiers) || !parsed.tiers.length) {
+        return DEFAULT_AFFILIATE_TIERS;
+      }
+      return { enabled: !!parsed.enabled, tiers: parsed.tiers };
+    } catch {
+      return DEFAULT_AFFILIATE_TIERS;
+    }
+  }
+
+  /** Salva a config de faixas (saneada e ordenada por `min`). */
+  async setTiers(
+    tenantId: string,
+    cfg: { enabled?: boolean; tiers: AffiliateTier[] },
+  ): Promise<AffiliateTiersConfig> {
+    const tiers = (Array.isArray(cfg.tiers) ? cfg.tiers : [])
+      .map((t) => ({
+        label: String(t?.label ?? '').trim() || '—',
+        min: Math.max(0, Math.floor(Number(t?.min) || 0)),
+        pct: Math.max(0, Number(t?.pct) || 0),
+      }))
+      .sort((a, b) => a.min - b.min);
+    if (!tiers.length) throw new BadRequestException('Defina ao menos uma faixa');
+    if (tiers.some((t) => t.pct > 100)) {
+      throw new BadRequestException('Percentual de faixa não pode passar de 100%');
+    }
+    const key = `AFFILIATE_TIERS_${tenantId}`;
+    const value = JSON.stringify({ enabled: !!cfg.enabled, tiers });
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+    return this.getTiers(tenantId);
+  }
+
+  /** Volume do afiliado = nº de indicações já creditadas (resolve a faixa). */
+  private async affiliateVolume(
+    tenantId: string,
+    referrerId: string,
+  ): Promise<number> {
+    return this.prisma.affiliateReferral.count({
+      where: { tenant_id: tenantId, referrer_id: referrerId, status: 'creditado' },
+    });
+  }
+
+  /**
    * Hook chamado pelo QuotesService quando uma Quote vira ACCEPTED.
    *
    * Cria um AffiliateReferral pro afiliado que indicou o paciente,
@@ -420,7 +580,7 @@ export class AffiliateService {
 
       const patient = await this.prisma.patient.findUnique({
         where: { id: params.patientId },
-        select: { referred_by_id: true },
+        select: { referred_by_id: true, cpf: true, phone: true },
       });
       if (!patient?.referred_by_id) return; // sem indicador
 
@@ -430,6 +590,8 @@ export class AffiliateService {
           id: true,
           is_affiliate: true,
           affiliate_commission_pct: true,
+          cpf: true,
+          phone: true,
         },
       });
       if (!referrer?.is_affiliate) {
@@ -439,7 +601,43 @@ export class AffiliateService {
         return;
       }
 
-      const pct = Number(referrer.affiliate_commission_pct ?? 3);
+      // ── ANTI-FRAUDE (skill, regra mínima): sem auto-indicação.
+      //    CPF igual = literalmente a mesma pessoa indicando a si mesma → BLOQUEIA.
+      //    Telefone igual NÃO bloqueia: nesta clínica famílias dividem o mesmo
+      //    número de contato no cadastro (caso real Clavio/Amanda) — bloquear por
+      //    telefone barraria indicação legítima de parente. Vira só ALERTA pra revisão.
+      const digits = (s?: string | null) => (s || '').replace(/\D/g, '');
+      const cpfReferred = digits(patient.cpf);
+      const cpfReferrer = digits(referrer.cpf);
+      const sameCpf = cpfReferred.length >= 11 && cpfReferred === cpfReferrer;
+      if (sameCpf) {
+        this.logger.warn(
+          `[AFFILIATE] Auto-indicação BLOQUEADA (mesmo CPF): referrer=${referrer.id} referred=${params.patientId} — sem comissão`,
+        );
+        return;
+      }
+      const foneReferred = digits(patient.phone);
+      const foneReferrer = digits(referrer.phone);
+      const samePhone = foneReferred.length >= 10 && foneReferred === foneReferrer;
+      if (samePhone) {
+        this.logger.warn(
+          `[AFFILIATE] Indicação com telefone IGUAL ao do afiliado: referrer=${referrer.id} referred=${params.patientId} — creditando (famílias dividem número), mas REVISAR possível auto-indicação`,
+        );
+      }
+
+      // ── FAIXA POR VOLUME (não-retroativa): se a clínica ligou as faixas, o %
+      //    sai da faixa ATUAL do afiliado (nº de indicações já creditadas);
+      //    senão, mantém o % fixo do cadastro. O snapshot em `commission_pct`
+      //    garante que subir de faixa não recalcula as indicações antigas.
+      const tiersCfg = await this.getTiers(params.tenantId);
+      let pct = Number(referrer.affiliate_commission_pct ?? 3);
+      let faixaLabel: string | null = null;
+      if (tiersCfg.enabled) {
+        const volume = await this.affiliateVolume(params.tenantId, referrer.id);
+        const tier = resolveAffiliateTier(volume, tiersCfg.tiers);
+        pct = tier.pct;
+        faixaLabel = tier.label;
+      }
       const commission = +(params.treatmentValue * (pct / 100)).toFixed(2);
 
       const referral = await this.prisma.affiliateReferral.create({
@@ -456,7 +654,7 @@ export class AffiliateService {
       });
 
       this.logger.log(
-        `[AFFILIATE] Referral criado: id=${referral.id} referrer=${referrer.id} commission=R$${commission} (quote=${params.quoteId})`,
+        `[AFFILIATE] Referral criado: id=${referral.id} referrer=${referrer.id} pct=${pct}%${faixaLabel ? ` (faixa ${faixaLabel})` : ''} commission=R$${commission} (quote=${params.quoteId})`,
       );
     } catch (e: any) {
       this.logger.warn(

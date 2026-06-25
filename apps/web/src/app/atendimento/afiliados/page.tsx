@@ -22,7 +22,7 @@ import { useRouter } from 'next/navigation';
 import {
   HandCoins, Users, TrendingUp, Wallet, Clock, ExternalLink,
   Trophy, Loader2, RefreshCw, CheckCircle2, XCircle, AlertCircle,
-  Plus, Search, X, ArrowRight,
+  Plus, Search, X, ArrowRight, Layers, ChevronDown, Save, Trash2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useRole } from '@/lib/useRole';
@@ -34,6 +34,7 @@ interface Affiliate {
   phone: string | null;
   affiliate_code: string | null;
   commission_pct: number;
+  faixa_label?: string | null;
   created_at: string;
   indicacoes_total: number;
   indicacoes_mes: number;
@@ -41,6 +42,16 @@ interface Affiliate {
   sacado_total: number;
   pendente_saque: number;
   saldo_disponivel: number;
+}
+
+interface AffiliateTier {
+  label: string;
+  min: number;
+  pct: number;
+}
+interface AffiliateTiers {
+  enabled: boolean;
+  tiers: AffiliateTier[];
 }
 
 interface Dashboard {
@@ -52,6 +63,7 @@ interface Dashboard {
     saques_pendentes_valor: number;
   };
   top5: Affiliate[];
+  tiers?: AffiliateTiers;
   affiliates: Affiliate[];
 }
 
@@ -238,6 +250,9 @@ export default function AfiliadosPage() {
           />
         </div>
 
+        {/* Faixas por volume (config) */}
+        <FaixasCard tiers={data?.tiers} onSaved={fetchAll} />
+
         {/* Saques pendentes */}
         {pending.length > 0 && (
           <section className="rounded-xl border-2 border-amber-300 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/20 overflow-hidden">
@@ -391,7 +406,14 @@ export default function AfiliadosPage() {
                       className="border-t border-border hover:bg-accent/40 cursor-pointer transition-colors"
                     >
                       <td className="px-4 py-2.5">
-                        <div className="font-semibold text-foreground">{a.name}</div>
+                        <div className="font-semibold text-foreground flex items-center gap-1.5 flex-wrap">
+                          {a.name}
+                          {a.faixa_label && (
+                            <span className="text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-900">
+                              {a.faixa_label} · {a.commission_pct}%
+                            </span>
+                          )}
+                        </div>
                         {a.phone && <div className="text-xs text-muted-foreground">{a.phone}</div>}
                       </td>
                       <td className="px-4 py-2.5 font-mono text-xs text-emerald-700 dark:text-emerald-400">
@@ -613,6 +635,191 @@ function AddAffiliateModal({
         </footer>
       </div>
     </div>
+  );
+}
+
+// ─── FaixasCard ───────────────────────────────────────────────────────────
+// Editor das faixas de afiliado por volume. Card recolhível: cabeçalho mostra
+// se está ligado/desligado + resumo; expandido permite ligar, editar nome /
+// "a partir de N indicações" / % de cada faixa, e salvar (PATCH).
+function FaixasCard({
+  tiers,
+  onSaved,
+}: {
+  tiers?: AffiliateTiers;
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [enabled, setEnabled] = useState(false);
+  const [rows, setRows] = useState<AffiliateTier[]>([]);
+  const [saving, setSaving] = useState(false);
+
+  // Sincroniza com o que veio do servidor sempre que o dashboard recarrega.
+  useEffect(() => {
+    if (tiers) {
+      setEnabled(!!tiers.enabled);
+      setRows(tiers.tiers?.length ? tiers.tiers.map((t) => ({ ...t })) : []);
+    }
+  }, [tiers]);
+
+  const updateRow = (i: number, patch: Partial<AffiliateTier>) =>
+    setRows((r) => r.map((row, idx) => (idx === i ? { ...row, ...patch } : row)));
+  const addRow = () => setRows((r) => [...r, { label: '', min: 0, pct: 0 }]);
+  const removeRow = (i: number) => setRows((r) => r.filter((_, idx) => idx !== i));
+
+  const save = async () => {
+    const clean = rows
+      .map((r) => ({
+        label: (r.label || '').trim(),
+        min: Math.max(0, Math.floor(Number(r.min) || 0)),
+        pct: Math.max(0, Number(r.pct) || 0),
+      }))
+      .filter((r) => r.label);
+    if (!clean.length) {
+      showError('Defina ao menos uma faixa com nome');
+      return;
+    }
+    if (clean.some((r) => r.pct > 100)) {
+      showError('Percentual não pode passar de 100%');
+      return;
+    }
+    setSaving(true);
+    try {
+      await api.patch('/patients/affiliates/tiers', { enabled, tiers: clean });
+      showSuccess(enabled ? 'Faixas salvas e LIGADAS' : 'Faixas salvas (desligadas)');
+      onSaved();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao salvar faixas');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const summary = enabled
+    ? rows
+        .slice()
+        .sort((a, b) => a.min - b.min)
+        .map((t) => `${t.label} ${t.pct}%`)
+        .join(' · ') || 'Nenhuma faixa definida'
+    : 'Desligadas — todos recebem o % fixo do cadastro';
+
+  return (
+    <section className="rounded-xl border border-border bg-card overflow-hidden">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        className="w-full flex items-center justify-between gap-2 px-4 py-3 hover:bg-accent/30 transition-colors"
+      >
+        <div className="flex items-center gap-2 min-w-0">
+          <Layers size={14} className="text-emerald-600 shrink-0" />
+          <div className="text-left min-w-0">
+            <h2 className="text-sm font-bold text-foreground flex items-center gap-2">
+              Faixas por volume
+              <span
+                className={`text-[9px] font-bold uppercase px-1.5 py-0.5 rounded-full ${
+                  enabled
+                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/50 dark:text-emerald-400'
+                    : 'bg-muted text-muted-foreground'
+                }`}
+              >
+                {enabled ? 'Ligadas' : 'Desligadas'}
+              </span>
+            </h2>
+            <p className="text-xs text-muted-foreground truncate">{summary}</p>
+          </div>
+        </div>
+        <ChevronDown
+          size={16}
+          className={`text-muted-foreground shrink-0 transition-transform ${open ? 'rotate-180' : ''}`}
+        />
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 pt-1 space-y-3 border-t border-border">
+          <p className="text-xs text-muted-foreground">
+            O % do afiliado sobe conforme ele acumula indicações que fecham. O valor maior
+            vale só pras <strong>próximas</strong> indicações — as antigas mantêm o % com que
+            foram geradas. Enquanto estiver <strong>desligado</strong>, todos recebem o % fixo
+            do cadastro (padrão 3%).
+          </p>
+
+          <label className="flex items-center gap-2 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+              className="w-4 h-4 accent-emerald-600"
+            />
+            <span className="text-sm font-medium text-foreground">
+              Usar faixas no cálculo da comissão
+            </span>
+          </label>
+
+          <div className="space-y-2">
+            <div className="grid grid-cols-[1fr_7rem_5rem_2rem] gap-2 text-[10px] uppercase font-bold text-muted-foreground px-1">
+              <span>Faixa</span>
+              <span className="text-center">A partir de</span>
+              <span className="text-center">%</span>
+              <span></span>
+            </div>
+            {rows.map((t, i) => (
+              <div key={i} className="grid grid-cols-[1fr_7rem_5rem_2rem] gap-2 items-center">
+                <input
+                  value={t.label}
+                  onChange={(e) => updateRow(i, { label: e.target.value })}
+                  placeholder="Nome (ex: Ouro)"
+                  className="px-2 py-1.5 rounded-lg border border-border bg-background text-sm"
+                />
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    value={t.min}
+                    onChange={(e) => updateRow(i, { min: Number(e.target.value) })}
+                    className="w-14 px-2 py-1.5 rounded-lg border border-border bg-background text-sm tabular-nums"
+                  />
+                  <span className="text-[10px] text-muted-foreground">ind.</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.5"
+                    value={t.pct}
+                    onChange={(e) => updateRow(i, { pct: Number(e.target.value) })}
+                    className="w-12 px-2 py-1.5 rounded-lg border border-border bg-background text-sm tabular-nums"
+                  />
+                  <span className="text-[10px] text-muted-foreground">%</span>
+                </div>
+                <button
+                  onClick={() => removeRow(i)}
+                  className="p-1.5 rounded-lg text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                  title="Remover faixa"
+                >
+                  <Trash2 size={13} />
+                </button>
+              </div>
+            ))}
+            <button
+              onClick={addRow}
+              className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-600 hover:text-emerald-700"
+            >
+              <Plus size={12} /> Adicionar faixa
+            </button>
+          </div>
+
+          <div className="flex justify-end pt-1">
+            <button
+              onClick={save}
+              disabled={saving}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold disabled:opacity-50"
+            >
+              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
+              Salvar faixas
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
   );
 }
 
