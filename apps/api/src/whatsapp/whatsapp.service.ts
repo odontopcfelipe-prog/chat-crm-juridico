@@ -158,19 +158,42 @@ export class WhatsappService {
       return this.request('POST', `message/sendText/${targetInstance}`, payload, 15000, tenantId);
     };
 
-    // Onda 17.62 — envia SÓ no número CADASTRADO. NÃO tenta a variante do 9º dígito: o número
-    // com/sem o 9 pode ser de OUTRA pessoa (ex.: o sem-9 do "Flavio" caiu no WhatsApp da
-    // "Amanda") → disparo pro contato ERRADO. Se não entregar (fora do WhatsApp / telefone
-    // errado), loga pra corrigir o cadastro — melhor não entregar do que mandar pro número
-    // errado. JID (@) passa direto.
-    const res = await doSend(primary);
-    if (!primary.includes('@') && evolutionSendFailed(res)) {
-      this.logger.warn(
-        `[sendText] ${primary} nao entregou (fora do WhatsApp/telefone errado) — NAO tento a ` +
-        `variante do 9o digito pra nao disparar pro contato errado. Corrija o cadastro.`,
-      );
+    // Onda 17.62 — 9º dígito BR: descobre qual variante (com/sem o 9) EXISTE no WhatsApp e
+    // manda 1 vez só NELA. Resolve o caso do número cadastrado num formato e o WhatsApp da
+    // pessoa registrado no outro (ex.: cadastro com o 9, mas o WhatsApp dela é sem o 9) —
+    // entrega no número REAL, sem duplicar e sem chutar. Se o check não responder, envia no
+    // cadastrado (sem retry, pra não arriscar disparo pro número errado). JID (@) passa direto.
+    if (!primary.includes('@')) {
+      const alt = toggleBr9thDigit(primary);
+      if (alt && alt !== primary) {
+        const existing = await this.firstExistingNumber([primary, alt], targetInstance, tenantId);
+        if (existing) return doSend(existing);
+      }
     }
-    return res;
+    return doSend(primary);
+  }
+
+  /**
+   * Onda 17.62 — qual dos números EXISTE no WhatsApp (Evolution /chat/whatsappNumbers),
+   * preferindo o 1º (cadastrado). Retorna null se o check estiver indisponível — aí o
+   * chamador envia no cadastrado. Entrega no número REAL (com OU sem o 9) e manda 1x só,
+   * em vez de enviar+reenviar (que gerava 2 disparos).
+   */
+  private async firstExistingNumber(numbers: string[], instance: string, tenantId?: string | null): Promise<string | null> {
+    try {
+      const res: any = await this.request('POST', `chat/whatsappNumbers/${instance}`, { numbers }, 10000, tenantId);
+      const arr = Array.isArray(res) ? res : Array.isArray(res?.data) ? res.data : null;
+      if (!arr || arr.length === 0) return null;
+      const digits = (s: any) => String(s || '').replace(/\D/g, '');
+      for (const n of numbers) {
+        const dn = digits(n);
+        const hit = arr.find((r: any) => r && r.exists === true && (digits(r.number) === dn || digits(r.jid) === dn));
+        if (hit) return n;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   async deleteForEveryone(instanceName: string, remoteJid: string, externalMessageId: string, fromMe: boolean) {
