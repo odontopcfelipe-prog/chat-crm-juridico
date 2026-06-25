@@ -167,6 +167,25 @@ export class CommercialController {
     return this.quotesService.getDashboardStats(tenantId, { from, to });
   }
 
+  /**
+   * Rotas LITERAIS de quotes — DEVEM vir ANTES de @Get('quotes/:id').
+   * No NestJS as rotas casam por ORDEM de declaracao; se 'quotes/deleted' ou
+   * 'quotes/archived' ficarem depois de :id, a request bate em findQuote
+   * (id='deleted'/'archived') → "Orcamento nao encontrado" e as listas nunca
+   * carregam. (Mesmo bug do dashboard de afiliados, commit 86d1f4ef.)
+   */
+  /** Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias (admin) */
+  @Get('quotes/deleted')
+  listDeletedQuotes(@Authenticated() user: AuthUser) {
+    return this.quotesService.listDeleted(user.tenant_id);
+  }
+
+  /** Onda 17.32.38 — Lista orçamentos arquivados do tenant. */
+  @Get('quotes/archived')
+  listArchivedQuotes(@Authenticated() user: AuthUser) {
+    return this.quotesService.listArchivedQuotes(user.tenant_id);
+  }
+
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findOne(id, user.tenant_id);
@@ -186,12 +205,6 @@ export class CommercialController {
   @Delete('quotes/:id')
   removeQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.remove(id, user.tenant_id, user.id);
-  }
-
-  /** Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias (admin) */
-  @Get('quotes/deleted')
-  listDeletedQuotes(@Authenticated() user: AuthUser) {
-    return this.quotesService.listDeleted(user.tenant_id);
   }
 
   /** Onda 25.6 — Restaura orcamento soft-deletado (volta pra listagem normal) */
@@ -566,12 +579,6 @@ export class CommercialController {
   @Post('quotes/:id/unarchive')
   unarchiveQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.unarchiveQuote(id, user.tenant_id);
-  }
-
-  /** Onda 17.32.38 — Lista orçamentos arquivados do tenant. */
-  @Get('quotes/archived')
-  listArchivedQuotes(@Authenticated() user: AuthUser) {
-    return this.quotesService.listArchivedQuotes(user.tenant_id);
   }
 
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────

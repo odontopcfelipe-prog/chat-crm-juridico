@@ -59,6 +59,33 @@ export class CalendarController {
     });
   }
 
+  // ─── Rotas LITERAIS de eventos — DEVEM vir ANTES de @Get('events/:id') ──
+  // No NestJS as rotas casam por ORDEM de declaracao. Se 'events/pending-validation'
+  // ficar depois de @Get('events/:id'), a request bate em findOne (id='pending-validation')
+  // → checkOwnership/NotFound — a lista de validacao nunca carrega.
+  /**
+   * Lista atendimentos pendentes de validacao (Fase 23 PR2).
+   * Default: so do dentista logado, ultimos 30 dias, no passado.
+   * Admin pode passar onlyMine=false pra ver todos.
+   */
+  @Get('events/pending-validation')
+  async pendingValidation(
+    @Request() req: any,
+    @Query('onlyMine') onlyMine?: string,
+    @Query('daysBack') daysBack?: string,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new ForbiddenException('tenant_id ausente');
+    const isAdmin = (req.user.roles || []).includes('ADMIN');
+    return this.calendarService.listPendingValidation({
+      tenantId,
+      actorUserId: req.user.id,
+      isAdmin,
+      onlyMine: onlyMine === 'true' || onlyMine === '1' || !isAdmin,
+      daysBack: daysBack ? parseInt(daysBack, 10) : 30,
+    });
+  }
+
   @RequiresPermission('view_agenda')
   @Get('events/:id')
   async findOne(@Param('id') id: string, @Request() req: any) {
@@ -138,29 +165,6 @@ export class CalendarController {
     const canAccess = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
     if (!canAccess) throw new ForbiddenException('Sem permissao para notificar este evento');
     return this.calendarService.notifyEvent(id);
-  }
-
-  /**
-   * Lista atendimentos pendentes de validacao (Fase 23 PR2).
-   * Default: so do dentista logado, ultimos 30 dias, no passado.
-   * Admin pode passar onlyMine=false pra ver todos.
-   */
-  @Get('events/pending-validation')
-  async pendingValidation(
-    @Request() req: any,
-    @Query('onlyMine') onlyMine?: string,
-    @Query('daysBack') daysBack?: string,
-  ) {
-    const tenantId = req.user?.tenant_id;
-    if (!tenantId) throw new ForbiddenException('tenant_id ausente');
-    const isAdmin = (req.user.roles || []).includes('ADMIN');
-    return this.calendarService.listPendingValidation({
-      tenantId,
-      actorUserId: req.user.id,
-      isAdmin,
-      onlyMine: onlyMine === 'true' || onlyMine === '1' || !isAdmin,
-      daysBack: daysBack ? parseInt(daysBack, 10) : 30,
-    });
   }
 
   /**
