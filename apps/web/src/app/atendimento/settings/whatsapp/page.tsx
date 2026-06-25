@@ -205,11 +205,19 @@ export default function WhatsappIntegrationPage() {
     }
   };
 
-  // Onda 17.64 — define/troca a função de um chip já conectado.
+  // Onda 17.64 — define/TROCA a função de um chip a qualquer momento.
   const handleSetPurpose = async (instanceName: string, purpose: Purpose) => {
+    const current = numbers.find((n) => n.instanceName === instanceName)?.purpose;
+    if (current && current !== purpose) {
+      if (!confirm(
+        `Trocar a função deste WhatsApp de ${purposeMeta(current)?.label} pra ${purposeMeta(purpose)?.label}?\n\n` +
+        `As PRÓXIMAS conversas passam a cair no setor ${purposeMeta(purpose)?.label}. ` +
+        `As conversas antigas ficam onde já estão.`,
+      )) return;
+    }
     try {
       await api.patch(`/whatsapp/my-numbers/${encodeURIComponent(instanceName)}/purpose`, { purpose });
-      setToast({ type: 'success', message: `Função definida: ${purposeMeta(purpose)?.label}.` });
+      setToast({ type: 'success', message: `Função: ${purposeMeta(purpose)?.label}.` });
       fetchNumbers();
     } catch (e: any) {
       setToast({ type: 'error', message: parseError(e) });
@@ -610,26 +618,30 @@ function NumberCard({
         </div>
       )}
 
-      {/* Onda 17.64 — chip sem função: pede pra definir. Legado (override
-          EVOLUTION_INSTANCE_NAME, sem prefixo do tenant) não suporta tag —
-          não oferece o botão pra não virar beco sem saída. */}
-      {!number.purpose && !number.isLegacy && (
+      {/* Onda 17.64 — função do chip: selecionável e TROCÁVEL a qualquer momento.
+          A função usada pelo OUTRO chip fica desabilitada (1 de cada). Legado
+          (sem prefixo do tenant) não suporta tag — não oferece o seletor. */}
+      {!number.isLegacy && (
         <div className="flex items-center gap-2 flex-wrap text-xs">
-          <span className="text-muted-foreground font-medium">Definir função:</span>
+          <span className="text-muted-foreground font-medium">Função:</span>
           {PURPOSES.map((p) => {
-            const used = usedPurposes.has(p.value);
+            const isCurrent = number.purpose === p.value;
+            const usedByOther = usedPurposes.has(p.value) && !isCurrent;
             return (
               <button
                 key={p.value}
-                disabled={used}
-                onClick={() => onSetPurpose(p.value)}
-                title={used ? 'Já em uso pelo outro chip' : `Marcar como ${p.label}`}
-                className={`font-bold px-2.5 py-1 rounded-lg border ${
-                  used
+                disabled={usedByOther}
+                onClick={() => { if (!isCurrent && !usedByOther) onSetPurpose(p.value); }}
+                title={usedByOther ? 'Já em uso pelo outro chip' : isCurrent ? 'Função atual' : `Mudar pra ${p.label}`}
+                className={`font-bold px-2.5 py-1 rounded-lg border inline-flex items-center gap-1 ${
+                  isCurrent
+                    ? p.badge
+                    : usedByOther
                     ? 'opacity-40 cursor-not-allowed border-border text-muted-foreground'
-                    : `${p.badge} hover:brightness-95`
+                    : 'border-border text-muted-foreground hover:bg-muted/40'
                 }`}
               >
+                {isCurrent && <CheckCircle2 size={11} />}
                 {p.label}
               </button>
             );

@@ -848,30 +848,46 @@ export class WhatsappService {
         'Linha ainda nao registrada pra sua clinica — reabra a tela e tente de novo.',
       );
     }
-    // Idempotente se já é a mesma função; recusa TROCAR de função (o inbox antigo
-    // ficaria com conversas da função errada — remover/reconectar é o caminho seguro).
+    // Idempotente se já é a mesma função.
     if (inst.purpose === normalized) {
       return { ok: true, purpose: normalized, idempotent: true };
     }
-    if (inst.purpose) {
-      throw new BadRequestException(
-        `Esse chip já é ${this.purposeLabel(inst.purpose)}. Pra trocar a função, remova a linha e reconecte.`,
-      );
-    }
 
-    await this.prisma.instance.update({
-      where: { name: instanceName },
-      data: { purpose: normalized },
+    // Onda 17.64 — SELECIONAR/TROCAR a função a QUALQUER momento. Em vez de só
+    // carimbar o inbox atual (deixaria conversas da função antiga misturadas),
+    // RE-VINCULA o chip ao inbox DA FUNÇÃO-ALVO: as PRÓXIMAS conversas caem no
+    // setor certo; as antigas ficam no inbox onde nasceram (histórico preservado).
+    // Reusa o inbox da função se já existir (não prolifera setor).
+    let targetInbox = await this.prisma.inbox.findFirst({
+      where: { tenant_id: tenantId, purpose: normalized },
+      orderBy: { created_at: 'asc' },
+      select: { id: true },
     });
-    // Carimba a função no inbox VINCULADO (não move conversas/operadores).
-    if (inst.inbox_id) {
-      await this.prisma.inbox.update({
-        where: { id: inst.inbox_id },
-        data: { purpose: normalized },
+    if (!targetInbox) {
+      const tenantUsers = await this.prisma.user.findMany({
+        where: { tenant_id: tenantId },
+        select: { id: true },
+      });
+      targetInbox = await this.prisma.inbox.create({
+        data: {
+          name: this.purposeLabel(normalized),
+          tenant_id: tenantId,
+          purpose: normalized,
+          auto_route: false,
+          users: tenantUsers.length > 0
+            ? { connect: tenantUsers.map((u) => ({ id: u.id })) }
+            : undefined,
+        },
+        select: { id: true },
       });
     }
+    await this.prisma.instance.update({
+      where: { name: instanceName },
+      data: { purpose: normalized, inbox_id: targetInbox.id },
+    });
     this.logger.log(
-      `[setPurpose] ${instanceName} (tenant ${tenantId}) -> funcao=${normalized}`,
+      `[setPurpose] ${instanceName} (tenant ${tenantId}) -> funcao=${normalized}` +
+      `${inst.purpose ? ` (trocado de ${inst.purpose})` : ''}, inbox=${targetInbox.id}`,
     );
     return { ok: true, purpose: normalized };
   }
