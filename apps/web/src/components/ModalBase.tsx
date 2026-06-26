@@ -145,7 +145,7 @@ export default function ModalBase({
           </div>
         )}
 
-        <div className="overflow-y-auto p-4 flex-1">{children}</div>
+        <div className="overflow-y-auto p-4 flex-1 min-h-0">{children}</div>
 
         {footer && (
           <div className="border-t border-border p-3 shrink-0 flex items-center justify-end gap-2">

@@ -463,8 +463,8 @@ export default function InboxesSettingsPage() {
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-6 space-y-5 overflow-y-auto flex-1">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-6 space-y-5 overflow-y-auto flex-1 min-h-0">
                 {formError && (
                   <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-[13px] font-medium">
                     {formError}
