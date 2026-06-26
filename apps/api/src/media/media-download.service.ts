@@ -97,6 +97,7 @@ export class MediaDownloadService {
         conversation_id: true,
         external_message_id: true,
         type: true,
+        instance_name: true,
         conversation: { select: { instance_name: true } },
         media: true,
       },
@@ -120,7 +121,10 @@ export class MediaDownloadService {
       messageId: message.id,
       conversationId: message.conversation_id,
       externalMessageId: message.external_message_id,
-      instanceName: message.conversation?.instance_name || undefined,
+      // Model B: a midia foi recebida no chip gravado em message.instance_name.
+      // conversation.instance_name "flutua" entre Comercial/Clinica e pode apontar
+      // pro chip errado (que nao tem a msg), entao preferimos o da propria mensagem.
+      instanceName: message.instance_name ?? message.conversation?.instance_name ?? undefined,
       mediaData: { url: (message.media as any)?.original_url },
     });
 

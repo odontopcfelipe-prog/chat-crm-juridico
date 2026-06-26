@@ -499,6 +499,10 @@ export class EvolutionService implements OnApplicationBootstrap {
           status: isOutgoing ? 'enviado' : 'recebido',
           reply_to_id: replyToId,
           reply_to_text: replyToText,
+          // Model B: grava o chip que de fato recebeu/enviou esta msg. A conversa
+          // pode flutuar entre Comercial/Clinica, mas o retry de download de midia
+          // precisa bater na instancia certa (a que tem a msg na Evolution).
+          instance_name: instanceName,
         },
       });
 
@@ -831,6 +835,7 @@ export class EvolutionService implements OnApplicationBootstrap {
               external_message_id: msgId,
               status: lm.status || 'recebido',
               created_at: msgTimestamp || new Date(),
+              instance_name: instanceName,
             },
           });
 

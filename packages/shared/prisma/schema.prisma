@@ -393,6 +393,7 @@ model Message {
   reply_to_id         String?
   reply_to_text       String?
   skill_id            String? // Qual PromptSkill gerou esta resposta IA
+  instance_name       String? // Model B: chip (Instance) que de fato recebeu/enviou esta msg. A conversa flutua entre chips (Comercial/Clinica), mas a msg fica fixa no chip de origem — usado pra retry de download de midia na instancia certa.
   media               Media?
   reactions           MessageReaction[]
   conversation        Conversation      @relation(fields: [conversation_id], references: [id], onDelete: Cascade)
