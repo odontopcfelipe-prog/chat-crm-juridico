@@ -273,18 +273,23 @@ export class EvolutionService implements OnApplicationBootstrap {
       }
 
       // 2. Find or Create Conversation
+      // Onda 17.64 (Model B) — UMA conversa por LEAD: acha SEM filtrar por instance_name.
+      // O mesmo contato falando nos 2 números (Comercial/Clínica) usa a MESMA conversa, em
+      // vez de duplicar. O SETOR (inbox) controla o número de saída (resolveDispatchInstance);
+      // instance_name vira só rastreio/fallback. Consistente com os outros handlers (resync,
+      // contacts.update) que JÁ acham a conversa por lead.
       let conv = await this.prisma.conversation.findFirst({
         where: {
           lead_id: lead.id,
           channel: 'whatsapp',
           status: 'ABERTO',
-          instance_name: instanceName // Prioriza pelo nome da instância
         },
+        orderBy: { last_message_at: 'desc' },
       });
       if (!conv) {
         // 1) Tentar reabrir conversa FECHADO
         const closedConv = await this.prisma.conversation.findFirst({
-          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO', instance_name: instanceName },
+          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO' },
           orderBy: { last_message_at: 'desc' },
         });
         if (closedConv) {
@@ -302,7 +307,7 @@ export class EvolutionService implements OnApplicationBootstrap {
         // 2) Se não achou FECHADO, checar ADIADO — mantém status, só atualiza timestamp
         if (!conv) {
           const adiadoConv = await this.prisma.conversation.findFirst({
-            where: { lead_id: lead.id, channel: 'whatsapp', status: 'ADIADO', instance_name: instanceName },
+            where: { lead_id: lead.id, channel: 'whatsapp', status: 'ADIADO' },
             orderBy: { last_message_at: 'desc' },
           });
           if (adiadoConv) {
@@ -340,6 +345,13 @@ export class EvolutionService implements OnApplicationBootstrap {
           data: updateData,
         });
       }
+
+      // 2a. Onda 17.64 — o SETOR da conversa (que controla o NÚMERO de saída via
+      // resolveDispatchInstance) é definido na CRIAÇÃO (inbox do chip que recebeu) e
+      // mudado APENAS pelo operador no botão "Mover setor". NÃO realinhamos por inbound:
+      // senão uma mensagem do paciente no número da clínica desfazia silenciosamente um
+      // "Mover → Comercial" manual — a escolha do operador tem que mandar. A aba
+      // Leads/Clientes segue o chip (is_client) no bloco 1a, independente do setor.
 
       // ── Auto-merge de conversa LID ─────────────────────────────────────────
       // Se o remoteJid era um LID (14+ dígitos) e conseguimos o telefone real via
