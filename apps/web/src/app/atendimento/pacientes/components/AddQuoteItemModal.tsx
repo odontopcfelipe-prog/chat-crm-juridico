@@ -531,9 +531,9 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         />
 
         {/* ─── BODY (lista esquerda + cesta direita) ────────── */}
-        <div className="flex-1 grid grid-cols-1 md:grid-cols-[1fr_340px] gap-0 overflow-hidden border-t border-border">
+        <div className="flex-1 min-h-0 grid grid-cols-1 md:grid-cols-[1fr_340px] gap-0 overflow-hidden border-t border-border">
           {/* COLUNA ESQ — busca + pills + lista plana */}
-          <div className="flex flex-col overflow-hidden">
+          <div className="flex flex-col overflow-hidden min-h-0">
             {/* Busca */}
             <div className="px-5 pt-4">
               <div className="relative">
@@ -572,7 +572,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
             </div>
 
             {/* Lista plana de procedimentos */}
-            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-3 space-y-2">
               {procedures.length === 0 ? (
                 <div className="p-6 text-center text-sm text-muted-foreground">
                   Nenhum procedimento cadastrado.{' '}
@@ -652,7 +652,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
           </div>
 
           {/* COLUNA DIR — cesta */}
-          <div className="border-l border-border bg-muted/20 flex flex-col overflow-hidden">
+          <div className="border-l border-border bg-muted/20 flex flex-col overflow-hidden min-h-0">
             <div className="px-4 py-3 border-b border-border flex items-center justify-between gap-2">
               <div className="flex items-center gap-2">
                 <ShoppingCart size={14} className="text-primary" />
@@ -663,7 +663,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
               </span>
             </div>
 
-            <div className="flex-1 overflow-y-auto p-3 space-y-2">
+            <div className="flex-1 min-h-0 overflow-y-auto p-3 space-y-2">
               {loadingExisting ? (
                 <div className="p-6 text-center text-xs text-muted-foreground">
                   <Loader2 size={20} className="mx-auto mb-2 animate-spin" />
