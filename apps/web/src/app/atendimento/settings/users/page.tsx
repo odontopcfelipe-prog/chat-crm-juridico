@@ -592,8 +592,8 @@ export default function UsersSettingsPage() {
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleSubmit} className="flex flex-col flex-1 overflow-hidden">
-              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto flex-1"><div className="space-y-4">
+            <form onSubmit={handleSubmit} className="flex flex-col flex-1 min-h-0 overflow-hidden">
+              <div className="p-6 grid grid-cols-1 lg:grid-cols-2 gap-6 overflow-y-auto flex-1 min-h-0"><div className="space-y-4">
               {error && (
                 <div className="p-3 bg-destructive/10 border border-destructive/20 rounded-xl text-destructive text-[13px] font-medium">
                   {error}
