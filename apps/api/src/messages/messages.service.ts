@@ -246,6 +246,37 @@ export class MessagesService {
     );
   }
 
+  /**
+   * Onda 17.64 — resolve a instância de DISPARO de uma conversa: segue a FUNÇÃO do
+   * SETOR (inbox COMERCIAL/CLINICA → chip taggeado vivo, tenant-scoped), com fallback
+   * pro instance_name (volátil — o webhook reescreve a cada inbound; chips mortos têm
+   * purpose NULL, então findFirst por purpose pega só o vivo). Texto E mídia usam o
+   * MESMO chip — senão fica split-brain (texto no vivo, áudio/arquivo no morto).
+   */
+  private async resolveDispatchInstance(convo: {
+    instance_name?: string | null;
+    inbox_id?: string | null;
+    tenant_id?: string | null;
+  }): Promise<string | undefined> {
+    let dispatchInstance: string | undefined = convo.instance_name || undefined;
+    if (convo.inbox_id && convo.tenant_id) {
+      const inbox = await this.prisma.inbox.findUnique({
+        where: { id: convo.inbox_id },
+        select: { purpose: true },
+      });
+      const purpose = (inbox as any)?.purpose;
+      if (purpose === 'COMERCIAL' || purpose === 'CLINICA') {
+        const chip = await this.prisma.instance.findFirst({
+          where: { tenant_id: convo.tenant_id, type: 'whatsapp', purpose },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        });
+        if (chip?.name) dispatchInstance = chip.name;
+      }
+    }
+    return dispatchInstance;
+  }
+
   async sendMessage(conversationId: string, text: string, replyToId?: string, senderId?: string, isInternal?: boolean, tenantId?: string) {
     await this.assertConvTenant(conversationId, tenantId);
     const convo = await this.prisma.conversation.findUnique({
@@ -309,13 +340,18 @@ export class MessagesService {
     // O DB salva o texto limpo; o WhatsApp recebe com assinatura
     const textToSend = senderName ? `*${senderName}:* ${text}` : text;
 
+    // Onda 17.64 — o disparo segue a FUNÇÃO do SETOR (inbox), não o número de origem
+    // (instance_name, volátil — o webhook reescreve a cada inbound). MESMO helper no
+    // texto e na mídia (senão fica split-brain: texto no chip vivo, áudio/arquivo no morto).
+    const dispatchInstance = await this.resolveDispatchInstance(convo);
+
     let externalMsg: any;
     let sendStatus = 'enviado';
     try {
       externalMsg = await this.whatsapp.sendText(
         convo.lead.phone,
         textToSend,
-        convo.instance_name || undefined,
+        dispatchInstance,
         quotedPayload,
       );
       if (externalMsg?.statusCode >= 400 || externalMsg?.error) {
@@ -433,7 +469,7 @@ export class MessagesService {
         'audio',
         mediaUrl,
         undefined,
-        convo.instance_name || undefined,
+        await this.resolveDispatchInstance(convo),
       );
       if (result?.statusCode >= 400 || result?.error) {
         this.logger.error(`Evolution API erro ao enviar áudio: ${JSON.stringify(result)}`);
@@ -541,7 +577,7 @@ export class MessagesService {
         mediaType,
         mediaUrl,
         caption,
-        convo.instance_name || undefined,
+        await this.resolveDispatchInstance(convo),
         file.originalname,
       );
       if (result?.statusCode >= 400 || result?.error) {
