@@ -368,6 +368,74 @@ export class ConversationsService {
     });
   }
 
+  /**
+   * Onda 17.64 — MOVE a conversa pra outro SETOR pela FUNÇÃO (Comercial/Clínica).
+   * Atualiza inbox_id + instance_name (chip do setor-alvo) → o disparo passa a SAIR
+   * pelo número desse setor (messages.service usa convo.instance_name). Coerente com
+   * a regra do número: Clínica = paciente (is_client=true), Comercial = lead (false).
+   * Desatribui (o time do novo setor pega). Atenção: como cada chip é um número, o
+   * cliente passa a receber do NÚMERO do novo setor (thread novo no WhatsApp dele).
+   */
+  async moveToSector(
+    id: string,
+    purpose: 'COMERCIAL' | 'CLINICA',
+    actorId?: string,
+  ): Promise<Conversation> {
+    const conv = await this.prisma.conversation.findUnique({
+      where: { id },
+      select: {
+        id: true, tenant_id: true, lead_id: true,
+        lead: { select: { is_client: true, became_client_at: true, stage: true } },
+      },
+    });
+    if (!conv) throw new NotFoundException('Conversa não encontrada');
+    if (!conv.tenant_id) throw new BadRequestException('Conversa sem tenant');
+
+    // Chip + inbox do setor-alvo (por função, escopado por tenant).
+    const chip = await this.prisma.instance.findFirst({
+      where: { tenant_id: conv.tenant_id, type: 'whatsapp', purpose },
+      orderBy: { created_at: 'asc' },
+      select: { name: true, inbox_id: true },
+    });
+    if (!chip) {
+      throw new BadRequestException(
+        `Sua clínica não tem um WhatsApp ${purpose === 'CLINICA' ? 'Clínica' : 'Comercial'} conectado.`,
+      );
+    }
+
+    const updated = await this.prisma.conversation.update({
+      where: { id },
+      data: {
+        ...(chip.inbox_id ? { inbox_id: chip.inbox_id } : {}),
+        instance_name: chip.name,
+        assigned_user_id: null, // novo setor assume (round-robin / pega manual)
+        ai_mode_source: 'MANUAL',
+      },
+    });
+
+    // Reclassifica o contato pela regra do número: Clínica=paciente, Comercial=lead.
+    // Espelha graduateLeadToClient (promove, idempotente: NÃO re-carimba became_client_at)
+    // e demoteLeadFromClient (demove: limpa became_client_at + reverte stage FINALIZADO,
+    // senão a conversa some das DUAS abas — is_client=false + stage=FINALIZADO).
+    if (conv.lead_id) {
+      const leadData = purpose === 'CLINICA'
+        ? { is_client: true, became_client_at: conv.lead?.became_client_at ?? new Date() }
+        : {
+            is_client: false,
+            became_client_at: null,
+            ...(conv.lead?.stage === 'FINALIZADO'
+              ? { stage: 'NEGOCIACAO', stage_entered_at: new Date() }
+              : {}),
+          };
+      await this.prisma.lead.update({ where: { id: conv.lead_id }, data: leadData })
+        .catch((e: any) => this.logger.warn(`[CONV-MOVE] Falha ao reclassificar lead: ${e?.message}`));
+    }
+
+    this.chatGateway.emitConversationsUpdate(conv.tenant_id);
+    this.logger.log(`[CONV-MOVE] ${id} → setor ${purpose} (chip ${chip.name}) por ${actorId ?? 'sistema'}`);
+    return updated;
+  }
+
   async close(id: string): Promise<Conversation> {
     const conv = await this.prisma.conversation.update({
       where: { id },

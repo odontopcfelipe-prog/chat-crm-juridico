@@ -5,6 +5,56 @@ import { Bot, BotOff, UserCheck, CornerDownLeft, Inbox, Eye, ClipboardList, Arro
 import { CRM_STAGES, findStage, normalizeStage } from '@/lib/crmStages';
 import type { ConversationSummary, ActiveTask } from '../types';
 import { ContactAvatar } from './ContactAvatar';
+import api from '@/lib/api';
+
+// Onda 17.64 — move a conversa pro setor Comercial/Clínica. O disparo passa a SAIR
+// pelo número desse setor (e reclassifica lead↔paciente). Auto-contido: chama o
+// endpoint direto; o socket (emitConversationsUpdate) atualiza a lista.
+function MoveSectorButton({ conversationId }: { conversationId?: string }) {
+  const [open, setOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
+  if (!conversationId) return null;
+  const move = async (purpose: 'COMERCIAL' | 'CLINICA') => {
+    if (moving) return;
+    const label = purpose === 'CLINICA' ? 'Clínica' : 'Comercial';
+    if (!window.confirm(
+      `Mover esta conversa pro setor ${label}?\n\n` +
+      `O atendimento passa pro time de ${label} e as PRÓXIMAS mensagens saem pelo NÚMERO desse setor ` +
+      `(o cliente recebe do número novo — vira um chat novo no WhatsApp dele).`,
+    )) return;
+    setMoving(true);
+    try {
+      await api.patch(`/conversations/${conversationId}/sector`, { purpose });
+      setOpen(false);
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Não consegui mover de setor.');
+    } finally {
+      setMoving(false);
+    }
+  };
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        disabled={moving}
+        title="Mover esta conversa pro setor Comercial ou Clínica (o disparo passa a sair pelo número do setor)"
+        className="px-3 py-2 text-sm font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+      >
+        <Inbox size={16} /> Mover setor <ChevronDown size={14} />
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 z-50 w-48 bg-card border border-border rounded-xl shadow-lg overflow-hidden">
+          <button onClick={() => move('COMERCIAL')} className="w-full text-left px-3 py-2 text-sm hover:bg-accent/40 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-sky-500" /> Comercial (Leads)
+          </button>
+          <button onClick={() => move('CLINICA')} className="w-full text-left px-3 py-2 text-sm hover:bg-accent/40 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-emerald-500" /> Clínica (Pacientes)
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 // LEGAL_AREAS removido — substituído pelo CRM dinâmico (Pipeline + Stage).
 // Ver badge novo no header (selected.leadPipeline + selected.leadCurrentStage).
@@ -370,6 +420,7 @@ export function ChatHeader({
               {hasPendingTransfer ? 'Aguardando...' : 'Transferir'}
             </button>
           )}
+          {!isClosed && isRealConvo && <MoveSectorButton conversationId={(selected as any)?.id} />}
           {selected?.originAssignedUserId && selected?.assignedAgentId === currentUserId && !isClosed && (
             <>
               <button

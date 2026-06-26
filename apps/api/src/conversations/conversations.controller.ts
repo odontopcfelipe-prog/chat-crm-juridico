@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Patch, Body, Post, Query, UseGuards, Request, Req } from '@nestjs/common';
+import { Controller, Get, Param, Patch, Body, Post, Query, UseGuards, Request, Req, BadRequestException } from '@nestjs/common';
 import { ConversationsService } from './conversations.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { ConversationOwnershipGuard } from './conversation-ownership.guard';
@@ -87,6 +87,21 @@ export class ConversationsController {
   @Patch(':id/transfer')
   transfer(@Param('id') id: string, @Body('userId') userId: string) {
     return this.conversationsService.assign(id, userId);
+  }
+
+  /** Onda 17.64 — move a conversa pro setor Comercial/Clínica (o disparo passa a
+   *  sair pelo número desse setor; reclassifica lead↔paciente). */
+  @Patch(':id/sector')
+  moveToSector(
+    @Param('id') id: string,
+    @Body('purpose') purpose: string,
+    @Request() req: any,
+  ) {
+    const p = String(purpose || '').toUpperCase();
+    if (p !== 'COMERCIAL' && p !== 'CLINICA') {
+      throw new BadRequestException('purpose deve ser COMERCIAL ou CLINICA');
+    }
+    return this.conversationsService.moveToSector(id, p as 'COMERCIAL' | 'CLINICA', req.user?.id);
   }
 
   @Post(':id/transfer-request')
