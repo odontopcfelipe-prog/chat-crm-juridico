@@ -430,26 +430,10 @@ export function InboxSidebar({
           </div>
         )}
 
-        {/* Seletor de Setores (Inboxes) — so mostra quando ha 2+ setores */}
-        {userInboxes.length > 1 && (
-          <div className="flex gap-2 overflow-x-auto pb-2 custom-scrollbar no-scrollbar">
-            <button
-              onClick={() => onSetSelectedInboxId(null)}
-              className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${!selectedInboxId ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground border-transparent hover:bg-muted/80'}`}
-            >
-              Todos Setores
-            </button>
-            {userInboxes.map((inbox) => (
-              <button
-                key={inbox.id}
-                onClick={() => onSetSelectedInboxId(inbox.id)}
-                className={`whitespace-nowrap px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${selectedInboxId === inbox.id ? 'bg-primary text-primary-foreground border-primary' : 'bg-muted text-muted-foreground border-transparent hover:bg-muted/80'}`}
-              >
-                {inbox.name}
-              </button>
-            ))}
-          </div>
-        )}
+        {/* Onda 17.64 — barra "Seletor de Setores" removida a pedido do dono pra ganhar
+            espaço na lista. O filtro por setor segue disponível pelos Filtros salvos
+            (onSetSelectedInboxId continua usado lá); as abas Leads/Clientes já separam
+            por função. */}
 
         <div className="flex items-center gap-2">
           <div className="flex bg-muted rounded-xl p-1 flex-1 relative">
