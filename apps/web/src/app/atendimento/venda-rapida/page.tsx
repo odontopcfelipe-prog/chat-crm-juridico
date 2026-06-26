@@ -809,6 +809,9 @@ export default function VendaRapidaPage() {
             )}
           </div>
 
+          {/* Total + CTA fixos no rodapé do painel — sempre visíveis. Antes ficavam no
+              fim do scroll do carrinho e sumiam quando tinha muitos procedimentos. */}
+          <div className="lg:sticky lg:bottom-0 bg-card -mx-4 px-4 -mb-4 pb-4 pt-1">
           {/* Total */}
           <div className="border-t border-border pt-3 mb-4 space-y-1.5">
             <div className="flex items-center justify-between text-xs">
@@ -859,6 +862,7 @@ export default function VendaRapidaPage() {
               procedimentos no tratamento do paciente e libera o agendamento.
             </p>
           </div>
+          </div>{/* fim do rodapé fixo (Total + Finalizar) */}
         </aside>
       </div>
 
