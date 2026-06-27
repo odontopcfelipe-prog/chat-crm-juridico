@@ -17,7 +17,7 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check,
+  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -642,19 +642,36 @@ export default function VendaRapidaPage() {
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
               Dentista responsável <span className="font-medium normal-case tracking-normal text-muted-foreground/60">· padrão da venda</span>
             </p>
-            <div className="relative">
-              <Stethoscope size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
-              <select
-                value={dentistId}
-                onChange={(e) => setDentistId(e.target.value)}
-                className="w-full pl-9 pr-3 py-2.5 text-sm border border-border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30 appearance-none"
-              >
-                <option value="">Sem dentista (não gera comissão)</option>
-                {dentists.map((d) => (
-                  <option key={d.id} value={d.id}>{d.name}</option>
-                ))}
-              </select>
-            </div>
+            {(() => {
+              const sel = dentists.find((d) => d.id === dentistId);
+              const initials = sel
+                ? sel.name.replace(/^(dr|dra)\.?\s+/i, '').split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0] || '').join('').toUpperCase()
+                : '';
+              return (
+                <div className="relative">
+                  {sel ? (
+                    <div className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300 flex items-center justify-center text-[11px] font-bold pointer-events-none">
+                      {initials}
+                    </div>
+                  ) : (
+                    <Stethoscope size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                  )}
+                  <select
+                    value={dentistId}
+                    onChange={(e) => setDentistId(e.target.value)}
+                    className={`w-full pr-9 py-2.5 text-sm border rounded-lg bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-orange-500/30 appearance-none transition-colors ${
+                      sel ? 'pl-11 font-semibold border-teal-500/40' : 'pl-9 border-border'
+                    }`}
+                  >
+                    <option value="">Sem dentista (não gera comissão)</option>
+                    {dentists.map((d) => (
+                      <option key={d.id} value={d.id}>{d.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown size={15} className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
+                </div>
+              );
+            })()}
             <p className="text-[10px] text-muted-foreground mt-1">
               {dentistId
                 ? 'Ao finalizar, os procedimentos entram como feitos e a comissão vai pra ele.'
@@ -878,7 +895,7 @@ export default function VendaRapidaPage() {
             type="button"
             onClick={handleFinish}
             disabled={finishing || !patient || cart.length === 0}
-            className="w-full text-sm font-bold px-4 py-3 rounded-lg bg-orange-600 hover:bg-orange-700 text-white transition-colors disabled:bg-muted disabled:text-muted-foreground inline-flex items-center justify-center gap-2"
+            className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
           >
             {finishing ? (
               <>
@@ -897,8 +914,8 @@ export default function VendaRapidaPage() {
               </>
             ) : (
               <>
-                <Zap size={14} strokeWidth={3} />
-                Finalizar venda · R$ {fmtBRL(total)}
+                <Check size={16} strokeWidth={3} />
+                Finalizar venda
               </>
             )}
           </button>
