@@ -757,9 +757,10 @@ export default function VendaRapidaPage() {
                           </button>
                         </div>
 
-                        {/* unitário · quantidade · total */}
-                        <div className="mt-2.5 flex items-center gap-2">
-                          <div className="text-[11px] text-muted-foreground tabular-nums flex items-center gap-1 min-w-0">
+                        {/* Onda 17.66 — unitário numa linha; stepper + total noutra (carrinho estreito
+                            quebrava quando admin tem o PriceTag editável + stepper + total na mesma linha) */}
+                        <div className="mt-2.5 space-y-1.5">
+                          <div className="text-[11px] text-muted-foreground tabular-nums flex items-center gap-1 flex-wrap">
                             <span className="shrink-0">unitário</span>
                             {canOverridePrice ? (
                               <PriceTag
@@ -770,27 +771,32 @@ export default function VendaRapidaPage() {
                             ) : (
                               <span>R$ {fmtBRL(unitPriceOf(it))}</span>
                             )}
+                            {hasTeeth && (
+                              <span className="text-muted-foreground/70">× {itemUnits(it)} dente{itemUnits(it) > 1 ? 's' : ''}</span>
+                            )}
                           </div>
-                          {!hasTeeth && (
-                            <div className="flex items-center gap-1 shrink-0">
-                              <button
-                                type="button"
-                                onClick={() => changeQty(it.procedure.id, -1)}
-                                className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
-                              >
-                                <Minus size={11} />
-                              </button>
-                              <span className="w-5 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
-                              <button
-                                type="button"
-                                onClick={() => changeQty(it.procedure.id, 1)}
-                                className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
-                              >
-                                <Plus size={11} />
-                              </button>
-                            </div>
-                          )}
-                          <span className="ml-auto shrink-0 text-base font-extrabold tabular-nums text-foreground">R$ {fmtBRL(lineTotal)}</span>
+                          <div className="flex items-center gap-2">
+                            {!hasTeeth && (
+                              <div className="flex items-center gap-1 shrink-0">
+                                <button
+                                  type="button"
+                                  onClick={() => changeQty(it.procedure.id, -1)}
+                                  className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                                >
+                                  <Minus size={11} />
+                                </button>
+                                <span className="w-6 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => changeQty(it.procedure.id, 1)}
+                                  className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                                >
+                                  <Plus size={11} />
+                                </button>
+                              </div>
+                            )}
+                            <span className="ml-auto shrink-0 text-base font-extrabold tabular-nums text-foreground">R$ {fmtBRL(lineTotal)}</span>
+                          </div>
                         </div>
                       </div>
                     </div>
