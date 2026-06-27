@@ -122,6 +122,12 @@ interface UserForm {
   supervisorIds: string[];
   cro_number: string;
   cro_uf: string;
+  // Onda 17.67 — Remuneração do profissional (comissão venda/execução + diária)
+  commission_sale_type: '' | 'PERCENT' | 'FIXED';
+  commission_sale_value: string;
+  commission_exec_type: '' | 'PERCENT' | 'FIXED';
+  commission_exec_value: string;
+  daily_rate: string;
   // Onda 17.32.117 — Setor + overrides de permissoes
   sector: Sector | '';
   extra_grants: Permission[];
@@ -130,7 +136,7 @@ interface UserForm {
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', sector: '', extra_grants: [], extra_revokes: [] };
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [] };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -249,6 +255,11 @@ export default function UsersSettingsPage() {
       supervisorIds: user.supervisors?.map((s: any) => s.id) || [],
       cro_number: user.cro_number || '',
       cro_uf: user.cro_uf || 'AL',
+      commission_sale_type: (user.commission_sale_type || '') as '' | 'PERCENT' | 'FIXED',
+      commission_sale_value: user.commission_sale_value != null ? String(user.commission_sale_value) : '',
+      commission_exec_type: (user.commission_exec_type || '') as '' | 'PERCENT' | 'FIXED',
+      commission_exec_value: user.commission_exec_value != null ? String(user.commission_exec_value) : '',
+      daily_rate: user.daily_rate != null ? String(user.daily_rate) : '',
       // Onda 17.32.117 — Setor + overrides
       sector: (user.sector || '') as Sector | '',
       extra_grants:  (user.extra_grants  || []) as Permission[],
@@ -317,6 +328,12 @@ export default function UsersSettingsPage() {
           specialties: form.specialties,
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
+          // Onda 17.67 — Remuneração do profissional
+          commission_sale_type:  form.commission_sale_type || null,
+          commission_sale_value: form.commission_sale_value !== '' ? Number(form.commission_sale_value) : null,
+          commission_exec_type:  form.commission_exec_type || null,
+          commission_exec_value: form.commission_exec_value !== '' ? Number(form.commission_exec_value) : null,
+          daily_rate:            form.daily_rate !== '' ? Number(form.daily_rate) : null,
           // Onda 17.32.117 — Setor + overrides
           sector:        form.sector || null,
           extra_grants:  form.extra_grants,
@@ -684,6 +701,83 @@ export default function UsersSettingsPage() {
                   </p>
                 </div>
               )}
+
+              {/* Onda 17.67 — Remuneração do profissional (comissão de venda/execução + diária). Opcional. */}
+              <div className="space-y-2">
+                <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
+                  Remuneração <span className="font-medium normal-case tracking-normal opacity-60">· opcional</span>
+                </label>
+                <div className="space-y-2.5 p-3 rounded-xl border border-border bg-background/40">
+                  {/* Comissão de venda */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-foreground">Comissão de venda</p>
+                      <p className="text-[10px] text-muted-foreground">Quando fecha a venda</p>
+                    </div>
+                    <select
+                      value={form.commission_sale_type}
+                      onChange={e => setForm({ ...form, commission_sale_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
+                      className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                    >
+                      <option value="">—</option>
+                      <option value="PERCENT">%</option>
+                      <option value="FIXED">R$</option>
+                    </select>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={form.commission_sale_value}
+                      onChange={e => setForm({ ...form, commission_sale_value: e.target.value })}
+                      disabled={!form.commission_sale_type}
+                      className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
+                      placeholder={form.commission_sale_type === 'PERCENT' ? '0%' : form.commission_sale_type === 'FIXED' ? 'R$' : '—'}
+                    />
+                  </div>
+                  {/* Comissão de execução */}
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-foreground">Comissão de execução</p>
+                      <p className="text-[10px] text-muted-foreground">Quando realiza o procedimento</p>
+                    </div>
+                    <select
+                      value={form.commission_exec_type}
+                      onChange={e => setForm({ ...form, commission_exec_type: e.target.value as '' | 'PERCENT' | 'FIXED' })}
+                      className="w-16 px-2 py-2 border border-border rounded-lg bg-background text-foreground text-xs focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none"
+                    >
+                      <option value="">—</option>
+                      <option value="PERCENT">%</option>
+                      <option value="FIXED">R$</option>
+                    </select>
+                    <input
+                      type="number" min="0" step="0.01"
+                      value={form.commission_exec_value}
+                      onChange={e => setForm({ ...form, commission_exec_value: e.target.value })}
+                      disabled={!form.commission_exec_type}
+                      className="w-24 px-2.5 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none disabled:opacity-40 disabled:cursor-not-allowed placeholder:text-muted-foreground/40"
+                      placeholder={form.commission_exec_type === 'PERCENT' ? '0%' : form.commission_exec_type === 'FIXED' ? 'R$' : '—'}
+                    />
+                  </div>
+                  {/* Diária */}
+                  <div className="flex items-center gap-2 pt-2 border-t border-border/60">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-semibold text-foreground">Diária</p>
+                      <p className="text-[10px] text-muted-foreground">Valor por dia (meia diária = metade)</p>
+                    </div>
+                    <div className="relative w-24">
+                      <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[11px] text-muted-foreground pointer-events-none">R$</span>
+                      <input
+                        type="number" min="0" step="0.01"
+                        value={form.daily_rate}
+                        onChange={e => setForm({ ...form, daily_rate: e.target.value })}
+                        className="w-full pl-7 pr-2 py-2 border border-border rounded-lg bg-background text-foreground text-sm tabular-nums focus:ring-2 focus:ring-primary/20 focus:border-primary outline-none placeholder:text-muted-foreground/40"
+                        placeholder="0,00"
+                      />
+                    </div>
+                  </div>
+                </div>
+                <p className="text-[10px] text-muted-foreground opacity-70 ml-1 leading-snug">
+                  Comissão e diária viram <b>despesa no caixa</b> quando pagas. A <b>diária não</b> aparece no relatório de comissões. Deixe vazio se não houver.
+                </p>
+              </div>
 
               {/* Onda 5e v12 (Fase 25) — HORÁRIOS DE ATENDIMENTO POSICIONADOS
                   LOGO APOS CRO pra alta visibilidade. So aparece pra DENTIST/

@@ -276,7 +276,7 @@ export class UsersService {
     return { ok: true, sent: true };
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
@@ -292,6 +292,19 @@ export class UsersService {
     if (data.specialties !== undefined) (updateData as any).specialties = { set: data.specialties };
     if (data.cro_number !== undefined) updateData.cro_number = data.cro_number || null;
     if (data.cro_uf !== undefined) updateData.cro_uf = data.cro_uf || null;
+
+    // Onda 17.67 — Remuneração do profissional: comissão de venda/execução (PERCENT|FIXED) + diária.
+    const validCommType = (type: any) => {
+      if (type !== undefined && type !== null && type !== '' && !['PERCENT', 'FIXED'].includes(type)) {
+        throw new BadRequestException(`Tipo de comissão inválido: ${type} (use PERCENT ou FIXED)`);
+      }
+    };
+    const toNum = (v: any) => (v === null || v === undefined || v === '' ? null : Number(v));
+    if (data.commission_sale_type !== undefined) { validCommType(data.commission_sale_type); (updateData as any).commission_sale_type = data.commission_sale_type || null; }
+    if (data.commission_sale_value !== undefined) (updateData as any).commission_sale_value = toNum(data.commission_sale_value);
+    if (data.commission_exec_type !== undefined) { validCommType(data.commission_exec_type); (updateData as any).commission_exec_type = data.commission_exec_type || null; }
+    if (data.commission_exec_value !== undefined) (updateData as any).commission_exec_value = toNum(data.commission_exec_value);
+    if (data.daily_rate !== undefined) (updateData as any).daily_rate = toNum(data.daily_rate);
 
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {

@@ -183,6 +183,15 @@ model User {
   extra_revokes                 String[]               @default([])
   cro_number                    String? // Número CRO (Conselho Regional de Odontologia), ex: "CRO-AL 12345"
   cro_uf                        String? // UF do CRO (ex: "AL")
+  // Onda 17.67 — Remuneração do profissional (cadastro). Todos opcionais; comissão é opcional.
+  /// Comissão de VENDA (quem fecha a venda): tipo 'PERCENT' | 'FIXED' + valor (% ou R$).
+  commission_sale_type          String?
+  commission_sale_value         Decimal?               @db.Decimal(10, 2)
+  /// Comissão de EXECUÇÃO (quem realiza): padrão do profissional. Override por procedimento via CommissionRule.
+  commission_exec_type          String?
+  commission_exec_value         Decimal?               @db.Decimal(10, 2)
+  /// Diária (valor cheio; meia-diária = metade). Lançada por admin/financeiro — NUNCA pelo dentista.
+  daily_rate                    Decimal?               @db.Decimal(10, 2)
   profile_picture_url           String? // Path relativo no filesystem (profiles/{id}.ext)
   // Onda 17.32.172 — confirmacao de e-mail dos membros da equipe.
   // Token enviado por e-mail no cadastro; verified_at marca quando o
@@ -2328,6 +2337,9 @@ model Procedure {
   /// Cuidados pos-procedimento padrao (texto informativo ao paciente)
   post_procedure_instructions String?
 
+  /// Onda 17.67 — se false, este procedimento NAO gera comissao (nem venda, nem execucao). Default: comissiona.
+  commissionable Boolean @default(true)
+
   active     Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -3819,6 +3831,9 @@ model Commission {
   treatment_plan_item_id String?
   // Vinculo opcional ao orcamento/pagamento que liberou
   quote_id               String?
+
+  // Onda 17.67 — tipo da comissao: 'EXECUCAO' (padrao, gerada na execucao do item) | 'VENDA' (gerada no fechamento da venda)
+  kind String @default("EXECUCAO")
 
   // Valor base e calculado
   base_value  Decimal  @db.Decimal(10, 2)
