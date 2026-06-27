@@ -523,7 +523,8 @@ export function Sidebar() {
       icon: <Zap size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/venda-rapida'),
       badge: 'novo',
-      show: true,
+      // Onda 17.65 — venda rápida usa manage_proposals: só com permissão.
+      show: hasPermission('manage_proposals'),
     },
     // Onda 17.32.88 — Atalho pro admin SaaS. So aparece se SUPER_ADMIN.
     adminTenants: {
@@ -616,7 +617,8 @@ export function Sidebar() {
       // Badge mostra orcamentos enviados que expiram em ate 7 dias —
       // ajuda recepcao/dentista a cobrar resposta antes de perder a venda
       badge: quotesExpiringSoon,
-      show: true,
+      // Onda 17.65 — Orçamentos/Propostas só com manage_proposals.
+      show: hasPermission('manage_proposals'),
     },
     propostas: {
       // Onda 17.32.41 — Atalho rapido pra "propostas em aberto" = orcamentos
@@ -627,7 +629,7 @@ export function Sidebar() {
       icon: <Layers size={20} strokeWidth={2} />,
       // Match exato pra "?status=SENT" pra nao competir com Orcamentos no highlight.
       match: (p, _h, search) => p.startsWith('/atendimento/orcamentos') && (search || '').includes('status=SENT'),
-      show: true,
+      show: hasPermission('manage_proposals'),
     },
     fechamentos: {
       // Kanban dedicado à fase de fechamento (orçamentos SENT) agrupados por
@@ -637,7 +639,7 @@ export function Sidebar() {
       href: '/atendimento/fechamentos',
       icon: <Handshake size={20} strokeWidth={2} />,
       match: (p) => p.startsWith('/atendimento/fechamentos'),
-      show: true,
+      show: hasPermission('manage_proposals'),
     },
     validacoes: {
       label: 'Atendimentos a validar',

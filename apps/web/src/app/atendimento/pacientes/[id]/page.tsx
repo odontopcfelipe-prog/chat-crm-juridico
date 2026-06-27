@@ -26,6 +26,7 @@ import api, { API_BASE_URL } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 import { calculateAge, formatBirthDateWithAge } from '@/lib/age';
 import { formatPhone, formatCPF, formatRG } from '@/lib/utils';
 import AnamneseTab from '../components/AnamneseTab';
@@ -153,6 +154,12 @@ function PacienteFichaInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const role = useRole();
+  // Onda 17.65 — Propostas (manage_proposals) e Financeiro (view_financial) só pra
+  // quem tem a permissão. Dentista sem o grant não vê as abas. Gateia por permissão
+  // (não por papel), então recepção/CRC/admin que têm continuam vendo.
+  const { hasPermission, ready: permsReady } = useUserPermissions();
+  const canProposals = hasPermission('manage_proposals');
+  const canFinancial = hasPermission('view_financial');
   const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
   // Aceita ?tab=odontogram (e variantes) na URL pra que outras páginas
@@ -165,6 +172,14 @@ function PacienteFichaInner() {
     return valid ? (raw as TabId) : 'overview';
   })();
   const [tab, setTab] = useState<TabId>(initialTab);
+  // Onda 17.65 — se cair numa aba sem permissão (ex.: ?tab=financial via link),
+  // volta pra Visão Geral (só depois que /users/me carregou as permissões).
+  useEffect(() => {
+    if (!permsReady) return;
+    if ((tab === 'proposals' && !canProposals) || (tab === 'financial' && !canFinancial)) {
+      setTab('overview');
+    }
+  }, [permsReady, tab, canProposals, canFinancial]);
   const [editOpen, setEditOpen] = useState(false);
   const [addAllergyOpen, setAddAllergyOpen] = useState(false);
   const [addMedOpen, setAddMedOpen] = useState(false);
@@ -715,6 +730,8 @@ function PacienteFichaInner() {
             // Aba "Afiliado" so aparece quando o paciente esta no programa.
             // Default off — toggle em Editar paciente > Programa de Afiliado.
             .filter((t) => t.id !== 'affiliate' || patient.is_affiliate)
+            // Onda 17.65 — Propostas/Financeiro só com permissão.
+            .filter((t) => (t.id !== 'proposals' || canProposals) && (t.id !== 'financial' || canFinancial))
             .map((t) => {
             const Icon = t.icon;
             const active = tab === t.id;
@@ -799,7 +816,7 @@ function PacienteFichaInner() {
       {tab === 'smile-design' && <SmileDesignTab patientId={patient.id} />}
       {tab === 'radiografias' && <RadiografiasTab patientId={patient.id} />}
       {/* Onda 17.32.23 — Aba "Orçamentos" removida (fluxo enxuto: tudo em Propostas) */}
-      {tab === 'proposals' && (
+      {tab === 'proposals' && canProposals && (
         <PropostasTab
           patientId={patient.id}
           onOpenQuoteDetail={() => {
@@ -815,7 +832,7 @@ function PacienteFichaInner() {
           }}
         />
       )}
-      {tab === 'financial' && <FinanceiroTab patientId={patient.id} />}
+      {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} />}
       {tab === 'treatment' && <TratamentoTab patientId={patient.id} />}
       {tab === 'affiliate' && patient.is_affiliate && (
         <AfiliadoTab
