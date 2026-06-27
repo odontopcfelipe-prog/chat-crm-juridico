@@ -297,7 +297,10 @@ function OrcamentosPageInner() {
   };
 
   return (
-    <div className="p-6 w-full">
+    // h-full + overflow-y-auto: o <main> do atendimento é overflow-hidden, então a
+    // página precisa do próprio contêiner rolável (mesmo padrão da ficha do paciente).
+    // Sem isso, a lista de orçamentos era cortada na viewport e não rolava pra baixo.
+    <div className="h-full overflow-y-auto p-6 w-full">
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
