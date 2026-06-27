@@ -439,7 +439,10 @@ export default function VendaRapidaPage() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    // h-full overflow-y-auto: o <main> do atendimento é overflow-hidden. Sem isso, em
+    // tela pequena/estreita (layout empilhado, carrinho não-sticky) o botão "Finalizar
+    // venda" caía abaixo da dobra e a página não rolava pra alcançá-lo.
+    <div className="h-full overflow-y-auto p-6 max-w-7xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <div className="flex items-center gap-3 mb-2">
