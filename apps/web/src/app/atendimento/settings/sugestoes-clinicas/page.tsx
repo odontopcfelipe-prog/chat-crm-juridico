@@ -124,7 +124,7 @@ export default function SugestoesClinicasPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto p-6 space-y-4">
+    <div className="h-full overflow-y-auto max-w-4xl mx-auto p-6 space-y-4">
       <div className="flex items-start gap-3">
         <Lightbulb size={24} className="text-amber-600 shrink-0 mt-1" />
         <div>

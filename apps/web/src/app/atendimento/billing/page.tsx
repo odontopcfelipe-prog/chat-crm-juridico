@@ -109,7 +109,7 @@ export default function BillingPage() {
   const trialDaysLeft = trialEnds ? Math.max(0, Math.ceil((trialEnds.getTime() - Date.now()) / (1000 * 60 * 60 * 24))) : 0;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
+    <div className="h-full overflow-y-auto p-6 max-w-5xl mx-auto">
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-foreground flex items-center gap-2">
           <CreditCard size={22} />

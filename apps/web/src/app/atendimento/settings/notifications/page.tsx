@@ -165,7 +165,7 @@ export default function NotificationsSettingsPage() {
   }
 
   return (
-    <div className="p-8 max-w-2xl">
+    <div className="h-full overflow-y-auto p-8 max-w-2xl">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <Bell className="text-primary" size={22} />

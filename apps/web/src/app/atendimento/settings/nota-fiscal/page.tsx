@@ -77,7 +77,7 @@ export default function NotaFiscalSettingsPage() {
   }
 
   return (
-    <div className="flex-1 p-8 max-w-2xl mx-auto space-y-8">
+    <div className="h-full overflow-y-auto flex-1 p-8 max-w-2xl mx-auto space-y-8">
       <div className="flex items-center gap-3">
         <div className="w-12 h-12 rounded-2xl bg-violet-500/15 flex items-center justify-center">
           <FileText className="w-6 h-6 text-violet-400" />

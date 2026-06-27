@@ -182,7 +182,7 @@ export default function IdentidadeClinicaPage() {
   }
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="h-full overflow-y-auto p-6 max-w-3xl mx-auto">
       {/* Header */}
       <div className="mb-6">
         <h1 className="text-2xl font-extrabold text-foreground tracking-tight flex items-center gap-2">

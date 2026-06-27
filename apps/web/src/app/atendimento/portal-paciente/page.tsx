@@ -101,7 +101,7 @@ export default function PortalPacienteAdminPage() {
   };
 
   return (
-    <div className="p-4 max-w-5xl mx-auto space-y-4">
+    <div className="h-full overflow-y-auto p-4 max-w-5xl mx-auto space-y-4">
       <div>
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <Smartphone size={24} className="text-primary" /> Portal do Paciente

@@ -91,7 +91,7 @@ export default function CannedResponsesPage() {
   };
 
   return (
-    <div className="p-8 max-w-3xl">
+    <div className="h-full overflow-y-auto p-8 max-w-3xl">
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <Zap className="text-primary" size={22} />

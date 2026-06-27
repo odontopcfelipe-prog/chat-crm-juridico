@@ -242,7 +242,7 @@ export default function GoogleDriveSettingsPage() {
   }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
+    <div className="h-full overflow-y-auto max-w-3xl mx-auto p-6 space-y-6">
       {/* Header */}
       <div className="flex items-center gap-3">
         <div className="p-2.5 bg-blue-500/10 rounded-xl">

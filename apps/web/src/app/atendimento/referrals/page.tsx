@@ -114,7 +114,7 @@ function ReferralsPageInner() {
   };
 
   return (
-    <div className="p-6 w-full">
+    <div className="h-full overflow-y-auto p-6 w-full">
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">

@@ -88,7 +88,7 @@ export default function ComissoesPage() {
   };
 
   return (
-    <div className="p-6 w-full">
+    <div className="h-full overflow-y-auto p-6 w-full">
       <div className="mb-6">
         <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
           <Banknote size={26} className="text-primary" /> Comissoes

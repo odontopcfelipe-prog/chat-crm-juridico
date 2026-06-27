@@ -70,7 +70,7 @@ export default function MarkersSettingsPage() {
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="h-full overflow-y-auto p-6 max-w-4xl mx-auto">
       <div className="mb-6 flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
