@@ -182,11 +182,20 @@ export class PaymentGatewayService {
   private async releaseCommissionsForPlan(tenantId: string | null, treatmentPlanId: string | null, now: Date) {
     if (!tenantId || !treatmentPlanId) return;
     try {
+      // Onda 17.67 — libera por ITEM do plano (comissão de execução) E por QUOTE do
+      // plano (comissão de VENDA, que não tem treatment_plan_item_id). Sem o segundo
+      // ramo, a comissão de venda ficava presa em DEVIDA pra sempre.
+      const plan = await this.prisma.treatmentPlan.findUnique({
+        where: { id: treatmentPlanId },
+        select: { quote_id: true },
+      });
+      const orConds: any[] = [{ treatment_plan_item: { treatment_plan_id: treatmentPlanId } }];
+      if (plan?.quote_id) orConds.push({ quote_id: plan.quote_id });
       const pending = await this.prisma.commission.findMany({
         where: {
           tenant_id: tenantId,
           status: 'DEVIDA',
-          treatment_plan_item: { treatment_plan_id: treatmentPlanId },
+          OR: orConds,
         },
         select: { id: true },
       });

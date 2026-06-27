@@ -816,6 +816,14 @@ export class QuotesService {
         `${data.installment_count ? `${data.installment_count}x` : '1x'} R$ ${data.value}`,
       );
 
+      // Onda 17.67 — Comissão de VENDA pro vendedor (quem finaliza). Best-effort:
+      // a cobrança já foi criada, não falha o fluxo se a comissão der erro.
+      try {
+        await this.generateSaleCommission(tenantId, userId, quoteId, quote.patient_id, data.value);
+      } catch (e: any) {
+        this.logger.warn(`[APPROVE-AND-BILL] comissão de venda falhou: ${e?.message}`);
+      }
+
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
       // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
       // hora. Best-effort: a cobranca ja foi criada, nao falha por causa disso.
@@ -881,6 +889,89 @@ export class QuotesService {
       // Senao, propaga como 500 mesmo (caso desconhecido)
       throw err;
     }
+  }
+
+  /**
+   * Onda 17.67 — Comissão de VENDA: gerada no fechamento (approveAndBill) pro
+   * vendedor (quem finaliza, userId). Usa a config commission_sale_* do cadastro
+   * do profissional. Base = soma dos itens COMISSIONÁVEIS do orçamento (itens
+   * "não comissiona" ficam de fora). Idempotente (1 VENDA por orçamento).
+   */
+  private async generateSaleCommission(tenantId: string, sellerUserId: string, quoteId: string, patientId: string, chargedValue?: number) {
+    // Idempotência: 1 comissão de venda por orçamento.
+    const exists = await this.prisma.commission.findFirst({
+      where: { quote_id: quoteId, kind: 'VENDA' },
+      select: { id: true },
+    });
+    if (exists) return;
+
+    const seller = await this.prisma.user.findUnique({
+      where: { id: sellerUserId },
+      select: { commission_sale_type: true, commission_sale_value: true },
+    });
+    if (!seller?.commission_sale_type || seller.commission_sale_value == null) return;
+
+    // Base = soma dos itens comissionáveis (procedimentos "não comissiona" ficam de fora).
+    const items = await this.prisma.quoteItem.findMany({
+      where: { quote_id: quoteId },
+      select: { unit_price: true, quantity: true, procedure: { select: { commissionable: true } } },
+    });
+    // Base = porção COMISSIONÁVEL do valor REALMENTE cobrado. Se houve desconto na
+    // venda (chargedValue < soma cheia), reduz a base na mesma proporção — senão a
+    // comissão sairia sobre o valor cheio (Onda 17.67).
+    const fullSum = items.reduce((s, i) => s + Number(i.unit_price) * (i.quantity || 1), 0);
+    const commSum = items
+      .filter((i) => (i.procedure as any)?.commissionable !== false)
+      .reduce((s, i) => s + Number(i.unit_price) * (i.quantity || 1), 0);
+    let base = commSum;
+    if (chargedValue != null && chargedValue >= 0 && fullSum > 0) {
+      base = commSum * (chargedValue / fullSum);
+    }
+    if (base <= 0) return;
+
+    let percentage: Prisma.Decimal | null = null;
+    let fixed_value: Prisma.Decimal | null = null;
+    let amount = 0;
+    if (seller.commission_sale_type === 'PERCENT') {
+      percentage = seller.commission_sale_value as any;
+      amount = base * Number(seller.commission_sale_value) / 100;
+    } else {
+      fixed_value = seller.commission_sale_value as any;
+      amount = Number(seller.commission_sale_value);
+    }
+    if (amount <= 0) return;
+
+    const now = new Date();
+    const referenceMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    // Onda 17.67 — se o orçamento já está pago, nasce DISPONIVEL direto; senão DEVIDA e
+    // a liberação no pagamento cuida (releaseCommissionsForPlan agora pega por quote_id).
+    let planPaid = false;
+    const plan = await this.prisma.treatmentPlan.findFirst({ where: { quote_id: quoteId }, select: { id: true } });
+    if (plan) {
+      const paidCharge = await this.prisma.paymentGatewayCharge.findFirst({
+        where: { treatment_plan_id: plan.id, OR: [{ status: { in: ['RECEIVED', 'CONFIRMED'] } }, { received_in_cash: true }] },
+        select: { id: true },
+      });
+      planPaid = !!paidCharge;
+    }
+    await this.prisma.commission.create({
+      data: {
+        tenant_id: tenantId,
+        professional_user_id: sellerUserId,
+        patient_id: patientId,
+        quote_id: quoteId,
+        kind: 'VENDA',
+        base_value: new Prisma.Decimal(base),
+        percentage,
+        fixed_value,
+        amount: new Prisma.Decimal(amount),
+        status: planPaid ? 'DISPONIVEL' : 'DEVIDA',
+        available_at: planPaid ? now : null,
+        reference_month: referenceMonth,
+        notes: 'Comissão de venda (fechamento do orçamento)',
+      },
+    });
+    this.logger.log(`[SaleCommission] Quote ${quoteId} -> Commission VENDA de R$ ${amount.toFixed(2)} pro vendedor ${sellerUserId}`);
   }
 
   /**

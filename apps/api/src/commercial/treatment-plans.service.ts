@@ -291,8 +291,8 @@ export class TreatmentPlansService {
         ...(data.notes ? { notes: data.notes } : {}),
       },
       include: {
-        procedure: { select: { id: true, name: true, category: true } },
-        treatment_plan: { select: { patient_id: true, quote_id: true } },
+        procedure: { select: { id: true, name: true, category: true, commissionable: true } },
+        treatment_plan: { select: { id: true, patient_id: true, quote_id: true } },
       },
     });
 
@@ -373,11 +373,13 @@ export class TreatmentPlansService {
       unit_price: Prisma.Decimal;
       quantity: number;
       procedure_id: string | null;
-      procedure: { id: string; name: string; category: string | null } | null;
-      treatment_plan: { patient_id: string; quote_id: string | null } | null;
+      procedure: { id: string; name: string; category: string | null; commissionable?: boolean } | null;
+      treatment_plan: { id?: string; patient_id: string; quote_id: string | null } | null;
     },
   ) {
     if (!item.procedure_id || !item.procedure || !item.treatment_plan?.patient_id) return;
+    // Onda 17.67 — procedimento marcado "não comissiona" → sem comissão de execução.
+    if ((item.procedure as any).commissionable === false) return;
 
     const now = new Date();
     const rules = await this.prisma.commissionRule.findMany({
@@ -394,27 +396,67 @@ export class TreatmentPlansService {
       },
     });
 
-    if (rules.length === 0) return;
-
     // Resolve mais especifica
     const byProcedure = rules.find((r) => r.procedure_id === item.procedure_id);
     const byCategory = item.procedure.category
       ? rules.find((r) => r.procedure_category === item.procedure!.category)
       : undefined;
     const general = rules.find((r) => !r.procedure_id && !r.procedure_category);
-    const rule = byProcedure || byCategory || general;
-    if (!rule) return;
+
+    // Onda 17.67 — Resolução (mais específico vence): regra do procedimento >
+    // regra da categoria > config de EXECUÇÃO do profissional (cadastro) > regra geral.
+    let percentage: Prisma.Decimal | null = null;
+    let fixed_value: Prisma.Decimal | null = null;
+    let trigger = 'ON_PAYMENT';
+    let source = '';
+    const specific = byProcedure || byCategory;
+    if (specific) {
+      percentage = specific.percentage;
+      fixed_value = specific.fixed_value;
+      trigger = specific.trigger;
+      source = `regra ${specific.id.slice(0, 8)}`;
+    } else {
+      const prof = await this.prisma.user.findUnique({
+        where: { id: executedByUserId },
+        select: { commission_exec_type: true, commission_exec_value: true },
+      });
+      if (prof?.commission_exec_type && prof.commission_exec_value != null) {
+        if (prof.commission_exec_type === 'PERCENT') percentage = prof.commission_exec_value as any;
+        else fixed_value = prof.commission_exec_value as any;
+        source = 'cadastro do profissional';
+      } else if (general) {
+        percentage = general.percentage;
+        fixed_value = general.fixed_value;
+        trigger = general.trigger;
+        source = `regra geral ${general.id.slice(0, 8)}`;
+      } else {
+        return; // sem comissão de execução configurada
+      }
+    }
 
     // Calcula valor
     const baseValue = Number(item.unit_price) * (item.quantity || 1);
     let amount = 0;
-    if (rule.percentage) amount = baseValue * Number(rule.percentage) / 100;
-    else if (rule.fixed_value) amount = Number(rule.fixed_value);
+    if (percentage != null && Number(percentage) > 0) amount = baseValue * Number(percentage) / 100;
+    else if (fixed_value != null && Number(fixed_value) > 0) amount = Number(fixed_value);
     else return;
 
-    // Status inicial: ON_PAYMENT mantem DEVIDA ate paciente pagar.
-    // ON_EXECUTION ja pode liberar imediatamente (DISPONIVEL).
-    const status = rule.trigger === 'ON_EXECUTION' ? 'DISPONIVEL' : 'DEVIDA';
+    // Status inicial: ON_PAYMENT mantem DEVIDA ate paciente pagar; ON_EXECUTION libera
+    // na hora. Onda 17.67 — se o plano JA foi pago (venda rapida em especie + dentista
+    // confirma DEPOIS), nasce DISPONIVEL direto: senao ficaria presa, pois a liberacao
+    // no pagamento ja rodou antes desta comissao existir.
+    let planPaid = false;
+    if (item.treatment_plan.id) {
+      const paidCharge = await this.prisma.paymentGatewayCharge.findFirst({
+        where: {
+          treatment_plan_id: item.treatment_plan.id,
+          OR: [{ status: { in: ['RECEIVED', 'CONFIRMED'] } }, { received_in_cash: true }],
+        },
+        select: { id: true },
+      });
+      planPaid = !!paidCharge;
+    }
+    const status = (trigger === 'ON_EXECUTION' || planPaid) ? 'DISPONIVEL' : 'DEVIDA';
     const availableAt = status === 'DISPONIVEL' ? now : null;
 
     await this.prisma.commission.create({
@@ -425,20 +467,20 @@ export class TreatmentPlansService {
         procedure_id: item.procedure_id,
         treatment_plan_item_id: item.id,
         quote_id: item.treatment_plan.quote_id,
+        kind: 'EXECUCAO',
         base_value: new Prisma.Decimal(baseValue),
-        percentage: rule.percentage,
-        fixed_value: rule.fixed_value,
+        percentage,
+        fixed_value,
         amount: new Prisma.Decimal(amount),
         status,
         available_at: availableAt,
         reference_month: monthKey(now),
-        notes: `Auto-gerada pela execucao de "${item.procedure.name}" (regra ${rule.id.slice(0, 8)}, trigger ${rule.trigger})`,
+        notes: `Comissão de execução de "${item.procedure.name}" (${source}, trigger ${trigger})`,
       },
     });
 
     this.logger.log(
-      `[CommissionAutoGen] Item ${item.id} -> Commission de R$ ${amount.toFixed(2)} ` +
-      `(${status}, regra ${rule.percentage ? `${rule.percentage}%` : `R$ ${rule.fixed_value}`})`,
+      `[CommissionAutoGen] Item ${item.id} -> Commission EXECUCAO de R$ ${amount.toFixed(2)} (${status}, ${source})`,
     );
   }
 

@@ -409,9 +409,10 @@ export default function VendaRapidaPage() {
           billing_type: clinicReceived ? 'PIX' : billingType,
           value: total,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
-          // Onda 17.40 — "na hora da venda": com dentista responsável escolhido,
-          // marca os procedimentos como feitos em nome dele e gera a comissão.
-          auto_execute_items: !!dentistId,
+          // Onda 17.67 — Modelo B: os procedimentos ficam PENDENTES pro dentista
+          // confirmar a conclusão (aí nasce a comissão de execução). A comissão de
+          // VENDA já nasce no fechamento (approveAndBill), pro vendedor.
+          auto_execute_items: false,
           executed_by_dentist_id: dentistId || undefined,
         },
       );
@@ -474,8 +475,8 @@ export default function VendaRapidaPage() {
           </span>
         </div>
         <p className="text-sm text-muted-foreground">
-          Venda um procedimento na hora e <strong className="text-emerald-700 dark:text-emerald-400">já entra no tratamento do paciente</strong>{' '}
-          — gera a cobrança e dispensa o fluxo de avaliação.
+          Venda um procedimento na hora: <strong className="text-emerald-700 dark:text-emerald-400">entra no tratamento do paciente</strong>{' '}
+          — gera a cobrança e dispensa a avaliação. O dentista confirma a execução depois.
         </p>
       </div>
 
@@ -674,8 +675,8 @@ export default function VendaRapidaPage() {
             })()}
             <p className="text-[10px] text-muted-foreground mt-1">
               {dentistId
-                ? 'Ao finalizar, os procedimentos entram como feitos e a comissão vai pra ele.'
-                : 'Selecione pra creditar a comissão da venda.'}
+                ? 'Os procedimentos ficam pendentes pra esse dentista confirmar a conclusão — aí entra a comissão de execução dele.'
+                : 'Sem dentista, ninguém recebe comissão de execução nesta venda.'}
             </p>
           </div>
 
@@ -930,8 +931,9 @@ export default function VendaRapidaPage() {
           <div className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
             <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
             <p className="leading-snug">
-              Ao finalizar: registra o recebimento no caixa, lança os
-              procedimentos no tratamento do paciente e libera o agendamento.
+              Ao finalizar: registra o recebimento no caixa e lança os procedimentos
+              no tratamento como <strong>pendentes</strong> — o dentista confirma a
+              conclusão de cada um (aí entra a comissão de execução).
             </p>
           </div>
           </div>{/* fim do rodapé fixo (Total + Finalizar) */}
@@ -1037,8 +1039,9 @@ function SuccessDialog({
                 Recebido na clínica · {CLINIC_METHOD_LABEL[data.billingType]}
               </p>
               <p className="text-sm text-muted-foreground max-w-sm mx-auto">
-                Pagamento registrado como recebido e lançado no financeiro do
-                paciente. Os procedimentos já aparecem no tratamento.
+                Pagamento registrado e lançado no financeiro do paciente. Os
+                procedimentos entram no tratamento como <strong>pendentes</strong> —
+                o dentista confirma a conclusão de cada um.
               </p>
             </div>
           ) : data.billingType === 'PIX' && data.pixQrCode ? (
