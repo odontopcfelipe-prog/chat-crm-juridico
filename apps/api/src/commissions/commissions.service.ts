@@ -234,9 +234,11 @@ export class CommissionsService {
    * Resumo agrupado por profissional × reference_month, com totais por status.
    * Usado no relatorio "Comissoes a pagar".
    */
-  async summary(tenantId: string, opts: { reference_month?: string } = {}) {
+  async summary(tenantId: string, opts: { reference_month?: string; selfUserId?: string } = {}) {
     const where: Prisma.CommissionWhereInput = { tenant_id: tenantId };
     if (opts.reference_month) where.reference_month = opts.reference_month;
+    // "Minha comissão" — quando setado, escopa ao próprio profissional (dentista vê só a dele).
+    if (opts.selfUserId) where.professional_user_id = opts.selfUserId;
 
     const commissions = await this.prisma.commission.findMany({
       where,
@@ -282,43 +284,46 @@ export class CommissionsService {
     // Onda 17.62 — zera TODOS os DENTISTAS da clínica (mesmo sem regra) + qualquer profissional
     // com regra. Assim "Resumo mensal" e "Modo jogo" NUNCA ficam vazios: mostram a equipe, pra
     // a clínica configurar a regra/meta de cada um. (Dentista = mesma regra do findLawyers.)
-    const fillMonth = opts.reference_month || monthKey(new Date());
-    const fillProfs = new Map<string, string>(); // id -> nome
-    try {
-      const dentists = await this.prisma.user.findMany({
-        where: {
-          AND: [
-            { OR: [{ roles: { has: 'DENTIST' } }, { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } }] },
-            { tenant_id: tenantId },
-          ],
-        },
-        select: { id: true, name: true },
-      });
-      for (const d of dentists) fillProfs.set(d.id, d.name || 'Sem nome');
-    } catch {
-      /* sem dentistas → segue com quem tem regra */
-    }
-    const ruleProfs = await this.prisma.commissionRule.findMany({
-      where: { tenant_id: tenantId, active: true },
-      select: { professional_user_id: true, professional: { select: { name: true } } },
-    });
-    for (const rp of ruleProfs) {
-      if (!fillProfs.has(rp.professional_user_id)) {
-        fillProfs.set(rp.professional_user_id, rp.professional?.name || 'Sem nome');
-      }
-    }
-    for (const [profId, profName] of fillProfs) {
-      const key = `${profId}|${fillMonth}`;
-      if (!byKey.has(key)) {
-        byKey.set(key, {
-          professional_user_id: profId,
-          professional_name: profName,
-          reference_month: fillMonth,
-          devida: 0,
-          disponivel: 0,
-          paga: 0,
-          total: 0,
+    // "Minha comissão" (selfUserId) PULA o fill: o dentista só pode ver a si mesmo, nunca a equipe.
+    if (!opts.selfUserId) {
+      const fillMonth = opts.reference_month || monthKey(new Date());
+      const fillProfs = new Map<string, string>(); // id -> nome
+      try {
+        const dentists = await this.prisma.user.findMany({
+          where: {
+            AND: [
+              { OR: [{ roles: { has: 'DENTIST' } }, { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } }] },
+              { tenant_id: tenantId },
+            ],
+          },
+          select: { id: true, name: true },
         });
+        for (const d of dentists) fillProfs.set(d.id, d.name || 'Sem nome');
+      } catch {
+        /* sem dentistas → segue com quem tem regra */
+      }
+      const ruleProfs = await this.prisma.commissionRule.findMany({
+        where: { tenant_id: tenantId, active: true },
+        select: { professional_user_id: true, professional: { select: { name: true } } },
+      });
+      for (const rp of ruleProfs) {
+        if (!fillProfs.has(rp.professional_user_id)) {
+          fillProfs.set(rp.professional_user_id, rp.professional?.name || 'Sem nome');
+        }
+      }
+      for (const [profId, profName] of fillProfs) {
+        const key = `${profId}|${fillMonth}`;
+        if (!byKey.has(key)) {
+          byKey.set(key, {
+            professional_user_id: profId,
+            professional_name: profName,
+            reference_month: fillMonth,
+            devida: 0,
+            disponivel: 0,
+            paga: 0,
+            total: 0,
+          });
+        }
       }
     }
 
@@ -329,12 +334,17 @@ export class CommissionsService {
   }
 
   /** Comissoes DISPONIVEIS agrupadas por profissional — fila de pagamento. */
-  async payable(tenantId: string) {
+  async payable(tenantId: string, opts: { selfUserId?: string } = {}) {
+    const where: Prisma.CommissionWhereInput = { tenant_id: tenantId, status: 'DISPONIVEL' };
+    // "Minha comissão" — quando setado, escopa ao próprio profissional (dentista vê só a dele).
+    if (opts.selfUserId) where.professional_user_id = opts.selfUserId;
     const list = await this.prisma.commission.findMany({
-      where: { tenant_id: tenantId, status: 'DISPONIVEL' },
+      where,
       orderBy: { available_at: 'asc' },
       include: {
         professional: { select: { id: true, name: true } },
+        // Onda 17.65 — nome do paciente na lista "A receber" da tela Minha comissão.
+        patient: { select: { id: true, name: true } },
       },
     });
 

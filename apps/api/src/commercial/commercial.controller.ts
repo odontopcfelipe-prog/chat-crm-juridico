@@ -128,6 +128,7 @@ export class CommercialController {
     );
   }
 
+  @RequiresPermission('manage_proposals')
   @Get('patients/:patientId/quotes')
   listQuotes(
     @Param('patientId') patientId: string,
@@ -144,6 +145,7 @@ export class CommercialController {
    * ⚠️ DEVE vir ANTES de @Get('quotes/:id') — caso contrário 'closing-board'
    * é capturado como :id e o handler retorna "Orçamento não encontrado".
    */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/closing-board')
   quotesClosingBoard(@Authenticated() user: AuthUser) {
     return this.quotesService.getClosingBoard(user.tenant_id);
@@ -156,6 +158,7 @@ export class CommercialController {
    * mesmo motivo do closing-board. Antes estava la embaixo (linha ~439)
    * e era capturado como :id='dashboard' → "Orcamento nao encontrado".
    */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/dashboard')
   quotesDashboard(
     @Request() req: any,
@@ -175,17 +178,20 @@ export class CommercialController {
    * carregam. (Mesmo bug do dashboard de afiliados, commit 86d1f4ef.)
    */
   /** Onda 25.6 — Lista orcamentos soft-deletados nos ultimos 30 dias (admin) */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/deleted')
   listDeletedQuotes(@Authenticated() user: AuthUser) {
     return this.quotesService.listDeleted(user.tenant_id);
   }
 
   /** Onda 17.32.38 — Lista orçamentos arquivados do tenant. */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/archived')
   listArchivedQuotes(@Authenticated() user: AuthUser) {
     return this.quotesService.listArchivedQuotes(user.tenant_id);
   }
 
+  @RequiresPermission('manage_proposals')
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findOne(id, user.tenant_id);
@@ -584,6 +590,7 @@ export class CommercialController {
   // ─── Onda 1 (Fase 24) — Listagem global + funil + WhatsApp ──────
 
   /** Lista TODOS os orcamentos do tenant (pagina /atendimento/orcamentos) */
+  @RequiresPermission('manage_proposals')
   @Get('quotes')
   listAllQuotes(
     @Request() req: any,
@@ -629,6 +636,7 @@ export class CommercialController {
   // ─── Onda 2 (Fase 24) — PDF + Templates + Cupons ───────────────
 
   /** Gera PDF profissional do orcamento */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/:id/pdf')
   async quotePdf(
     @Param('id') id: string,
@@ -648,6 +656,7 @@ export class CommercialController {
   }
 
   // Templates
+  @RequiresPermission('manage_proposals')
   @Get('quote-templates')
   listTemplates(@Request() req: any, @Query('activeOnly') activeOnly?: string) {
     const tenantId = req.user?.tenant_id;
@@ -657,6 +666,7 @@ export class CommercialController {
     });
   }
 
+  @RequiresPermission('manage_proposals')
   @Get('quote-templates/:id')
   findTemplate(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -712,6 +722,7 @@ export class CommercialController {
   }
 
   // Cupons
+  @RequiresPermission('manage_proposals')
   @Get('quote-coupons')
   listCoupons(@Request() req: any, @Query('activeOnly') activeOnly?: string) {
     const tenantId = req.user?.tenant_id;
@@ -721,6 +732,7 @@ export class CommercialController {
     });
   }
 
+  @RequiresPermission('manage_proposals')
   @Get('quote-coupons/:id')
   findCoupon(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -782,6 +794,7 @@ export class CommercialController {
   // ─── Onda 3 (Fase 24) — Anexos do orcamento ──────────────────
 
   /** Lista anexos do orcamento (metadata, sem o binário) */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/:id/attachments')
   listAttachments(@Param('id') quoteId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -812,6 +825,7 @@ export class CommercialController {
   }
 
   /** Serve o arquivo binario inline (preview/download) */
+  @RequiresPermission('manage_proposals')
   @Get('quote-attachments/:attachmentId/file')
   async getAttachmentFile(
     @Param('attachmentId') attachmentId: string,
@@ -847,6 +861,7 @@ export class CommercialController {
   // ─── Onda 3b (Fase 24) — Versions + Renegotiate ──────────────
 
   /** Lista versoes (snapshots) do orcamento — timeline pra UI */
+  @RequiresPermission('manage_proposals')
   @Get('quotes/:id/versions')
   listVersions(@Param('id') quoteId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -855,6 +870,7 @@ export class CommercialController {
   }
 
   /** Detalhe de uma versao com snapshot completo (pra modal de comparar) */
+  @RequiresPermission('manage_proposals')
   @Get('quote-versions/:versionId')
   findVersion(@Param('versionId') versionId: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;

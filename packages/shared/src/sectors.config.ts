@@ -232,9 +232,10 @@ export const SECTORS: SectorMeta[] = [
         cta: { label: 'Ver minha agenda', href: '/atendimento/agenda' },
       },
       actions: [
-        { lucide: 'Calendar', icon: '📅', label: 'Minha agenda',        desc: 'Seus atendimentos de hoje.',      href: '/atendimento/agenda',     badgeKey: 'agenda_today',   tone: 'violet'  },
-        { lucide: 'Users',    icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico clínico.', href: '/atendimento/pacientes',  badgeKey: 'patients_total', tone: 'sky'     },
-        { lucide: 'FileText', icon: '📄', label: 'Plano de tratamento', desc: 'Monte e apresente o plano.',      href: '/atendimento/orcamentos', badgeKey: 'proposals_sent', tone: 'emerald' },
+        { lucide: 'Calendar', icon: '📅', label: 'Minha agenda',        desc: 'Seus atendimentos de hoje.',      href: '/atendimento/agenda',          badgeKey: 'agenda_today',   tone: 'violet'  },
+        { lucide: 'Users',    icon: '👥', label: 'Pacientes',           desc: 'Prontuário e histórico clínico.', href: '/atendimento/pacientes',       badgeKey: 'patients_total', tone: 'sky'     },
+        { lucide: 'FileText', icon: '📄', label: 'Plano de tratamento', desc: 'Monte e apresente o plano.',      href: '/atendimento/orcamentos',      badgeKey: 'proposals_sent', tone: 'emerald' },
+        { lucide: 'Wallet',   icon: '💰', label: 'Minha comissão',      desc: 'Quanto você já ganhou e o que está a receber.', href: '/atendimento/minha-comissao', tone: 'emerald' },
       ],
       todos: [
         'Pacientes pra atender hoje',
