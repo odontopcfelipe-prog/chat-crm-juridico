@@ -151,6 +151,19 @@ function categoryToTab(cat?: string | null): string {
   return CATEGORY_TO_TAB[cat] || 'TODOS';
 }
 
+// Onda 17.65 — quando o procedimento não tem categoria salva, deduz pelo NOME pra o
+// card sair com ícone/cor/chip certos (em vez do genérico 😊). Categoria salva vence.
+function tabForProcedure(p: { category?: string | null; name?: string | null }): string {
+  const byCat = categoryToTab(p.category);
+  if (byCat !== 'TODOS') return byCat;
+  const n = (p.name || '').toLowerCase();
+  if (/clareament|faceta|lente|harmoniza|botox|toxina|preenchiment|peeling|microagulha|bioestimul|fios? de pdo|lifting|skinbooster|gengivoplastia est/.test(n)) return 'ESTETICA';
+  if (/cirurg|exodontia|extra[çc][aã]o|frenectomia|enxerto|levantamento de seio/.test(n)) return 'CIRURGIA';
+  if (/radiograf|tomograf|raio.?-?x|documenta[çc][aã]o|escaneament|panor[âa]mic/.test(n)) return 'DIAGNOSTICO';
+  if (/limpez|profilax|fl[úu]or|selante|preven/.test(n)) return 'PREVENCAO';
+  return 'CLINICO';
+}
+
 function fmtBRL(v: number): string {
   return v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
@@ -510,7 +523,7 @@ export default function VendaRapidaPage() {
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {filteredProcedures.map((p) => {
-                const tabKey = categoryToTab(p.category);
+                const tabKey = tabForProcedure(p);
                 const iconCfg = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                 const inCart = cart.find((it) => it.procedure.id === p.id);
                 return (
@@ -523,11 +536,9 @@ export default function VendaRapidaPage() {
                     <div className={`w-10 h-10 rounded-lg ${iconCfg.bg} flex items-center justify-center mb-3`}>
                       <iconCfg.Icon size={18} className={iconCfg.fg} />
                     </div>
-                    {p.category && (
-                      <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1">
-                        {(TABS.find((t) => t.key === tabKey)?.label || p.category).toUpperCase()}
-                      </p>
-                    )}
+                    <p className={`text-[10px] uppercase tracking-wider font-bold mb-1 ${iconCfg.fg}`}>
+                      {(TABS.find((t) => t.key === tabKey)?.label || p.category || '').toUpperCase()}
+                    </p>
                     <p className="text-sm font-bold text-foreground mb-1 line-clamp-2">{p.name}</p>
                     {p.duration_minutes && (
                       <p className="text-[11px] text-muted-foreground mb-2">⏱ {p.duration_minutes} min</p>
@@ -676,7 +687,7 @@ export default function VendaRapidaPage() {
                 {cart.map((it) => {
                   const hasTeeth = it.toothFdis.length > 0;
                   // Onda 17.65 — visual por categoria (ícone + cor + chip), igual aos cards da esquerda.
-                  const tabKey = categoryToTab(it.procedure.category);
+                  const tabKey = tabForProcedure(it.procedure);
                   const catMeta = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
                   const CatIcon = catMeta.Icon;
                   const catLabel = TABS.find((t) => t.key === tabKey)?.label || '';
@@ -706,7 +717,7 @@ export default function VendaRapidaPage() {
 
                         {/* Tipo + dentes */}
                         <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                          {catLabel && tabKey !== 'TODOS' && (
+                          {catLabel && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${catMeta.bg} ${catMeta.fg}`}>{catLabel}</span>
                           )}
                           {it.toothFdis.map((fdi) => (
