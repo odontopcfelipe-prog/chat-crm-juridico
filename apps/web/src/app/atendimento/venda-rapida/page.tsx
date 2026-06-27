@@ -706,7 +706,7 @@ export default function VendaRapidaPage() {
 
                         {/* Tipo + dentes */}
                         <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                          {catLabel && (
+                          {catLabel && tabKey !== 'TODOS' && (
                             <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${catMeta.bg} ${catMeta.fg}`}>{catLabel}</span>
                           )}
                           {it.toothFdis.map((fdi) => (
