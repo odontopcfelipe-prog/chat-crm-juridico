@@ -40,6 +40,7 @@ interface Procedure {
   active: boolean;
   requires_x_ray: boolean;
   requires_anesthesia: boolean;
+  commissionable: boolean;
   default_revisit_months: number | null;
 }
 
@@ -462,6 +463,7 @@ function ProcedureModal({
   const [specialtyId, setSpecialtyId] = useState(procedure?.specialty_id || '');
   const [requiresXRay, setRequiresXRay] = useState(procedure?.requires_x_ray || false);
   const [requiresAnesthesia, setRequiresAnesthesia] = useState(procedure?.requires_anesthesia || false);
+  const [commissionable, setCommissionable] = useState(procedure?.commissionable ?? true);
   const [defaultRevisitMonths, setDefaultRevisitMonths] = useState<string>(
     procedure?.default_revisit_months?.toString() || ''
   );
@@ -483,6 +485,7 @@ function ProcedureModal({
         specialty_id: specialtyId || null,
         requires_x_ray: requiresXRay,
         requires_anesthesia: requiresAnesthesia,
+        commissionable,
         default_revisit_months: defaultRevisitMonths ? Number(defaultRevisitMonths) : null,
       };
       if (isEdit) {
@@ -625,6 +628,16 @@ function ProcedureModal({
               Requer anestesia
             </label>
           </div>
+
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={commissionable}
+              onChange={(e) => setCommissionable(e.target.checked)}
+              className="w-4 h-4 rounded border-border"
+            />
+            Comissiona este procedimento
+          </label>
 
           <div>
             <label className="block text-xs font-medium mb-1">

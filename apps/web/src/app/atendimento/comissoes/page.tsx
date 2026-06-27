@@ -14,6 +14,7 @@ interface SummaryRow {
   disponivel: number;
   paga: number;
   total: number;
+  kind?: string;
 }
 
 interface PayableGroup {
@@ -28,11 +29,26 @@ interface PayableGroup {
     reference_month: string | null;
     patient_id: string;
     notes: string | null;
+    kind?: string;
   }>;
 }
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
+
+// Fase 6 — badge do tipo de comissão. VENDA → azul; EXECUCAO (ou ausente) → verde (default).
+function KindBadge({ kind }: { kind?: string }) {
+  const isVenda = kind === 'VENDA';
+  return (
+    <span
+      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+        isVenda ? 'bg-blue-500/15 text-blue-700' : 'bg-emerald-500/15 text-emerald-700'
+      }`}
+    >
+      {isVenda ? 'Venda' : 'Execução'}
+    </span>
+  );
+}
 
 export default function ComissoesPage() {
   // Onda 17.62 — abre no "Resumo mensal" (mostra a equipe) em vez de "A pagar" (vazio até
@@ -210,13 +226,16 @@ function PayableView({
               {g.commissions.slice(0, 6).map((c) => (
                 <div
                   key={c.id}
-                  className="text-xs bg-background border border-border rounded p-2 flex justify-between"
+                  className="text-xs bg-background border border-border rounded p-2 flex justify-between items-center gap-2"
                 >
-                  <span>
-                    {c.reference_month && <span className="text-muted-foreground">{c.reference_month} · </span>}
-                    {c.notes || `Comissao ${c.id.slice(0, 8)}`}
+                  <span className="flex items-center gap-1.5 min-w-0">
+                    <KindBadge kind={c.kind} />
+                    <span className="truncate">
+                      {c.reference_month && <span className="text-muted-foreground">{c.reference_month} · </span>}
+                      {c.notes || `Comissao ${c.id.slice(0, 8)}`}
+                    </span>
                   </span>
-                  <span className="font-mono font-semibold">{fmt(Number(c.amount))}</span>
+                  <span className="font-mono font-semibold whitespace-nowrap">{fmt(Number(c.amount))}</span>
                 </div>
               ))}
               {g.commissions.length > 6 && (

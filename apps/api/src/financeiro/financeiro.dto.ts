@@ -156,6 +156,28 @@ export class UpdateTransactionDto {
   notes?: string;
 }
 
+// ─── Diária (Daily Rate) DTO ──────────────────────────────
+// Fase 5 — Lançar Diária: cria uma DESPESA (category='DIARIA') no caixa a
+// partir do daily_rate do profissional. NÃO é comissão.
+
+export class CreateDailyRateTransactionDto {
+  @IsString()
+  @IsNotEmpty()
+  professional_user_id: string;
+
+  @IsOptional()
+  @IsBoolean()
+  is_half_day?: boolean;
+
+  @IsOptional()
+  @IsString()
+  date?: string;
+
+  @IsOptional()
+  @IsString()
+  notes?: string;
+}
+
 // ─── Category DTOs ────────────────────────────────────────
 
 export class CreateCategoryDto {

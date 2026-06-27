@@ -299,12 +299,17 @@ export class UsersService {
         throw new BadRequestException(`Tipo de comissão inválido: ${type} (use PERCENT ou FIXED)`);
       }
     };
-    const toNum = (v: any) => (v === null || v === undefined || v === '' ? null : Number(v));
+    const toNum = (v: any, label: string) => {
+      if (v === null || v === undefined || v === '') return null;
+      const n = Number(v);
+      if (Number.isNaN(n) || n < 0) throw new BadRequestException(`${label}: use um número maior ou igual a 0`);
+      return n;
+    };
     if (data.commission_sale_type !== undefined) { validCommType(data.commission_sale_type); (updateData as any).commission_sale_type = data.commission_sale_type || null; }
-    if (data.commission_sale_value !== undefined) (updateData as any).commission_sale_value = toNum(data.commission_sale_value);
+    if (data.commission_sale_value !== undefined) (updateData as any).commission_sale_value = toNum(data.commission_sale_value, 'Comissão de venda');
     if (data.commission_exec_type !== undefined) { validCommType(data.commission_exec_type); (updateData as any).commission_exec_type = data.commission_exec_type || null; }
-    if (data.commission_exec_value !== undefined) (updateData as any).commission_exec_value = toNum(data.commission_exec_value);
-    if (data.daily_rate !== undefined) (updateData as any).daily_rate = toNum(data.daily_rate);
+    if (data.commission_exec_value !== undefined) (updateData as any).commission_exec_value = toNum(data.commission_exec_value, 'Comissão de execução');
+    if (data.daily_rate !== undefined) (updateData as any).daily_rate = toNum(data.daily_rate, 'Diária');
 
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {

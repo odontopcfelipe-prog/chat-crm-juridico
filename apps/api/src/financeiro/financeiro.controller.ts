@@ -19,6 +19,7 @@ import {
   UpdateTransactionDto,
   CreateCategoryDto,
   UpdateCategoryDto,
+  CreateDailyRateTransactionDto,
 } from './financeiro.dto';
 
 @UseGuards(JwtAuthGuard)
@@ -94,6 +95,30 @@ export class FinanceiroController {
     @Request() req: any,
   ) {
     return this.service.deleteTransaction(id, req.user.tenant_id, req.user.id);
+  }
+
+  // Fase 5 — Lançar Diária (DESPESA category='DIARIA' a partir do daily_rate).
+  // Só admin/financeiro (manage_financial); o dentista NÃO lança.
+  @RequiresPermission('manage_financial')
+  @Post('daily-rate')
+  createDailyRate(
+    @Body() body: CreateDailyRateTransactionDto,
+    @Request() req: any,
+  ) {
+    return this.service.createDailyRateTransaction({
+      ...body,
+      tenant_id: req.user.tenant_id,
+      actor_id: req.user.id,
+    });
+  }
+
+  // Fase 5 — picker tenant-scoped (gateado por manage_financial) dos profissionais
+  // que TÊM diária configurada. Evita depender de GET /users (@Roles ADMIN), que viria
+  // vazio pro financeiro não-admin.
+  @RequiresPermission('manage_financial')
+  @Get('professionals-with-rate')
+  professionalsWithRate(@Request() req: any) {
+    return this.service.professionalsWithDailyRate(req.user.tenant_id);
   }
 
   @RequiresPermission('manage_financial')

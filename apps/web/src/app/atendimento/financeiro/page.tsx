@@ -7,13 +7,17 @@ import {
   Plus, X, Search, Loader2, Phone, MessageSquare,
   ArrowUpDown, ChevronDown, ChevronRight, Trash2, Pencil, Check, Handshake,
   BarChart3, Receipt, CreditCard, Ban, Users, Link2, Unlink, ExternalLink, FileText,
+  CalendarClock,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
+import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 16 — abas novas do sistema financeiro completo
 import BoletosTab from './components/BoletosTab';
 import PacientesSummaryTab from './components/PacientesSummaryTab';
+// Fase 5 — lançador de diária (DESPESA category='DIARIA')
+import DailyRateTab from './components/DailyRateTab';
 
 /** Formata número de processo no padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO */
 const formatCNJ = (num: string | null | undefined): string => {
@@ -120,7 +124,9 @@ interface DashboardData {
 // Onda 16 — TABS reorganizadas pra foco odontologico.
 // Removidas (codigo preservado, so nao listadas): Cobrancas, Processos,
 // Clientes, Inadimplencia — substituidas por Boletos + Pacientes.
-const TABS = ['Resumo', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Log'] as const;
+// Fase 5 — "Diárias" entra na lista; a renderização da aba é gateada por
+// manage_financial via useUserPermissions (ver visibleTabs no componente).
+const TABS = ['Resumo', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -833,6 +839,10 @@ export default function FinanceiroPage() {
   const [filterLawyerId, setFilterLawyerId] = useState('');
   const [dbCategories, setDbCategories] = useState<{ id: string; type: string; name: string; icon: string | null }[]>([]);
   const { isAdmin, isFinanceiro, userId } = useRole();
+  // Fase 5 — só quem tem manage_financial vê a aba "Diárias".
+  const { hasPermission } = useUserPermissions();
+  const canManageFinancial = hasPermission('manage_financial');
+  const visibleTabs = TABS.filter((t) => t !== 'Diárias' || canManageFinancial);
 
   /* ─── Auth guard + saldo Asaas + advogados ─── */
   useEffect(() => {
@@ -917,6 +927,7 @@ export default function FinanceiroPage() {
     Despesas: TrendingDown,
     Boletos: CreditCard,
     Pacientes: Users,
+    Diárias: CalendarClock,
     Log: FileText,
   };
 
@@ -1024,7 +1035,7 @@ export default function FinanceiroPage() {
 
         {/* ─── Tab Navigation ULTRA-COMPACTA (Fase 25 5b v3) ─── */}
         <div className="flex items-center gap-0.5 bg-card border border-border rounded-xl p-1 overflow-x-auto">
-          {TABS.map((t) => {
+          {visibleTabs.map((t) => {
             const Icon = tabIcons[t];
             return (
               <button
@@ -1389,6 +1400,9 @@ export default function FinanceiroPage() {
 
         {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
         {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveLawyerId || undefined} />}
+
+        {/* ─── TAB: Diárias (Fase 5) — lança diária como DESPESA no caixa ─── */}
+        {tab === 'Diárias' && canManageFinancial && <DailyRateTab />}
 
         {/* ─── TAB: Inadimplencia (legado, oculta na Onda 16 — mantido pra rollback rapido) ─── */}
         {(tab as any) === 'Inadimplencia' && (

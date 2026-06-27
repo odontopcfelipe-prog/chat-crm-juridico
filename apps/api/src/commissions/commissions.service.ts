@@ -248,6 +248,7 @@ export class CommissionsService {
         reference_month: true,
         status: true,
         amount: true,
+        kind: true,
       },
     });
 

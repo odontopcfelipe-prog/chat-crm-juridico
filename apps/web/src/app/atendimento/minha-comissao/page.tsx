@@ -31,6 +31,7 @@ interface PayableCommission {
   reference_month?: string | null;
   notes?: string | null;
   patient?: { id: string; name: string } | null;
+  kind?: string;
 }
 
 interface PayableGroup {
@@ -41,6 +42,20 @@ interface PayableGroup {
 
 const fmt = (v: number) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v || 0);
+
+// Fase 6 — badge do tipo de comissão. VENDA → azul; EXECUCAO (ou ausente) → verde (default).
+function KindBadge({ kind }: { kind?: string }) {
+  const isVenda = kind === 'VENDA';
+  return (
+    <span
+      className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+        isVenda ? 'bg-blue-500/15 text-blue-700' : 'bg-emerald-500/15 text-emerald-700'
+      }`}
+    >
+      {isVenda ? 'Venda' : 'Execução'}
+    </span>
+  );
+}
 
 export default function MinhaComissaoPage() {
   const [loading, setLoading] = useState(true);
@@ -203,8 +218,11 @@ export default function MinhaComissaoPage() {
                 {payableItems.map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-3 p-3">
                     <div className="min-w-0">
-                      <div className="text-sm text-foreground truncate">
-                        {c.notes || c.patient?.name || `Comissão ${String(c.id).slice(0, 8)}`}
+                      <div className="text-sm text-foreground truncate flex items-center gap-1.5">
+                        <KindBadge kind={c.kind} />
+                        <span className="truncate">
+                          {c.notes || c.patient?.name || `Comissão ${String(c.id).slice(0, 8)}`}
+                        </span>
                       </div>
                       {(() => {
                         // Subtítulo: paciente (se já não foi o título) + mês de referência.

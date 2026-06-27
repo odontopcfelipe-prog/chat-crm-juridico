@@ -3,10 +3,11 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
+  BadRequestException,
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto } from './financeiro.dto';
+import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
 const DEFAULT_CATEGORIES = [
   { type: 'RECEITA', name: 'Honorarios', icon: 'scale' },
@@ -18,6 +19,7 @@ const DEFAULT_CATEGORIES = [
   { type: 'DESPESA', name: 'Material de Escritorio', icon: 'pencil' },
   { type: 'DESPESA', name: 'Cartorio', icon: 'stamp' },
   { type: 'DESPESA', name: 'Correios', icon: 'mail' },
+  { type: 'DESPESA', name: 'DIARIA', icon: 'calendar-clock' },
   { type: 'DESPESA', name: 'Outros', icon: 'ellipsis' },
 ];
 
@@ -235,6 +237,74 @@ export class FinanceiroService {
       valor: data.amount, status: data.status || 'PENDENTE',
       cliente: (tx as any).lead?.name,
       dentist_id: data.dentist_id,
+    });
+
+    return tx;
+  }
+
+  /**
+   * Fase 5 — Lançar Diária.
+   *
+   * Cria uma DESPESA no caixa (category='DIARIA') a partir do daily_rate do
+   * profissional. NÃO é comissão — é gasto operacional. Meia-diária = 50%.
+   * Quem lança: admin/financeiro (permissão manage_financial no controller);
+   * o dentista NÃO. visible_to_dentist=false pra não aparecer pro profissional.
+   */
+  // Fase 5 — profissionais do tenant que têm diária configurada (pro picker de diária).
+  async professionalsWithDailyRate(tenantId: string) {
+    return this.prisma.user.findMany({
+      where: { tenant_id: tenantId, daily_rate: { not: null } },
+      select: { id: true, name: true, daily_rate: true },
+      orderBy: { name: 'asc' },
+    });
+  }
+
+  async createDailyRateTransaction(
+    data: CreateDailyRateTransactionDto & { tenant_id: string; actor_id: string },
+  ) {
+    const professional = await this.prisma.user.findUnique({
+      where: { id: data.professional_user_id },
+      select: { id: true, name: true, daily_rate: true, tenant_id: true },
+    });
+
+    // Onda 17.67 — isolamento de tenant: user de outro tenant é tratado como inexistente
+    // (não vaza a existência cross-tenant + impede IDOR de lançar diária de fora).
+    if (!professional || professional.tenant_id !== data.tenant_id) {
+      throw new NotFoundException('Profissional nao encontrado');
+    }
+    if (professional.daily_rate == null) {
+      throw new BadRequestException('Profissional nao tem diaria configurada');
+    }
+
+    const baseRate = Number(professional.daily_rate);
+    if (!(baseRate > 0)) {
+      throw new BadRequestException('Diaria do profissional deve ser maior que zero');
+    }
+    const amount = data.is_half_day ? Math.round((baseRate / 2) * 100) / 100 : baseRate;
+
+    const tx = await this.prisma.financialTransaction.create({
+      data: {
+        tenant_id: data.tenant_id,
+        type: 'DESPESA',
+        category: 'DIARIA',
+        description: `${data.is_half_day ? 'Meia-' : ''}Diária — ${professional.name}`,
+        amount,
+        date: data.date ? new Date(data.date) : new Date(),
+        status: 'PENDENTE',
+        dentist_id: data.professional_user_id,
+        visible_to_dentist: false,
+        notes: data.notes,
+      } as any,
+      include: {
+        dentist: { select: { id: true, name: true } },
+      },
+    });
+
+    await this.logAction(data.actor_id || null, 'DIARIA_LANCADA', tx.id, {
+      profissional_id: professional.id,
+      profissional: professional.name,
+      meia_diaria: !!data.is_half_day,
+      valor: amount,
     });
 
     return tx;
