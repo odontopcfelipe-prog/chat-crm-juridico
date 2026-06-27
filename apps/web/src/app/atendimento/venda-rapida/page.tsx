@@ -140,6 +140,12 @@ const ICON_BY_TAB: Record<string, { Icon: any; bg: string; fg: string }> = {
   TODOS: { Icon: Smile, bg: 'bg-muted', fg: 'text-muted-foreground' },
 };
 
+// Onda 17.65 — cor da barra lateral do item no carrinho (por categoria).
+const BORDER_BY_TAB: Record<string, string> = {
+  PREVENCAO: 'bg-emerald-500', ESTETICA: 'bg-violet-500', CLINICO: 'bg-blue-500',
+  CIRURGIA: 'bg-amber-500', DIAGNOSTICO: 'bg-orange-500', TODOS: 'bg-muted-foreground/40',
+};
+
 function categoryToTab(cat?: string | null): string {
   if (!cat) return 'TODOS';
   return CATEGORY_TO_TAB[cat] || 'TODOS';
@@ -623,7 +629,7 @@ export default function VendaRapidaPage() {
           {/* Onda 17.40 — Dentista responsável (a venda entra na comissão dele) */}
           <div className="mb-4">
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-              Dentista responsável
+              Dentista responsável <span className="font-medium normal-case tracking-normal text-muted-foreground/60">· padrão da venda</span>
             </p>
             <div className="relative">
               <Stethoscope size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none" />
@@ -647,9 +653,19 @@ export default function VendaRapidaPage() {
 
           {/* Carrinho */}
           <div className="mb-4">
-            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-              Carrinho ({cart.length})
-            </p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground flex items-center gap-1.5">
+                <ShoppingCart size={13} /> Carrinho
+                {cart.length > 0 && (
+                  <span className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1 rounded-full bg-orange-500 text-white text-[10px] font-extrabold leading-none">{cart.length}</span>
+                )}
+              </p>
+              {cart.length > 0 && (
+                <button type="button" onClick={() => setCart([])} className="text-[11px] font-semibold text-muted-foreground hover:text-red-600 transition-colors">
+                  limpar
+                </button>
+              )}
+            </div>
             {cart.length === 0 ? (
               <div className="bg-muted/30 rounded-lg p-6 text-center text-sm text-muted-foreground">
                 <ShoppingCart size={24} className="mx-auto mb-2 opacity-50" />
@@ -659,77 +675,96 @@ export default function VendaRapidaPage() {
               <ul className="space-y-2">
                 {cart.map((it) => {
                   const hasTeeth = it.toothFdis.length > 0;
+                  // Onda 17.65 — visual por categoria (ícone + cor + chip), igual aos cards da esquerda.
+                  const tabKey = categoryToTab(it.procedure.category);
+                  const catMeta = ICON_BY_TAB[tabKey] || ICON_BY_TAB.TODOS;
+                  const CatIcon = catMeta.Icon;
+                  const catLabel = TABS.find((t) => t.key === tabKey)?.label || '';
+                  const borderCls = BORDER_BY_TAB[tabKey] || 'bg-border';
+                  const lineTotal = unitPriceOf(it) * itemUnits(it);
                   return (
-                  <li key={it.procedure.id} className="bg-muted/30 rounded-lg p-2.5">
-                    <div className="flex items-center gap-2">
+                  <li key={it.procedure.id} className="relative bg-card border border-border rounded-xl pl-4 pr-3 py-3 overflow-hidden shadow-sm">
+                    {/* Barra lateral colorida por categoria */}
+                    <span className={`absolute left-0 top-0 bottom-0 w-1.5 ${borderCls}`} />
+                    <div className="flex items-start gap-2.5">
+                      {/* Ícone da categoria */}
+                      <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${catMeta.bg} ${catMeta.fg}`}>
+                        <CatIcon size={18} />
+                      </div>
                       <div className="min-w-0 flex-1">
-                        <p className="text-xs font-bold text-foreground truncate">{it.procedure.name}</p>
-                        <div className="text-[10px] text-muted-foreground tabular-nums flex items-center gap-1 flex-wrap">
-                          {canOverridePrice ? (
-                            <PriceTag
-                              base={Number(it.procedure.base_price)}
-                              value={unitPriceOf(it)}
-                              onChange={(v) => setItemPrice(it.procedure.id, v)}
-                            />
-                          ) : (
-                            <span>R$ {fmtBRL(unitPriceOf(it))}</span>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-bold text-foreground leading-snug">{it.procedure.name}</p>
+                          <button
+                            type="button"
+                            onClick={() => removeFromCart(it.procedure.id)}
+                            className="shrink-0 -mt-0.5 text-muted-foreground hover:text-red-600"
+                            title="Remover"
+                          >
+                            <X size={15} />
+                          </button>
+                        </div>
+
+                        {/* Tipo + dentes */}
+                        <div className="mt-1.5 flex items-center gap-1 flex-wrap">
+                          {catLabel && (
+                            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${catMeta.bg} ${catMeta.fg}`}>{catLabel}</span>
                           )}
-                          <span>× {itemUnits(it)}</span>
-                          {hasTeeth && <span>({it.toothFdis.length} dente{it.toothFdis.length > 1 ? 's' : ''})</span>}
+                          {it.toothFdis.map((fdi) => (
+                            <span
+                              key={fdi}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300/60"
+                            >
+                              {fdi}
+                              <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title="Remover dente">
+                                <X size={9} />
+                              </button>
+                            </span>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => setToothPickerFor(toothPickerFor === it.procedure.id ? null : it.procedure.id)}
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
+                          >
+                            <Smile size={11} /> {hasTeeth ? 'Dentes' : '+ Dente (opcional)'}
+                          </button>
+                        </div>
+
+                        {/* unitário · quantidade · total */}
+                        <div className="mt-2.5 flex items-center gap-2">
+                          <div className="text-[11px] text-muted-foreground tabular-nums flex items-center gap-1 min-w-0">
+                            <span className="shrink-0">unitário</span>
+                            {canOverridePrice ? (
+                              <PriceTag
+                                base={Number(it.procedure.base_price)}
+                                value={unitPriceOf(it)}
+                                onChange={(v) => setItemPrice(it.procedure.id, v)}
+                              />
+                            ) : (
+                              <span>R$ {fmtBRL(unitPriceOf(it))}</span>
+                            )}
+                          </div>
+                          {!hasTeeth && (
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => changeQty(it.procedure.id, -1)}
+                                className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                              >
+                                <Minus size={11} />
+                              </button>
+                              <span className="w-5 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
+                              <button
+                                type="button"
+                                onClick={() => changeQty(it.procedure.id, 1)}
+                                className="w-6 h-6 rounded-md border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
+                              >
+                                <Plus size={11} />
+                              </button>
+                            </div>
+                          )}
+                          <span className="ml-auto shrink-0 text-base font-extrabold tabular-nums text-foreground">R$ {fmtBRL(lineTotal)}</span>
                         </div>
                       </div>
-                      <div className="flex items-center gap-1 shrink-0">
-                        {/* Quantidade só quando NÃO há dentes (com dentes, a contagem é por dente) */}
-                        {!hasTeeth && (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => changeQty(it.procedure.id, -1)}
-                              className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
-                            >
-                              <Minus size={10} />
-                            </button>
-                            <span className="w-5 text-center text-xs font-bold tabular-nums">{it.quantity}</span>
-                            <button
-                              type="button"
-                              onClick={() => changeQty(it.procedure.id, 1)}
-                              className="w-6 h-6 rounded border border-border bg-card hover:bg-accent/40 flex items-center justify-center"
-                            >
-                              <Plus size={10} />
-                            </button>
-                          </>
-                        )}
-                        <button
-                          type="button"
-                          onClick={() => removeFromCart(it.procedure.id)}
-                          className="w-6 h-6 rounded text-muted-foreground hover:text-red-600 ml-1 flex items-center justify-center"
-                          title="Remover"
-                        >
-                          <X size={12} />
-                        </button>
-                      </div>
-                    </div>
-
-                    {/* Onda 17.38 — dentes do item (chips + abrir seletor FDI) */}
-                    <div className="mt-1.5 flex items-center gap-1 flex-wrap">
-                      {it.toothFdis.map((fdi) => (
-                        <span
-                          key={fdi}
-                          className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 text-[10px] font-bold border border-amber-300/60"
-                        >
-                          {fdi}
-                          <button type="button" onClick={() => toggleTooth(it.procedure.id, fdi)} className="hover:text-red-600" title="Remover dente">
-                            <X size={9} />
-                          </button>
-                        </span>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => setToothPickerFor(toothPickerFor === it.procedure.id ? null : it.procedure.id)}
-                        className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded border border-dashed border-border text-[10px] font-medium text-muted-foreground hover:border-primary hover:text-primary"
-                      >
-                        <Smile size={11} /> {hasTeeth ? 'Dentes' : 'Dente (opcional)'}
-                      </button>
                     </div>
 
                     {toothPickerFor === it.procedure.id && (
