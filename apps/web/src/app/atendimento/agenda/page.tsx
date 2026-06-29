@@ -1891,33 +1891,11 @@ export default function AgendaPage() {
 
         {/* Filtros por tipo — Onda 5d v5: items mais densos */}
         <div className="px-2 py-1">
-          <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Meus calendários</p>
-          <div className="space-y-0">
-            {EVENT_TYPES.map(t => (
-              <label key={t.id} className="flex items-center gap-1.5 cursor-pointer py-0.5 group rounded px-1 hover:bg-accent/40 transition-colors">
-                <input
-                  type="checkbox"
-                  checked={filterTypes.includes(t.id)}
-                  onChange={() => toggleFilterType(t.id)}
-                  className="sr-only"
-                />
-                <span
-                  className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-all shrink-0 ${
-                    filterTypes.includes(t.id) ? '' : 'opacity-30'
-                  }`}
-                  style={{ borderColor: t.color, background: filterTypes.includes(t.id) ? t.color : 'transparent' }}
-                >
-                  {filterTypes.includes(t.id) && <CheckCircle2 size={7} className="text-white" />}
-                </span>
-                <span className={`text-[11px] font-medium transition-opacity ${filterTypes.includes(t.id) ? 'text-foreground' : 'text-muted-foreground opacity-50'}`}>
-                  {t.emoji} {t.label}
-                </span>
-              </label>
-            ))}
-          </div>
-
-          {/* Toggle: mostrar eventos cancelados — compactado */}
-          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 mt-1 pt-1 border-t border-border/40 group rounded px-1 hover:bg-accent/40 transition-colors">
+          {/* Legenda "Meus calendários" (cor por TIPO) removida — as cores dos cards
+              agora são por STATUS, então a legenda de cor-por-tipo não batia mais.
+              Mantido só o filtro de cancelados (mostra/esconde desmarcados). O filtro
+              por tipo segue disponível no menu de filtros do mobile. */}
+          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 group rounded px-1 hover:bg-accent/40 transition-colors">
             <input
               type="checkbox"
               checked={showCancelled}
