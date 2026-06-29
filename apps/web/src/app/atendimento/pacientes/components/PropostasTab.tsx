@@ -4483,7 +4483,10 @@ function PropostaPainel({
             Destaca esta proposta + esmaece as outras na lista de cards.
             Onda 14.38 — Persiste forma de pagamento ativa + entrada pra
             que o PDF mostre a oferta exata apresentada ao paciente. */}
-        {!detail.is_chosen_proposal ? (
+        {/* Salvar proposta (aguardando decisão do paciente). Só aparece quando
+            ainda NÃO foi salva — depois de salva, o operador edita/re-salva pelo
+            próprio modal de cobrança (onde o botão vira "Proposta salva"). */}
+        {!detail.is_chosen_proposal && (
           <button
             type="button"
             onClick={() => onChooseAsProposal?.({
@@ -4502,34 +4505,15 @@ function PropostaPainel({
             <Clock size={12} />
             Salvar proposta
           </button>
-        ) : (
-          <>
-            {/* Onda 15 (etapa 16.8) — quando ja esta como "Aguardando paciente",
-                permite RE-SALVAR (atualizar a config) sem desmarcar. */}
-            <button
-              type="button"
-              onClick={() => onChooseAsProposal?.({
-                payment_key: activePaymentKey || null,
-                down_payment: customDownPayment > 0 ? customDownPayment : 0,
-                signal_value: customSignalValue > 0 ? customSignalValue : null,
-                signal_method: customSignalValue > 0 ? customSignalMethod : null,
-                entrada_due_date: customEntradaDueDate || null,
-                installments_start_date: customInstallmentsStartDate || null,
-              })}
-              className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/10 text-amber-900 hover:bg-amber-500/20 flex items-center gap-1.5 ml-auto"
-              title="Re-salva o plano de cobrança atual (sinal, datas, entrada, forma de pagamento) sem desmarcar"
-            >
-              <Clock size={12} />
-              Salvar alterações
-            </button>
-          </>
         )}
 
         <button
           type="button"
           onClick={onSend}
           disabled={sending}
-          className="text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5"
+          className={`text-xs px-3 py-2 rounded-lg border border-emerald-500/50 bg-emerald-500/5 text-emerald-800 hover:bg-emerald-500/15 disabled:opacity-60 disabled:cursor-wait flex items-center gap-1.5 ${
+            detail.is_chosen_proposal ? 'ml-auto' : ''
+          }`}
           title="Envia link da proposta pro paciente abrir e decidir"
         >
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
