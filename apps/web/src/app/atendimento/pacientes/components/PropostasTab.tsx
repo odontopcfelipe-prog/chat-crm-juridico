@@ -862,8 +862,22 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         is_chosen_proposal: q.id === quoteId,
       })),
     );
+    // Atualiza tambem a forma salva (chosen_*) na hora: o detalhe (selectedDetail)
+    // NAO e refeito pelo load() — sem isso, "Proposta salva" nunca acendia porque
+    // chosen_payment_key ficava com o valor antigo.
     setSelectedDetail((prev) =>
-      prev && prev.id === quoteId ? { ...prev, is_chosen_proposal: true } : prev,
+      prev && prev.id === quoteId
+        ? {
+            ...prev,
+            is_chosen_proposal: true,
+            chosen_payment_key: opts?.payment_key ?? null,
+            chosen_down_payment: opts?.down_payment ?? 0,
+            chosen_signal_value: opts?.signal_value ?? null,
+            chosen_signal_method: opts?.signal_method ?? null,
+            chosen_entrada_due_date: opts?.entrada_due_date ?? null,
+            chosen_installments_start_date: opts?.installments_start_date ?? null,
+          }
+        : prev,
     );
     try {
       await api.post(`/quotes/${quoteId}/choose-as-proposal`, {
@@ -875,7 +889,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         installments_start_date: opts?.installments_start_date ?? null,
       });
       showSuccess('Proposta salva — aguardando decisão do paciente');
-      load(); // refetch em background pra garantir consistencia
+      load(); // refetch da lista em background pra garantir consistencia
     } catch (err: unknown) {
       await load(); // reverte
       const e = err as { response?: { data?: { message?: string } } };
@@ -4285,10 +4299,9 @@ function PropostaPainel({
                 onChangeCustomRestMethod={setCustomRestMethod}
                 onSelectParcelas={(key) => { onChangePayment(key); }}
                 onEmitir={() => {
-                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
-                  // Cobranca so e criada quando operador clica "Encaminhar ao
-                  // financeiro" no rodape do PropostaPainel.
-                  setCartaoModalOpen(false);
+                  // Salva proposta (sem emitir cobranca ainda). Mantém o modal
+                  // aberto pra o botão virar "Proposta salva" na hora; cobrança só
+                  // sai no "Encaminhar ao financeiro" do rodapé.
                   onChooseAsProposal?.({
                     payment_key: activePaymentKey || null,
                     down_payment: customDownPayment > 0 ? customDownPayment : 0,
@@ -4348,10 +4361,9 @@ function PropostaPainel({
                   }
                 }}
                 onEmitir={() => {
-                  // Onda 17.32.36 — Salva proposta (sem emitir cobranca ainda).
-                  // Cobranca so e criada quando operador clica "Encaminhar ao
-                  // financeiro" no rodape do PropostaPainel.
-                  setBoletoModalOpen(false);
+                  // Salva proposta (sem emitir cobranca ainda). Mantém o modal
+                  // aberto pra o botão virar "Proposta salva" na hora; cobrança só
+                  // sai no "Encaminhar ao financeiro" do rodapé.
                   onChooseAsProposal?.({
                     payment_key: activePaymentKey || null,
                     down_payment: customDownPayment > 0 ? customDownPayment : 0,
@@ -4385,8 +4397,8 @@ function PropostaPainel({
                   // lançar nada ainda). O lançamento (cobrança Asaas OU recebimento
                   // manual no caixa) só acontece quando o operador clicar
                   // "Encaminhar ao financeiro" no rodapé do PropostaPainel.
-                  // Consistente com Boleto/Cartão.
-                  setPixModalOpen(false);
+                  // Consistente com Boleto/Cartão. Mantém o modal aberto pra o
+                  // botão virar "Proposta salva" na hora.
                   let paymentKey: string = pixOpt.key; // 'pix' (Asaas QR, default)
                   let signalValue: number | null = null;
                   let signalMethod: string | null = null;
