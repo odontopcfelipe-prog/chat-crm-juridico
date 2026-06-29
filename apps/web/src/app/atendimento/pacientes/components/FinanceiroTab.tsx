@@ -388,7 +388,6 @@ export default function FinanceiroTab({ patientId }: Props) {
         charges={charges}
         patientId={patientId}
         onOpenDetail={(id) => setDetailQuoteId(id)}
-        onNewContract={() => { /* TODO Onda 17.32.42: dialog de novo contrato */ }}
       />
 
       {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
@@ -1997,13 +1996,11 @@ function ContratosTratamentosBloco({
   charges,
   patientId,
   onOpenDetail,
-  onNewContract,
 }: {
   acceptedQuotes: AcceptedQuote[];
   charges: Charge[];
   patientId: string;
   onOpenDetail: (id: string) => void;
-  onNewContract: () => void;
 }) {
   const [tab, setTab] = useState<'todos' | 'ativos' | 'quitados'>('todos');
 
@@ -2050,15 +2047,6 @@ function ContratosTratamentosBloco({
             ))}
           </div>
         </div>
-        <button
-          type="button"
-          onClick={onNewContract}
-          className="text-xs font-bold text-orange-600 hover:bg-orange-500/10 px-3 py-2 rounded-md inline-flex items-center gap-1.5 transition-colors border border-orange-500/30"
-          title="Em breve: criar novo contrato direto pelo Financeiro"
-        >
-          <span className="text-base leading-none">+</span>
-          Novo contrato
-        </button>
       </div>
 
       {filtered.length > 0 ? (
