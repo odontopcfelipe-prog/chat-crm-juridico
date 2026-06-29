@@ -1960,16 +1960,8 @@ export default function AgendaPage() {
                 {showAllUsers ? 'Todos' : 'Meus'}
               </button>
             </div>
-            {showAllUsers && (
-              <select
-                value={filterUserId}
-                onChange={e => setFilterUserId(e.target.value)}
-                className="w-full px-2 py-1 rounded-md border border-border bg-background text-[11px] text-foreground outline-none focus:ring-2 focus:ring-primary/30"
-              >
-                <option value="">Todos os dentistas</option>
-                {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
-              </select>
-            )}
+            {/* O seletor de dentista foi pro topo (alinhado com o header do mês).
+                Aqui fica só o toggle Todos/Meus. */}
           </div>
         )}
 
@@ -2116,6 +2108,19 @@ export default function AgendaPage() {
             schedule-x (canto superior direito da area do calendario). z-20 pra
             ficar acima do header do schedule-x. */}
         <div className="hidden sm:flex absolute top-2 right-3 z-20 items-center gap-2 pointer-events-none">
+          {/* Filtro por dentista — alinhado com o header do mês (antes ficava na
+              sidebar). Some quando o operador está em "Meus eventos" (showAllUsers=false). */}
+          {role.canViewAllAgenda && showAllUsers && (
+            <select
+              value={filterUserId}
+              onChange={e => setFilterUserId(e.target.value)}
+              className="pointer-events-auto inline-flex items-center px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-foreground shadow-sm outline-none focus:ring-2 focus:ring-primary/30 hover:bg-accent transition-colors max-w-[180px]"
+              title="Filtrar agenda por dentista"
+            >
+              <option value="">Todos os dentistas</option>
+              {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+            </select>
+          )}
           <button
             onClick={() => setKanbanView(v => !v)}
             className={`pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors shadow-sm ${
