@@ -28,6 +28,14 @@ export default function LoginPage() {
   const [sessionMsg, setSessionMsg] = useState<string | null>(null);
 
   useEffect(() => {
+    // Chegar na tela de login = intenção de autenticar do ZERO. Limpamos qualquer
+    // sessão anterior nesta máquina (token + rastros) ANTES de mostrar o formulário.
+    // Sem isto, um token de OUTRA conta (ex.: sessão antiga ainda válida) fazia o
+    // usuário cair na conta errada — "entrei com um login e caiu em outra conta".
+    // Também garante que um login que falha não deixe o usuário ver a conta antiga.
+    localStorage.removeItem('token');
+    clearSessionTraces();
+
     const savedEmail = localStorage.getItem('remembered_email');
     if (savedEmail) {
       setEmail(savedEmail);

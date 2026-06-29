@@ -83,9 +83,10 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     if (!token && !isLoginPage) {
       router.replace('/atendimento/login');
     }
-    if (token && isLoginPage) {
-      router.replace('/atendimento/dashboard');
-    }
+    // NÃO redirecionamos /login -> dashboard quando já existe um token: chegar no
+    // /login é intenção de (re)autenticar, e a própria tela de login já limpa a
+    // sessão anterior. Antes, um token de OUTRA conta bouncava o usuário direto pra
+    // dashboard dela — "entrei com um login e caiu em outra conta".
   }, [pathname, router]);
 
   useEffect(() => {
