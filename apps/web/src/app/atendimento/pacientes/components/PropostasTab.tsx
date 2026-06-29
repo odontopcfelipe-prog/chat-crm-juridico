@@ -4102,13 +4102,20 @@ function PropostaPainel({
         const cartaoCalc = cartaoOpt ? applyPaymentOption(total, cartaoOpt, customDownPayment) : null;
         const boletoOpt = options.parcelado.find((o: any) => o.installments === 10 && !o.isAVistaHighlight);
         const boletoCalc = boletoOpt ? applyPaymentOption(total, boletoOpt, customDownPayment) : null;
-        const sel = !activePaymentKey
+        // "sel" reflete a forma REALMENTE salva (chosen_payment_key), não a que
+        // está aberta. É ela que aparece como "Proposta salva" e fica em destaque
+        // até "Encaminhar ao financeiro"; re-salvar outra forma troca qual é.
+        // Todas as variantes manuais à vista (PIX em conta/maquininha, espécie,
+        // misto) caem no card "PIX ou dinheiro".
+        const savedKey = detail.is_chosen_proposal ? (detail.chosen_payment_key || null) : null;
+        const sel = !savedKey
           ? null
-          : activePaymentKey === 'pix'
+          : (savedKey === 'pix' || savedKey === 'pix-conta-avista' || savedKey === 'pix-maquineta-avista'
+             || savedKey === 'cash-avista' || savedKey === 'pix-mixed-cash')
           ? 'pix'
-          : activePaymentKey.startsWith('cartao-')
+          : savedKey.startsWith('cartao-')
           ? 'cartao'
-          : (activePaymentKey === 'boleto-avista' || activePaymentKey.startsWith('parcelado-'))
+          : (savedKey === 'boleto-avista' || savedKey.startsWith('parcelado-'))
           ? 'boleto'
           : null;
         // Onda 15 (etapa 8) — opcao REALMENTE selecionada (pra expor a
@@ -5063,6 +5070,9 @@ function BoletoCobrancaUnificadaModal({
     || tableOptions[0];
   const activeCalc = activeOption ? applyPaymentOption(total, activeOption, customDownPayment) : null;
   const isAVista = !!activeOption?.isAVistaHighlight;
+  // "Proposta salva" quando esta opção é a forma já salva. Re-salvar outra
+  // (ou trocar parcelas e salvar) atualiza qual fica validada até encaminhar.
+  const alreadySavedThis = detail.is_chosen_proposal === true && !!activeOption && detail.chosen_payment_key === activeOption.key;
   const formaLabel = !activeOption
     ? '—'
     : activeOption.isAVistaHighlight
@@ -5603,11 +5613,17 @@ function BoletoCobrancaUnificadaModal({
                         onEmitir();
                       }}
                       disabled={!canEmit}
-                      title={!canEmit ? 'Configure entrada, parcelas e datas pra salvar' : 'Salva esta forma de pagamento como a escolhida pra apresentar ao paciente. Cobranças no Asaas só serão criadas quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
-                      className="mt-4 w-full px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                      title={!canEmit
+                        ? 'Configure entrada, parcelas e datas pra salvar'
+                        : alreadySavedThis
+                        ? 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".'
+                        : 'Salva esta forma de pagamento como a escolhida pra apresentar ao paciente. Cobranças no Asaas só serão criadas quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
+                      className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
+                        alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
+                      }`}
                     >
                       <Check size={16} strokeWidth={3} />
-                      Salvar proposta
+                      {alreadySavedThis ? 'Proposta salva' : 'Salvar proposta'}
                     </button>
                   </>
                 );
@@ -5850,6 +5866,15 @@ function PixCobrancaUnificadaModal({
     onChangeSplitCash(Math.min(num, pixCalc.finalValue));
   };
   const canEmitMixed = mode !== 'MIXED' || (splitCashClamped > 0 && splitPix > 0);
+  // Forma que ESTA seleção representa (pra casar com chosen_payment_key e mostrar
+  // "Proposta salva" quando já é a forma salva). Re-salvar outra atualiza qual fica.
+  const currentSavedKey =
+    mode === 'CASH' ? 'cash-avista'
+    : mode === 'MIXED' ? 'pix-mixed-cash'
+    : pixKind === 'MAQUINETA' ? 'pix-maquineta-avista'
+    : pixKind === 'CONTA' ? 'pix-conta-avista'
+    : 'pix';
+  const alreadySavedThis = detail.is_chosen_proposal === true && detail.chosen_payment_key === currentSavedKey;
   return (
     <ModalPortal>
       <div
@@ -6163,11 +6188,15 @@ function PixCobrancaUnificadaModal({
                 type="button"
                 onClick={onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
-                title='Salva como forma escolhida. O lançamento (caixa/cobrança) só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.'
-                className="mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors bg-emerald-600 hover:bg-emerald-700"
+                title={alreadySavedThis
+                  ? 'Esta já é a forma salva. Clique pra re-salvar com os valores atuais. Fica validada até "Encaminhar ao financeiro".'
+                  : 'Salva como forma escolhida. O lançamento (caixa/cobrança) só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.'}
+                className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
+                  alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
                 {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                Salvar proposta
+                {alreadySavedThis ? 'Proposta salva' : 'Salvar proposta'}
               </button>
 
               {onSend && (
@@ -6274,6 +6303,9 @@ function CartaoCobrancaUnificadaModal({
   // funciona igual antes (cartao paga integral).
   const activeOpt = options.find((o) => o.key === activePaymentKey) || options[0];
   const activeCalc = activeOpt ? applyPaymentOption(total, activeOpt, customDownPayment) : null;
+  // "Proposta salva" quando esta opção (parcelas) é a forma já salva. Re-salvar
+  // outra (ou trocar parcelas e salvar) atualiza qual fica validada.
+  const alreadySavedThis = detail.is_chosen_proposal === true && !!activeOpt && detail.chosen_payment_key === activeOpt.key;
   // Splits da entrada (sinal hoje + restante boleto/pix/cash em data X)
   const sinalValor = Math.min(customSignalValue, customDownPayment);
   const entradaRestoValor = Math.max(0, customDownPayment - sinalValor);
@@ -6747,11 +6779,15 @@ function CartaoCobrancaUnificadaModal({
                 type="button"
                 onClick={onEmitir}
                 disabled={!activeOpt}
-                title="Salva Cartão como forma escolhida. Link Asaas só será gerado quando o operador clicar 'Encaminhar ao financeiro' no rodapé."
-                className="mt-4 w-full px-4 py-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors"
+                title={alreadySavedThis
+                  ? 'Esta já é a forma salva. Clique pra re-salvar com a configuração atual. Fica validada até "Encaminhar ao financeiro".'
+                  : "Salva Cartão como forma escolhida. Link Asaas só será gerado quando o operador clicar 'Encaminhar ao financeiro' no rodapé."}
+                className={`mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors ${
+                  alreadySavedThis ? 'bg-emerald-700 hover:bg-emerald-800 ring-2 ring-emerald-300' : 'bg-emerald-600 hover:bg-emerald-700'
+                }`}
               >
                 <Check size={16} strokeWidth={3} />
-                Salvar proposta
+                {alreadySavedThis ? 'Proposta salva' : 'Salvar proposta'}
               </button>
 
               {onSend && (
