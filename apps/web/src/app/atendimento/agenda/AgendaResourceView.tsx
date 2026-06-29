@@ -17,12 +17,12 @@
  *   - Click em slot vazio → abre modal de criar (callback onSlotClick)
  *   - Drag & drop entre colunas → atualiza assigned_user_id (callback onMove)
  *
- * Cores semanticas Clinicorp por status (mesmas do PR1):
- *   - rosa   AGENDADO
- *   - verde  CONFIRMADO
- *   - cinza  CONCLUIDO
- *   - amarelo ADIADO
- *   - vermelho CANCELADO
+ * Cores semanticas por status (estilo Dental Office):
+ *   - rosa            AGENDADO
+ *   - verde           CONFIRMADO
+ *   - verde escuro    CONCLUIDO
+ *   - amarelo         ADIADO / CANCELADO (desmarcou)
+ *   - vermelho escuro NO_SHOW (faltou)
  */
 
 import { useEffect, useMemo, useRef } from 'react';
@@ -57,9 +57,10 @@ interface Props {
 const STATUS_COLORS: Record<string, { back: string; border: string; text: string }> = {
   AGENDADO:    { back: '#FCE4EC', border: '#E91E63', text: '#5C0011' }, // rosa
   CONFIRMADO:  { back: '#D4EDDA', border: '#28A745', text: '#0F4416' }, // verde
-  CONCLUIDO:   { back: '#E9ECEF', border: '#6C757D', text: '#1A1D20' }, // cinza
+  CONCLUIDO:   { back: '#DCFCE7', border: '#15803d', text: '#14532d' }, // verde escuro
   ADIADO:      { back: '#FFF3CD', border: '#FFC107', text: '#664D03' }, // amarelo
-  CANCELADO:   { back: '#F5C6CB', border: '#DC3545', text: '#491217' }, // vermelho
+  CANCELADO:   { back: '#FEF9C3', border: '#eab308', text: '#713f12' }, // amarelo (desmarcou)
+  NO_SHOW:     { back: '#FEE2E2', border: '#991b1b', text: '#7f1d1d' }, // vermelho escuro (faltou)
 };
 
 function statusOf(ev: ResourceEvent) {

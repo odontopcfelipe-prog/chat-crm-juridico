@@ -55,9 +55,10 @@ const STATUS_CONFIG: Record<string, { icon: string; label: string; color: string
   AGENDADO:    { icon: '⏰', label: 'Aguardando confirmação', color: 'text-pink-600' },
   CONFIRMADO:  { icon: '✅', label: 'Confirmado',             color: 'text-emerald-600' },
   COMPARECEU:  { icon: '🩺', label: 'Compareceu',             color: 'text-sky-600' },
-  NO_SHOW:     { icon: '🚫', label: 'Não compareceu',         color: 'text-rose-600' },
+  CONCLUIDO:   { icon: '🏁', label: 'Concluído',              color: 'text-green-700' },
+  NO_SHOW:     { icon: '🚫', label: 'Não compareceu',         color: 'text-red-800' },
   ADIADO:      { icon: '⏸️', label: 'Adiado',                 color: 'text-amber-600' },
-  CANCELADO:   { icon: '✖️', label: 'Cancelado',              color: 'text-rose-500' },
+  CANCELADO:   { icon: '✖️', label: 'Desmarcou',              color: 'text-yellow-600' },
 };
 
 const TYPE_LABEL: Record<string, string> = {

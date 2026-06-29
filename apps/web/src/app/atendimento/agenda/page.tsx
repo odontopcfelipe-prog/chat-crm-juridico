@@ -104,10 +104,10 @@ const EVENT_TYPES = [
 const LEGEND_STATUS = [
   { label: 'Agendado', color: '#E91E63' },
   { label: 'Confirmado', color: '#28A745' },
-  { label: 'Concluído', color: '#6C757D' },
-  { label: 'Cancelado', color: '#DC3545' },
+  { label: 'Concluído', color: '#15803d' },
+  { label: 'Desmarcou', color: '#eab308' },
   { label: 'Adiado', color: '#FFC107' },
-  { label: 'Faltou', color: '#1f2937' },
+  { label: 'Faltou', color: '#991b1b' },
 ] as const;
 const LEGEND_TYPE = [
   { label: 'Procedimento', color: '#14b8a6' },
@@ -147,9 +147,9 @@ const EVENT_STATUSES = [
   { id: 'CONFIRMADO', label: 'Confirmado', color: '#22c55e' },
   { id: 'COMPARECEU', label: 'Paciente chegou', color: '#0ea5e9' },
   { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f59e0b' },
-  { id: 'CONCLUIDO', label: 'Concluído', color: '#6b7280' },
-  { id: 'CANCELADO', label: 'Desmarcou', color: '#ef4444' },
-  { id: 'NO_SHOW', label: 'Faltou', color: '#1f2937' },
+  { id: 'CONCLUIDO', label: 'Concluído', color: '#15803d' }, // verde escuro
+  { id: 'CANCELADO', label: 'Desmarcou', color: '#eab308' }, // amarelo
+  { id: 'NO_SHOW', label: 'Faltou', color: '#991b1b' }, // vermelho escuro
   { id: 'ADIADO', label: 'Adiado', color: '#eab308' },
 ];
 
@@ -166,13 +166,14 @@ function getEventColor(type: string) {
 }
 
 /**
- * Mapeia evento para um dos slots semanticos Clinicorp.
- * Convencao do mercado odontologico (Clinicorp/Dental Office/etc.):
- *   - rosa  (#F8D7DA): horario agendado, paciente nao confirmou
- *   - verde (#28A745): paciente confirmou presenca
- *   - cinza (#6C757D): consulta concluida ou no_show
- *   - amarelo (#FFC107): adiado/aguardando
- *   - vermelho (#DC3545): cancelado / conflito
+ * Mapeia evento para um dos slots semanticos (estilo Dental Office):
+ *   - rosa  (#E91E63): agendado, paciente nao confirmou
+ *   - verde (#22c55e): paciente confirmou presenca
+ *   - ciano (#0ea5e9): paciente chegou (compareceu)
+ *   - ambar (#f59e0b): em atendimento
+ *   - verde escuro (#15803d): consulta concluida
+ *   - amarelo (#eab308): desmarcou (cancelado) / adiado
+ *   - vermelho escuro (#991b1b): faltou (no_show)
  *
  * Para eventos NAO-CONSULTA (PROCEDIMENTO/RETORNO/BLOQUEIO/TAREFA/OUTRO),
  * mantem cor por tipo (preserva semantica do tipo de evento odontologico).
@@ -1047,15 +1048,15 @@ export default function AgendaPage() {
         lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
         darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
       },
-      SLOT_DONE: { // CONCLUIDO — cinza
+      SLOT_DONE: { // CONCLUIDO — verde escuro
         colorName: 'concluido',
-        lightColors: { main: '#6b7280', container: '#e9ecef', onContainer: '#1a1d20' },
-        darkColors:  { main: '#9e9e9e', container: '#2a2d30', onContainer: '#e9ecef' },
+        lightColors: { main: '#15803d', container: '#dcfce7', onContainer: '#14532d' },
+        darkColors:  { main: '#4ade80', container: '#14532d', onContainer: '#dcfce7' },
       },
-      SLOT_CANCELLED: { // CANCELADO (desmarcou) — vermelho
+      SLOT_CANCELLED: { // CANCELADO (desmarcou) — amarelo
         colorName: 'cancelado',
-        lightColors: { main: '#ef4444', container: '#fee2e2', onContainer: '#7f1d1d' },
-        darkColors:  { main: '#f87171', container: '#7f1d1d', onContainer: '#fee2e2' },
+        lightColors: { main: '#eab308', container: '#fef9c3', onContainer: '#713f12' },
+        darkColors:  { main: '#facc15', container: '#713f12', onContainer: '#fef9c3' },
       },
       SLOT_DEFERRED: { // ADIADO — amarelo
         colorName: 'adiado',
@@ -1063,10 +1064,10 @@ export default function AgendaPage() {
         darkColors:  { main: '#facc15', container: '#713f12', onContainer: '#fef9c3' },
       },
       // Onda 5e v18: paciente faltou — preto/cinza escuro pra destacar negativo
-      SLOT_NOSHOW: { // NO_SHOW (faltou) — escuro
+      SLOT_NOSHOW: { // NO_SHOW (faltou) — vermelho escuro
         colorName: 'noshow',
-        lightColors: { main: '#1f2937', container: '#e5e7eb', onContainer: '#1f2937' },
-        darkColors:  { main: '#9ca3af', container: '#1f2937', onContainer: '#e5e7eb' },
+        lightColors: { main: '#991b1b', container: '#fee2e2', onContainer: '#7f1d1d' },
+        darkColors:  { main: '#f87171', container: '#7f1d1d', onContainer: '#fee2e2' },
       },
       // Tipos juridicos (mantidos por compatibilidade)
       TAREFA: {
