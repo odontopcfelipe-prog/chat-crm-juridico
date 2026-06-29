@@ -30,22 +30,17 @@ interface VisualModeContextValue {
 const VisualModeContext = createContext<VisualModeContextValue | null>(null);
 
 const STORAGE_KEY = 'fx-mode';
-const DEFAULT_MODE: FxMode = 'neon';
+// Efeitos Futurista (neon) e Massinha (clay) removidos do sistema — só o estilo
+// normal/clássico (solid) continua. Default e qualquer valor salvo caem pra solid.
+const DEFAULT_MODE: FxMode = 'solid';
 
 export function VisualModeProvider({ children }: { children: ReactNode }) {
   const [mode, setModeState] = useState<FxMode>(DEFAULT_MODE);
   const [hydrated, setHydrated] = useState(false);
 
-  // Carrega do localStorage no mount
+  // Carrega do localStorage no mount. Futurista/Massinha removidos: só 'solid' vale;
+  // valores antigos (neon/clay) são ignorados e caem pro normal.
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === 'solid' || saved === 'neon' || saved === 'clay') {
-        setModeState(saved);
-      }
-    } catch {
-      // localStorage indisponivel (SSR/privacy mode) — fica no default
-    }
     setHydrated(true);
   }, []);
 
@@ -55,20 +50,18 @@ export function VisualModeProvider({ children }: { children: ReactNode }) {
     document.documentElement.setAttribute('data-fx', mode);
   }, [mode, hydrated]);
 
-  const setMode = (m: FxMode) => {
-    setModeState(m);
+  // Efeitos removidos — qualquer setMode força 'solid' (normal).
+  const setMode = (_m: FxMode) => {
+    setModeState('solid');
     try {
-      localStorage.setItem(STORAGE_KEY, m);
+      localStorage.setItem(STORAGE_KEY, 'solid');
     } catch {
       // ignore
     }
   };
 
-  // Toggle cicla pelos 3 modos na ordem neon → solid → clay → neon
-  const toggle = () => {
-    const next: FxMode = mode === 'neon' ? 'solid' : mode === 'solid' ? 'clay' : 'neon';
-    setMode(next);
-  };
+  // Toggle desativado — não há mais efeitos pra alternar.
+  const toggle = () => { /* no-op: Futurista/Massinha removidos */ };
 
   return (
     <VisualModeContext.Provider value={{ mode, setMode, toggle }}>

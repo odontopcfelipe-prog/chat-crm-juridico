@@ -132,51 +132,6 @@ export function ThemeSwitcher() {
             <Square className="w-3 h-3" />
             <span>Clássico</span>
           </button>
-          <button
-            onClick={() => setFxMode('neon')}
-            className={`flex items-center justify-center gap-1.5 px-2 py-2 rounded-xl text-[10px] font-bold transition-all border ${
-              fxMode === 'neon'
-                ? 'text-white border-transparent'
-                : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
-            }`}
-            style={
-              fxMode === 'neon'
-                ? {
-                    background: 'var(--gradient-accent)',
-                    boxShadow:
-                      '0 0 12px rgba(var(--accent-glow), 0.45), 0 0 26px rgba(var(--accent-glow), 0.25)',
-                  }
-                : undefined
-            }
-            title="Visual futurista: gradientes, glassmorphism, glow neon, animações."
-          >
-            <Sparkles className="w-3 h-3" />
-            <span>Futurista</span>
-          </button>
-          {/* Onda 14.55 — 3o estilo "Massinha" (claymorphism): cantos super
-              arredondados + sombras 3D soft. Independente do tema de cor —
-              combina com noturno/cyber/glacier/coral. */}
-          <button
-            onClick={() => setFxMode('clay')}
-            className={`flex items-center justify-center gap-1.5 px-2 py-2 text-[10px] font-bold transition-all border ${
-              fxMode === 'clay'
-                ? 'text-white border-transparent'
-                : 'bg-transparent border-border/40 text-muted-foreground hover:text-foreground hover:border-border'
-            }`}
-            style={
-              fxMode === 'clay'
-                ? {
-                    background: 'linear-gradient(135deg, #a78bda 0%, #c4a8f0 100%)',
-                    boxShadow: '0 4px 14px rgba(167, 139, 218, 0.30)',
-                    borderRadius: '1.25rem',
-                  }
-                : { borderRadius: '0.75rem' }
-            }
-            title="Visual claymorphism 3D: cantos super arredondados, sombras soft, estilo 'massinha'."
-          >
-            <CircleDashed className="w-3 h-3" />
-            <span>Massinha</span>
-          </button>
         </div>
       </div>
     </div>
