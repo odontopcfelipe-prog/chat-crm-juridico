@@ -1134,7 +1134,11 @@ export default function AgendaPage() {
         : (payload?.role ? [payload.role] : []);
       if (roles.length > 0) {
         setCurrentUserRole(roles[0]);
-        if (roles.includes('ADMIN')) {
+        // Quem pode ver a agenda toda (ADMIN/OPERADOR/ASSISTANT) abre em "Todos"
+        // por padrão. A sidebar (que tinha o toggle Todos/Meus) saiu da tela, então
+        // sem isto recepção/assistente veriam só os próprios eventos e o seletor de
+        // dentista do topo não apareceria.
+        if (roles.some(r => ['ADMIN', 'OPERADOR', 'ASSISTANT'].includes(r))) {
           setShowAllUsers(true);
         }
       }
@@ -1857,8 +1861,11 @@ export default function AgendaPage() {
       {/* Conteúdo do Calendário */}
       <div className="flex flex-1 overflow-hidden">
 
-      {/* ═══ Sidebar estilo Google Calendar — Onda 5d v5 (Fase 25): compactada ═══ */}
-      <aside className="hidden md:flex flex-col w-52 shrink-0 border-r border-border bg-card/30 overflow-y-auto custom-scrollbar">
+      {/* ═══ Sidebar estilo Google Calendar — REMOVIDA da tela (a pedido) pra dar mais
+          espaço ao calendário. Mantida no código como `hidden` (display:none em todos os
+          tamanhos): o filtro de dentista e a navegação de mês já vivem na barra do topo,
+          e o toggle Todos/Meus segue na top bar mobile. ═══ */}
+      <aside className="hidden flex-col w-52 shrink-0 border-r border-border bg-card/30 overflow-y-auto custom-scrollbar">
 
         {/* ── Topo: titulo + contador (compactado) ── */}
         <div className="px-2 pt-2 pb-1.5 flex items-center justify-between gap-2">
