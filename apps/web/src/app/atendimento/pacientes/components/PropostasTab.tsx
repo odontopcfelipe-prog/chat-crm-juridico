@@ -4516,27 +4516,29 @@ function PropostaPainel({
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
         </button>
-        {/* Onda 17.32.36 — Botao "Encaminhar ao financeiro" volta com novo nome
-            e significado: a proposta precisa estar SALVA primeiro (chosen).
-            Click cria todas as cobrancas no Asaas e move a proposta da aba
-            "Plano de tratamento" pra aba "Financeiro" do paciente. */}
-        {detail.is_chosen_proposal && (
-          <button
-            type="button"
-            onClick={() => onApproveAndBill({
-              customDownPayment,
-              customSignalValue,
-              customSignalMethod,
-              customEntradaDueDate,
-              customInstallmentsStartDate,
-            })}
-            className="text-xs px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 flex items-center gap-1.5 font-bold shadow-sm"
-            title="Cria todas as cobranças no Asaas (sinal, entrada, parcelas) e move a proposta pra aba Financeiro do paciente"
-          >
-            <Send size={12} />
-            Encaminhar ao financeiro
-          </button>
-        )}
+        {/* Botao "Encaminhar ao financeiro": a proposta precisa estar SALVA
+            primeiro (chosen). Fica SEMPRE visível pra mostrar o próximo passo,
+            mas só habilita depois do "Salvar proposta" — com dica quando apagado.
+            Click cria as cobrancas (ou lança o recebimento manual no caixa) e
+            move a proposta da aba "Plano de tratamento" pra aba "Financeiro". */}
+        <button
+          type="button"
+          disabled={!detail.is_chosen_proposal}
+          onClick={() => onApproveAndBill({
+            customDownPayment,
+            customSignalValue,
+            customSignalMethod,
+            customEntradaDueDate,
+            customInstallmentsStartDate,
+          })}
+          className="text-xs px-4 py-2 rounded-lg bg-orange-600 text-white hover:bg-orange-700 disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed disabled:hover:bg-muted disabled:shadow-none flex items-center gap-1.5 font-bold shadow-sm"
+          title={detail.is_chosen_proposal
+            ? 'Cria as cobranças (ou lança o recebimento manual no caixa) e move a proposta pra aba Financeiro do paciente'
+            : 'Salve a proposta primeiro (botão "Salvar proposta") pra liberar o envio ao financeiro'}
+        >
+          <Send size={12} />
+          Encaminhar ao financeiro
+        </button>
       </div>
 
       {/* Onda 13 — Bônus de fechamento (ativos e expirados) */}
