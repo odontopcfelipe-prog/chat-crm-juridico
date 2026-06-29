@@ -6138,23 +6138,10 @@ function PixCobrancaUnificadaModal({
                   </div>
 
                   {pixKind === 'ASAAS' ? (
-                    <div className="flex items-center gap-3 flex-wrap mt-3 pt-3 border-t border-border">
-                      <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
-                        <Clock size={12} className="text-emerald-600" />
-                        Vencimento do PIX:
-                      </label>
-                      <input
-                        type="date"
-                        value={customPixDueDate}
-                        onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
-                        className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                      />
-                      {!customPixDueDate && (
-                        <span className="text-[10px] text-muted-foreground italic">
-                          vazio = 24h após emissão (padrão Asaas)
-                        </span>
-                      )}
-                    </div>
+                    <p className="text-xs text-foreground flex items-start gap-1.5 mt-3 pt-3 border-t border-border">
+                      <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
+                      <span>QR Code gerado pelo Asaas na hora — <strong>pagamento imediato</strong>.</span>
+                    </p>
                   ) : (
                     <p className="text-xs text-foreground flex items-start gap-1.5 mt-3 pt-3 border-t border-border">
                       <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
