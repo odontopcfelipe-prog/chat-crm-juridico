@@ -6051,60 +6051,6 @@ function PixCobrancaUnificadaModal({
                 </div>
 
                 {/* Conteudo conforme modo selecionado */}
-                {mode === 'PIX' && (
-                  <div className="pt-3 border-t border-border space-y-3">
-                    <p className="text-[11px] text-muted-foreground">Qual a forma do PIX?</p>
-                    <div className="grid grid-cols-3 gap-2">
-                      {([
-                        { k: 'ASAAS' as const, label: 'Banco Asaas', sub: 'QR Code', logo: true, icon: '' },
-                        { k: 'CONTA' as const, label: 'Em conta', sub: 'sem QR', logo: false, icon: '🏦' },
-                        { k: 'MAQUINETA' as const, label: 'Maquineta', sub: 'sem QR', logo: false, icon: '📱' },
-                      ]).map((s) => {
-                        const active = pixKind === s.k;
-                        return (
-                          <button
-                            key={s.k}
-                            type="button"
-                            onClick={() => onChangePixKind(s.k)}
-                            className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-md border text-center transition-colors ${active ? 'border-emerald-500 bg-emerald-500/10' : 'border-border bg-card hover:bg-accent/40'}`}
-                          >
-                            {s.logo ? <AsaasBadge /> : <span className="text-base leading-none">{s.icon}</span>}
-                            <span className={`text-xs font-bold ${active ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{s.label}</span>
-                            <span className="text-[10px] text-muted-foreground">{s.sub}</span>
-                          </button>
-                        );
-                      })}
-                    </div>
-
-                    {pixKind === 'ASAAS' ? (
-                      <div className="flex items-center gap-3 flex-wrap">
-                        <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
-                          <Clock size={12} className="text-emerald-600" />
-                          Vencimento do PIX:
-                        </label>
-                        <input
-                          type="date"
-                          value={customPixDueDate}
-                          onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
-                          className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                        />
-                        {!customPixDueDate && (
-                          <span className="text-[10px] text-muted-foreground italic">
-                            vazio = 24h após emissão (padrão Asaas)
-                          </span>
-                        )}
-                      </div>
-                    ) : (
-                      <p className="text-xs text-foreground flex items-start gap-1.5">
-                        <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
-                        <span>
-                          Ao confirmar, registra <strong>R$ {fmtBRL(pixCalc.finalValue)}</strong> como <strong>{pixKind === 'CONTA' ? 'PIX em conta' : 'PIX na maquininha'}</strong> recebido hoje — entra no caixa como PIX, <strong>sem QR do Asaas</strong>, com baixa automática.
-                        </span>
-                      </p>
-                    )}
-                  </div>
-                )}
-
                 {mode === 'CASH' && (
                   <div className="pt-3 border-t border-border bg-emerald-500/5 -mx-4 px-4 py-3 -mb-4 rounded-b-xl">
                     <p className="text-xs text-foreground flex items-start gap-1.5">
@@ -6156,6 +6102,69 @@ function PixCobrancaUnificadaModal({
                   </div>
                 )}
               </div>
+
+              {/* Passo 2 — Qual a forma do PIX? (só quando PIX) */}
+              {mode === 'PIX' && (
+                <div className="rounded-xl border border-border bg-card p-4">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                      2
+                    </div>
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-foreground">Qual a forma do PIX?</p>
+                      <p className="text-[11px] text-muted-foreground">Banco Asaas (QR), em conta ou na maquineta</p>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {([
+                      { k: 'ASAAS' as const, label: 'Banco Asaas', sub: 'QR Code', logo: true, icon: '' },
+                      { k: 'CONTA' as const, label: 'Em conta', sub: 'sem QR', logo: false, icon: '🏦' },
+                      { k: 'MAQUINETA' as const, label: 'Maquineta', sub: 'sem QR', logo: false, icon: '📱' },
+                    ]).map((s) => {
+                      const active = pixKind === s.k;
+                      return (
+                        <button
+                          key={s.k}
+                          type="button"
+                          onClick={() => onChangePixKind(s.k)}
+                          className={`flex flex-col items-center justify-center gap-1 px-2 py-2 rounded-md border text-center transition-colors ${active ? 'border-emerald-500 bg-emerald-500/10' : 'border-border bg-card hover:bg-accent/40'}`}
+                        >
+                          {s.logo ? <AsaasBadge /> : <span className="text-base leading-none">{s.icon}</span>}
+                          <span className={`text-xs font-bold ${active ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{s.label}</span>
+                          <span className="text-[10px] text-muted-foreground">{s.sub}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {pixKind === 'ASAAS' ? (
+                    <div className="flex items-center gap-3 flex-wrap mt-3 pt-3 border-t border-border">
+                      <label className="text-xs font-semibold text-foreground flex items-center gap-1.5 shrink-0">
+                        <Clock size={12} className="text-emerald-600" />
+                        Vencimento do PIX:
+                      </label>
+                      <input
+                        type="date"
+                        value={customPixDueDate}
+                        onChange={(e) => onChangeCustomPixDueDate(e.target.value)}
+                        className="text-sm px-3 py-1.5 rounded-md border border-border bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                      />
+                      {!customPixDueDate && (
+                        <span className="text-[10px] text-muted-foreground italic">
+                          vazio = 24h após emissão (padrão Asaas)
+                        </span>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-foreground flex items-start gap-1.5 mt-3 pt-3 border-t border-border">
+                      <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
+                      <span>
+                        Ao confirmar, registra <strong>R$ {fmtBRL(pixCalc.finalValue)}</strong> como <strong>{pixKind === 'CONTA' ? 'PIX em conta' : 'PIX na maquininha'}</strong> recebido hoje — entra no caixa como PIX, <strong>sem QR do Asaas</strong>, com baixa automática.
+                      </span>
+                    </p>
+                  )}
+                </div>
+              )}
 
             </div>
 
