@@ -6009,10 +6009,10 @@ function PixCobrancaUnificadaModal({
                 {/* 3 botoes: PIX / Especie / Misto */}
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {([
-                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code · Banco Asaas', asaas: true },
-                    { key: 'PIX_POS' as const, label: 'PIX', emoji: '💳', desc: 'Na maquininha · sem QR', asaas: false },
-                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false },
-                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true },
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code · Banco Asaas', asaas: false, asaasLogoTop: true },
+                    { key: 'PIX_POS' as const, label: 'PIX', emoji: '📱', desc: 'Na maquininha · sem QR', asaas: false, asaasLogoTop: false },
+                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false, asaasLogoTop: false },
+                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true, asaasLogoTop: false },
                   ]).map((m) => {
                     const isActive = mode === m.key;
                     return (
@@ -6026,7 +6026,9 @@ function PixCobrancaUnificadaModal({
                             : 'border-border bg-card hover:bg-accent/40'
                         }`}
                       >
-                        <span className="text-lg">{m.emoji}</span>
+                        {m.asaasLogoTop
+                          ? <AsaasBadge className="text-[11px] px-2 py-1 my-0.5" />
+                          : <span className="text-lg">{m.emoji}</span>}
                         <span className={`text-sm font-bold ${isActive ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>
                           {m.label}
                         </span>
