@@ -108,22 +108,6 @@ const CLOSING_CATEGORY_LABEL: Record<ClosingCategory, string> = {
   OUTROS: 'OUTROS',
 };
 
-const STATUS_LABEL: Record<QuoteListItem['status'], string> = {
-  DRAFT: 'rascunho',
-  SENT: 'enviado',
-  ACCEPTED: 'aceito',
-  REJECTED: 'rejeitado',
-  EXPIRED: 'expirado',
-};
-
-const STATUS_CLS: Record<QuoteListItem['status'], string> = {
-  DRAFT: 'bg-muted text-muted-foreground',
-  SENT: 'bg-blue-500/10 text-blue-700',
-  ACCEPTED: 'bg-emerald-500/10 text-emerald-700',
-  REJECTED: 'bg-destructive/10 text-destructive',
-  EXPIRED: 'bg-amber-500/10 text-amber-700',
-};
-
 interface ToothRecord {
   id: string;
   tooth_fdi: string;
@@ -550,7 +534,9 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
                 antigo no topo. API retorna desc por created_at, fazemos
                 reverse aqui pra exibir asc. Numero (#N) eh a posicao no
                 array reverso (1-based). */}
-            {[...quotesList].reverse().map((q, idx) => (
+            {/* Onda 17.75 — orçamento APROVADO (ACCEPTED) some da Avaliação: já subiu
+                pro Financeiro/Tratamento. SENT/DRAFT continuam (em aberto). */}
+            {[...quotesList].filter((q) => q.status !== 'ACCEPTED').reverse().map((q, idx) => (
               <QuoteCard
                 key={q.id}
                 quote={q}
@@ -817,14 +803,10 @@ function QuoteCard({
           )}
         </span>
 
-        {/* SLOT 2: Status (oculta DRAFT/RASCUNHO) */}
-        <span className="w-[88px] shrink-0 flex items-center justify-start">
-          {quote.status !== 'DRAFT' && (
-            <span className={`text-[10px] uppercase font-semibold px-2 py-0.5 rounded ${STATUS_CLS[quote.status]}`}>
-              {STATUS_LABEL[quote.status]}
-            </span>
-          )}
-        </span>
+        {/* Onda 17.75 — Badge de status (ENVIADO/ACEITO) REMOVIDO a pedido do dono:
+            "não precisa ter enviado/aceito, todos ficam normal". O orçamento aprovado
+            sai da lista (filtro em quotesList abaixo), então o status deixou de agregar
+            info aqui. SLOT removido (todas as linhas perdem igual → alinhamento mantido). */}
 
         {/* SLOT 3: Aprovacao parcial — Onda 7.8 */}
         <span className="w-[140px] shrink-0 flex items-center justify-start">
