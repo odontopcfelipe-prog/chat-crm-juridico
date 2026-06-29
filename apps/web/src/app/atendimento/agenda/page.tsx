@@ -938,17 +938,13 @@ export default function AgendaPage() {
   // Onda 17.61 — preferências de exibição (persistidas). Lidas num effect (não no
   // initializer) pra evitar mismatch de hidratação. Default: esconde a madrugada.
   const [hideMadrugada, setHideMadrugada] = useState(true);
-  const [agendaDensity, setAgendaDensity] = useState<AgendaDensity>('confortavel');
+  // Densidade fixa em "amplo" — o seletor Compacto/Confortável/Amplo foi removido
+  // da UI (a pedido). A agenda abre sempre na altura "amplo".
+  const agendaDensity: AgendaDensity = 'amplo';
   useEffect(() => {
     try {
       setHideMadrugada(localStorage.getItem('agenda:hideMadrugada') !== 'false');
-      const v = localStorage.getItem('agenda:density');
-      if (v === 'compacto' || v === 'amplo') setAgendaDensity(v);
     } catch { /* localStorage indisponível — usa defaults */ }
-  }, []);
-  const changeDensity = useCallback((d: AgendaDensity) => {
-    setAgendaDensity(d);
-    try { localStorage.setItem('agenda:density', d); } catch { /* ignore */ }
   }, []);
   const toggleMadrugada = useCallback(() => {
     setHideMadrugada((v) => {
@@ -1971,22 +1967,7 @@ export default function AgendaPage() {
             via signal, sem recriar o calendário). */}
         <div className="px-2 py-1">
           <p className="text-[9px] font-bold uppercase tracking-wider text-muted-foreground mb-1">Exibição</p>
-          <div className="space-y-0.5">
-            {([['compacto', 'Compacto'], ['confortavel', 'Confortável'], ['amplo', 'Amplo']] as const).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => changeDensity(id)}
-                className={`w-full flex items-center gap-1.5 text-left px-1.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
-                  agendaDensity === id ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-accent/40'
-                }`}
-                title={`Densidade ${label}`}
-              >
-                <span className={`w-2.5 h-2.5 rounded-full border-2 shrink-0 ${agendaDensity === id ? 'border-primary bg-primary' : 'border-muted-foreground/40'}`} />
-                {label}
-              </button>
-            ))}
-          </div>
-          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 mt-1 pt-1 border-t border-border/40 rounded px-1 hover:bg-accent/40 transition-colors">
+          <label className="flex items-center gap-1.5 cursor-pointer py-0.5 rounded px-1 hover:bg-accent/40 transition-colors">
             <input type="checkbox" checked={!hideMadrugada} onChange={toggleMadrugada} className="sr-only" />
             <span className={`w-3 h-3 rounded border-2 flex items-center justify-center transition-all shrink-0 ${!hideMadrugada ? 'bg-primary border-primary' : 'border-muted-foreground/40 opacity-50'}`}>
               {!hideMadrugada && <CheckCircle2 size={7} className="text-white" />}
