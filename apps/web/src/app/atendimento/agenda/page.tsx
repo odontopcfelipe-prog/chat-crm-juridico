@@ -103,10 +103,11 @@ const EVENT_TYPES = [
 // IMPORTANTE: usar estas cores (não EVENT_STATUSES, que tem hex diferente).
 const LEGEND_STATUS = [
   { label: 'Agendado', color: '#E91E63' },
-  { label: 'Confirmado', color: '#28A745' },
+  { label: 'Confirmado', color: '#22c55e' },
+  { label: 'Compareceu', color: '#0ea5e9' },
+  { label: 'Em atendimento', color: '#f97316' },
   { label: 'Concluído', color: '#15803d' },
   { label: 'Desmarcou', color: '#eab308' },
-  { label: 'Adiado', color: '#FFC107' },
   { label: 'Faltou', color: '#991b1b' },
 ] as const;
 const LEGEND_TYPE = [
@@ -141,16 +142,15 @@ function eventAccentColor(ev: { type: string; status: string }): string {
 }
 
 // Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Paciente chegou → Em
-// atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) / Adiado como saídas.
+// atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) como saídas.
 const EVENT_STATUSES = [
   { id: 'AGENDADO', label: 'Agendado', color: '#E91E63' }, // rosa Dental Office — agendado/não confirmado
   { id: 'CONFIRMADO', label: 'Confirmado', color: '#22c55e' },
   { id: 'COMPARECEU', label: 'Paciente chegou', color: '#0ea5e9' },
-  { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f59e0b' },
+  { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f97316' }, // laranja
   { id: 'CONCLUIDO', label: 'Concluído', color: '#15803d' }, // verde escuro
   { id: 'CANCELADO', label: 'Desmarcou', color: '#eab308' }, // amarelo
   { id: 'NO_SHOW', label: 'Faltou', color: '#991b1b' }, // vermelho escuro
-  { id: 'ADIADO', label: 'Adiado', color: '#eab308' },
 ];
 
 // (PRIORITY_COLORS / PRIORITY_LABELS removidos — Prioridade saiu do UI na Onda 17.61.)
@@ -170,9 +170,9 @@ function getEventColor(type: string) {
  *   - rosa  (#E91E63): agendado, paciente nao confirmou
  *   - verde (#22c55e): paciente confirmou presenca
  *   - ciano (#0ea5e9): paciente chegou (compareceu)
- *   - ambar (#f59e0b): em atendimento
+ *   - laranja (#f97316): em atendimento
  *   - verde escuro (#15803d): consulta concluida
- *   - amarelo (#eab308): desmarcou (cancelado) / adiado
+ *   - amarelo (#eab308): desmarcou (cancelado)
  *   - vermelho escuro (#991b1b): faltou (no_show)
  *
  * Para eventos NAO-CONSULTA (PROCEDIMENTO/RETORNO/BLOQUEIO/TAREFA/OUTRO),
@@ -214,7 +214,6 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
     case 'CONFIRMADO': return 'SLOT_CONFIRMED';
     case 'CONCLUIDO': return 'SLOT_DONE';
     case 'CANCELADO': return 'SLOT_CANCELLED';
-    case 'ADIADO':    return 'SLOT_DEFERRED';
     case 'NO_SHOW':   return 'SLOT_NOSHOW';   // Onda 5e v18: paciente faltou
     case 'COMPARECEU': return 'SLOT_ARRIVED';   // chegou — ciano (Onda 17.61)
     case 'EM_ATENDIMENTO': return 'SLOT_INSERVICE'; // em atendimento — âmbar (Onda 17.61)
@@ -1043,10 +1042,10 @@ export default function AgendaPage() {
         lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
         darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
       },
-      SLOT_INSERVICE: { // EM_ATENDIMENTO — âmbar
+      SLOT_INSERVICE: { // EM_ATENDIMENTO — laranja
         colorName: 'ematendimento',
-        lightColors: { main: '#f59e0b', container: '#fef3c7', onContainer: '#78350f' },
-        darkColors:  { main: '#f59e0b', container: '#78350f', onContainer: '#fef3c7' },
+        lightColors: { main: '#f97316', container: '#ffedd5', onContainer: '#7c2d12' },
+        darkColors:  { main: '#fb923c', container: '#7c2d12', onContainer: '#ffedd5' },
       },
       SLOT_DONE: { // CONCLUIDO — verde escuro
         colorName: 'concluido',
@@ -1055,11 +1054,6 @@ export default function AgendaPage() {
       },
       SLOT_CANCELLED: { // CANCELADO (desmarcou) — amarelo
         colorName: 'cancelado',
-        lightColors: { main: '#eab308', container: '#fef9c3', onContainer: '#713f12' },
-        darkColors:  { main: '#facc15', container: '#713f12', onContainer: '#fef9c3' },
-      },
-      SLOT_DEFERRED: { // ADIADO — amarelo
-        colorName: 'adiado',
         lightColors: { main: '#eab308', container: '#fef9c3', onContainer: '#713f12' },
         darkColors:  { main: '#facc15', container: '#713f12', onContainer: '#fef9c3' },
       },
@@ -1296,7 +1290,7 @@ export default function AgendaPage() {
           // Ícone de status na frente do título — operador identifica
           // imediatamente se o paciente confirmou, está atrasado, etc.
           // Convenção: ✅ confirmou | ⏰ aguardando confirmação | 🩺 compareceu
-          //            🚫 não compareceu | ⏸️ adiado | ✖️ cancelado
+          //            🚫 não compareceu | ✖️ desmarcou
           let statusIcon = '';
           switch (e.status) {
             case 'CONFIRMADO':  statusIcon = '✅ '; break;
@@ -1304,7 +1298,6 @@ export default function AgendaPage() {
             case 'COMPARECEU':  statusIcon = '🚶 '; break; // paciente chegou
             case 'EM_ATENDIMENTO': statusIcon = '🦷 '; break;
             case 'NO_SHOW':     statusIcon = '🚫 '; break;
-            case 'ADIADO':      statusIcon = '⏸️ '; break;
             case 'CANCELADO':   statusIcon = '✖️ '; break;
             default:            statusIcon = ''; break;
           }
@@ -2060,8 +2053,8 @@ export default function AgendaPage() {
                         {d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                       </span>
                     </div>
-                    <p className={`text-xs font-semibold truncate ${ev.status === 'ADIADO' ? 'text-amber-400/70 line-through' : 'text-foreground'}`}>
-                      {ev.status === 'ADIADO' ? '⏸️ ' : ''}{ev.title}
+                    <p className="text-xs font-semibold truncate text-foreground">
+                      {ev.title}
                     </p>
                     {ev.lead && (
                       <p className="text-[10px] text-muted-foreground truncate mt-0.5">👤 {ev.lead.name || ev.lead.phone}</p>
@@ -2651,7 +2644,7 @@ export default function AgendaPage() {
               {/* Status — substitui a Prioridade (removida do UI na Onda 17.61). Na edição
                   troca na hora (PATCH + lista de espera quando Desmarcou); na criação define
                   o status inicial do evento. Fluxo: Agendado → Confirmado → Paciente chegou →
-                  Em atendimento → Concluído (+ Desmarcou / Faltou / Adiado). */}
+                  Em atendimento → Concluído (+ Desmarcou / Faltou). */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Status</label>
                 <select

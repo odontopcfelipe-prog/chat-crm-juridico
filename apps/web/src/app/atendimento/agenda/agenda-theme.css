@@ -162,11 +162,10 @@
 .sx-react-calendar-wrapper .sx__event.ag-status-agendado       { background-color: color-mix(in srgb, #E91E63 18%, transparent) !important; border-left: 4px solid #E91E63 !important; }
 .sx-react-calendar-wrapper .sx__event.ag-status-confirmado     { background-color: color-mix(in srgb, #22c55e 24%, transparent) !important; border-left: 4px solid #22c55e !important; }
 .sx-react-calendar-wrapper .sx__event.ag-status-compareceu     { background-color: color-mix(in srgb, #0ea5e9 24%, transparent) !important; border-left: 4px solid #0ea5e9 !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f59e0b 26%, transparent) !important; border-left: 4px solid #f59e0b !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f97316 24%, transparent) !important; border-left: 4px solid #f97316 !important; }
 .sx-react-calendar-wrapper .sx__event.ag-status-concluido      { background-color: color-mix(in srgb, #15803d 20%, transparent) !important; border-left: 4px solid #15803d !important; }
 .sx-react-calendar-wrapper .sx__event.ag-status-cancelado      { background-color: color-mix(in srgb, #eab308 26%, transparent) !important; border-left: 4px solid #eab308 !important; }
 .sx-react-calendar-wrapper .sx__event.ag-status-no_show        { background-color: color-mix(in srgb, #991b1b 22%, transparent) !important; border-left: 4px solid #991b1b !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-adiado         { background-color: color-mix(in srgb, #eab308 26%, transparent) !important; border-left: 4px solid #eab308 !important; }
 
 /**
  * SEPARACAO VISUAL ENTRE EVENTOS CONSECUTIVOS

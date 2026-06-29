@@ -20,8 +20,9 @@
  * Cores semanticas por status (estilo Dental Office):
  *   - rosa            AGENDADO
  *   - verde           CONFIRMADO
+ *   - laranja         EM_ATENDIMENTO
  *   - verde escuro    CONCLUIDO
- *   - amarelo         ADIADO / CANCELADO (desmarcou)
+ *   - amarelo         CANCELADO (desmarcou)
  *   - vermelho escuro NO_SHOW (faltou)
  */
 
@@ -55,12 +56,12 @@ interface Props {
 }
 
 const STATUS_COLORS: Record<string, { back: string; border: string; text: string }> = {
-  AGENDADO:    { back: '#FCE4EC', border: '#E91E63', text: '#5C0011' }, // rosa
-  CONFIRMADO:  { back: '#D4EDDA', border: '#28A745', text: '#0F4416' }, // verde
-  CONCLUIDO:   { back: '#DCFCE7', border: '#15803d', text: '#14532d' }, // verde escuro
-  ADIADO:      { back: '#FFF3CD', border: '#FFC107', text: '#664D03' }, // amarelo
-  CANCELADO:   { back: '#FEF9C3', border: '#eab308', text: '#713f12' }, // amarelo (desmarcou)
-  NO_SHOW:     { back: '#FEE2E2', border: '#991b1b', text: '#7f1d1d' }, // vermelho escuro (faltou)
+  AGENDADO:       { back: '#FCE4EC', border: '#E91E63', text: '#5C0011' }, // rosa
+  CONFIRMADO:     { back: '#D4EDDA', border: '#28A745', text: '#0F4416' }, // verde
+  EM_ATENDIMENTO: { back: '#FFEDD5', border: '#f97316', text: '#7c2d12' }, // laranja
+  CONCLUIDO:      { back: '#DCFCE7', border: '#15803d', text: '#14532d' }, // verde escuro
+  CANCELADO:      { back: '#FEF9C3', border: '#eab308', text: '#713f12' }, // amarelo (desmarcou)
+  NO_SHOW:        { back: '#FEE2E2', border: '#991b1b', text: '#7f1d1d' }, // vermelho escuro (faltou)
 };
 
 function statusOf(ev: ResourceEvent) {
@@ -170,9 +171,10 @@ export function AgendaResourceView({
         {Object.entries({
           AGENDADO: 'Agendado',
           CONFIRMADO: 'Confirmado',
+          EM_ATENDIMENTO: 'Em atendimento',
           CONCLUIDO: 'Concluido',
-          ADIADO: 'Adiado',
-          CANCELADO: 'Cancelado',
+          CANCELADO: 'Desmarcou',
+          NO_SHOW: 'Faltou',
         }).map(([k, label]) => {
           const c = STATUS_COLORS[k];
           return (
