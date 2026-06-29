@@ -97,6 +97,8 @@ interface QuoteListItem {
   // Onda 7.2 — contadores de aprovacao parcial (vem do backend)
   approved_count?: number;
   pending_count?: number;
+  // Arquivado: sai da Avaliação (fica só na lista de arquivados).
+  archived_at?: string | null;
 }
 
 const CLOSING_CATEGORY_LABEL: Record<ClosingCategory, string> = {
@@ -535,8 +537,9 @@ export default function OdontogramaTab({ patientId, patientName, onOpenQuoteDeta
                 reverse aqui pra exibir asc. Numero (#N) eh a posicao no
                 array reverso (1-based). */}
             {/* Onda 17.75 — orçamento APROVADO (ACCEPTED) some da Avaliação: já subiu
-                pro Financeiro/Tratamento. SENT/DRAFT continuam (em aberto). */}
-            {[...quotesList].filter((q) => q.status !== 'ACCEPTED').reverse().map((q, idx) => (
+                pro Financeiro/Tratamento. SENT/DRAFT continuam (em aberto).
+                Arquivado também some (fica só na lista de arquivados). */}
+            {[...quotesList].filter((q) => q.status !== 'ACCEPTED' && !q.archived_at).reverse().map((q, idx) => (
               <QuoteCard
                 key={q.id}
                 quote={q}

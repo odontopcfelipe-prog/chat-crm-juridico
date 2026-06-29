@@ -100,6 +100,8 @@ interface QuoteListItem {
   // Onda 7.7 — contadores de aprovacao parcial (vem do backend)
   approved_count?: number;
   pending_count?: number;
+  // Arquivado: sai da lista de orçamentos em aberto (fica só nos arquivados).
+  archived_at?: string | null;
 }
 
 interface QuoteDetail extends QuoteListItem {
@@ -249,7 +251,7 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
   // mas o "Aprovar inteiro" (accept) não marca approved_at por item → pending_count
   // ficava > 0 e o aprovado continuava aparecendo. Sem aprovação parcial, é simples:
   // ACCEPTED = aprovado = sai.)
-  const visibleList = list.filter((q) => q.status !== 'ACCEPTED');
+  const visibleList = list.filter((q) => q.status !== 'ACCEPTED' && !q.archived_at);
 
   return (
     <div>
