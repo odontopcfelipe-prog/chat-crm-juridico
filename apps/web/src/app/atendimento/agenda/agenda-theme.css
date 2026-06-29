@@ -120,19 +120,6 @@
 }
 
 /**
- * BORDA ESQUERDA POR DENTISTA (8 cores predefinidas)
- *
- * Aplicada via `additionalClasses: ['dentist-color-N']` no event mapping
- * (page.tsx). Cada dentista (UUID) é hasheado pra um índice de 1-8 e ganha
- * uma cor consistente. Não substitui a cor de fundo (que indica STATUS) —
- * só adiciona a borda esquerda como "dono" do evento.
- *
- * Útil quando há múltiplos dentistas atendendo no mesmo dia: operador
- * identifica visualmente "esse é da Dra. Suellen" sem ler nome.
- *
- * Eventos sem dentista atribuído ficam sem borda extra (.dentist-color-none).
- */
-/**
  * FIX: horário cortado em eventos curtos (1h ou menos)
  *
  * O schedule-x renderiza title→tempo numa coluna com `overflow:hidden` no
@@ -163,30 +150,23 @@
   margin-top: 2px;
 }
 
-.sx-react-calendar-wrapper .sx__event.dentist-color-1 { border-left: 4px solid #ef4444 !important; } /* vermelho */
-.sx-react-calendar-wrapper .sx__event.dentist-color-2 { border-left: 4px solid #f97316 !important; } /* laranja */
-.sx-react-calendar-wrapper .sx__event.dentist-color-3 { border-left: 4px solid #eab308 !important; } /* amarelo */
-.sx-react-calendar-wrapper .sx__event.dentist-color-4 { border-left: 4px solid #22c55e !important; } /* verde */
-.sx-react-calendar-wrapper .sx__event.dentist-color-5 { border-left: 4px solid #06b6d4 !important; } /* ciano */
-.sx-react-calendar-wrapper .sx__event.dentist-color-6 { border-left: 4px solid #3b82f6 !important; } /* azul */
-.sx-react-calendar-wrapper .sx__event.dentist-color-7 { border-left: 4px solid #a855f7 !important; } /* roxo */
-.sx-react-calendar-wrapper .sx__event.dentist-color-8 { border-left: 4px solid #ec4899 !important; } /* rosa */
-
 /**
- * Onda 17.61 — FUNDO DO CARD PELA COR DO STATUS (atendimentos clínicos).
- * Tinta translúcida (color-mix com transparent) → funciona em light e dark e o
- * texto continua legível. Aplicado via classe ag-status-* no evento (page.tsx),
- * com !important pra vencer as cores do schedule-x — mesma técnica da borda do
- * dentista. As cores são as mesmas do dropdown de Status (EVENT_STATUSES).
+ * COR DO CARD PELO STATUS (estilo Dental Office) — fundo + borda esquerda.
+ * Todo paciente agendado fica IGUAL, independente do dentista; só muda ao trocar
+ * o status. Tinta translúcida (color-mix com transparent) no fundo → funciona em
+ * light e dark e o texto continua legível; a borda esquerda usa a cor sólida do
+ * status. Aplicado via classe ag-status-* no evento (page.tsx), com !important
+ * pra vencer as cores do schedule-x. Cores iguais às do dropdown de Status
+ * (EVENT_STATUSES). Agendado = rosa (não confirmado), convenção Dental Office.
  */
-.sx-react-calendar-wrapper .sx__event.ag-status-agendado       { background-color: color-mix(in srgb, #3b82f6 20%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-confirmado     { background-color: color-mix(in srgb, #22c55e 24%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-compareceu     { background-color: color-mix(in srgb, #0ea5e9 24%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f59e0b 26%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-concluido      { background-color: color-mix(in srgb, #6b7280 22%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-cancelado      { background-color: color-mix(in srgb, #ef4444 20%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-no_show        { background-color: color-mix(in srgb, #1f2937 26%, transparent) !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-adiado         { background-color: color-mix(in srgb, #eab308 26%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-agendado       { background-color: color-mix(in srgb, #E91E63 18%, transparent) !important; border-left: 4px solid #E91E63 !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-confirmado     { background-color: color-mix(in srgb, #22c55e 24%, transparent) !important; border-left: 4px solid #22c55e !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-compareceu     { background-color: color-mix(in srgb, #0ea5e9 24%, transparent) !important; border-left: 4px solid #0ea5e9 !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f59e0b 26%, transparent) !important; border-left: 4px solid #f59e0b !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-concluido      { background-color: color-mix(in srgb, #6b7280 22%, transparent) !important; border-left: 4px solid #6b7280 !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-cancelado      { background-color: color-mix(in srgb, #ef4444 20%, transparent) !important; border-left: 4px solid #ef4444 !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-no_show        { background-color: color-mix(in srgb, #1f2937 26%, transparent) !important; border-left: 4px solid #1f2937 !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-adiado         { background-color: color-mix(in srgb, #eab308 26%, transparent) !important; border-left: 4px solid #eab308 !important; }
 
 /**
  * SEPARACAO VISUAL ENTRE EVENTOS CONSECUTIVOS
@@ -202,7 +182,7 @@
  * reforça aparencia de "card flutuante".
  *
  * Border-radius arredonda os cantos pra dar acabamento. A border-left
- * colorida do dentista (regra acima) ainda funciona — segue o radius.
+ * colorida do status (regra acima) ainda funciona — segue o radius.
  */
 .sx-react-calendar-wrapper .sx__time-grid-event {
   outline: 2px solid var(--bg-primary, #ffffff) !important;

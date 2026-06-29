@@ -127,20 +127,23 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
   return perHour * visibleHours;
 }
 
-// Onda 17.61 — Prioridade saiu do UI da agenda (substituída pelo Status). A borda
-// lateral do evento, que antes usava a prioridade, agora reflete o DENTISTA responsável
-// (mesmos hex das classes .dentist-color-N de agenda-theme.css). hashStringToInt é
-// declaração de função (hoisted) — ok referenciar aqui mesmo definida mais abaixo.
-const DENTIST_COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#06b6d4', '#3b82f6', '#a855f7', '#ec4899'];
-function eventBorderColor(ev: { assigned_user_id?: string | null }): string {
-  if (!ev.assigned_user_id) return '#6b7280'; // sem dentista → neutro
-  return DENTIST_COLORS[hashStringToInt(ev.assigned_user_id) % DENTIST_COLORS.length];
+// Estilo Dental Office — a cor do card/borda é SEMPRE pelo STATUS: todo paciente
+// agendado fica IGUAL, independente do dentista. Só muda ao trocar o status
+// (Agendado → Confirmado → Em atendimento → Concluído, etc), ficando mais fácil
+// de ler a agenda de relance. Tipos que NÃO são paciente (Bloqueio/Tarefa/Outro)
+// mantêm a cor própria do tipo.
+const PATIENT_APPT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'];
+function eventAccentColor(ev: { type: string; status: string }): string {
+  if (PATIENT_APPT_TYPES.includes(ev.type)) {
+    return EVENT_STATUSES.find(s => s.id === ev.status)?.color || '#E91E63';
+  }
+  return getEventColor(ev.type);
 }
 
 // Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Paciente chegou → Em
 // atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) / Adiado como saídas.
 const EVENT_STATUSES = [
-  { id: 'AGENDADO', label: 'Agendado', color: '#3b82f6' },
+  { id: 'AGENDADO', label: 'Agendado', color: '#E91E63' }, // rosa Dental Office — agendado/não confirmado
   { id: 'CONFIRMADO', label: 'Confirmado', color: '#22c55e' },
   { id: 'COMPARECEU', label: 'Paciente chegou', color: '#0ea5e9' },
   { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f59e0b' },
@@ -216,24 +219,6 @@ function getSemanticCalendarId(ev: { type: string; status: string }): string {
     case 'EM_ATENDIMENTO': return 'SLOT_INSERVICE'; // em atendimento — âmbar (Onda 17.61)
     default:          return 'SLOT_BOOKED'; // AGENDADO / outros
   }
-}
-
-/**
- * Hash determinístico de string pra int não-negativo.
- * Usado pra mapear assigned_user_id (UUID) → índice de cor (0-7) na borda
- * lateral do evento. Cada dentista sempre fica com a mesma cor (mesmo após
- * reload), mas dentistas diferentes ficam com cores distintas.
- *
- * Algoritmo: djb2 hash simplificado. Não precisa ser criptograficamente
- * seguro — só consistente.
- */
-function hashStringToInt(str: string): number {
-  let hash = 5381;
-  for (let i = 0; i < str.length; i++) {
-    hash = ((hash << 5) + hash) + str.charCodeAt(i);
-    hash = hash & hash; // Convert to 32-bit int
-  }
-  return Math.abs(hash);
 }
 
 function toLocalDateTime(isoStr: string): string {
@@ -1042,10 +1027,10 @@ export default function AgendaPage() {
       // CONSULTA: mapeada por status via getSemanticCalendarId
       // Onda 17.61 — cores ALINHADAS ao dropdown de Status (EVENT_STATUSES): mudar o
       // status recolora o card. main = a mesma cor da opção no dropdown.
-      SLOT_BOOKED: { // AGENDADO — azul
+      SLOT_BOOKED: { // AGENDADO — rosa (Dental Office: agendado/não confirmado)
         colorName: 'agendado',
-        lightColors: { main: '#3b82f6', container: '#dbeafe', onContainer: '#1e3a8a' },
-        darkColors:  { main: '#3b82f6', container: '#1e3a8a', onContainer: '#dbeafe' },
+        lightColors: { main: '#E91E63', container: '#fce7f3', onContainer: '#831843' },
+        darkColors:  { main: '#f472b6', container: '#831843', onContainer: '#fce7f3' },
       },
       SLOT_CONFIRMED: { // CONFIRMADO — verde
         colorName: 'confirmado',
@@ -1325,19 +1310,13 @@ export default function AgendaPage() {
           // Sufixos secundários (recorrência, comentários) ficam no fim
           const recurringTag = (e as any).recurrence_rule || (e as any).parent_event_id ? ' 🔁' : '';
           const commentsTag  = e._count?.comments ? ` 💬${e._count.comments}` : '';
-          // Borda esquerda colorida pelo DENTISTA atribuído (1 de 8 cores via
-          // hash do assigned_user_id). Quando há múltiplos dentistas atendendo
-          // no mesmo dia, operador identifica de relance "esse é o paciente
-          // da Dra. Suellen, esse é do Dr. André" sem ler o título.
-          // Cores aplicadas via classes .dentist-color-N em agenda-theme.css.
-          const dentistClass = e.assigned_user_id
-            ? `dentist-color-${(hashStringToInt(e.assigned_user_id) % 8) + 1}`
-            : 'dentist-color-none';
-          // Onda 17.61 — fundo do card pela cor do STATUS (atendimentos clínicos), via
-          // classe CSS ag-status-* (tinta translúcida em agenda-theme.css). É mais
-          // confiável que as cores do `calendars` do schedule-x — que só são lidas na
-          // CRIAÇÃO do calendário (HMR não recolore). Igual à técnica da borda do dentista.
-          const statusClass = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(e.type)
+          // Estilo Dental Office — cor do card (fundo + borda esquerda) SEMPRE pelo
+          // STATUS, via classe CSS ag-status-* (tinta translúcida + borda em
+          // agenda-theme.css). Todo paciente agendado fica igual, INDEPENDENTE do
+          // dentista; só muda ao trocar o status. É mais confiável que as cores do
+          // `calendars` do schedule-x — que só são lidas na CRIAÇÃO do calendário
+          // (HMR não recolore).
+          const statusClass = PATIENT_APPT_TYPES.includes(e.type)
             ? `ag-status-${(e.status || 'AGENDADO').toLowerCase()}`
             : '';
 
@@ -1351,7 +1330,7 @@ export default function AgendaPage() {
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
             calendarId: getSemanticCalendarId(e),
             _customContent: {},
-            _options: { additionalClasses: [dentistClass, statusClass].filter(Boolean) },
+            _options: { additionalClasses: [statusClass].filter(Boolean) },
           };
         });
 
@@ -2058,7 +2037,7 @@ export default function AgendaPage() {
               {upcomingEvents.map(ev => {
                 const d = new Date(ev.start_at);
                 const typeColor = getEventColor(ev.type);
-                const borderColor = eventBorderColor(ev); // borda por dentista (Onda 17.61)
+                const borderColor = eventAccentColor(ev); // borda pelo STATUS (Dental Office)
                 const isOverdue = new Date(ev.start_at) < new Date() && ev.status === 'AGENDADO';
                 return (
                   <button
@@ -2240,7 +2219,7 @@ export default function AgendaPage() {
                     {/* Cards */}
                     <div className="flex flex-col gap-2 flex-1 overflow-y-auto custom-scrollbar pb-4">
                       {colEvents.map(ev => {
-                        const borderColor = eventBorderColor(ev); // borda por dentista (Onda 17.61)
+                        const borderColor = eventAccentColor(ev); // borda pelo STATUS (Dental Office)
                         const isOverdue = new Date(ev.start_at) < new Date() && col.id !== 'CONCLUIDO';
                         const daysOverdue = isOverdue
                           ? Math.max(0, Math.floor((Date.now() - new Date(ev.start_at).getTime()) / 86400000))
