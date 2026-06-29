@@ -685,6 +685,22 @@ function getVariantConfig(variant: CardVariant): VariantConfig {
   return variant === 'LIVRE' ? LIVRE_CONFIG : PRIORITY_CONFIG[variant];
 }
 
+/**
+ * Selo da marca Asaas — exibido onde a cobrança é GERADA pelo Asaas (PIX QR Code,
+ * boleto). Wordmark em CSS na cor da marca (sem depender de imagem externa).
+ */
+function AsaasBadge({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-extrabold leading-none tracking-[0.12em] text-white ${className}`}
+      style={{ background: '#1A2BF0' }}
+      title="Cobrança gerada via Asaas"
+    >
+      ASAAS
+    </span>
+  );
+}
+
 export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -5993,10 +6009,10 @@ function PixCobrancaUnificadaModal({
                 {/* 3 botoes: PIX / Especie / Misto */}
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {([
-                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code · Banco Asaas' },
-                    { key: 'PIX_POS' as const, label: 'PIX maquineta', emoji: '💳', desc: 'Na maquininha · sem QR' },
-                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR' },
-                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie' },
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code · Banco Asaas', asaas: true },
+                    { key: 'PIX_POS' as const, label: 'PIX maquineta', emoji: '💳', desc: 'Na maquininha · sem QR', asaas: false },
+                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false },
+                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true },
                   ]).map((m) => {
                     const isActive = mode === m.key;
                     return (
@@ -6015,6 +6031,7 @@ function PixCobrancaUnificadaModal({
                           {m.label}
                         </span>
                         <span className="text-[10px] text-muted-foreground">{m.desc}</span>
+                        {m.asaas && <AsaasBadge className="mt-1" />}
                       </button>
                     );
                   })}
