@@ -1678,9 +1678,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
                 <div className="w-12 h-12 rounded-full border-2 border-current flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                   <Plus size={20} strokeWidth={2.5} />
                 </div>
-                <p className="text-sm font-bold mb-1">Criar nova versão</p>
+                <p className="text-sm font-bold mb-1">Adicionar orçamento</p>
                 <p className="text-[11px] text-muted-foreground">
-                  a partir de um orçamento
+                  às propostas
                 </p>
               </button>
             </div>
