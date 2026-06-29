@@ -385,10 +385,18 @@ export class QuotesService {
     // se parcelados desta venda exigem credit-check (toggle no painel).
     // Demais campos continuam bloqueados apos envio.
     const META_FIELDS = new Set(['priority', 'visible_in_proposals', 'requires_credit_check']);
-    const onlyMetaChange =
-      Object.keys(data).length > 0 &&
-      Object.keys(data).every((k) => META_FIELDS.has(k));
-    if (!onlyMetaChange && quote.status !== 'DRAFT') {
+    // Onda 17.71 — BUG FIX: o ValidationPipe (class-transformer, exposeUnsetFields
+    // default = true) transforma o body num UpdateQuoteDto com TODOS os campos
+    // declarados — os NÃO enviados ficam `undefined` mas AINDA aparecem em
+    // Object.keys. O antigo `every(k => META_FIELDS.has(k))` via os campos não-meta
+    // (valid_until, discount_percent, title...) mesmo mandando só `visible_in_proposals`,
+    // e barrava a remoção da aba Propostas em quotes SENT/ACCEPTED ("não pode ser
+    // editado após envio"). Correção: só bloqueia se há mudança REAL (valor definido)
+    // num campo NÃO-meta. Prisma ignora os `undefined` no update, então é seguro.
+    const realNonMetaChange = Object.keys(data).some(
+      (k) => (data as any)[k] !== undefined && !META_FIELDS.has(k),
+    );
+    if (realNonMetaChange && quote.status !== 'DRAFT') {
       throw new BadRequestException('Orcamento nao pode ser editado apos envio');
     }
 
