@@ -892,10 +892,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // nas abas Avaliacao, Orcamentos e Financeiro. Optimistic update pra resposta
   // imediata. Confirm avisa o operador que e so esta aba.
   const hideFromProposals = useCallback(async (quoteId: string) => {
-    const ok = window.confirm(
-      'Remover este card da aba Propostas?\n\nO orçamento NÃO será excluído — continua disponível nas abas Avaliação e Orçamentos. Pra trazer de volta, recrie a partir de lá.',
-    );
-    if (!ok) return;
+    // Onda 17.70 — sem window.confirm (o dono pediu): a remoção é NÃO-destrutiva
+    // (o orçamento continua em Avaliação/Orçamentos e volta pelo card "Adicionar
+    // orçamento"), então remove direto, sem popup.
     // Optimistic — esconde imediatamente
     setQuotes((prev) => prev.map((q) =>
       q.id === quoteId ? { ...q, visible_in_proposals: false } : q,
