@@ -1459,7 +1459,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     //   atribuir priority via dialog "+ Nova proposta"
     // - Se nao ha orcamento nenhum, oferece criar direto OU ir pra Avaliacao
     const hasAnyQuotes = quotes.some(
-      (q) => q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED',
+      // Onda 17.69 — só conta orçamentos EM ABERTO (DRAFT/SENT). Aprovados (ACCEPTED)
+      // já subiram pro Financeiro/Tratamento e saem das Propostas.
+      (q) => q.status === 'DRAFT' || q.status === 'SENT',
     );
     return (
       // Onda 17.32.65 — BUG FIX: envolve em fragment pra renderizar o
@@ -1520,7 +1522,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
               )
             }
             availableQuotes={quotes.filter((q) =>
-              q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED'
+              q.status === 'DRAFT' || q.status === 'SENT'
             )}
             loading={creatingVersion}
             onCancel={() => setNewVersionOpen(false)}
@@ -1761,12 +1763,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
               Array.from(grouped.keys()).filter((k): k is Priority => k !== 'NONE'),
             )
           }
-          // Onda 14.23 — lista de orcamentos elegiveis (DRAFT/SENT/ACCEPTED).
+          // Onda 14.23 / 17.69 — lista de orcamentos elegiveis: só DRAFT/SENT.
           // Inclui ocultos (visible_in_proposals=false) pra operador conseguir
           // "trazer de volta" um orcamento que ele removeu antes. PATCH ja
-          // re-seta visible=true.
+          // re-seta visible=true. ACCEPTED (aprovado+lancado) NAO entra: ja subiu
+          // pro Financeiro/Tratamento e some das Propostas.
           availableQuotes={quotes.filter((q) =>
-            q.status === 'DRAFT' || q.status === 'SENT' || q.status === 'ACCEPTED'
+            q.status === 'DRAFT' || q.status === 'SENT'
           )}
           loading={creatingVersion}
           onCancel={() => setNewVersionOpen(false)}
