@@ -244,12 +244,12 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
     );
   }
 
-  // Onda 17.71 — orçamento TOTALMENTE aprovado some da Avaliação (já subiu pro
-  // Financeiro + Tratamento). Parcial (ainda tem item pendente de aprovação)
-  // permanece, pra você fechar o que falta antes de ele "subir".
-  const visibleList = list.filter(
-    (q) => !(q.status === 'ACCEPTED' && (q.pending_count ?? 0) === 0),
-  );
+  // Onda 17.73 — esconde TODO orçamento APROVADO (ACCEPTED) da Avaliação: ele já
+  // subiu pro Financeiro + Tratamento. (Bug anterior: filtrava só pending_count===0,
+  // mas o "Aprovar inteiro" (accept) não marca approved_at por item → pending_count
+  // ficava > 0 e o aprovado continuava aparecendo. Sem aprovação parcial, é simples:
+  // ACCEPTED = aprovado = sai.)
+  const visibleList = list.filter((q) => q.status !== 'ACCEPTED');
 
   return (
     <div>
