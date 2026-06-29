@@ -5993,7 +5993,7 @@ function PixCobrancaUnificadaModal({
                 {/* 3 botoes: PIX / Especie / Misto */}
                 <div className="grid grid-cols-2 gap-2 mb-3">
                   {([
-                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code Asaas' },
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code · Banco Asaas' },
                     { key: 'PIX_POS' as const, label: 'PIX maquineta', emoji: '💳', desc: 'Na maquininha · sem QR' },
                     { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR' },
                     { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie' },
