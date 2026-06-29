@@ -25,7 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   CheckCircle2, FileText, Stethoscope, Loader2,
-  RefreshCw, Calendar, AlertCircle, Activity,
+  RefreshCw, Calendar, AlertCircle, Activity, Lock,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -35,6 +35,9 @@ interface ItemRow {
   plan_id: string;
   plan_status: string;
   plan_total: number;
+  // Onda 17.72 — gate Financeiro→Tratamento: null = aguardando validação
+  // do Financeiro. Enquanto null, o dentista não confirma os procedimentos.
+  plan_validated_by_financial_at: string | null;
   quote_id: string | null;
   quote_title: string | null;
   quote_accepted_at: string | null;
@@ -109,6 +112,11 @@ export default function TratamentoTab({ patientId }: Props) {
   }, [fetchData]);
 
   const validateItem = async (row: ItemRow) => {
+    // Onda 17.72 — gate: bloqueia confirmação enquanto o Financeiro não validar.
+    if (!row.plan_validated_by_financial_at) {
+      showError('Aguardando validação do Financeiro — o tratamento ainda não foi liberado.');
+      return;
+    }
     const procedureLabel = row.item.tooth_fdi
       ? `${row.item.procedure_name} (dente ${row.item.tooth_fdi})`
       : row.item.procedure_name;
@@ -131,7 +139,7 @@ export default function TratamentoTab({ patientId }: Props) {
   };
 
   const grouped = useMemo(() => {
-    if (!data) return [] as { plan_id: string; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; items: ItemRow[] }[];
+    if (!data) return [] as { plan_id: string; quote_title: string | null; quote_accepted_at: string | null; plan_status: string; plan_total: number; validated_by_financial_at: string | null; items: ItemRow[] }[];
     const map = new Map<string, ItemRow[]>();
     for (const row of data.items) {
       if (!map.has(row.plan_id)) map.set(row.plan_id, []);
@@ -143,6 +151,7 @@ export default function TratamentoTab({ patientId }: Props) {
       quote_accepted_at: items[0].quote_accepted_at,
       plan_status: items[0].plan_status,
       plan_total: items[0].plan_total,
+      validated_by_financial_at: items[0].plan_validated_by_financial_at,
       items: hideDone ? items.filter((i) => i.item.status !== 'DONE') : items,
     })).filter((g) => g.items.length > 0);
   }, [data, hideDone]);
@@ -235,7 +244,11 @@ export default function TratamentoTab({ patientId }: Props) {
           </p>
         </div>
       ) : (
-        grouped.map((plan) => (
+        grouped.map((plan) => {
+          // Onda 17.72 — gate Financeiro→Tratamento. Enquanto o Financeiro não
+          // valida a negociação, o dentista NÃO pode confirmar os procedimentos.
+          const locked = !plan.validated_by_financial_at;
+          return (
           <section key={plan.plan_id} className="rounded-xl border border-border bg-card overflow-hidden">
             <header className="flex items-center justify-between gap-3 px-4 py-3 bg-muted/30 border-b border-border">
               <div className="min-w-0 flex-1">
@@ -253,6 +266,18 @@ export default function TratamentoTab({ patientId }: Props) {
                 )}
               </div>
             </header>
+
+            {/* Onda 17.72 — banner âmbar quando aguardando validação do Financeiro */}
+            {locked && (
+              <div className="flex items-start gap-2 px-4 py-2.5 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-900 text-xs text-amber-800 dark:text-amber-300">
+                <Lock size={14} className="shrink-0 mt-0.5" />
+                <div>
+                  <strong className="font-bold">🔒 Aguardando validação do Financeiro.</strong>{' '}
+                  O Financeiro precisa conferir e liberar este tratamento antes que os
+                  procedimentos possam ser confirmados como feitos.
+                </div>
+              </div>
+            )}
 
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -322,16 +347,20 @@ export default function TratamentoTab({ patientId }: Props) {
                           {!done && !cancelled && (
                             <button
                               onClick={() => validateItem(row)}
-                              disabled={validatingId === it.id || !canValidate}
+                              disabled={validatingId === it.id || !canValidate || locked}
                               className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold disabled:opacity-40 disabled:cursor-not-allowed"
                               title={
-                                canValidate
+                                locked
+                                  ? '🔒 Aguardando validação do Financeiro — o tratamento precisa ser liberado antes de confirmar os procedimentos'
+                                  : canValidate
                                   ? 'Validar — marca este procedimento como feito'
                                   : 'Apenas dentistas/admin podem validar'
                               }
                             >
                               {validatingId === it.id ? (
                                 <Loader2 size={11} className="animate-spin" />
+                              ) : locked ? (
+                                <Lock size={11} />
                               ) : (
                                 <CheckCircle2 size={11} />
                               )}
@@ -351,7 +380,8 @@ export default function TratamentoTab({ patientId }: Props) {
               </table>
             </div>
           </section>
-        ))
+          );
+        })
       )}
 
       {/* Aviso permissao */}

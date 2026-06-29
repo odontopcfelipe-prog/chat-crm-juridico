@@ -16,11 +16,12 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList, Shield,
+  ClipboardList, CheckCircle2,
 } from 'lucide-react';
-import Link from 'next/link';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+// Onda 17.72 — gate Financeiro→Tratamento: botão "Validar" só pra quem tem manage_financial
+import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
@@ -613,7 +614,12 @@ interface QuoteFullDetail {
   chosen_payment_key?: string | null;
   chosen_down_payment?: string | number | null;
   is_chosen_proposal?: boolean;
-  treatment_plan?: { id: string; status: string } | null;
+  // Onda 17.72 — validated_by_financial_at: null = aguardando validação do Financeiro.
+  treatment_plan?: {
+    id: string;
+    status: string;
+    validated_by_financial_at?: string | null;
+  } | null;
   items: Array<{
     id: string;
     quantity: number;
@@ -656,6 +662,10 @@ function ProposalFinancialCard({
   onOpenDetail: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
+  // Onda 17.72 — gate Financeiro→Tratamento. So quem tem manage_financial vê
+  // o botão "Validar" que libera o tratamento pro dentista confirmar.
+  const { hasPermission } = useUserPermissions();
+  const [validatingPlanId, setValidatingPlanId] = useState<string | null>(null);
   // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
   // dentro do proprio sistema, sem precisar mandar pro paciente ver.
   const [viewerParcela, setViewerParcela] = useState<ParcelaItem | null>(null);
@@ -716,6 +726,30 @@ function ProposalFinancialCard({
         setLoadingContract(false);
       });
   }, [quoteDetail, quote.id]);
+
+  // Onda 17.72 — true enquanto o Financeiro não validou (libera o tratamento).
+  const isValidated = !!quoteDetail?.treatment_plan?.validated_by_financial_at;
+
+  // Onda 17.72 — Financeiro valida → libera o dentista a confirmar atendimento.
+  const handleValidate = async () => {
+    if (!planId) {
+      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      return;
+    }
+    setValidatingPlanId(planId);
+    try {
+      await api.post(`/treatment-plans/${planId}/validate`);
+      showSuccess('Tratamento liberado — o dentista já pode confirmar os procedimentos.');
+      // Recarrega o quote detail pra refletir validated_by_financial_at.
+      const { data } = await api.get<QuoteFullDetail>(`/quotes/${quote.id}`);
+      setQuoteDetail(data);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao validar tratamento');
+    } finally {
+      setValidatingPlanId(null);
+    }
+  };
 
   // Charges filtradas pelo planId real (depois de carregado)
   const relatedChargesRaw = useMemo(() => {
@@ -1086,19 +1120,40 @@ function ProposalFinancialCard({
           >
             <ClipboardList size={14} />
           </button>
-          {/* Onda 17.32.54 — Validar tratamento: navega pra dashboard de
-              validacoes onde o dentista atesta os procedimentos como
-              clinicamente executados. Estilo destacado (verde-azulado)
-              pra ser obvio que existe. */}
-          <Link
-            href="/atendimento/validacoes"
-            onClick={(e) => e.stopPropagation()}
-            className="px-2.5 py-1.5 rounded-md border border-teal-500/40 bg-teal-500/10 hover:bg-teal-500/20 text-teal-700 dark:text-teal-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
-            title="Validar execucao clinica do tratamento"
-          >
-            <Shield size={12} />
-            Validar
-          </Link>
+          {/* Onda 17.72 — Gate Financeiro→Tratamento.
+              - Já validado: selo verde "✓ Liberado".
+              - Não validado + manage_financial: botão "Validar" (azul) que
+                libera o dentista a confirmar os procedimentos no Tratamento.
+              - Não validado sem permissão: nada (só o Financeiro libera). */}
+          {isValidated ? (
+            <span
+              className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 inline-flex items-center gap-1.5 text-xs font-bold"
+              title="Tratamento liberado pelo Financeiro — o dentista pode confirmar os procedimentos"
+            >
+              <CheckCircle2 size={12} />
+              Liberado
+            </span>
+          ) : hasPermission('manage_financial') ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleValidate(); }}
+              disabled={validatingPlanId === planId || loadingQuoteDetail || !planId}
+              className="px-2.5 py-1.5 rounded-md border border-blue-500/40 bg-blue-500/10 hover:bg-blue-500/20 text-blue-700 dark:text-blue-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+              title="Validar a negociação e liberar o tratamento pro dentista confirmar os procedimentos"
+            >
+              {validatingPlanId === planId ? (
+                <>
+                  <Loader2 size={12} className="animate-spin" />
+                  Validando...
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={12} />
+                  Validar
+                </>
+              )}
+            </button>
+          ) : null}
         </div>
       </div>
 

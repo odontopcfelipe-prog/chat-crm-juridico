@@ -3197,6 +3197,11 @@ model TreatmentPlan {
   /// entrada. Idempotente: se preenchido, trigger nao gera de novo.
   installments_generated_at DateTime?
 
+  /// Onda 17.72 — Gate financeiro: o dentista só confirma os procedimentos DEPOIS
+  /// que o Financeiro clicar "Validar" (libera o tratamento). null = aguardando validação.
+  validated_by_financial_at DateTime?
+  validated_by_financial_id String?
+
   start_date         DateTime?
   end_date           DateTime?
   estimated_sessions Int?

@@ -93,6 +93,9 @@ export class TreatmentPlansService {
       plan_id: string;
       plan_status: string;
       plan_total: number;
+      // Onda 17.72 — gate Financeiro→Tratamento: null = aguardando validação
+      // do Financeiro (dentista não pode confirmar atendimento ainda).
+      plan_validated_by_financial_at: string | null;
       quote_id: string | null;
       quote_title: string | null;
       quote_accepted_at: string | null;
@@ -122,6 +125,8 @@ export class TreatmentPlansService {
           plan_id: p.id,
           plan_status: p.status,
           plan_total: Number(p.total_value),
+          plan_validated_by_financial_at:
+            (p as any).validated_by_financial_at?.toISOString() ?? null,
           quote_id: p.quote?.id ?? null,
           quote_title: p.quote?.title ?? null,
           quote_accepted_at: p.quote?.accepted_at?.toISOString() ?? null,
@@ -232,6 +237,32 @@ export class TreatmentPlansService {
       }
     }
 
+    return updated;
+  }
+
+  /** Onda 17.72 — Validação financeira: o Financeiro confere a negociação e LIBERA o
+   *  tratamento. Seta validated_by_financial_at (gate pra o dentista confirmar os
+   *  procedimentos no Tratamento). Idempotente. */
+  async validate(id: string, tenantId: string, userId: string) {
+    const plan = await this.findOne(id, tenantId);
+    if (plan.status === 'CANCELLED') {
+      throw new BadRequestException('Plano cancelado — não pode ser validado');
+    }
+    if ((plan as any).validated_by_financial_at) {
+      return plan; // idempotente — já validado
+    }
+    const updated = await this.prisma.treatmentPlan.update({
+      where: { id },
+      data: {
+        validated_by_financial_at: new Date(),
+        validated_by_financial_id: userId,
+        // se ainda não estava ativo (ex: PENDING_SIGNATURE), ativa pra aparecer no Tratamento
+        ...(plan.status === 'PENDING_SIGNATURE'
+          ? { status: 'ACTIVE', start_date: plan.start_date || new Date() }
+          : {}),
+      } as any,
+    });
+    this.logger.log(`[PLAN-VALIDATE] Plano ${id} validado/liberado pelo Financeiro (user ${userId})`);
     return updated;
   }
 
