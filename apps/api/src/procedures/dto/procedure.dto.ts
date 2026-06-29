@@ -20,6 +20,7 @@ export class CreateProcedureDto {
   @IsOptional() @IsBoolean() requires_x_ray?: boolean;
   @IsOptional() @IsBoolean() requires_anesthesia?: boolean;
   @IsOptional() @IsBoolean() commissionable?: boolean;
+  @IsOptional() @IsBoolean() quick_sale?: boolean;
 
   // Fase 6 — Estetica facial / agendamento de revisita
   @IsOptional() @IsString() category?: string | null;
@@ -39,6 +40,7 @@ export class UpdateProcedureDto {
   @IsOptional() @IsBoolean() requires_x_ray?: boolean;
   @IsOptional() @IsBoolean() requires_anesthesia?: boolean;
   @IsOptional() @IsBoolean() commissionable?: boolean;
+  @IsOptional() @IsBoolean() quick_sale?: boolean;
   @IsOptional() @IsBoolean() active?: boolean;
 
   // Fase 6 — Estetica facial / agendamento de revisita

@@ -31,6 +31,7 @@ interface Procedure {
   duration_minutes: number;
   category: string | null;
   description: string | null;
+  quick_sale?: boolean;
 }
 
 interface PatientOption {
@@ -250,7 +251,9 @@ export default function VendaRapidaPage() {
 
   // Filtra procedimentos por tab + search
   const filteredProcedures = useMemo(() => {
-    let arr = procedures;
+    // Onda XX — a Venda Rápida só mostra os procedimentos AUTORIZADOS (marcados
+    // com o raio ⚡ na Tabela de Preços). Catálogo curado, não a lista inteira.
+    let arr = procedures.filter((p) => p.quick_sale);
     if (tab !== 'TODOS') {
       arr = arr.filter((p) => categoryToTab(p.category) === tab);
     }
@@ -518,8 +521,10 @@ export default function VendaRapidaPage() {
               Carregando procedimentos...
             </div>
           ) : filteredProcedures.length === 0 ? (
-            <div className="py-16 text-center text-sm text-muted-foreground bg-card border border-dashed border-border rounded-xl">
-              Nenhum procedimento encontrado nessa categoria.
+            <div className="py-16 text-center text-sm text-muted-foreground bg-card border border-dashed border-border rounded-xl px-6">
+              {search.trim() || tab !== 'TODOS'
+                ? 'Nenhum procedimento autorizado nessa busca/categoria.'
+                : 'Nenhum procedimento liberado pra Venda Rápida ainda. Vá em Configurações → Tabela de Preços e marque o ⚡ nos que devem aparecer aqui.'}
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">

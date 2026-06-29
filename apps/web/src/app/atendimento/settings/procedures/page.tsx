@@ -19,7 +19,7 @@
  */
 import { useEffect, useMemo, useState, FormEvent } from 'react';
 import {
-  DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search,
+  DollarSign, Loader2, Plus, Pencil, Trash2, X, Save, Search, Zap,
   ChevronDown, ChevronRight, TrendingUp, AlertCircle, Layers,
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -38,6 +38,7 @@ interface Procedure {
   specialty_id: string | null;
   specialty?: { id: string; name: string } | null;
   active: boolean;
+  quick_sale: boolean;
   requires_x_ray: boolean;
   requires_anesthesia: boolean;
   commissionable: boolean;
@@ -342,6 +343,24 @@ function ProcedureRow({
   const [editingPrice, setEditingPrice] = useState(false);
   const [priceDraft, setPriceDraft] = useState(String(p.base_price));
   const [saving, setSaving] = useState(false);
+  // Venda Rápida: marca/desmarca se o procedimento aparece no catálogo da Venda
+  // Rápida. Estado local otimista (sem recarregar a tabela toda a cada clique).
+  const [quickSale, setQuickSale] = useState(!!p.quick_sale);
+  const [togglingQuick, setTogglingQuick] = useState(false);
+
+  const toggleQuickSale = async () => {
+    const next = !quickSale;
+    setQuickSale(next);
+    setTogglingQuick(true);
+    try {
+      await api.patch(`/procedures/${p.id}`, { quick_sale: next });
+    } catch (err: any) {
+      setQuickSale(!next); // reverte se falhou
+      showError(err?.response?.data?.message || 'Erro ao atualizar Venda Rápida');
+    } finally {
+      setTogglingQuick(false);
+    }
+  };
 
   const savePrice = async () => {
     const newPrice = Number(priceDraft);
@@ -424,6 +443,19 @@ function ProcedureRow({
         )}
       </td>
       <td className="px-4 py-2 text-right">
+        {/* Seleção discreta pra Venda Rápida — só os marcados aparecem lá */}
+        <button
+          onClick={toggleQuickSale}
+          disabled={togglingQuick || !p.active}
+          className={`p-1 mr-1 rounded transition-colors disabled:opacity-40 ${
+            quickSale
+              ? 'text-amber-500 hover:text-amber-600'
+              : 'text-muted-foreground/40 hover:text-amber-500'
+          }`}
+          title={quickSale ? 'Na Venda Rápida — clique pra tirar' : 'Adicionar à Venda Rápida'}
+        >
+          <Zap size={14} className={quickSale ? 'fill-amber-500' : ''} />
+        </button>
         <button
           onClick={onEdit}
           className="text-muted-foreground hover:text-foreground p-1 mr-1"

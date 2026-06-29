@@ -2340,6 +2340,10 @@ model Procedure {
   /// Onda 17.67 — se false, este procedimento NAO gera comissao (nem venda, nem execucao). Default: comissiona.
   commissionable Boolean @default(true)
 
+  /// Se true, o procedimento aparece na VENDA RAPIDA (catalogo curado pelo admin
+  /// na Tabela de Precos). Default false: a Venda Rapida mostra SO os autorizados.
+  quick_sale Boolean @default(false)
+
   active     Boolean  @default(true)
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
