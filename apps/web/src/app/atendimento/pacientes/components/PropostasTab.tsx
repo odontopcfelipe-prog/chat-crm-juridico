@@ -3468,7 +3468,7 @@ function PropostaPainel({
   //    sem cobranca Asaas)
   //  - MIXED: divide entre PIX e Especie (gera 2 cobrancas: 1 PIX no Asaas
   //    + 1 CASH local com baixa imediata)
-  const [pixModalMode, setPixModalMode] = useState<'PIX' | 'CASH' | 'MIXED'>('PIX');
+  const [pixModalMode, setPixModalMode] = useState<'PIX' | 'CASH' | 'MIXED' | 'PIX_POS'>('PIX');
   // Valor em ESPECIE no modo MIXED. O valor PIX = pixCalc.finalValue - este.
   const [pixModalSplitCash, setPixModalSplitCash] = useState<number>(0);
   // Onda 17.32.9 — Data de vencimento do sinal de fechamento (editavel no
@@ -3817,6 +3817,51 @@ function PropostaPainel({
     } catch (err: unknown) {
       const e = err as { response?: { data?: { message?: string } }; message?: string };
       showError(e?.response?.data?.message || e?.message || 'Erro ao registrar espécie');
+    } finally {
+      setQuickActionLoading(null);
+    }
+  };
+
+  // PIX na maquineta: paciente paga PIX pela maquininha (presencial). Cria um
+  // registro manual (gateway CASH, SEM Asaas/QR) e lança no caixa como PIX maquininha
+  // (payment_method='PIX_MAQUININHA') — separável de Espécie e de PIX-QR no fechamento.
+  const handleEmitPixMaquineta = async (totalValue: number) => {
+    if (!detail || totalValue <= 0) return;
+    const ok = window.confirm(
+      `Registrar R$ ${fmtBRL(totalValue)} como PIX recebido na maquininha?\n\n` +
+      `Confirme que o paciente pagou via PIX pela maquininha. Entra no caixa como ` +
+      `PIX (maquininha), sem QR do Asaas, com baixa automática.`,
+    );
+    if (!ok) return;
+    setQuickActionLoading('pix');
+    try {
+      // 1) cria o registro manual (gateway CASH, sem Asaas)
+      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, {
+        signalValue: totalValue,
+        signalMethod: 'CASH',
+        restValue: 0,
+        parts: ['SIGNAL'],
+      });
+      const charge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
+        || (emitData?.charges ?? [])[0];
+      if (!charge?.id) {
+        showError('Falha ao criar o registro.');
+        return;
+      }
+      if (charge.gateway !== 'CASH') {
+        showError(`Já existe cobrança via ${charge.billing_type || charge.gateway}. Cancele antes de usar PIX maquininha.`);
+        return;
+      }
+      // 2) baixa + lança no caixa com método PIX maquininha (payment_method explícito)
+      await api.post(`/payment-gateway/charges/asaas/${charge.external_id}/receive-in-cash`, {
+        payment_method: 'PIX_MAQUININHA',
+      });
+      showSuccess(`R$ ${fmtBRL(totalValue)} registrado como PIX na maquininha.`);
+      onReload?.();
+      setPixModalOpen(false);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } }; message?: string };
+      showError(e?.response?.data?.message || e?.message || 'Erro ao registrar PIX maquininha');
     } finally {
       setQuickActionLoading(null);
     }
@@ -4350,6 +4395,7 @@ function PropostaPainel({
                 splitCash={pixModalSplitCash}
                 onChangeSplitCash={setPixModalSplitCash}
                 quickActionsLoading={quickActionLoading}
+                onEmitMaquineta={() => handleEmitPixMaquineta(pixCalc.finalValue)}
                 onEmitir={() => {
                   // Onda 17.32.66 — TODOS os modos agora passam pelo
                   // mesmo fluxo "Salvar proposta" (sem emitir cobranca
@@ -5795,6 +5841,7 @@ function PixCobrancaUnificadaModal({
   splitCash,
   onChangeSplitCash,
   quickActionsLoading,
+  onEmitMaquineta,
   onEmitir,
   onClose,
   onSend,
@@ -5805,11 +5852,12 @@ function PixCobrancaUnificadaModal({
   pixCalc: { finalValue: number; savedValue: number; extraInterest: number; downPaymentValue: number; installmentValue: number };
   customPixDueDate: string;
   onChangeCustomPixDueDate: (v: string) => void;
-  mode: 'PIX' | 'CASH' | 'MIXED';
-  onChangeMode: (v: 'PIX' | 'CASH' | 'MIXED') => void;
+  mode: 'PIX' | 'CASH' | 'MIXED' | 'PIX_POS';
+  onChangeMode: (v: 'PIX' | 'CASH' | 'MIXED' | 'PIX_POS') => void;
   splitCash: number;
   onChangeSplitCash: (v: number) => void;
   quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
+  onEmitMaquineta: () => void;
   onEmitir: () => void;
   onClose: () => void;
   onSend?: () => void;
@@ -5937,15 +5985,16 @@ function PixCobrancaUnificadaModal({
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Como o paciente vai pagar?</p>
                     <p className="text-[11px] text-muted-foreground">
-                      PIX (QR Code) · Espécie (em mãos) · Misto (parte PIX + parte espécie)
+                      PIX (QR Code) · PIX maquineta (sem QR) · Espécie · Misto
                     </p>
                   </div>
                 </div>
 
                 {/* 3 botoes: PIX / Especie / Misto */}
-                <div className="grid grid-cols-3 gap-2 mb-3">
+                <div className="grid grid-cols-2 gap-2 mb-3">
                   {([
                     { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR Code Asaas' },
+                    { key: 'PIX_POS' as const, label: 'PIX maquineta', emoji: '💳', desc: 'Na maquininha · sem QR' },
                     { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR' },
                     { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie' },
                   ]).map((m) => {
@@ -5998,6 +6047,17 @@ function PixCobrancaUnificadaModal({
                       <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
                       <span>
                         Ao confirmar, o sistema cria o registro <strong>R$ {fmtBRL(pixCalc.finalValue)}</strong> como recebido em espécie hoje. Sem QR Code, sem boleto, sem Asaas.
+                      </span>
+                    </p>
+                  </div>
+                )}
+
+                {mode === 'PIX_POS' && (
+                  <div className="pt-3 border-t border-border bg-emerald-500/5 -mx-4 px-4 py-3 -mb-4 rounded-b-xl">
+                    <p className="text-xs text-foreground flex items-start gap-1.5">
+                      <Check size={12} className="text-emerald-700 mt-0.5 shrink-0" strokeWidth={2.5} />
+                      <span>
+                        Ao confirmar, registra <strong>R$ {fmtBRL(pixCalc.finalValue)}</strong> como <strong>PIX na maquininha</strong> recebido hoje — entra no caixa como PIX, <strong>sem QR do Asaas</strong>, com baixa automática.
                       </span>
                     </p>
                   </div>
@@ -6067,6 +6127,7 @@ function PixCobrancaUnificadaModal({
                   <span className="text-muted-foreground text-xs">Forma</span>
                   <span className="font-semibold text-foreground text-xs">
                     {mode === 'PIX' ? 'PIX à vista' :
+                     mode === 'PIX_POS' ? 'PIX na maquininha' :
                      mode === 'CASH' ? 'Espécie (em mãos)' :
                      `Misto · PIX R$ ${fmtBRL(splitPix)} + Espécie R$ ${fmtBRL(splitCashClamped)}`}
                   </span>
@@ -6101,13 +6162,15 @@ function PixCobrancaUnificadaModal({
                   financeiro" no rodape do PropostaPainel. */}
               <button
                 type="button"
-                onClick={onEmitir}
+                onClick={mode === 'PIX_POS' ? onEmitMaquineta : onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
-                title='Salva como forma escolhida. Cobranca so sai quando o operador clicar "Encaminhar ao financeiro" no rodape.'
+                title={mode === 'PIX_POS'
+                  ? 'Registra o PIX da maquininha como recebido AGORA e lança no caixa (sem Asaas).'
+                  : 'Salva como forma escolhida. Cobranca so sai quando o operador clicar "Encaminhar ao financeiro" no rodape.'}
                 className="mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors bg-emerald-600 hover:bg-emerald-700"
               >
                 {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                Salvar proposta
+                {mode === 'PIX_POS' ? 'Registrar PIX recebido' : 'Salvar proposta'}
               </button>
 
               {onSend && (
@@ -6129,12 +6192,13 @@ function PixCobrancaUnificadaModal({
                 </p>
                 <p className="text-[10px] text-muted-foreground leading-snug">
                   {mode === 'PIX' && 'PIX emitido via Asaas. QR Code válido por 24h ou até a data configurada.'}
+                  {mode === 'PIX_POS' && 'PIX recebido na maquininha, registrado no caixa como PIX. Sem QR/cobrança Asaas, com baixa automática.'}
                   {mode === 'CASH' && 'Recebimento em espécie registrado localmente. Sem cobrança Asaas, com baixa automática.'}
                   {mode === 'MIXED' && 'Gera 2 cobranças: PIX (Asaas) + Espécie (baixa automática).'}
                   {' '}Idempotente — não re-emite se já existir.
                 </p>
                 <div className="flex items-center gap-1.5 mt-2 flex-wrap">
-                  {(mode === 'CASH' ? ['Espécie'] : mode === 'MIXED' ? ['Asaas', 'PIX', 'Espécie'] : ['Asaas', 'PIX']).map((b) => (
+                  {(mode === 'CASH' ? ['Espécie'] : mode === 'PIX_POS' ? ['PIX', 'Maquininha'] : mode === 'MIXED' ? ['Asaas', 'PIX', 'Espécie'] : ['Asaas', 'PIX']).map((b) => (
                     <span
                       key={b}
                       className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-muted/30 text-foreground font-medium uppercase tracking-wide"

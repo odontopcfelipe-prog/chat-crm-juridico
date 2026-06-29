@@ -112,6 +112,7 @@ const PAYMENT_METHOD_LABEL: Record<string, string> = {
   DINHEIRO: 'Dinheiro',
   TRANSFERENCIA: 'Transferência',
   MAQUININHA: 'Maquininha',
+  PIX_MAQUININHA: 'PIX maquininha',
 };
 
 const fmtBRL = (v: string | number) =>

@@ -29,6 +29,19 @@ const formatCNJ = (num: string | null | undefined): string => {
   return num;
 };
 
+/** Rótulo amigável da forma de pagamento no caixa (evita exibir o valor cru). */
+const PAYMENT_METHOD_LABEL: Record<string, string> = {
+  PIX: 'PIX',
+  PIX_MAQUININHA: 'PIX maquininha',
+  BOLETO: 'Boleto',
+  CARTAO: 'Cartão',
+  DINHEIRO: 'Dinheiro',
+  TRANSFERENCIA: 'Transferência',
+  MAQUININHA: 'Maquininha',
+};
+const methodLabel = (m: string | null | undefined): string =>
+  m ? (PAYMENT_METHOD_LABEL[m] ?? m) : '--';
+
 /* ──────────────────────────────────────────────────────────────
    Types
 ────────────────────────────────────────────────────────────── */
@@ -712,7 +725,7 @@ function TransactionTable({ rows, onRefresh, currentUserId, canManageAll }: { ro
                   {fmt(t.amount)}
                 </td>
                 <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{t.due_date ? fmtDate(t.due_date) : '--'}</td>
-                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{t.payment_method || '--'}</td>
+                <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{methodLabel(t.payment_method)}</td>
                 <td className="px-4 py-3 text-center"><StatusBadge status={t.status} /></td>
                 <td className="px-4 py-3 text-center">
                   {(() => {
