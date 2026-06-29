@@ -156,7 +156,11 @@ export default function TratamentoTab({ patientId }: Props) {
       plan_total: items[0].plan_total,
       validated_by_financial_at: items[0].plan_validated_by_financial_at,
       items: hideDone ? items.filter((i) => i.item.status !== 'DONE') : items,
-    })).filter((g) => g.items.length > 0);
+    }))
+      // Gate Financeiro→Tratamento aplicado NO FRONT também (não só na API): plano
+      // sem validação do Financeiro NÃO aparece aqui, mesmo que a API antiga ainda
+      // o devolva. Defense in depth — funciona com backend antigo ou novo.
+      .filter((g) => g.items.length > 0 && g.validated_by_financial_at);
   }, [data, hideDone]);
 
   if (loading && !data) {
@@ -168,7 +172,23 @@ export default function TratamentoTab({ patientId }: Props) {
     );
   }
 
-  const kpis = data?.kpis ?? { total: 0, feitos: 0, pendentes: 0, valorTotal: 0, valorFeito: 0 };
+  // KPIs e contagem de pendentes recomputados NO FRONT a partir dos itens (que já
+  // trazem plan_validated_by_financial_at). Não confiamos no kpis do backend: a API
+  // antiga conta os planos não-validados. Assim os números batem com o que aparece.
+  const validatedItems = (data?.items ?? []).filter((r) => r.plan_validated_by_financial_at);
+  const doneItems = validatedItems.filter((r) => r.item.status === 'DONE');
+  const kpis = {
+    total: validatedItems.length,
+    feitos: doneItems.length,
+    pendentes: validatedItems.length - doneItems.length,
+    valorTotal: validatedItems.reduce((a, r) => a + (r.item.total_price || 0), 0),
+    valorFeito: doneItems.reduce((a, r) => a + (r.item.total_price || 0), 0),
+  };
+  // Planos aceitos porém ainda NÃO liberados pelo Financeiro (pra mostrar o aviso
+  // certo em vez de "nenhum procedimento").
+  const pendingValidationCount = new Set(
+    (data?.items ?? []).filter((r) => !r.plan_validated_by_financial_at).map((r) => r.plan_id),
+  ).size;
   const progressPct = kpis.total > 0 ? Math.round((kpis.feitos / kpis.total) * 100) : 0;
   const canValidate = role.isDentist || role.isAdmin;
 
@@ -239,7 +259,7 @@ export default function TratamentoTab({ patientId }: Props) {
 
       {/* Sem procedimentos */}
       {kpis.total === 0 ? (
-        (data?.pending_validation_count ?? 0) > 0 ? (
+        pendingValidationCount > 0 ? (
           // Existe tratamento aceito, mas o Financeiro ainda não liberou — não
           // aparece aqui até validar (gate Financeiro→Tratamento).
           <div className="rounded-xl border border-amber-300 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 px-4 py-12 text-center text-amber-800 dark:text-amber-300">
