@@ -883,26 +883,6 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     }
   }, [load]);
 
-  // Onda 14.33 — Desmarca a proposta escolhida (volta ao estado neutro).
-  const unchooseAsProposal = useCallback(async (quoteId: string) => {
-    setQuotes((prev) =>
-      prev.map((q) =>
-        q.id === quoteId ? { ...q, is_chosen_proposal: false } : q,
-      ),
-    );
-    setSelectedDetail((prev) =>
-      prev && prev.id === quoteId ? { ...prev, is_chosen_proposal: false } : prev,
-    );
-    try {
-      await api.post(`/quotes/${quoteId}/unchoose-as-proposal`, {});
-      showSuccess('Proposta desmarcada');
-      load();
-    } catch (err: unknown) {
-      await load();
-      const e = err as { response?: { data?: { message?: string } } };
-      showError(e?.response?.data?.message || 'Erro ao desmarcar');
-    }
-  }, [load]);
 
   // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
   // Seta visible_in_proposals=false: a quote some daqui mas continua intacta
@@ -1767,7 +1747,6 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           // paciente" + persistir forma de pagamento e entrada que o operador
           // configurou no painel (pra PDF/whatsapp mostrarem a oferta).
           onChooseAsProposal={(opts) => selectedId && chooseAsProposal(selectedId, opts)}
-          onUnchooseAsProposal={() => selectedId && unchooseAsProposal(selectedId)}
           // Onda 17.31 — recarga pos-atalhos (espécie / PIX QR) recarrega
           // a lista E o detalhe do quote selecionado.
           onReload={() => {
@@ -3409,7 +3388,6 @@ function PropostaPainel({
   onApproveAndBill,
   onToggleRequiresCreditCheck,
   onChooseAsProposal,
-  onUnchooseAsProposal,
   onReload,
 }: {
   loading: boolean;
@@ -3467,7 +3445,6 @@ function PropostaPainel({
     installments_start_date?: string | null;
   }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
-  onUnchooseAsProposal?: () => void;
 }) {
   // Onda 14.29 (fix) — Hooks DEVEM ser declarados antes de qualquer early return
   // (rules-of-hooks). Antes estavam apos `if (!detail) return null` e quebravam
@@ -4525,15 +4502,6 @@ function PropostaPainel({
             >
               <Clock size={12} />
               Salvar alterações
-            </button>
-            <button
-              type="button"
-              onClick={onUnchooseAsProposal}
-              className="text-xs px-3 py-2 rounded-lg border border-amber-600 bg-amber-500 text-amber-950 hover:bg-amber-600 flex items-center gap-1.5 font-semibold"
-              title="Desmarcar como escolhida (volta ao estado neutro)"
-            >
-              <Check size={12} />
-              Aguardando paciente · desmarcar
             </button>
           </>
         )}
