@@ -1073,7 +1073,19 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // Mapeia activePaymentKey pra payment_method + installments
     const opts = buildPaymentOptions();
     const allOpts = [...opts.avista, ...opts.cartao, ...opts.parcelado];
-    const activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
+    let activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
+
+    // PIX em conta / na maquininha (salvos como proposta): recebimento PRESENCIAL,
+    // sem Asaas. Encaminhar ao financeiro lança no caixa como PIX / PIX maquininha.
+    // Usa a forma PIX à vista (com desconto) como base de valor; o backend pula o
+    // Asaas quando recebe manual_payment_method.
+    const manualPixMethod =
+      selectedDetail.chosen_payment_key === 'pix-maquineta-avista' ? 'PIX_MAQUININHA'
+      : selectedDetail.chosen_payment_key === 'pix-conta-avista' ? 'PIX'
+      : null;
+    if (manualPixMethod) {
+      activeOpt = opts.avista[0]; // PIX à vista (variant 'avista', com desconto)
+    }
 
     // Calcula valor final conforme a forma de pagamento
     // Usa pending_value se ha aprovacao parcial
@@ -1273,9 +1285,10 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     }
 
     // Onda 14.10 — Asaas exige valor minimo de R$ 5,00 por cobranca.
-    // Bloqueia ANTES de enviar (em vez de receber 400 generico).
+    // Bloqueia ANTES de enviar (em vez de receber 400 generico). Não se aplica ao
+    // recebimento manual (PIX em conta/maquininha), que não passa pelo Asaas.
     const ASAAS_MIN_VALUE = 5.0;
-    if (valueToCharge < ASAAS_MIN_VALUE) {
+    if (!manualPixMethod && valueToCharge < ASAAS_MIN_VALUE) {
       showError(
         `Asaas exige valor mínimo de R$ 5,00 por cobrança. ` +
         `Valor atual: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}. ` +
@@ -1284,15 +1297,23 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       return;
     }
 
-    const confirmMsg =
-      `Aprovar proposta?\n\n` +
-      `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
-      `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
-      `Isso vai:\n` +
-      `• Aceitar o orçamento (vira ACCEPTED)\n` +
-      `• Ativar o plano de tratamento\n` +
-      `• Gerar cobrança no Asaas\n` +
-      `• Enviar pro paciente`;
+    const manualLabel = manualPixMethod === 'PIX_MAQUININHA' ? 'PIX na maquininha' : 'PIX em conta';
+    const confirmMsg = manualPixMethod
+      ? `Encaminhar ao financeiro?\n\n` +
+        `Forma: ${manualLabel} (recebido na clínica, sem Asaas)\n` +
+        `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+        `Isso vai:\n` +
+        `• Aceitar o orçamento (vira ACCEPTED)\n` +
+        `• Ativar o plano de tratamento\n` +
+        `• Lançar no caixa como ${manualLabel}`
+      : `Aprovar proposta?\n\n` +
+        `Forma: ${billingType === 'PIX' ? 'PIX' : billingType === 'CREDIT_CARD' ? `Cartão ${installmentCount}x` : 'Boleto à vista'}\n` +
+        `Valor: R$ ${valueToCharge.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+        `Isso vai:\n` +
+        `• Aceitar o orçamento (vira ACCEPTED)\n` +
+        `• Ativar o plano de tratamento\n` +
+        `• Gerar cobrança no Asaas\n` +
+        `• Enviar pro paciente`;
     if (!window.confirm(confirmMsg)) return;
 
     setApprovingBill(true);
@@ -1309,12 +1330,15 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           billing_type: billingType,
           value: valueToCharge,
           installment_count: installmentCount,
+          ...(manualPixMethod ? { manual_payment_method: manualPixMethod } : {}),
         },
         { signal: abortCtrl.signal, timeout: 60_000 },
       );
       setApproveBillResult(data);
       setApproveBillOpen(true);
-      showSuccess('Proposta aprovada e cobrança gerada!');
+      showSuccess(manualPixMethod
+        ? `Encaminhado — ${manualLabel} lançado no caixa.`
+        : 'Proposta aprovada e cobrança gerada!');
       // Onda 17.32.37 — fecha painel: quote vira ACCEPTED e some do PropostasTab
       setSelectedId(null);
       // Onda 17.32.38 — pergunta arquivamento das outras versoes em aberto
@@ -3842,50 +3866,6 @@ function PropostaPainel({
     }
   };
 
-  // PIX manual (presencial): paciente paga PIX em conta OU pela maquininha. Cria um
-  // registro manual (gateway CASH, SEM Asaas/QR) e lança no caixa com a forma escolhida
-  // (payment_method: 'PIX' em conta, 'PIX_MAQUININHA' na maquineta) — separável no caixa.
-  const handleEmitPixManual = async (totalValue: number, paymentMethod: string, label: string) => {
-    if (!detail || totalValue <= 0) return;
-    const ok = window.confirm(
-      `Registrar R$ ${fmtBRL(totalValue)} como ${label}?\n\n` +
-      `Confirme que o paciente já pagou. Entra no caixa como ${label}, sem QR do Asaas, com baixa automática.`,
-    );
-    if (!ok) return;
-    setQuickActionLoading('pix');
-    try {
-      // 1) cria o registro manual (gateway CASH, sem Asaas)
-      const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, {
-        signalValue: totalValue,
-        signalMethod: 'CASH',
-        restValue: 0,
-        parts: ['SIGNAL'],
-      });
-      const charge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
-        || (emitData?.charges ?? [])[0];
-      if (!charge?.id) {
-        showError('Falha ao criar o registro.');
-        return;
-      }
-      if (charge.gateway !== 'CASH') {
-        showError(`Já existe cobrança via ${charge.billing_type || charge.gateway}. Cancele antes.`);
-        return;
-      }
-      // 2) baixa + lança no caixa com a forma de PIX escolhida (payment_method explícito)
-      await api.post(`/payment-gateway/charges/asaas/${charge.external_id}/receive-in-cash`, {
-        payment_method: paymentMethod,
-      });
-      showSuccess(`R$ ${fmtBRL(totalValue)} registrado como ${label}.`);
-      onReload?.();
-      setPixModalOpen(false);
-    } catch (err: unknown) {
-      const e = err as { response?: { data?: { message?: string } }; message?: string };
-      showError(e?.response?.data?.message || e?.message || `Erro ao registrar ${label}`);
-    } finally {
-      setQuickActionLoading(null);
-    }
-  };
-
   // Onda 17.32.16 — Emit pra modo MIXED (parte PIX + parte espécie) do modal PIX.
   // Cria 2 cobrancas via emit-down-payment: SIGNAL=CASH + REST=PIX.
   // Depois marca a CASH como recebida. PIX fica aguardando pagamento (QR aberto).
@@ -4416,20 +4396,14 @@ function PropostaPainel({
                 splitCash={pixModalSplitCash}
                 onChangeSplitCash={setPixModalSplitCash}
                 quickActionsLoading={quickActionLoading}
-                onEmitMaquineta={() => handleEmitPixManual(pixCalc.finalValue, 'PIX_MAQUININHA', 'PIX na maquininha')}
-                onEmitConta={() => handleEmitPixManual(pixCalc.finalValue, 'PIX', 'PIX em conta')}
                 onEmitir={() => {
-                  // Onda 17.32.66 — TODOS os modos agora passam pelo
-                  // mesmo fluxo "Salvar proposta" (sem emitir cobranca
-                  // ainda). Cobranca so e criada quando operador clicar
-                  // "Encaminhar ao financeiro" no rodape do PropostaPainel.
-                  // Consistente com Boleto/Cartao.
-                  //
-                  // Antes (17.32.36): CASH e MIXED emitiam direto. Operador
-                  // pediu mudanca pra ficar igual aos outros pagamentos a
-                  // vista — salva primeiro, encaminha depois.
+                  // TODOS os modos passam pelo mesmo fluxo "Salvar proposta" (sem
+                  // lançar nada ainda). O lançamento (cobrança Asaas OU recebimento
+                  // manual no caixa) só acontece quando o operador clicar
+                  // "Encaminhar ao financeiro" no rodapé do PropostaPainel.
+                  // Consistente com Boleto/Cartão.
                   setPixModalOpen(false);
-                  let paymentKey: string = pixOpt.key; // 'pix' (default)
+                  let paymentKey: string = pixOpt.key; // 'pix' (Asaas QR, default)
                   let signalValue: number | null = null;
                   let signalMethod: string | null = null;
                   if (pixModalMode === 'CASH') {
@@ -4440,13 +4414,22 @@ function PropostaPainel({
                     paymentKey = 'pix-mixed-cash';
                     signalMethod = 'CASH';
                     signalValue = pixModalSplitCash;
+                  } else if (pixModalMode === 'PIX' && pixKind === 'MAQUINETA') {
+                    // PIX recebido na maquininha — manual à vista (sem Asaas). A forma
+                    // é detectada pelo payment_key; o lançamento no caixa (como PIX
+                    // maquininha) acontece no "Encaminhar ao financeiro".
+                    paymentKey = 'pix-maquineta-avista';
+                  } else if (pixModalMode === 'PIX' && pixKind === 'CONTA') {
+                    // PIX recebido em conta — manual à vista (sem Asaas). Lança como PIX.
+                    paymentKey = 'pix-conta-avista';
                   }
                   onChooseAsProposal?.({
                     payment_key: paymentKey,
                     down_payment: 0,
                     signal_value: signalValue,
                     signal_method: signalMethod,
-                    entrada_due_date: pixModalMode === 'PIX' ? (customPixDueDate || null) : null,
+                    // QR Asaas usa a data; manual é imediato (sem vencimento).
+                    entrada_due_date: pixModalMode === 'PIX' && pixKind === 'ASAAS' ? (customPixDueDate || null) : null,
                     installments_start_date: null,
                   });
                 }}
@@ -5865,8 +5848,6 @@ function PixCobrancaUnificadaModal({
   splitCash,
   onChangeSplitCash,
   quickActionsLoading,
-  onEmitMaquineta,
-  onEmitConta,
   onEmitir,
   onClose,
   onSend,
@@ -5884,8 +5865,6 @@ function PixCobrancaUnificadaModal({
   splitCash: number;
   onChangeSplitCash: (v: number) => void;
   quickActionsLoading?: 'cash' | 'pix' | 'boleto' | null;
-  onEmitMaquineta: () => void;
-  onEmitConta: () => void;
   onEmitir: () => void;
   onClose: () => void;
   onSend?: () => void;
@@ -6212,19 +6191,13 @@ function PixCobrancaUnificadaModal({
                   financeiro" no rodape do PropostaPainel. */}
               <button
                 type="button"
-                onClick={
-                  mode === 'PIX' && pixKind === 'MAQUINETA' ? onEmitMaquineta
-                  : mode === 'PIX' && pixKind === 'CONTA' ? onEmitConta
-                  : onEmitir
-                }
+                onClick={onEmitir}
                 disabled={!canEmitMixed || !!quickActionsLoading}
-                title={mode === 'PIX' && pixKind !== 'ASAAS'
-                  ? 'Registra o PIX como recebido AGORA e lança no caixa (sem Asaas).'
-                  : 'Salva como forma escolhida. Cobranca so sai quando o operador clicar "Encaminhar ao financeiro" no rodape.'}
+                title='Salva como forma escolhida. O lançamento (caixa/cobrança) só sai quando o operador clicar "Encaminhar ao financeiro" no rodapé.'
                 className="mt-4 w-full px-4 py-3 rounded-lg disabled:bg-muted disabled:text-muted-foreground disabled:cursor-not-allowed text-white font-bold text-sm flex items-center justify-center gap-2 shadow-md transition-colors bg-emerald-600 hover:bg-emerald-700"
               >
                 {quickActionsLoading ? <Loader2 size={16} className="animate-spin" /> : <Check size={16} strokeWidth={3} />}
-                {mode === 'PIX' && pixKind !== 'ASAAS' ? 'Registrar PIX recebido' : 'Salvar proposta'}
+                Salvar proposta
               </button>
 
               {onSend && (

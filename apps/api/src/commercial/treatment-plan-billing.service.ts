@@ -454,6 +454,84 @@ export class TreatmentPlanBillingService {
   }
 
   /**
+   * Recebimento MANUAL à vista (PIX em conta / na maquininha / espécie), recebido
+   * PRESENCIALMENTE — SEM Asaas. Cria uma cobrança local CASH e a marca como recebida,
+   * lançando a RECEITA no caixa com o método informado (PIX | PIX_MAQUININHA | DINHEIRO).
+   *
+   * Usado pelo approveAndBill quando o orçamento foi salvo como proposta com forma
+   * manual e é encaminhado ao financeiro. Idempotente: se o plano já tem cobrança
+   * ativa CASH, retorna a existente; se tem cobrança ativa de outro tipo, bloqueia.
+   */
+  async createManualReceipt(
+    planId: string,
+    tenantId: string,
+    options: { value: number; paymentMethod: string; userId?: string },
+  ) {
+    const plan = await this.prisma.treatmentPlan.findUnique({
+      where: { id: planId },
+      include: { patient: true },
+    });
+    if (!plan) throw new NotFoundException('Plano nao encontrado');
+    if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    if (plan.status !== 'ACTIVE') {
+      throw new BadRequestException(`Plano deve estar ACTIVE (atual: ${plan.status})`);
+    }
+    if (options.value <= 0) {
+      throw new BadRequestException('Valor deve ser maior que zero');
+    }
+
+    // Idempotência: não duplica cobrança pro mesmo plano.
+    const existingActive = await this.prisma.paymentGatewayCharge.findFirst({
+      where: {
+        description: { contains: `plan:${planId}` },
+        status: { notIn: ['DELETED', 'REFUNDED', 'CANCELLED'] },
+      },
+      orderBy: { created_at: 'desc' },
+    });
+    if (existingActive) {
+      if (existingActive.gateway === 'CASH') {
+        this.logger.log(
+          `[MANUAL-RECEIPT] Plan ${planId} ja tem cobranca CASH (${existingActive.external_id}) — retornando existente`,
+        );
+        return { plan_id: planId, charge: existingActive, manual: true, is_existing: true };
+      }
+      throw new BadRequestException(
+        `Já existe uma cobrança ATIVA pra esse plano (status ${existingActive.status}). ` +
+        `Cancele a anterior antes de registrar o recebimento manual.`,
+      );
+    }
+
+    // Cobrança local CASH (mesmo formato do down-payment-flow, compatível com receive-in-cash).
+    const externalId = `cash-${planId}-AVISTA-${Date.now()}`;
+    const description = `Plano de tratamento — ${plan.patient.name} (recebido na clínica) [plan:${planId}]`;
+    const charge = await this.prisma.paymentGatewayCharge.create({
+      data: {
+        tenant_id: tenantId,
+        treatment_plan_id: planId,
+        gateway: 'CASH',
+        external_id: externalId,
+        customer_external_id: 'CASH',
+        billing_type: 'CASH',
+        amount: options.value,
+        due_date: new Date(),
+        status: 'PENDING',
+        description,
+      },
+    });
+
+    // Marca recebida + lança no caixa (RECEITA) com o método (PIX / PIX_MAQUININHA / DINHEIRO).
+    const receipt = await this.paymentGateway.registerClinicReceipt(externalId, {
+      paymentMethod: options.paymentMethod,
+      userId: options.userId,
+    });
+    this.logger.log(
+      `[MANUAL-RECEIPT] Plan ${planId}: ${options.paymentMethod} R$ ${options.value} → caixa`,
+    );
+
+    return { plan_id: planId, charge, manual: true, receipt };
+  }
+
+  /**
    * Onda 14.5 — Cria cobranca simples (1 charge) pro plano.
    *
    * Usado pelo fluxo "Aprovar e cobrar" do painel de Propostas. Cobre:

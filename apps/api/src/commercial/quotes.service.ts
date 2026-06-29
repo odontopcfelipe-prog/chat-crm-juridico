@@ -752,6 +752,9 @@ export class QuotesService {
       // em nome do dentista responsavel, gerando a comissao dele imediatamente.
       auto_execute_items?: boolean;
       executed_by_dentist_id?: string;
+      // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
+      // caixa com este método SEM cobrança Asaas. Quando ausente, segue via Asaas.
+      manual_payment_method?: string;
     },
   ) {
     if (!this.billingService) {
@@ -811,13 +814,23 @@ export class QuotesService {
         this.logger.log(`[APPROVE-AND-BILL] [step:plan-activated]`);
       }
 
-      // 3. Cria cobranca
-      this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
-      const result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
-        billingType: data.billing_type,
-        value: data.value,
-        installmentCount: data.installment_count,
-      });
+      // 3. Cria cobranca (ou registra recebimento manual no caixa, sem Asaas)
+      let result;
+      if (data.manual_payment_method) {
+        this.logger.log(`[APPROVE-AND-BILL] [step:manual-receipt] method=${data.manual_payment_method} value=${data.value}`);
+        result = await this.billingService.createManualReceipt(plan.id, tenantId, {
+          value: data.value,
+          paymentMethod: data.manual_payment_method,
+          userId,
+        });
+      } else {
+        this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
+        result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
+          billingType: data.billing_type,
+          value: data.value,
+          installmentCount: data.installment_count,
+        });
+      }
 
       this.logger.log(
         `[APPROVE-AND-BILL] [step:done] Quote ${quoteId}: ${data.billing_type} ` +

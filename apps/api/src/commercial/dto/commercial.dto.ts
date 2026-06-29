@@ -111,6 +111,10 @@ export class ApproveAndBillDto {
   // do plano como feitos em nome do dentista responsavel (gera comissao dele).
   @IsOptional() @IsBoolean() auto_execute_items?: boolean;
   @IsOptional() @IsUUID('4') executed_by_dentist_id?: string;
+  // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
+  // caixa com este método (PIX | PIX_MAQUININHA | DINHEIRO) SEM gerar cobrança
+  // Asaas. Quando ausente, segue o fluxo normal (Asaas).
+  @IsOptional() @IsString() @IsIn(['PIX', 'PIX_MAQUININHA', 'DINHEIRO']) manual_payment_method?: string;
 }
 
 // Onda 13 — Bônus de fechamento (segura proposta + valida).

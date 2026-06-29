@@ -378,6 +378,7 @@ export class CommercialController {
       billing_type: dto.billing_type as 'PIX' | 'CREDIT_CARD' | 'BOLETO',
       value: Number(dto.value),
       installment_count: dto.installment_count,
+      manual_payment_method: dto.manual_payment_method,
     });
   }
 
