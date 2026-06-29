@@ -668,15 +668,10 @@ export default function AgendaPage() {
       time = formatTimeInput(nowLocalIso);
     }
 
-    // Onda 17.59 — "Novo Evento" NUNCA abre no passado. Se o candidato (clique numa
-    // célula de uma semana antiga, ou aba deixada aberta há dias) já passou, cai pra
-    // AGORA — "data e hora atual" sempre. Não scheduleia consulta no passado.
-    const nowDate = formatDateInput(nowLocalIso);
-    const nowTime = formatTimeInput(nowLocalIso);
-    if (`${date}T${time}` < `${nowDate}T${nowTime}`) {
-      date = nowDate;
-      time = nowTime;
-    }
+    // Ao clicar numa célula da grade (dateTime presente), HONRA o dia/hora clicado:
+    // é o que o usuário espera ao "agendar no horário que selecionei" — inclusive um
+    // encaixe/walk-in num horário que já passou hoje. Sem clique explícito (botão
+    // "Novo Evento" / atalho 'N'), date/time já são "agora", então nunca cai no passado.
 
     const [h, m] = time.split(':').map(Number);
     // Duração padrão: 30 min (compatível com grid de 30min)
