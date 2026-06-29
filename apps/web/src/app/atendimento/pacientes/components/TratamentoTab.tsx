@@ -69,6 +69,9 @@ interface Data {
     valorFeito: number;
   };
   items: ItemRow[];
+  // > 0 quando há plano aceito mas ainda NÃO liberado pelo Financeiro (não entra
+  // no Tratamento até validar).
+  pending_validation_count?: number;
 }
 
 function formatDate(iso: string) {
@@ -236,13 +239,26 @@ export default function TratamentoTab({ patientId }: Props) {
 
       {/* Sem procedimentos */}
       {kpis.total === 0 ? (
-        <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
-          <FileText size={32} className="mx-auto mb-2 opacity-40" />
-          <p className="text-sm font-medium">Nenhum procedimento fechado ainda</p>
-          <p className="text-xs mt-1">
-            Quando um orçamento for aceito pelo paciente, os procedimentos aparecem aqui.
-          </p>
-        </div>
+        (data?.pending_validation_count ?? 0) > 0 ? (
+          // Existe tratamento aceito, mas o Financeiro ainda não liberou — não
+          // aparece aqui até validar (gate Financeiro→Tratamento).
+          <div className="rounded-xl border border-amber-300 dark:border-amber-900 bg-amber-50 dark:bg-amber-950/40 px-4 py-12 text-center text-amber-800 dark:text-amber-300">
+            <Lock size={32} className="mx-auto mb-2 opacity-60" />
+            <p className="text-sm font-bold">Aguardando validação do Financeiro</p>
+            <p className="text-xs mt-1">
+              O tratamento foi aceito, mas o Financeiro precisa conferir e liberar antes
+              de aparecer aqui pra confirmação dos procedimentos.
+            </p>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-border bg-card px-4 py-12 text-center text-muted-foreground">
+            <FileText size={32} className="mx-auto mb-2 opacity-40" />
+            <p className="text-sm font-medium">Nenhum procedimento fechado ainda</p>
+            <p className="text-xs mt-1">
+              Quando um orçamento for aceito pelo paciente, os procedimentos aparecem aqui.
+            </p>
+          </div>
+        )
       ) : (
         grouped.map((plan) => {
           // Onda 17.72 — gate Financeiro→Tratamento. Enquanto o Financeiro não

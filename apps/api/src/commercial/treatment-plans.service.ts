@@ -119,7 +119,16 @@ export class TreatmentPlansService {
     };
 
     const flat: FlatItem[] = [];
+    // Gate Financeiro→Tratamento: o plano só ENTRA no Tratamento depois que o
+    // Financeiro valida (validated_by_financial_at). Antes disso fica de fora
+    // (some daqui) — a liberação é feita na aba Financeiro. Conta os pendentes
+    // pra UI mostrar "aguardando validação" em vez de "nenhum procedimento".
+    let pendingValidationCount = 0;
     for (const p of plans) {
+      if (!(p as any).validated_by_financial_at) {
+        if (p.items.length > 0) pendingValidationCount++;
+        continue;
+      }
       for (const it of p.items) {
         flat.push({
           plan_id: p.id,
@@ -162,6 +171,8 @@ export class TreatmentPlansService {
     return {
       kpis: { total, feitos, pendentes: total - feitos, valorTotal, valorFeito },
       items: flat,
+      // > 0 quando existe plano aceito porém ainda NÃO liberado pelo Financeiro.
+      pending_validation_count: pendingValidationCount,
     };
   }
 
