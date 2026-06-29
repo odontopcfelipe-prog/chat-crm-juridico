@@ -367,9 +367,8 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                     </span>
                   );
                 })()}
-                <span className={`inline-flex items-center justify-center w-[78px] shrink-0 px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[q.status]}`}>
-                  {STATUS_LABEL[q.status]}
-                </span>
+                {/* Onda 17.72 — badge de status (Enviado/Aceito/Rascunho) removido:
+                    o dono quer todos "em aberto" na Avaliação; o aprovado já sai da lista. */}
               </li>
             );
           })}
@@ -849,9 +848,7 @@ function QuoteDetailView({
         <button onClick={onBack} className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1">
           <ArrowLeft size={14} /> Voltar à lista
         </button>
-        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium border ${STATUS_BADGE[quote.status]}`}>
-          {STATUS_LABEL[quote.status]}
-        </span>
+        {/* Onda 17.72 — badge de status removido aqui também (Enviado/Aceito). */}
       </div>
 
       {/* Onda 14.18 — Header com identificador unificado (#NNN · Nome) +
