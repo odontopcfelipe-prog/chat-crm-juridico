@@ -695,10 +695,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // paciente via sessionStorage pra sobreviver navegacao entre abas.
   const selectionKey = `propostas-selected-${patientId}`;
   const paymentKeyStorage = `propostas-payment-${patientId}`;
-  const [selectedId, setSelectedId] = useState<string | null>(() => {
-    if (typeof window === 'undefined') return null;
-    try { return window.sessionStorage.getItem(selectionKey); } catch { return null; }
-  });
+  // Onda 17.74 — NÃO auto-abre o painel da última proposta ao entrar (o dono reclamou
+  // que "já selecionava sozinho / já com proposta salva"). Começa SEMPRE fechado; o
+  // operador clica num card pra abrir. (Antes restaurava o selectedId do sessionStorage,
+  // reabrindo a proposta escolhida num teste anterior — parecia auto-seleção.)
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   // Detalhe do quote selecionado (items + preços), carregado sob demanda.
   const [selectedDetail, setSelectedDetail] = useState<QuoteDetailLite | null>(null);
   const [loadingDetail, setLoadingDetail] = useState(false);
