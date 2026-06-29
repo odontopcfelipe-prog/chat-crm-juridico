@@ -172,7 +172,7 @@ export function AgendaResourceView({
           AGENDADO: 'Agendado',
           CONFIRMADO: 'Confirmado',
           EM_ATENDIMENTO: 'Em atendimento',
-          CONCLUIDO: 'Concluido',
+          CONCLUIDO: 'Atendido',
           CANCELADO: 'Desmarcou',
           NO_SHOW: 'Faltou',
         }).map(([k, label]) => {

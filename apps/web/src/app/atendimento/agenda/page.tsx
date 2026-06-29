@@ -104,9 +104,9 @@ const EVENT_TYPES = [
 const LEGEND_STATUS = [
   { label: 'Agendado', color: '#E91E63' },
   { label: 'Confirmado', color: '#22c55e' },
-  { label: 'Compareceu', color: '#0ea5e9' },
+  { label: 'Chegou', color: '#0ea5e9' },
   { label: 'Em atendimento', color: '#f97316' },
-  { label: 'Concluído', color: '#15803d' },
+  { label: 'Atendido', color: '#15803d' },
   { label: 'Desmarcou', color: '#eab308' },
   { label: 'Faltou', color: '#991b1b' },
 ] as const;
@@ -130,7 +130,7 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
 
 // Estilo Dental Office — a cor do card/borda é SEMPRE pelo STATUS: todo paciente
 // agendado fica IGUAL, independente do dentista. Só muda ao trocar o status
-// (Agendado → Confirmado → Em atendimento → Concluído, etc), ficando mais fácil
+// (Agendado → Confirmado → Em atendimento → Atendido, etc), ficando mais fácil
 // de ler a agenda de relance. Tipos que NÃO são paciente (Bloqueio/Tarefa/Outro)
 // mantêm a cor própria do tipo.
 const PATIENT_APPT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'];
@@ -141,14 +141,14 @@ function eventAccentColor(ev: { type: string; status: string }): string {
   return getEventColor(ev.type);
 }
 
-// Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Paciente chegou → Em
-// atendimento → Concluído; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) como saídas.
+// Onda 17.61 — fluxo de recepção: Agendado → Confirmado → Chegou → Em
+// atendimento → Atendido; e Desmarcou (CANCELADO) / Faltou (NO_SHOW) como saídas.
 const EVENT_STATUSES = [
   { id: 'AGENDADO', label: 'Agendado', color: '#E91E63' }, // rosa Dental Office — agendado/não confirmado
   { id: 'CONFIRMADO', label: 'Confirmado', color: '#22c55e' },
-  { id: 'COMPARECEU', label: 'Paciente chegou', color: '#0ea5e9' },
+  { id: 'COMPARECEU', label: 'Chegou', color: '#0ea5e9' },
   { id: 'EM_ATENDIMENTO', label: 'Em atendimento', color: '#f97316' }, // laranja
-  { id: 'CONCLUIDO', label: 'Concluído', color: '#15803d' }, // verde escuro
+  { id: 'CONCLUIDO', label: 'Atendido', color: '#15803d' }, // verde escuro
   { id: 'CANCELADO', label: 'Desmarcou', color: '#eab308' }, // amarelo
   { id: 'NO_SHOW', label: 'Faltou', color: '#991b1b' }, // vermelho escuro
 ];
@@ -158,7 +158,7 @@ const EVENT_STATUSES = [
 const KANBAN_COLUMNS = [
   { id: 'AGENDADO',  label: 'A Fazer',      emoji: '📋', color: '#3b82f6' },
   { id: 'CONFIRMADO', label: 'Em Andamento', emoji: '🔄', color: '#f59e0b' },
-  { id: 'CONCLUIDO', label: 'Concluído',    emoji: '✅', color: '#22c55e' },
+  { id: 'CONCLUIDO', label: 'Atendido',    emoji: '✅', color: '#22c55e' },
 ];
 
 function getEventColor(type: string) {
@@ -169,9 +169,9 @@ function getEventColor(type: string) {
  * Mapeia evento para um dos slots semanticos (estilo Dental Office):
  *   - rosa  (#E91E63): agendado, paciente nao confirmou
  *   - verde (#22c55e): paciente confirmou presenca
- *   - ciano (#0ea5e9): paciente chegou (compareceu)
+ *   - ciano (#0ea5e9): chegou (compareceu)
  *   - laranja (#f97316): em atendimento
- *   - verde escuro (#15803d): consulta concluida
+ *   - verde escuro (#15803d): atendido (consulta concluida)
  *   - amarelo (#eab308): desmarcou (cancelado)
  *   - vermelho escuro (#991b1b): faltou (no_show)
  *
@@ -2643,8 +2643,8 @@ export default function AgendaPage() {
 
               {/* Status — substitui a Prioridade (removida do UI na Onda 17.61). Na edição
                   troca na hora (PATCH + lista de espera quando Desmarcou); na criação define
-                  o status inicial do evento. Fluxo: Agendado → Confirmado → Paciente chegou →
-                  Em atendimento → Concluído (+ Desmarcou / Faltou). */}
+                  o status inicial do evento. Fluxo: Agendado → Confirmado → Chegou →
+                  Em atendimento → Atendido (+ Desmarcou / Faltou). */}
               <div>
                 <label className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground mb-1 block">Status</label>
                 <select

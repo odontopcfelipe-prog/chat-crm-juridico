@@ -28,7 +28,7 @@ const TYPE_CFG: Record<EventType, {
 };
 
 const STATUS_LABEL: Record<string, string> = {
-  AGENDADO: 'Agendado', CONFIRMADO: 'Confirmado', CONCLUIDO: 'Concluido',
+  AGENDADO: 'Agendado', CONFIRMADO: 'Confirmado', CONCLUIDO: 'Atendido',
   CANCELADO: 'Cancelado', ADIADO: 'Adiado',
   STAFF: 'Pela equipe', PATIENT_PORTAL: 'Pelo paciente',
   DONE: 'Finalizado',

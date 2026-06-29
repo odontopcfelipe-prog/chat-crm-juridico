@@ -93,9 +93,9 @@ const STATUS_BADGE: Record<string, { label: string; cls: string }> = {
   // Consultas (Onda 17.61 — fluxo de recepção + rótulo "Desmarcou" igual à agenda)
   AGENDADO:       { label: 'Agendado',       cls: 'bg-blue-500/10 text-blue-600 border-blue-500/20' },
   CONFIRMADO:     { label: 'Confirmado',     cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
-  COMPARECEU:     { label: 'Paciente chegou', cls: 'bg-sky-500/10 text-sky-600 border-sky-500/20' },
+  COMPARECEU:     { label: 'Chegou',        cls: 'bg-sky-500/10 text-sky-600 border-sky-500/20' },
   EM_ATENDIMENTO: { label: 'Em atendimento', cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },
-  CONCLUIDO:      { label: 'Concluído',      cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
+  CONCLUIDO:      { label: 'Atendido',      cls: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/20' },
   CANCELADO:      { label: 'Desmarcou',      cls: 'bg-red-500/10 text-red-600 border-red-500/20' },
   NO_SHOW:        { label: 'Faltou',         cls: 'bg-gray-500/15 text-gray-700 border-gray-500/30' },
   ADIADO:         { label: 'Adiado',         cls: 'bg-amber-500/10 text-amber-600 border-amber-500/20' },

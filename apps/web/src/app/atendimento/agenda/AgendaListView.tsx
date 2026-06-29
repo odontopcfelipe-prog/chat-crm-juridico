@@ -54,9 +54,9 @@ interface Props {
 const STATUS_CONFIG: Record<string, { icon: string; label: string; color: string }> = {
   AGENDADO:       { icon: '⏰', label: 'Aguardando confirmação', color: 'text-pink-600' },
   CONFIRMADO:     { icon: '✅', label: 'Confirmado',             color: 'text-emerald-600' },
-  COMPARECEU:     { icon: '🩺', label: 'Compareceu',             color: 'text-sky-600' },
+  COMPARECEU:     { icon: '🩺', label: 'Chegou',                 color: 'text-sky-600' },
   EM_ATENDIMENTO: { icon: '🦷', label: 'Em atendimento',         color: 'text-orange-600' },
-  CONCLUIDO:      { icon: '🏁', label: 'Concluído',              color: 'text-green-700' },
+  CONCLUIDO:      { icon: '🏁', label: 'Atendido',              color: 'text-green-700' },
   NO_SHOW:        { icon: '🚫', label: 'Não compareceu',         color: 'text-red-800' },
   CANCELADO:      { icon: '✖️', label: 'Desmarcou',              color: 'text-yellow-600' },
 };
