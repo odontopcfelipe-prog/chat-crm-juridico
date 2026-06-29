@@ -2809,6 +2809,22 @@ export class CalendarService {
       (event.assigned_user_id !== null && event.assigned_user_id === userId);
   }
 
+  /**
+   * Confirma que o evento existe e pertence ao tenant do usuario, SEM checar
+   * posse (created_by/assigned_user). Usado na troca de STATUS, que e liberada
+   * a QUALQUER pessoa com acesso a agenda (view_agenda) — diferente de
+   * checkOwnership, que restringe edicao estrutural ao dono/admin.
+   */
+  async checkSameTenant(eventId: string, tenantId?: string): Promise<boolean> {
+    const event = await this.prisma.calendarEvent.findUnique({
+      where: { id: eventId },
+      select: { tenant_id: true },
+    });
+    if (!event) throw new NotFoundException('Evento nao encontrado');
+    if (tenantId && event.tenant_id && event.tenant_id !== tenantId) return false;
+    return true;
+  }
+
   // ─── Comments ─────────────────────────────────────────
 
   async addComment(eventId: string, userId: string, text: string) {

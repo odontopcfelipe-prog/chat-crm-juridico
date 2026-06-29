@@ -151,10 +151,17 @@ export class CalendarController {
     return this.calendarService.update(id, data);
   }
 
+  // Mudar o STATUS do agendamento (Agendado/Confirmado/Chegou/Em atendimento/
+  // Atendido/Desmarcou/Faltou) é liberado pra QUALQUER pessoa com acesso à agenda
+  // (view_agenda) — recepção, qualquer dentista ou assistente marcam o andamento
+  // de QUALQUER paciente, não só dos próprios eventos. NÃO exige posse/assigned.
+  // Mantém isolamento de tenant (anti-IDOR entre clínicas). Apagar continua
+  // exclusivo do ADMIN (ver @Delete abaixo).
+  @RequiresPermission('view_agenda')
   @Patch('events/:id/status')
   async updateStatus(@Param('id') id: string, @Body('status') status: string, @Request() req: any) {
-    const canEdit = await this.calendarService.checkOwnership(id, req.user.id, req.user.roles, req.user?.tenant_id);
-    if (!canEdit) throw new ForbiddenException('Sem permissao para alterar status deste evento');
+    const sameTenant = await this.calendarService.checkSameTenant(id, req.user?.tenant_id);
+    if (!sameTenant) throw new ForbiddenException('Sem permissao para alterar status deste evento');
     return this.calendarService.updateStatus(id, status);
   }
 
