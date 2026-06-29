@@ -14,7 +14,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  X, Plus, Minus, Search, Loader2, ShoppingCart, Save, Info, Check, Droplet, Copy,
+  X, Plus, Minus, Search, Loader2, ShoppingCart, Info, Check, Droplet, Copy,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import api from '@/lib/api';
@@ -815,20 +815,6 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
                 <Copy size={14} /> Duplicar
               </button>
             )}
-            <button
-              type="button"
-              onClick={() => submit(true)}
-              disabled={saving || !hasChanges || quoteStatus !== 'DRAFT'}
-              className="px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent disabled:opacity-50 inline-flex items-center gap-1.5"
-              title={
-                quoteStatus !== 'DRAFT'
-                  ? `Orçamento ${quoteStatus} — não pode ser editado`
-                  : 'Salva e mantém o modal aberto pra continuar editando'
-              }
-            >
-              {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
-              Salvar e continuar
-            </button>
             <button
               type="button"
               onClick={() => submit(false)}
