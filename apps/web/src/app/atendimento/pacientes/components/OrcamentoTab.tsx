@@ -244,23 +244,34 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
     );
   }
 
+  // Onda 17.71 — orçamento TOTALMENTE aprovado some da Avaliação (já subiu pro
+  // Financeiro + Tratamento). Parcial (ainda tem item pendente de aprovação)
+  // permanece, pra você fechar o que falta antes de ele "subir".
+  const visibleList = list.filter(
+    (q) => !(q.status === 'ACCEPTED' && (q.pending_count ?? 0) === 0),
+  );
+
   return (
     <div>
       <div className="flex items-center justify-between mb-3">
-        <p className="text-sm text-muted-foreground">{list.length} orçamento(s)</p>
+        <p className="text-sm text-muted-foreground">{visibleList.length} orçamento(s) em aberto</p>
       </div>
 
-      {list.length === 0 ? (
+      {visibleList.length === 0 ? (
         <div className="bg-card border border-border border-dashed rounded-xl p-8 text-center">
           <DollarSign size={32} className="mx-auto text-muted-foreground mb-2" />
-          <p className="text-muted-foreground text-sm">Nenhum orçamento cadastrado.</p>
+          <p className="text-muted-foreground text-sm">
+            {list.length > 0
+              ? 'Todos os orçamentos foram aprovados — já estão no Financeiro e no Tratamento.'
+              : 'Nenhum orçamento cadastrado.'}
+          </p>
         </div>
       ) : (
         <ul className="bg-card border border-border rounded-xl divide-y divide-border">
           {/* Onda 7.7 — Ordem crescente: mais antigo no topo (mesmo padrao
               da aba Avaliacao). API retorna desc por created_at, fazemos
               reverse aqui pra exibir asc. */}
-          {[...list].reverse().map((q, idx) => {
+          {[...visibleList].reverse().map((q, idx) => {
             const expiry = expiryStatus(q.valid_until, q.status);
             // Onda 5 — detecta "resto de aprovacao parcial" pelo prefixo
             // automatico nas notes (preserva titulo customizado do operador).
