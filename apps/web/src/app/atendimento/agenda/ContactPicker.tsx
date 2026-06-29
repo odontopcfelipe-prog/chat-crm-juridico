@@ -136,6 +136,47 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
       });
   }, [open, patients.length, leads.length]);
 
+  // Busca NO SERVIDOR ao digitar (debounce 250ms). O preload acima é limitado a
+  // 500 por tenant e em listas grandes (ou preload incompleto) o paciente buscado
+  // não aparecia em letra nenhuma. Agora cada termo digitado consulta o backend
+  // (busca por nome/telefone/CPF) e mescla na lista — acha desde a 1ª letra,
+  // independente do tamanho da base. Best-effort: falha não derruba a UI.
+  useEffect(() => {
+    const q = search.trim();
+    if (!open || q.length < 1) return;
+    const t = setTimeout(() => {
+      api.get(`/patients?search=${encodeURIComponent(q)}&limit=30`)
+        .then((res) => {
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.patients || []);
+          if (!data.length) return;
+          setPatients((prev) => {
+            const byId = new Map(prev.map((p) => [p.id, p] as const));
+            for (const p of data) {
+              if (p?.status === 'ARCHIVED' || !p?.id) continue;
+              byId.set(p.id, { id: p.id, name: p.name, phone: p.phone, cpf: p.cpf, lead_id: p.lead_id, status: p.status });
+            }
+            return Array.from(byId.values());
+          });
+        })
+        .catch(() => { /* best-effort */ });
+      api.get(`/leads?search=${encodeURIComponent(q)}&limit=30`)
+        .then((res) => {
+          const data = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.leads || []);
+          if (!data.length) return;
+          setLeads((prev) => {
+            const byId = new Map(prev.map((l) => [l.id, l] as const));
+            for (const l of data) {
+              if (!l?.id) continue;
+              byId.set(l.id, { id: l.id, name: l.name, phone: l.phone });
+            }
+            return Array.from(byId.values());
+          });
+        })
+        .catch(() => { /* /leads pode não ter ?search — best-effort */ });
+    }, 250);
+    return () => clearTimeout(t);
+  }, [search, open]);
+
   // Fecha popover ao clicar fora (trigger OU popover portalizado)
   useEffect(() => {
     if (!open) return;
