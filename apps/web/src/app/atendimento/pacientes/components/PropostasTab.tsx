@@ -5825,10 +5825,6 @@ function PixCobrancaUnificadaModal({
     onChangeSplitCash(Math.min(num, pixCalc.finalValue));
   };
   const canEmitMixed = mode !== 'MIXED' || (splitCashClamped > 0 && splitPix > 0);
-  const todayLabel = (() => {
-    const d = new Date();
-    return `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
-  })();
   return (
     <ModalPortal>
       <div
@@ -6047,69 +6043,6 @@ function PixCobrancaUnificadaModal({
                 )}
               </div>
 
-              {/* Step 2: Plano de cobranca (timeline adaptado ao modo) */}
-              <div className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
-                    2
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      {mode === 'PIX' ? 'Quando o PIX é cobrado' :
-                       mode === 'CASH' ? 'Recebimento em espécie' :
-                       '2 cobranças: PIX + espécie'}
-                    </p>
-                  </div>
-                </div>
-                <div className="relative pl-7 space-y-3">
-                  <div className="absolute left-[10px] top-2 bottom-2 w-px bg-emerald-500/30" />
-
-                  {/* Linha 1: PIX (se PIX puro ou MIXED) */}
-                  {(mode === 'PIX' || mode === 'MIXED') && (
-                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">PIX à vista</p>
-                        <p className="text-[11px] text-muted-foreground">QR Code gerado hoje</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
-                          <Clock size={9} />
-                          {todayLabel}
-                        </span>
-                        <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                          R$ {fmtBRL(mode === 'MIXED' ? splitPix : pixCalc.finalValue)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Linha 2: Espécie (se CASH puro ou MIXED) */}
-                  {(mode === 'CASH' || mode === 'MIXED') && (
-                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-emerald-500 bg-background flex items-center justify-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">Recebido em espécie</p>
-                        <p className="text-[11px] text-muted-foreground">Em mãos · baixa automática ao emitir</p>
-                      </div>
-                      <div className="text-right shrink-0">
-                        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-md bg-muted text-foreground inline-flex items-center gap-1 mb-1">
-                          <Clock size={9} />
-                          {todayLabel}
-                        </span>
-                        <p className="text-base font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
-                          R$ {fmtBRL(mode === 'MIXED' ? splitCashClamped : pixCalc.finalValue)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
             </div>
 
             {/* Sidebar — Resumo + CTA */}
