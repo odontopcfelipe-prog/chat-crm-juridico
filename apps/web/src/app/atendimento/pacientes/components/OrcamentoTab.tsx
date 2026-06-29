@@ -352,11 +352,16 @@ export default function OrcamentoTab({ patientId, initialQuoteId, autoOpenAddIte
                     deixando o badge de status (Aceito/Rascunho) alinhado
                     verticalmente entre as linhas. */}
                 {(() => {
-                  const p = q.priority || 'COMPLETO';
+                  // Onda 17.74 — sem prioridade definida = LIVRE (espelha o card
+                  // "Versão livre" das Propostas). ANTES caía em `|| 'COMPLETO'`, então
+                  // um orçamento SEM prioridade aparecia falsamente como "COMPLETO" aqui
+                  // e como "Versão livre" nas Propostas — os dois nunca batiam.
+                  const p = q.priority || 'LIVRE';
                   const cfg = {
                     URGENTE:   { label: '🔥 URGENTE',   cls: 'bg-red-500/15 text-red-700 border-red-500/30',         tip: 'Urgência clínica' },
                     ESSENCIAL: { label: '⚠ ESSENCIAL', cls: 'bg-amber-500/15 text-amber-700 border-amber-500/30',   tip: 'Procedimento essencial' },
                     COMPLETO:  { label: '✓ COMPLETO',  cls: 'bg-emerald-500/15 text-emerald-700 border-emerald-500/30', tip: 'Tratamento completo (sem urgência)' },
+                    LIVRE:     { label: '◇ LIVRE',     cls: 'bg-sky-500/15 text-sky-700 border-sky-500/30',         tip: 'Sem prioridade definida — aparece em "Versão livre" nas Propostas' },
                   }[p];
                   return (
                     <span
