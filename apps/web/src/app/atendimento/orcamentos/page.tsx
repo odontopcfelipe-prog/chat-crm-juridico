@@ -150,10 +150,12 @@ function OrcamentosPageInner() {
     let l = dentistFilter
       ? list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter)
       : list;
+    // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
+    if (!isPropostas) l = l.filter((q) => q.status !== 'SENT');
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
     return l;
-  }, [list, dentistFilter, dateFrom, dateTo]);
+  }, [list, dentistFilter, dateFrom, dateTo, isPropostas]);
 
   // Onda 15 (etapa 19.6) — Stats CALCULADAS NO CLIENTE a partir da lista
   // carregada. Antes dependia do endpoint /quotes/dashboard, que tinha
