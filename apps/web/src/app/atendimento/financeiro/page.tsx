@@ -769,56 +769,71 @@ function TransactionTable({ rows, onRefresh, currentUserId, canManageAll }: { ro
 /* ──────────────────────────────────────────────────────────────
    Monthly Chart (CSS only)
 ────────────────────────────────────────────────────────────── */
-function MonthlyChart({ receitas, despesas }: { receitas: Transaction[]; despesas: Transaction[] }) {
+/**
+ * Tendência dos últimos 6 meses. Fonte: GET /financeiro/cash-flow (groupBy=month),
+ * que agrega FinancialTransaction não-cancelada — entries (RECEITA) e exits (DESPESA)
+ * pelo MESMO critério (simétrico). A chave é YYYY-MM, então não mistura o mesmo mês de
+ * anos diferentes (bug antigo do getUTCMonth). É independente do filtro de período da
+ * tela: sempre mostra os 6 meses corridos.
+ */
+function MonthlyChart({ periods }: { periods: { period: string; entries: number; exits: number }[] }) {
   const months = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
-  const currentMonth = new Date().getUTCMonth();
+  const now = new Date();
+  const byKey = new Map(periods.map((p) => [p.period, p]));
 
   const monthlyData = Array.from({ length: 6 }, (_, i) => {
-    const mIdx = (currentMonth - 5 + i + 12) % 12;
-    const recTotal = receitas
-      .filter((t) => new Date(t.date).getUTCMonth() === mIdx && t.status === 'PAGO')
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-    const despTotal = despesas
-      .filter((t) => new Date(t.date).getUTCMonth() === mIdx)
-      .reduce((s, t) => s + parseFloat(t.amount), 0);
-    return { label: months[mIdx], receita: recTotal, despesa: despTotal };
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 5 + i, 1));
+    const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const found = byKey.get(key);
+    return { label: months[d.getUTCMonth()], receita: found?.entries || 0, despesa: found?.exits || 0 };
   });
 
+  const hasData = monthlyData.some((d) => d.receita > 0 || d.despesa > 0);
   const maxVal = Math.max(...monthlyData.map((d) => Math.max(d.receita, d.despesa)), 1);
 
   return (
     <div className="bg-card border border-border rounded-xl p-4">
-      <h3 className="text-sm font-bold text-foreground mb-4 flex items-center gap-2">
+      <h3 className="text-sm font-bold text-foreground mb-1 flex items-center gap-2">
         <BarChart3 size={15} className="text-primary" />
         Receitas vs Despesas (6 meses)
       </h3>
-      <div className="flex items-end gap-3 h-36">
-        {monthlyData.map((d, i) => (
-          <div key={i} className="flex-1 flex flex-col items-center gap-1">
-            <div className="w-full flex items-end justify-center gap-1 h-28">
-              <div
-                className="w-3 bg-emerald-500/70 rounded-t-sm transition-all duration-300"
-                style={{ height: `${Math.max(2, (d.receita / maxVal) * 100)}%` }}
-                title={`Receita: ${fmt(d.receita)}`}
-              />
-              <div
-                className="w-3 bg-red-500/70 rounded-t-sm transition-all duration-300"
-                style={{ height: `${Math.max(2, (d.despesa / maxVal) * 100)}%` }}
-                title={`Despesa: ${fmt(d.despesa)}`}
-              />
-            </div>
-            <span className="text-[10px] text-muted-foreground font-semibold">{d.label}</span>
+      <p className="text-[10px] text-muted-foreground mb-3">Últimos 6 meses · não depende do filtro de período acima</p>
+      {!hasData ? (
+        <div className="flex flex-col items-center justify-center h-36 text-center">
+          <BarChart3 size={24} className="text-muted-foreground/30 mb-2" />
+          <p className="text-xs text-muted-foreground">Sem movimentações nos últimos 6 meses</p>
+        </div>
+      ) : (
+        <>
+          <div className="flex items-end gap-3 h-36">
+            {monthlyData.map((d, i) => (
+              <div key={i} className="flex-1 flex flex-col items-center gap-1">
+                <div className="w-full flex items-end justify-center gap-1 h-28">
+                  <div
+                    className="w-3 bg-emerald-500/70 rounded-t-sm transition-all duration-300"
+                    style={{ height: `${Math.max(2, (d.receita / maxVal) * 100)}%` }}
+                    title={`Receita: ${fmt(d.receita)}`}
+                  />
+                  <div
+                    className="w-3 bg-red-500/70 rounded-t-sm transition-all duration-300"
+                    style={{ height: `${Math.max(2, (d.despesa / maxVal) * 100)}%` }}
+                    title={`Despesa: ${fmt(d.despesa)}`}
+                  />
+                </div>
+                <span className="text-[10px] text-muted-foreground font-semibold">{d.label}</span>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
-      <div className="flex items-center justify-center gap-4 mt-3">
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="w-2 h-2 rounded-full bg-emerald-500" /> Receitas
-        </span>
-        <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-          <span className="w-2 h-2 rounded-full bg-red-500" /> Despesas
-        </span>
-      </div>
+          <div className="flex items-center justify-center gap-4 mt-3">
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-full bg-emerald-500" /> Receitas
+            </span>
+            <span className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+              <span className="w-2 h-2 rounded-full bg-red-500" /> Despesas
+            </span>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -839,6 +854,8 @@ export default function FinanceiroPage() {
   const [receitas, setReceitas] = useState<Transaction[]>([]);
   const [despesas, setDespesas] = useState<Transaction[]>([]);
   const [overdue, setOverdue] = useState<Transaction[]>([]);
+  // Onda 16 — tendência 6 meses (cash-flow), independente do filtro de período.
+  const [cashFlow, setCashFlow] = useState<{ period: string; entries: number; exits: number }[]>([]);
   const [dentists, setDentists] = useState<{ id: string; name: string }[]>([]);
   const [filterDentistId, setFilterDentistId] = useState('');
   const [dbCategories, setDbCategories] = useState<{ id: string; type: string; name: string; icon: string | null }[]>([]);
@@ -878,14 +895,17 @@ export default function FinanceiroPage() {
     setLoading(true);
     const { startDate, endDate } = getPeriodRange(period);
     const dentistParam = effectiveDentistId || undefined;
+    // Gráfico de 6 meses: janela fixa de 6 meses corridos, NÃO usa o período selecionado.
+    const sixMoStart = new Date(Date.UTC(new Date().getUTCFullYear(), new Date().getUTCMonth() - 5, 1)).toISOString();
     try {
       // Defensivo: dashboard novo pode falhar enquanto deploy nao subiu;
       // resto da pagina nao deve quebrar. Promise.allSettled + fallback.
-      const [sumRes, recRes, despRes, dashRes] = await Promise.allSettled([
+      const [sumRes, recRes, despRes, dashRes, cfRes] = await Promise.allSettled([
         api.get('/financeiro/summary', { params: { startDate, endDate, dentistId: dentistParam } }),
         api.get('/financeiro/transactions', { params: { type: 'RECEITA', startDate, endDate, limit: 100, dentistId: dentistParam } }),
         api.get('/financeiro/transactions', { params: { type: 'DESPESA', startDate, endDate, limit: 100, dentistId: dentistParam } }),
         api.get('/financeiro/dashboard', { params: { startDate, endDate, dentistId: dentistParam } }),
+        api.get('/financeiro/cash-flow', { params: { groupBy: 'month', startDate: sixMoStart, dentistId: dentistParam } }),
       ]);
 
       if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data);
@@ -906,6 +926,8 @@ export default function FinanceiroPage() {
       } else {
         setDashboard(null);
       }
+
+      if (cfRes.status === 'fulfilled') setCashFlow(cfRes.value.data?.periods || []);
 
       // Overdue: receitas pendentes com due_date no passado
       const now = new Date();
@@ -1128,6 +1150,11 @@ export default function FinanceiroPage() {
                 bgColor="bg-amber-500/15"
               />
             </div>
+            <p className="text-[11px] text-muted-foreground -mt-2 px-0.5">
+              <span className="font-semibold text-emerald-400/90">Recebido</span> segue o período selecionado.{' '}
+              <span className="font-semibold">A receber</span>, <span className="font-semibold">Atrasado</span> e{' '}
+              <span className="font-semibold">Vencem 7d</span> mostram sempre a posição de hoje.
+            </p>
 
             {/* Widgets Top atrasos + Entrada do dia (lado a lado).
                 Próximos vencimentos foi pra baixo em widget próprio. */}
@@ -1303,7 +1330,7 @@ export default function FinanceiroPage() {
             })()}
 
             {/* Chart */}
-            <MonthlyChart receitas={receitas} despesas={despesas} />
+            <MonthlyChart periods={cashFlow} />
 
             {/* Quick Stats */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -1323,7 +1350,7 @@ export default function FinanceiroPage() {
                     <span className="text-red-400 font-bold tabular-nums">{despesas.length}</span>
                   </div>
                   <div className="flex items-center justify-between text-sm">
-                    <span className="text-muted-foreground">Em Atraso</span>
+                    <span className="text-muted-foreground">Receitas em atraso</span>
                     <span className="text-red-400 font-bold tabular-nums">{overdue.length}</span>
                   </div>
                   <div className="h-px bg-border my-1" />

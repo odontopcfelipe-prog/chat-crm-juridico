@@ -617,9 +617,11 @@ export class FinanceiroService {
     startDate?: string,
     endDate?: string,
     groupBy: 'day' | 'week' | 'month' = 'month',
+    dentistId?: string,
   ) {
     const where: any = { status: { not: 'CANCELADO' } };
     if (tenantId) where.tenant_id = tenantId;
+    if (dentistId) where.dentist_id = dentistId;
 
     if (startDate || endDate) {
       where.date = {};

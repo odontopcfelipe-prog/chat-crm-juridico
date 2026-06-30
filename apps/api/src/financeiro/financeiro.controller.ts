@@ -160,6 +160,7 @@ export class FinanceiroController {
     @Query('startDate') startDate: string,
     @Query('endDate') endDate: string,
     @Query('groupBy') groupBy: 'day' | 'week' | 'month',
+    @Query('dentistId') dentistId: string,
     @Request() req: any,
   ) {
     return this.service.getCashFlow(
@@ -167,6 +168,7 @@ export class FinanceiroController {
       startDate,
       endDate,
       groupBy || 'month',
+      dentistId,
     );
   }
 
