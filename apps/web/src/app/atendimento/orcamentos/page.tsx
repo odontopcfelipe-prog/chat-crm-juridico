@@ -93,7 +93,11 @@ function OrcamentosPageInner() {
   // Onda 17.32.41 — Le ?status= da URL pra pre-selecionar o filtro
   // (atalho "Propostas" no sidebar abre /atendimento/orcamentos?status=SENT).
   const searchParams = useSearchParams();
-  const urlStatus = searchParams?.get('status') || '';
+  // Filtros enxutos: só Aceito / Rascunho / Arquivado (pedido do operador). Default =
+  // Aceito; status removidos (Enviado/Rejeitado/Expirado/Todos) caem pro Aceito.
+  const ALLOWED_STATUS = ['ACCEPTED', 'DRAFT', 'ARCHIVED'];
+  const rawUrlStatus = searchParams?.get('status') || '';
+  const urlStatus = ALLOWED_STATUS.includes(rawUrlStatus) ? rawUrlStatus : 'ACCEPTED';
   const [list, setList] = useState<Quote[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -384,7 +388,7 @@ function OrcamentosPageInner() {
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-            {(['', 'DRAFT', 'SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED', 'ARCHIVED'] as const).map((s) => {
+            {(['ACCEPTED', 'DRAFT', 'ARCHIVED'] as const).map((s) => {
               // Onda 17.32.39 — filtro "Arquivado" puxa de /quotes/archived
               const label = s === 'ARCHIVED'
                 ? 'Arquivado'
