@@ -1019,6 +1019,18 @@ export default function FinanceiroPage() {
             </div>
           )}
 
+          {/* Caixa do dia — entradas que efetivamente caíram HOJE (recebido na clínica
+              + pagamentos Asaas online do dia). Independe do período selecionado. */}
+          <div
+            className="flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-xl"
+            title="Total que entrou no caixa hoje (recebimentos na clínica + Asaas)"
+          >
+            <span className="text-[10px] text-muted-foreground uppercase tracking-wider font-medium">Caixa dia</span>
+            <span className="text-base font-bold text-emerald-400">
+              {new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(dashboard?.entrada_do_dia?.value ?? 0)}
+            </span>
+          </div>
+
           {/* Period Selector */}
           <div className="flex items-center gap-2">
             <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1">
