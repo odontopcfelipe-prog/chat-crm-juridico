@@ -1978,7 +1978,7 @@ export class QuotesService {
         : {}),
     };
 
-    const [grouped, expiringSoon] = await Promise.all([
+    const [grouped, expiringSoon, distinctPatients, approvedAgg] = await Promise.all([
       this.prisma.quote.groupBy({
         by: ['status'],
         where,
@@ -1994,6 +1994,19 @@ export class QuotesService {
             lte: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
           },
         },
+      }),
+      // Pacientes únicos com QUALQUER orçamento (proxy de "avaliações realizadas").
+      // Calculado no backend pra não depender da lista filtrada do front.
+      this.prisma.quote.findMany({
+        where,
+        select: { patient_id: true },
+        distinct: ['patient_id'],
+      }),
+      // Aprovadas/fechadas = aceitas E escolhidas como proposta (is_chosen_proposal).
+      this.prisma.quote.aggregate({
+        where: { ...where, status: 'ACCEPTED', is_chosen_proposal: true },
+        _count: true,
+        _sum: { total_value: true },
       }),
     ]);
 
@@ -2024,6 +2037,10 @@ export class QuotesService {
       revenue_accepted: byStatus.ACCEPTED.total,
       conversion_rate: conversionRate,
       expiring_soon: expiringSoon,
+      // Funil completo — calculado server-side (independe do filtro do front).
+      patients_evaluated: distinctPatients.length,
+      approved_count: approvedAgg._count,
+      approved_value: Number(approvedAgg._sum.total_value) || 0,
     };
   }
 

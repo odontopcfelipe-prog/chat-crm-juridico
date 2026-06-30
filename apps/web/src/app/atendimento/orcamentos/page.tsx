@@ -45,6 +45,11 @@ interface DashboardStats {
   revenue_accepted: number;
   conversion_rate: number | null;
   expiring_soon: number;
+  // Funil completo (server-side, independe do filtro). Opcionais p/ compat
+  // com backend antigo — front cai pro cálculo local se não vierem.
+  patients_evaluated?: number;
+  approved_count?: number;
+  approved_value?: number;
 }
 
 const STATUS_BADGE: Record<Quote['status'], string> = {
@@ -217,7 +222,16 @@ function OrcamentosPageInner() {
   // Note: campos extras (patients_evaluated, approved_*) sempre vem do
   // computado (backend nao retorna ainda).
   const displayStats = stats
-    ? { ...stats, patients_evaluated: computedStats?.patients_evaluated ?? 0, approved_count: computedStats?.approved_count ?? 0, approved_value: computedStats?.approved_value ?? 0 }
+    ? {
+        ...stats,
+        // Prefere o cálculo do backend (todos os orçamentos); cai pro local só
+        // se o backend não enviar (compat). Antes usava SÓ o local, que conta em
+        // cima da lista filtrada — com o filtro padrão "Aceito" isso subcontava
+        // "Avaliações realizadas".
+        patients_evaluated: stats.patients_evaluated ?? computedStats?.patients_evaluated ?? 0,
+        approved_count: stats.approved_count ?? computedStats?.approved_count ?? 0,
+        approved_value: stats.approved_value ?? computedStats?.approved_value ?? 0,
+      }
     : computedStats;
 
 
