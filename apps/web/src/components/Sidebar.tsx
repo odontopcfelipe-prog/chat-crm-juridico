@@ -608,7 +608,7 @@ export function Sidebar() {
       show: true,
     },
     orcamentos: {
-      label: 'Orçamentos',
+      label: 'Avaliação',
       href: '/atendimento/orcamentos',
       icon: <FileText size={20} strokeWidth={2} />,
       // Onda 17.32.41 — Nao destaca quando query string e status=SENT
