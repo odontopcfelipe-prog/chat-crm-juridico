@@ -218,11 +218,11 @@ function whatsappLink(phone: string, message: string): string {
 /* ──────────────────────────────────────────────────────────────
    KPI Card
 ────────────────────────────────────────────────────────────── */
-function KpiCard({ icon: Icon, label, value, color, bgColor }: {
-  icon: any; label: string; value: string; color: string; bgColor: string;
+function KpiCard({ icon: Icon, label, value, color, bgColor, hint }: {
+  icon: any; label: string; value: string; color: string; bgColor: string; hint?: string;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
+    <div className="bg-card border border-border rounded-xl p-4" title={hint}>
       <div className={`w-8 h-8 rounded-lg ${bgColor} flex items-center justify-center mb-2`}>
         <Icon size={16} className={color} />
       </div>
@@ -1123,6 +1123,7 @@ export default function FinanceiroPage() {
                 value={fmt(dashboard?.recebido_no_periodo.value ?? summary.totalRevenue)}
                 color="text-emerald-400"
                 bgColor="bg-emerald-500/15"
+                hint="Cobranças de pacientes recebidas (Asaas + espécie) no período selecionado"
               />
               <KpiCard
                 icon={Clock}
@@ -1130,6 +1131,7 @@ export default function FinanceiroPage() {
                 value={fmt(dashboard?.a_receber_total.value ?? summary.totalReceivable)}
                 color="text-blue-400"
                 bgColor="bg-blue-500/15"
+                hint="Cobranças de pacientes em aberto — posição de hoje (não muda com o período)"
               />
               <KpiCard
                 icon={AlertTriangle}
@@ -1141,6 +1143,7 @@ export default function FinanceiroPage() {
                 value={fmt(dashboard?.atrasado.value ?? summary.totalOverdue)}
                 color="text-red-400"
                 bgColor="bg-red-500/15"
+                hint="Cobranças vencidas e não pagas — posição de hoje (não muda com o período)"
               />
               <KpiCard
                 icon={TrendingUp}
@@ -1148,6 +1151,7 @@ export default function FinanceiroPage() {
                 value={fmt(dashboard?.a_vencer_7d.value ?? 0)}
                 color="text-amber-400"
                 bgColor="bg-amber-500/15"
+                hint="Cobranças que vencem nos próximos 7 dias — posição de hoje"
               />
             </div>
             <p className="text-[11px] text-muted-foreground -mt-2 px-0.5">
@@ -1193,8 +1197,8 @@ export default function FinanceiroPage() {
                         );
                       })}
                     </div>
-                    <button onClick={() => setTab('Receitas')} className="text-[10px] font-bold text-emerald-400 hover:underline mt-3">
-                      Ver todas as entradas →
+                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-emerald-400 hover:underline mt-3">
+                      Ver todas as cobranças →
                     </button>
                   </div>
                 ) : dashboard.top_atrasos.length > 0 ? (
@@ -1276,58 +1280,24 @@ export default function FinanceiroPage() {
                 A vencer/Pagas), evita duplicar info. Saldo + projeção
                 seguem disponíveis no widget "Resumo do Periodo" abaixo. */}
 
-            {/* Info do advogado filtrado */}
+            {/* Indicador de filtro por dentista (os numeros ja estao no Resumo do Periodo) */}
             {effectiveDentistId && (
-              <div className="bg-card border border-primary/20 rounded-xl p-4 flex items-center gap-3">
-                <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center text-primary text-lg font-bold">
+              <div className="bg-card border border-primary/20 rounded-xl p-3 flex items-center gap-3">
+                <div className="w-9 h-9 rounded-xl bg-primary/15 flex items-center justify-center text-primary text-base font-bold">
                   {dentists.find(d => d.id === effectiveDentistId)?.name?.[0] || userId?.[0]?.toUpperCase() || '?'}
                 </div>
                 <div>
+                  <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-semibold">Visão filtrada por dentista</p>
                   <p className="text-sm font-bold text-foreground">
                     {dentists.find(d => d.id === effectiveDentistId)?.name || 'Meus dados'}
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    {receitas.length} receitas | {despesas.length} despesas | Saldo: {fmt(summary.balance)}
                   </p>
                 </div>
               </div>
             )}
 
-            {/* Proximos vencimentos (receitas pendentes) */}
-            {(() => {
-              const now = new Date();
-              const in30d = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
-              const upcoming = receitas
-                .filter(r => r.status === 'PENDENTE' && r.due_date && new Date(r.due_date) >= now && new Date(r.due_date) <= in30d)
-                .sort((a, b) => new Date(a.due_date!).getTime() - new Date(b.due_date!).getTime())
-                .slice(0, 5);
-              if (upcoming.length === 0) return null;
-              return (
-                <div className="bg-card border border-border rounded-xl p-4">
-                  <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
-                    <Clock size={14} className="text-amber-400" /> Proximos Vencimentos (30 dias)
-                  </h3>
-                  <div className="space-y-2">
-                    {upcoming.map(r => {
-                      const dt = new Date(r.due_date!);
-                      const days = Math.ceil((dt.getTime() - now.getTime()) / 86400000);
-                      return (
-                        <div key={r.id} className="flex items-center justify-between text-sm">
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className={`text-xs font-bold ${days <= 3 ? 'text-red-400' : days <= 7 ? 'text-amber-400' : 'text-muted-foreground'}`}>
-                              {days}d
-                            </span>
-                            <span className="text-foreground truncate max-w-[200px]">{r.description}</span>
-                            {r.lead?.name && <span className="text-xs text-muted-foreground">({r.lead.name})</span>}
-                          </div>
-                          <span className="font-bold text-amber-400 tabular-nums shrink-0">{fmt(r.amount)}</span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })()}
+            {/* (Removido) Widget "Proximos Vencimentos 30d" baseado em FinancialTransaction —
+                era redundante com "Proximos 10 vencimentos" (cobranças de paciente, a fonte
+                real do a-receber). Receitas manuais pendentes seguem na aba Receitas. */}
 
             {/* Chart */}
             <MonthlyChart periods={cashFlow} />
