@@ -1143,35 +1143,7 @@ export default function FinanceiroPage() {
                 Próximos vencimentos foi pra baixo em widget próprio. */}
             {dashboard && (dashboard.top_atrasos.length > 0 || (dashboard.entrada_do_dia?.count ?? 0) > 0) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {/* Top atrasos */}
-                {dashboard.top_atrasos.length > 0 && (
-                  <div className="bg-card border border-red-500/20 rounded-xl p-4">
-                    <h3 className="text-sm font-bold text-red-400 mb-3 flex items-center gap-2">
-                      <AlertTriangle size={14} />
-                      Top atrasos ({dashboard.top_atrasos.length})
-                    </h3>
-                    <div className="space-y-2">
-                      {dashboard.top_atrasos.slice(0, 5).map((c) => (
-                        <button
-                          key={c.id}
-                          onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
-                          className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
-                        >
-                          <div className="flex items-center gap-2 min-w-0">
-                            <span className="text-xs font-bold text-red-400 shrink-0">{c.days_overdue}d</span>
-                            <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
-                          </div>
-                          <span className="text-xs font-bold text-red-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
-                        </button>
-                      ))}
-                    </div>
-                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-red-400 hover:underline mt-3">
-                      Ver todos →
-                    </button>
-                  </div>
-                )}
-
-                {/* Entrada do dia — Onda 16.2 */}
+                {/* Entrada do dia — Onda 16.2 (à ESQUERDA agora) */}
                 {(dashboard.entrada_do_dia?.count ?? 0) > 0 ? (
                   <div className="bg-card border border-emerald-500/20 rounded-xl p-4">
                     <div className="flex items-center justify-between mb-3">
@@ -1210,14 +1182,41 @@ export default function FinanceiroPage() {
                   </div>
                 ) : dashboard.top_atrasos.length > 0 ? (
                   // Placeholder quando tem atrasos mas nao tem entrada hoje —
-                  // mantem grid 2 colunas pra simetria, nao deixa Top atrasos
-                  // gigante esticado pelo card todo.
+                  // mantem grid 2 colunas pra simetria.
                   <div className="bg-card border border-border rounded-xl p-4 flex flex-col items-center justify-center text-center min-h-[140px]">
                     <DollarSign size={20} className="text-muted-foreground/40 mb-2" />
                     <p className="text-xs text-muted-foreground font-semibold">Entrada do dia</p>
                     <p className="text-[11px] text-muted-foreground/60 mt-1">Nenhuma cobrança paga hoje ainda</p>
                   </div>
                 ) : null}
+
+                {/* Top atrasos (à DIREITA agora) */}
+                {dashboard.top_atrasos.length > 0 && (
+                  <div className="bg-card border border-red-500/20 rounded-xl p-4">
+                    <h3 className="text-sm font-bold text-red-400 mb-3 flex items-center gap-2">
+                      <AlertTriangle size={14} />
+                      Top atrasos ({dashboard.top_atrasos.length})
+                    </h3>
+                    <div className="space-y-2">
+                      {dashboard.top_atrasos.slice(0, 5).map((c) => (
+                        <button
+                          key={c.id}
+                          onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
+                          className="w-full flex items-center justify-between text-sm hover:bg-accent/10 -mx-2 px-2 py-1 rounded transition-colors text-left"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-xs font-bold text-red-400 shrink-0">{c.days_overdue}d</span>
+                            <span className="text-foreground truncate">{c.patient?.name || 'Sem nome'}</span>
+                          </div>
+                          <span className="text-xs font-bold text-red-400 tabular-nums shrink-0">{fmt(c.amount)}</span>
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => setTab('Boletos')} className="text-[10px] font-bold text-red-400 hover:underline mt-3">
+                      Ver todos →
+                    </button>
+                  </div>
+                )}
               </div>
             )}
 
