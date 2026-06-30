@@ -20,16 +20,6 @@ import ValidarTab from './components/ValidarTab';
 // Fase 5 — lançador de diária (DESPESA category='DIARIA')
 import DailyRateTab from './components/DailyRateTab';
 
-/** Formata número de processo no padrão CNJ: NNNNNNN-DD.AAAA.J.TR.OOOO */
-const formatCNJ = (num: string | null | undefined): string => {
-  if (!num) return '--';
-  const digits = num.replace(/\D/g, '');
-  if (digits.length === 20) {
-    return `${digits.slice(0,7)}-${digits.slice(7,9)}.${digits.slice(9,13)}.${digits.slice(13,14)}.${digits.slice(14,16)}.${digits.slice(16,20)}`;
-  }
-  return num;
-};
-
 /** Rótulo amigável da forma de pagamento no caixa (evita exibir o valor cru). */
 const PAYMENT_METHOD_LABEL: Record<string, string> = {
   PIX: 'PIX',
@@ -153,8 +143,8 @@ const PERIODS = [
 
 const MONTH_NAMES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 
-const RECEITA_CATEGORIES = ['Honorarios', 'Consultas', 'Acordos Extrajudiciais', 'Outros'];
-const DESPESA_CATEGORIES = ['Custas Judiciais', 'Pericias', 'Deslocamento', 'Material de Escritorio', 'Cartorio', 'Correios', 'Outros'];
+const RECEITA_CATEGORIES = ['Procedimento', 'Consulta', 'Produto', 'Outros'];
+const DESPESA_CATEGORIES = ['Aluguel', 'Material Odontologico', 'Laboratorio', 'Folha de Pagamento', 'Contas (agua/luz/internet)', 'Equipamento', 'Outros'];
 
 /* ──────────────────────────────────────────────────────────────
    Helpers
@@ -478,12 +468,12 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
           <span className="text-xs font-semibold">{isPaid ? 'Já pago' : 'Pendente'}</span>
         </button>
 
-        {/* Visibilidade para advogado (só despesas) */}
+        {/* Visibilidade para o dentista (só despesas) */}
         {type === 'DESPESA' && (
           <label className="flex items-center gap-2 cursor-pointer">
             <input type="checkbox" checked={!visibleToDentist} onChange={e => setVisibleToDentist(!e.target.checked)}
               className="w-3.5 h-3.5 rounded border-border accent-primary" />
-            <span className="text-xs text-muted-foreground">Ocultar do advogado</span>
+            <span className="text-xs text-muted-foreground">Ocultar do dentista</span>
           </label>
         )}
       </div>
@@ -849,8 +839,8 @@ export default function FinanceiroPage() {
   const [receitas, setReceitas] = useState<Transaction[]>([]);
   const [despesas, setDespesas] = useState<Transaction[]>([]);
   const [overdue, setOverdue] = useState<Transaction[]>([]);
-  const [lawyers, setLawyers] = useState<{ id: string; name: string }[]>([]);
-  const [filterLawyerId, setFilterLawyerId] = useState('');
+  const [dentists, setDentists] = useState<{ id: string; name: string }[]>([]);
+  const [filterDentistId, setFilterDentistId] = useState('');
   const [dbCategories, setDbCategories] = useState<{ id: string; type: string; name: string; icon: string | null }[]>([]);
   const { isAdmin, isFinanceiro, userId } = useRole();
   // Fase 5 — só quem tem manage_financial vê a aba "Diárias".
@@ -859,20 +849,20 @@ export default function FinanceiroPage() {
   // Diárias e Validar (libera tratamento) só pra quem tem manage_financial.
   const visibleTabs = TABS.filter((t) => (t !== 'Diárias' && t !== 'Validar') || canManageFinancial);
 
-  /* ─── Auth guard + saldo Asaas + advogados ─── */
+  /* ─── Auth guard + saldo Asaas + dentistas ─── */
   useEffect(() => {
     const token = localStorage.getItem('token');
     if (!token) { router.push('/atendimento/login'); return; }
     api.get('/payment-gateway/balance').then(r => setAsaasBalance(r.data?.balance ?? r.data?.value ?? null)).catch(() => {});
     api.get('/financeiro/categories').then(r => setDbCategories(r.data || [])).catch(() => {});
     if (isAdmin || isFinanceiro) {
-      api.get('/users/lawyers').then(r => setLawyers(r.data || [])).catch(() => {});
+      api.get('/users/lawyers').then(r => setDentists(r.data || [])).catch(() => {});
     }
   }, [router, isAdmin, isFinanceiro]);
 
   /* ─── Fetch data ─── */
-  // Advogado não-admin vê apenas seus dados
-  const effectiveLawyerId = (isAdmin || isFinanceiro) ? filterLawyerId : (userId || '');
+  // Dentista não-admin vê apenas seus dados
+  const effectiveDentistId = (isAdmin || isFinanceiro) ? filterDentistId : (userId || '');
 
   // Categorias dinâmicas do banco (com fallback para hardcoded)
   const despesaCats = dbCategories.filter(c => c.type === 'DESPESA').map(c => c.name);
@@ -887,15 +877,15 @@ export default function FinanceiroPage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
     const { startDate, endDate } = getPeriodRange(period);
-    const lawyerParam = effectiveLawyerId || undefined;
+    const dentistParam = effectiveDentistId || undefined;
     try {
       // Defensivo: dashboard novo pode falhar enquanto deploy nao subiu;
       // resto da pagina nao deve quebrar. Promise.allSettled + fallback.
       const [sumRes, recRes, despRes, dashRes] = await Promise.allSettled([
-        api.get('/financeiro/summary', { params: { startDate, endDate, lawyerId: lawyerParam } }),
-        api.get('/financeiro/transactions', { params: { type: 'RECEITA', startDate, endDate, limit: 100, lawyerId: lawyerParam } }),
-        api.get('/financeiro/transactions', { params: { type: 'DESPESA', startDate, endDate, limit: 100, lawyerId: lawyerParam } }),
-        api.get('/financeiro/dashboard', { params: { startDate, endDate, dentistId: lawyerParam } }),
+        api.get('/financeiro/summary', { params: { startDate, endDate, dentistId: dentistParam } }),
+        api.get('/financeiro/transactions', { params: { type: 'RECEITA', startDate, endDate, limit: 100, dentistId: dentistParam } }),
+        api.get('/financeiro/transactions', { params: { type: 'DESPESA', startDate, endDate, limit: 100, dentistId: dentistParam } }),
+        api.get('/financeiro/dashboard', { params: { startDate, endDate, dentistId: dentistParam } }),
       ]);
 
       if (sumRes.status === 'fulfilled') setSummary(sumRes.value.data);
@@ -928,7 +918,7 @@ export default function FinanceiroPage() {
     } finally {
       setLoading(false);
     }
-  }, [period, effectiveLawyerId]);
+  }, [period, effectiveDentistId]);
 
   useEffect(() => {
     const token = localStorage.getItem('token');
@@ -997,15 +987,15 @@ export default function FinanceiroPage() {
             </div>
           </div>
 
-          {/* Filtro por advogado (admin/financeiro) */}
-          {(isAdmin || isFinanceiro) && lawyers.length > 0 && (
+          {/* Filtro por dentista (admin/financeiro) */}
+          {(isAdmin || isFinanceiro) && dentists.length > 0 && (
             <select
-              value={filterLawyerId}
-              onChange={e => setFilterLawyerId(e.target.value)}
+              value={filterDentistId}
+              onChange={e => setFilterDentistId(e.target.value)}
               className="px-3 py-2 text-xs bg-card border border-border rounded-xl focus:outline-none"
             >
               <option value="">Todos os dentistas</option>
-              {lawyers.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              {dentists.map(d => <option key={d.id} value={d.id}>{d.name}</option>)}
             </select>
           )}
 
@@ -1260,14 +1250,14 @@ export default function FinanceiroPage() {
                 seguem disponíveis no widget "Resumo do Periodo" abaixo. */}
 
             {/* Info do advogado filtrado */}
-            {effectiveLawyerId && (
+            {effectiveDentistId && (
               <div className="bg-card border border-primary/20 rounded-xl p-4 flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-primary/15 flex items-center justify-center text-primary text-lg font-bold">
-                  {lawyers.find(l => l.id === effectiveLawyerId)?.name?.[0] || userId?.[0]?.toUpperCase() || '?'}
+                  {dentists.find(d => d.id === effectiveDentistId)?.name?.[0] || userId?.[0]?.toUpperCase() || '?'}
                 </div>
                 <div>
                   <p className="text-sm font-bold text-foreground">
-                    {lawyers.find(l => l.id === effectiveLawyerId)?.name || 'Meus dados'}
+                    {dentists.find(d => d.id === effectiveDentistId)?.name || 'Meus dados'}
                   </p>
                   <p className="text-xs text-muted-foreground">
                     {receitas.length} receitas | {despesas.length} despesas | Saldo: {fmt(summary.balance)}
@@ -1377,7 +1367,7 @@ export default function FinanceiroPage() {
         )}
 
         {/* ─── TAB: Receitas ─── */}
-        {tab === 'Receitas' && <ReceitasTab receitas={receitas} onRefresh={fetchData} lawyerId={effectiveLawyerId} />}
+        {tab === 'Receitas' && <ReceitasTab receitas={receitas} onRefresh={fetchData} lawyerId={effectiveDentistId} />}
 
         {/* ─── TAB: Despesas ─── */}
         {tab === 'Despesas' && (() => {
@@ -1425,10 +1415,10 @@ export default function FinanceiroPage() {
         })()}
 
         {/* ─── TAB: Boletos (Onda 16) — todos os PaymentGatewayCharge ─── */}
-        {tab === 'Boletos' && <BoletosTab dentistId={effectiveLawyerId || undefined} />}
+        {tab === 'Boletos' && <BoletosTab dentistId={effectiveDentistId || undefined} />}
 
         {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
-        {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveLawyerId || undefined} />}
+        {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveDentistId || undefined} />}
 
         {/* ─── TAB: Validar — fila de tratamentos aguardando liberação pro dentista ─── */}
         {tab === 'Validar' && canManageFinancial && <ValidarTab />}
@@ -1457,8 +1447,7 @@ export default function FinanceiroPage() {
                   const days = t.due_date ? daysOverdue(t.due_date) : 0;
                   const clientName = t.lead?.name || 'Cliente desconhecido';
                   const clientPhone = t.lead?.phone || '';
-                  const caseNumber = formatCNJ(t.legal_case?.case_number);
-                  const reminderMsg = `Ola ${clientName}, verificamos que existe um pagamento pendente no valor de ${fmt(t.amount)} referente ao processo ${caseNumber}. Por gentileza, entre em contato para regularizacao.`;
+                  const reminderMsg = `Ola ${clientName}, verificamos que existe um pagamento pendente no valor de ${fmt(t.amount)}${t.description ? ` referente a ${t.description}` : ''}. Por gentileza, entre em contato para regularizacao.`;
 
                   return (
                     <div key={t.id} className="bg-card border border-border rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
@@ -1472,7 +1461,7 @@ export default function FinanceiroPage() {
                           </span>
                         </div>
                         <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                          <span>Processo: {caseNumber}</span>
+                          <span className="truncate">{t.description || t.category || '--'}</span>
                           <span className="text-red-400 font-bold">{fmt(t.amount)}</span>
                           {t.due_date && <span>Venc.: {fmtDate(t.due_date)}</span>}
                         </div>
@@ -1504,7 +1493,7 @@ export default function FinanceiroPage() {
         )}
 
         {/* ─── TAB: Log de Movimentações ─── */}
-        {tab === 'Log' && <AuditLogTab lawyerId={effectiveLawyerId} />}
+        {tab === 'Log' && <AuditLogTab dentistId={effectiveDentistId} />}
       </div>
     </div>
   );
@@ -1531,7 +1520,7 @@ const ACTION_CONFIG: Record<string, { label: string; color: string; icon: string
   DESPESA_PAGA: { label: 'Despesa paga', color: 'text-orange-400 bg-orange-500/10 border-orange-500/20', icon: '💸' },
 };
 
-function AuditLogTab({ lawyerId }: { lawyerId?: string }) {
+function AuditLogTab({ dentistId }: { dentistId?: string }) {
   const [logs, setLogs] = useState<any[]>([]);
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -1550,13 +1539,13 @@ function AuditLogTab({ lawyerId }: { lawyerId?: string }) {
     setLoading(true);
     try {
       const params: any = { limit: String(limit), offset: String(page * limit) };
-      if (lawyerId) params.lawyerId = lawyerId;
+      if (dentistId) params.dentistId = dentistId;
       const res = await api.get('/financeiro/audit-log', { params });
       setLogs(res.data?.data || []);
       setTotal(res.data?.total || 0);
     } catch { setLogs([]); }
     finally { setLoading(false); }
-  }, [lawyerId, page]);
+  }, [dentistId, page]);
 
   useEffect(() => { fetchLogs(); }, [fetchLogs]);
 
@@ -2499,14 +2488,12 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
     try {
       const params: any = {};
       if (lawyerId) params.lawyerId = lawyerId;
-      const [caseRes, leadRes] = await Promise.all([
-        api.get('/honorarios/pending-payments', { params }),
-        api.get('/leads/honorarios-negociados/pending-payments', { params }),
-      ]);
-      // Marcar origem para diferenciar na renderização
-      const casePays = (caseRes.data || []).map((p: any) => ({ ...p, _source: 'case' }));
+      // So leads com honorario negociado — o endpoint juridico de "cases"
+      // (/honorarios/pending-payments) foi removido na transicao odonto e
+      // dava 404, derrubando TODA a lista (o Promise.all rejeitava).
+      const leadRes = await api.get('/leads/honorarios-negociados/pending-payments', { params });
       const leadPays = (leadRes.data || []).map((p: any) => ({ ...p, _source: 'lead' }));
-      setPendingPayments([...casePays, ...leadPays].sort((a: any, b: any) => {
+      setPendingPayments(leadPays.sort((a: any, b: any) => {
         const da = a.due_date ? new Date(a.due_date).getTime() : Infinity;
         const db = b.due_date ? new Date(b.due_date).getTime() : Infinity;
         return da - db;
@@ -2520,7 +2507,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   // Form fields
   const [desc, setDesc] = useState('');
   const [amount, setAmount] = useState('');
-  const [category, setCategory] = useState('HONORARIO');
+  const [category, setCategory] = useState('Procedimento');
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
@@ -2536,7 +2523,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   const fmtDate = (d: string) => { if (!d) return '--'; const dt = new Date(d); return `${String(dt.getUTCDate()).padStart(2,'0')}/${String(dt.getUTCMonth()+1).padStart(2,'0')}/${dt.getUTCFullYear()}`; };
 
   const resetForm = () => {
-    setDesc(''); setAmount(''); setCategory('HONORARIO'); setDate(new Date().toISOString().slice(0,10));
+    setDesc(''); setAmount(''); setCategory('Procedimento'); setDate(new Date().toISOString().slice(0,10));
     setDueDate(''); setPaymentMethod(''); setStatus('PENDENTE'); setClientSearch('');
     setClientResults([]); setSelectedClient(null); setGenerateCharge(false); setNotes('');
   };
@@ -2648,7 +2635,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div className="md:col-span-2">
                 <label className="text-xs font-medium text-muted-foreground block mb-1">Descricao *</label>
-                <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Ex: Honorarios processo 0001234"
+                <input value={desc} onChange={e => setDesc(e.target.value)} placeholder="Ex: Restauração 2 faces - João Silva"
                   className="w-full px-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none focus:ring-2 focus:ring-primary/40" />
               </div>
               <div>
@@ -2751,7 +2738,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
             <div className="bg-card border border-border rounded-xl p-12 text-center">
               <Clock size={40} className="mx-auto text-muted-foreground/30 mb-3" />
               <p className="text-sm text-muted-foreground font-medium">Nenhum valor a receber</p>
-              <p className="text-xs text-muted-foreground mt-1">Cadastre honorarios nos processos para acompanhar valores pendentes</p>
+              <p className="text-xs text-muted-foreground mt-1">Os valores a receber de planos de tratamento aparecem na aba Boletos</p>
             </div>
           ) : (() => {
             // Agrupar parcelas por honorário
@@ -2764,7 +2751,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
                 const lc = isLead ? null : p.honorario?.legal_case;
                 const leadData = isLead ? p.lead_honorario?.lead : lc?.lead;
                 const honType = isLead ? p.lead_honorario?.type : p.honorario?.type;
-                const label = isLead ? 'LEAD' : `${formatCNJ(lc?.case_number)} ${lc?.specialty ? `(${lc.specialty})` : ''}`.trim();
+                const label = isLead ? 'LEAD' : `${lc?.case_number || ''} ${lc?.specialty ? `(${lc.specialty})` : ''}`.trim();
                 groups.set(groupKey, { key: groupKey, isLead, label, clientName: leadData?.name || '--', honType: honType || '', payments: [] });
               }
               groups.get(groupKey)!.payments.push(p);
@@ -3655,229 +3642,6 @@ function InfoRow({ label, value }: { label: string; value: string }) {
     <div className="flex items-start justify-between gap-2">
       <span className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider shrink-0">{label}</span>
       <span className="text-xs text-foreground text-right">{value}</span>
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════════════════
-   Componente: Processos com resumo financeiro
-══════════════════════════════════════════════════════════════ */
-
-function ProcessosFinanceiroTab({ lawyerId }: { lawyerId: string }) {
-  const router = useRouter();
-  const [cases, setCases] = useState<any[]>([]);
-  const [leadHonSummary, setLeadHonSummary] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [searchQ, setSearchQ] = useState('');
-
-  const fmt = (v: number) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(v);
-
-  useEffect(() => {
-    setLoading(true);
-    Promise.all([
-      api.get('/legal-cases', { params: { inTracking: 'true', archived: 'false' } }),
-      api.get('/leads/honorarios-negociados/summary'),
-    ])
-      .then(([caseRes, leadRes]) => {
-        setCases(caseRes.data || []);
-        setLeadHonSummary(leadRes.data || []);
-      })
-      .catch(() => { setCases([]); setLeadHonSummary([]); })
-      .finally(() => setLoading(false));
-  }, []);
-
-  const filtered = cases.filter(c => {
-    if (lawyerId && c.dentist_id !== lawyerId) return false;
-    if (searchQ) {
-      const q = searchQ.toLowerCase();
-      return (c.lead?.name || '').toLowerCase().includes(q) || (c.case_number || '').toLowerCase().includes(q);
-    }
-    return true;
-  });
-
-  const casesWithFin = filtered.map(c => {
-    const fin = (c.honorarios || []).reduce((acc: any, h: any) => {
-      acc.contracted += parseFloat(h.total_value) || 0;
-      (h.payments || []).forEach((p: any) => {
-        const amt = parseFloat(p.amount) || 0;
-        if (p.status === 'PAGO') acc.received += amt;
-        else if (p.status === 'ATRASADO') acc.overdue += amt;
-        else acc.pending += amt;
-      });
-      return acc;
-    }, { contracted: 0, received: 0, pending: 0, overdue: 0 });
-    return { ...c, fin };
-  });
-
-  const totals = casesWithFin.reduce((acc, c) => ({
-    contracted: acc.contracted + c.fin.contracted, received: acc.received + c.fin.received,
-    pending: acc.pending + c.fin.pending, overdue: acc.overdue + c.fin.overdue,
-  }), { contracted: 0, received: 0, pending: 0, overdue: 0 });
-
-  const withHonorarios = casesWithFin.filter(c => c.fin.contracted > 0);
-  const withoutHonorarios = casesWithFin.filter(c => c.fin.contracted === 0);
-
-  return (
-    <div className="space-y-4">
-      <div className="flex items-center justify-between flex-wrap gap-3">
-        <div className="relative">
-          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input type="text" value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Buscar por cliente ou processo..."
-            className="pl-9 pr-3 py-2 text-sm bg-background border border-border rounded-lg focus:outline-none w-60" />
-        </div>
-        <span className="text-xs text-muted-foreground">{filtered.length} processos | {withHonorarios.length} com honorarios</span>
-      </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <div className="bg-card border border-border rounded-xl p-3 text-center">
-          <p className="text-[10px] text-blue-400 uppercase tracking-wider font-medium">Contratado</p>
-          <p className="text-base font-bold text-blue-400">{fmt(totals.contracted)}</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-3 text-center">
-          <p className="text-[10px] text-emerald-400 uppercase tracking-wider font-medium">Recebido</p>
-          <p className="text-base font-bold text-emerald-400">{fmt(totals.received)}</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-3 text-center">
-          <p className="text-[10px] text-amber-400 uppercase tracking-wider font-medium">Pendente</p>
-          <p className="text-base font-bold text-amber-400">{fmt(totals.pending)}</p>
-        </div>
-        <div className="bg-card border border-border rounded-xl p-3 text-center">
-          <p className="text-[10px] text-red-400 uppercase tracking-wider font-medium">Atrasado</p>
-          <p className="text-base font-bold text-red-400">{fmt(totals.overdue)}</p>
-        </div>
-      </div>
-
-      {/* Leads com Honorários Negociados */}
-      {leadHonSummary.length > 0 && (
-        <div className="space-y-2">
-          <div className="flex items-center gap-2 px-1">
-            <Handshake size={14} className="text-amber-400" />
-            <span className="text-[10px] font-bold uppercase tracking-widest text-amber-400">Leads com Honorários Negociados</span>
-            <span className="text-[10px] text-muted-foreground">({leadHonSummary.length})</span>
-          </div>
-          <div className="bg-card border border-amber-500/20 rounded-xl overflow-hidden">
-            <table className="w-full text-xs">
-              <thead>
-                <tr className="border-b border-border bg-card/80">
-                  <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Cliente</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Tipo</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Parcelas</th>
-                  <th className="px-4 py-2.5 text-right font-semibold text-muted-foreground">Contratado</th>
-                  <th className="px-4 py-2.5 text-right font-semibold text-muted-foreground">Recebido</th>
-                  <th className="px-4 py-2.5 text-right font-semibold text-muted-foreground">Pendente</th>
-                  <th className="px-4 py-2.5 text-left font-semibold text-muted-foreground">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {leadHonSummary.map((lh: any) => {
-                  const statusColors: Record<string, string> = {
-                    NEGOCIANDO: 'bg-amber-500/15 text-amber-400', ACEITO: 'bg-emerald-500/15 text-emerald-400',
-                  };
-                  const typeLabels: Record<string, string> = { CONTRATUAL: 'Contratual', ENTRADA: 'Entrada', ACORDO: 'Acordo' };
-                  return (
-                    <tr key={lh.id} className="border-b border-border/40 hover:bg-accent/10">
-                      <td className="px-4 py-2.5">
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/20 font-semibold">LEAD</span>
-                          <span className="font-medium text-foreground truncate max-w-[120px]">{lh.lead?.name || '--'}</span>
-                        </div>
-                      </td>
-                      <td className="px-4 py-2.5"><span className="text-[9px] px-1.5 py-0.5 rounded bg-violet-500/15 text-violet-400 border border-violet-500/20">{typeLabels[lh.type] || lh.type}</span></td>
-                      <td className="px-4 py-2.5 text-muted-foreground">{lh.installment_count}x</td>
-                      <td className="px-4 py-2.5 text-right font-bold text-blue-400">{fmt(lh.contracted)}</td>
-                      <td className="px-4 py-2.5 text-right font-semibold text-emerald-400">{fmt(lh.received)}</td>
-                      <td className="px-4 py-2.5 text-right">
-                        {lh.overdue > 0 ? <span className="font-semibold text-red-400">{fmt(lh.overdue)}</span>
-                          : lh.pending > 0 ? <span className="font-semibold text-amber-400">{fmt(lh.pending)}</span>
-                          : <span className="text-muted-foreground">--</span>}
-                      </td>
-                      <td className="px-4 py-2.5"><span className={`text-[9px] px-1.5 py-0.5 rounded font-semibold ${statusColors[lh.status] || 'bg-gray-500/15 text-gray-400'}`}>{lh.status}</span></td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      )}
-
-      {loading ? (
-        <div className="text-center py-12"><Loader2 size={20} className="animate-spin text-muted-foreground mx-auto" /></div>
-      ) : withHonorarios.length === 0 && leadHonSummary.length === 0 ? (
-        <div className="text-center py-12 text-muted-foreground">
-          <Receipt size={40} className="mx-auto mb-3 opacity-30" />
-          <p className="text-sm">Nenhum processo com honorarios cadastrados</p>
-        </div>
-      ) : withHonorarios.length === 0 ? null : (
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <table className="w-full text-xs">
-            <thead>
-              <tr className="border-b border-border bg-card/80">
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Cliente</th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Processo</th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Area</th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Advogado</th>
-                <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Etapa</th>
-                <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Contratado</th>
-                <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Recebido</th>
-                <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Pendente</th>
-                <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Progresso</th>
-              </tr>
-            </thead>
-            <tbody>
-              {withHonorarios.map(c => {
-                const pct = c.fin.contracted > 0 ? Math.round((c.fin.received / c.fin.contracted) * 100) : 0;
-                return (
-                  <tr key={c.id} className="border-b border-border/40 hover:bg-accent/10 cursor-pointer" onClick={() => router.push(`/atendimento/processos?openCase=${c.id}`)}>
-                    <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-6 h-6 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[9px] font-bold">{(c.lead?.name || '?')[0]?.toUpperCase()}</div>
-                        <span className="font-medium text-foreground truncate max-w-[140px]">{c.lead?.name || '--'}</span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-[10px] text-muted-foreground">{c.case_number?.slice(-10) || '--'}</td>
-                    <td className="px-4 py-3"><span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-primary/10 text-primary">{c.specialty || '--'}</span></td>
-                    <td className="px-4 py-3 text-muted-foreground truncate max-w-[100px]">{c.lawyer?.name?.split(' ')[0] || '--'}</td>
-                    <td className="px-4 py-3 text-[10px] font-semibold text-muted-foreground">{c.tracking_stage || c.stage}</td>
-                    <td className="px-4 py-3 text-right font-bold text-blue-400">{fmt(c.fin.contracted)}</td>
-                    <td className="px-4 py-3 text-right font-semibold text-emerald-400">{fmt(c.fin.received)}</td>
-                    <td className="px-4 py-3 text-right">
-                      {c.fin.overdue > 0 ? <span className="font-semibold text-red-400">{fmt(c.fin.overdue)}</span>
-                        : c.fin.pending > 0 ? <span className="font-semibold text-amber-400">{fmt(c.fin.pending)}</span>
-                        : <span className="text-muted-foreground">--</span>}
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex items-center justify-end gap-1.5">
-                        <div className="w-16 bg-base-300 rounded-full h-1.5">
-                          <div className={`h-1.5 rounded-full ${pct >= 100 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${Math.min(100,pct)}%` }} />
-                        </div>
-                        <span className="text-[9px] font-mono text-muted-foreground w-8 text-right">{pct}%</span>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      {withoutHonorarios.length > 0 && (
-        <details className="text-xs text-muted-foreground">
-          <summary className="cursor-pointer hover:text-foreground py-2">
-            {withoutHonorarios.length} processo(s) sem honorarios cadastrados
-          </summary>
-          <div className="mt-2 space-y-1 pl-4">
-            {withoutHonorarios.slice(0, 10).map(c => (
-              <div key={c.id} className="flex items-center gap-2 cursor-pointer hover:text-foreground" onClick={() => router.push(`/atendimento/processos?openCase=${c.id}`)}>
-                <span className="truncate max-w-[200px]">{c.lead?.name || '--'}</span>
-                <span className="font-mono text-[10px]">{formatCNJ(c.case_number)}</span>
-                <span className="text-[10px]">{c.tracking_stage}</span>
-              </div>
-            ))}
-          </div>
-        </details>
-      )}
     </div>
   );
 }

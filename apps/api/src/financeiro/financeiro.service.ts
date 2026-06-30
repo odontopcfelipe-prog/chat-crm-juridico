@@ -9,16 +9,19 @@ import {
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateTransactionDto, UpdateTransactionDto, CreateCategoryDto, UpdateCategoryDto, CreateDailyRateTransactionDto } from './financeiro.dto';
 
+// Categorias padrao da clinica odontologica (seed quando o tenant ainda nao tem
+// categorias proprias). DIARIA fica por causa do lancador de diaria (Fase 5).
 const DEFAULT_CATEGORIES = [
-  { type: 'RECEITA', name: 'Honorarios', icon: 'scale' },
-  { type: 'RECEITA', name: 'Consultas', icon: 'stethoscope' },
-  { type: 'RECEITA', name: 'Acordos Extrajudiciais', icon: 'handshake' },
-  { type: 'DESPESA', name: 'Custas Judiciais', icon: 'gavel' },
-  { type: 'DESPESA', name: 'Pericias', icon: 'clipboard-check' },
-  { type: 'DESPESA', name: 'Deslocamento', icon: 'car' },
-  { type: 'DESPESA', name: 'Material de Escritorio', icon: 'pencil' },
-  { type: 'DESPESA', name: 'Cartorio', icon: 'stamp' },
-  { type: 'DESPESA', name: 'Correios', icon: 'mail' },
+  { type: 'RECEITA', name: 'Procedimento', icon: 'stethoscope' },
+  { type: 'RECEITA', name: 'Consulta', icon: 'stethoscope' },
+  { type: 'RECEITA', name: 'Produto', icon: 'shopping-bag' },
+  { type: 'RECEITA', name: 'Outros', icon: 'ellipsis' },
+  { type: 'DESPESA', name: 'Aluguel', icon: 'home' },
+  { type: 'DESPESA', name: 'Material Odontologico', icon: 'package' },
+  { type: 'DESPESA', name: 'Laboratorio', icon: 'flask' },
+  { type: 'DESPESA', name: 'Folha de Pagamento', icon: 'users' },
+  { type: 'DESPESA', name: 'Contas (agua/luz/internet)', icon: 'zap' },
+  { type: 'DESPESA', name: 'Equipamento', icon: 'wrench' },
   { type: 'DESPESA', name: 'DIARIA', icon: 'calendar-clock' },
   { type: 'DESPESA', name: 'Outros', icon: 'ellipsis' },
 ];
