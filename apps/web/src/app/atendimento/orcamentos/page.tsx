@@ -339,7 +339,9 @@ function OrcamentosPageInner() {
 
           Breakdown completo por status segue disponivel via os chips de
           filtro abaixo. */}
-      {displayStats && (
+      {/* Cards do funil — só na visão Avaliação. Na Propostas o operador pediu pra
+          sair (não é necessário). */}
+      {!isPropostas && displayStats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
           {/* Funil enxuto — so 5 cards, sem repeticao nem ruido de zeros.
               Vencidos/expirando saem (so apareciam =0 a maior parte do tempo);
@@ -402,6 +404,9 @@ function OrcamentosPageInner() {
       {/* Filtros */}
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
+          {/* Abas de status — só na visão Avaliação. Na Propostas o operador pediu
+              pra sair (mostra só os enviados). */}
+          {!isPropostas && (
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
             {STATUS_TABS.map((s) => {
               // Onda 17.32.39 — filtro "Arquivado" puxa de /quotes/archived
@@ -428,6 +433,7 @@ function OrcamentosPageInner() {
               );
             })}
           </div>
+          )}
           <div className="relative flex-1 max-w-md">
             <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
             <input
