@@ -105,14 +105,16 @@ function OrcamentosPageInner() {
   //  - AVALIAÇÃO (sidebar "Avaliação", sem status): os orçamentos.
   //    Tabs: Aceito/Rascunho/Arquivado. Default Aceito.
   const isPropostas = rawUrlStatus === 'SENT';
+  // PROPOSTAS = TODAS as propostas a fazer (rascunho + enviado): busca tudo e filtra no
+  // cliente (sem abas). AVALIAÇÃO = os orçamentos (Aceito/Rascunho/Arquivado/Todos).
   const STATUS_TABS: string[] = isPropostas
-    ? ['SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']
-    // '' = Todos — ver TODAS as avaliações feitas (qualquer status).
+    ? []
     : ['ACCEPTED', 'DRAFT', 'ARCHIVED', ''];
-  const DEFAULT_STATUS = isPropostas ? 'SENT' : 'ACCEPTED';
-  // Sem status na URL abre no padrão (Aceito); a aba "Todos" ('') é clicável pra ver
-  // tudo. (Não usar '' como default só porque está na lista de tabs.)
-  const urlStatus = (rawUrlStatus && STATUS_TABS.includes(rawUrlStatus)) ? rawUrlStatus : DEFAULT_STATUS;
+  const DEFAULT_STATUS = isPropostas ? '' : 'ACCEPTED';
+  // Propostas: busca tudo (''). Avaliação: status da URL (se válido) ou o default (Aceito).
+  const urlStatus = isPropostas
+    ? ''
+    : ((rawUrlStatus && STATUS_TABS.includes(rawUrlStatus)) ? rawUrlStatus : DEFAULT_STATUS);
   const [list, setList] = useState<Quote[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -150,8 +152,14 @@ function OrcamentosPageInner() {
     let l = dentistFilter
       ? list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter)
       : list;
-    // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
-    if (!isPropostas) l = l.filter((q) => q.status !== 'SENT');
+    if (isPropostas) {
+      // Propostas a fazer = rascunho (montar) + enviado (aguardando decisão). Os já
+      // fechados (Aceito), recusados/expirados não entram aqui.
+      l = l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
+    } else {
+      // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
+      l = l.filter((q) => q.status !== 'SENT');
+    }
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
     return l;
@@ -325,7 +333,7 @@ function OrcamentosPageInner() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isPropostas
-              ? 'Propostas enviadas aguardando a decisão do paciente. Acompanhe aceites, recusas e expiração.'
+              ? 'Propostas a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.'
               : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.'}
           </p>
         </div>
