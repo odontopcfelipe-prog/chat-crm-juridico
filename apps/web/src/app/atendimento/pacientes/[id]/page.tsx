@@ -101,6 +101,8 @@ const TABS = [
   // pra fluxo de dia-a-dia ficar à esquerda, documentação à direita.
   // Operational
   { id: 'overview',       label: 'Visão geral',     icon: User,        group: 'operational' as const },
+  // Anamnese movida pra logo depois da Visão geral (pedido do operador).
+  { id: 'anamnesis',      label: 'Anamnese',        icon: FileText,    group: 'operational' as const },
   { id: 'odontogram',     label: 'Avaliação',       icon: Activity,    group: 'operational' as const },
   // Onda 17.32.23 — Aba "Orçamentos" removida. Fluxo enxuto: Avaliação cria itens,
   // Propostas exibe versões agrupadas (urgente/essencial/completo) com configuração
@@ -115,7 +117,6 @@ const TABS = [
   { id: 'affiliate',      label: 'Afiliado',        icon: HandCoins,   group: 'operational' as const },
   // Clinical (documentação/histórico)
   { id: 'timeline',       label: 'Histórico',       icon: Clock,       group: 'clinical'    as const },
-  { id: 'anamnesis',      label: 'Anamnese',        icon: FileText,    group: 'clinical'    as const },
   { id: 'medical-record', label: 'Prontuário',      icon: Stethoscope, group: 'clinical'    as const },
   { id: 'radiografias',   label: 'Radiografias',    icon: Activity,    group: 'clinical'    as const },
   { id: 'smile-design',   label: 'Smile Design',    icon: Sparkles,    group: 'clinical'    as const },
