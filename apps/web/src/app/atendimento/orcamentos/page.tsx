@@ -532,6 +532,7 @@ function OrcamentosPageInner() {
             quotes={filteredList}
             router={router}
             sendWhatsApp={sendWhatsApp}
+            isPropostas={isPropostas}
           />
         </div>
       )}
@@ -549,11 +550,14 @@ function QuoteTable({
   router,
   sendWhatsApp,
   hideDentistColumn,
+  isPropostas = false,
 }: {
   quotes: Quote[];
   router: ReturnType<typeof useRouter>;
   sendWhatsApp: (q: Quote) => void;
   hideDentistColumn?: boolean;
+  // Propostas → "Ver negociação" (aba Propostas); Avaliação → "Ver avaliação" (aba Avaliação).
+  isPropostas?: boolean;
 }) {
   return (
     <table className="w-full text-sm">
@@ -627,11 +631,15 @@ function QuoteTable({
                     </button>
                   )}
                   <button
-                    onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}?tab=proposals`)}
+                    onClick={() => router.push(
+                      `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
+                    )}
                     className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
-                    title="Abrir a negociação (aba Propostas do paciente)"
+                    title={isPropostas
+                      ? 'Abrir a negociação (aba Propostas do paciente)'
+                      : 'Abrir a avaliação do paciente'}
                   >
-                    Ver negociação
+                    {isPropostas ? 'Ver negociação' : 'Ver avaliação'}
                   </button>
                 </div>
               </td>
