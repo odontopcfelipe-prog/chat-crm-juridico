@@ -588,8 +588,11 @@ function QuoteTable({
             <tr key={q.id} className="hover:bg-muted/30">
               <td className="px-4 py-3">
                 <button
-                  onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}`)}
+                  onClick={() => router.push(
+                    `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
+                  )}
                   className="text-left hover:text-primary"
+                  title={isPropostas ? 'Abrir as propostas pra aprovar' : 'Abrir a avaliação do paciente'}
                 >
                   <div className="font-medium">{q.patient.name || 'Sem nome'}</div>
                   {q.patient.phone && (
