@@ -176,6 +176,38 @@ export class TreatmentPlansService {
     };
   }
 
+  /**
+   * Fila central do Financeiro: planos ACTIVE (aceitos + ativados) que ainda NÃO foram
+   * validados (validated_by_financial_at = null). É o que o Financeiro precisa conferir
+   * e liberar pro dentista confirmar os procedimentos no Tratamento.
+   */
+  async findPendingFinancialValidation(tenantId: string) {
+    const plans = await this.prisma.treatmentPlan.findMany({
+      where: {
+        patient: { tenant_id: tenantId },
+        status: 'ACTIVE',
+        validated_by_financial_at: null,
+      } as any,
+      orderBy: { created_at: 'desc' },
+      include: {
+        patient: { select: { id: true, name: true, phone: true } },
+        quote: { select: { id: true, title: true, accepted_at: true } },
+        _count: { select: { items: true } },
+      },
+    });
+    return plans.map((p) => ({
+      plan_id: p.id,
+      patient_id: p.patient.id,
+      patient_name: p.patient.name,
+      patient_phone: p.patient.phone,
+      quote_id: p.quote?.id ?? null,
+      quote_title: p.quote?.title ?? null,
+      accepted_at: p.quote?.accepted_at?.toISOString() ?? null,
+      total: Number(p.total_value),
+      items_count: p._count.items,
+    }));
+  }
+
   async findOne(id: string, tenantId: string) {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id },

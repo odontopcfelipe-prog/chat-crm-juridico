@@ -970,6 +970,16 @@ export class CommercialController {
     return this.plansService.findItemsByPatient(patientId, tenantId);
   }
 
+  // Fila central do Financeiro: planos aceitos aguardando validação (libera o tratamento).
+  // DEVE vir ANTES de @Get('treatment-plans/:id') senão 'pending-validation' vira :id.
+  @RequiresPermission('manage_financial')
+  @Get('treatment-plans/pending-validation')
+  pendingValidation(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.plansService.findPendingFinancialValidation(tenantId);
+  }
+
   @Get('treatment-plans/:id')
   findPlan(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
