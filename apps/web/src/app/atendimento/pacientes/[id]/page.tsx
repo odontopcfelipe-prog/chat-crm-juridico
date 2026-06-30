@@ -173,6 +173,9 @@ function PacienteFichaInner() {
   const initialTab: TabId = (() => {
     const raw = searchParams?.get('tab');
     if (!raw) return 'overview';
+    // Alias legado: a aba "Orçamentos" (quotes) virou "Propostas" (Onda 17.32.23).
+    // Links antigos (ex: "Ver negociação" no funil) caem na negociação, não em overview.
+    if (raw === 'quotes') return 'proposals';
     const valid = TABS.some(t => t.id === raw);
     return valid ? (raw as TabId) : 'overview';
   })();

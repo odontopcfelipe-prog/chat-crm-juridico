@@ -569,11 +569,11 @@ function QuoteTable({
                     </button>
                   )}
                   <button
-                    onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}?tab=quotes`)}
+                    onClick={() => router.push(`/atendimento/pacientes/${q.patient.id}?tab=proposals`)}
                     className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
-                    title="Abrir ficha do paciente"
+                    title="Abrir a negociação (aba Propostas do paciente)"
                   >
-                    Detalhes
+                    Ver negociação
                   </button>
                 </div>
               </td>
