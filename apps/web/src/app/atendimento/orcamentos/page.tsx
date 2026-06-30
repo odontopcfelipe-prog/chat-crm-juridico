@@ -98,11 +98,18 @@ function OrcamentosPageInner() {
   // Onda 17.32.41 — Le ?status= da URL pra pre-selecionar o filtro
   // (atalho "Propostas" no sidebar abre /atendimento/orcamentos?status=SENT).
   const searchParams = useSearchParams();
-  // Filtros enxutos: só Aceito / Rascunho / Arquivado (pedido do operador). Default =
-  // Aceito; status removidos (Enviado/Rejeitado/Expirado/Todos) caem pro Aceito.
-  const ALLOWED_STATUS = ['ACCEPTED', 'DRAFT', 'ARCHIVED'];
   const rawUrlStatus = searchParams?.get('status') || '';
-  const urlStatus = ALLOWED_STATUS.includes(rawUrlStatus) ? rawUrlStatus : 'ACCEPTED';
+  // Onda XX — DUAS visões da mesma base, distintas pelo ?status=SENT da URL:
+  //  - PROPOSTAS (sidebar "Propostas", ?status=SENT): enviados aguardando decisão.
+  //    Tabs: Enviado/Aceito/Rejeitado/Expirado. Default Enviado.
+  //  - AVALIAÇÃO (sidebar "Avaliação", sem status): os orçamentos.
+  //    Tabs: Aceito/Rascunho/Arquivado. Default Aceito.
+  const isPropostas = rawUrlStatus === 'SENT';
+  const STATUS_TABS: string[] = isPropostas
+    ? ['SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']
+    : ['ACCEPTED', 'DRAFT', 'ARCHIVED'];
+  const DEFAULT_STATUS = isPropostas ? 'SENT' : 'ACCEPTED';
+  const urlStatus = STATUS_TABS.includes(rawUrlStatus) ? rawUrlStatus : DEFAULT_STATUS;
   const [list, setList] = useState<Quote[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
@@ -309,10 +316,12 @@ function OrcamentosPageInner() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <DollarSign size={26} className="text-primary" /> Avaliação
+            <DollarSign size={26} className="text-primary" /> {isPropostas ? 'Propostas' : 'Avaliação'}
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.
+            {isPropostas
+              ? 'Propostas enviadas aguardando a decisão do paciente. Acompanhe aceites, recusas e expiração.'
+              : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.'}
           </p>
         </div>
       </div>
@@ -389,7 +398,7 @@ function OrcamentosPageInner() {
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
-            {(['ACCEPTED', 'DRAFT', 'ARCHIVED'] as const).map((s) => {
+            {STATUS_TABS.map((s) => {
               // Onda 17.32.39 — filtro "Arquivado" puxa de /quotes/archived
               const label = s === 'ARCHIVED'
                 ? 'Arquivado'
