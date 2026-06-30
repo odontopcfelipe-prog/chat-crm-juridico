@@ -15,8 +15,8 @@ import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
-  AlertTriangle, TrendingUp, Users, List, LayoutGrid,
-  ChevronDown, ChevronUp, User, ShieldCheck,
+  AlertTriangle, TrendingUp, Users,
+  ShieldCheck,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -107,9 +107,7 @@ function OrcamentosPageInner() {
   useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
   const [search, setSearch] = useState('');
   // Onda 15 (etapa 19) — view por dentista + filtro por dentista especifico
-  const [viewMode, setViewMode] = useState<'list' | 'by-dentist'>('list');
   const [dentistFilter, setDentistFilter] = useState<string>(''); // '' = todos
-  const [collapsedDentists, setCollapsedDentists] = useState<Set<string>>(new Set());
 
   // Lista de dentistas unicos com KPIs — derivado de list (client-side).
   const dentists = useMemo(() => {
@@ -222,26 +220,6 @@ function OrcamentosPageInner() {
     ? { ...stats, patients_evaluated: computedStats?.patients_evaluated ?? 0, approved_count: computedStats?.approved_count ?? 0, approved_value: computedStats?.approved_value ?? 0 }
     : computedStats;
 
-  // Quotes agrupados por dentista, ordenados por total. Respeita o filtro
-  // de dentista (se nenhum: mostra todos os grupos; se filtrado: 1 grupo).
-  const groupedByDentist = useMemo(() => {
-    return dentists
-      .filter((d) => !dentistFilter || d.id === dentistFilter)
-      .map((d) => ({
-        ...d,
-        quotes: filteredList.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === d.id),
-      }))
-      .filter((g) => g.quotes.length > 0);
-  }, [dentists, filteredList, dentistFilter]);
-
-  const toggleDentistCollapse = (id: string) => {
-    setCollapsedDentists((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -423,34 +401,8 @@ function OrcamentosPageInner() {
             />
           </div>
         </div>
-        {/* Onda 15 (etapa 19) — Toggle de visualizacao + filtro por dentista */}
+        {/* Filtro por dentista */}
         <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
-          <div className="flex gap-1 bg-card border border-border rounded-lg p-1">
-            <button
-              onClick={() => setViewMode('list')}
-              className={`px-3 py-1.5 rounded text-xs font-medium inline-flex items-center gap-1.5 ${
-                viewMode === 'list'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Lista plana de orçamentos"
-            >
-              <List size={13} />
-              Lista
-            </button>
-            <button
-              onClick={() => setViewMode('by-dentist')}
-              className={`px-3 py-1.5 rounded text-xs font-medium inline-flex items-center gap-1.5 ${
-                viewMode === 'by-dentist'
-                  ? 'bg-primary text-primary-foreground'
-                  : 'text-muted-foreground hover:text-foreground'
-              }`}
-              title="Agrupar por dentista"
-            >
-              <LayoutGrid size={13} />
-              Por dentista
-            </button>
-          </div>
           {/* Onda 15 (etapa 19.3) — Seletor de dentista sempre visivel
               (antes so aparecia com 2+ dentistas, dificultando descoberta
               da feature). Quando ha pelo menos 1, vira interativo. */}
@@ -483,53 +435,8 @@ function OrcamentosPageInner() {
               </button>
             )}
           </div>
-          {viewMode === 'by-dentist' && (
-            <div className="text-xs text-muted-foreground sm:ml-auto shrink-0">
-              {groupedByDentist.length} {groupedByDentist.length === 1 ? 'dentista' : 'dentistas'}
-              {' · '}
-              {filteredList.length} {filteredList.length === 1 ? 'orçamento' : 'orçamentos'}
-            </div>
-          )}
         </div>
 
-        {/* Onda 15 (etapa 19.3) — Chips de dentistas (visiveis no modo
-            "Por dentista" pra acesso rapido). Click toggla o filtro. */}
-        {viewMode === 'by-dentist' && dentists.length > 0 && (
-          <div className="flex gap-2 flex-wrap">
-            <button
-              onClick={() => setDentistFilter('')}
-              className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                !dentistFilter
-                  ? 'bg-primary text-primary-foreground border-primary'
-                  : 'bg-card border-border text-muted-foreground hover:bg-accent'
-              }`}
-            >
-              Todos
-            </button>
-            {dentists.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => setDentistFilter(dentistFilter === d.id ? '' : d.id)}
-                className={`text-xs px-3 py-1.5 rounded-full border transition-colors inline-flex items-center gap-1.5 ${
-                  dentistFilter === d.id
-                    ? 'bg-primary text-primary-foreground border-primary'
-                    : 'bg-card border-border text-foreground hover:bg-accent'
-                }`}
-                title={`Filtrar pelos orçamentos de ${d.name}`}
-              >
-                <User size={11} />
-                {d.name}
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${
-                  dentistFilter === d.id
-                    ? 'bg-primary-foreground/20 text-primary-foreground'
-                    : 'bg-muted text-muted-foreground'
-                }`}>
-                  {d.count}
-                </span>
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {/* Lista */}
@@ -546,69 +453,14 @@ function OrcamentosPageInner() {
               : `Nenhum orçamento ${statusFilter ? STATUS_LABEL[statusFilter as Quote['status']].toLowerCase() : ''} encontrado.`}
           </p>
         </div>
-      ) : viewMode === 'list' ? (
-        /* MODO LISTA — Tabela plana com todos os orcamentos filtrados. */
+      ) : (
+        /* Tabela plana com todos os orçamentos filtrados. */
         <div className="bg-card border border-border rounded-xl overflow-hidden">
           <QuoteTable
             quotes={filteredList}
             router={router}
             sendWhatsApp={sendWhatsApp}
           />
-        </div>
-      ) : (
-        /* MODO POR DENTISTA — Sections expansiveis com KPIs do dentista. */
-        <div className="space-y-3">
-          {groupedByDentist.map((g) => {
-            const isCollapsed = collapsedDentists.has(g.id);
-            const decidedCount = g.accepted + g.quotes.filter((q) => q.status === 'REJECTED').length;
-            const conversionRate = decidedCount > 0 ? (g.accepted / decidedCount) : null;
-            return (
-              <div key={g.id} className="bg-card border border-border rounded-xl overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => toggleDentistCollapse(g.id)}
-                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors"
-                >
-                  <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <User size={18} />
-                  </div>
-                  <div className="text-left flex-1 min-w-0">
-                    <p className="text-sm font-semibold text-foreground truncate">{g.name}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {g.count} {g.count === 1 ? 'orçamento' : 'orçamentos'}
-                      {g.sent > 0 && ` · ${g.sent} enviado(s)`}
-                      {g.accepted > 0 && ` · ${g.accepted} aceito(s)`}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0 hidden sm:block">
-                    <p className="text-sm font-bold tabular-nums">{formatBRL(g.total)}</p>
-                    <p className="text-[10px] text-muted-foreground uppercase tracking-wide">total</p>
-                  </div>
-                  {conversionRate !== null && (
-                    <div className="text-right shrink-0 hidden md:block px-3 border-l border-border">
-                      <p className={`text-sm font-bold ${conversionRate >= 0.5 ? 'text-emerald-600' : conversionRate >= 0.25 ? 'text-amber-600' : 'text-red-600'}`}>
-                        {(conversionRate * 100).toFixed(0)}%
-                      </p>
-                      <p className="text-[10px] text-muted-foreground uppercase tracking-wide">conversão</p>
-                    </div>
-                  )}
-                  <div className="shrink-0 text-muted-foreground ml-1">
-                    {isCollapsed ? <ChevronDown size={18} /> : <ChevronUp size={18} />}
-                  </div>
-                </button>
-                {!isCollapsed && (
-                  <div className="border-t border-border">
-                    <QuoteTable
-                      quotes={g.quotes}
-                      router={router}
-                      sendWhatsApp={sendWhatsApp}
-                      hideDentistColumn
-                    />
-                  </div>
-                )}
-              </div>
-            );
-          })}
         </div>
       )}
     </div>
