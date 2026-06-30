@@ -4193,22 +4193,6 @@ function PropostaPainel({
                 Clique numa forma de pagamento pra definir entrada, datas e emitir as cobranças
               </p>
             </div>
-            {/* Onda 18 — Desconto à vista (gatilho de fechamento). Opcional; abate o
-                % configurado pela clínica nas formas à vista. Salvar congela na proposta. */}
-            {!readOnly && (avistaDiscountPct ?? 0) > 0 && (
-              <label className="mb-3 flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={avistaEnabled}
-                  onChange={(e) => setAvistaEnabled(e.target.checked)}
-                  className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
-                />
-                <span className="text-xs leading-snug">
-                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
-                  <span className="text-muted-foreground"> — abate {avistaDiscountPct}% nas formas à vista (PIX/dinheiro e boleto à vista) pra fechar na hora.</span>
-                </span>
-              </label>
-            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
               {/* PIX ou dinheiro — Onda 17.32.22: cards sem valores, so dentro do modal */}
               {pixCalc && (
@@ -4379,6 +4363,9 @@ function PropostaPainel({
                 detail={detail}
                 options={options.parcelado}
                 total={total}
+                avistaEnabled={avistaEnabled}
+                onChangeAvistaEnabled={setAvistaEnabled}
+                avistaDiscountPct={avistaDiscountPct}
                 activePaymentKey={activePaymentKey}
                 customDownPayment={customDownPayment}
                 onChangeCustomDownPayment={setCustomDownPayment}
@@ -4443,6 +4430,9 @@ function PropostaPainel({
                 total={total}
                 pixOption={pixOpt}
                 pixCalc={pixCalc}
+                avistaEnabled={avistaEnabled}
+                onChangeAvistaEnabled={setAvistaEnabled}
+                avistaDiscountPct={avistaDiscountPct}
                 customPixDueDate={customPixDueDate}
                 onChangeCustomPixDueDate={setCustomPixDueDate}
                 mode={pixModalMode}
@@ -5093,6 +5083,9 @@ function BoletoCobrancaUnificadaModal({
   onEmitir,
   onClose,
   onSend,
+  avistaEnabled,
+  onChangeAvistaEnabled,
+  avistaDiscountPct,
 }: {
   detail: QuoteDetailLite;
   options: PaymentOption[];
@@ -5124,6 +5117,9 @@ function BoletoCobrancaUnificadaModal({
   onClose: () => void;
   /** Botao "WhatsApp" da sidebar — manda link da proposta pro paciente. */
   onSend?: () => void;
+  avistaEnabled: boolean;
+  onChangeAvistaEnabled: (v: boolean) => void;
+  avistaDiscountPct: number;
 }) {
   // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais.
   const highlightOption = options.find((o) => o.isAVistaHighlight);
@@ -5243,6 +5239,22 @@ function BoletoCobrancaUnificadaModal({
                   <p className="text-[11px] text-white/60">à vista ou em até 24x</p>
                 </div>
               </div>
+
+              {/* Onda 18 — Desconto à vista (gatilho). Só afeta o "boleto à vista". */}
+              {avistaDiscountPct > 0 && (
+                <label className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={avistaEnabled}
+                    onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
+                  />
+                  <span className="text-xs leading-snug">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
+                    <span className="text-muted-foreground"> — abate {avistaDiscountPct}% no boleto à vista. Some se desligar.</span>
+                  </span>
+                </label>
+              )}
 
               {/* ── Step 1: Entrada ───────────────────────────────── */}
               <div className="rounded-xl border border-border bg-card p-4">
@@ -5905,11 +5917,17 @@ function PixCobrancaUnificadaModal({
   onEmitir,
   onClose,
   onSend,
+  avistaEnabled,
+  onChangeAvistaEnabled,
+  avistaDiscountPct,
 }: {
   detail: QuoteDetailLite;
   total: number;
   pixOption: PaymentOption;
   pixCalc: { finalValue: number; savedValue: number; extraInterest: number; downPaymentValue: number; installmentValue: number };
+  avistaEnabled: boolean;
+  onChangeAvistaEnabled: (v: boolean) => void;
+  avistaDiscountPct: number;
   customPixDueDate: string;
   onChangeCustomPixDueDate: (v: string) => void;
   mode: 'PIX' | 'CASH' | 'MIXED' | 'PIX_POS';
@@ -5985,6 +6003,22 @@ function PixCobrancaUnificadaModal({
           {/* Body em 2 colunas */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 flex-1">
             <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
+              {/* Onda 18 — Desconto à vista (gatilho de fechamento). Liga aqui mesmo,
+                  no momento de fechar; reflete no valor abaixo e na cobrança. */}
+              {avistaDiscountPct > 0 && (
+                <label className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={avistaEnabled}
+                    onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
+                    className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
+                  />
+                  <span className="text-xs leading-snug">
+                    <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
+                    <span className="text-muted-foreground"> — abate {avistaDiscountPct}% por pagamento imediato. Some se desligar.</span>
+                  </span>
+                </label>
+              )}
               {/* Banner valor total escuro */}
               <div className="rounded-xl bg-zinc-900 dark:bg-zinc-950 text-white p-4 flex items-center justify-between gap-3 flex-wrap">
                 <div className="flex items-center gap-3 min-w-0">
