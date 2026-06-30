@@ -93,6 +93,12 @@ interface DashboardData {
   a_vencer_7d: { value: number; count: number };
   /** Taxa de realizacao: contratado x recebido acumulado (opcional pre-deploy). */
   realizacao?: { contratado: number; recebido: number; pct: number };
+  /** Projecao de recebimento por janela futura (opcional pre-deploy). */
+  projecao?: {
+    d30: { value: number; count: number };
+    d60: { value: number; count: number };
+    d90: { value: number; count: number };
+  };
   cashflow_30d: { date: string; value: number }[];
   proximos_vencimentos: {
     id: string;
@@ -296,6 +302,41 @@ function AgingBar({ aging }: { aging: NonNullable<DashboardData['atrasado']['agi
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+/** Projeção de recebimento: cobranças em aberto com vencimento nos próximos 30/60/90 dias. */
+function ProjecaoCard({ d30, d60, d90 }: {
+  d30: { value: number; count: number };
+  d60: { value: number; count: number };
+  d90: { value: number; count: number };
+}) {
+  const rows = [
+    { label: 'Próximos 30 dias', ...d30 },
+    { label: '31 a 60 dias', ...d60 },
+    { label: '61 a 90 dias', ...d90 },
+  ];
+  const total = d30.value + d60.value + d90.value;
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
+        <CalendarClock size={15} className="text-blue-400" /> Projeção de recebimento
+      </h3>
+      <div className="space-y-2">
+        {rows.map((r) => (
+          <div key={r.label} className="flex items-center justify-between text-sm">
+            <span className="text-muted-foreground">{r.label} <span className="text-[10px]">({r.count})</span></span>
+            <span className="font-bold text-blue-400 tabular-nums">{fmt(r.value)}</span>
+          </div>
+        ))}
+        <div className="h-px bg-border my-1" />
+        <div className="flex items-center justify-between text-sm">
+          <span className="text-muted-foreground font-semibold">Total 90 dias</span>
+          <span className="font-bold text-foreground tabular-nums">{fmt(total)}</span>
+        </div>
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-2">Cobranças em aberto com vencimento futuro (não inclui as já atrasadas).</p>
     </div>
   );
 }
@@ -1228,13 +1269,14 @@ export default function FinanceiroPage() {
               <span className="font-semibold">Vencem 7d</span> mostram sempre a posição de hoje.
             </p>
 
-            {/* Taxa de realização + aging de inadimplência (Onda 16.3) */}
-            {dashboard && (dashboard.realizacao || (dashboard.atrasado.aging && dashboard.atrasado.count > 0)) && (
+            {/* Taxa de realização + aging de inadimplência + projeção (Onda 16.3) */}
+            {dashboard && (dashboard.realizacao || dashboard.projecao || (dashboard.atrasado.aging && dashboard.atrasado.count > 0)) && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {dashboard.realizacao && <RealizacaoCard {...dashboard.realizacao} />}
                 {dashboard.atrasado.aging && dashboard.atrasado.count > 0 && (
                   <AgingBar aging={dashboard.atrasado.aging} />
                 )}
+                {dashboard.projecao && <ProjecaoCard {...dashboard.projecao} />}
               </div>
             )}
 

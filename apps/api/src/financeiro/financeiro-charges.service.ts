@@ -82,6 +82,10 @@ export class FinanceiroChargesService {
     const { tenantId, dentistId, startDate, endDate } = opts;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+    // Janelas pra projeção de recebimento (cobranças em aberto com vencimento futuro).
+    const in30d = new Date(now.getTime() + 30 * 86_400_000);
+    const in60d = new Date(now.getTime() + 60 * 86_400_000);
+    const in90d = new Date(now.getTime() + 90 * 86_400_000);
 
     const baseWhere: any = {};
     if (tenantId) baseWhere.tenant_id = tenantId;
@@ -140,7 +144,7 @@ export class FinanceiroChargesService {
       OR: [{ status: { in: PAID_STATUSES } }, { received_in_cash: true }],
     };
 
-    const [receivedAgg, openAgg, overdueAgg, upcomingAgg, contratadoAgg, recebidoAcumAgg] = await Promise.all([
+    const [receivedAgg, openAgg, overdueAgg, upcomingAgg, proj30Agg, proj60Agg, proj90Agg, contratadoAgg, recebidoAcumAgg] = await Promise.all([
       this.prisma.paymentGatewayCharge.aggregate({
         where: receivedWhere,
         _sum: { amount: true },
@@ -158,6 +162,21 @@ export class FinanceiroChargesService {
       }),
       this.prisma.paymentGatewayCharge.aggregate({
         where: upcoming7dWhere,
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.paymentGatewayCharge.aggregate({
+        where: { ...openWhere, due_date: { gt: now, lte: in30d } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.paymentGatewayCharge.aggregate({
+        where: { ...openWhere, due_date: { gt: in30d, lte: in60d } },
+        _sum: { amount: true },
+        _count: { _all: true },
+      }),
+      this.prisma.paymentGatewayCharge.aggregate({
+        where: { ...openWhere, due_date: { gt: in60d, lte: in90d } },
         _sum: { amount: true },
         _count: { _all: true },
       }),
@@ -314,6 +333,11 @@ export class FinanceiroChargesService {
           const r = Number(recebidoAcumAgg._sum.amount || 0);
           return c > 0 ? Math.round((r / c) * 100) : 0;
         })(),
+      },
+      projecao: {
+        d30: { value: roundV(Number(proj30Agg._sum.amount || 0)), count: proj30Agg._count._all },
+        d60: { value: roundV(Number(proj60Agg._sum.amount || 0)), count: proj60Agg._count._all },
+        d90: { value: roundV(Number(proj90Agg._sum.amount || 0)), count: proj90Agg._count._all },
       },
       cashflow_30d,
       proximos_vencimentos: this.serializeChargeLight(proximos_vencimentos),
