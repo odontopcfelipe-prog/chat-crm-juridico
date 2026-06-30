@@ -194,7 +194,9 @@ export class FinanceiroChargesService {
 
     // 5. Próximos 10 vencimentos (lista curta pra widget)
     const proximos_vencimentos = await this.prisma.paymentGatewayCharge.findMany({
-      where: upcoming7dWhere,
+      // Os 10 vencimentos MAIS PRÓXIMOS a partir de hoje — SEM travar em 7 dias (o KPI
+      // a_vencer_7d continua 7d; aqui é a lista de fluxo, pra ver o que vem por aí).
+      where: { ...openWhere, due_date: { gte: now } },
       include: {
         treatment_plan: {
           select: {

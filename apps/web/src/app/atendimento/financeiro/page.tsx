@@ -1226,7 +1226,7 @@ export default function FinanceiroPage() {
               <div className="bg-card border border-amber-500/20 rounded-xl p-4">
                 <h3 className="text-sm font-bold text-amber-400 mb-3 flex items-center gap-2">
                   <Clock size={14} />
-                  Próximos vencimentos (7d)
+                  Próximos 10 vencimentos
                 </h3>
                 <div className="relative grid grid-cols-2 gap-x-6 gap-y-2">
                   {/* Divisória vertical no meio — separa a coluna da esquerda da direita. */}
