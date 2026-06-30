@@ -107,9 +107,12 @@ function OrcamentosPageInner() {
   const isPropostas = rawUrlStatus === 'SENT';
   const STATUS_TABS: string[] = isPropostas
     ? ['SENT', 'ACCEPTED', 'REJECTED', 'EXPIRED']
-    : ['ACCEPTED', 'DRAFT', 'ARCHIVED'];
+    // '' = Todos — ver TODAS as avaliações feitas (qualquer status).
+    : ['ACCEPTED', 'DRAFT', 'ARCHIVED', ''];
   const DEFAULT_STATUS = isPropostas ? 'SENT' : 'ACCEPTED';
-  const urlStatus = STATUS_TABS.includes(rawUrlStatus) ? rawUrlStatus : DEFAULT_STATUS;
+  // Sem status na URL abre no padrão (Aceito); a aba "Todos" ('') é clicável pra ver
+  // tudo. (Não usar '' como default só porque está na lista de tabs.)
+  const urlStatus = (rawUrlStatus && STATUS_TABS.includes(rawUrlStatus)) ? rawUrlStatus : DEFAULT_STATUS;
   const [list, setList] = useState<Quote[]>([]);
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
