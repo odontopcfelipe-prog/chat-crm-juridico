@@ -5240,19 +5240,20 @@ function BoletoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Onda 18 — Desconto à vista (gatilho). Só afeta o "boleto à vista". */}
+              {/* Onda 18 — Desconto à vista (gatilho). DISCRETO: só afeta o "boleto à vista";
+                  o paciente não deve ver "10% off" e já pedir. % só no tooltip do operador. */}
               {avistaDiscountPct > 0 && (
-                <label className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 cursor-pointer">
+                <label
+                  className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                  title={`Desconto à vista de ${avistaDiscountPct}% no boleto à vista — gatilho de fechamento. Ligue só quando for oferecer.`}
+                >
                   <input
                     type="checkbox"
                     checked={avistaEnabled}
                     onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
+                    className="w-3.5 h-3.5 rounded border-border accent-emerald-600 shrink-0"
                   />
-                  <span className="text-xs leading-snug">
-                    <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
-                    <span className="text-muted-foreground"> — abate {avistaDiscountPct}% no boleto à vista. Some se desligar.</span>
-                  </span>
+                  <span>condição à vista</span>
                 </label>
               )}
 
@@ -6003,20 +6004,20 @@ function PixCobrancaUnificadaModal({
           {/* Body em 2 colunas */}
           <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-0 flex-1">
             <div className="p-5 space-y-4 max-h-[calc(100vh-10rem)] overflow-y-auto">
-              {/* Onda 18 — Desconto à vista (gatilho de fechamento). Liga aqui mesmo,
-                  no momento de fechar; reflete no valor abaixo e na cobrança. */}
+              {/* Onda 18 — Desconto à vista (gatilho). DISCRETO de propósito: o paciente
+                  não deve ver "10% off" e já pedir. O % só aparece no tooltip do operador. */}
               {avistaDiscountPct > 0 && (
-                <label className="flex items-center gap-2.5 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 cursor-pointer">
+                <label
+                  className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                  title={`Desconto à vista de ${avistaDiscountPct}% — gatilho de fechamento. Ligue só quando for oferecer.`}
+                >
                   <input
                     type="checkbox"
                     checked={avistaEnabled}
                     onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
-                    className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
+                    className="w-3.5 h-3.5 rounded border-border accent-emerald-600 shrink-0"
                   />
-                  <span className="text-xs leading-snug">
-                    <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
-                    <span className="text-muted-foreground"> — abate {avistaDiscountPct}% por pagamento imediato. Some se desligar.</span>
-                  </span>
+                  <span>condição à vista</span>
                 </label>
               )}
               {/* Banner valor total escuro */}
