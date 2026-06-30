@@ -359,12 +359,21 @@ function PacienteFichaInner() {
     // de container scrollavel proprio pra que conteudos longos (orcamento com
     // anexos, prontuario com muitas evolucoes) nao fiquem cortados na viewport.
     <div className="h-full overflow-y-auto p-6 w-full">
-      {/* Back */}
+      {/* Back — volta pra página de ONDE veio (Orçamentos, lista de pacientes, CRM…)
+          via histórico do navegador. Trocar de aba aqui é só estado (não empurra
+          histórico), então o "voltar" sempre retorna à origem. Sem histórico
+          (link direto/bookmark) cai na lista de pacientes. */}
       <button
-        onClick={() => router.push('/atendimento/pacientes')}
+        onClick={() => {
+          if (typeof window !== 'undefined' && window.history.length > 1) {
+            router.back();
+          } else {
+            router.push('/atendimento/pacientes');
+          }
+        }}
         className="text-sm text-muted-foreground hover:text-foreground flex items-center gap-1 mb-4"
       >
-        <ArrowLeft size={14} /> Voltar para lista
+        <ArrowLeft size={14} /> Voltar
       </button>
 
       {/* Header com avatar editável */}
