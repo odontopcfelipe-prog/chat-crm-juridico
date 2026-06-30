@@ -110,6 +110,9 @@ interface QuoteDetailLite {
   is_chosen_proposal?: boolean;
   /** Onda 14.38 — forma de pagamento + entrada apresentada quando marcada como proposta */
   chosen_payment_key?: string | null;
+  /** Onda 18 — desconto à vista opcional (toggle salvo + % congelado). */
+  avista_discount_enabled?: boolean | null;
+  avista_discount_pct?: number | string | null;
   chosen_down_payment?: string | number | null;
   /** Onda 15 (etapa 16.8) — plano de cobranca da entrada congelado quando
    *  operador clica em "Salvar proposta". Restaurado ao reabrir o painel. */
@@ -328,7 +331,7 @@ interface PaymentOption {
   isAVistaHighlight?: boolean;
 }
 
-function buildPaymentOptions(): {
+function buildPaymentOptions(avistaPct: number = 0): {
   avista: PaymentOption[];
   cartao: PaymentOption[];
   parcelado: PaymentOption[];
@@ -355,7 +358,7 @@ function buildPaymentOptions(): {
         key: 'pix',
         label: 'PIX ou dinheiro',
         sublabel: 'à vista',
-        discountPercent: 10,
+        discountPercent: avistaPct,
         installments: 1,
         variant: 'avista',
       },
@@ -375,7 +378,7 @@ function buildPaymentOptions(): {
         key: 'boleto-avista',
         label: 'À vista',
         sublabel: 'boleto à vista',
-        discountPercent: 10,
+        discountPercent: avistaPct,
         installments: 1,
         variant: 'parcelado' as const,
         interestRate: 0,
@@ -848,6 +851,14 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
   // Onda 14.38 — agora aceita payment_key + down_payment pra persistir a
   // forma de pagamento + entrada apresentada pelo operador. PDF do
   // orcamento usa esses dados pra mostrar "Proposta de pagamento".
+  // Onda 18 — % de desconto à vista configurado pela clínica (default 10).
+  const [avistaDiscountPct, setAvistaDiscountPct] = useState(10);
+  useEffect(() => {
+    api.get('/quotes/config/avista-discount')
+      .then((r) => { if (typeof r.data?.pct === 'number') setAvistaDiscountPct(r.data.pct); })
+      .catch(() => {});
+  }, []);
+
   const chooseAsProposal = useCallback(async (
     quoteId: string,
     opts?: {
@@ -859,6 +870,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       signal_method?: string | null;
       entrada_due_date?: string | null;
       installments_start_date?: string | null;
+      avista_discount_enabled?: boolean | null;
     },
   ) => {
     // Optimistic — atualiza estado local antes do PATCH
@@ -882,6 +894,8 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             chosen_signal_method: opts?.signal_method ?? null,
             chosen_entrada_due_date: opts?.entrada_due_date ?? null,
             chosen_installments_start_date: opts?.installments_start_date ?? null,
+            avista_discount_enabled: opts?.avista_discount_enabled ?? false,
+            avista_discount_pct: opts?.avista_discount_enabled ? avistaDiscountPct : 0,
           }
         : prev,
     );
@@ -893,6 +907,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         signal_method: opts?.signal_method ?? null,
         entrada_due_date: opts?.entrada_due_date ?? null,
         installments_start_date: opts?.installments_start_date ?? null,
+        avista_discount_enabled: opts?.avista_discount_enabled ?? false,
       });
       showSuccess('Proposta salva — aguardando decisão do paciente');
       load(); // refetch da lista em background pra garantir consistencia
@@ -901,7 +916,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       const e = err as { response?: { data?: { message?: string } } };
       showError(e?.response?.data?.message || 'Erro ao salvar proposta');
     }
-  }, [load]);
+  }, [load, avistaDiscountPct]);
 
 
   // Onda 14.21 — "Remover da aba Propostas" (qualquer card, incluindo LIVRE).
@@ -1070,8 +1085,11 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     customInstallmentsStartDate?: string;
   }) => {
     if (!selectedDetail) return;
-    // Mapeia activePaymentKey pra payment_method + installments
-    const opts = buildPaymentOptions();
+    // Mapeia activePaymentKey pra payment_method + installments. Onda 18 — passa o
+    // % de desconto à vista SALVO na proposta (0 se o toggle estiver desligado).
+    const opts = buildPaymentOptions(
+      selectedDetail.avista_discount_enabled ? Number(selectedDetail.avista_discount_pct) || 0 : 0,
+    );
     const allOpts = [...opts.avista, ...opts.cartao, ...opts.parcelado];
     let activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
 
@@ -1767,6 +1785,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           // Onda 14.33 / 14.38 — salvar proposta como "aguardando decisão do
           // paciente" + persistir forma de pagamento e entrada que o operador
           // configurou no painel (pra PDF/whatsapp mostrarem a oferta).
+          avistaDiscountPct={avistaDiscountPct}
           onChooseAsProposal={(opts) => selectedId && chooseAsProposal(selectedId, opts)}
           // Onda 17.31 — recarga pos-atalhos (espécie / PIX QR) recarrega
           // a lista E o detalhe do quote selecionado.
@@ -1832,7 +1851,9 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           .reduce((acc, it) => acc + Number(it.total_price), 0);
         const hasApproved = selectedDetail.items.some((it) => !!it.approved_at);
         const total = hasApproved ? approvedValue : totalBruto;
-        const opts = buildPaymentOptions();
+        const opts = buildPaymentOptions(
+          selectedDetail.avista_discount_enabled ? Number(selectedDetail.avista_discount_pct) || 0 : 0,
+        );
         const allOptions = [...opts.avista, ...opts.cartao, ...opts.parcelado];
         const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
         const calc = applyPaymentOption(total, activeOption);
@@ -3392,6 +3413,7 @@ function StepPill({ n, label, active, done }: { n: number; label: string; active
 
 function PropostaPainel({
   readOnly = false,
+  avistaDiscountPct = 10,
   loading,
   detail,
   priority,
@@ -3413,6 +3435,8 @@ function PropostaPainel({
   onReload,
 }: {
   readOnly?: boolean;
+  /** Onda 18 — % de desconto à vista configurado pela clínica (default 10). */
+  avistaDiscountPct?: number;
   loading: boolean;
   detail: QuoteDetailLite | null;
   priority: Priority | null;
@@ -3466,6 +3490,7 @@ function PropostaPainel({
     signal_method?: string | null;
     entrada_due_date?: string | null;
     installments_start_date?: string | null;
+    avista_discount_enabled?: boolean | null;
   }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
 }) {
@@ -3492,6 +3517,12 @@ function PropostaPainel({
   const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('PIX');
   const [customEntradaDueDate, setCustomEntradaDueDate] = useState<string>('');
   const [customInstallmentsStartDate, setCustomInstallmentsStartDate] = useState<string>('');
+  // Onda 18 — toggle do desconto à vista (gatilho de fechamento). Inicia do que
+  // está salvo na proposta; ressincroniza ao trocar de quote.
+  const [avistaEnabled, setAvistaEnabled] = useState(false);
+  useEffect(() => {
+    setAvistaEnabled(!!detail?.avista_discount_enabled);
+  }, [detail?.id, detail?.avista_discount_enabled]);
   // Onda 15 (etapa 8) — modais de parcelamento abertos pelos cards de Cartao
   // e Boleto. Clicar no card abre a "aba" de parcelas; ao escolher, o card
   // passa a expor a quantidade selecionada na propria face.
@@ -3686,7 +3717,9 @@ function PropostaPainel({
   // Base usada pra calcular formas de pagamento — usa o ja aprovado.
   const total = hasPartialApproval ? approvedValue : totalBruto;
 
-  const options = buildPaymentOptions();
+  // Onda 18 — desconto à vista só entra se o operador ligou o toggle.
+  const effAvistaPct = avistaEnabled ? (avistaDiscountPct ?? 10) : 0;
+  const options = buildPaymentOptions(effAvistaPct);
   // Onda 14.29 (fix) — removidos activeOption/activeCalc que sobraram da
   // Onda 14.28 (resumo "voce esta oferecendo" foi removido). Cada card de
   // pagamento (PIX/Cartao/Boleto) calcula seu proprio valor internamente.
@@ -4160,6 +4193,22 @@ function PropostaPainel({
                 Clique numa forma de pagamento pra definir entrada, datas e emitir as cobranças
               </p>
             </div>
+            {/* Onda 18 — Desconto à vista (gatilho de fechamento). Opcional; abate o
+                % configurado pela clínica nas formas à vista. Salvar congela na proposta. */}
+            {!readOnly && (avistaDiscountPct ?? 0) > 0 && (
+              <label className="mb-3 flex items-center gap-2.5 rounded-lg border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={avistaEnabled}
+                  onChange={(e) => setAvistaEnabled(e.target.checked)}
+                  className="w-4 h-4 rounded border-border accent-emerald-600 shrink-0"
+                />
+                <span className="text-xs leading-snug">
+                  <span className="font-bold text-emerald-800 dark:text-emerald-300">Desconto à vista ({avistaDiscountPct}%)</span>
+                  <span className="text-muted-foreground"> — abate {avistaDiscountPct}% nas formas à vista (PIX/dinheiro e boleto à vista) pra fechar na hora.</span>
+                </span>
+              </label>
+            )}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 items-stretch">
               {/* PIX ou dinheiro — Onda 17.32.22: cards sem valores, so dentro do modal */}
               {pixCalc && (
@@ -4176,7 +4225,7 @@ function PropostaPainel({
                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-600 text-white">Melhor opção</span>
                   </div>
                   <p className="text-xs text-emerald-700 dark:text-emerald-400 font-medium flex-1">
-                    Pagamento à vista com desconto · sem juros
+                    Pagamento à vista{effAvistaPct > 0 ? ' com desconto' : ''} · sem juros
                   </p>
                   <span className={`mt-3 w-full inline-flex items-center justify-center gap-1.5 px-3 py-2.5 rounded-md text-white font-extrabold shadow-sm transition-colors uppercase tracking-wider ${
                     sel === 'pix'
@@ -4318,6 +4367,7 @@ function PropostaPainel({
                     signal_method: customSignalValue > 0 ? customSignalMethod : null,
                     entrada_due_date: customEntradaDueDate || null,
                     installments_start_date: customInstallmentsStartDate || null,
+                    avista_discount_enabled: avistaEnabled,
                   });
                 }}
                 onClose={() => setCartaoModalOpen(false)}
@@ -4380,6 +4430,7 @@ function PropostaPainel({
                     signal_method: customSignalValue > 0 ? customSignalMethod : null,
                     entrada_due_date: customEntradaDueDate || null,
                     installments_start_date: customInstallmentsStartDate || null,
+                    avista_discount_enabled: avistaEnabled,
                   });
                 }}
                 onClose={() => setBoletoModalOpen(false)}
@@ -4436,6 +4487,7 @@ function PropostaPainel({
                     // QR Asaas usa a data; manual é imediato (sem vencimento).
                     entrada_due_date: pixModalMode === 'PIX' && pixKind === 'ASAAS' ? (customPixDueDate || null) : null,
                     installments_start_date: null,
+                    avista_discount_enabled: avistaEnabled,
                   });
                 }}
                 onClose={() => setPixModalOpen(false)}
@@ -4516,6 +4568,7 @@ function PropostaPainel({
               signal_method: customSignalValue > 0 ? customSignalMethod : null,
               entrada_due_date: customEntradaDueDate || null,
               installments_start_date: customInstallmentsStartDate || null,
+              avista_discount_enabled: avistaEnabled,
             })}
             className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
             title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Forma de pagamento e entrada atuais ficam salvos."
@@ -5951,7 +6004,7 @@ function PixCobrancaUnificadaModal({
                   <p className="text-2xl font-extrabold tabular-nums">
                     R$ {fmtBRL(total)}
                   </p>
-                  <p className="text-[11px] text-white/60">pague à vista via PIX com desconto</p>
+                  <p className="text-[11px] text-white/60">pague à vista via PIX{pixCalc.savedValue > 0 ? ' com desconto' : ''}</p>
                 </div>
               </div>
 
@@ -5967,15 +6020,17 @@ function PixCobrancaUnificadaModal({
                         <span className="text-xl font-bold text-emerald-800 dark:text-emerald-300">
                           PIX à vista
                         </span>
-                        <span className="text-sm font-extrabold px-2.5 py-1 rounded-md bg-emerald-600 text-white uppercase tracking-wide">
-                          −{pixOption.discountPercent}%
-                        </span>
+                        {pixOption.discountPercent > 0 && (
+                          <span className="text-sm font-extrabold px-2.5 py-1 rounded-md bg-emerald-600 text-white uppercase tracking-wide">
+                            −{pixOption.discountPercent}%
+                          </span>
+                        )}
                         <span className="text-sm font-bold px-2.5 py-1 rounded-md bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/30 uppercase tracking-wide">
                           Melhor opção
                         </span>
                       </div>
                       <p className="text-xs text-muted-foreground mt-1">
-                        Pagamento imediato · sem juros · economia de R$ {fmtBRL(pixCalc.savedValue)}
+                        Pagamento imediato · sem juros{pixCalc.savedValue > 0 ? ` · economia de R$ ${fmtBRL(pixCalc.savedValue)}` : ''}
                       </p>
                     </div>
                   </div>
@@ -6156,12 +6211,14 @@ function PixCobrancaUnificadaModal({
                   <span className="text-muted-foreground text-xs">Valor do tratamento</span>
                   <span className="font-semibold tabular-nums text-foreground">R$ {fmtBRL(total)}</span>
                 </div>
+                {pixCalc.savedValue > 0 && (
                 <div className="flex items-center justify-between gap-2 pb-3 border-b border-border">
                   <span className="text-muted-foreground text-xs">Desconto PIX</span>
                   <span className="font-semibold tabular-nums text-emerald-700 dark:text-emerald-400">
                     − R$ {fmtBRL(pixCalc.savedValue)}
                   </span>
                 </div>
+                )}
                 <div className="flex items-center justify-between gap-2 pt-2">
                   <span className="text-muted-foreground text-xs">Forma</span>
                   <span className="font-semibold text-foreground text-xs">
@@ -6189,9 +6246,11 @@ function PixCobrancaUnificadaModal({
                 <p className="text-2xl font-extrabold tabular-nums text-foreground mt-1">
                   R$ {fmtBRL(pixCalc.finalValue)}
                 </p>
+                {pixCalc.savedValue > 0 && (
                 <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold mt-0.5">
                   economia de R$ {fmtBRL(pixCalc.savedValue)}
                 </p>
+                )}
               </div>
 
               {/* Onda 17.32.66 — Todos os modos (PIX/CASH/MIXED) agora

@@ -554,6 +554,7 @@ export class CommercialController {
       signal_method?: string | null;
       entrada_due_date?: string | null;
       installments_start_date?: string | null;
+      avista_discount_enabled?: boolean | null;
     },
     @Authenticated() user: AuthUser,
   ) {
@@ -564,7 +565,22 @@ export class CommercialController {
       signal_method: body?.signal_method,
       entrada_due_date: body?.entrada_due_date,
       installments_start_date: body?.installments_start_date,
+      avista_discount_enabled: body?.avista_discount_enabled,
     });
+  }
+
+  /** Onda 18 — config do desconto à vista (% por clínica) pro front montar o toggle. */
+  @RequiresPermission('manage_proposals', 'view_proposals')
+  @Get('quotes/config/avista-discount')
+  getAvistaDiscountConfig(@Authenticated() user: AuthUser) {
+    return this.quotesService.getAvistaDiscountConfig(user.tenant_id);
+  }
+
+  /** Onda 18 — clínica ajusta o % do desconto à vista (0 desliga geral). */
+  @RequiresPermission('manage_proposals')
+  @Patch('quotes/config/avista-discount')
+  setAvistaDiscountConfig(@Body() body: { pct: number }, @Authenticated() user: AuthUser) {
+    return this.quotesService.setAvistaDiscountPct(user.tenant_id, Number(body?.pct));
   }
 
   /** Onda 14.33 — Desmarca proposta escolhida (volta ao estado neutro). */

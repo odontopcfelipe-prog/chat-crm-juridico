@@ -11,6 +11,7 @@ import { TreatmentPlansService } from './treatment-plans.service';
 import { ContractsService } from './contracts.service';
 import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
+import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma, mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
 
@@ -449,6 +450,8 @@ export class QuotesService {
       signal_method?: string | null;
       entrada_due_date?: string | null;
       installments_start_date?: string | null;
+      // Onda 18 — toggle do desconto à vista (gatilho de fechamento).
+      avista_discount_enabled?: boolean | null;
     },
   ) {
     const quote = await this.findOne(quoteId, tenantId);
@@ -479,6 +482,11 @@ export class QuotesService {
     const cleanEntradaDueDate = parseLocalDate(opts?.entrada_due_date);
     const cleanInstallmentsStartDate = parseLocalDate(opts?.installments_start_date);
 
+    // Onda 18 — desconto à vista opcional. Snapshot do % do tenant no momento do
+    // save pra congelar a oferta (não muda se a clínica reconfigurar depois).
+    const avistaEnabled = opts?.avista_discount_enabled === true;
+    const avistaPct = avistaEnabled ? await this.getAvistaDiscountPct(tenantId) : 0;
+
     await this.prisma.$transaction(async (tx) => {
       // 1. Desmarca quaisquer outras chosen do mesmo paciente (so 1 por vez)
       await tx.quote.updateMany({
@@ -502,6 +510,8 @@ export class QuotesService {
           chosen_signal_method: cleanSignalMethod,
           chosen_entrada_due_date: cleanEntradaDueDate,
           chosen_installments_start_date: cleanInstallmentsStartDate,
+          avista_discount_enabled: avistaEnabled,
+          avista_discount_pct: avistaPct,
         },
       });
     });
@@ -526,6 +536,25 @@ export class QuotesService {
     });
     this.logger.log(`[Quote ${quoteId}] desmarcada como CHOSEN proposal`);
     return this.findOne(quoteId, tenantId);
+  }
+
+  /** Onda 18 — % de desconto à vista configurado pela clínica (default 10). */
+  async getAvistaDiscountPct(tenantId: string): Promise<number> {
+    const raw = await getTenantSetting(this.prisma, 'DESCONTO_AVISTA_PCT', tenantId, undefined);
+    const pct = raw != null ? parseFloat(raw) : 10;
+    return Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 10;
+  }
+
+  /** Onda 18 — config do desconto à vista pro front montar o toggle. */
+  async getAvistaDiscountConfig(tenantId: string) {
+    return { pct: await this.getAvistaDiscountPct(tenantId) };
+  }
+
+  /** Onda 18 — clínica ajusta o % do desconto à vista (0 desliga geral). */
+  async setAvistaDiscountPct(tenantId: string, pct: number) {
+    const clean = Number.isFinite(pct) ? Math.max(0, Math.min(100, pct)) : 10;
+    await setTenantSetting(this.prisma, tenantId, 'DESCONTO_AVISTA_PCT', String(clean));
+    return { pct: clean };
   }
 
   /** Onda 17.32.38 — Arquiva uma proposta. Some da aba "Plano de tratamento"

@@ -212,10 +212,16 @@ export class QuotePdfService {
       // configura forma de pagamento (chosen_payment_key) + entrada opcional
       // (chosen_down_payment), o PDF mostra essa oferta em destaque.
       if (quote.chosen_payment_key) {
+        // Onda 18 — desconto à vista opcional: só aplica se o operador ligou o
+        // toggle na proposta (avista_discount_enabled), com o % congelado.
+        const avistaPct = quote.avista_discount_enabled
+          ? Number(quote.avista_discount_pct) || 0
+          : 0;
         const offer = this.buildPaymentOfferText(
           total,
           quote.chosen_payment_key,
           Number(quote.chosen_down_payment) || 0,
+          avistaPct,
         );
         if (offer) {
           // Caixa destacada amarela
@@ -319,33 +325,43 @@ export class QuotePdfService {
     total: number,
     paymentKey: string,
     downPayment: number,
+    avistaDiscountPct: number = 0,
   ): { headline: string; lines: string[] } | null {
     const formatBRL = (n: number) =>
       n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
-    // ── PIX à vista (10% desconto) ──
+    // ── PIX à vista — desconto opcional (avistaDiscountPct vem do toggle salvo) ──
     if (paymentKey === 'pix') {
-      const discount = total * 0.10;
-      const finalValue = total - discount;
-      return {
-        headline: `PIX ou dinheiro à vista · ${formatBRL(finalValue)}`,
-        lines: [
-          `Desconto de 10% (${formatBRL(discount)}) aplicado pra pagamento imediato.`,
-          `Valor original: ${formatBRL(total)}.`,
-        ],
-      };
+      if (avistaDiscountPct > 0) {
+        const discount = total * (avistaDiscountPct / 100);
+        const finalValue = total - discount;
+        return {
+          headline: `PIX ou dinheiro à vista · ${formatBRL(finalValue)}`,
+          lines: [
+            `Desconto de ${avistaDiscountPct}% (${formatBRL(discount)}) aplicado pra pagamento imediato.`,
+            `Valor original: ${formatBRL(total)}.`,
+          ],
+        };
+      }
+      return { headline: `PIX ou dinheiro à vista · ${formatBRL(total)}`, lines: [] };
     }
 
-    // ── Boleto à vista (10% desconto, sem juros, sem consulta) ──
+    // ── Boleto à vista (sem juros, sem consulta) — desconto opcional ──
     if (paymentKey === 'boleto-avista') {
-      const discount = total * 0.10;
-      const finalValue = total - discount;
+      if (avistaDiscountPct > 0) {
+        const discount = total * (avistaDiscountPct / 100);
+        const finalValue = total - discount;
+        return {
+          headline: `Boleto à vista · ${formatBRL(finalValue)}`,
+          lines: [
+            `Desconto de ${avistaDiscountPct}% (${formatBRL(discount)}) pra pagamento imediato em boleto.`,
+            `Sem consulta de crédito · Valor original: ${formatBRL(total)}.`,
+          ],
+        };
+      }
       return {
-        headline: `Boleto à vista · ${formatBRL(finalValue)}`,
-        lines: [
-          `Desconto de 10% (${formatBRL(discount)}) pra pagamento imediato em boleto.`,
-          `Sem consulta de crédito · Valor original: ${formatBRL(total)}.`,
-        ],
+        headline: `Boleto à vista · ${formatBRL(total)}`,
+        lines: ['Sem consulta de crédito · pagamento imediato em boleto.'],
       };
     }
 

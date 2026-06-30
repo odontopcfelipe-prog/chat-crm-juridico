@@ -2752,6 +2752,15 @@ model Quote {
   /// foi apresentada (ex: "pix-avista", "cartao-6x", "parcelado-12x",
   /// "boleto-avista"). Null = sem oferta salva ainda.
   chosen_payment_key  String?
+
+  /// Onda 18 — Desconto à vista OPCIONAL como gatilho de fechamento. Quando o
+  /// operador liga o toggle na proposta, congela aqui: enabled + % aplicado
+  /// (snapshot do TenantSetting DESCONTO_AVISTA_PCT no momento do save, default
+  /// 10). Aplicado a TODAS as formas à vista (PIX/dinheiro/conta/maquineta/
+  /// espécie e boleto à vista). Default false (cobra cheio).
+  avista_discount_enabled Boolean  @default(false)
+  avista_discount_pct     Decimal? @default(0) @db.Decimal(5, 2)
+
   /// Onda 14.38 — Valor de entrada (R$) configurado pelo operador quando
   /// salvou a proposta. Default 0 (sem entrada). Aplicavel pra cartao e
   /// boleto parcelado (PIX e Boleto a vista ignoram entrada).
