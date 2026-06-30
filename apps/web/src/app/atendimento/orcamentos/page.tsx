@@ -300,10 +300,10 @@ function OrcamentosPageInner() {
       <div className="flex items-start justify-between gap-4 mb-6 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <DollarSign size={26} className="text-primary" /> Orçamentos
+            <DollarSign size={26} className="text-primary" /> Propostas
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Funil comercial. Acompanhe rascunhos, envios, aceitações e taxa de conversão.
+            Funil comercial. Acompanhe as propostas: rascunhos, aceitações e taxa de conversão.
           </p>
         </div>
       </div>
