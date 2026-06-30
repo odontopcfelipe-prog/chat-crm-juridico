@@ -1228,7 +1228,9 @@ export default function FinanceiroPage() {
                   <Clock size={14} />
                   Próximos vencimentos (7d)
                 </h3>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-2">
+                <div className="relative grid grid-cols-2 gap-x-6 gap-y-2">
+                  {/* Divisória vertical no meio — separa a coluna da esquerda da direita. */}
+                  <div aria-hidden className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-amber-500/25" />
                   {dashboard.proximos_vencimentos.slice(0, 10).map((c) => {
                     const dt = new Date(c.due_date);
                     const days = Math.ceil((dt.getTime() - Date.now()) / 86400000);
