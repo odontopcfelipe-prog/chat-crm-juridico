@@ -162,6 +162,17 @@ function OrcamentosPageInner() {
     }
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
+    if (isPropostas) {
+      // UM por PACIENTE — clicar no nome já puxa TODAS as propostas dele. Mantém a mais
+      // recente (a lista vem ordenada por created_at desc).
+      const seen = new Set<string>();
+      l = l.filter((q) => {
+        const pid = q.patient?.id;
+        if (!pid || seen.has(pid)) return false;
+        seen.add(pid);
+        return true;
+      });
+    }
     return l;
   }, [list, dentistFilter, dateFrom, dateTo, isPropostas]);
 
