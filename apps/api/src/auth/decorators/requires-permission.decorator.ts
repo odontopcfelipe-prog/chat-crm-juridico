@@ -46,11 +46,14 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required = this.reflector.getAllAndOverride<Permission>(
+    const requiredRaw = this.reflector.getAllAndOverride<Permission | Permission[]>(
       REQUIRES_PERMISSION_KEY,
       [context.getHandler(), context.getClass()],
     );
-    if (!required) return true;
+    if (!requiredRaw) return true;
+    // Aceita 1+ permissões com semântica OU: passa quem tiver QUALQUER uma.
+    const required = Array.isArray(requiredRaw) ? requiredRaw : [requiredRaw];
+    if (required.length === 0) return true;
 
     const req = context.switchToHttp().getRequest();
     const user = req.user;
@@ -61,13 +64,13 @@ export class PermissionsGuard implements CanActivate {
     if (roles.includes('SUPER_ADMIN')) return true;
 
     const perms = await this.resolveUserPermissions(user.id, roles);
-    if (perms.has(required)) return true;
+    if (required.some((p) => perms.has(p))) return true;
 
     // code:'PERMISSION_DENIED' => o frontend mostra a mensagem amigável
     // ("Sem autorização — solicite o desbloqueio com o administrador").
     // A `message` segue detalhada (qual permissão faltou) pro audit log.
     throw new ForbiddenException({
-      message: `Sem permissao "${required}" — fale com o admin do tenant`,
+      message: `Sem permissao "${required.join('" ou "')}" — fale com o admin do tenant`,
       code: 'PERMISSION_DENIED',
     });
   }
@@ -115,5 +118,5 @@ export class PermissionsGuard implements CanActivate {
  * global em AppModule e checa essa metadata. Rotas sem essa metadata
  * passam direto.
  */
-export const RequiresPermission = (perm: Permission) =>
-  SetMetadata(REQUIRES_PERMISSION_KEY, perm);
+export const RequiresPermission = (...perms: Permission[]) =>
+  SetMetadata(REQUIRES_PERMISSION_KEY, perms);

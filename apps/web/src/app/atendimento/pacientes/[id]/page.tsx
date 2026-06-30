@@ -159,7 +159,11 @@ function PacienteFichaInner() {
   // quem tem a permissão. Dentista sem o grant não vê as abas. Gateia por permissão
   // (não por papel), então recepção/CRC/admin que têm continuam vendo.
   const { hasPermission, ready: permsReady } = useUserPermissions();
-  const canProposals = hasPermission('manage_proposals');
+  // Onda XX — Financeiro com view_proposals VÊ a aba Propostas em SÓ LEITURA
+  // (confere a negociação antes de validar). manage_proposals = pode editar/encaminhar.
+  const canManageProposals = hasPermission('manage_proposals');
+  const canProposals = canManageProposals || hasPermission('view_proposals');
+  const proposalsReadOnly = canProposals && !canManageProposals;
   const canFinancial = hasPermission('view_financial');
   const [patient, setPatient] = useState<Patient | null>(null);
   const [loading, setLoading] = useState(true);
@@ -820,6 +824,7 @@ function PacienteFichaInner() {
       {tab === 'proposals' && canProposals && (
         <PropostasTab
           patientId={patient.id}
+          readOnly={proposalsReadOnly}
           onOpenQuoteDetail={() => {
             // Onda 17.32.23 — Sem aba Orçamentos. Tudo (ajuste, aprovação,
             // cobrança) acontece dentro da própria aba Propostas. Mantemos

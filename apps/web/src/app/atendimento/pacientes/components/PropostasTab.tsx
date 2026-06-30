@@ -46,6 +46,12 @@ interface Props {
    * orcamento ainda) e no atalho "Criar novo orcamento".
    */
   onGoToEvaluation?: () => void;
+  /**
+   * Onda XX — modo SÓ LEITURA (Financeiro com view_proposals, sem manage_proposals):
+   * vê as negociações pra conferir, mas sem ações de escrita (salvar/encaminhar/
+   * editar/criar). O backend já bloqueia as escritas; aqui é UX.
+   */
+  readOnly?: boolean;
 }
 
 interface QuoteListItem {
@@ -701,7 +707,7 @@ function AsaasBadge({ className = '' }: { className?: string }) {
   );
 }
 
-export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation }: Props) {
+export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvaluation, readOnly = false }: Props) {
   const [quotes, setQuotes] = useState<QuoteListItem[]>([]);
   const [loading, setLoading] = useState(true);
   // Onda 8.1 — picker pra atribuir orcamento a slot vazio (Completo/Essencial/Urgente).
@@ -1727,6 +1733,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       {/* Onda 9 — Painel inline da proposta selecionada (negociacao ao vivo) */}
       {selectedId && (
         <PropostaPainel
+          readOnly={readOnly}
           loading={loadingDetail}
           detail={selectedDetail}
           priority={
@@ -3384,6 +3391,7 @@ function StepPill({ n, label, active, done }: { n: number; label: string; active
 // de negociacao (ajustar / contraproposta / enviar pro paciente).
 
 function PropostaPainel({
+  readOnly = false,
   loading,
   detail,
   priority,
@@ -3404,6 +3412,7 @@ function PropostaPainel({
   onChooseAsProposal,
   onReload,
 }: {
+  readOnly?: boolean;
   loading: boolean;
   detail: QuoteDetailLite | null;
   priority: Priority | null;
@@ -4467,7 +4476,16 @@ function PropostaPainel({
           Handlers onAjustar/onSaveCounter continuam disponiveis como props
           pra reativacao futura, mas sem botoes visiveis na UI. */}
 
+      {/* Modo só leitura (Financeiro com view_proposals): banner no lugar das ações. */}
+      {readOnly && (
+        <div className="mt-4 pt-3 border-t border-border">
+          <p className="flex items-center gap-2 text-xs text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-300 dark:border-amber-900 rounded-lg px-3 py-2">
+            🔒 Modo leitura — você está conferindo a negociação. Editar, salvar e encaminhar ficam com quem tem acesso de Propostas.
+          </p>
+        </div>
+      )}
       {/* Ações */}
+      {!readOnly && (
       <div className="mt-4 pt-3 border-t border-border flex items-center gap-2 flex-wrap">
         <button
           type="button"
@@ -4543,6 +4561,7 @@ function PropostaPainel({
           Encaminhar ao financeiro
         </button>
       </div>
+      )}
 
       {/* Onda 13 — Bônus de fechamento (ativos e expirados) */}
       <BonusesHistory notes={detail.notes} />

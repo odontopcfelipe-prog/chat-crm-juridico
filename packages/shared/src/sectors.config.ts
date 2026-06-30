@@ -21,7 +21,7 @@ export type Permission =
   | 'view_chat'
   | 'view_clinical'      | 'edit_clinical'
   | 'view_financial'     | 'manage_financial'
-  | 'manage_proposals'
+  | 'view_proposals'     | 'manage_proposals'
   | 'override_price'
   | 'view_reports'
   | 'view_marketing'
@@ -66,6 +66,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Dashboard, boletos e KPIs', group: 'financeiro' },
   { key: 'manage_financial', label: 'Gerenciar cobrancas',
     description: 'Emitir, cancelar e reverter cobrancas', group: 'financeiro' },
+  { key: 'view_proposals', label: 'Ver propostas (so leitura)',
+    description: 'Acompanhar negociacoes/orcamentos sem editar nem encaminhar', group: 'financeiro' },
   { key: 'manage_proposals', label: 'Propostas e orcamentos',
     description: 'Criar e aprovar propostas + venda rapida', group: 'financeiro' },
   { key: 'override_price', label: 'Alterar preco na venda',
@@ -350,6 +352,9 @@ export const SECTORS: SectorMeta[] = [
       'view_patients',
       'view_agenda',
       'view_financial', 'manage_financial',
+      // Financeiro acompanha as negociações (Propostas) em SÓ LEITURA pra conferir
+      // antes de validar; sem manage_proposals → não cria/edita/encaminha.
+      'view_proposals',
       'view_reports',
     ],
     home: {

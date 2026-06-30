@@ -128,7 +128,7 @@ export class CommercialController {
     );
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('patients/:patientId/quotes')
   listQuotes(
     @Param('patientId') patientId: string,
@@ -145,7 +145,7 @@ export class CommercialController {
    * ⚠️ DEVE vir ANTES de @Get('quotes/:id') — caso contrário 'closing-board'
    * é capturado como :id e o handler retorna "Orçamento não encontrado".
    */
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/closing-board')
   quotesClosingBoard(@Authenticated() user: AuthUser) {
     return this.quotesService.getClosingBoard(user.tenant_id);
@@ -158,7 +158,7 @@ export class CommercialController {
    * mesmo motivo do closing-board. Antes estava la embaixo (linha ~439)
    * e era capturado como :id='dashboard' → "Orcamento nao encontrado".
    */
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/dashboard')
   quotesDashboard(
     @Request() req: any,
@@ -185,13 +185,13 @@ export class CommercialController {
   }
 
   /** Onda 17.32.38 — Lista orçamentos arquivados do tenant. */
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/archived')
   listArchivedQuotes(@Authenticated() user: AuthUser) {
     return this.quotesService.listArchivedQuotes(user.tenant_id);
   }
 
-  @RequiresPermission('manage_proposals')
+  @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {
     return this.quotesService.findOne(id, user.tenant_id);
