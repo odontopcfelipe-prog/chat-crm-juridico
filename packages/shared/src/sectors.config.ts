@@ -194,7 +194,7 @@ export const SECTORS: SectorMeta[] = [
         { lucide: 'Users',         icon: '👥', label: 'Pacientes',    desc: 'Busque, cadastre e abra fichas.',        href: '/atendimento/pacientes',     badgeKey: 'patients_total',  tone: 'sky'     },
         { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',     desc: 'Converse e confirme com os pacientes.',  href: '/atendimento',               badgeKey: 'whatsapp_open',   tone: 'amber'   },
         { lucide: 'RotateCcw',     icon: '🔄', label: 'Retornos',     desc: 'Veja quem precisa voltar à clínica.',    href: '/atendimento/return-alerts', badgeKey: 'returns_pending', tone: 'rose'    },
-        { lucide: 'FileText',      icon: '📄', label: 'Orçamentos',   desc: 'Monte e envie orçamentos ao paciente.',  href: '/atendimento/orcamentos',    badgeKey: 'proposals_sent',  tone: 'violet'  },
+        { lucide: 'FileText',      icon: '📄', label: 'Avaliação',    desc: 'Avaliações e orçamentos dos pacientes.', href: '/atendimento/orcamentos',    badgeKey: 'proposals_sent',  tone: 'violet'  },
       ],
       todos: [
         'Confirmar agendamentos de amanha',
@@ -373,7 +373,7 @@ export const SECTORS: SectorMeta[] = [
       actions: [
         { lucide: 'LineChart', icon: '📊', label: 'Visão geral', desc: 'Caixa, receitas e despesas.', href: '/atendimento/financeiro/dashboard',   badgeKey: 'financeiro_today', tone: 'emerald' },
         { lucide: 'Receipt',   icon: '🧾', label: 'Cobranças',   desc: 'Régua de cobrança e atrasos.', href: '/atendimento/financeiro',             tone: 'violet'  },
-        { lucide: 'FileText',  icon: '📄', label: 'Orçamentos',  desc: 'Orçamentos e conversão.',     href: '/atendimento/orcamentos',             badgeKey: 'proposals_sent',   tone: 'sky'     },
+        { lucide: 'FileText',  icon: '📄', label: 'Avaliação',   desc: 'Avaliações e conversão.',     href: '/atendimento/orcamentos',             badgeKey: 'proposals_sent',   tone: 'sky'     },
         { lucide: 'Layers',    icon: '📑', label: 'Propostas',   desc: 'Propostas e contratos.',      href: '/atendimento/orcamentos?status=SENT', badgeKey: 'proposals_sent',   tone: 'amber'   },
         { lucide: 'PieChart',  icon: '📈', label: 'Indicadores', desc: 'Números do financeiro.',      href: '/atendimento/relatorios',             badgeKey: 'reports_pct',      tone: 'rose'    },
       ],
@@ -517,7 +517,7 @@ const PERMISSION_TO_BALAO: Partial<Record<Permission, HomeAction>> = {
   view_chat:        { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',    desc: 'Conversas e atendimento.',    href: '/atendimento',                      tone: 'amber'   },
   view_agenda:      { lucide: 'Calendar',      icon: '📅', label: 'Agenda',      desc: 'Agenda da clínica.',          href: '/atendimento/agenda',               tone: 'violet'  },
   view_patients:    { lucide: 'Users',         icon: '👥', label: 'Pacientes',   desc: 'Base de pacientes.',          href: '/atendimento/pacientes',            tone: 'sky'     },
-  manage_proposals: { lucide: 'FileText',      icon: '📄', label: 'Orçamentos',  desc: 'Orçamentos e propostas.',     href: '/atendimento/orcamentos',           tone: 'emerald' },
+  manage_proposals: { lucide: 'FileText',      icon: '📄', label: 'Avaliação',   desc: 'Avaliações e propostas.',     href: '/atendimento/orcamentos',           tone: 'emerald' },
   view_marketing:   { lucide: 'LineChart',     icon: '🎯', label: 'CRM',         desc: 'Funil e relacionamento.',     href: '/atendimento/crm',                  tone: 'violet'  },
   view_financial:   { lucide: 'LineChart',     icon: '📊', label: 'Visão geral', desc: 'Caixa e indicadores.',        href: '/atendimento/financeiro/dashboard', tone: 'emerald' },
   manage_financial: { lucide: 'Receipt',       icon: '🧾', label: 'Cobranças',   desc: 'Boletos e recebimentos.',     href: '/atendimento/financeiro',           tone: 'violet'  },
