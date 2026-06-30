@@ -129,7 +129,18 @@ export class FinanceiroChargesService {
       due_date: { gte: now, lte: in7d },
     };
 
-    const [receivedAgg, openAgg, overdueAgg, upcomingAgg] = await Promise.all([
+    // Realização (contratado x recebido acumulado). Contratado = soma do total_value
+    // dos planos que JÁ geraram cobrança (espelha a aba Pacientes); recebido = todas as
+    // cobranças pagas (acumulado, não só o período).
+    const planWhere: any = { charges: { some: {} } };
+    if (tenantId) planWhere.patient = { tenant_id: tenantId };
+    if (dentistId) planWhere.quote = { created_by_user_id: dentistId };
+    const recebidoAcumWhere: any = {
+      ...baseWhere,
+      OR: [{ status: { in: PAID_STATUSES } }, { received_in_cash: true }],
+    };
+
+    const [receivedAgg, openAgg, overdueAgg, upcomingAgg, contratadoAgg, recebidoAcumAgg] = await Promise.all([
       this.prisma.paymentGatewayCharge.aggregate({
         where: receivedWhere,
         _sum: { amount: true },
@@ -150,23 +161,42 @@ export class FinanceiroChargesService {
         _sum: { amount: true },
         _count: { _all: true },
       }),
+      this.prisma.treatmentPlan.aggregate({
+        where: planWhere,
+        _sum: { total_value: true },
+      }),
+      this.prisma.paymentGatewayCharge.aggregate({
+        where: recebidoAcumWhere,
+        _sum: { amount: true },
+      }),
     ]);
 
-    // 3. Dias médios de atraso (qualitativo)
-    const overdueSample = await this.prisma.paymentGatewayCharge.findMany({
+    const roundV = (v: number) => Math.round(v * 100) / 100;
+
+    // 3. Dias médios de atraso + aging por faixa (0-7 / 8-30 / 31-60 / 60+).
+    const overdueRows = await this.prisma.paymentGatewayCharge.findMany({
       where: overdueWhere,
-      select: { due_date: true },
-      take: 200,
+      select: { due_date: true, amount: true },
+      take: 2000,
     });
+    const aging = {
+      d0_7: { count: 0, value: 0 },
+      d8_30: { count: 0, value: 0 },
+      d31_60: { count: 0, value: 0 },
+      d60_plus: { count: 0, value: 0 },
+    };
+    let sumDaysOverdue = 0;
+    for (const c of overdueRows) {
+      const days = Math.floor((now.getTime() - new Date(c.due_date).getTime()) / 86_400_000);
+      sumDaysOverdue += days;
+      const amt = Number(c.amount);
+      const bucket =
+        days <= 7 ? aging.d0_7 : days <= 30 ? aging.d8_30 : days <= 60 ? aging.d31_60 : aging.d60_plus;
+      bucket.count += 1;
+      bucket.value += amt;
+    }
     const avgDaysOverdue =
-      overdueSample.length > 0
-        ? Math.round(
-            overdueSample.reduce((s, c) => {
-              const days = Math.floor((now.getTime() - new Date(c.due_date).getTime()) / 86_400_000);
-              return s + days;
-            }, 0) / overdueSample.length,
-          )
-        : 0;
+      overdueRows.length > 0 ? Math.round(sumDaysOverdue / overdueRows.length) : 0;
 
     // 4. Cashflow últimos 30 dias (entradas REAIS — paid_at)
     const cashflowStart = new Date(now.getTime() - 30 * 86_400_000);
@@ -265,10 +295,25 @@ export class FinanceiroChargesService {
         value: Math.round(Number(overdueAgg._sum.amount || 0) * 100) / 100,
         count: overdueAgg._count._all,
         dias_medio: avgDaysOverdue,
+        aging: {
+          d0_7: { count: aging.d0_7.count, value: roundV(aging.d0_7.value) },
+          d8_30: { count: aging.d8_30.count, value: roundV(aging.d8_30.value) },
+          d31_60: { count: aging.d31_60.count, value: roundV(aging.d31_60.value) },
+          d60_plus: { count: aging.d60_plus.count, value: roundV(aging.d60_plus.value) },
+        },
       },
       a_vencer_7d: {
         value: Math.round(Number(upcomingAgg._sum.amount || 0) * 100) / 100,
         count: upcomingAgg._count._all,
+      },
+      realizacao: {
+        contratado: roundV(Number(contratadoAgg._sum.total_value || 0)),
+        recebido: roundV(Number(recebidoAcumAgg._sum.amount || 0)),
+        pct: (() => {
+          const c = Number(contratadoAgg._sum.total_value || 0);
+          const r = Number(recebidoAcumAgg._sum.amount || 0);
+          return c > 0 ? Math.round((r / c) * 100) : 0;
+        })(),
       },
       cashflow_30d,
       proximos_vencimentos: this.serializeChargeLight(proximos_vencimentos),

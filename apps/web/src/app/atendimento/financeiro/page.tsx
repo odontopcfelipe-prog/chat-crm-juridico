@@ -80,8 +80,19 @@ interface Transaction {
 interface DashboardData {
   recebido_no_periodo: { value: number; count: number };
   a_receber_total: { value: number; count: number };
-  atrasado: { value: number; count: number; dias_medio: number };
+  atrasado: {
+    value: number; count: number; dias_medio: number;
+    /** Aging por faixa de atraso (opcional: backend pre-deploy nao retorna). */
+    aging?: {
+      d0_7: { count: number; value: number };
+      d8_30: { count: number; value: number };
+      d31_60: { count: number; value: number };
+      d60_plus: { count: number; value: number };
+    };
+  };
   a_vencer_7d: { value: number; count: number };
+  /** Taxa de realizacao: contratado x recebido acumulado (opcional pre-deploy). */
+  realizacao?: { contratado: number; recebido: number; pct: number };
   cashflow_30d: { date: string; value: number }[];
   proximos_vencimentos: {
     id: string;
@@ -228,6 +239,63 @@ function KpiCard({ icon: Icon, label, value, color, bgColor, hint }: {
       </div>
       <p className={`text-xl font-bold ${color} tabular-nums`}>{value}</p>
       <p className="text-xs text-muted-foreground mt-0.5 font-semibold uppercase tracking-wide">{label}</p>
+    </div>
+  );
+}
+
+/** Taxa de realização: quanto do contratado (planos com cobrança) já entrou. */
+function RealizacaoCard({ contratado, recebido, pct }: { contratado: number; recebido: number; pct: number }) {
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+          <Target size={15} className="text-primary" /> Taxa de realização
+        </h3>
+        <span className="text-lg font-bold text-primary tabular-nums">{pct}%</span>
+      </div>
+      <div className="h-2.5 w-full rounded-full bg-muted overflow-hidden">
+        <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${Math.min(100, pct)}%` }} />
+      </div>
+      <div className="flex items-center justify-between mt-2 text-xs">
+        <span className="text-muted-foreground">Recebido <span className="font-bold text-emerald-400 tabular-nums">{fmt(recebido)}</span></span>
+        <span className="text-muted-foreground">Contratado <span className="font-bold text-foreground tabular-nums">{fmt(contratado)}</span></span>
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-1">% do valor contratado (planos que já geraram cobrança) que entrou no caixa.</p>
+    </div>
+  );
+}
+
+/** Aging de inadimplência: distribuição do atrasado por faixa de dias. */
+function AgingBar({ aging }: { aging: NonNullable<DashboardData['atrasado']['aging']> }) {
+  const buckets = [
+    { key: 'd0_7', label: '0-7d', count: aging.d0_7.count, value: aging.d0_7.value, color: 'bg-yellow-500' },
+    { key: 'd8_30', label: '8-30d', count: aging.d8_30.count, value: aging.d8_30.value, color: 'bg-amber-500' },
+    { key: 'd31_60', label: '31-60d', count: aging.d31_60.count, value: aging.d31_60.value, color: 'bg-orange-500' },
+    { key: 'd60_plus', label: '60+d', count: aging.d60_plus.count, value: aging.d60_plus.value, color: 'bg-red-600' },
+  ];
+  const sum = buckets.reduce((s, b) => s + b.value, 0) || 1;
+  return (
+    <div className="bg-card border border-border rounded-xl p-4">
+      <h3 className="text-sm font-bold text-foreground mb-3 flex items-center gap-2">
+        <AlertTriangle size={14} className="text-red-400" /> Inadimplência por faixa
+      </h3>
+      <div className="flex h-3 w-full rounded-full overflow-hidden bg-muted">
+        {buckets.map((b) => (b.value > 0 ? (
+          <div key={b.key} className={b.color} style={{ width: `${(b.value / sum) * 100}%` }} title={`${b.label}: ${fmt(b.value)} · ${b.count} cobrança(s)`} />
+        ) : null))}
+      </div>
+      <div className="grid grid-cols-4 gap-2 mt-3">
+        {buckets.map((b) => (
+          <div key={b.key} className="text-center">
+            <div className="flex items-center justify-center gap-1">
+              <span className={`w-2 h-2 rounded-full ${b.color}`} />
+              <span className="text-[10px] text-muted-foreground font-semibold">{b.label}</span>
+            </div>
+            <p className="text-xs font-bold text-foreground tabular-nums mt-0.5">{fmt(b.value)}</p>
+            <p className="text-[10px] text-muted-foreground">{b.count} cob.</p>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -1159,6 +1227,16 @@ export default function FinanceiroPage() {
               <span className="font-semibold">A receber</span>, <span className="font-semibold">Atrasado</span> e{' '}
               <span className="font-semibold">Vencem 7d</span> mostram sempre a posição de hoje.
             </p>
+
+            {/* Taxa de realização + aging de inadimplência (Onda 16.3) */}
+            {dashboard && (dashboard.realizacao || (dashboard.atrasado.aging && dashboard.atrasado.count > 0)) && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {dashboard.realizacao && <RealizacaoCard {...dashboard.realizacao} />}
+                {dashboard.atrasado.aging && dashboard.atrasado.count > 0 && (
+                  <AgingBar aging={dashboard.atrasado.aging} />
+                )}
+              </div>
+            )}
 
             {/* Widgets Top atrasos + Entrada do dia (lado a lado).
                 Próximos vencimentos foi pra baixo em widget próprio. */}
