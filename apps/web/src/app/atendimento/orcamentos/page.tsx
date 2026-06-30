@@ -113,6 +113,9 @@ function OrcamentosPageInner() {
   const [search, setSearch] = useState('');
   // Onda 15 (etapa 19) — view por dentista + filtro por dentista especifico
   const [dentistFilter, setDentistFilter] = useState<string>(''); // '' = todos
+  // Filtro por data de criação (YYYY-MM-DD). Vazio = sem filtro. "Hoje" = from=to=hoje.
+  const [dateFrom, setDateFrom] = useState<string>('');
+  const [dateTo, setDateTo] = useState<string>('');
 
   // Lista de dentistas unicos com KPIs — derivado de list (client-side).
   const dentists = useMemo(() => {
@@ -132,9 +135,15 @@ function OrcamentosPageInner() {
 
   // Lista filtrada (status + busca + dentista) — usada nas duas views.
   const filteredList = useMemo(() => {
-    if (!dentistFilter) return list;
-    return list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter);
-  }, [list, dentistFilter]);
+    // Dia LOCAL (Maceió) do created_at — bate com a coluna "Criado" exibida.
+    const localDay = (iso: string) => new Date(iso).toLocaleDateString('en-CA');
+    let l = dentistFilter
+      ? list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter)
+      : list;
+    if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
+    if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
+    return l;
+  }, [list, dentistFilter, dateFrom, dateTo]);
 
   // Onda 15 (etapa 19.6) — Stats CALCULADAS NO CLIENTE a partir da lista
   // carregada. Antes dependia do endpoint /quotes/dashboard, que tinha
@@ -446,6 +455,43 @@ function OrcamentosPageInner() {
                 title="Limpar filtro de dentista"
               >
                 Limpar
+              </button>
+            )}
+          </div>
+          {/* Filtro por data de criação — "apenas o dia" (Hoje) + intervalo De/Até. */}
+          <div className="flex items-center gap-1.5 flex-wrap shrink-0">
+            <span className="text-xs text-muted-foreground shrink-0">Período</span>
+            <input
+              type="date"
+              value={dateFrom}
+              max={dateTo || undefined}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+              title="Criado a partir de"
+            />
+            <span className="text-xs text-muted-foreground">até</span>
+            <input
+              type="date"
+              value={dateTo}
+              min={dateFrom || undefined}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="text-xs px-2 py-1.5 rounded-lg bg-card border border-border focus:outline-none focus:ring-2 focus:ring-primary/30"
+              title="Criado até"
+            />
+            <button
+              onClick={() => { const t = new Date().toLocaleDateString('en-CA'); setDateFrom(t); setDateTo(t); }}
+              className="text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:bg-accent shrink-0"
+              title="Mostrar apenas hoje"
+            >
+              Hoje
+            </button>
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => { setDateFrom(''); setDateTo(''); }}
+                className="text-xs px-2 py-1.5 rounded-md border border-border text-muted-foreground hover:bg-accent shrink-0"
+                title="Limpar filtro de data"
+              >
+                Limpar data
               </button>
             )}
           </div>
