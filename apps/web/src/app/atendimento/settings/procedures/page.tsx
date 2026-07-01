@@ -673,9 +673,13 @@ function ProcedureModal({
 
           <div>
             <label className="block text-xs font-medium mb-1">
-              Revisita padrão (meses)
-              <span className="text-muted-foreground ml-1">— pra estética facial</span>
+              Recall automático — revisita (meses)
             </label>
+            <p className="text-[11px] text-muted-foreground mb-1 leading-snug">
+              Ao executar este procedimento, o sistema agenda sozinho um <b>lembrete de retorno</b>
+              nesse prazo (aparece nos Retornos pendentes + WhatsApp).
+              Ex: <b>6</b> = limpeza volta em 6 meses · <b>12</b> = botox · vazio = sem recall.
+            </p>
             <input
               type="number"
               min={1}
