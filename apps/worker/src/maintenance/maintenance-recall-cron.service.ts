@@ -6,6 +6,17 @@ import { toBrazilWhatsappNumber } from '@crm/shared';
 import axios from 'axios';
 
 /**
+ * Mensagem padrao do recall. A clinica pode sobrescrever setando a chave
+ * RECALL_MESSAGE_TEMPLATE (TenantSetting por clinica, ou GlobalSetting).
+ * Placeholders: {nome} {procedimento} {data}. Aqui e o lugar de adicionar
+ * o upsell (ex: "aproveite pra avaliar um clareamento") — sem mexer no codigo.
+ */
+const DEFAULT_RECALL_TEMPLATE =
+  'Olá, {nome}! 👋\n\n' +
+  'Aqui é da clínica — está chegando a data da sua revisão de *{procedimento}*: {data}.\n\n' +
+  'Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊';
+
+/**
  * Worker cron de recall de manutencao — PACED / marca-passo (Onda 18).
  *
  * ANTES: rodava 2x/dia (8h/14h) e mandava ate 200 WhatsApp DE UMA VEZ (rajada)
@@ -95,10 +106,11 @@ export class MaintenanceRecallCronService {
     });
     const firstName = task.patient.name.split(' ')[0];
     const procName = task.procedure?.name || task.title;
-    const msg =
-      `Olá, ${firstName}! 👋\n\n` +
-      `Aqui é da clínica — está chegando a data da sua revisão de *${procName}*: ${dueDateStr}.\n\n` +
-      `Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊`;
+    const template = await this.resolveRecallTemplate(task.patient.tenant_id);
+    const msg = template
+      .replace(/\{nome\}/g, firstName)
+      .replace(/\{procedimento\}/g, procName)
+      .replace(/\{data\}/g, dueDateStr);
 
     const messageId = await this.sendWhatsApp(task.patient.phone, msg);
 
@@ -137,6 +149,27 @@ export class MaintenanceRecallCronService {
   private randomGapMs(): number {
     const { PACE_MIN_MS, PACE_MAX_MS } = MaintenanceRecallCronService;
     return Math.floor(PACE_MIN_MS + Math.random() * (PACE_MAX_MS - PACE_MIN_MS));
+  }
+
+  /**
+   * Resolve o template do recall: TenantSetting da clinica -> GlobalSetting ->
+   * default. A clinica edita a chave RECALL_MESSAGE_TEMPLATE pra customizar o
+   * convite + upsell, sem deploy.
+   */
+  private async resolveRecallTemplate(tenantId: string): Promise<string> {
+    try {
+      const ts = await (this.prisma as any).tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'RECALL_MESSAGE_TEMPLATE' } },
+      });
+      if (ts?.value?.trim()) return ts.value;
+      const gs = await this.prisma.globalSetting.findUnique({
+        where: { key: 'RECALL_MESSAGE_TEMPLATE' },
+      });
+      if (gs?.value?.trim()) return gs.value;
+    } catch {
+      // tabela/registro ausente — cai no default
+    }
+    return DEFAULT_RECALL_TEMPLATE;
   }
 
   /**
