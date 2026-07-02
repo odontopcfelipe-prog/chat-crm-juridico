@@ -42,7 +42,7 @@ export class MaintenanceService {
     if (existing) return existing;
 
     const title = `Revisão de ${params.procedureName || 'aplicação estética'}`;
-    return this.prisma.maintenanceTask.create({
+    const task = await this.prisma.maintenanceTask.create({
       data: {
         tenant_id: params.tenantId,
         patient_id: params.patientId,
@@ -53,6 +53,14 @@ export class MaintenanceService {
         created_by_user_id: params.createdByUserId || null,
       },
     });
+    await this.createReturnAlertForRecall({
+      tenantId: params.tenantId,
+      patientId: params.patientId,
+      scheduledFor: params.expectedRevisitAt,
+      reason: title,
+      professionalUserId: params.createdByUserId,
+    });
+    return task;
   }
 
   /**
@@ -83,7 +91,7 @@ export class MaintenanceService {
     dueDate.setMonth(dueDate.getMonth() + params.defaultRevisitMonths);
 
     const title = `Revisão de ${params.procedureName || 'procedimento'}`;
-    return this.prisma.maintenanceTask.create({
+    const task = await this.prisma.maintenanceTask.create({
       data: {
         tenant_id: params.tenantId,
         patient_id: params.patientId,
@@ -94,6 +102,43 @@ export class MaintenanceService {
         created_by_user_id: params.createdByUserId || null,
       },
     });
+    // Onda 18 — espelha o recall na tela "Retornos pendentes" da recepcao.
+    await this.createReturnAlertForRecall({
+      tenantId: params.tenantId,
+      patientId: params.patientId,
+      scheduledFor: dueDate,
+      reason: title,
+      professionalUserId: params.createdByUserId,
+    });
+    return task;
+  }
+
+  /**
+   * Onda 18 — espelha um recall como ReturnAlert pra ele aparecer na tela
+   * "Retornos pendentes" da recepcao (a lista que ja existe). scheduled_for =
+   * data do recall: entra em "Agora" quando vence e fica em "Todos" desde ja.
+   * Best-effort — nao derruba a criacao da task se falhar.
+   */
+  private async createReturnAlertForRecall(p: {
+    tenantId: string;
+    patientId: string;
+    scheduledFor: Date;
+    reason: string;
+    professionalUserId?: string | null;
+  }): Promise<void> {
+    try {
+      await this.prisma.returnAlert.create({
+        data: {
+          tenant_id: p.tenantId,
+          patient_id: p.patientId,
+          professional_user_id: p.professionalUserId || null,
+          scheduled_for: p.scheduledFor,
+          reason: p.reason,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[RECALL->RETORNO] Falha ao criar ReturnAlert: ${e?.message}`);
+    }
   }
 
   // ─── CRUD manual ─────────────────────────────────────────────────
