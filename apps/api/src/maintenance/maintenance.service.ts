@@ -154,17 +154,27 @@ export class MaintenanceService {
       notes?: string;
     },
   ) {
-    return this.prisma.maintenanceTask.create({
+    const dueDate = new Date(dto.due_date);
+    const task = await this.prisma.maintenanceTask.create({
       data: {
         tenant_id: tenantId,
         patient_id: dto.patient_id,
         procedure_id: dto.procedure_id || null,
-        due_date: new Date(dto.due_date),
+        due_date: dueDate,
         title: dto.title,
         notes: dto.notes || null,
         created_by_user_id: userId,
       },
     });
+    // Onda 18 — manutenção manual também espelha em "Retornos pendentes".
+    await this.createReturnAlertForRecall({
+      tenantId,
+      patientId: dto.patient_id,
+      scheduledFor: dueDate,
+      reason: dto.title,
+      professionalUserId: userId,
+    });
+    return task;
   }
 
   /**
