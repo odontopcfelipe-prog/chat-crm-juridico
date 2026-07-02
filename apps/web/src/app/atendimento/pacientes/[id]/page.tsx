@@ -41,6 +41,7 @@ import RadiografiasTab from '../components/RadiografiasTab';
 import AfiliadoTab from '../components/AfiliadoTab';
 // Onda 5e v38 — aba Tratamento (procedimentos fechados + validacao por dentista)
 import TratamentoTab from '../components/TratamentoTab';
+import ManutencoesTab from '../components/ManutencoesTab';
 import EditPatientModal from '../components/EditPatientModal';
 import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedicationModals';
 import TimelineTab from '../components/TimelineTab';
@@ -113,6 +114,9 @@ const TABS = [
   // Onda 5e v38 — Tratamento: procedimentos fechados (de quotes ACCEPTED),
   // validacao por item (dentista responsavel marca "feito" + executed_at)
   { id: 'treatment',      label: 'Tratamento',      icon: Activity,    group: 'operational' as const },
+  // Onda 18 — Manutenções/Recall: revisitas automáticas (limpeza 6m, botox 12m…) +
+  // manuais. É onde o recall aparece por paciente.
+  { id: 'maintenance',    label: 'Manutenções',     icon: Clock,       group: 'operational' as const },
   // Afiliado — so aparece quando patient.is_affiliate = true (filtrado no render)
   { id: 'affiliate',      label: 'Afiliado',        icon: HandCoins,   group: 'operational' as const },
   // Clinical (documentação/histórico)
@@ -852,6 +856,7 @@ function PacienteFichaInner() {
       )}
       {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} />}
       {tab === 'treatment' && <TratamentoTab patientId={patient.id} />}
+      {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
       {tab === 'affiliate' && patient.is_affiliate && (
         <AfiliadoTab
           patientId={patient.id}
