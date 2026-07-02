@@ -520,13 +520,12 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
         </div>
 
         {/* ─── ODONTOGRAMA ──────────────────────────────────── */}
-        {/* Onda 17.68 — encolhe + rola em telas baixas pra NÃO engolir a lista de
-            procedimentos. Antes, em monitor pequeno, o odontograma (bloco alto e
-            fixo) consumia toda a altura e a lista colapsava pra ~1 item.
-            Onda 18 (fix) — PISO de 230px: sem ele, o odontograma (unico elemento
-            que encolhe ate 0) colapsava e OS DENTES SUMIAM, sobrando so o header.
-            Agora dentes sempre visiveis; rola internamente so em tela muito baixa. */}
-        <div className="shrink min-h-[230px] overflow-y-auto">
+        {/* Onda 18 (fix v2) — A PROVA DE BALA: shrink-0 = o odontograma NUNCA encolhe
+            (antes, com shrink+min-h-0, ele colapsava e OS DENTES SUMIAM, sobrando so o
+            header). max-h-[42vh] + overflow-y-auto: em tela MUITO baixa ele rola por
+            dentro (mostrando os dentes de cima) em vez de comer a lista. A lista mantem
+            o piso min-h-[240px] dela, entao nao volta o bug de engolir a lista. */}
+        <div className="shrink-0 max-h-[42vh] overflow-y-auto">
           <Odontograma
             activeFdis={activeItem?.tooth_fdis || []}
             activeProcedureName={activeItem?.procedure_name}
