@@ -410,7 +410,10 @@ export default function VendaRapidaPage() {
         `/quotes/${quoteId}/approve-and-bill`,
         {
           billing_type: clinicReceived ? 'PIX' : billingType,
-          value: total,
+          // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida
+          // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
+          // com 15 casas -> 400 "value must be a number...").
+          value: Math.round(total * 100) / 100,
           installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
           // Onda 17.67 — Modelo B: os procedimentos ficam PENDENTES pro dentista
           // confirmar a conclusão (aí nasce a comissão de execução). A comissão de

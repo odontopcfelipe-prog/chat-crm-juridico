@@ -1302,6 +1302,16 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       valueToCharge = calc.finalValue;
     }
 
+    // Onda 18.3 — BUG CRITICO: arredonda pra 2 casas ANTES de validar/enviar.
+    // Juros (1,5%/mes ou cartao) geram floats tipo 10 * 1.015 = 10.149999999999999
+    // em JS. O ApproveAndBillDto valida `value` com @IsNumber({ maxDecimalPlaces: 2 })
+    // e REJEITA (HTTP 400 "value must be a number conforming to the specified
+    // constraints"). O apply-financing ja arredondava (round2); o approve-and-bill
+    // NAO -> boleto/cartao COM juros nunca emitia (so passava valor "redondo"
+    // tipo R$5,00 sem juros). Arredonda na fonte pra confirm, min-check e payload
+    // usarem o mesmo valor limpo.
+    valueToCharge = Math.round(valueToCharge * 100) / 100;
+
     // Onda 14.10 — Asaas exige valor minimo de R$ 5,00 por cobranca.
     // Bloqueia ANTES de enviar (em vez de receber 400 generico). Não se aplica ao
     // recebimento manual (PIX em conta/maquininha), que não passa pelo Asaas.
