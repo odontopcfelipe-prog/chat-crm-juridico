@@ -5415,9 +5415,13 @@ function BoletoCobrancaUnificadaModal({
                   </div>
                 </div>
 
-                <div className="relative pl-7 space-y-4">
-                  {/* Linha vertical do timeline */}
-                  <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
+                <div className={`relative space-y-4 ${customDownPayment > 0 ? 'pl-7' : ''}`}>
+                  {/* Linha vertical do timeline — Onda 18: só quando há mais de uma
+                      etapa (entrada + boletos). Sem entrada, o "boletos" vira o
+                      tópico 3 limpo, sem linha/pontinho solto. */}
+                  {customDownPayment > 0 && (
+                    <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
+                  )}
 
                   {/* Sinal de fechamento — Onda 18: só aparece quando HÁ entrada (o sinal
                       é parte da entrada paga no fechamento). Sem entrada = o plano mostra
@@ -5533,9 +5537,11 @@ function BoletoCobrancaUnificadaModal({
 
                   {/* Parcelas / Boleto a vista */}
                   <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    </div>
+                    {customDownPayment > 0 && (
+                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                      </div>
+                    )}
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-semibold text-foreground">
                         {isAVista ? 'Boleto à vista' : `${activeOption?.installments || 1}x boletos`}
