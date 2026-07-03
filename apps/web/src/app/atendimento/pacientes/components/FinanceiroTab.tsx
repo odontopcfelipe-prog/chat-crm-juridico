@@ -123,6 +123,20 @@ const fmtDate = (iso: string | null) => {
   return new Date(iso).toLocaleDateString('pt-BR');
 };
 
+// Onda 18.5 — data por extenso pra cabecalho de grupo ("03 de julho de 2026").
+const fmtDiaHeader = (iso: string | null) => {
+  if (!iso) return 'Sem data';
+  try {
+    return new Date(iso).toLocaleDateString('pt-BR', {
+      day: '2-digit',
+      month: 'long',
+      year: 'numeric',
+    });
+  } catch {
+    return 'Sem data';
+  }
+};
+
 export default function FinanceiroTab({ patientId }: Props) {
   const [installments, setInstallments] = useState<Installment[]>([]);
   // Onda 14.9 — cobrancas Asaas geradas pelo approveAndBill
@@ -2023,6 +2037,26 @@ function ContratosTratamentosBloco({
     });
   }, [acceptedQuotes, charges, tab]);
 
+  // Onda 18.5 — agrupa por dia de aceite pra dar cabecalho de data (topico) +
+  // respiro entre os grupos, facilitando a leitura quando ha muitos contratos.
+  const grouped = useMemo(() => {
+    const groups: Array<{
+      key: string;
+      header: string;
+      items: Array<{ q: AcceptedQuote; index: number }>;
+    }> = [];
+    filtered.forEach((q, idx) => {
+      const key = fmtDate(q.accepted_at); // chave estavel por dia (bate com o card)
+      let g = groups[groups.length - 1];
+      if (!g || g.key !== key) {
+        g = { key, header: fmtDiaHeader(q.accepted_at), items: [] };
+        groups.push(g);
+      }
+      g.items.push({ q, index: idx + 1 });
+    });
+    return groups;
+  }, [filtered]);
+
   return (
     <div>
       <div className="flex items-center justify-between flex-wrap gap-3 mb-3">
@@ -2050,16 +2084,32 @@ function ContratosTratamentosBloco({
       </div>
 
       {filtered.length > 0 ? (
-        <div className="space-y-3">
-          {filtered.map((q, idx) => (
-            <ProposalFinancialCard
-              key={q.id}
-              index={idx + 1}
-              quote={q}
-              allCharges={charges}
-              patientId={patientId}
-              onOpenDetail={() => onOpenDetail(q.id)}
-            />
+        <div className="space-y-6">
+          {grouped.map((g) => (
+            <div key={g.key}>
+              {/* Onda 18.5 — cabecalho da data (topico) + respiro entre os dias */}
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground shrink-0">
+                  {g.header}
+                </span>
+                <span className="flex-1 h-px bg-border" />
+                <span className="text-[10px] text-muted-foreground/60 shrink-0">
+                  {g.items.length} {g.items.length === 1 ? 'contrato' : 'contratos'}
+                </span>
+              </div>
+              <div className="space-y-3">
+                {g.items.map(({ q, index }) => (
+                  <ProposalFinancialCard
+                    key={q.id}
+                    index={index}
+                    quote={q}
+                    allCharges={charges}
+                    patientId={patientId}
+                    onOpenDetail={() => onOpenDetail(q.id)}
+                  />
+                ))}
+              </div>
+            </div>
           ))}
         </div>
       ) : (
