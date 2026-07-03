@@ -5419,7 +5419,10 @@ function BoletoCobrancaUnificadaModal({
                   {/* Linha vertical do timeline */}
                   <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
 
-                  {/* Sinal de fechamento — valor + metodo EDITAVEIS */}
+                  {/* Sinal de fechamento — Onda 18: só aparece quando HÁ entrada (o sinal
+                      é parte da entrada paga no fechamento). Sem entrada = o plano mostra
+                      só os boletos, sem essa linha (nem a data obrigatória do sinal). */}
+                  {customDownPayment > 0 && (
                   <div className="relative flex items-start justify-between gap-3 flex-wrap">
                     <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
@@ -5476,6 +5479,7 @@ function BoletoCobrancaUnificadaModal({
                       />
                     </div>
                   </div>
+                  )}
 
                   {/* Entrada (resto da entrada apos o sinal) — metodo editavel */}
                   {entradaBoletoValor > 0 && (
