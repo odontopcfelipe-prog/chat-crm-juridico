@@ -544,11 +544,30 @@ export class PaymentGatewayService {
       );
     }
 
-    // Reusa customer existente do mesmo Lead, se houver.
+    // Reusa customer existente do mesmo Lead, se houver — MAS valida que ele
+    // ainda existe no ambiente atual do Asaas. Onda 18.4 (BUG "invalid_customer"):
+    // ao trocar sandbox->producao (ou vice-versa), o external_id salvo aponta
+    // pra um customer que so existe no ambiente ANTIGO. O Asaas entao recusa a
+    // cobranca com 400 "invalid_customer: Customer invalido ou nao informado".
+    // Aqui a gente revalida e, se o Asaas confirmar 404 (nao existe), recria no
+    // ambiente atual e ATUALIZA o registro (respeitando a unique).
     const existing = await this.prisma.paymentGatewayCustomer.findFirst({
       where: { lead_id: patient.lead_id, gateway: 'ASAAS' },
     });
-    if (existing) return existing;
+    if (existing) {
+      try {
+        await this.asaas.getCustomer(existing.external_id, tenantId);
+        return existing; // valido no ambiente atual — reusa
+      } catch (e: any) {
+        const msg = String(e?.message || '');
+        // So recria se o Asaas CONFIRMOU que nao existe (404). Erro
+        // transitorio/rede/5xx a gente propaga — nao mascara nem cria duplicado.
+        if (!msg.includes('[Asaas 404]')) throw e;
+        this.logger.warn(
+          `[CUSTOMER] external_id ${existing.external_id} nao existe no Asaas atual (404) — recriando p/ paciente ${patientId}`,
+        );
+      }
+    }
 
     const asaasCustomer = await this.asaas.createCustomer({
       name: patient.name,
@@ -558,6 +577,21 @@ export class PaymentGatewayService {
       externalReference: patient.id,
     }, tenantId);
     this.logger.log(`[CUSTOMER] Criado no Asaas para paciente ${patientId}: ${asaasCustomer.id}`);
+
+    // Se ja existia um registro (invalido no ambiente atual), ATUALIZA o
+    // external_id em vez de criar outro — senao viola a unique
+    // [tenant_id, lead_id, gateway].
+    if (existing) {
+      return this.prisma.paymentGatewayCustomer.update({
+        where: { id: existing.id },
+        data: {
+          external_id: asaasCustomer.id,
+          cpf_cnpj: patient.cpf,
+          sync_status: 'SYNCED',
+          last_synced_at: new Date(),
+        },
+      });
+    }
 
     return this.prisma.paymentGatewayCustomer.create({
       data: {
@@ -583,8 +617,18 @@ export class PaymentGatewayService {
     });
 
     if (existing) {
-      this.logger.debug(`[CUSTOMER] Lead ${leadId} ja tem customer Asaas: ${existing.external_id}`);
-      return existing;
+      // Onda 18.4 — valida no ambiente atual do Asaas antes de reusar (mesmo bug
+      // do sandbox->producao: o external_id salvo pode nao existir no ambiente
+      // atual -> "invalid_customer" na cobranca). Recria so em 404 confirmado.
+      try {
+        await this.asaas.getCustomer(existing.external_id, tenantId);
+        this.logger.debug(`[CUSTOMER] Lead ${leadId} ja tem customer Asaas: ${existing.external_id}`);
+        return existing;
+      } catch (e: any) {
+        const msg = String(e?.message || '');
+        if (!msg.includes('[Asaas 404]')) throw e;
+        this.logger.warn(`[CUSTOMER] external_id ${existing.external_id} nao existe no Asaas atual (404) — recriando p/ lead ${leadId}`);
+      }
     }
 
     // Buscar dados do lead
@@ -626,18 +670,29 @@ export class PaymentGatewayService {
       `[CUSTOMER] Criado no Asaas: ${asaasCustomer.id} para lead ${leadId}`,
     );
 
-    // Salvar localmente
-    const customer = await this.prisma.paymentGatewayCustomer.create({
-      data: {
-        tenant_id: tenantId || lead.tenant_id,
-        lead_id: leadId,
-        gateway: 'ASAAS',
-        external_id: asaasCustomer.id,
-        cpf_cnpj: cpfCnpj,
-        sync_status: 'SYNCED',
-        last_synced_at: new Date(),
-      },
-    });
+    // Salvar localmente — se ja existia um registro (invalido no ambiente atual),
+    // ATUALIZA o external_id; senao cria (respeita a unique [tenant, lead, gateway]).
+    const customer = existing
+      ? await this.prisma.paymentGatewayCustomer.update({
+          where: { id: existing.id },
+          data: {
+            external_id: asaasCustomer.id,
+            cpf_cnpj: cpfCnpj,
+            sync_status: 'SYNCED',
+            last_synced_at: new Date(),
+          },
+        })
+      : await this.prisma.paymentGatewayCustomer.create({
+          data: {
+            tenant_id: tenantId || lead.tenant_id,
+            lead_id: leadId,
+            gateway: 'ASAAS',
+            external_id: asaasCustomer.id,
+            cpf_cnpj: cpfCnpj,
+            sync_status: 'SYNCED',
+            last_synced_at: new Date(),
+          },
+        });
 
     return customer;
   }
