@@ -5410,33 +5410,70 @@ function BoletoCobrancaUnificadaModal({
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Quando cada boleto é gerado e vence
+                      Data do 1º boleto e vencimentos
                     </p>
                   </div>
                 </div>
 
-                <div className={`relative space-y-4 ${customDownPayment > 0 ? 'pl-7' : ''}`}>
-                  {/* Linha vertical do timeline — Onda 18: só quando há mais de uma
-                      etapa (entrada + boletos). Sem entrada, o "boletos" vira o
-                      tópico 3 limpo, sem linha/pontinho solto. */}
-                  {customDownPayment > 0 && (
-                    <div className="absolute left-[10px] top-2 bottom-2 w-px bg-amber-500/30" />
-                  )}
-
-                  {/* Sinal de fechamento — Onda 18: só aparece quando HÁ entrada (o sinal
-                      é parte da entrada paga no fechamento). Sem entrada = o plano mostra
-                      só os boletos, sem essa linha (nem a data obrigatória do sinal). */}
-                  {customDownPayment > 0 && (
-                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                    <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                    </div>
+                {/* Onda 18.1 — Tópico 3 = SÓ o boleto (data do 1º). Sem timeline,
+                    é uma linha só. O sinal saiu pro tópico 4 (discreto). */}
+                <div className="space-y-2">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground">Sinal de fechamento</p>
-                      <p className="text-[11px] text-muted-foreground">
-                        Cobrado hoje · método configurado abaixo
+                      <p className="text-sm font-semibold text-foreground">
+                        {isAVista ? 'Boleto à vista' : `${activeOption?.installments || 1}x boletos`}
+                        {!isAVista && <span className="text-red-600"> *</span>}
                       </p>
-                      {/* Onda 17.32.8 — metodo editavel direto no timeline */}
+                      <p className="text-[11px] text-muted-foreground">
+                        {isAVista ? 'Pagamento único' : 'Data da 1ª parcela obrigatória · próximas a cada 30 dias'}
+                      </p>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                      {!isAVista ? (
+                        <input
+                          type="date"
+                          value={customInstallmentsStartDate}
+                          onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
+                          required
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customInstallmentsStartDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
+                        />
+                      ) : (
+                        <span className="w-[120px]" />
+                      )}
+                      <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
+                        R$ {fmtBRL(parcelasValor)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* ── Step 4: Sinal de fechamento — Onda 18.1: card DISCRETO (pouco
+                  visível pro paciente: borda tracejada, cinza, texto miúdo, badge
+                  apagado). Só aparece quando há entrada/sinal. Traz o sinal (e o
+                  resto da entrada) que antes ficava dentro do tópico 3. */}
+              {customDownPayment > 0 && (
+              <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3.5">
+                <div className="flex items-center gap-2.5 mb-2.5">
+                  <div className="w-6 h-6 rounded-lg bg-muted text-muted-foreground/80 flex items-center justify-center text-[11px] font-bold shrink-0">
+                    4
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-xs font-semibold text-muted-foreground">Sinal de fechamento</p>
+                    <p className="text-[10px] text-muted-foreground/70">
+                      Parte da entrada paga hoje · ajuste interno
+                    </p>
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  {/* Sinal — método + data + valor (sem timeline) */}
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground/80">Sinal de fechamento</p>
+                      <p className="text-[10px] text-muted-foreground">Cobrado hoje · método abaixo</p>
                       <div className="flex items-center gap-1 mt-1.5">
                         {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
                           const isActive = customSignalMethod === m;
@@ -5458,7 +5495,6 @@ function BoletoCobrancaUnificadaModal({
                         })}
                       </div>
                     </div>
-                    {/* Onda 17.32.10 — data + valor lado a lado (mesma linha) */}
                     <div className="shrink-0 flex items-center gap-2">
                       <input
                         type="date"
@@ -5483,20 +5519,15 @@ function BoletoCobrancaUnificadaModal({
                       />
                     </div>
                   </div>
-                  )}
 
-                  {/* Entrada (resto da entrada apos o sinal) — metodo editavel */}
+                  {/* Entrada (resto da entrada após o sinal) */}
                   {entradaBoletoValor > 0 && (
-                    <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                      </div>
+                    <div className="flex items-start justify-between gap-3 flex-wrap border-t border-border/40 pt-3">
                       <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-foreground">
+                        <p className="text-xs font-semibold text-foreground/80">
                           Entrada <span className="text-red-600">*</span>
                         </p>
-                        <p className="text-[11px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
-                        {/* Onda 17.32.14 — metodo da entrada editavel */}
+                        <p className="text-[10px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
                         <div className="flex items-center gap-1 mt-1.5">
                           {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
                             const isActive = customRestMethod === m;
@@ -5534,44 +5565,9 @@ function BoletoCobrancaUnificadaModal({
                       </div>
                     </div>
                   )}
-
-                  {/* Parcelas / Boleto a vista */}
-                  <div className="relative flex items-start justify-between gap-3 flex-wrap">
-                    {customDownPayment > 0 && (
-                      <div className="absolute -left-7 top-1 w-5 h-5 rounded-full border-2 border-amber-500 bg-background flex items-center justify-center">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
-                      </div>
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-foreground">
-                        {isAVista ? 'Boleto à vista' : `${activeOption?.installments || 1}x boletos`}
-                        {!isAVista && <span className="text-red-600"> *</span>}
-                      </p>
-                      <p className="text-[11px] text-muted-foreground">
-                        {isAVista ? 'Pagamento único' : 'Data da 1ª parcela obrigatória · próximas a cada 30 dias'}
-                      </p>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                      {!isAVista ? (
-                        <input
-                          type="date"
-                          value={customInstallmentsStartDate}
-                          onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
-                          required
-                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                            customInstallmentsStartDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
-                          }`}
-                        />
-                      ) : (
-                        <span className="w-[120px]" />
-                      )}
-                      <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
-                        R$ {fmtBRL(parcelasValor)}
-                      </p>
-                    </div>
-                  </div>
                 </div>
               </div>
+              )}
             </div>
 
             {/* ─── Sidebar — Resumo + CTA ───────────────────────────── */}
