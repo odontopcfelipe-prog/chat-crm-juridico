@@ -418,7 +418,7 @@ export default function AddQuoteItemModal({ quoteId, procedures, onClose, onAdde
       onClick={onClose}
     >
       <div
-        className="bg-card border border-border rounded-2xl w-full max-w-5xl shadow-2xl max-h-[92vh] flex flex-col overflow-hidden"
+        className="bg-card border border-border rounded-2xl w-full max-w-5xl shadow-2xl h-[92vh] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* ─── HEADER ────────────────────────────────────────── */}
