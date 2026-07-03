@@ -5408,9 +5408,9 @@ function BoletoCobrancaUnificadaModal({
                     3
                   </div>
                   <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Plano de cobrança</p>
+                    <p className="text-sm font-bold text-foreground">Data do 1º boleto</p>
                     <p className="text-[11px] text-muted-foreground">
-                      Data do 1º boleto e vencimentos
+                      Vencimento da 1ª parcela e próximas
                     </p>
                   </div>
                 </div>
@@ -5450,11 +5450,10 @@ function BoletoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* ── Step 4: Sinal de fechamento — Onda 18.1: card DISCRETO (pouco
-                  visível pro paciente: borda tracejada, cinza, texto miúdo, badge
-                  apagado). Só aparece quando há entrada/sinal. Traz o sinal (e o
-                  resto da entrada) que antes ficava dentro do tópico 3. */}
-              {customDownPayment > 0 && (
+              {/* ── Step 4: Sinal de fechamento — Onda 18.2: SEMPRE visível (estrutura
+                  1·2·3·4 consistente), mas discreto. Com entrada > 0 edita o sinal +
+                  resto da entrada; com entrada 0 mostra só uma dica (sem inputs
+                  obrigatórios, pra não sujar/travar a emissão). */}
               <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3.5">
                 <div className="flex items-center gap-2.5 mb-2.5">
                   <div className="w-6 h-6 rounded-lg bg-muted text-muted-foreground/80 flex items-center justify-center text-[11px] font-bold shrink-0">
@@ -5468,6 +5467,7 @@ function BoletoCobrancaUnificadaModal({
                   </div>
                 </div>
 
+                {customDownPayment > 0 ? (
                 <div className="space-y-3">
                   {/* Sinal — método + data + valor (sem timeline) */}
                   <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -5566,8 +5566,12 @@ function BoletoCobrancaUnificadaModal({
                     </div>
                   )}
                 </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Sem sinal. Defina uma <span className="font-semibold text-muted-foreground">Entrada</span> no tópico 1 pra cobrar um valor no fechamento.
+                  </p>
+                )}
               </div>
-              )}
             </div>
 
             {/* ─── Sidebar — Resumo + CTA ───────────────────────────── */}
@@ -5686,7 +5690,7 @@ function BoletoCobrancaUnificadaModal({
                       <div className="mt-4 p-2.5 rounded-md bg-red-500/10 border border-red-500/30 text-[11px] text-red-700 dark:text-red-400 flex items-start gap-1.5">
                         <AlertTriangle size={12} className="mt-0.5 shrink-0" />
                         <span>
-                          Preencha {missing.length === 1 ? 'a' : 'as'} <strong>{missing.join(', ')}</strong> {missing.length === 1 ? 'no' : 'nos'} timeline acima.
+                          Preencha {missing.length === 1 ? 'a' : 'as'} <strong>{missing.join(', ')}</strong> acima.
                         </span>
                       </div>
                     )}
