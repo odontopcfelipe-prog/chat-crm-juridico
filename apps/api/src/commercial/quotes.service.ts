@@ -1821,6 +1821,33 @@ export class QuotesService {
     return updated;
   }
 
+  /**
+   * Onda 18.6 — Editar o PRECO de um item de proposta. Restrito a ADMIN (gate
+   * de role no controller). Diferente de updateItem:
+   *  - permite editar em DRAFT E SENT (ajuste de preco durante a negociacao),
+   *    mas NAO em aceita/rejeitada/expirada (aceita ja pode ter cobranca);
+   *  - recebe o TOTAL do item (o valor que o admin ve na proposta) e deriva o
+   *    unit_price = total / quantidade, arredondando pra 2 casas.
+   * Recalcula subtotal/total do quote via recalcTotals e devolve o quote fresco.
+   */
+  async overrideItemPrice(itemId: string, tenantId: string, newTotalPrice: number) {
+    const item = await this.getItemEnsuringTenant(itemId, tenantId);
+    if (!['DRAFT', 'SENT'].includes(item.quote.status)) {
+      throw new BadRequestException(
+        'So da pra editar o preco de propostas em rascunho ou enviadas (nao em aceitas/encerradas).',
+      );
+    }
+    const qty = item.quantity || 1;
+    const total_price = Math.round(Number(newTotalPrice) * 100) / 100;
+    const unit_price = Math.round((total_price / qty) * 100) / 100;
+    await this.prisma.quoteItem.update({
+      where: { id: itemId },
+      data: { unit_price, total_price },
+    });
+    await this.recalcTotals(item.quote_id);
+    return this.findOne(item.quote_id, tenantId);
+  }
+
   async removeItem(itemId: string, tenantId: string) {
     const item = await this.getItemEnsuringTenant(itemId, tenantId);
     if (item.quote.status !== 'DRAFT') {

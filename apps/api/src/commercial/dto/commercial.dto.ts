@@ -117,6 +117,11 @@ export class ApproveAndBillDto {
   @IsOptional() @IsString() @IsIn(['PIX', 'PIX_MAQUININHA', 'DINHEIRO']) manual_payment_method?: string;
 }
 
+// Onda 18.6 — Admin edita o preco (total) de um item da proposta.
+export class OverrideItemPriceDto {
+  @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) total_price!: number;
+}
+
 // Onda 13 — Bônus de fechamento (segura proposta + valida).
 // 6 tipos suportados; quando type=DESCONTO_EXTRA, applica discount_percent_delta
 // no quote (recalcula total_value). Demais tipos sao texto + validade.

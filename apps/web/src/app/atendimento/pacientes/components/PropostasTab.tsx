@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 // Onda 14.24 — timeline "Proximos passos" no painel da proposta aceita.
@@ -3533,6 +3534,34 @@ function PropostaPainel({
   useEffect(() => {
     setAvistaEnabled(!!detail?.avista_discount_enabled);
   }, [detail?.id, detail?.avista_discount_enabled]);
+
+  // Onda 18.6 — Edicao de preco de item, restrita a ADMIN. useRole le o papel do
+  // JWT; SUPER_ADMIN tambem passa. Nao-admin nem ve o controle (o backend tambem
+  // gateia — defense in depth). So aparece fora do modo leitura.
+  const { isAdmin, isSuperAdmin } = useRole();
+  const canEditItemPrice = (isAdmin || isSuperAdmin) && !readOnly;
+  const [editingPriceItemId, setEditingPriceItemId] = useState<string | null>(null);
+  const [tempItemPrice, setTempItemPrice] = useState('');
+  const [savingItemPrice, setSavingItemPrice] = useState(false);
+  const saveItemPrice = async (itemId: string) => {
+    const raw = tempItemPrice.replace(',', '.').replace(/[^\d.]/g, '');
+    const val = Math.round(Number(raw) * 100) / 100;
+    if (!Number.isFinite(val) || val < 0) {
+      showError('Valor inválido');
+      return;
+    }
+    setSavingItemPrice(true);
+    try {
+      await api.patch(`/quote-items/${itemId}/override-price`, { total_price: val });
+      showSuccess('Preço atualizado');
+      setEditingPriceItemId(null);
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao atualizar preço');
+    } finally {
+      setSavingItemPrice(false);
+    }
+  };
   // Onda 15 (etapa 8) — modais de parcelamento abertos pelos cards de Cartao
   // e Boleto. Clicar no card abre a "aba" de parcelas; ao escolher, o card
   // passa a expor a quantidade selecionada na propria face.
@@ -4114,9 +4143,56 @@ function PropostaPainel({
                     </span>
                   )}
                 </div>
-                <span className="text-sm font-semibold tabular-nums text-foreground shrink-0">
-                  R$ {fmtBRL(Number(it.total_price))}
-                </span>
+                {canEditItemPrice ? (
+                  editingPriceItemId === it.id ? (
+                    <span className="flex items-center gap-1 shrink-0">
+                      <span className="text-xs text-muted-foreground">R$</span>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        autoFocus
+                        value={tempItemPrice}
+                        onChange={(e) => setTempItemPrice(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') saveItemPrice(it.id);
+                          if (e.key === 'Escape') setEditingPriceItemId(null);
+                        }}
+                        className="w-24 text-sm font-semibold tabular-nums px-2 py-1 rounded border border-primary bg-background text-right focus:outline-none focus:ring-2 focus:ring-primary/30"
+                      />
+                      <button
+                        type="button"
+                        disabled={savingItemPrice}
+                        onClick={() => saveItemPrice(it.id)}
+                        title="Salvar preço"
+                        className="text-emerald-600 hover:text-emerald-700 disabled:opacity-50 p-1"
+                      >
+                        <Check size={14} strokeWidth={3} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setEditingPriceItemId(null)}
+                        title="Cancelar"
+                        className="text-muted-foreground hover:text-foreground p-1"
+                      >
+                        <X size={14} />
+                      </button>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { setEditingPriceItemId(it.id); setTempItemPrice(String(Number(it.total_price))); }}
+                      title="Editar preço (admin)"
+                      className="group flex items-center gap-1 shrink-0 text-sm font-semibold tabular-nums text-foreground hover:text-primary transition-colors"
+                    >
+                      R$ {fmtBRL(Number(it.total_price))}
+                      <Pencil size={11} className="opacity-40 group-hover:opacity-100" />
+                    </button>
+                  )
+                ) : (
+                  <span className="text-sm font-semibold tabular-nums text-foreground shrink-0">
+                    R$ {fmtBRL(Number(it.total_price))}
+                  </span>
+                )}
               </li>
             );
           })}

@@ -46,6 +46,7 @@ import {
   UpdateQuoteDto,
   CreateQuoteItemDto,
   UpdateQuoteItemDto,
+  OverrideItemPriceDto,
   RejectQuoteDto,
   SaveCounterProposalDto,
   CreditCheckSimulateDto,
@@ -955,6 +956,26 @@ export class CommercialController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.quotesService.updateItem(id, tenantId, dto);
+  }
+
+  // Onda 18.6 — Editar o preco de um item da proposta. SO ADMIN/SUPER_ADMIN
+  // (ajustar valor mexe no total e na cobranca futura; dentista/CRC tem
+  // override_price pra montar orcamento, mas ajustar preco de PROPOSTA e
+  // restrito a admin). Gate de role aqui + status DRAFT/SENT no service; o
+  // front tambem esconde o controle (defense in depth).
+  @Patch('quote-items/:id/override-price')
+  overrideItemPrice(
+    @Param('id') id: string,
+    @Body() dto: OverrideItemPriceDto,
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const roles: string[] = req.user?.roles ?? [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas administradores podem editar o preco da proposta');
+    }
+    return this.quotesService.overrideItemPrice(id, tenantId, dto.total_price);
   }
 
   @RequiresPermission('manage_proposals')
