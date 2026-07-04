@@ -1,6 +1,6 @@
 'use client';
 
-import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, LayoutGrid, Grid3X3, Square } from 'lucide-react';
+import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, Wallet, LayoutGrid, Grid3X3, Square } from 'lucide-react';
 import { useState, useEffect, useRef } from 'react';
 import {
   requestNotificationPermission,
@@ -99,7 +99,7 @@ export interface InboxSidebarProps {
   pendingTransfers: { conversationId: string; contactName: string; fromUserName: string; reason: string | null; audioIds?: string[] }[];
   unreadCounts: Record<string, number>;
   /** Totais globais de não-lidas por categoria (Leads/Clientes), independentes do clientMode ativo. */
-  unreadSummary: { leads: number; clients: number };
+  unreadSummary: { leads: number; clients: number; financial: number };
   currentUserId: string | null;
   // State
   selectedId: string | null;
@@ -118,6 +118,9 @@ export interface InboxSidebarProps {
   // Callbacks
   clientMode: boolean;
   onSetClientMode: (mode: boolean) => void;
+  /** Onda 18.7 — aba Financeiro (sobreposta ao clientMode): conversas do chip FINANCEIRO. */
+  financialMode?: boolean;
+  onSetFinancialMode?: (v: boolean) => void;
   onSelectConversation: (id: string) => void;
   onSetSearchQuery: (q: string) => void;
   onSetLeadFilter: (f: string) => void;
@@ -160,6 +163,8 @@ export function InboxSidebar({
   onBulkAction,
   clientMode,
   onSetClientMode,
+  financialMode = false,
+  onSetFinancialMode,
   onSelectConversation,
   onSetSearchQuery,
   onSetLeadFilter,
@@ -184,6 +189,7 @@ export function InboxSidebar({
   // derivar daqui zeraria o badge da aba oposta.
   const unreadLeadsCount = unreadSummary.leads;
   const unreadClientsCount = unreadSummary.clients;
+  const unreadFinancialCount = unreadSummary.financial;
 
   // ─── Saved Filters ────────────────────────────────────────────
   const [savedFilters, setSavedFilters] = useState<SavedFilter[]>([]);
@@ -302,12 +308,12 @@ export function InboxSidebar({
           </div>
         </div>
 
-        {/* Toggle Leads / Clientes */}
+        {/* Onda 18.7 — Toggle Leads / Clientes / Financeiro */}
         <div className="flex rounded-xl border border-border overflow-hidden">
           <button
             onClick={() => onSetClientMode(false)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold transition-colors ${
-              !clientMode
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-[12px] font-semibold transition-colors ${
+              !clientMode && !financialMode
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
             }`}
@@ -315,13 +321,13 @@ export function InboxSidebar({
             <UserSearch size={13} />
             Leads
             {unreadLeadsCount > 0 && (
-              <span className="ml-1 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadLeadsCount > 99 ? '99+' : unreadLeadsCount}</span>
+              <span className="ml-0.5 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadLeadsCount > 99 ? '99+' : unreadLeadsCount}</span>
             )}
           </button>
           <button
             onClick={() => onSetClientMode(true)}
-            className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 text-[12px] font-semibold transition-colors ${
-              clientMode
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-[12px] font-semibold transition-colors border-l border-border ${
+              clientMode && !financialMode
                 ? 'bg-primary text-primary-foreground'
                 : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
             }`}
@@ -329,7 +335,21 @@ export function InboxSidebar({
             <UserCheck size={13} />
             Clientes
             {unreadClientsCount > 0 && (
-              <span className="ml-1 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadClientsCount > 99 ? '99+' : unreadClientsCount}</span>
+              <span className="ml-0.5 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadClientsCount > 99 ? '99+' : unreadClientsCount}</span>
+            )}
+          </button>
+          <button
+            onClick={() => onSetFinancialMode?.(true)}
+            className={`flex-1 flex items-center justify-center gap-1 py-1.5 text-[12px] font-semibold transition-colors border-l border-border ${
+              financialMode
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground hover:bg-accent/60'
+            }`}
+          >
+            <Wallet size={13} />
+            Financeiro
+            {unreadFinancialCount > 0 && (
+              <span className="ml-0.5 min-w-[18px] h-[18px] flex items-center justify-center text-[9px] font-bold rounded-full bg-red-500 text-white">{unreadFinancialCount > 99 ? '99+' : unreadFinancialCount}</span>
             )}
           </button>
         </div>

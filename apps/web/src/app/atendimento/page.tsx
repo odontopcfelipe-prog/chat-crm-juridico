@@ -113,6 +113,10 @@ export default function Dashboard() {
   const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
   const [clientMode, setClientMode] = useState(false); // false = Leads, true = Clientes
   const clientModeRef = useRef(false);
+  // Onda 18.7 — aba Financeiro (sobreposta ao clientMode). Quando true, mostra as
+  // conversas do chip FINANCEIRO (cobrança/lembrete), isoladas de Leads/Clientes.
+  const [financialMode, setFinancialMode] = useState(false);
+  const financialModeRef = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Onda 14.55 — modo split: 1 = chat unico (default), 4 = 2x2 grid, 6 = 3x2 grid.
   // Quando > 1, o main panel renderiza SplitGrid em vez do chat unico.
@@ -256,7 +260,7 @@ export default function Dashboard() {
   });
   // Badges globais Leads/Clientes — independentes do clientMode ativo (a lista
   // só contém a aba ativa, mas os badges do topo da sidebar mostram as duas).
-  const [unreadSummary, setUnreadSummary] = useState<{ leads: number; clients: number }>({ leads: 0, clients: 0 });
+  const [unreadSummary, setUnreadSummary] = useState<{ leads: number; clients: number; financial: number }>({ leads: 0, clients: 0, financial: 0 });
   // Current user ID decoded from JWT (lazy init, never changes)
   const [currentUserId] = useState<string | null>(() => {
     if (typeof window === 'undefined') return null;
@@ -304,6 +308,7 @@ export default function Dashboard() {
   // Keep refs in sync
   useEffect(() => { selectedInboxIdRef.current = selectedInboxId; }, [selectedInboxId]);
   useEffect(() => { clientModeRef.current = clientMode; }, [clientMode]);
+  useEffect(() => { financialModeRef.current = financialMode; }, [financialMode]);
   useEffect(() => {
     selectedIdRef.current = selectedId;
     // Expoe para o SocketProvider silenciar som quando msg chega na conversa
@@ -602,7 +607,10 @@ export default function Dashboard() {
       const res = await api.get('/conversations', {
         params: {
           inboxId: inboxId || undefined,
-          clientMode: String(clientModeRef.current),
+          // Onda 18.7 — viewMode tem precedência (financial > clients/leads).
+          viewMode: financialModeRef.current
+            ? 'financial'
+            : clientModeRef.current ? 'clients' : 'leads',
         },
         // silent=true: chamadas de background (inboxUpdate) não disparam redirect global de 401
         ...( silent ? { _silent401: true } as any : {} ),
@@ -805,6 +813,7 @@ export default function Dashboard() {
               setUnreadSummary({
                 leads: Number(r.data.leads) || 0,
                 clients: Number(r.data.clients) || 0,
+                financial: Number(r.data.financial) || 0,
               });
             }
           })
@@ -942,6 +951,7 @@ export default function Dashboard() {
             setUnreadSummary({
               leads: Number(r.data.leads) || 0,
               clients: Number(r.data.clients) || 0,
+              financial: Number(r.data.financial) || 0,
             });
           }
         })
@@ -998,6 +1008,7 @@ export default function Dashboard() {
           setUnreadSummary({
             leads: Number(r.data.leads) || 0,
             clients: Number(r.data.clients) || 0,
+            financial: Number(r.data.financial) || 0,
           });
         }
       })
@@ -1011,7 +1022,7 @@ export default function Dashboard() {
     fetchAdiadoConversations(selectedInboxId);
     fetchPendingTransfers(true);
     fetchSpecialists(true);
-  }, [fetchConversations, fetchAdiadoConversations, fetchPendingTransfers, selectedInboxId, clientMode]);
+  }, [fetchConversations, fetchAdiadoConversations, fetchPendingTransfers, selectedInboxId, clientMode, financialMode]);
 
   // Polling de transferências pendentes (30s) — resiliência caso o socket perca o evento
   // Pula quando offline para nao gerar cascata de Network Error no console
@@ -1033,10 +1044,11 @@ export default function Dashboard() {
     return () => clearInterval(interval);
   }, [fetchConversations]);
 
-  // Ao trocar clientMode: deseleciona conversa ativa para evitar contexto errado
+  // Ao trocar de aba (clientMode/financialMode): deseleciona conversa ativa
+  // para evitar contexto errado
   useEffect(() => {
     setSelectedId(null);
-  }, [clientMode]);
+  }, [clientMode, financialMode]);
 
   // Canned responses — fetch once on mount (não depende do inbox)
   useEffect(() => {
@@ -2343,7 +2355,9 @@ export default function Dashboard() {
         onSetSearchQuery={setSearchQuery}
         onSetLeadFilter={setLeadFilter}
         clientMode={clientMode}
-        onSetClientMode={(mode) => { setClientMode(mode); }}
+        onSetClientMode={(mode) => { setClientMode(mode); setFinancialMode(false); }}
+        financialMode={financialMode}
+        onSetFinancialMode={(v) => { setFinancialMode(v); }}
         onSetSelectedInboxId={setSelectedInboxId}
         onSetInboxOpen={setInboxOpen}
         onSetShowNotifBanner={setShowNotifBanner}

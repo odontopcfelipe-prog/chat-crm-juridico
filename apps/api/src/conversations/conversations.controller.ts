@@ -24,11 +24,12 @@ export class ConversationsController {
     @Query('inboxId') inboxId: string | undefined,
     @Query('status') status: string | undefined,
     @Query('clientMode') clientMode: string | undefined,
+    @Query('viewMode') viewMode: string | undefined,
     @Request() req?: any,
   ) {
     const userId = req?.user?.id;
     const clientModeBool = clientMode === 'true' ? true : clientMode === 'false' ? false : undefined;
-    return this.conversationsService.findAll(status, userId, inboxId, req?.user?.tenant_id, clientModeBool);
+    return this.conversationsService.findAll(status, userId, inboxId, req?.user?.tenant_id, clientModeBool, viewMode);
   }
 
   @Get('pending-transfers')

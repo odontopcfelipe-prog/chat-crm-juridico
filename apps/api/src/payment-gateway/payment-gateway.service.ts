@@ -367,12 +367,19 @@ export class PaymentGatewayService {
     }
     this.logger.log(`[RESEND] Normalizou phone: "${rawPhone}" -> "${phone}"`);
 
-    // 3. Instances do tenant
-    const instances = await this.prisma.instance.findMany({
+    // 3. Instances do tenant — Onda 18.7: cobranca sai pelo chip FINANCEIRO
+    // primeiro (fallback: CLINICA -> demais). Ordena as instancias pra o loop
+    // de envio abaixo tentar o Financeiro antes do resto.
+    const allInstances = await this.prisma.instance.findMany({
       where: { tenant_id: tenantId, type: 'whatsapp' },
       orderBy: { created_at: 'desc' },
-      select: { name: true },
+      select: { name: true, purpose: true },
     });
+    const purposeRank = (p: string | null) =>
+      p === 'FINANCEIRO' ? 0 : p === 'CLINICA' ? 1 : 2;
+    const instances = [...allInstances].sort(
+      (a, b) => purposeRank(a.purpose) - purposeRank(b.purpose),
+    );
     if (instances.length === 0) {
       throw new BadRequestException(
         'Nenhuma instancia WhatsApp configurada pra esta clinica. Configure em Configuracoes › WhatsApp.',
@@ -1765,8 +1772,7 @@ export class PaymentGatewayService {
       `✅ *Pagamento Confirmado!*\n\n` +
       `Olá, ${firstName}!\n\n` +
       `Confirmamos o recebimento do pagamento no valor de *${valor}*${descricao ? ` (${descricao})` : ''}.\n\n` +
-      `Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.\n\n` +
-      `_André Lustosa Advogados_`;
+      `Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.`;
 
     let clientPhone = lead.phone.replace(/\D/g, '');
     if (clientPhone.length <= 11) clientPhone = '55' + clientPhone;
@@ -1780,8 +1786,15 @@ export class PaymentGatewayService {
       select: { id: true, instance_name: true },
     }).catch(() => null);
 
+    // Onda 18.7 — confirmação de pagamento sai pelo chip FINANCEIRO (fallback:
+    // instância da última conversa).
+    const finInstance = (charge as any)?.tenant_id
+      ? await this.whatsapp.getInstanceForPurpose((charge as any).tenant_id, 'FINANCEIRO')
+      : null;
+    const dispatchInstance = finInstance ?? lastConvo?.instance_name ?? undefined;
+
     try {
-      const sendResult = await this.whatsapp.sendText(clientPhone, msg, lastConvo?.instance_name ?? undefined);
+      const sendResult = await this.whatsapp.sendText(clientPhone, msg, dispatchInstance);
       this.logger.log(`[WEBHOOK] Confirmação de pagamento enviada para ${clientPhone}`);
 
       if (lastConvo) {
@@ -1827,15 +1840,13 @@ export class PaymentGatewayService {
         `Olá, ${firstName}!\n\n` +
         `Informamos que a cobrança no valor de *${valor}*${descricao ? ` (${descricao})` : ''} foi *estornada*.\n\n` +
         `O valor será devolvido conforme a forma de pagamento utilizada.\n` +
-        `Qualquer dúvida, estamos à disposição.\n\n` +
-        `_André Lustosa Advogados_`
+        `Qualquer dúvida, estamos à disposição.`
       )
       : (
         `📋 *Cobrança Cancelada*\n\n` +
         `Olá, ${firstName}!\n\n` +
         `Informamos que a cobrança no valor de *${valor}*${descricao ? ` (${descricao})` : ''} foi *cancelada*.\n\n` +
-        `Caso tenha dúvidas sobre o motivo ou precise de uma nova cobrança, responda esta mensagem.\n\n` +
-        `_André Lustosa Advogados_`
+        `Caso tenha dúvidas sobre o motivo ou precise de uma nova cobrança, responda esta mensagem.`
       );
 
     // Normalizar telefone: 55+DD+8dig (sem 9 extra) — mesmo formato do to12Digits
@@ -1876,11 +1887,16 @@ export class PaymentGatewayService {
         this.logger.warn(`[WEBHOOK] Falha ao criar conversa: ${e.message}`);
       }
     }
+    // Onda 18.7 — estorno/cancelamento sai pelo chip FINANCEIRO (fallback:
+    // instância da conversa).
+    const finInstance = (charge as any)?.tenant_id
+      ? await this.whatsapp.getInstanceForPurpose((charge as any).tenant_id, 'FINANCEIRO')
+      : null;
     try {
       const sendResult = await this.whatsapp.sendText(
         clientPhone,
         msg,
-        lastConvo?.instance_name ?? undefined,
+        finInstance ?? lastConvo?.instance_name ?? undefined,
       );
       this.logger.log(`[WEBHOOK] Notificação de ${status} enviada para ${clientPhone}`);
 

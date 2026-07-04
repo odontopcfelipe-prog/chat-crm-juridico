@@ -41,7 +41,7 @@ function parseError(e: any): string {
   return raw || 'Algo deu errado. Tente de novo.';
 }
 
-type Purpose = 'COMERCIAL' | 'CLINICA';
+type Purpose = 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO';
 
 interface MyNumber {
   instanceName: string;
@@ -61,6 +61,7 @@ interface MyNumber {
 const PURPOSES: { value: Purpose; label: string; sub: string; badge: string }[] = [
   { value: 'COMERCIAL', label: 'Comercial', sub: 'Gera Leads — time comercial', badge: 'bg-sky-500/15 text-sky-600 border-sky-500/30' },
   { value: 'CLINICA', label: 'Clínica', sub: 'Atende Pacientes — recepção/dentistas', badge: 'bg-emerald-500/15 text-emerald-600 border-emerald-500/30' },
+  { value: 'FINANCEIRO', label: 'Financeiro', sub: 'Cobrança e lembrete de pagamento', badge: 'bg-amber-500/15 text-amber-600 border-amber-500/30' },
 ];
 function purposeMeta(p?: string | null) {
   return PURPOSES.find((x) => x.value === p) || null;
@@ -264,13 +265,17 @@ export default function WhatsappIntegrationPage() {
     }
   };
 
-  // Onda 17.64 — até 2 WhatsApps por clínica: no máximo 1 Comercial + 1 Clínica.
+  // Onda 17.64 / 18.7 — até 3 WhatsApps por clínica: no máx 1 Comercial + 1
+  // Clínica + 1 Financeiro.
   const usedPurposes = new Set<Purpose>(
-    numbers.map((n) => n.purpose).filter((p): p is Purpose => p === 'COMERCIAL' || p === 'CLINICA'),
+    numbers.map((n) => n.purpose).filter((p): p is Purpose => p === 'COMERCIAL' || p === 'CLINICA' || p === 'FINANCEIRO'),
   );
   const freePurpose: Purpose | null =
-    !usedPurposes.has('CLINICA') ? 'CLINICA' : !usedPurposes.has('COMERCIAL') ? 'COMERCIAL' : null;
-  const canConnectMore = numbers.length < 2 && usedPurposes.size < 2;
+    !usedPurposes.has('CLINICA') ? 'CLINICA'
+    : !usedPurposes.has('COMERCIAL') ? 'COMERCIAL'
+    : !usedPurposes.has('FINANCEIRO') ? 'FINANCEIRO'
+    : null;
+  const canConnectMore = numbers.length < 3 && usedPurposes.size < 3;
   const openConnect = () => { setNewPurpose(freePurpose); setShowConnectModal(true); };
 
   return (

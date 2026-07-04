@@ -591,15 +591,37 @@ export class WhatsappService {
     return instanceName; // legacy: mostra o nome cru
   }
 
-  /** Onda 17.64 — normaliza a função do chip: 'COMERCIAL' | 'CLINICA' | null. */
-  private normalizePurpose(purpose?: string | null): 'COMERCIAL' | 'CLINICA' | null {
+  /** Onda 17.64 / 18.7 — normaliza a função do chip:
+   *  'COMERCIAL' | 'CLINICA' | 'FINANCEIRO' | null. */
+  private normalizePurpose(purpose?: string | null): 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO' | null {
     const p = (purpose || '').trim().toUpperCase();
-    return p === 'COMERCIAL' || p === 'CLINICA' ? (p as 'COMERCIAL' | 'CLINICA') : null;
+    return p === 'COMERCIAL' || p === 'CLINICA' || p === 'FINANCEIRO'
+      ? (p as 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO')
+      : null;
   }
 
   /** Rótulo amigável da função (pra mensagens/nome de inbox). */
   private purposeLabel(purpose: string): string {
-    return purpose === 'COMERCIAL' ? 'Comercial' : purpose === 'CLINICA' ? 'Clínica' : 'WhatsApp';
+    return purpose === 'COMERCIAL' ? 'Comercial'
+      : purpose === 'CLINICA' ? 'Clínica'
+      : purpose === 'FINANCEIRO' ? 'Financeiro'
+      : 'WhatsApp';
+  }
+
+  /**
+   * Onda 18.7 — Resolve a instância (chip) do tenant por função, pra rotear
+   * saída por propósito (ex: cobrança sai pelo chip FINANCEIRO). Retorna o
+   * `name` da instância viva daquela função, ou null se não houver.
+   */
+  async getInstanceForPurpose(tenantId: string, purpose: string): Promise<string | null> {
+    const norm = this.normalizePurpose(purpose);
+    if (!tenantId || !norm) return null;
+    const inst = await this.prisma.instance.findFirst({
+      where: { tenant_id: tenantId, type: 'whatsapp', purpose: norm },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    });
+    return inst?.name ?? null;
   }
 
   /**
@@ -627,7 +649,7 @@ export class WhatsappService {
     tenantId: string,
     instanceName: string,
     displayName?: string,
-    purpose?: 'COMERCIAL' | 'CLINICA' | null,
+    purpose?: 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO' | null,
   ): Promise<void> {
     const prefix = this.tenantPrefix(tenantId);
     if (!instanceName.startsWith(`${prefix}-`)) return; // legacy/foreign: nao mexe
@@ -743,9 +765,10 @@ export class WhatsappService {
     const normalizedPurpose = this.normalizePurpose(purpose);
     const existing = await this.listForTenant(tenantId);
 
-    // Onda 17.64 — limite por FUNÇÃO: no máximo 2 WhatsApps por clínica, no
-    // máximo 1 de cada função (COMERCIAL=Leads, CLINICA=Pacientes). Sem função
-    // informada (cliente antigo), mantém o limite legado de 1/tenant.
+    // Onda 17.64 / 18.7 — limite por FUNÇÃO: no máximo 3 WhatsApps por clínica,
+    // no máximo 1 de cada função (COMERCIAL=Leads, CLINICA=Pacientes,
+    // FINANCEIRO=cobrança/lembrete). Sem função informada (cliente antigo),
+    // mantém o limite legado de 1/tenant.
     if (normalizedPurpose) {
       const sameFn = (existing as any[]).find((e) => e.purpose === normalizedPurpose);
       if (sameFn) {
@@ -754,9 +777,9 @@ export class WhatsappService {
           `Pra trocar, remova a linha atual primeiro.`,
         );
       }
-      if (existing.length >= 2) {
+      if (existing.length >= 3) {
         throw new BadRequestException(
-          'Limite de 2 WhatsApps por clinica (1 Comercial + 1 Clinica) atingido.',
+          'Limite de 3 WhatsApps por clinica (1 Comercial + 1 Clinica + 1 Financeiro) atingido.',
         );
       }
     } else if (existing.length > 0) {
@@ -831,7 +854,7 @@ export class WhatsappService {
     }
     const normalized = this.normalizePurpose(purpose);
     if (!normalized) {
-      throw new BadRequestException('Funcao invalida (use COMERCIAL ou CLINICA)');
+      throw new BadRequestException('Funcao invalida (use COMERCIAL, CLINICA ou FINANCEIRO)');
     }
 
     // Garante que a instância está registrada (self-heal) antes de taguear.

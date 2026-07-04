@@ -21,7 +21,7 @@ export class ConversationsService {
     return this.prisma.conversation.create({ data });
   }
 
-  async findAll(status?: string, userId?: string, inboxId?: string, tenantId?: string, clientMode?: boolean) {
+  async findAll(status?: string, userId?: string, inboxId?: string, tenantId?: string, clientMode?: boolean, viewMode?: string) {
     const where: any = {};
     // Filtro por status explícito (se passado via query param)
     if (status) {
@@ -46,14 +46,21 @@ export class ConversationsService {
     const userRole = effectiveRole(user?.roles ?? 'OPERADOR');
     const userInboxIds = (user?.inboxes ?? []).map((i: any) => i.id);
 
-    // ─── Filtro por clientMode (modo Leads vs Clientes) ──────────────────
-    // Visibilidade controlada por lead.stage e lead.is_client:
-    //   - Aba Leads (clientMode=false): is_client=false, exclui FINALIZADO e PERDIDO
-    //   - Aba Clientes (clientMode=true): is_client=true (todos os clientes)
-    //   - Legado (clientMode=undefined): exclui apenas PERDIDO
-    if (clientMode === true) {
+    // ─── Filtro por modo (Leads / Clientes / Financeiro) ─────────────────
+    // Onda 18.7 — viewMode ('leads'|'clients'|'financial') tem precedência;
+    // clientMode mantido por compat. Financeiro = conversas do inbox do chip
+    // FINANCEIRO (cobrança/lembrete), independente de is_client.
+    const mode = viewMode
+      ? viewMode
+      : clientMode === true ? 'clients'
+      : clientMode === false ? 'leads'
+      : 'all';
+    if (mode === 'financial') {
+      where.inbox = { purpose: 'FINANCEIRO' };
+      where.lead = { stage: { notIn: ['PERDIDO'] } };
+    } else if (mode === 'clients') {
       where.lead = { is_client: true };
-    } else if (clientMode === false) {
+    } else if (mode === 'leads') {
       where.lead = { is_client: false, stage: { notIn: ['PERDIDO', 'FINALIZADO'] } };
     } else {
       where.lead = { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } };
@@ -896,24 +903,32 @@ export class ConversationsService {
    * mostrar o total de cada categoria INDEPENDENTE do clientMode ativo
    * (a lista de conversas só traz uma aba por vez; o badge é global).
    */
-  async getUnreadSummary(tenantId?: string, userId?: string): Promise<{ leads: number; clients: number }> {
+  async getUnreadSummary(tenantId?: string, userId?: string): Promise<{ leads: number; clients: number; financial: number }> {
     const counts = await this.getUnreadCounts(tenantId, userId);
     const convIds = Object.keys(counts);
-    if (convIds.length === 0) return { leads: 0, clients: 0 };
+    if (convIds.length === 0) return { leads: 0, clients: 0, financial: 0 };
 
     const convs = await this.prisma.conversation.findMany({
       where: { id: { in: convIds } },
-      select: { id: true, lead: { select: { is_client: true } } },
+      select: {
+        id: true,
+        lead: { select: { is_client: true } },
+        inbox: { select: { purpose: true } },
+      },
     });
 
     let leads = 0;
     let clients = 0;
+    let financial = 0;
     for (const c of convs) {
       const n = counts[c.id] || 0;
-      if ((c as any).lead?.is_client) clients += n;
+      // Onda 18.7 — conversas do inbox FINANCEIRO contam pra aba Financeiro
+      // (não pra Leads/Clientes), independente de is_client.
+      if ((c as any).inbox?.purpose === 'FINANCEIRO') financial += n;
+      else if ((c as any).lead?.is_client) clients += n;
       else leads += n;
     }
-    return { leads, clients };
+    return { leads, clients, financial };
   }
 
   async markAsRead(conversationId: string, userId?: string) {
