@@ -1058,15 +1058,21 @@ function ProposalFinancialCard({
     const pagasCount = parcelas.filter(
       (p) => p.status === 'RECEIVED' || p.status === 'CONFIRMED',
     ).length;
-    const pct = contratado > 0 ? Math.round((recebido / contratado) * 100) : 0;
-    return { contratado, recebido, emAberto, aVencer, pagasCount, totalCount: parcelas.length, pct };
+    // Onda 18.14 — total REALMENTE cobrado = soma das cobranças (COM juros do
+    // financiamento). Diferente de `contratado` (valor da VENDA, base). O % e o
+    // "pago integral" usam o total cobrado — senão passariam de 100% quando há
+    // juros (ex: venda R$9.130, mas com juros do boleto cobra R$10.577,60).
+    const totalCobrado = recebido + emAberto + aVencer;
+    const baseParaPct = totalCobrado > 0 ? totalCobrado : contratado;
+    const pct = baseParaPct > 0 ? Math.round((recebido / baseParaPct) * 100) : 0;
+    return { contratado, totalCobrado, recebido, emAberto, aVencer, pagasCount, totalCount: parcelas.length, pct };
   }, [parcelas, quote.total_value]);
 
   // Status badge no header
   let statusBadge = { label: 'Aguardando pagamento', cls: 'bg-blue-500/15 text-blue-700' };
   if (agg.totalCount === 0) {
     statusBadge = { label: 'Sem cobrança gerada', cls: 'bg-amber-500/15 text-amber-700' };
-  } else if (agg.recebido >= agg.contratado && agg.contratado > 0) {
+  } else if (agg.totalCobrado > 0 && agg.recebido >= agg.totalCobrado) {
     statusBadge = { label: 'Pago integral', cls: 'bg-emerald-500/15 text-emerald-700' };
   } else if (agg.recebido > 0) {
     statusBadge = { label: 'Em pagamento', cls: 'bg-amber-500/15 text-amber-700' };
@@ -1225,7 +1231,16 @@ function ProposalFinancialCard({
 
         <div className="text-right shrink-0">
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground font-bold">Total</p>
-          <p className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(agg.contratado)}</p>
+          {/* Onda 18.14 — mostra o total REALMENTE cobrado (com juros do boleto).
+              Sub-linha com o valor da venda + juros quando há financiamento. */}
+          <p className="text-lg font-extrabold tabular-nums text-foreground">
+            {fmtBRL(agg.totalCobrado > 0 ? agg.totalCobrado : agg.contratado)}
+          </p>
+          {agg.totalCobrado > agg.contratado + 0.5 && (
+            <p className="text-[10px] text-muted-foreground tabular-nums leading-tight">
+              venda {fmtBRL(agg.contratado)} + juros {fmtBRL(agg.totalCobrado - agg.contratado)}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center gap-1 shrink-0">
