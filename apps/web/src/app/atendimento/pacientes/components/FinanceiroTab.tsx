@@ -402,6 +402,7 @@ export default function FinanceiroTab({ patientId }: Props) {
         charges={charges}
         patientId={patientId}
         onOpenDetail={(id) => setDetailQuoteId(id)}
+        onReload={load}
       />
 
       {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
@@ -604,6 +605,8 @@ function AcceptedQuotesSection({
 interface ParcelaItem {
   /** Onda 14.52 — id da charge mae (PaymentGatewayCharge) pra resend via WhatsApp */
   chargeId: string;
+  /** Onda 18.10 — id da cobrança no Asaas (external_id) pra dar baixa (receive-in-cash). */
+  asaasId: string;
   number: number;
   totalCount: number;
   method: 'PIX' | 'BOLETO' | 'CREDIT_CARD' | string;
@@ -668,12 +671,14 @@ function ProposalFinancialCard({
   allCharges,
   patientId,
   onOpenDetail,
+  onReload,
 }: {
   index: number;
   quote: AcceptedQuote;
   allCharges: Charge[];
   patientId: string;
   onOpenDetail: () => void;
+  onReload?: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Onda 17.72 — gate Financeiro→Tratamento. So quem tem manage_financial vê
@@ -692,6 +697,47 @@ function ProposalFinancialCard({
     Record<string, SubInstallment[]>
   >({});
   const [loadingSubs, setLoadingSubs] = useState(false);
+
+  // Onda 18.10 — "Registrar" agora DÁ BAIXA de verdade: chama receive-in-cash
+  // (fecha a cobrança no Asaas -> link/QR morre + lança receita no caixa +
+  // libera comissão). Pra quando o paciente pagou por fora (PIX/dinheiro).
+  const [registeringId, setRegisteringId] = useState<string | null>(null);
+  const handleRegistrar = async (p: ParcelaItem) => {
+    if (registeringId) return; // evita duplo-clique
+    if (!p.asaasId) {
+      showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.');
+      return;
+    }
+    const metodo = p.method === 'PIX' ? 'PIX' : p.method === 'CREDIT_CARD' ? 'cartão' : 'dinheiro/espécie';
+    if (!window.confirm(
+      `Marcar como RECEBIDO (R$ ${fmtBRL(p.value)})?\n\n` +
+      `Use só se o paciente JÁ pagou por fora (${metodo}).\n\n` +
+      `Isso vai:\n` +
+      `• Fechar a cobrança no Asaas (o link/QR para de funcionar)\n` +
+      `• Lançar a receita no caixa\n` +
+      `• Liberar a comissão`,
+    )) return;
+    const caixaMethod = p.method === 'PIX' ? 'PIX' : p.method === 'CREDIT_CARD' ? 'CARTAO' : 'DINHEIRO';
+    setRegisteringId(p.asaasId);
+    try {
+      await api.post(`/payment-gateway/charges/asaas/${p.asaasId}/receive-in-cash`, {
+        payment_method: caixaMethod,
+      });
+      showSuccess('Baixa registrada — cobrança fechada no Asaas e receita no caixa.');
+      // Invalida o cache das sub-parcelas dessa cobrança pra o status atualizar.
+      setSubInstallmentsByCharge((prev) => {
+        if (prev[p.chargeId] === undefined) return prev;
+        const next = { ...prev };
+        delete next[p.chargeId];
+        return next;
+      });
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao registrar o recebimento.');
+    } finally {
+      setRegisteringId(null);
+    }
+  };
 
   // Charges DESTA proposta (filtra via description: 'plan:{planId}').
   // Como `acceptedQuotes` não retorna treatment_plan direto, uso heurística:
@@ -855,6 +901,7 @@ function ProposalFinancialCard({
         for (const s of subs) {
           list.push({
             chargeId: c.id,
+            asaasId: s.external_id,
             number: s.installment_number,
             totalCount: subs.length,
             method: c.billing_type,
@@ -872,6 +919,7 @@ function ProposalFinancialCard({
         // 1x (cobrança única)
         list.push({
           chargeId: c.id,
+          asaasId: c.external_id,
           number: 1,
           totalCount: 1,
           method: c.billing_type,
@@ -1234,7 +1282,7 @@ function ProposalFinancialCard({
                     }
                     setViewerParcela(p);
                   }}
-                  onRegistrar={() => onOpenDetail()}
+                  onRegistrar={() => handleRegistrar(p)}
                   onReenviar={() => onOpenDetail()}
                 />
               ))}
@@ -2030,11 +2078,13 @@ function ContratosTratamentosBloco({
   charges,
   patientId,
   onOpenDetail,
+  onReload,
 }: {
   acceptedQuotes: AcceptedQuote[];
   charges: Charge[];
   patientId: string;
   onOpenDetail: (id: string) => void;
+  onReload?: () => void;
 }) {
   const [tab, setTab] = useState<'todos' | 'ativos' | 'quitados'>('todos');
 
@@ -2126,6 +2176,7 @@ function ContratosTratamentosBloco({
                     allCharges={charges}
                     patientId={patientId}
                     onOpenDetail={() => onOpenDetail(q.id)}
+                    onReload={onReload}
                   />
                 ))}
               </div>
