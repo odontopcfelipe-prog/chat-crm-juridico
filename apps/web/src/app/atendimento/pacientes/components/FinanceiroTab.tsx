@@ -1213,7 +1213,17 @@ function ProposalFinancialCard({
                 <ParcelaLinha
                   key={idx}
                   parcela={p}
-                  onView={() => setViewerParcela(p)}
+                  onView={() => {
+                    // Onda 18.8 — PIX não gera o QR dentro do iframe/proxy (o
+                    // widget do PIX do Asaas falha no contexto embutido — "ERRO
+                    // domínio"). Abre a fatura direto em nova aba, onde o QR
+                    // gera normalmente. Boleto/cartão seguem no modal embutido.
+                    if (p.method === 'PIX') {
+                      const pixUrl = p.invoiceUrl || p.boletoUrl;
+                      if (pixUrl) { window.open(pixUrl, '_blank', 'noopener'); return; }
+                    }
+                    setViewerParcela(p);
+                  }}
                   onRegistrar={() => onOpenDetail()}
                   onReenviar={() => onOpenDetail()}
                 />
