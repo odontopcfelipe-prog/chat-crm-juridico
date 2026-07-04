@@ -1284,6 +1284,7 @@ function ProposalFinancialCard({
                   }}
                   onRegistrar={() => handleRegistrar(p)}
                   onReenviar={() => onOpenDetail()}
+                  registering={registeringId === p.asaasId}
                 />
               ))}
             </ul>
@@ -1302,11 +1303,13 @@ function ParcelaLinha({
   onView,
   onRegistrar,
   onReenviar,
+  registering = false,
 }: {
   parcela: ParcelaItem;
   onView: () => void;
   onRegistrar: () => void;
   onReenviar: () => void;
+  registering?: boolean;
 }) {
   const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
   const isOverdue = !isPaid && p.dueDate && new Date(p.dueDate).getTime() < Date.now();
@@ -1409,16 +1412,21 @@ function ParcelaLinha({
             Ver
           </button>
         )}
-        <button
-          type="button"
-          onClick={onRegistrar}
-          disabled={isPaid || isCancelled}
-          className="text-xs font-semibold px-3 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
-          title={isPaid ? 'Pagamento já registrado' : 'Marcar como recebido (PIX/Espécie)'}
-        >
-          <Check size={11} />
-          Registrar
-        </button>
+        {/* Onda 18.11 — "A pagar" (vermelho) enquanto não recebido. Clicar dá a
+            baixa (fecha no Asaas + lança no caixa). Quando paga — manual OU
+            automático (webhook) — some e o selo "Pago" verde acima aparece. */}
+        {!isPaid && !isCancelled && (
+          <button
+            type="button"
+            onClick={onRegistrar}
+            disabled={registering}
+            className="text-xs font-semibold px-3 py-1.5 rounded-md border border-red-500/50 bg-red-500/10 text-red-700 dark:text-red-400 hover:bg-red-500/20 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+            title="Paciente pagou por fora? Clique pra dar baixa (fecha no Asaas + lança no caixa)."
+          >
+            {registering ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
+            A pagar
+          </button>
+        )}
       </div>
     </li>
   );
