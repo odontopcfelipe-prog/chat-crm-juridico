@@ -1209,6 +1209,27 @@ export class QuotesService {
       ? `\n[FINANCING ${new Date().toISOString().slice(0, 16).replace('T', ' ')}] Aprovado pelo Banco PASSOS (decision_id: ${data.decision_id}, source: ${data.source || 'internal'})`
       : '';
 
+    // Onda 18.15 — ANTI-DUPLICATA: se o plano JÁ tem PARCELAS (financiamento já
+    // emitido), NÃO reemite (o duplo-clique / reclique pós-timeout de 60s gerava
+    // sinal + parcelas duplicados — dois requests liam "0" antes de qualquer um
+    // gravar). Checa só as PARCELAS (kind INSTALLMENT) de propósito: assim NÃO
+    // quebra o fluxo de sinal em espécie (emite sinal no passo 1, chama
+    // apply-financing no passo 2) nem a recuperação de emissão parcial (só o
+    // sinal saiu, faltam as parcelas). O overlay do front cobre o clique-duplo
+    // durante a requisição; este guard cobre o reclique tardio (1º já gravou).
+    const jaTemParcelas = await this.prisma.paymentGatewayCharge.count({
+      where: {
+        treatment_plan_id: plan.id,
+        kind: 'INSTALLMENT',
+        status: { notIn: ['DELETED', 'REFUNDED', 'CANCELLED'] },
+      },
+    });
+    if (jaTemParcelas > 0) {
+      throw new BadRequestException(
+        'Este plano já tem parcelas emitidas. Recarregue a página. Se precisar reemitir, cancele as cobranças ativas primeiro.',
+      );
+    }
+
     await this.prisma.treatmentPlan.update({
       where: { id: plan.id },
       data: {
