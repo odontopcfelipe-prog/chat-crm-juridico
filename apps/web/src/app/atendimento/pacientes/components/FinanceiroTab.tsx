@@ -812,27 +812,37 @@ function ProposalFinancialCard({
   // pra calcular barra de progresso + agregado no header colapsado.
   useEffect(() => {
     if (relatedCharges.length === 0) return;
+    // Onda 18.9 — PERF: só busca as sub-parcelas que ainda NÃO temos. Se já
+    // temos tudo, sai sem setState (evita o loop: antes o efeito dependia de
+    // subInstallmentsByCharge e re-setava um objeto novo -> re-render infinito).
+    const missing = relatedCharges.filter((c) => subInstallmentsByCharge[c.id] === undefined);
+    if (missing.length === 0) { setLoadingSubs(false); return; }
     setLoadingSubs(true);
-    const fetchAll = async () => {
-      const results: Record<string, SubInstallment[]> = {};
-      for (const c of relatedCharges) {
-        if (subInstallmentsByCharge[c.id] !== undefined) {
-          results[c.id] = subInstallmentsByCharge[c.id];
-          continue;
-        }
-        try {
-          const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
-            `/payment-gateway/charges/${c.id}/sub-installments`,
-          );
-          results[c.id] = data.sub_installments || [];
-        } catch {
-          results[c.id] = [];
-        }
-      }
-      setSubInstallmentsByCharge((prev) => ({ ...prev, ...results }));
+    let cancelled = false;
+    (async () => {
+      // Onda 18.9 — PARALELO (era sequencial: 26 cobranças = 26 requests em
+      // fila, ~13s+ -> travava). Promise.all busca todas de uma vez.
+      const entries = await Promise.all(
+        missing.map(async (c) => {
+          try {
+            const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
+              `/payment-gateway/charges/${c.id}/sub-installments`,
+            );
+            return [c.id, data.sub_installments || []] as const;
+          } catch {
+            return [c.id, [] as SubInstallment[]] as const;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setSubInstallmentsByCharge((prev) => {
+        const next = { ...prev };
+        for (const [id, subs] of entries) next[id] = subs;
+        return next;
+      });
       setLoadingSubs(false);
-    };
-    fetchAll();
+    })();
+    return () => { cancelled = true; };
   }, [relatedCharges, subInstallmentsByCharge]);
 
   // Constrói lista de parcelas (combinando charges 1x + sub_installments de parcelas)
