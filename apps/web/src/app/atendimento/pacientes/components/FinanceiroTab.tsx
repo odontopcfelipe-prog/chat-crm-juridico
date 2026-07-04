@@ -147,6 +147,10 @@ export default function FinanceiroTab({ patientId }: Props) {
   const [detailQuoteId, setDetailQuoteId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [paying, setPaying] = useState<string | null>(null);
+  // Onda 18.12 — bump a cada refresh (polling/atualizar) pra os cards
+  // reinvalidarem o cache das sub-parcelas (status vem do Asaas ao vivo) e a
+  // parcela paga AUTOMATICAMENTE (webhook) virar "Pago" sozinha.
+  const [refreshNonce, setRefreshNonce] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -190,6 +194,8 @@ export default function FinanceiroTab({ patientId }: Props) {
   // mostrar spinner) pra nao incomodar o operador.
   useEffect(() => {
     const id = setInterval(() => {
+      // Onda 18.12 — sinaliza refresh pros cards reinvalidarem as sub-parcelas.
+      setRefreshNonce((n) => n + 1);
       // Reload silencioso: nao mexe em `loading` state
       api.get<Charge[]>(`/payment-gateway/patients/${patientId}/charges`)
         .then(({ data }) => setCharges(data || []))
@@ -403,6 +409,7 @@ export default function FinanceiroTab({ patientId }: Props) {
         patientId={patientId}
         onOpenDetail={(id) => setDetailQuoteId(id)}
         onReload={load}
+        refreshNonce={refreshNonce}
       />
 
       {/* Onda 14.13 — Modal de detalhe da proposta aceita (fallback) */}
@@ -672,6 +679,7 @@ function ProposalFinancialCard({
   patientId,
   onOpenDetail,
   onReload,
+  refreshNonce,
 }: {
   index: number;
   quote: AcceptedQuote;
@@ -679,6 +687,7 @@ function ProposalFinancialCard({
   patientId: string;
   onOpenDetail: () => void;
   onReload?: () => void;
+  refreshNonce?: number;
 }) {
   const [expanded, setExpanded] = useState(false);
   // Onda 17.72 — gate Financeiro→Tratamento. So quem tem manage_financial vê
@@ -890,6 +899,37 @@ function ProposalFinancialCard({
     })();
     return () => { cancelled = true; };
   }, [relatedCharges, subInstallmentsByCharge]);
+
+  // Onda 18.12 — refresh SILENCIOSO das sub-parcelas quando o parent sinaliza
+  // (polling 30s / atualizar): reconsulta o status FRESCO do Asaas e atualiza em
+  // lugar (sem spinner). Assim a parcela paga AUTOMATICAMENTE vira "Pago" sozinha.
+  // Pula o mount inicial (nonce 0/undefined) — o fetch acima já carrega.
+  useEffect(() => {
+    if (!refreshNonce || relatedCharges.length === 0) return;
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        relatedCharges.map(async (c) => {
+          try {
+            const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
+              `/payment-gateway/charges/${c.id}/sub-installments`,
+            );
+            return [c.id, data.sub_installments || []] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      if (cancelled) return;
+      setSubInstallmentsByCharge((prev) => {
+        const next = { ...prev };
+        for (const e of entries) if (e) next[e[0]] = e[1];
+        return next;
+      });
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshNonce]);
 
   // Constrói lista de parcelas (combinando charges 1x + sub_installments de parcelas)
   const parcelas: ParcelaItem[] = useMemo(() => {
@@ -2087,12 +2127,14 @@ function ContratosTratamentosBloco({
   patientId,
   onOpenDetail,
   onReload,
+  refreshNonce,
 }: {
   acceptedQuotes: AcceptedQuote[];
   charges: Charge[];
   patientId: string;
   onOpenDetail: (id: string) => void;
   onReload?: () => void;
+  refreshNonce?: number;
 }) {
   const [tab, setTab] = useState<'todos' | 'ativos' | 'quitados'>('todos');
 
@@ -2185,6 +2227,7 @@ function ContratosTratamentosBloco({
                     patientId={patientId}
                     onOpenDetail={() => onOpenDetail(q.id)}
                     onReload={onReload}
+                    refreshNonce={refreshNonce}
                   />
                 ))}
               </div>
