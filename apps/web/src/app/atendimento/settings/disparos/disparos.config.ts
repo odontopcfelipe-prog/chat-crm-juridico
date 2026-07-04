@@ -6,10 +6,11 @@
 // verdade: Prisma Disparo/DisparoLog + BullMQ/DLQ + HSM + anti-spam + opt-out).
 
 export type DisparoCategoria =
-  | 'agendamento' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico';
+  | 'agendamento' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro';
 
 export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[] = [
   { id: 'agendamento',  label: 'Agendamento',            color: '#7C5CF0' },
+  { id: 'financeiro',   label: 'Financeiro (cobrança)',  color: '#10B981' },
   { id: 'pos_consulta', label: 'Pós-consulta',           color: '#14A38B' },
   { id: 'datas',        label: 'Datas e relacionamento', color: '#E8902B' },
   { id: 'recuperacao',  label: 'Recuperação de receita', color: '#F26C1B' },
@@ -19,7 +20,11 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
 export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
-export type OperacionalKey = 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento';
+export type OperacionalKey =
+  | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
+  // Onda 18.16 — cobrança financeira (chip FINANCEIRO). Cada estágio liga/desliga
+  // sozinho; o cron do worker varre o que está em aberto e dispara o certo.
+  | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d';
 
 export interface DisparoItem {
   id: string;
@@ -59,6 +64,27 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'reagendamento', nome: 'Aviso de re-agendamento', categoria: 'agendamento',
     gatilho: 'Quando o horário muda', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reagendamento', operacionalKey: 'reagendamento' },
+
+  // ── Financeiro (cobrança) — Onda 18.16 ──
+  // Envia pelo chip FINANCEIRO. O cron varre as cobranças em aberto, vê em que
+  // estágio cada boleto está (vence amanhã? venceu hoje? atrasou 15 dias?) e, se
+  // o estágio estiver ligado, dispara o lembrete + link do boleto. 1 msg por vez,
+  // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
+  { id: 'boleto_1d_antes', nome: 'Boleto · 1 dia antes do vencimento', categoria: 'financeiro',
+    gatilho: 'Vence amanhã · lembrete gentil', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'boleto_1d_antes' },
+  { id: 'boleto_no_dia', nome: 'Boleto · no dia do vencimento', categoria: 'financeiro',
+    gatilho: 'Vence hoje', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'boleto_no_dia' },
+  { id: 'boleto_atraso_1d', nome: 'Cobrança · 1 dia de atraso', categoria: 'financeiro',
+    gatilho: '1 dia após vencer · lembrete', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'boleto_atraso_1d' },
+  { id: 'boleto_atraso_15d', nome: 'Cobrança · 15 dias de atraso', categoria: 'financeiro',
+    gatilho: '15 dias após vencer · firme', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'boleto_atraso_15d' },
+  { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
+    gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'boleto_atraso_30d' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',
@@ -90,8 +116,6 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: '3 dias sem fechar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
   { id: 'recall_preventivo', nome: 'Recall preventivo', categoria: 'recuperacao',
     gatilho: '6 meses sem retornar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
-  { id: 'cobranca_amigavel', nome: 'Cobrança amigável', categoria: 'recuperacao',
-    gatilho: 'Parcela em atraso', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
 
   // ── Clínico e operacional ──
   { id: 'resumo_dentista', nome: 'Resumo diário do dentista', categoria: 'clinico',

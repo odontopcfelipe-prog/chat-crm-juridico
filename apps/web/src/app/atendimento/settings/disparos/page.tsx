@@ -8,7 +8,7 @@
 // demais aparecem do catálogo como "Em breve". Clicar abre o editor existente.
 import { useCallback, useEffect, useState } from 'react';
 import {
-  ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench,
+  ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -24,6 +24,7 @@ import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
+  financeiro: Receipt,
   pos_consulta: Heart,
   datas: Cake,
   recuperacao: TrendingUp,
@@ -36,6 +37,13 @@ interface OperacionalData {
   pos?: { enabled: boolean };
   dentista?: { enabled: boolean };
   aniversario?: { enabled: boolean };
+  reagendamento?: { enabled: boolean };
+  // Onda 18.16 — cobrança (flat, casa com enabledOf: op[operacionalKey].enabled)
+  boleto_1d_antes?: { enabled: boolean };
+  boleto_no_dia?: { enabled: boolean };
+  boleto_atraso_1d?: { enabled: boolean };
+  boleto_atraso_15d?: { enabled: boolean };
+  boleto_atraso_30d?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }

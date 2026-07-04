@@ -98,13 +98,23 @@ export class FollowupService {
     // de aniversario, pra o card contar EXATAMENTE quem vai receber o parabens.
     const todayMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
-    const [confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting] = await Promise.all([
+    const [
+      confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
+      bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting,
+    ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: 'POST_CARE_CONFIG' } }),
       this.prisma.globalSetting.findUnique({ where: { key: `DENTIST_DAILY_SUMMARY_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BIRTHDAY_GREETING_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` } }),
+      // Onda 18.16 — cobrança financeira. Default DESLIGADO (manda dinheiro pro
+      // paciente — só liga quem quer). Só ativa quando o valor salvo é 'true'.
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_1D_ANTES_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_NO_DIA_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_1D_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_15D_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_30D_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -229,6 +239,12 @@ export class FollowupService {
       dentista: { enabled: dentEnabled, sendAt: dentSendAt, dentistasHoje, enviadosHoje: resumoEnviados, aEnviar: dentistasHoje, enviadosMes: resumoMes },
       aniversario: { enabled: birthdayEnabled, sendAt: birthdaySendAt, aniversariantesHoje, enviadosHoje: aniversarioEnviados, aEnviar: aniversariantesHoje, enviadosMes: aniversarioMes },
       reagendamento: { enabled: reagEnabled },
+      // Onda 18.16 — cobrança (flat; front lê op[key].enabled). Default OFF.
+      boleto_1d_antes: { enabled: bol1dSetting?.value === 'true' },
+      boleto_no_dia: { enabled: bolDiaSetting?.value === 'true' },
+      boleto_atraso_1d: { enabled: bolA1Setting?.value === 'true' },
+      boleto_atraso_15d: { enabled: bolA15Setting?.value === 'true' },
+      boleto_atraso_30d: { enabled: bolA30Setting?.value === 'true' },
     };
   }
 
@@ -378,6 +394,18 @@ export class FollowupService {
         break;
       case 'reagendamento': {
         const key = `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Onda 18.16 — cobrança financeira: cada estágio numa key boolean própria
+      // (BOLETO_*_${tenant}). O cron do worker lê exatamente estas keys.
+      case 'boleto_1d_antes':
+      case 'boleto_no_dia':
+      case 'boleto_atraso_1d':
+      case 'boleto_atraso_15d':
+      case 'boleto_atraso_30d': {
+        const key = `${which.toUpperCase()}_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
