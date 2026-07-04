@@ -957,17 +957,16 @@ function ProposalFinancialCard({
         }
       } else {
         // 1x (cobrança única) OU parcela financiada individual (kind INSTALLMENT,
-        // sem sub-parcelas). Onda 18.13 — extrai "Parcela N/24" da description
-        // (senão cai em "Parcela 1 de 1" errado e fora de ordem).
-        let num = 1;
-        let total = 1;
-        const dm = /Parcela\s+(\d+)\s*\/\s*(\d+)/i.exec(c.description || '');
-        if (dm) { num = parseInt(dm[1], 10); total = parseInt(dm[2], 10); }
+        // sem sub-parcelas). Onda 18.13b — pra INSTALLMENT deixa número/total
+        // como placeholder (0); eles são atribuídos por ORDEM CRONOLÓGICA depois
+        // do sort (o installmentNumber do Asaas às vezes vem 1 pra TODAS, o que
+        // gerava "Parcela 1 de 24" repetido).
+        const isInstallment = c.kind === 'INSTALLMENT';
         list.push({
           chargeId: c.id,
           asaasId: c.external_id,
-          number: num,
-          totalCount: total,
+          number: isInstallment ? 0 : 1,
+          totalCount: isInstallment ? 0 : 1,
           method: c.billing_type,
           status: c.status,
           value: Number(c.amount),
@@ -1019,6 +1018,12 @@ function ProposalFinancialCard({
       if (da !== db) return da - db;
       return a.number - b.number;
     });
+    // Onda 18.13b — numera as parcelas financiadas (kind INSTALLMENT) por ordem
+    // cronológica (1..N), já que o sort acima ordenou por vencimento. Corrige o
+    // "Parcela 1 de 24" repetido (o installmentNumber do Asaas às vezes vem 1
+    // pra todas). Total = quantidade real de parcelas.
+    const parcelasFin = list.filter((p) => p.kind === 'INSTALLMENT');
+    parcelasFin.forEach((p, i) => { p.number = i + 1; p.totalCount = parcelasFin.length; });
     // Marca a primeira não-paga como "próxima" (apos ordenacao)
     const firstUnpaidIdx = list.findIndex(
       (p) => p.status !== 'RECEIVED' && p.status !== 'CONFIRMED'
