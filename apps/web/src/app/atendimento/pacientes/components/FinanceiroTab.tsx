@@ -956,12 +956,18 @@ function ProposalFinancialCard({
           });
         }
       } else {
-        // 1x (cobrança única)
+        // 1x (cobrança única) OU parcela financiada individual (kind INSTALLMENT,
+        // sem sub-parcelas). Onda 18.13 — extrai "Parcela N/24" da description
+        // (senão cai em "Parcela 1 de 1" errado e fora de ordem).
+        let num = 1;
+        let total = 1;
+        const dm = /Parcela\s+(\d+)\s*\/\s*(\d+)/i.exec(c.description || '');
+        if (dm) { num = parseInt(dm[1], 10); total = parseInt(dm[2], 10); }
         list.push({
           chargeId: c.id,
           asaasId: c.external_id,
-          number: 1,
-          totalCount: 1,
+          number: num,
+          totalCount: total,
           method: c.billing_type,
           status: c.status,
           value: Number(c.amount),
@@ -1004,9 +1010,13 @@ function ProposalFinancialCard({
       const ma = methodOrder(a.method);
       const mb = methodOrder(b.method);
       if (ma !== mb) return ma - mb;
-      // Mesmo metodo: mantem parcelas da mesma cobranca pai juntas
-      if (a.chargeId !== b.chargeId) return a.chargeId.localeCompare(b.chargeId);
-      // Mesma charge: ordem natural pelo numero da parcela
+      // Onda 18.13 — dentro do mesmo kind+metodo, ordena por VENCIMENTO
+      // (cronologico). Antes agrupava por chargeId, o que espalhava as parcelas
+      // individuais (cada uma tem chargeId proprio) fora de ordem — ex: 25/05/2028
+      // aparecia antes de 25/10/2026. Numero como desempate.
+      const da = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+      const db = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+      if (da !== db) return da - db;
       return a.number - b.number;
     });
     // Marca a primeira não-paga como "próxima" (apos ordenacao)
