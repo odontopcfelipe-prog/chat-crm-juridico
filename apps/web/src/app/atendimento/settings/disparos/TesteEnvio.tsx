@@ -6,7 +6,7 @@
 import { useState } from 'react';
 import { Loader2, Send } from 'lucide-react';
 import api from '@/lib/api';
-import { showError, showSuccess } from '@/lib/toast';
+import { showError, showSuccess, showInfo } from '@/lib/toast';
 
 export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }) {
   // `phone` guarda só o DDD+número (sem o 55) — o +55 fica FIXO no campo pra nunca
@@ -32,14 +32,19 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
       await api.post('/calendar/disparo/send-test', { disparo, phone: fullPhone, text });
       showSuccess('Teste enviado — confira o WhatsApp desse número');
     } catch (e: any) {
-      // Onda 18.25 — mostra a CAUSA real em vez de um "falha" genérico, pra dar
-      // pra diagnosticar: mensagem do backend > timeout > API fora > status HTTP.
+      // Onda 18.26 — separa FALHA REAL (backend disse o motivo) de INCERTEZA
+      // (timeout / API sem resposta). Na incerteza a msg PODE ter ido — não
+      // afirma "falha" (foi o caso: deu "falha" mas o paciente recebeu minutos
+      // depois, porque a API estava reiniciando e o envio completou no backend).
       const backendMsg = e?.response?.data?.message;
-      const msg = backendMsg
-        || (e?.code === 'ECONNABORTED' ? 'Tempo esgotado — a API demorou a responder (pode estar reiniciando).' : null)
-        || (!e?.response ? 'Sem resposta da API — provavelmente fora do ar ou reiniciando. Confira o /api/health e tente de novo.' : null)
-        || `Erro ${e?.response?.status ?? ''} ao enviar o teste.`;
-      showError(msg);
+      const uncertain = e?.code === 'ECONNABORTED' || !e?.response;
+      if (backendMsg) {
+        showError(backendMsg); // falha real e específica (nº inexistente, sem WhatsApp…)
+      } else if (uncertain) {
+        showInfo('Não deu pra confirmar o envio (API lenta ou reiniciando). A mensagem PODE ter sido enviada — confira o WhatsApp desse número antes de reenviar.');
+      } else {
+        showError(`Erro ${e?.response?.status ?? ''} ao enviar o teste.`);
+      }
     } finally {
       setSending(false);
     }
