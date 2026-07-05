@@ -1135,12 +1135,14 @@ export class AiProcessor extends WorkerHost {
 
       // 8. Carregar skills ativas (com tools e assets inclusos)
       const allActiveSkills = await this.settings.getActiveSkills();
-      // 8.0 Onda 18.20 — filtrar pelo CHIP da conversa. Cada skill tem um purpose
+      // 8.0 Onda 18.22 — filtrar pelo CHIP da conversa. Cada skill tem um purpose
       // (Comercial/Clínica/Financeiro) ou null="Geral" (vale em qualquer chip).
-      // Resolve o chip pela instância da conversa. FALLBACK SEGURO: se o chip não
-      // tiver NENHUMA skill (ex: clínica de 1 chip só), usa todas — nunca deixa a
-      // IA muda. Sem instância/purpose conhecido, também usa todas.
+      // ISOLAMENTO DURO: se o chip TEM função mas NÃO tem skill própria (nem
+      // Geral), a IA fica em SILÊNCIO — não empresta skills de outro chip. Chip
+      // SEM função definida (legado/1-chip) continua usando todas (não some do
+      // radar). Erro ao resolver = fallback seguro (usa todas), não silêncio.
       let activeSkills = allActiveSkills;
+      let silentNoSkill = false;
       try {
         let chipPurpose: string | null = null;
         if (convo.instance_name) {
@@ -1160,14 +1162,17 @@ export class AiProcessor extends WorkerHost {
               `[AI] Chip ${chipPurpose}: ${filtered.length}/${allActiveSkills.length} skills elegíveis`,
             );
           } else {
-            this.logger.warn(
-              `[AI] Chip ${chipPurpose} sem skills próprias — usando todas (fallback)`,
+            this.logger.log(
+              `[AI] Chip ${chipPurpose} ligado mas SEM skill própria — IA em silêncio (isolamento duro)`,
             );
+            silentNoSkill = true;
           }
         }
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao filtrar skills por chip: ${e.message} — usando todas`);
       }
+      // Chip com função e sem skill própria: encerra sem responder (isolamento duro).
+      if (silentNoSkill) return;
 
       // 8.5 Detectar se é CLIENTE → forçar skill area='Acompanhamento' (Pós-Venda
       // odontológica). Em odonto, basta `lead.is_client=true`; o carregamento de
