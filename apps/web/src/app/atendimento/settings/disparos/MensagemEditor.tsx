@@ -49,11 +49,14 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
   useEffect(() => { onCurrentTextChange?.(template); }, [template, onCurrentTextChange]);
 
   useEffect(() => {
-    api.get(endpoint)
-      // Onda 18.18 — sem texto salvo (ou backend fora), cai no defaultText.
+    // Onda 18.24 — quando há texto padrão (ex.: cobrança), usa timeout CURTO: se a
+    // API estiver lenta/reiniciando, cai no padrão em 8s em vez de girar até 120s
+    // (o default do axios). Editores SEM padrão mantêm o timeout longo pra não
+    // perder texto customizado durante um restart.
+    api.get(endpoint, defaultText ? { timeout: 8000 } : undefined)
       .then((r) => setTemplate(r.data?.template || defaultText || ''))
       .catch((e: any) => {
-        if (defaultText) setTemplate(defaultText); // API subindo: mostra o padrão
+        if (defaultText) setTemplate(defaultText); // API lenta/subindo: mostra o padrão
         else showError(e?.response?.data?.message || 'Falha ao carregar a mensagem');
       })
       .finally(() => setLoading(false));
