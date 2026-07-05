@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Volume2, Power } from 'lucide-react';
+import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronRight, ChevronUp, Volume2, Power } from 'lucide-react';
 import api from '@/lib/api';
 
 interface SkillTool {
@@ -238,6 +238,11 @@ export default function AiSettingsPage() {
   // Skills
   const [skills, setSkills] = useState<Skill[]>([]);
   const [editingId, setEditingId] = useState<string | 'new' | null>(null);
+  // Onda 18.23 — gaveta aberta por chip (Comercial abre por padrão, é onde estão as skills).
+  const [expandedChips, setExpandedChips] = useState<Record<string, boolean>>({ COMERCIAL: true });
+  const toggleExpand = (id: string) => setExpandedChips((s) => ({ ...s, [id]: !s[id] }));
+  // Chip onde o editor de NOVA skill está ancorado (não se move ao trocar o seletor).
+  const [newSkillChip, setNewSkillChip] = useState<string>('COMERCIAL');
   const [form, setForm] = useState<SkillForm>(BLANK_FORM);
   const [savingSkill, setSavingSkill] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -371,9 +376,12 @@ export default function AiSettingsPage() {
     setEditingId(skill.id);
   };
 
-  const openNew = () => {
-    setForm(BLANK_FORM);
+  // Onda 18.23 — nova skill nasce já no chip escolhido (e abre a gaveta dele).
+  const openNew = (chipId: string = 'COMERCIAL') => {
+    setForm({ ...BLANK_FORM, purpose: chipId });
+    setNewSkillChip(chipId);
     setEditingId('new');
+    setExpandedChips((s) => ({ ...s, [chipId]: true }));
   };
 
   const cancelEdit = () => {
@@ -471,6 +479,77 @@ export default function AiSettingsPage() {
 
   const providerModels = form.provider === 'anthropic' ? ANTHROPIC_MODELS : OPENAI_MODELS;
 
+  // Onda 18.23 — card de UMA skill (info + ações + editor inline). Reusado dentro
+  // da gaveta de cada chip.
+  const renderSkillCard = (skill: Skill) => (
+    <div key={skill.id}>
+      <div className="p-4 flex items-center gap-3 hover:bg-muted/30 transition-all">
+        {/* Toggle ativo/inativo da skill */}
+        <button
+          onClick={() => toggleSkill(skill.id, skill.isActive)}
+          className={`w-8 h-4 rounded-full transition-colors shrink-0 relative ${skill.isActive ? 'bg-emerald-500' : 'bg-muted'}`}
+        >
+          <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${skill.isActive ? 'left-4' : 'left-0.5'}`} />
+        </button>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-bold text-foreground">{skill.name}</span>
+            <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">área: {skill.area}</span>
+            <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded ${modelBadge(skill.model)}`}>{skill.model}</span>
+            {skill.provider === 'anthropic' && (
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">Anthropic</span>
+            )}
+            {(skill.tools?.length || 0) > 0 && (
+              <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded">{skill.tools.length} tool{skill.tools.length > 1 ? 's' : ''}</span>
+            )}
+            {(skill.assets?.length || 0) > 0 && (
+              <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">{skill.assets.length} arquivo{skill.assets.length > 1 ? 's' : ''}</span>
+            )}
+            {skill.handoffSignal && (
+              <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">escalada: {skill.handoffSignal}</span>
+            )}
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-xl">
+            {skill.description || (skill.systemPrompt || '').slice(0, 80)}{!skill.description && skill.systemPrompt?.length > 80 ? '…' : ''}
+          </p>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            onClick={() => (editingId === skill.id ? cancelEdit() : openEdit(skill))}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+            title="Editar"
+          >
+            {editingId === skill.id ? <ChevronUp size={15} /> : <Pencil size={15} />}
+          </button>
+          <button
+            onClick={() => deleteSkill(skill.id)}
+            disabled={deletingId === skill.id}
+            className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-50"
+            title="Excluir"
+          >
+            {deletingId === skill.id ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
+          </button>
+        </div>
+      </div>
+      {editingId === skill.id && (
+        <SkillEditor
+          form={form}
+          setForm={setForm}
+          textareaRef={textareaRef}
+          saving={savingSkill}
+          onSave={saveSkill}
+          onCancel={cancelEdit}
+          insertVar={insertVar}
+          skillId={form.id}
+          tools={skills.find((s) => s.id === form.id)?.tools || []}
+          assets={skills.find((s) => s.id === form.id)?.assets || []}
+          onRefresh={fetchData}
+          variablePreview={variablePreview}
+        />
+      )}
+    </div>
+  );
+
   return (
     <div className="flex-1 flex flex-col pt-8 overflow-hidden bg-background">
       <header className="px-8 mb-6 shrink-0">
@@ -480,47 +559,152 @@ export default function AiSettingsPage() {
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 flex flex-col gap-6">
 
-        {/* ── Liberação de IA por chip (Onda 18.21) — a ÚNICA liberação da IA.
-              Cada chip responde de forma independente; skills ficam lá embaixo. ── */}
-        <div className="rounded-2xl border-2 border-border bg-card p-5">
-          <div className="flex items-center gap-3">
-            <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
-              <Power size={20} />
+        {/* ── IA por chip (Onda 18.23): liberação + skills JUNTOS. Cada chip é uma
+              gaveta — clica pra abrir e ver/editar as skills dele; o toggle liga/
+              desliga a IA daquele chip. ── */}
+        <div className="rounded-2xl border-2 border-border bg-card overflow-hidden">
+          <div className="p-4 border-b border-border bg-primary/5 flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Power size={18} />
             </div>
             <div>
-              <h3 className="text-sm font-bold text-foreground tracking-tight">Liberação de IA por chip</h3>
-              <p className="text-[12px] text-muted-foreground mt-0.5 max-w-lg">
-                Cada chip responde (ou não) de forma independente. Desligar os três = IA totalmente desligada.
+              <h3 className="text-sm font-bold text-foreground tracking-tight">IA por chip</h3>
+              <p className="text-[11px] text-muted-foreground mt-0.5 max-w-lg">
+                Ligue/desligue e configure as skills de cada chip no mesmo lugar. Desligar os três = IA totalmente desligada.
               </p>
             </div>
           </div>
-          <div className="mt-3 divide-y divide-border/60">
-            {AI_CHIPS.map((chip) => {
-              const on = aiChip[chip.id];
-              return (
-                <div key={chip.id} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
-                    {/* Largura FIXA no nome e no selo → os 3 chips alinham em coluna,
-                        e "LIGADA"/"DESLIGADA" (tamanhos diferentes) não deslocam nada. */}
-                    <span className="text-sm font-bold w-28 shrink-0" style={{ color: chip.color }}>{chip.label}</span>
-                    <span className={`text-[10px] font-black uppercase tracking-wider py-0.5 rounded-md w-28 text-center shrink-0 ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
-                      {on ? 'IA LIGADA' : 'IA DESLIGADA'}
-                    </span>
+
+          {loading ? (
+            <div className="p-6 flex items-center justify-center">
+              <RefreshCw className="animate-spin text-muted-foreground" size={20} />
+            </div>
+          ) : (
+            <div className="divide-y divide-border/60">
+              {([...AI_CHIPS, { id: 'GERAL' as const, label: 'Geral', color: '#7A7A8C' }]).map((chip) => {
+                const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
+                const isRealChip = chip.id !== 'GERAL';
+                // Geral só aparece com skills; chips reais aparecem SEMPRE (pro toggle).
+                if (!isRealChip && chipSkills.length === 0) return null;
+                const on = isRealChip ? aiChip[chip.id as AiChipId] : true;
+                const open = !!expandedChips[chip.id];
+                const creatingHere = editingId === 'new' && newSkillChip === chip.id;
+                return (
+                  <div key={chip.id}>
+                    {/* Cabeçalho-gaveta: clica pra abrir/fechar; o toggle não propaga */}
+                    <div
+                      className="px-4 py-3 flex items-center justify-between gap-3 cursor-pointer hover:bg-muted/30 transition-colors"
+                      onClick={() => toggleExpand(chip.id)}
+                    >
+                      <div className="flex items-center gap-3 min-w-0">
+                        {open ? <ChevronDown size={15} className="text-muted-foreground shrink-0" /> : <ChevronRight size={15} className="text-muted-foreground shrink-0" />}
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
+                        <span className="text-sm font-bold w-24 shrink-0" style={{ color: chip.color }}>{chip.label}</span>
+                        {isRealChip ? (
+                          <span className={`text-[10px] font-black uppercase tracking-wider py-0.5 rounded-md w-28 text-center shrink-0 ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
+                            {on ? 'IA LIGADA' : 'IA DESLIGADA'}
+                          </span>
+                        ) : (
+                          <span className="text-[10px] text-muted-foreground w-28 shrink-0">responde em qualquer chip</span>
+                        )}
+                        <span className="text-[10px] text-muted-foreground shrink-0 hidden sm:inline">· {chipSkills.length} skill{chipSkills.length === 1 ? '' : 's'}</span>
+                      </div>
+                      {isRealChip && (
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); toggleChipAi(chip.id as AiChipId); }}
+                          disabled={savingChip === chip.id || loading}
+                          className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-red-500'}`}
+                          title={on ? 'Clique para desligar a IA deste chip' : 'Clique para ligar a IA deste chip'}
+                        >
+                          <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${on ? 'translate-x-7' : 'translate-x-0'}`} />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Gaveta aberta: skills do chip + nova skill */}
+                    {open && (
+                      <div className="bg-muted/10 border-t border-border/50">
+                        {/* Banner Sincronizar SDR só no Comercial (onde a SDR vive) */}
+                        {chip.id === 'COMERCIAL' && skills.some((s) => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
+                          <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
+                            <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
+                              {skills.some((s) => s.name === 'SDR Jurídico — Sophia')
+                                ? <>A skill <span className="font-bold">SDR Jurídico — Sophia</span> ainda está no domínio jurídico. Clique para migrar (preserva uploads e tools).</>
+                                : <>Aplicar a versão mais recente do prompt e da reference na <span className="font-bold">SDR — Sophia</span>. Preserva model, temperature, uploads e tools.</>}
+                            </span>
+                            <button
+                              onClick={async () => {
+                                const isLegacy = skills.some((s) => s.name === 'SDR Jurídico — Sophia');
+                                const msg = isLegacy
+                                  ? 'Migrar a SDR para o domínio odontológico? Renomeia para "SDR — Sophia" e aplica o prompt + reference padrão. Uploads e tools preservados.'
+                                  : 'Sincronizar a SDR com a versão mais recente? Substitui prompt, description, trigger_keywords e reference. Uploads e tools preservados.';
+                                if (!confirm(msg)) return;
+                                try {
+                                  const res = await api.post('/settings/skills/migrate-sdr-to-odonto');
+                                  alert(`Sincronização concluída.\nskill_id: ${res.data.skill_id}\nlegacy_removed: ${res.data.legacy_removed}`);
+                                  window.location.reload();
+                                } catch (e: any) {
+                                  alert(e?.response?.data?.message || 'Erro ao sincronizar SDR.');
+                                }
+                              }}
+                              className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors shrink-0"
+                            >
+                              {skills.some((s) => s.name === 'SDR Jurídico — Sophia') ? 'Migrar para Odonto' : 'Sincronizar SDR'}
+                            </button>
+                          </div>
+                        )}
+
+                        {chipSkills.length > 0 && (
+                          <div className="divide-y divide-border/50">{chipSkills.map(renderSkillCard)}</div>
+                        )}
+
+                        {chipSkills.length === 0 && !creatingHere && (
+                          <div className="px-4 py-3 text-[11px] text-muted-foreground italic">
+                            Nenhuma skill neste chip ainda.{isRealChip ? ' Enquanto vazio e ligado, a IA fica em silêncio aqui.' : ''}
+                          </div>
+                        )}
+
+                        {/* Nova skill deste chip (editor inline) */}
+                        {creatingHere && (
+                          <div className="p-4 bg-violet-500/5 border-t border-violet-500/20">
+                            <p className="text-xs font-bold text-violet-400 mb-3 uppercase tracking-wide flex items-center gap-2">
+                              <Plus size={12} /> Nova skill · {chip.label}
+                            </p>
+                            <SkillEditor
+                              form={form}
+                              setForm={setForm}
+                              textareaRef={textareaRef}
+                              saving={savingSkill}
+                              onSave={saveSkill}
+                              onCancel={cancelEdit}
+                              insertVar={insertVar}
+                              skillId={null}
+                              tools={[]}
+                              assets={[]}
+                              onRefresh={fetchData}
+                              variablePreview={variablePreview}
+                            />
+                          </div>
+                        )}
+
+                        {!creatingHere && (
+                          <div className="p-3">
+                            <button
+                              onClick={() => openNew(chip.id)}
+                              className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
+                            >
+                              <Plus size={13} /> Nova skill neste chip
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => toggleChipAi(chip.id)}
-                    disabled={savingChip === chip.id || loading}
-                    className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-red-500'}`}
-                    title={on ? 'Clique para desligar' : 'Clique para ligar'}
-                  >
-                    <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${on ? 'translate-x-7' : 'translate-x-0'}`} />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         {/* ── Config Global ── */}
@@ -863,216 +1047,6 @@ export default function AiSettingsPage() {
                   Salvar Configurações
                 </button>
               </div>
-            </div>
-          )}
-        </div>
-
-        {/* ── Skills da IA ── */}
-        <div className="bg-card rounded-2xl border border-border shadow-sm overflow-hidden">
-          <div className="p-4 border-b border-border flex items-center justify-between bg-primary/5">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-full bg-primary/10 text-primary flex items-center justify-center shrink-0">
-                <Bot size={16} />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-foreground">Skills da IA</h4>
-                <p className="text-[10px] text-muted-foreground uppercase font-bold tracking-wider">
-                  Prompts especializados por especialidade
-                </p>
-              </div>
-            </div>
-            <button
-              onClick={openNew}
-              className="flex items-center gap-1.5 text-xs font-bold text-primary bg-primary/10 border border-primary/20 px-3 py-1.5 rounded-lg hover:bg-primary/20 transition-all"
-            >
-              <Plus size={13} /> Nova Skill
-            </button>
-          </div>
-
-          {/* Banner de sincronização — fica visível enquanto a skill SDR existir.
-              Idempotente: aplica o prompt + reference mais recentes no banco,
-              preservando model/temperature/uploads/tools customizados. */}
-          {!loading && skills.some(s => s.name === 'SDR — Sophia' || s.name === 'SDR Jurídico — Sophia') && (
-            <div className="px-4 py-3 border-b border-border bg-amber-100 dark:bg-amber-500/15 flex items-center gap-3">
-              <span className="text-[12px] text-amber-900 dark:text-amber-200 flex-1">
-                {skills.some(s => s.name === 'SDR Jurídico — Sophia')
-                  ? <>A skill <span className="font-bold">SDR Jurídico — Sophia</span> ainda está no domínio jurídico. Clique para migrar para o Instituto Odonto Passos (preserva uploads e tools).</>
-                  : <>Aplicar a versão mais recente do prompt e da reference na <span className="font-bold">SDR — Sophia</span>. Preserva model, temperature, uploads e tools customizadas.</>}
-              </span>
-              <button
-                onClick={async () => {
-                  const isLegacy = skills.some(s => s.name === 'SDR Jurídico — Sophia');
-                  const msg = isLegacy
-                    ? 'Migrar a SDR para o domínio odontológico? Renomeia para "SDR — Sophia" e aplica o prompt + reference padrão. Uploads e tools são preservados.'
-                    : 'Sincronizar a SDR com a versão mais recente do prompt? Substitui prompt, description, trigger_keywords e reference. Uploads e tools são preservados.';
-                  if (!confirm(msg)) return;
-                  try {
-                    const res = await api.post('/settings/skills/migrate-sdr-to-odonto');
-                    alert(`Sincronização concluída.\nskill_id: ${res.data.skill_id}\nlegacy_removed: ${res.data.legacy_removed}`);
-                    window.location.reload();
-                  } catch (e: any) {
-                    alert(e?.response?.data?.message || 'Erro ao sincronizar SDR.');
-                  }
-                }}
-                className="px-3 py-1.5 rounded-lg text-[12px] font-bold bg-amber-600 text-white hover:bg-amber-700 transition-colors shrink-0"
-              >
-                {skills.some(s => s.name === 'SDR Jurídico — Sophia') ? 'Migrar para Odonto' : 'Sincronizar SDR'}
-              </button>
-            </div>
-          )}
-
-          {loading ? (
-            <div className="p-6 flex items-center justify-center">
-              <RefreshCw className="animate-spin text-muted-foreground" size={20} />
-            </div>
-          ) : (
-            <div className="divide-y divide-border/50">
-              {skills.length === 0 && editingId !== 'new' && (
-                <div className="p-8 text-center text-sm text-muted-foreground">
-                  Nenhuma skill configurada. Clique em &quot;Nova Skill&quot; para começar.
-                </div>
-              )}
-
-              {/* Lista de skills AGRUPADA por chip (Onda 18.20). Cada chip tem um
-                  toggle de IA; "Geral" responde em qualquer chip. */}
-              {([...AI_CHIPS, { id: 'GERAL' as const, label: 'Geral — responde em qualquer chip', color: '#7A7A8C' }]).map((chip) => {
-                const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
-                const isRealChip = chip.id !== 'GERAL';
-                // "Geral" só aparece com skills; chips reais aparecem SEMPRE (pra
-                // o usuário ver que existem, mesmo antes de ter skill — ex: Financeiro).
-                if (!isRealChip && chipSkills.length === 0) return null;
-                return (
-                  <div key={chip.id}>
-                    {/* Cabeçalho do chip + liberação de IA daquele chip */}
-                    <div className="px-4 py-2.5 bg-muted/40 flex items-center justify-between">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
-                        <span className="text-xs font-bold truncate" style={{ color: chip.color }}>{chip.label}</span>
-                        <span className="text-[10px] text-muted-foreground shrink-0">· {chipSkills.length} skill{chipSkills.length > 1 ? 's' : ''}</span>
-                      </div>
-                      {/* Aviso (não é controle): a liberação da IA fica no topo. */}
-                      {isRealChip && !aiChip[chip.id as AiChipId] && (
-                        <span className="text-[10px] font-bold text-red-500 shrink-0">IA deste chip desligada — ligue no topo</span>
-                      )}
-                    </div>
-                    {chipSkills.map((skill) => (
-                <div key={skill.id}>
-                  {/* Card da skill */}
-                  <div className="p-4 flex items-center gap-3 hover:bg-muted/30 transition-all">
-                    {/* Toggle ativo */}
-                    <button
-                      onClick={() => toggleSkill(skill.id, skill.isActive)}
-                      className={`w-8 h-4 rounded-full transition-colors shrink-0 relative ${skill.isActive ? 'bg-emerald-500' : 'bg-muted'}`}
-                    >
-                      <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${skill.isActive ? 'left-4' : 'left-0.5'}`} />
-                    </button>
-
-                    {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-bold text-foreground">{skill.name}</span>
-                        <span className="text-[10px] font-bold text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
-                          área: {skill.area}
-                        </span>
-                        <span className={`text-[10px] font-bold border px-1.5 py-0.5 rounded ${modelBadge(skill.model)}`}>
-                          {skill.model}
-                        </span>
-                        {skill.provider === 'anthropic' && (
-                          <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
-                            Anthropic
-                          </span>
-                        )}
-                        {(skill.tools?.length || 0) > 0 && (
-                          <span className="text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1.5 py-0.5 rounded">
-                            {skill.tools.length} tool{skill.tools.length > 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {(skill.assets?.length || 0) > 0 && (
-                          <span className="text-[10px] font-bold text-green-400 bg-green-500/10 border border-green-500/20 px-1.5 py-0.5 rounded">
-                            {skill.assets.length} arquivo{skill.assets.length > 1 ? 's' : ''}
-                          </span>
-                        )}
-                        {skill.handoffSignal && (
-                          <span className="text-[10px] font-bold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1.5 py-0.5 rounded">
-                            escalada: {skill.handoffSignal}
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-[11px] text-muted-foreground mt-0.5 truncate max-w-xl">
-                        {skill.description || (skill.systemPrompt || '').slice(0, 80)}{!skill.description && skill.systemPrompt?.length > 80 ? '…' : ''}
-                      </p>
-                    </div>
-
-                    {/* Ações */}
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <button
-                        onClick={() => editingId === skill.id ? cancelEdit() : openEdit(skill)}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
-                        title="Editar"
-                      >
-                        {editingId === skill.id ? <ChevronUp size={15} /> : <Pencil size={15} />}
-                      </button>
-                      <button
-                        onClick={() => deleteSkill(skill.id)}
-                        disabled={deletingId === skill.id}
-                        className="p-1.5 rounded-lg text-muted-foreground hover:text-red-400 hover:bg-red-500/10 transition-all disabled:opacity-50"
-                        title="Excluir"
-                      >
-                        {deletingId === skill.id ? <RefreshCw size={15} className="animate-spin" /> : <Trash2 size={15} />}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Painel de edição inline */}
-                  {editingId === skill.id && (
-                    <SkillEditor
-                      form={form}
-                      setForm={setForm}
-                      textareaRef={textareaRef}
-                      saving={savingSkill}
-                      onSave={saveSkill}
-                      onCancel={cancelEdit}
-                      insertVar={insertVar}
-                      skillId={form.id}
-                      tools={skills.find(s => s.id === form.id)?.tools || []}
-                      assets={skills.find(s => s.id === form.id)?.assets || []}
-                      onRefresh={fetchData}
-                      variablePreview={variablePreview}
-                    />
-                  )}
-                </div>
-                    ))}
-                    {chipSkills.length === 0 && (
-                      <div className="px-4 py-3 text-[11px] text-muted-foreground italic">
-                        Nenhuma skill neste chip ainda — você adiciona depois. Enquanto isso, deixe a IA deste chip desligada se não quiser resposta automática aqui.
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-
-              {/* Nova skill */}
-              {editingId === 'new' && (
-                <div className="p-4 bg-violet-500/5 border-t border-violet-500/20">
-                  <p className="text-xs font-bold text-violet-400 mb-3 uppercase tracking-wide flex items-center gap-2">
-                    <Plus size={12} /> Nova Skill
-                  </p>
-                  <SkillEditor
-                    form={form}
-                    setForm={setForm}
-                    textareaRef={textareaRef}
-                    saving={savingSkill}
-                    onSave={saveSkill}
-                    onCancel={cancelEdit}
-                    insertVar={insertVar}
-                    skillId={null}
-                    tools={[]}
-                    assets={[]}
-                    onRefresh={fetchData}
-                    variablePreview={variablePreview}
-                  />
-                </div>
-              )}
             </div>
           )}
         </div>
