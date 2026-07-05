@@ -25,6 +25,9 @@ export interface MensagemEditorProps {
   /** Onda 17.59 — reporta o texto ATUAL pro "Enviar teste" mandar o que está na
    *  tela, sem precisar salvar antes. */
   onCurrentTextChange?: (text: string) => void;
+  /** Onda 18.18 — texto-padrão de fallback: se o backend devolver vazio ou falhar
+   *  (ex.: API ainda subindo), mostra ESTE no lugar de um textarea em branco. */
+  defaultText?: string;
 }
 
 function applyPreview(t: string, vars: Record<string, string>, local: string): string {
@@ -36,7 +39,7 @@ function applyPreview(t: string, vars: Record<string, string>, local: string): s
     .trim();
 }
 
-export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange }: MensagemEditorProps) {
+export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText }: MensagemEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
@@ -47,8 +50,12 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
 
   useEffect(() => {
     api.get(endpoint)
-      .then((r) => setTemplate(r.data?.template || ''))
-      .catch((e: any) => showError(e?.response?.data?.message || 'Falha ao carregar a mensagem'))
+      // Onda 18.18 — sem texto salvo (ou backend fora), cai no defaultText.
+      .then((r) => setTemplate(r.data?.template || defaultText || ''))
+      .catch((e: any) => {
+        if (defaultText) setTemplate(defaultText); // API subindo: mostra o padrão
+        else showError(e?.response?.data?.message || 'Falha ao carregar a mensagem');
+      })
       .finally(() => setLoading(false));
     if (usaLocal) {
       api.get('/tenants/me')

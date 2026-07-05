@@ -14,6 +14,7 @@ import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { CATEGORIAS, DISPAROS, type DisparoCategoria, type DisparoItem, type OperacionalKey } from './disparos.config';
+import { DEFAULT_COBRANCA_TEMPLATES } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -221,6 +222,7 @@ export default function CentralDisparosPage() {
             ]}
             preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/boleto' }}
             onCurrentTextChange={setLiveText}
+            defaultText={(DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[openItem.operacionalKey || ''] || ''}
           />
         )}
         <TesteEnvio disparo={openItem.id} text={liveText} />
