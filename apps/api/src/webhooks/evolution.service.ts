@@ -568,16 +568,18 @@ export class EvolutionService implements OnApplicationBootstrap {
       // usado pelo admin ao cadastrar instância nova sem querer que a IA responda ainda.
       this.logger.debug(`[AI-CHECK] conv=${conv.id} ai_mode=${conv.ai_mode} isOutgoing=${isOutgoing}`);
       if (!isOutgoing && conv.ai_mode) {
+        // Onda 18.21 — liberação de IA 100% POR CHIP. Cada chip tem seu on/off
+        // (AI_ENABLED_<PURPOSE>). Migração suave: se o flag do chip ainda não foi
+        // setado, HERDA o global antigo (WHATSAPP_AI_ENABLED) — assim quem tinha a
+        // IA desligada continua desligada até ligar chip a chip. Instância sem
+        // purpose usa o global (não some do radar).
         const killSwitch = await this.prisma.globalSetting.findUnique({
           where: { key: 'WHATSAPP_AI_ENABLED' },
         });
-        const masterOn = (killSwitch?.value ?? 'true') !== 'false';
-        // Onda 18.20 — gate POR CHIP: além da chave-mestra, cada chip (Comercial/
-        // Clínica/Financeiro) tem seu on/off (AI_ENABLED_<PURPOSE>, default ON).
-        // Resolve o chip pela instância que recebeu a mensagem.
-        let chipOn = true;
+        const master = (killSwitch?.value ?? 'true') !== 'false';
+        let aiEnabled = master;
         let chipPurpose: string | null = null;
-        if (masterOn && instanceName) {
+        if (instanceName) {
           const inst = await this.prisma.instance.findFirst({
             where: { name: instanceName },
             select: { purpose: true },
@@ -587,13 +589,12 @@ export class EvolutionService implements OnApplicationBootstrap {
             const flag = await this.prisma.globalSetting.findUnique({
               where: { key: `AI_ENABLED_${chipPurpose}` },
             });
-            chipOn = (flag?.value ?? 'true') !== 'false';
+            aiEnabled = flag?.value != null ? flag.value !== 'false' : master;
           }
         }
-        const aiEnabled = masterOn && chipOn;
         if (!aiEnabled) {
           this.logger.log(
-            `[AI] IA desativada (${!masterOn ? 'mestra' : 'chip ' + chipPurpose}) — ignorando conv ${conv.id}`,
+            `[AI] IA desativada (chip ${chipPurpose ?? 'sem purpose'}) — ignorando conv ${conv.id}`,
           );
         } else {
         try {

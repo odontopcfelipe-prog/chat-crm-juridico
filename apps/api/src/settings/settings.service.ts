@@ -1886,16 +1886,19 @@ export class SettingsService {
     const adminBotEnabled = adminBotEnabledRaw !== 'false';
     const whatsappAiEnabledRaw = await this.get('WHATSAPP_AI_ENABLED');
     const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
-    // Onda 18.20 — liberação de IA por chip (default ON = não muda nada no deploy).
+    // Onda 18.21 — liberação de IA por chip. Migração suave: chip não setado
+    // HERDA o global antigo (whatsappAiEnabled) — quem tinha a IA desligada
+    // continua desligada até ligar chip a chip.
     const [aiComercialRaw, aiClinicaRaw, aiFinanceiroRaw] = await Promise.all([
       this.get('AI_ENABLED_COMERCIAL'),
       this.get('AI_ENABLED_CLINICA'),
       this.get('AI_ENABLED_FINANCEIRO'),
     ]);
+    const chipVal = (raw: string | null) => (raw != null ? raw !== 'false' : whatsappAiEnabled);
     const aiChip = {
-      COMERCIAL: aiComercialRaw !== 'false',
-      CLINICA: aiClinicaRaw !== 'false',
-      FINANCEIRO: aiFinanceiroRaw !== 'false',
+      COMERCIAL: chipVal(aiComercialRaw),
+      CLINICA: chipVal(aiClinicaRaw),
+      FINANCEIRO: chipVal(aiFinanceiroRaw),
     };
     const cooldownRaw = await this.get('AI_COOLDOWN_SECONDS');
     const cooldownSeconds = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
@@ -1989,10 +1992,10 @@ export class SettingsService {
     await this.set(`AI_ENABLED_${p}`, enabled ? 'true' : 'false');
   }
 
-  /** Chip default de uma skill pela área (Onda 18.20). Acompanhamento=Clínica; o
-   *  resto (SDR + especialistas) = Comercial. Usado no create dos defaults. */
-  private defaultSkillPurpose(area: string): string {
-    return area === 'Acompanhamento' ? 'CLINICA' : 'COMERCIAL';
+  /** Chip default de uma skill (Onda 18.21). As skills padrão atuais são todas do
+   *  Comercial (o dono adiciona Clínica/Financeiro depois). Usado no create. */
+  private defaultSkillPurpose(_area: string): string {
+    return 'COMERCIAL';
   }
 
   /** Normaliza o purpose que vem da UI: só COMERCIAL/CLINICA/FINANCEIRO; o resto
@@ -2005,23 +2008,18 @@ export class SettingsService {
   /** Backfill uma-vez: mapeia as skills JÁ existentes por chip (guardado por flag,
    *  não sobrescreve escolhas futuras — depois disso a UI sempre manda o valor). */
   private async backfillSkillPurposesOnce(): Promise<void> {
-    const done = await this.get('SKILLS_PURPOSE_BACKFILLED_v1');
+    const done = await this.get('SKILLS_PURPOSE_BACKFILLED_v2');
     if (done === 'true') return;
     try {
-      const COMERCIAL_AREAS = [
-        'Triagem', 'Implantes', 'Ortodontia', 'Estética Facial',
-        'Prótese', 'Faceta de Resina', 'Clareamento Dental', 'Lentes de Porcelana',
-      ];
+      // Onda 18.21 — as skills atuais são TODAS do Comercial (dono definiu).
+      // Clínica e Financeiro começam vazios. Só toca nas que estão sem chip (null),
+      // preservando qualquer ajuste manual já feito pelo admin.
       await (this.prisma as any).promptSkill.updateMany({
-        where: { purpose: null, area: 'Acompanhamento' },
-        data: { purpose: 'CLINICA' },
-      });
-      await (this.prisma as any).promptSkill.updateMany({
-        where: { purpose: null, area: { in: COMERCIAL_AREAS } },
+        where: { purpose: null },
         data: { purpose: 'COMERCIAL' },
       });
-      await this.set('SKILLS_PURPOSE_BACKFILLED_v1', 'true');
-      this.logger.log('[SKILLS] Backfill de purpose (chip) aplicado uma vez');
+      await this.set('SKILLS_PURPOSE_BACKFILLED_v2', 'true');
+      this.logger.log('[SKILLS] Backfill v2: skills sem chip → Comercial');
     } catch (e: any) {
       this.logger.warn(`[SKILLS] Backfill de purpose falhou: ${e?.message}`);
     }

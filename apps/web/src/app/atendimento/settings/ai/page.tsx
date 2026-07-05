@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Volume2, Power, PowerOff } from 'lucide-react';
+import { Bot, KeyRound, CheckCircle2, RefreshCw, Eye, EyeOff, Plus, Pencil, Trash2, ChevronDown, ChevronUp, Volume2, Power } from 'lucide-react';
 import api from '@/lib/api';
 
 interface SkillTool {
@@ -283,20 +283,8 @@ export default function AiSettingsPage() {
 
   useEffect(() => { fetchData(); }, [fetchData]);
 
-  // ---------- Kill Switch: salva imediatamente pra o admin poder
-  //            ligar/desligar a IA sem precisar clicar em "Salvar"
-  const toggleWhatsappAi = async () => {
-    const next = !whatsappAiEnabled;
-    setWhatsappAiEnabled(next);
-    try {
-      await api.post('/settings/ai-config', { whatsappAiEnabled: next });
-    } catch (e) {
-      setWhatsappAiEnabled(!next);
-      alert('Erro ao alterar estado da IA. Verifique se você é administrador.');
-    }
-  };
-
-  // Onda 18.20 — liga/desliga a IA de UM chip (salva na hora).
+  // Onda 18.21 — liga/desliga a IA de UM chip (salva na hora). A liberação da IA
+  // é 100% por chip; o global antigo virou só fallback interno (migração).
   const toggleChipAi = async (chip: AiChipId) => {
     const next = !aiChip[chip];
     setSavingChip(chip);
@@ -492,60 +480,44 @@ export default function AiSettingsPage() {
 
       <div className="flex-1 overflow-y-auto px-8 pb-8 flex flex-col gap-6">
 
-        {/* ── Kill Switch: IA Global ── */}
-        <div
-          className={`rounded-2xl border-2 p-5 transition-colors ${
-            whatsappAiEnabled
-              ? 'bg-emerald-500/5 border-emerald-500/30'
-              : 'bg-red-500/5 border-red-500/30'
-          }`}
-        >
-          <div className="flex items-center justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div
-                className={`w-12 h-12 rounded-xl flex items-center justify-center shrink-0 ${
-                  whatsappAiEnabled
-                    ? 'bg-emerald-500/15 text-emerald-500'
-                    : 'bg-red-500/15 text-red-500'
-                }`}
-              >
-                {whatsappAiEnabled ? <Power size={22} /> : <PowerOff size={22} />}
-              </div>
-              <div>
-                <h3 className="text-sm font-bold text-foreground tracking-tight flex items-center gap-2">
-                  IA no WhatsApp
-                  <span
-                    className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${
-                      whatsappAiEnabled
-                        ? 'bg-emerald-500/15 text-emerald-600'
-                        : 'bg-red-500/15 text-red-600'
-                    }`}
-                  >
-                    {whatsappAiEnabled ? 'LIGADA' : 'DESLIGADA'}
-                  </span>
-                </h3>
-                <p className="text-[12px] text-muted-foreground mt-0.5 max-w-md">
-                  {whatsappAiEnabled
-                    ? 'A IA está respondendo automaticamente mensagens recebidas no WhatsApp.'
-                    : 'Nenhuma mensagem recebida será respondida pela IA. Use ao cadastrar uma instância nova ou em manutenção.'}
-                </p>
-              </div>
+        {/* ── Liberação de IA por chip (Onda 18.21) — a ÚNICA liberação da IA.
+              Cada chip responde de forma independente; skills ficam lá embaixo. ── */}
+        <div className="rounded-2xl border-2 border-border bg-card p-5">
+          <div className="flex items-center gap-3">
+            <div className="w-11 h-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center shrink-0">
+              <Power size={20} />
             </div>
-            <button
-              type="button"
-              onClick={toggleWhatsappAi}
-              disabled={loading}
-              className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${
-                whatsappAiEnabled ? 'bg-emerald-500' : 'bg-red-500'
-              }`}
-              title={whatsappAiEnabled ? 'Clique para desligar' : 'Clique para ligar'}
-            >
-              <span
-                className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${
-                  whatsappAiEnabled ? 'translate-x-7' : 'translate-x-0'
-                }`}
-              />
-            </button>
+            <div>
+              <h3 className="text-sm font-bold text-foreground tracking-tight">Liberação de IA por chip</h3>
+              <p className="text-[12px] text-muted-foreground mt-0.5 max-w-lg">
+                Cada chip responde (ou não) de forma independente. Desligar os três = IA totalmente desligada.
+              </p>
+            </div>
+          </div>
+          <div className="mt-3 divide-y divide-border/60">
+            {AI_CHIPS.map((chip) => {
+              const on = aiChip[chip.id];
+              return (
+                <div key={chip.id} className="flex items-center justify-between py-3">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
+                    <span className="text-sm font-bold" style={{ color: chip.color }}>{chip.label}</span>
+                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
+                      {on ? 'IA LIGADA' : 'IA DESLIGADA'}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => toggleChipAi(chip.id)}
+                    disabled={savingChip === chip.id || loading}
+                    className={`relative inline-flex h-7 w-14 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-red-500'}`}
+                    title={on ? 'Clique para desligar' : 'Clique para ligar'}
+                  >
+                    <span className={`inline-block h-6 w-6 transform rounded-full bg-white shadow transition duration-200 ${on ? 'translate-x-7' : 'translate-x-0'}`} />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -965,9 +937,8 @@ export default function AiSettingsPage() {
                 const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
                 const isRealChip = chip.id !== 'GERAL';
                 // "Geral" só aparece com skills; chips reais aparecem SEMPRE (pra
-                // ter o toggle de IA mesmo antes de ter skill — ex: Financeiro).
+                // o usuário ver que existem, mesmo antes de ter skill — ex: Financeiro).
                 if (!isRealChip && chipSkills.length === 0) return null;
-                const chipOn = isRealChip ? aiChip[chip.id as AiChipId] : true;
                 return (
                   <div key={chip.id}>
                     {/* Cabeçalho do chip + liberação de IA daquele chip */}
@@ -977,20 +948,9 @@ export default function AiSettingsPage() {
                         <span className="text-xs font-bold truncate" style={{ color: chip.color }}>{chip.label}</span>
                         <span className="text-[10px] text-muted-foreground shrink-0">· {chipSkills.length} skill{chipSkills.length > 1 ? 's' : ''}</span>
                       </div>
-                      {isRealChip && (
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <span className={`text-[10px] font-bold ${chipOn ? 'text-emerald-500' : 'text-muted-foreground'}`}>
-                            IA {chipOn ? 'LIGADA' : 'DESLIGADA'}
-                          </span>
-                          <button
-                            onClick={() => toggleChipAi(chip.id as AiChipId)}
-                            disabled={savingChip === chip.id}
-                            className={`w-8 h-4 rounded-full transition-colors relative ${chipOn ? 'bg-emerald-500' : 'bg-muted'} disabled:opacity-50`}
-                            title={chipOn ? 'Desligar IA deste chip' : 'Ligar IA deste chip'}
-                          >
-                            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${chipOn ? 'left-4' : 'left-0.5'}`} />
-                          </button>
-                        </div>
+                      {/* Aviso (não é controle): a liberação da IA fica no topo. */}
+                      {isRealChip && !aiChip[chip.id as AiChipId] && (
+                        <span className="text-[10px] font-bold text-red-500 shrink-0">IA deste chip desligada — ligue no topo</span>
                       )}
                     </div>
                     {chipSkills.map((skill) => (
