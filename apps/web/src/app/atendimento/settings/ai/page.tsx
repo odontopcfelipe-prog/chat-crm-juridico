@@ -42,6 +42,7 @@ interface Skill {
   skillType: string;
   maxContextTokens: number;
   provider: string;
+  purpose: string | null; // Onda 18.20 — chip (null = Geral)
   tools: SkillTool[];
   assets: SkillAsset[];
 }
@@ -60,7 +61,16 @@ interface SkillForm {
   description: string;
   triggerKeywords: string;
   provider: string;
+  purpose: string; // GERAL | COMERCIAL | CLINICA | FINANCEIRO
 }
+
+// Onda 18.20 — chips (setores) da IA. GERAL = responde em qualquer chip.
+const AI_CHIPS = [
+  { id: 'COMERCIAL', label: 'Comercial', color: '#F26C1B' },
+  { id: 'CLINICA', label: 'Clínica', color: '#2D7FF9' },
+  { id: 'FINANCEIRO', label: 'Financeiro', color: '#10B981' },
+] as const;
+type AiChipId = (typeof AI_CHIPS)[number]['id'];
 
 const OPENAI_MODELS = [
   { value: 'gpt-5.4-mini', label: 'GPT-5.4 Mini — rápido, inteligente' },
@@ -127,6 +137,7 @@ const BLANK_FORM: SkillForm = {
   description: '',
   triggerKeywords: '',
   provider: 'openai',
+  purpose: 'GERAL',
 };
 
 const DEFAULT_DJEN_PROMPT = `Você é um assistente jurídico especializado em análise de publicações do DJEN (Diário da Justiça Eletrônico) brasileiro. Analise a publicação e retorne um JSON com os campos abaixo. Extraia as informações DIRETAMENTE do texto da publicação quando disponíveis — não invente dados.
@@ -194,6 +205,9 @@ export default function AiSettingsPage() {
   const [showDjenNotifyTemplate, setShowDjenNotifyTemplate] = useState(false);
   const [adminBotEnabled, setAdminBotEnabled] = useState(true);
   const [whatsappAiEnabled, setWhatsappAiEnabled] = useState(true);
+  // Onda 18.20 — liberação de IA por chip (default ON)
+  const [aiChip, setAiChip] = useState<Record<AiChipId, boolean>>({ COMERCIAL: true, CLINICA: true, FINANCEIRO: true });
+  const [savingChip, setSavingChip] = useState<AiChipId | null>(null);
   const [cooldownSeconds, setCooldownSeconds] = useState(8);
   const [isConfigured, setIsConfigured] = useState(false);
   const [isAdminKeyConfigured, setIsAdminKeyConfigured] = useState(false);
@@ -254,6 +268,7 @@ export default function AiSettingsPage() {
       setDjenNotifyTemplateIsCustom(configRes.data.djenNotifyTemplateIsCustom ?? false);
       setAdminBotEnabled(configRes.data.adminBotEnabled ?? true);
       setWhatsappAiEnabled(configRes.data.whatsappAiEnabled ?? true);
+      if (configRes.data.aiChip) setAiChip(configRes.data.aiChip);
       setCooldownSeconds(configRes.data.cooldownSeconds ?? 8);
       setSkills(skillsRes.data);
       setTtsEnabled(ttsRes.data.enabled ?? false);
@@ -278,6 +293,21 @@ export default function AiSettingsPage() {
     } catch (e) {
       setWhatsappAiEnabled(!next);
       alert('Erro ao alterar estado da IA. Verifique se você é administrador.');
+    }
+  };
+
+  // Onda 18.20 — liga/desliga a IA de UM chip (salva na hora).
+  const toggleChipAi = async (chip: AiChipId) => {
+    const next = !aiChip[chip];
+    setSavingChip(chip);
+    setAiChip((s) => ({ ...s, [chip]: next }));
+    try {
+      await api.post('/settings/ai-chip-toggle', { purpose: chip, enabled: next });
+    } catch (e) {
+      setAiChip((s) => ({ ...s, [chip]: !next }));
+      alert('Erro ao alterar a IA desse chip. Verifique se você é administrador.');
+    } finally {
+      setSavingChip(null);
     }
   };
 
@@ -348,6 +378,7 @@ export default function AiSettingsPage() {
       description: skill.description || '',
       triggerKeywords: (skill.triggerKeywords || []).join(', '),
       provider: skill.provider || 'openai',
+      purpose: skill.purpose || 'GERAL',
     });
     setEditingId(skill.id);
   };
@@ -381,6 +412,7 @@ export default function AiSettingsPage() {
         description: form.description.trim() || null,
         trigger_keywords: form.triggerKeywords.split(',').map((k: string) => k.trim()).filter(Boolean),
         provider: form.provider,
+        purpose: form.purpose, // Onda 18.20 — chip (backend normaliza GERAL→null)
       };
       if (form.id) {
         await api.patch(`/settings/skills/${form.id}`, payload);
@@ -927,8 +959,41 @@ export default function AiSettingsPage() {
                 </div>
               )}
 
-              {/* Lista de skills existentes */}
-              {skills.map((skill) => (
+              {/* Lista de skills AGRUPADA por chip (Onda 18.20). Cada chip tem um
+                  toggle de IA; "Geral" responde em qualquer chip. */}
+              {([...AI_CHIPS, { id: 'GERAL' as const, label: 'Geral — responde em qualquer chip', color: '#7A7A8C' }]).map((chip) => {
+                const chipSkills = skills.filter((s) => (s.purpose || 'GERAL') === chip.id);
+                const isRealChip = chip.id !== 'GERAL';
+                // "Geral" só aparece com skills; chips reais aparecem SEMPRE (pra
+                // ter o toggle de IA mesmo antes de ter skill — ex: Financeiro).
+                if (!isRealChip && chipSkills.length === 0) return null;
+                const chipOn = isRealChip ? aiChip[chip.id as AiChipId] : true;
+                return (
+                  <div key={chip.id}>
+                    {/* Cabeçalho do chip + liberação de IA daquele chip */}
+                    <div className="px-4 py-2.5 bg-muted/40 flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
+                        <span className="text-xs font-bold truncate" style={{ color: chip.color }}>{chip.label}</span>
+                        <span className="text-[10px] text-muted-foreground shrink-0">· {chipSkills.length} skill{chipSkills.length > 1 ? 's' : ''}</span>
+                      </div>
+                      {isRealChip && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <span className={`text-[10px] font-bold ${chipOn ? 'text-emerald-500' : 'text-muted-foreground'}`}>
+                            IA {chipOn ? 'LIGADA' : 'DESLIGADA'}
+                          </span>
+                          <button
+                            onClick={() => toggleChipAi(chip.id as AiChipId)}
+                            disabled={savingChip === chip.id}
+                            className={`w-8 h-4 rounded-full transition-colors relative ${chipOn ? 'bg-emerald-500' : 'bg-muted'} disabled:opacity-50`}
+                            title={chipOn ? 'Desligar IA deste chip' : 'Ligar IA deste chip'}
+                          >
+                            <div className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${chipOn ? 'left-4' : 'left-0.5'}`} />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                    {chipSkills.map((skill) => (
                 <div key={skill.id}>
                   {/* Card da skill */}
                   <div className="p-4 flex items-center gap-3 hover:bg-muted/30 transition-all">
@@ -1014,7 +1079,15 @@ export default function AiSettingsPage() {
                     />
                   )}
                 </div>
-              ))}
+                    ))}
+                    {chipSkills.length === 0 && (
+                      <div className="px-4 py-3 text-[11px] text-muted-foreground italic">
+                        Nenhuma skill neste chip ainda — você adiciona depois. Enquanto isso, deixe a IA deste chip desligada se não quiser resposta automática aqui.
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
               {/* Nova skill */}
               {editingId === 'new' && (
@@ -1273,6 +1346,24 @@ function SkillEditor({
           />
           <p className="text-[10px] text-muted-foreground">Use &quot;Geral&quot; ou &quot;*&quot; para skill de triagem padrão</p>
         </div>
+      </div>
+
+      {/* Onda 18.20 — Chip/setor que usa esta skill */}
+      <div className="space-y-1.5">
+        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wide">Chip que usa esta skill</label>
+        <select
+          value={form.purpose || 'GERAL'}
+          onChange={(e) => setForm((f) => ({ ...f, purpose: e.target.value }))}
+          className="w-full bg-muted/50 border border-border rounded-xl px-3 py-2.5 text-sm outline-none focus:border-primary/50 transition-all"
+        >
+          <option value="GERAL">Geral — responde em qualquer chip</option>
+          <option value="COMERCIAL">Comercial (leads)</option>
+          <option value="CLINICA">Clínica (pacientes)</option>
+          <option value="FINANCEIRO">Financeiro (cobrança)</option>
+        </select>
+        <p className="text-[10px] text-muted-foreground">
+          A skill só entra em ação quando a mensagem chega pelo chip escolhido. &quot;Geral&quot; vale em todos.
+        </p>
       </div>
 
       {/* V2: Descrição + Trigger Keywords */}

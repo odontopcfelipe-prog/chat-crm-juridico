@@ -257,6 +257,14 @@ export class SettingsController {
     return { message: 'Configurações de IA salvas com sucesso' };
   }
 
+  // Onda 18.20 — liga/desliga a IA de UM chip (Comercial/Clínica/Financeiro).
+  @Post('ai-chip-toggle')
+  @Roles('ADMIN')
+  async setAiChipToggle(@Body() body: { purpose: string; enabled: boolean }) {
+    await this.settingsService.setChipAiEnabled(body?.purpose, !!body?.enabled);
+    return { ok: true, purpose: body?.purpose, enabled: !!body?.enabled };
+  }
+
   @Get('skills')
   @Roles('ADMIN') // Onda 17.61 (segurança/RBAC-08) — config de IA é admin-only.
   async getSkills() {

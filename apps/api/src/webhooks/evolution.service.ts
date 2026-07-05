@@ -571,9 +571,30 @@ export class EvolutionService implements OnApplicationBootstrap {
         const killSwitch = await this.prisma.globalSetting.findUnique({
           where: { key: 'WHATSAPP_AI_ENABLED' },
         });
-        const aiEnabled = (killSwitch?.value ?? 'true') !== 'false';
+        const masterOn = (killSwitch?.value ?? 'true') !== 'false';
+        // Onda 18.20 — gate POR CHIP: além da chave-mestra, cada chip (Comercial/
+        // Clínica/Financeiro) tem seu on/off (AI_ENABLED_<PURPOSE>, default ON).
+        // Resolve o chip pela instância que recebeu a mensagem.
+        let chipOn = true;
+        let chipPurpose: string | null = null;
+        if (masterOn && instanceName) {
+          const inst = await this.prisma.instance.findFirst({
+            where: { name: instanceName },
+            select: { purpose: true },
+          });
+          chipPurpose = inst?.purpose || null;
+          if (chipPurpose) {
+            const flag = await this.prisma.globalSetting.findUnique({
+              where: { key: `AI_ENABLED_${chipPurpose}` },
+            });
+            chipOn = (flag?.value ?? 'true') !== 'false';
+          }
+        }
+        const aiEnabled = masterOn && chipOn;
         if (!aiEnabled) {
-          this.logger.log(`[AI] Kill switch global desativado — ignorando resposta para conv ${conv.id}`);
+          this.logger.log(
+            `[AI] IA desativada (${!masterOn ? 'mestra' : 'chip ' + chipPurpose}) — ignorando conv ${conv.id}`,
+          );
         } else {
         try {
           const cooldownRaw = await this.prisma.globalSetting.findUnique({

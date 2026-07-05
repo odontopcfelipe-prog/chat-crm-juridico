@@ -20,6 +20,8 @@ export class CreateSkillDto {
   @IsOptional() @IsString() skill_type?: string;
   @IsOptional() @IsNumber() max_context_tokens?: number;
   @IsOptional() @IsString() provider?: string;
+  // Onda 18.20 — chip da skill: GERAL | COMERCIAL | CLINICA | FINANCEIRO
+  @IsOptional() @IsString() purpose?: string;
 }
 
 export class UpdateSkillDto {
@@ -39,6 +41,8 @@ export class UpdateSkillDto {
   @IsOptional() @IsString() skill_type?: string;
   @IsOptional() @IsNumber() max_context_tokens?: number;
   @IsOptional() @IsString() provider?: string;
+  // Onda 18.20 — chip da skill: GERAL | COMERCIAL | CLINICA | FINANCEIRO
+  @IsOptional() @IsString() purpose?: string;
 }
 
 // ─── Skill Tool DTOs ─────────────────────────────────────────

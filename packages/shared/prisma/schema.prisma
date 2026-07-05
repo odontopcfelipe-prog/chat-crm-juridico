@@ -518,6 +518,9 @@ model PromptSkill {
   skill_type         String       @default("specialist") // "specialist" | "utility"
   max_context_tokens Int          @default(4000) // Budget de tokens para injeção de references
   provider           String       @default("openai") // "openai" | "anthropic"
+  // Onda 18.20 — chip/setor da skill. null = "Geral" (responde em qualquer chip);
+  // "COMERCIAL"|"CLINICA"|"FINANCEIRO" = só quando a msg chega naquele chip.
+  purpose            String? // null=Geral | COMERCIAL | CLINICA | FINANCEIRO
   // ─────────────────────────────────────────────────────────────
   created_at         DateTime     @default(now())
   updated_at         DateTime     @updatedAt

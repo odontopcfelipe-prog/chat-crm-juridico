@@ -1134,7 +1134,40 @@ export class AiProcessor extends WorkerHost {
         .join('\n');
 
       // 8. Carregar skills ativas (com tools e assets inclusos)
-      const activeSkills = await this.settings.getActiveSkills();
+      const allActiveSkills = await this.settings.getActiveSkills();
+      // 8.0 Onda 18.20 — filtrar pelo CHIP da conversa. Cada skill tem um purpose
+      // (Comercial/Clínica/Financeiro) ou null="Geral" (vale em qualquer chip).
+      // Resolve o chip pela instância da conversa. FALLBACK SEGURO: se o chip não
+      // tiver NENHUMA skill (ex: clínica de 1 chip só), usa todas — nunca deixa a
+      // IA muda. Sem instância/purpose conhecido, também usa todas.
+      let activeSkills = allActiveSkills;
+      try {
+        let chipPurpose: string | null = null;
+        if (convo.instance_name) {
+          const inst = await this.prisma.instance.findFirst({
+            where: { name: convo.instance_name },
+            select: { purpose: true },
+          });
+          chipPurpose = inst?.purpose || null;
+        }
+        if (chipPurpose) {
+          const filtered = allActiveSkills.filter(
+            (s: any) => !s.purpose || s.purpose === chipPurpose,
+          );
+          if (filtered.length > 0) {
+            activeSkills = filtered;
+            this.logger.log(
+              `[AI] Chip ${chipPurpose}: ${filtered.length}/${allActiveSkills.length} skills elegíveis`,
+            );
+          } else {
+            this.logger.warn(
+              `[AI] Chip ${chipPurpose} sem skills próprias — usando todas (fallback)`,
+            );
+          }
+        }
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao filtrar skills por chip: ${e.message} — usando todas`);
+      }
 
       // 8.5 Detectar se é CLIENTE → forçar skill area='Acompanhamento' (Pós-Venda
       // odontológica). Em odonto, basta `lead.is_client=true`; o carregamento de
@@ -1173,9 +1206,12 @@ export class AiProcessor extends WorkerHost {
       let routerReason = '';
       let routerTokens = 0;
 
-      // Se é cliente, forçar skill de Acompanhamento (Pós-Venda)
+      // Se é cliente, forçar skill de Acompanhamento (Pós-Venda). Onda 18.20 —
+      // busca no conjunto COMPLETO (não no filtrado por chip): o override
+      // "cliente → Pós-Venda" é transversal. Assim um paciente que escreve no chip
+      // Comercial ainda recebe a Pós-Venda (Clínica), sem cair no router de vendas.
       if (isActiveClient) {
-        skill = activeSkills.find((s: any) => s.area === 'Acompanhamento') || null;
+        skill = allActiveSkills.find((s: any) => s.area === 'Acompanhamento') || null;
         if (skill) {
           const casesNote = activeCases.length > 0 ? ` com ${activeCases.length} processo(s) ativo(s)` : '';
           routerReason = `cliente cadastrado${casesNote} — skill Pós-Venda`;

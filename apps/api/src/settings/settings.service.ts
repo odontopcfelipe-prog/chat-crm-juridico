@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { encryptValue, decryptValue, isSensitiveKey } from '../common/utils/crypto.util';
 import {
@@ -1886,6 +1886,17 @@ export class SettingsService {
     const adminBotEnabled = adminBotEnabledRaw !== 'false';
     const whatsappAiEnabledRaw = await this.get('WHATSAPP_AI_ENABLED');
     const whatsappAiEnabled = whatsappAiEnabledRaw !== 'false';
+    // Onda 18.20 — liberação de IA por chip (default ON = não muda nada no deploy).
+    const [aiComercialRaw, aiClinicaRaw, aiFinanceiroRaw] = await Promise.all([
+      this.get('AI_ENABLED_COMERCIAL'),
+      this.get('AI_ENABLED_CLINICA'),
+      this.get('AI_ENABLED_FINANCEIRO'),
+    ]);
+    const aiChip = {
+      COMERCIAL: aiComercialRaw !== 'false',
+      CLINICA: aiClinicaRaw !== 'false',
+      FINANCEIRO: aiFinanceiroRaw !== 'false',
+    };
     const cooldownRaw = await this.get('AI_COOLDOWN_SECONDS');
     const cooldownSeconds = cooldownRaw ? parseInt(cooldownRaw, 10) : 8;
     return {
@@ -1901,6 +1912,7 @@ export class SettingsService {
       djenNotifyTemplateIsCustom: !!djenNotifyTemplate,
       adminBotEnabled,
       whatsappAiEnabled,
+      aiChip,
       cooldownSeconds: isNaN(cooldownSeconds) ? 8 : cooldownSeconds,
     };
   }
@@ -1968,7 +1980,56 @@ export class SettingsService {
     await this.set('WHATSAPP_AI_ENABLED', enabled ? 'true' : 'false');
   }
 
+  /** Onda 18.20 — liberação de IA por chip (Comercial/Clínica/Financeiro). */
+  async setChipAiEnabled(purpose: string, enabled: boolean): Promise<void> {
+    const p = String(purpose || '').toUpperCase();
+    if (!['COMERCIAL', 'CLINICA', 'FINANCEIRO'].includes(p)) {
+      throw new BadRequestException(`chip inválido: ${purpose}`);
+    }
+    await this.set(`AI_ENABLED_${p}`, enabled ? 'true' : 'false');
+  }
+
+  /** Chip default de uma skill pela área (Onda 18.20). Acompanhamento=Clínica; o
+   *  resto (SDR + especialistas) = Comercial. Usado no create dos defaults. */
+  private defaultSkillPurpose(area: string): string {
+    return area === 'Acompanhamento' ? 'CLINICA' : 'COMERCIAL';
+  }
+
+  /** Normaliza o purpose que vem da UI: só COMERCIAL/CLINICA/FINANCEIRO; o resto
+   *  (GERAL, vazio, inválido) vira null = "Geral" (responde em qualquer chip). */
+  private normalizeSkillPurpose(p: any): string | null {
+    const v = String(p ?? '').toUpperCase();
+    return ['COMERCIAL', 'CLINICA', 'FINANCEIRO'].includes(v) ? v : null;
+  }
+
+  /** Backfill uma-vez: mapeia as skills JÁ existentes por chip (guardado por flag,
+   *  não sobrescreve escolhas futuras — depois disso a UI sempre manda o valor). */
+  private async backfillSkillPurposesOnce(): Promise<void> {
+    const done = await this.get('SKILLS_PURPOSE_BACKFILLED_v1');
+    if (done === 'true') return;
+    try {
+      const COMERCIAL_AREAS = [
+        'Triagem', 'Implantes', 'Ortodontia', 'Estética Facial',
+        'Prótese', 'Faceta de Resina', 'Clareamento Dental', 'Lentes de Porcelana',
+      ];
+      await (this.prisma as any).promptSkill.updateMany({
+        where: { purpose: null, area: 'Acompanhamento' },
+        data: { purpose: 'CLINICA' },
+      });
+      await (this.prisma as any).promptSkill.updateMany({
+        where: { purpose: null, area: { in: COMERCIAL_AREAS } },
+        data: { purpose: 'COMERCIAL' },
+      });
+      await this.set('SKILLS_PURPOSE_BACKFILLED_v1', 'true');
+      this.logger.log('[SKILLS] Backfill de purpose (chip) aplicado uma vez');
+    } catch (e: any) {
+      this.logger.warn(`[SKILLS] Backfill de purpose falhou: ${e?.message}`);
+    }
+  }
+
   async getSkills() {
+    // Onda 18.20 — mapeia as skills existentes por chip na 1ª vez.
+    await this.backfillSkillPurposesOnce();
     let skills = await (this.prisma as any).promptSkill.findMany({
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
       include: { tools: { where: { active: true } }, assets: true },
@@ -2144,7 +2205,11 @@ export class SettingsService {
       for (const s of defaultSkills) {
         const existing = await (this.prisma as any).promptSkill.findFirst({ where: { name: s.name } });
         if (!existing) {
-          await (this.prisma as any).promptSkill.create({ data: s });
+          // Onda 18.20 — nasce já mapeada no chip (SDR+especialistas=Comercial,
+          // Pós-Venda=Clínica). O admin reajusta na tela depois.
+          await (this.prisma as any).promptSkill.create({
+            data: { ...s, purpose: this.defaultSkillPurpose(s.area) },
+          });
         }
       }
 
@@ -7309,6 +7374,7 @@ SOPHIA (validação + descoberta): {"reply":"Show, transformação ampla. Lente 
       skillType: s.skill_type || 'specialist',
       maxContextTokens: s.max_context_tokens || 4000,
       provider: s.provider || 'openai',
+      purpose: s.purpose || null, // Onda 18.20 — chip da skill (null = Geral)
       tools: s.tools || [],
       assets: s.assets || [],
     }));
@@ -7322,10 +7388,13 @@ SOPHIA (validação + descoberta): {"reply":"Show, transformação ampla. Lente 
   }
 
   async createSkill(data: Record<string, any>) {
+    // Onda 18.20 — 'GERAL'/vazio/inválido → null (responde em qualquer chip).
+    if ('purpose' in data) data = { ...data, purpose: this.normalizeSkillPurpose(data.purpose) };
     return (this.prisma as any).promptSkill.create({ data });
   }
 
   async updateSkill(id: string, data: Record<string, any>) {
+    if ('purpose' in data) data = { ...data, purpose: this.normalizeSkillPurpose(data.purpose) };
     return (this.prisma as any).promptSkill.update({ where: { id }, data });
   }
 
