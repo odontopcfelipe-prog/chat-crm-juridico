@@ -499,10 +499,12 @@ export default function AiSettingsPage() {
               const on = aiChip[chip.id];
               return (
                 <div key={chip.id} className="flex items-center justify-between py-3">
-                  <div className="flex items-center gap-2.5">
+                  <div className="flex items-center gap-3 min-w-0">
                     <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: chip.color }} />
-                    <span className="text-sm font-bold" style={{ color: chip.color }}>{chip.label}</span>
-                    <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-md ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
+                    {/* Largura FIXA no nome e no selo → os 3 chips alinham em coluna,
+                        e "LIGADA"/"DESLIGADA" (tamanhos diferentes) não deslocam nada. */}
+                    <span className="text-sm font-bold w-28 shrink-0" style={{ color: chip.color }}>{chip.label}</span>
+                    <span className={`text-[10px] font-black uppercase tracking-wider py-0.5 rounded-md w-28 text-center shrink-0 ${on ? 'bg-emerald-500/15 text-emerald-600' : 'bg-red-500/15 text-red-600'}`}>
                       {on ? 'IA LIGADA' : 'IA DESLIGADA'}
                     </span>
                   </div>
