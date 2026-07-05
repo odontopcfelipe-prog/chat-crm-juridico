@@ -32,7 +32,14 @@ export function TesteEnvio({ disparo, text }: { disparo: string; text?: string }
       await api.post('/calendar/disparo/send-test', { disparo, phone: fullPhone, text });
       showSuccess('Teste enviado — confira o WhatsApp desse número');
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao enviar o teste');
+      // Onda 18.25 — mostra a CAUSA real em vez de um "falha" genérico, pra dar
+      // pra diagnosticar: mensagem do backend > timeout > API fora > status HTTP.
+      const backendMsg = e?.response?.data?.message;
+      const msg = backendMsg
+        || (e?.code === 'ECONNABORTED' ? 'Tempo esgotado — a API demorou a responder (pode estar reiniciando).' : null)
+        || (!e?.response ? 'Sem resposta da API — provavelmente fora do ar ou reiniciando. Confira o /api/health e tente de novo.' : null)
+        || `Erro ${e?.response?.status ?? ''} ao enviar o teste.`;
+      showError(msg);
     } finally {
       setSending(false);
     }
