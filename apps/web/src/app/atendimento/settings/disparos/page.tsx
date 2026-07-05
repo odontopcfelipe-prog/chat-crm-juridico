@@ -9,11 +9,15 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
+  Briefcase, Wallet,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
-import { CATEGORIAS, DISPAROS, type DisparoCategoria, type DisparoItem, type OperacionalKey } from './disparos.config';
+import {
+  CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
+  type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
+} from './disparos.config';
 import { DEFAULT_COBRANCA_TEMPLATES } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
@@ -30,6 +34,12 @@ const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   datas: Cake,
   recuperacao: TrendingUp,
   clinico: Stethoscope,
+};
+
+const SETOR_ICON: Record<Setor, typeof CalendarClock> = {
+  comercial: Briefcase,
+  clinica: Stethoscope,
+  financeiro: Wallet,
 };
 
 interface OperacionalData {
@@ -266,16 +276,58 @@ export default function CentralDisparosPage() {
           <Loader2 size={18} className="animate-spin mr-2" /> Carregando…
         </div>
       ) : (
-        <div className="space-y-6">
-          {CATEGORIAS.map((cat) => {
-            const itens = DISPAROS.filter((d) => d.categoria === cat.id);
-            if (itens.length === 0) return null;
-            const CatIcon = CAT_ICON[cat.id];
+        <div className="space-y-8">
+          {SETORES.map((setor) => {
+            // Categorias deste setor que têm ao menos 1 disparo no catálogo.
+            const cats = CATEGORIAS
+              .filter((c) => CATEGORIA_SETOR[c.id] === setor.id)
+              .filter((c) => DISPAROS.some((d) => d.categoria === c.id));
+            if (cats.length === 0) return null;
+            const SetorIcon = SETOR_ICON[setor.id];
+            // Setor com 1 categoria só (Comercial/Financeiro) não repete o subtítulo.
+            const showCatHeaders = cats.length > 1;
             return (
+              <div key={setor.id} className="space-y-3">
+                {/* Cabeçalho do SETOR = chip + ênfase do fallback pra Clínica */}
+                <div
+                  className="flex items-start gap-2.5 rounded-xl border px-4 py-3"
+                  style={{ borderColor: setor.color + '33', backgroundColor: setor.color + '0D' }}
+                >
+                  <span
+                    className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 mt-0.5"
+                    style={{ backgroundColor: setor.color + '1A', color: setor.color }}
+                  >
+                    <SetorIcon size={16} />
+                  </span>
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-sm font-bold" style={{ color: setor.color }}>{setor.label}</span>
+                      <span
+                        className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full border"
+                        style={{ borderColor: setor.color + '55', color: setor.color }}
+                      >
+                        chip {setor.chip}
+                      </span>
+                      {setor.principal && (
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                          principal
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{setor.nota}</p>
+                  </div>
+                </div>
+
+                {cats.map((cat) => {
+                  const itens = DISPAROS.filter((d) => d.categoria === cat.id);
+                  const CatIcon = CAT_ICON[cat.id];
+                  return (
               <section key={cat.id}>
+                {showCatHeaders && (
                 <h2 className="text-xs font-bold uppercase tracking-wider mb-2" style={{ color: cat.color }}>
                   {cat.label}
                 </h2>
+                )}
                 <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
                   {itens.map((d) => {
                     const clickable = !!d.editor && !d.emBreve;
@@ -339,6 +391,9 @@ export default function CentralDisparosPage() {
                   })}
                 </div>
               </section>
+                  );
+                })}
+              </div>
             );
           })}
         </div>

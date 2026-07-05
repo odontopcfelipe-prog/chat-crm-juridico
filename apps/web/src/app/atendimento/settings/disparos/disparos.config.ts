@@ -17,6 +17,30 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
   { id: 'clinico',      label: 'Clínico e operacional',  color: '#2D7FF9' },
 ];
 
+// Onda 18.19 — organização por SETOR/chip (Comercial · Clínica · Financeiro),
+// espelhando os 3 chips de WhatsApp. Cada categoria mora num setor; a tela
+// agrupa por setor no topo. A Clínica é o chip PRINCIPAL: se o chip do setor
+// (Comercial/Financeiro) não estiver conectado, o envio cai na Clínica.
+export type Setor = 'comercial' | 'clinica' | 'financeiro';
+
+export const SETORES: { id: Setor; label: string; chip: string; color: string; nota: string; principal?: boolean }[] = [
+  { id: 'comercial',  label: 'Comercial', chip: 'Comercial', color: '#F26C1B',
+    nota: 'Sai pelo chip Comercial. Se ele não estiver conectado, usa o chip principal (Clínica).' },
+  { id: 'clinica',    label: 'Clínica',   chip: 'Clínica',   color: '#2D7FF9', principal: true,
+    nota: 'Chip principal da clínica — o padrão de tudo que fala com o paciente.' },
+  { id: 'financeiro', label: 'Financeiro', chip: 'Financeiro', color: '#10B981',
+    nota: 'Sai pelo chip Financeiro. Se ele não estiver conectado, usa o chip principal (Clínica).' },
+];
+
+export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
+  agendamento:  'clinica',
+  pos_consulta: 'clinica',
+  datas:        'clinica',
+  clinico:      'clinica',
+  recuperacao:  'comercial',
+  financeiro:   'financeiro',
+};
+
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
 export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
