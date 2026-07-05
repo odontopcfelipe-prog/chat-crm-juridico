@@ -1568,7 +1568,7 @@ export class CalendarService {
    *  A tabela Instance às vezes tem um registro 'whatsapp' que a Evolution não tem. */
   private async resolveTenantWhatsappInstance(
     tenant_id?: string,
-    purpose?: 'COMERCIAL' | 'CLINICA',
+    purpose?: 'COMERCIAL' | 'CLINICA' | 'FINANCEIRO',
   ): Promise<string | null> {
     // Onda 17.64 — se a clínica separou os chips por função, prefere o chip DAQUELA
     // função (ex: disparo clínico sai pelo chip CLINICA). SEMPRE escopado por
@@ -1680,7 +1680,12 @@ export class CalendarService {
     // Adiciona o código do Brasil (55) quando vem só DDD + número (10–11 dígitos).
     if (num.length === 10 || num.length === 11) num = `55${num}`;
 
-    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, 'CLINICA');
+    // Onda 18.17 — disparo de cobrança sai (e testa) pelo chip FINANCEIRO, pra o
+    // teste vir do mesmo número que vai cobrar de verdade. Fallback interno pra
+    // outro chip do tenant se ainda não separou o Financeiro.
+    const { DEFAULT_COBRANCA_TEMPLATES, isCobrancaStage } = await import('@crm/shared');
+    const testPurpose: 'CLINICA' | 'FINANCEIRO' = isCobrancaStage(disparo) ? 'FINANCEIRO' : 'CLINICA';
+    const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, testPurpose);
     if (!instanceName) {
       throw new BadRequestException(
         'Nenhuma instância de WhatsApp conectada pra esta clínica. Conecte o WhatsApp primeiro.',
@@ -1725,6 +1730,8 @@ export class CalendarService {
       data: '06/05', hora: '14:00',
       local: tenantAddr || '(endereço não cadastrado — preencha em Configurações › Identidade)',
       clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
+      // Onda 18.17 — exemplos das variáveis de cobrança (senão sairiam vazias).
+      valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste',
     };
     const apply = (t: string) =>
       (t || '')
@@ -1776,6 +1783,11 @@ export class CalendarService {
         msg = `Oi Felipe! Como foi sua consulta hoje com ${dentistName}? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)`;
         break;
       default:
+        // Onda 18.17 — cobrança: sem texto da tela, testa o default do estágio.
+        if (isCobrancaStage(disparo)) {
+          msg = apply(DEFAULT_COBRANCA_TEMPLATES[disparo]);
+          break;
+        }
         throw new BadRequestException('Esse disparo ainda não tem teste disponível.');
     }
     if (!msg.trim()) {

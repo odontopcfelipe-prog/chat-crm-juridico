@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Patch, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Put, Delete, Body, Param, Query, UseGuards, Request, ForbiddenException } from '@nestjs/common';
 import { FollowupService } from './followup.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
@@ -44,6 +44,22 @@ export class FollowupController {
       throw new ForbiddenException('Apenas ADMIN pode ligar/desligar as automações');
     }
     return this.svc.setOperacionalToggle(req.user?.tenant_id, body?.which, !!body?.enabled);
+  }
+
+  // ─── Templates de cobrança (Onda 18.17) — ver/editar o texto de cada estágio ─
+  @Get('cobranca-template/:stage')
+  getCobrancaTemplate(@Param('stage') stage: string, @Request() req: any) {
+    return this.svc.getCobrancaTemplate(req.user?.tenant_id, stage);
+  }
+
+  @Put('cobranca-template/:stage')
+  setCobrancaTemplate(@Param('stage') stage: string, @Body() body: { template?: string }, @Request() req: any) {
+    // Editar o texto que o paciente recebe = ato administrativo -> so ADMIN.
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode editar as mensagens de cobrança');
+    }
+    return this.svc.setCobrancaTemplate(req.user?.tenant_id, stage, body?.template ?? '');
   }
 
   // ─── Sequências ──────────────────────────────────────────────────────────

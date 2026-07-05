@@ -2,7 +2,13 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import {
+  toBrazilWhatsappNumber,
+  DEFAULT_COBRANCA_TEMPLATES,
+  COBRANCA_STAGES,
+  cobrancaTemplateKey,
+  type CobrancaStage,
+} from '@crm/shared';
 import axios from 'axios';
 
 /**
@@ -25,20 +31,8 @@ import axios from 'axios';
  * NOTA: cooldown em memória (assume 1 réplica do worker, como os outros crons).
  */
 
-type Stage =
-  | 'boleto_1d_antes'
-  | 'boleto_no_dia'
-  | 'boleto_atraso_1d'
-  | 'boleto_atraso_15d'
-  | 'boleto_atraso_30d';
-
-const STAGES: Stage[] = [
-  'boleto_1d_antes',
-  'boleto_no_dia',
-  'boleto_atraso_1d',
-  'boleto_atraso_15d',
-  'boleto_atraso_30d',
-];
+type Stage = CobrancaStage;
+const STAGES = COBRANCA_STAGES;
 
 /** diffDays (hoje Maceió − vencimento) → estágio. -1 = vence amanhã; 0 = hoje. */
 const STAGE_BY_DIFF: Record<number, Stage> = {
@@ -49,34 +43,13 @@ const STAGE_BY_DIFF: Record<number, Stage> = {
   30: 'boleto_atraso_30d',
 };
 
-/** Prefixo da GlobalSetting por estágio (sufixo _${tenantId}). */
+/** Prefixo da GlobalSetting do TOGGLE on/off por estágio (sufixo _${tenantId}). */
 const STAGE_SETTING_PREFIX: Record<Stage, string> = {
   boleto_1d_antes: 'BOLETO_1D_ANTES',
   boleto_no_dia: 'BOLETO_NO_DIA',
   boleto_atraso_1d: 'BOLETO_ATRASO_1D',
   boleto_atraso_15d: 'BOLETO_ATRASO_15D',
   boleto_atraso_30d: 'BOLETO_ATRASO_30D',
-};
-
-/** Rascunhos aprovados pelo cliente (gentil → firme). {nome} {valor} {data} {link}. */
-const STAGE_TEMPLATE: Record<Stage, string> = {
-  boleto_1d_antes:
-    'Oi {nome}! 😊 Passando pra lembrar que sua parcela de *{valor}* vence *amanhã ({data})*.\n\n' +
-    'Segue o boleto/pix pra facilitar: {link}\n\nQualquer dúvida, é só chamar aqui!',
-  boleto_no_dia:
-    'Oi {nome}! 📅 Sua parcela de *{valor}* vence *hoje ({data})*.\n\n' +
-    'Pra não perder o prazo, segue o boleto/pix: {link}\n\nSe já pagou, pode desconsiderar 🙏',
-  boleto_atraso_1d:
-    'Oi {nome}, tudo bem? Notamos que sua parcela de *{valor}* venceu ontem ({data}) e ainda consta em aberto — ' +
-    'deve ser só um esquecimento 😉\n\nSegue o boleto atualizado: {link}\n\nSe já pagou, é só desconsiderar!',
-  boleto_atraso_15d:
-    'Oi {nome}, sua parcela de *{valor}* está em aberto há *15 dias* (venceu em {data}).\n\n' +
-    'Pra regularizar e evitar juros maiores, segue o boleto atualizado: {link}\n\n' +
-    'Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.',
-  boleto_atraso_30d:
-    'Oi {nome}, sua parcela de *{valor}* está com *30 dias* de atraso (venceu em {data}).\n\n' +
-    'Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}\n\n' +
-    'Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
 };
 
 interface ChargeCandidate {
@@ -127,7 +100,8 @@ export class PaymentAlertsCronService {
     if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
 
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
-    const message = this.buildMessage(pick);
+    const template = await this.resolveTemplate(pick.tenantId, pick.stage);
+    const message = this.buildMessage(pick, template);
     const messageId = await this.sendWhatsApp(pick.phone, message, instanceName);
 
     // Evolution não configurado: NÃO gasta o slot, tenta de novo no próximo tick.
@@ -263,16 +237,38 @@ export class PaymentAlertsCronService {
   }
 
   /** Monta a mensagem do estágio com nome/valor/data/link. */
-  private buildMessage(c: ChargeCandidate): string {
+  private buildMessage(c: ChargeCandidate, template: string): string {
     const firstName = c.name.split(' ')[0];
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
     const mm = String(c.dueDate.getUTCMonth() + 1).padStart(2, '0');
-    return STAGE_TEMPLATE[c.stage]
+    return template
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
       .replace(/\{data\}/g, `${dd}/${mm}`)
       .replace(/\{link\}/g, c.link);
+  }
+
+  /**
+   * Template do estágio: o que a clínica salvou na Central de Disparos
+   * (GlobalSetting via cobrancaTemplateKey) → senão o default aprovado. Mesma
+   * chave que a API grava, então editar na tela muda o que sai daqui.
+   */
+  private async resolveTemplate(tenantId: string, stage: Stage): Promise<string> {
+    const fallback = DEFAULT_COBRANCA_TEMPLATES[stage];
+    if (!tenantId) return fallback;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: cobrancaTemplateKey(stage, tenantId) },
+      });
+      if (row?.value) {
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] Falha ao ler template ${stage} do tenant ${tenantId}: ${e.message}`);
+    }
+    return fallback;
   }
 
   /** Índice do dia calendário (UTC) — vencimento vem do Asaas como data UTC. */

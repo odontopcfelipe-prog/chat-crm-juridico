@@ -208,6 +208,21 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'aniversario' && (
           <AniversarioEditor which={openItem.birthdayMsg || 1} onCurrentTextChange={setLiveText} />
         )}
+        {openItem.editor === 'cobranca' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."
+            endpoint={`/followup/cobranca-template/${openItem.operacionalKey}`}
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'valor', desc: 'Valor da parcela (ex.: R$ 350,00)' },
+              { key: 'data', desc: 'Vencimento (DD/MM)' },
+              { key: 'link', desc: 'Link do boleto/pix pra pagar' },
+            ]}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/boleto' }}
+            onCurrentTextChange={setLiveText}
+          />
+        )}
         <TesteEnvio disparo={openItem.id} text={liveText} />
       </div>
     );

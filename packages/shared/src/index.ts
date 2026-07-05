@@ -14,3 +14,5 @@ export * from './sectors.config';
 export * from './phone.util';
 // Onda 17.57 — endereco da clinica do tenant -> string pra {local} nos disparos
 export * from './address.util';
+// Onda 18.17 — templates de cobranca (fonte unica: api edita, worker le)
+export * from './cobranca';

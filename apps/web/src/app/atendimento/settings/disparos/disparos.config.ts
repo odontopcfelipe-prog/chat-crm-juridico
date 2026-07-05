@@ -18,7 +18,7 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
 ];
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -72,19 +72,19 @@ export const DISPAROS: DisparoItem[] = [
   // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
   { id: 'boleto_1d_antes', nome: 'Boleto · 1 dia antes do vencimento', categoria: 'financeiro',
     gatilho: 'Vence amanhã · lembrete gentil', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'boleto_1d_antes' },
+    editor: 'cobranca', operacionalKey: 'boleto_1d_antes' },
   { id: 'boleto_no_dia', nome: 'Boleto · no dia do vencimento', categoria: 'financeiro',
     gatilho: 'Vence hoje', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'boleto_no_dia' },
+    editor: 'cobranca', operacionalKey: 'boleto_no_dia' },
   { id: 'boleto_atraso_1d', nome: 'Cobrança · 1 dia de atraso', categoria: 'financeiro',
     gatilho: '1 dia após vencer · lembrete', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'boleto_atraso_1d' },
+    editor: 'cobranca', operacionalKey: 'boleto_atraso_1d' },
   { id: 'boleto_atraso_15d', nome: 'Cobrança · 15 dias de atraso', categoria: 'financeiro',
     gatilho: '15 dias após vencer · firme', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'boleto_atraso_15d' },
+    editor: 'cobranca', operacionalKey: 'boleto_atraso_15d' },
   { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
     gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'boleto_atraso_30d' },
+    editor: 'cobranca', operacionalKey: 'boleto_atraso_30d' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

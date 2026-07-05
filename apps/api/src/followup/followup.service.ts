@@ -2,6 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+import { DEFAULT_COBRANCA_TEMPLATES, cobrancaTemplateKey, isCobrancaStage } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -415,6 +416,40 @@ export class FollowupService {
     }
     this.logger.log(`[OPERACIONAL] ${which} -> ${enabled ? 'ON' : 'OFF'} (tenant ${tenantId})`);
     return { ok: true, which, enabled };
+  }
+
+  // ─── Templates de cobrança (Onda 18.17) ───────────────────────────────────
+  // Fonte única com o worker (@crm/shared): a clínica edita o texto de cada
+  // estágio aqui e o cron de cobrança usa exatamente esse texto ao disparar.
+
+  /** Texto salvo do estágio (ou o default aprovado se ainda não editou). */
+  async getCobrancaTemplate(tenantId: string, stage: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isCobrancaStage(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
+    let template: string = DEFAULT_COBRANCA_TEMPLATES[stage];
+    const row = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey(stage, tenantId) } });
+    if (row?.value) {
+      try {
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed?.template === 'string' && parsed.template.trim()) template = parsed.template;
+      } catch {
+        /* valor corrompido — cai no default */
+      }
+    }
+    return { template };
+  }
+
+  /** Salva o texto do estágio (o cron passa a usar). Vazio = volta pro default. */
+  async setCobrancaTemplate(tenantId: string, stage: string, template: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isCobrancaStage(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
+    if (typeof template !== 'string') throw new BadRequestException('template deve ser string');
+    if (template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    const key = cobrancaTemplateKey(stage, tenantId);
+    const value = JSON.stringify({ template });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[COBRANCA_TEMPLATE] ${stage} salvo (tenant ${tenantId})`);
+    return this.getCobrancaTemplate(tenantId, stage);
   }
 
   // ─── CRUD Sequências ─────────────────────────────────────────────────────
