@@ -473,13 +473,17 @@ export class PaymentGatewayService {
       `[RESEND] Cobranca ${chargeId} (${charge.billing_type}) reenviada via "${usedInstance}" pra ${phone}`,
     );
 
-    // 6. Salva mensagem na conversa (historico do chat) — best-effort
+    // 6. Salva mensagem na conversa (historico do chat) — best-effort.
+    // Onda 18.32 — na conversa PRÓPRIA do Financeiro (find-or-create); fallback
+    // pra última conversa se o tenant não tem inbox Financeiro.
     try {
-      const convo = await this.prisma.conversation.findFirst({
-        where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
-        orderBy: { last_message_at: 'desc' },
-        select: { id: true },
-      });
+      const convo =
+        (await this.findOrCreateFinanceiroConversation(lead.id, tenantId, lead.phone)) ??
+        (await this.prisma.conversation.findFirst({
+          where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
+          orderBy: { last_message_at: 'desc' },
+          select: { id: true },
+        }));
       if (convo) {
         const evolutionMsgId =
           sendResult?.data?.key?.id || sendResult?.key?.id || `sys_resend_${Date.now()}`;
@@ -1752,6 +1756,59 @@ export class PaymentGatewayService {
   /**
    * Notifica o cliente via WhatsApp quando um pagamento é confirmado.
    */
+  /**
+   * Onda 18.32 — conversa PRÓPRIA do Financeiro (isolamento do chip de cobrança).
+   * Acha/cria a conversa do lead no inbox FINANCEIRO — mundo separado do
+   * Comercial/Clínica (o "contato duplicado" entre abas é intencional: este é só
+   * o contato de cobrança). Retorna null se o tenant não tem inbox Financeiro —
+   * o caller usa o fallback antigo (última conversa) e nada quebra.
+   */
+  private async findOrCreateFinanceiroConversation(
+    leadId: string,
+    tenantId: string | null | undefined,
+    phone?: string | null,
+  ): Promise<{ id: string; instance_name: string | null } | null> {
+    try {
+      if (!tenantId) return null;
+      const finInbox = await this.prisma.inbox.findFirst({
+        where: { tenant_id: tenantId, purpose: 'FINANCEIRO' },
+        select: { id: true },
+      });
+      if (!finInbox) return null;
+      const existing = await this.prisma.conversation.findFirst({
+        where: {
+          lead_id: leadId,
+          channel: 'whatsapp',
+          status: { not: 'ENCERRADO' },
+          inbox: { purpose: 'FINANCEIRO' },
+        },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true, instance_name: true },
+      });
+      if (existing) return existing;
+      const finInstance = await this.whatsapp.getInstanceForPurpose(tenantId, 'FINANCEIRO');
+      const cleanPhone = (phone || '').replace(/\D/g, '');
+      const created = await this.prisma.conversation.create({
+        data: {
+          lead_id: leadId,
+          channel: 'whatsapp',
+          status: 'ABERTO',
+          ...(cleanPhone ? { external_id: `${cleanPhone}@s.whatsapp.net` } : {}),
+          inbox_id: finInbox.id,
+          instance_name: finInstance ?? null,
+          tenant_id: tenantId,
+          last_message_at: new Date(),
+        },
+        select: { id: true, instance_name: true },
+      });
+      this.logger.log(`[FINANCEIRO] Conversa própria criada pro lead ${leadId}: ${created.id}`);
+      return created;
+    } catch (e: any) {
+      this.logger.warn(`[FINANCEIRO] Falha ao resolver conversa do financeiro: ${e.message}`);
+      return null;
+    }
+  }
+
   private async notifyClientPaymentReceived(paymentData: any, charge: any) {
     // Onda 18.28 — respeita o toggle "Confirmação de pagamento" da Central de
     // Disparos (default LIGADA; só pula se o admin desligou explicitamente).
@@ -1814,11 +1871,15 @@ export class PaymentGatewayService {
       clientPhone = clientPhone.slice(0, 4) + clientPhone.slice(5);
     }
 
-    const lastConvo = await this.prisma.conversation.findFirst({
-      where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
-      orderBy: { last_message_at: 'desc' },
-      select: { id: true, instance_name: true },
-    }).catch(() => null);
+    // Onda 18.32 — grava na conversa PRÓPRIA do Financeiro (find-or-create).
+    // Fallback: última conversa do lead (tenant ainda sem inbox Financeiro).
+    const lastConvo =
+      (await this.findOrCreateFinanceiroConversation(lead.id, tenantId, lead.phone)) ??
+      (await this.prisma.conversation.findFirst({
+        where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true, instance_name: true },
+      }).catch(() => null));
 
     // Onda 18.7 — confirmação de pagamento sai pelo chip FINANCEIRO (fallback:
     // instância da última conversa).
@@ -1854,7 +1915,7 @@ export class PaymentGatewayService {
 
     const gatewayCustomer = await this.prisma.paymentGatewayCustomer.findFirst({
       where: { external_id: customerId, gateway: 'ASAAS' },
-      include: { lead: { select: { id: true, name: true, phone: true } } },
+      include: { lead: { select: { id: true, name: true, phone: true, tenant_id: true } } },
     });
 
     if (!gatewayCustomer?.lead?.phone) {
@@ -1896,23 +1957,38 @@ export class PaymentGatewayService {
       await this.prisma.lead.update({ where: { id: lead.id }, data: { phone: clientPhone } }).catch(() => {});
     }
 
-    // Buscar ou criar conversa para o lead
-    let lastConvo = await this.prisma.conversation.findFirst({
-      where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
-      orderBy: { last_message_at: 'desc' },
-      select: { id: true, instance_name: true },
-    }).catch(() => null);
+    // Buscar ou criar conversa para o lead.
+    // Onda 18.32 — primeiro a conversa PRÓPRIA do Financeiro (find-or-create);
+    // fallback pro comportamento antigo se o tenant não tem inbox Financeiro.
+    const notifyTenantId: string | null =
+      (charge as any)?.tenant_id || (lead as any)?.tenant_id || null;
+    let lastConvo = await this.findOrCreateFinanceiroConversation(
+      lead.id,
+      notifyTenantId,
+      lead.phone,
+    );
+    if (!lastConvo) {
+      lastConvo = await this.prisma.conversation.findFirst({
+        where: { lead_id: lead.id, status: { not: 'ENCERRADO' } },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true, instance_name: true },
+      }).catch(() => null);
+    }
 
     if (!lastConvo) {
-      // Criar conversa para que a mensagem fique visível no chat
+      // Criar conversa para que a mensagem fique visível no chat.
+      // Onda 18.32 (review) — channel MINÚSCULO ('whatsapp': é o que o webhook e
+      // os finds filtram; 'WHATSAPP' criava conversa inencontrável) + tenant_id
+      // (sem ele a conversa ficava invisível no findAll, que filtra por tenant).
       try {
         const newConvo = await this.prisma.conversation.create({
           data: {
             lead_id: lead.id,
-            channel: 'WHATSAPP',
+            channel: 'whatsapp',
             status: 'ABERTO',
             instance_name: 'whatsapp',
             last_message_at: new Date(),
+            ...(notifyTenantId ? { tenant_id: notifyTenantId } : {}),
           },
         });
         lastConvo = { id: newConvo.id, instance_name: 'whatsapp' };

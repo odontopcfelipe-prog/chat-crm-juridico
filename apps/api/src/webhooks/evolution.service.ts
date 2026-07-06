@@ -256,10 +256,22 @@ export class EvolutionService implements OnApplicationBootstrap {
         this.logger.log(`[WEBHOOK] Lead ${lead.id} (${phone}) via chip CLINICA → paciente (is_client=true)`);
       }
 
+      // Onda 18.32 — ISOLAMENTO do chip FINANCEIRO: contato de cobrança tem conversa
+      // PRÓPRIA (o "contato duplicado" é intencional: uma conversa no mundo Comercial/
+      // Clínica + uma no Financeiro). Msg chegando no chip Financeiro acha/cria SÓ a
+      // conversa do inbox FINANCEIRO; nos outros chips a busca NUNCA pega a conversa
+      // do Financeiro — senão a resposta de cobrança sequestrava a conversa principal
+      // (e vice-versa). Sem inboxId (chip financeiro sem inbox, não deveria ocorrer),
+      // cai no comportamento normal pra não perder mensagem.
+      const isFinanceiroChip = (inbox as any)?.purpose === 'FINANCEIRO' && !!inboxId;
+      const convScope: any = isFinanceiroChip
+        ? { inbox: { purpose: 'FINANCEIRO' } }
+        : { NOT: { inbox: { purpose: 'FINANCEIRO' } } };
+
       // 1b. Lead PERDIDO/FINALIZADO voltou a falar → reativar para QUALIFICANDO.
-      // SÓ pra chip comercial/legado: paciente da clínica não é "lead dormente reativado".
-      // Sem isso, a conversa existe mas fica invisível no inbox (filtro de stage).
-      if (!isFromMe && !isClinicaChip && ['PERDIDO', 'FINALIZADO'].includes(lead.stage)) {
+      // SÓ pra chip comercial/legado: paciente da clínica não é "lead dormente
+      // reativado", e resposta de COBRANÇA (chip financeiro) também não ressuscita lead.
+      if (!isFromMe && !isClinicaChip && !isFinanceiroChip && ['PERDIDO', 'FINALIZADO'].includes(lead.stage)) {
         await this.prisma.lead.update({
           where: { id: lead.id },
           data: {
@@ -283,13 +295,14 @@ export class EvolutionService implements OnApplicationBootstrap {
           lead_id: lead.id,
           channel: 'whatsapp',
           status: 'ABERTO',
+          ...convScope, // Onda 18.32 — financeiro só acha financeiro; resto nunca acha financeiro
         },
         orderBy: { last_message_at: 'desc' },
       });
       if (!conv) {
         // 1) Tentar reabrir conversa FECHADO
         const closedConv = await this.prisma.conversation.findFirst({
-          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO' },
+          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO', ...convScope },
           orderBy: { last_message_at: 'desc' },
         });
         if (closedConv) {
@@ -307,7 +320,7 @@ export class EvolutionService implements OnApplicationBootstrap {
         // 2) Se não achou FECHADO, checar ADIADO — mantém status, só atualiza timestamp
         if (!conv) {
           const adiadoConv = await this.prisma.conversation.findFirst({
-            where: { lead_id: lead.id, channel: 'whatsapp', status: 'ADIADO' },
+            where: { lead_id: lead.id, channel: 'whatsapp', status: 'ADIADO', ...convScope },
             orderBy: { last_message_at: 'desc' },
           });
           if (adiadoConv) {
@@ -808,12 +821,18 @@ export class EvolutionService implements OnApplicationBootstrap {
         });
       }
 
-      // Apenas atualizar conversa ABERTA existente — NÃO reabrir fechadas, NÃO criar novas
+      // Apenas atualizar conversa ABERTA existente — NÃO reabrir fechadas, NÃO criar novas.
+      // Onda 18.32 — mesmo isolamento do messages.upsert: evento vindo do chip
+      // FINANCEIRO só toca conversa do Financeiro (e vice-versa), senão este update
+      // de instance_name sequestrava a conversa principal pro chip de cobrança.
       const conv = await this.prisma.conversation.findFirst({
         where: {
           lead_id: existingLead.id,
           channel: 'whatsapp',
           status: 'ABERTO',
+          ...((inbox as any)?.purpose === 'FINANCEIRO'
+            ? { inbox: { purpose: 'FINANCEIRO' } }
+            : { NOT: { inbox: { purpose: 'FINANCEIRO' } } }),
         },
       });
 
@@ -1217,11 +1236,16 @@ export class EvolutionService implements OnApplicationBootstrap {
           : 0;
         if (lastMsgTs > 0 && lastMsgTs < cutoffTs) continue; // Chat antigo, ignorar
 
-        // Verificar se já existe conversa ABERTA para este lead (escopo do tenant)
+        // Verificar se já existe conversa ABERTA para este lead (escopo do tenant).
+        // Onda 18.32 — escopado por mundo: resync do chip FINANCEIRO olha só as
+        // conversas do Financeiro (e o resto ignora as do Financeiro).
+        const resyncScope: any = (inbox as any)?.purpose === 'FINANCEIRO'
+          ? { inbox: { purpose: 'FINANCEIRO' } }
+          : { NOT: { inbox: { purpose: 'FINANCEIRO' } } };
         const existingLead = await this.leadsService.findByPhone(phone, tenantId);
         if (existingLead) {
           const existingConv = await this.prisma.conversation.findFirst({
-            where: { lead_id: existingLead.id, channel: 'whatsapp', status: { in: ['ABERTO', 'ADIADO'] } },
+            where: { lead_id: existingLead.id, channel: 'whatsapp', status: { in: ['ABERTO', 'ADIADO'] }, ...resyncScope },
           });
           if (existingConv) continue; // Já existe conversa ativa → será sincronizada na fase 2
         }
@@ -1241,9 +1265,9 @@ export class EvolutionService implements OnApplicationBootstrap {
           inboxId, // isola notificacao de lead novo ao inbox do setor (resync pos-reconexao)
         );
 
-        // Reabrir conversa fechada ou criar nova
+        // Reabrir conversa fechada ou criar nova (respeitando o mundo do chip)
         let conv = await this.prisma.conversation.findFirst({
-          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO' },
+          where: { lead_id: lead.id, channel: 'whatsapp', status: 'FECHADO', ...resyncScope },
           orderBy: { last_message_at: 'desc' },
         });
 

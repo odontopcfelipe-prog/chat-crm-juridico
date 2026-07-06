@@ -60,8 +60,12 @@ export class ConversationsService {
       where.lead = { stage: { notIn: ['PERDIDO'] } };
     } else if (mode === 'clients') {
       where.lead = { is_client: true };
+      // Onda 18.32 — a conversa do Financeiro vive SÓ na aba Financeiro (o contato
+      // "duplica" entre abas de propósito: lá é só o mundo da cobrança).
+      where.NOT = { inbox: { purpose: 'FINANCEIRO' } };
     } else if (mode === 'leads') {
       where.lead = { is_client: false, stage: { notIn: ['PERDIDO', 'FINALIZADO'] } };
+      where.NOT = { inbox: { purpose: 'FINANCEIRO' } };
     } else {
       where.lead = { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } };
     }

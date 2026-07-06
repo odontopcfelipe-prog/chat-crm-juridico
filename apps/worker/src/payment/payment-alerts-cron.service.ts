@@ -118,10 +118,91 @@ export class PaymentAlertsCronService {
       this.logger.warn(`[COBRANCA] Envio falhou pra charge ${pick.chargeId} (${pick.stage}) — marcado como tentado.`);
       return 'failed';
     }
+    // Onda 18.32 — registra o disparo na conversa PRÓPRIA do Financeiro (best-
+    // effort): o operador vê a cobrança enviada na aba Financeiro, e a resposta
+    // do paciente (chegando pelo chip financeiro) cai na MESMA conversa.
+    await this.registerInFinanceiroConversation(
+      pick,
+      message,
+      typeof messageId === 'string' ? messageId : null,
+      instanceName,
+    );
     this.logger.log(
       `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
     );
     return 'sent';
+  }
+
+  /**
+   * Acha/cria a conversa do lead no inbox FINANCEIRO e grava a mensagem enviada.
+   * Best-effort: sem inbox financeiro, sem lead pelo telefone ou qualquer erro →
+   * só loga e segue (o envio já aconteceu).
+   */
+  private async registerInFinanceiroConversation(
+    pick: ChargeCandidate,
+    text: string,
+    messageId: string | null,
+    instanceName: string,
+  ): Promise<void> {
+    try {
+      if (!pick.tenantId) return;
+      const finInbox = await this.prisma.inbox.findFirst({
+        where: { tenant_id: pick.tenantId, purpose: 'FINANCEIRO' },
+        select: { id: true },
+      });
+      if (!finInbox) return; // tenant sem inbox financeiro — nada a registrar
+
+      // Lead pelo telefone (mesma normalização do envio) — sem lead, não registra.
+      const clean = toBrazilWhatsappNumber(pick.phone).replace(/\D/g, '');
+      const last11 = clean.slice(-11);
+      const lead = await this.prisma.lead.findFirst({
+        where: { tenant_id: pick.tenantId, phone: { endsWith: last11 } },
+        select: { id: true },
+      });
+      if (!lead) return;
+
+      let conv = await this.prisma.conversation.findFirst({
+        where: {
+          lead_id: lead.id,
+          channel: 'whatsapp',
+          status: { not: 'ENCERRADO' },
+          inbox: { purpose: 'FINANCEIRO' },
+        },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true },
+      });
+      if (!conv) {
+        conv = await this.prisma.conversation.create({
+          data: {
+            lead_id: lead.id,
+            channel: 'whatsapp',
+            status: 'ABERTO',
+            external_id: `${clean}@s.whatsapp.net`,
+            inbox_id: finInbox.id,
+            instance_name: instanceName,
+            tenant_id: pick.tenantId,
+            last_message_at: new Date(),
+          },
+          select: { id: true },
+        });
+      }
+      await this.prisma.message.create({
+        data: {
+          conversation_id: conv.id,
+          direction: 'out',
+          type: 'text',
+          text,
+          external_message_id: messageId || `sys_cobranca_${Date.now()}`,
+          status: 'enviado',
+        },
+      });
+      await this.prisma.conversation.update({
+        where: { id: conv.id },
+        data: { last_message_at: new Date() },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] Falha ao registrar na conversa do financeiro: ${e.message}`);
+    }
   }
 
   /**

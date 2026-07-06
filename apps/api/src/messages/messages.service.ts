@@ -258,9 +258,27 @@ export class MessagesService {
   private async resolveDispatchInstance(convo: {
     instance_name?: string | null;
     tenant_id?: string | null;
+    inbox_id?: string | null;
     lead?: { is_client?: boolean | null } | null;
   }): Promise<string | undefined> {
     let dispatchInstance: string | undefined = convo.instance_name || undefined;
+    // Onda 18.32 — conversa do inbox FINANCEIRO responde pelo chip FINANCEIRO
+    // (mundo isolado da cobrança), NÃO pela regra is_client. Sem chip financeiro
+    // vivo, cai no instance_name da conversa.
+    if (convo.inbox_id && convo.tenant_id) {
+      const inboxRow = await this.prisma.inbox.findUnique({
+        where: { id: convo.inbox_id },
+        select: { purpose: true },
+      }).catch(() => null);
+      if (inboxRow?.purpose === 'FINANCEIRO') {
+        const finChip = await this.prisma.instance.findFirst({
+          where: { tenant_id: convo.tenant_id, type: 'whatsapp', purpose: 'FINANCEIRO' },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        });
+        return finChip?.name || dispatchInstance;
+      }
+    }
     if (convo.tenant_id) {
       const purpose = convo.lead?.is_client ? 'CLINICA' : 'COMERCIAL';
       const chip = await this.prisma.instance.findFirst({
