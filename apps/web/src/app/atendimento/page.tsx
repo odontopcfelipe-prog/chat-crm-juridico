@@ -309,6 +309,16 @@ export default function Dashboard() {
   useEffect(() => { selectedInboxIdRef.current = selectedInboxId; }, [selectedInboxId]);
   useEffect(() => { clientModeRef.current = clientMode; }, [clientMode]);
   useEffect(() => { financialModeRef.current = financialMode; }, [financialMode]);
+  // Onda 18.34 — LEMBRA a última aba (Leads/Clientes/Financeiro) entre F5. Restaura
+  // no mount (client-only, evita mismatch de hidratação); salvar fica nos handlers
+  // de troca de aba (não aqui, pra não sobrescrever a restauração no primeiro render).
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('atendimento_tab');
+      if (saved === 'clients') setClientMode(true);
+      else if (saved === 'financial') setFinancialMode(true);
+    } catch { /* localStorage indisponível */ }
+  }, []);
   useEffect(() => {
     selectedIdRef.current = selectedId;
     // Expoe para o SocketProvider silenciar som quando msg chega na conversa
@@ -2355,9 +2365,9 @@ export default function Dashboard() {
         onSetSearchQuery={setSearchQuery}
         onSetLeadFilter={setLeadFilter}
         clientMode={clientMode}
-        onSetClientMode={(mode) => { setClientMode(mode); setFinancialMode(false); }}
+        onSetClientMode={(mode) => { setClientMode(mode); setFinancialMode(false); try { localStorage.setItem('atendimento_tab', mode ? 'clients' : 'leads'); } catch {} }}
         financialMode={financialMode}
-        onSetFinancialMode={(v) => { setFinancialMode(v); }}
+        onSetFinancialMode={(v) => { setFinancialMode(v); try { localStorage.setItem('atendimento_tab', v ? 'financial' : (clientMode ? 'clients' : 'leads')); } catch {} }}
         onSetSelectedInboxId={setSelectedInboxId}
         onSetInboxOpen={setInboxOpen}
         onSetShowNotifBanner={setShowNotifBanner}
