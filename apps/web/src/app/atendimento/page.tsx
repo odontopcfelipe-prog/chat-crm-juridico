@@ -613,18 +613,27 @@ export default function Dashboard() {
   }, [showStageDropdown]);
 
   const fetchConversations = useCallback(async (inboxId?: string | null, silent = false) => {
+    // Onda 18.7 — viewMode tem precedência (financial > clients/leads).
+    // Onda 18.34 — captura a aba no INÍCIO; se mudar enquanto busca, descarta a
+    // resposta (senão o fetch de "leads" do load inicial chega depois e sobrescreve
+    // a lista de "financial" restaurada do F5 → botão Financeiro aceso, lista de Leads).
+    const viewMode = financialModeRef.current
+      ? 'financial'
+      : clientModeRef.current ? 'clients' : 'leads';
     try {
       const res = await api.get('/conversations', {
         params: {
           inboxId: inboxId || undefined,
-          // Onda 18.7 — viewMode tem precedência (financial > clients/leads).
-          viewMode: financialModeRef.current
-            ? 'financial'
-            : clientModeRef.current ? 'clients' : 'leads',
+          viewMode,
         },
         // silent=true: chamadas de background (inboxUpdate) não disparam redirect global de 401
         ...( silent ? { _silent401: true } as any : {} ),
       });
+      // Aba trocou no meio do fetch? Ignora esta resposta (evita race Leads↔Financeiro).
+      const currentViewMode = financialModeRef.current
+        ? 'financial'
+        : clientModeRef.current ? 'clients' : 'leads';
+      if (viewMode !== currentViewMode) return;
       // Suporta resposta paginada { data, total, ... } ou array legado
       const items = Array.isArray(res.data) ? res.data : (res.data?.data || []);
       setConversations(items);
