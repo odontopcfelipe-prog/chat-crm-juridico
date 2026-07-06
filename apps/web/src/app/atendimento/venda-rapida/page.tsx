@@ -93,7 +93,7 @@ type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX'
 // aparecer no Financeiro do paciente.
 const CLINIC_METHOD_LABEL: Record<string, string> = {
   CASH: 'Espécie',
-  CLINIC_CARD: 'Maquineta (clínica)',
+  CLINIC_CARD: 'Maquineta (parcelado)',
   CLINIC_PIX: 'PIX da clínica',
 };
 const isClinicReceived = (t: BillingType) =>
@@ -436,6 +436,9 @@ export default function VendaRapidaPage() {
         try {
           await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
             payment_method: CLINIC_METHOD_TO_CAIXA[billingType] || 'DINHEIRO',
+            // Maquineta física: parcela é só INFO (a adquirente faz o split; não vai
+            // pro Asaas gerar cobrança). Aparece como "Cartão N×" no caixa.
+            installments: billingType === 'CLINIC_CARD' ? installments : undefined,
           });
         } catch (e: any) {
           console.warn('[VENDA-RAPIDA] receiveInCash falhou:', e?.message);
@@ -836,7 +839,7 @@ export default function VendaRapidaPage() {
                 // Onda 17.42 — Venda Rápida só recebe NA CLÍNICA (cobrança online
                 // via Asaas foi removida — PIX QR / Cartão link saíram do balcão).
                 { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
-                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (clínica)', sub: 'cartão na máquina da clínica', Icon: CreditCard },
+                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (parcelado)', sub: 'cartão parcelado na máquina', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
               ]).map((m, idx, arr) => {
                 const isActive = billingType === m.key;
@@ -872,10 +875,10 @@ export default function VendaRapidaPage() {
                 );
               })}
             </div>
-            {billingType === 'CREDIT_CARD' && (
+            {billingType === 'CLINIC_CARD' && (
               <div className="mt-2">
                 <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">
-                  Parcelas
+                  Parcelas na maquineta
                 </label>
                 <select
                   value={installments}
@@ -883,9 +886,10 @@ export default function VendaRapidaPage() {
                   className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
                 >
                   {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
-                    <option key={n} value={n}>{n}× de R$ {fmtBRL(total / n)}{n <= 6 ? ' sem juros' : ''}</option>
+                    <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}× de R$ ${fmtBRL(total / n)}`}</option>
                   ))}
                 </select>
+                <p className="text-[10px] text-muted-foreground mt-1">Só registra a info pra bater com o extrato da maquininha. O valor cheio entra no caixa de hoje.</p>
               </div>
             )}
           </div>

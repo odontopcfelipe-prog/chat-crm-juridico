@@ -323,7 +323,7 @@ export class PaymentGatewayController {
   @Post('charges/asaas/:chargeId/receive-in-cash')
   async receiveInCash(
     @Param('chargeId') chargeId: string,
-    @Body() body: { payment_method?: string } = {},
+    @Body() body: { payment_method?: string; installments?: number } = {},
     @Req() req: any,
   ) {
     this.logger.log(`[POST /charges/asaas/${chargeId}/receive-in-cash] Confirmando pagamento em dinheiro`);
@@ -341,6 +341,7 @@ export class PaymentGatewayController {
     const caixa = await this.service.registerClinicReceipt(chargeId, {
       paymentMethod: body?.payment_method,
       userId: req?.user?.id,
+      installments: body?.installments,
     });
     return { ...(result || {}), caixa };
   }

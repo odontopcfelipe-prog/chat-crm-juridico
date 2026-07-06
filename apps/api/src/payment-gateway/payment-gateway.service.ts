@@ -62,7 +62,7 @@ export class PaymentGatewayService {
    */
   async registerClinicReceipt(
     externalId: string,
-    opts?: { paymentMethod?: string; userId?: string },
+    opts?: { paymentMethod?: string; userId?: string; installments?: number },
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
@@ -91,6 +91,7 @@ export class PaymentGatewayService {
     const txId = await this.ensureChargeReceita(charge.id, {
       paymentMethod: opts?.paymentMethod || 'DINHEIRO',
       receivedInClinic: true,
+      installments: opts?.installments,
     });
     return { ok: true, transaction_id: txId, charge_id: charge.id };
   }
@@ -114,7 +115,7 @@ export class PaymentGatewayService {
    */
   private async ensureChargeReceita(
     chargeId: string,
-    opts?: { paymentMethod?: string; receivedInClinic?: boolean },
+    opts?: { paymentMethod?: string; receivedInClinic?: boolean; installments?: number },
   ): Promise<string | null> {
     const charge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { id: chargeId },
@@ -136,13 +137,17 @@ export class PaymentGatewayService {
     const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
     const method = opts?.paymentMethod || this.mapBillingToCaixaMethod(charge.billing_type);
     const inClinic = !!opts?.receivedInClinic;
+    // Maquineta parcelada: só INFO (a adquirente faz o split; não gera cobrança).
+    // Aparece como "Cartão N×" no caixa pra bater com o extrato depois.
+    const parcelaSuffix =
+      opts?.installments && opts.installments > 1 ? ` · Cartão ${opts.installments}×` : '';
 
     const tx = await this.prisma.financialTransaction.create({
       data: {
         tenant_id: charge.tenant_id,
         type: 'RECEITA',
         category: 'PROCEDIMENTO',
-        description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}`,
+        description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
         amount: charge.amount,
         date: now,
         paid_at: charge.paid_at ?? now,
