@@ -163,7 +163,7 @@ export class GoogleDriveController {
   ) {
     const frontendUrl = process.env.FRONTEND_URL
       || process.env.NEXT_PUBLIC_API_URL?.replace('/api', '')
-      || 'https://andrelustosaadvogados.com.br';
+      || 'https://sistema.institutoodontopassos.com.br';
 
     const settingsPath = '/atendimento/settings/google-drive';
 

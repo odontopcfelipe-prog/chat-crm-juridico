@@ -97,7 +97,7 @@ export class SettingsController {
     // Fallback: montar a partir dos settings legados
     const oab  = (await this.settingsService.get('DJEN_OAB_NUMBER'))  || '14209';
     const uf   = (await this.settingsService.get('DJEN_OAB_UF'))      || 'AL';
-    const nome = (await this.settingsService.get('DJEN_LAWYER_NAME')) || 'André Freire Lustosa';
+    const nome = (await this.settingsService.get('DJEN_LAWYER_NAME')) || '';
     return [{ oab, uf, nome }];
   }
 

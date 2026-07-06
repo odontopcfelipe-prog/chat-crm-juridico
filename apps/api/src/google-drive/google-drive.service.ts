@@ -88,7 +88,7 @@ export class GoogleDriveService {
     // Redirect URI: usar a configurada, ou derivar do NEXT_PUBLIC_API_URL, ou fallback
     const defaultRedirectUri = process.env.NEXT_PUBLIC_API_URL
       ? `${process.env.NEXT_PUBLIC_API_URL}/google-drive/oauth/callback`
-      : 'https://andrelustosaadvogados.com.br/api/google-drive/oauth/callback';
+      : 'https://sistema.institutoodontopassos.com.br/api/google-drive/oauth/callback';
 
     const oauth2Client = new google.auth.OAuth2(
       clientId,

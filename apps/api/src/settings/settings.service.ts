@@ -1802,7 +1802,7 @@ export class SettingsService {
     return {
       apiUrl: this.normalizeHttpUrl(dbApiUrl || process.env.EVOLUTION_API_URL, 'EVOLUTION_API_URL'),
       apiKey: dbApiKey || process.env.EVOLUTION_GLOBAL_APIKEY,
-      webhookUrl: dbWebhookUrl || `${process.env.PUBLIC_API_URL || 'https://andrelustosaadvogados.com.br/api'}/webhooks/evolution`,
+      webhookUrl: dbWebhookUrl || `${process.env.PUBLIC_API_URL || 'https://sistema.institutoodontopassos.com.br/api'}/webhooks/evolution`,
     };
   }
 
@@ -7719,15 +7719,20 @@ Obrigatório. Curto, factual. Máx 15 palavras. "Lead informou nome Carlos. Aind
 
   async getContractConfig() {
     const raw = await this.get('CONTRACT_CONFIG');
+    // Migração odonto: os dados fixos do CONTRATADO deixaram de ser o
+    // escritório jurídico legado. A geração de contrato agora monta a
+    // CONTRATADA dinamicamente a partir do cadastro do Tenant (ver
+    // ContractsService.resolveContratado), então estes defaults ficam vazios
+    // — a clínica preenche pela tela de Configurações se quiser sobrescrever.
     const defaults = {
-      advogado1_nome:   'André Freire Lustosa',
-      advogado1_oab:    'OAB/AL 14.209',
-      advogado2_nome:   'Gianny Karla Oliveira Silva',
-      advogado2_oab:    'OAB/AL 21.897',
-      escritorio_logradouro: 'Rua Francisco Rodrigues Viana, nº 242, bairro Baixa Grande',
-      escritorio_cidade: 'Arapiraca/AL',
-      escritorio_cep:    '57307-260',
-      foro:              'Arapiraca/AL',
+      advogado1_nome:   '',
+      advogado1_oab:    '',
+      advogado2_nome:   '',
+      advogado2_oab:    '',
+      escritorio_logradouro: '',
+      escritorio_cidade: '',
+      escritorio_cep:    '',
+      foro:              '',
       publicApiUrl:      process.env.PUBLIC_API_URL || '',
     };
     if (!raw) return defaults;

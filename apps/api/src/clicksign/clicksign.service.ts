@@ -378,8 +378,11 @@ export class ClicksignService {
     const clientEmail = (lead as any).email ?? `${lead.phone.replace(/\D/g, '')}@noreply.placeholder`;
     const instanceName = convo.instance_name ?? undefined;
 
-    // 1. Gerar buffer do documento
-    const buffer = await this.contracts.generateBuffer(variaveis);
+    // 1. Gerar buffer do documento — CONTRATADA vem do cadastro do tenant
+    const buffer = await this.contracts.generateBuffer(
+      variaveis,
+      lead.tenant_id ?? convo.tenant_id,
+    );
     const safeName = clientName.replace(/[^\w\s-]/g, '').replace(/\s+/g, '_');
     const filename = `Contrato_Trabalhista_${safeName}_${Date.now()}.docx`;
 

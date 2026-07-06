@@ -69,9 +69,10 @@ export class ContractsController {
   @Post('trabalhista/download')
   async download(
     @Body() body: DownloadContractDto,
+    @Req() req: any,
     @Res() res: any,
   ) {
-    const buffer = await this.contracts.generateBuffer(body.variaveis);
+    const buffer = await this.contracts.generateBuffer(body.variaveis, req.user?.tenant_id);
     const clientName = (body.variaveis.NOME_CONTRATANTE || 'contrato')
       .split(' ')[0]
       .replace(/\s+/g, '_');

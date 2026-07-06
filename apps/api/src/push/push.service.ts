@@ -24,7 +24,7 @@ export class PushService implements OnModuleInit {
       const existing = await this.settings.get('VAPID_PUBLIC_KEY');
       if (existing) {
         const privateKey = await this.settings.get('VAPID_PRIVATE_KEY');
-        const subject = await this.settings.get('VAPID_SUBJECT') || 'mailto:contato@andrelustosaadvogados.com.br';
+        const subject = await this.settings.get('VAPID_SUBJECT') || 'mailto:contato@institutoodontopassos.com.br';
         if (privateKey) {
           webpush.setVapidDetails(subject, existing, privateKey);
           this.vapidConfigured = true;
@@ -37,7 +37,7 @@ export class PushService implements OnModuleInit {
       const keys = webpush.generateVAPIDKeys();
       await this.settings.set('VAPID_PUBLIC_KEY', keys.publicKey);
       await this.settings.set('VAPID_PRIVATE_KEY', keys.privateKey);
-      const subject = 'mailto:contato@andrelustosaadvogados.com.br';
+      const subject = 'mailto:contato@institutoodontopassos.com.br';
       await this.settings.set('VAPID_SUBJECT', subject);
       webpush.setVapidDetails(subject, keys.publicKey, keys.privateKey);
       this.vapidConfigured = true;

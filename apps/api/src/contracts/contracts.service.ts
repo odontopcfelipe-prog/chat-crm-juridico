@@ -53,13 +53,30 @@ export interface ContratoVariaveis {
   CIDADE_CONTRATO: string;
 }
 
+// ─── Identidade da CONTRATADA (clínica) ───────────────────────────────────────
+// Migração odonto: o CONTRATADO deixou de ser o escritório jurídico (André
+// Lustosa Advogados) e passou a ser a própria clínica, montada dinamicamente a
+// partir dos dados cadastrais do Tenant (nome, CNPJ, responsável técnico/CRO,
+// endereço). Ver resolveContratado().
+
+export interface ContratadoIdentidade {
+  /** Nome da clínica (CONTRATADA). */
+  nome: string;
+  /** Frase de qualificação já montada: CNPJ, endereço, responsável técnico/CRO. */
+  qualificacao: string;
+  /** Rótulo da linha de assinatura da CONTRATADA. */
+  sigLabel: string;
+  /** "Cidade - UF" da clínica, usada como default do local de assinatura. */
+  cidadeUf?: string;
+}
+
 function variavelVazia(v: string) {
   return !v || v.trim() === '' || v.startsWith('_');
 }
 
 // ─── Geração do DOCX ─────────────────────────────────────────────────────────
 
-function buildDocx(v: ContratoVariaveis): Document {
+function buildDocx(v: ContratoVariaveis, contratado: ContratadoIdentidade): Document {
   const pctStr = `${v.PERCENTUAL}% (${v.PERCENTUAL_EXTENSO} por cento)`;
   const causeText = v.DESCRICAO_CAUSA;
 
@@ -129,11 +146,8 @@ function buildDocx(v: ContratoVariaveis): Document {
             `filho(a) de ${v.NOME_MAE} e ${v.NOME_PAI}, inscrito(a) no CPF sob o nº ${v.CPF}, ` +
             `com residência na ${v.ENDERECO}, ${v.BAIRRO}, CEP ${v.CEP}, ${v.CIDADE_UF}, ` +
             `doravante denominado(a) simplesmente CONTRATANTE, e, de outro, ` +
-            `ANDRÉ FREIRE LUSTOSA, brasileiro, divorciado, advogado, inscrito na OAB/AL sob o nº 14.209, ` +
-            `e GIANNY KARLA OLIVEIRA SILVA, brasileira, solteira, advogada, inscrita na OAB/AL sob o nº 21.897, ` +
-            `ambos com escritório profissional na Rua Francisco Rodrigues Viana, nº 242, bairro Baixa Grande, ` +
-            `Arapiraca/AL, CEP 57307-260, doravantes denominados simplesmente CONTRATADOS, têm entre si, ` +
-            `justo e avençado, o presente Contrato de Prestação de Serviços Advocatícios, regido segundo as ` +
+            `${contratado.qualificacao}, têm entre si, ` +
+            `justo e avençado, o presente Contrato de Prestação de Serviços, regido segundo as ` +
             `cláusulas e condições a seguir pactuadas:`,
           ),
           space(),
@@ -185,8 +199,7 @@ function buildDocx(v: ContratoVariaveis): Document {
             ],
           }),
           sigLine('Contratante'),
-          sigLine('Contratado – André Freire Lustosa – OAB/AL 14.209'),
-          sigLine('Contratada – Gianny Karla Oliveira Silva – OAB/AL 21.897'),
+          sigLine(contratado.sigLabel),
         ],
       },
     ],
@@ -206,6 +219,77 @@ export class ContractsService {
     private chatGateway: ChatGateway,
   ) {}
 
+  // ── Identidade da CONTRATADA (clínica) a partir do Tenant ─────────────────
+  // Monta a qualificação e o rótulo de assinatura do CONTRATADO usando os
+  // dados cadastrais da clínica (Onda 17.32.154: cpf_cnpj, responsible_name,
+  // responsible_cro, endereço). Sem tenantId ou com cadastro vazio, cai num
+  // fallback neutro — nunca reintroduz a identidade jurídica legada.
+
+  private async resolveContratado(tenantId?: string | null): Promise<ContratadoIdentidade> {
+    const tenant = tenantId
+      ? await this.prisma.tenant
+          .findUnique({
+            where: { id: tenantId },
+            select: {
+              name: true,
+              cpf_cnpj: true,
+              responsible_name: true,
+              responsible_cro: true,
+              address: true,
+              address_number: true,
+              address_complement: true,
+              neighborhood: true,
+              city: true,
+              state: true,
+              zip_code: true,
+            },
+          })
+          .catch(() => null)
+      : null;
+
+    const clean = (s?: string | null) => (s && s.trim() ? s.trim() : '');
+    const nome = clean(tenant?.name) || 'A CONTRATADA';
+    const cnpj = clean(tenant?.cpf_cnpj);
+    const resp = clean(tenant?.responsible_name);
+    const cro = clean(tenant?.responsible_cro);
+
+    const cidade = clean(tenant?.city);
+    const uf = clean(tenant?.state);
+    const cidadeUf = cidade ? (uf ? `${cidade} - ${uf}` : cidade) : undefined;
+
+    const numero = clean(tenant?.address_number);
+    const enderecoParts = [
+      clean(tenant?.address),
+      numero ? `nº ${numero}` : '',
+      clean(tenant?.address_complement),
+      clean(tenant?.neighborhood),
+      cidade ? (uf ? `${cidade}/${uf}` : cidade) : '',
+      clean(tenant?.zip_code) ? `CEP ${clean(tenant?.zip_code)}` : '',
+    ].filter(Boolean);
+    const endereco = enderecoParts.join(', ');
+
+    const partes: string[] = [nome.toUpperCase()];
+    if (cnpj) partes.push(`pessoa jurídica inscrita no CNPJ sob o nº ${cnpj}`);
+    if (endereco) partes.push(`com endereço na ${endereco}`);
+    if (resp) {
+      partes.push(
+        `neste ato representada por seu(sua) responsável técnico(a) ${resp}` +
+          (cro ? `, inscrito(a) no CRO sob o nº ${cro}` : ''),
+      );
+    }
+    partes.push('doravante denominada simplesmente CONTRATADA');
+    const qualificacao = partes.join(', ');
+
+    const sigLabel =
+      resp && cro
+        ? `Contratada – ${nome} (${resp} – CRO ${cro})`
+        : resp
+        ? `Contratada – ${nome} (${resp})`
+        : `Contratada – ${nome}`;
+
+    return { nome, qualificacao, sigLabel, cidadeUf };
+  }
+
   // ── 1. Preview: busca dados da conversa e monta variáveis pré-preenchidas ──
 
   async getPreview(conversationId: string): Promise<{
@@ -222,6 +306,10 @@ export class ContractsService {
     // STUBBED Fase 0.2: FichaTrabalhista removida — dados de contrato agora vêm apenas da memória da IA + lead.
     const ficha: Record<string, any> = {};
     const mem = (lead.memory?.facts_json as any) || {};
+
+    // Local de assinatura = cidade da clínica (CONTRATADA), não mais a cidade
+    // legada do escritório jurídico. Fallback só se o cadastro estiver vazio.
+    const contratado = await this.resolveContratado(lead.tenant_id ?? convo.tenant_id);
 
     const v: ContratoVariaveis = {
       NOME_CONTRATANTE:
@@ -246,7 +334,7 @@ export class ContractsService {
         mem?.case?.subarea ||
         'processo de Reclamação Trabalhista, que tramita no Tribunal Regional do Trabalho da 19ª Região',
       DATA_CONTRATO: dataContrato(),
-      CIDADE_CONTRATO: 'Arapiraca - AL',
+      CIDADE_CONTRATO: contratado.cidadeUf || 'Arapiraca - AL',
     };
 
     const camposFaltando: string[] = [];
@@ -267,25 +355,27 @@ export class ContractsService {
 
   // ── Gera apenas o buffer (para download direto no PC) ─────────────────────
 
-  async generateBuffer(variaveis: ContratoVariaveis): Promise<Buffer> {
+  async generateBuffer(variaveis: ContratoVariaveis, tenantId?: string | null): Promise<Buffer> {
     variaveis.PERCENTUAL_EXTENSO =
       PCT_EXTENSO[variaveis.PERCENTUAL] || String(variaveis.PERCENTUAL);
-    const doc = buildDocx(variaveis);
+    const contratado = await this.resolveContratado(tenantId);
+    const doc = buildDocx(variaveis, contratado);
     return Packer.toBuffer(doc);
   }
 
   // ── Gera o contrato como PDF (para envio via WhatsApp) ────────────────────
 
-  async generatePdfBuffer(variaveis: ContratoVariaveis): Promise<Buffer> {
+  async generatePdfBuffer(variaveis: ContratoVariaveis, tenantId?: string | null): Promise<Buffer> {
     variaveis.PERCENTUAL_EXTENSO =
       PCT_EXTENSO[variaveis.PERCENTUAL] || String(variaveis.PERCENTUAL);
+    const contratado = await this.resolveContratado(tenantId);
 
     return new Promise<Buffer>((resolve, reject) => {
       // A4: 595 x 842 pt  |  1 inch = 72 pt
       const doc = new PDFDocument({
         size: 'A4',
         margins: { top: 86, bottom: 86, left: 101, right: 86 }, // 1.2 / 1.2 / 1.4 / 1.2 in
-        info: { Title: 'Contrato de Prestação de Serviços Advocatícios' },
+        info: { Title: 'Contrato de Prestação de Serviços' },
       });
 
       const chunks: Buffer[] = [];
@@ -350,11 +440,8 @@ export class ContractsService {
         `filho(a) de ${variaveis.NOME_MAE} e ${variaveis.NOME_PAI}, inscrito(a) no CPF sob o nº ${variaveis.CPF}, ` +
         `com residência na ${variaveis.ENDERECO}, ${variaveis.BAIRRO}, CEP ${variaveis.CEP}, ${variaveis.CIDADE_UF}, ` +
         `doravante denominado(a) simplesmente CONTRATANTE, e, de outro, ` +
-        `ANDRÉ FREIRE LUSTOSA, brasileiro, divorciado, advogado, inscrito na OAB/AL sob o nº 14.209, ` +
-        `e GIANNY KARLA OLIVEIRA SILVA, brasileira, solteira, advogada, inscrita na OAB/AL sob o nº 21.897, ` +
-        `ambos com escritório profissional na Rua Francisco Rodrigues Viana, nº 242, bairro Baixa Grande, ` +
-        `Arapiraca/AL, CEP 57307-260, doravantes denominados simplesmente CONTRATADOS, têm entre si, ` +
-        `justo e avençado, o presente Contrato de Prestação de Serviços Advocatícios, regido segundo as ` +
+        `${contratado.qualificacao}, têm entre si, ` +
+        `justo e avençado, o presente Contrato de Prestação de Serviços, regido segundo as ` +
         `cláusulas e condições a seguir pactuadas:`,
       );
 
@@ -408,8 +495,7 @@ export class ContractsService {
         .text(`${variaveis.CIDADE_CONTRATO}, ${variaveis.DATA_CONTRATO}.`, { align: 'center' });
 
       sigLine('Contratante');
-      sigLine('Contratado \u2013 André Freire Lustosa \u2013 OAB/AL 14.209');
-      sigLine('Contratada \u2013 Gianny Karla Oliveira Silva \u2013 OAB/AL 21.897');
+      sigLine(contratado.sigLabel);
 
       doc.end();
     });
@@ -432,8 +518,11 @@ export class ContractsService {
       PCT_EXTENSO[variaveis.PERCENTUAL] ||
       `${variaveis.PERCENTUAL}`;
 
-    // 1. Gerar PDF (para WhatsApp e S3)
-    const buffer = await this.generatePdfBuffer(variaveis);
+    // 1. Gerar PDF (para WhatsApp e S3) — CONTRATADA vem do cadastro do tenant
+    const buffer = await this.generatePdfBuffer(
+      variaveis,
+      convo.lead.tenant_id ?? convo.tenant_id,
+    );
 
     // 2. Criar registro de mensagem para obter ID
     const tempExtId = `out_contrato_${Date.now()}`;
