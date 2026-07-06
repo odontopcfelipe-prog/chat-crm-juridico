@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -220,7 +220,22 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'aniversario' && (
           <AniversarioEditor which={openItem.birthdayMsg || 1} onCurrentTextChange={setLiveText} />
         )}
-        {openItem.editor === 'cobranca' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'confirmacao_pagamento' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro quando um pagamento é confirmado (automático). Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            endpoint="/followup/cobranca-template/confirmacao_pagamento"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'valor', desc: 'Valor pago (ex.: R$ 350,00)' },
+              { key: 'descricao', desc: 'Descrição do pagamento (já vem com parênteses, ou vazio)' },
+            ]}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', descricao: ' (Pix recebido)' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_CONFIRMACAO_PAGAMENTO}
+          />
+        )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && (
           <MensagemEditor
             titulo={openItem.nome}
             descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."

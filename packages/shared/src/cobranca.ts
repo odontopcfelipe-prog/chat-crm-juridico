@@ -43,6 +43,26 @@ export function isCobrancaStage(s: string): s is CobrancaStage {
   return (COBRANCA_STAGES as string[]).includes(s);
 }
 
+// Onda 18.28 — confirmação de pagamento (por EVENTO, webhook do Asaas). NÃO entra
+// em COBRANCA_STAGES (o cron não a agenda), mas é um template EDITÁVEL igual aos
+// boletos. {descricao} já vem com parênteses (ou vazio) pronto do backend.
+export const DEFAULT_CONFIRMACAO_PAGAMENTO =
+  '✅ *Pagamento Confirmado!*\n\n' +
+  'Olá, {nome}!\n\n' +
+  'Confirmamos o recebimento do pagamento no valor de *{valor}*{descricao}.\n\n' +
+  'Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.';
+
+/** Ids de template financeiro editáveis: os 5 boletos + a confirmação. */
+export function isFinTemplateId(s: string): boolean {
+  return isCobrancaStage(s) || s === 'confirmacao_pagamento';
+}
+
+/** Texto padrão de um template financeiro editável (boleto ou confirmação). */
+export function defaultFinTemplate(id: string): string {
+  if (id === 'confirmacao_pagamento') return DEFAULT_CONFIRMACAO_PAGAMENTO;
+  return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
+}
+
 /** Chave da GlobalSetting do template daquele estágio (api grava, worker lê). */
 export function cobrancaTemplateKey(stage: string, tenantId?: string | null): string {
   const base = `COBRANCA_TEMPLATE_${stage.toUpperCase()}`;

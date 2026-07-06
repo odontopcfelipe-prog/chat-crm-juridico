@@ -112,10 +112,11 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
     gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_30d' },
-  // Onda 18.28 — por EVENTO (webhook do Asaas), não agendada. Sem editor por ora.
+  // Onda 18.28 — por EVENTO (webhook do Asaas), não agendada. Editável (reusa o
+  // MensagemEditor da cobrança) — variáveis próprias (nome/valor/descrição).
   { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
     gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
-    editor: null, operacionalKey: 'confirmacao_pagamento' },
+    editor: 'cobranca', operacionalKey: 'confirmacao_pagamento' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

@@ -1781,11 +1781,25 @@ export class PaymentGatewayService {
     const valor = Number(paymentData.value || charge?.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const descricao = paymentData.description || '';
 
-    const msg =
-      `✅ *Pagamento Confirmado!*\n\n` +
-      `Olá, ${firstName}!\n\n` +
-      `Confirmamos o recebimento do pagamento no valor de *${valor}*${descricao ? ` (${descricao})` : ''}.\n\n` +
-      `Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.`;
+    // Onda 18.28 — usa o texto EDITÁVEL da Central de Disparos (mesma infra dos
+    // boletos); cai no default se não editado. {descricao} já vem com parênteses.
+    const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO } = await import('@crm/shared');
+    let tpl = DEFAULT_CONFIRMACAO_PAGAMENTO;
+    if (tenantId) {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: cobrancaTemplateKey('confirmacao_pagamento', tenantId) },
+      });
+      if (row?.value) {
+        try {
+          const parsed = JSON.parse(row.value);
+          if (typeof parsed?.template === 'string' && parsed.template.trim()) tpl = parsed.template;
+        } catch { /* corrompido — usa o default */ }
+      }
+    }
+    const msg = tpl
+      .replace(/\{nome\}/g, firstName)
+      .replace(/\{valor\}/g, valor)
+      .replace(/\{descricao\}/g, descricao ? ` (${descricao})` : '');
 
     let clientPhone = lead.phone.replace(/\D/g, '');
     if (clientPhone.length <= 11) clientPhone = '55' + clientPhone;

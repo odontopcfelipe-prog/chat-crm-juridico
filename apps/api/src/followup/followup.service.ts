@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { DEFAULT_COBRANCA_TEMPLATES, cobrancaTemplateKey, isCobrancaStage } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -437,8 +437,8 @@ export class FollowupService {
   /** Texto salvo do estágio (ou o default aprovado se ainda não editou). */
   async getCobrancaTemplate(tenantId: string, stage: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isCobrancaStage(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
-    let template: string = DEFAULT_COBRANCA_TEMPLATES[stage];
+    if (!isFinTemplateId(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
+    let template: string = defaultFinTemplate(stage);
     const row = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey(stage, tenantId) } });
     if (row?.value) {
       try {
@@ -454,7 +454,7 @@ export class FollowupService {
   /** Salva o texto do estágio (o cron passa a usar). Vazio = volta pro default. */
   async setCobrancaTemplate(tenantId: string, stage: string, template: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    if (!isCobrancaStage(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
+    if (!isFinTemplateId(stage)) throw new BadRequestException(`estágio inválido: ${stage}`);
     if (typeof template !== 'string') throw new BadRequestException('template deve ser string');
     if (template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
     const key = cobrancaTemplateKey(stage, tenantId);

@@ -1683,8 +1683,8 @@ export class CalendarService {
     // Onda 18.17 — disparo de cobrança sai (e testa) pelo chip FINANCEIRO, pra o
     // teste vir do mesmo número que vai cobrar de verdade. Fallback interno pra
     // outro chip do tenant se ainda não separou o Financeiro.
-    const { DEFAULT_COBRANCA_TEMPLATES, isCobrancaStage } = await import('@crm/shared');
-    const testPurpose: 'CLINICA' | 'FINANCEIRO' = isCobrancaStage(disparo) ? 'FINANCEIRO' : 'CLINICA';
+    const { isFinTemplateId, defaultFinTemplate } = await import('@crm/shared');
+    const testPurpose: 'CLINICA' | 'FINANCEIRO' = isFinTemplateId(disparo) ? 'FINANCEIRO' : 'CLINICA';
     const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, testPurpose);
     if (!instanceName) {
       throw new BadRequestException(
@@ -1731,7 +1731,7 @@ export class CalendarService {
       local: tenantAddr || '(endereço não cadastrado — preencha em Configurações › Identidade)',
       clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
       // Onda 18.17 — exemplos das variáveis de cobrança (senão sairiam vazias).
-      valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste',
+      valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste', descricao: ' (Pix recebido)',
     };
     const apply = (t: string) =>
       (t || '')
@@ -1784,8 +1784,8 @@ export class CalendarService {
         break;
       default:
         // Onda 18.17 — cobrança: sem texto da tela, testa o default do estágio.
-        if (isCobrancaStage(disparo)) {
-          msg = apply(DEFAULT_COBRANCA_TEMPLATES[disparo]);
+        if (isFinTemplateId(disparo)) {
+          msg = apply(defaultFinTemplate(disparo));
           break;
         }
         throw new BadRequestException('Esse disparo ainda não tem teste disponível.');
