@@ -5,6 +5,7 @@ import {
   IsOptional,
   IsBoolean,
   IsIn,
+  IsPositive,
 } from 'class-validator';
 
 // ─── Contas ───────────────────────────────────────────────
@@ -44,7 +45,7 @@ export class AddMovementDto {
   @IsString() @IsIn(['ENTRADA', 'SAIDA'])
   direction: string; // ENTRADA = RECEITA, SAIDA = DESPESA (sangria/troco)
 
-  @IsNumber()
+  @IsNumber() @IsPositive()
   amount: number;
 
   @IsString() @IsIn(['DINHEIRO', 'CARTAO', 'PIX', 'TRANSFERENCIA'])
@@ -65,6 +66,10 @@ export class AddMovementDto {
 
 // ─── Fechamento / validação ───────────────────────────────
 export class CloseDayDto {
+  // Sem closing_id = fecha o caixa de HOJE. Com = fecha aquele dia específico
+  // (re-fechar um dia DEVOLVIDO/esquecido).
+  @IsOptional() @IsString() closing_id?: string;
+
   @IsOptional() @IsNumber() counted_cash?: number;
   @IsOptional() @IsNumber() counted_card?: number;
   @IsOptional() @IsNumber() counted_pix?: number;

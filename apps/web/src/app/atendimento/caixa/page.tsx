@@ -14,6 +14,17 @@ import { useUserPermissions } from '@/lib/useUserPermissions';
 const brl = (v: any) =>
   `R$ ${(Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
+// Parse robusto de valor digitado em pt-BR: aceita "1.234,56", "1234,56",
+// "1234.56" e "1234". Retorna null se vazio/inválido (pra "não informado").
+const parseMoney = (s: string): number | null => {
+  const raw = String(s ?? '').trim();
+  if (!raw) return null;
+  let v = raw.replace(/[^\d.,-]/g, '');
+  if (v.includes(',')) v = v.replace(/\./g, '').replace(',', '.'); // 1.234,56 -> 1234.56
+  const n = Number(v);
+  return isNaN(n) ? null : n;
+};
+
 const dayLabel = (iso: string) => {
   try {
     const d = new Date(iso);
@@ -45,6 +56,7 @@ interface Account { id: string; name: string; kind: string; is_gateway: boolean;
 interface Movement {
   id: string; type: 'RECEITA' | 'DESPESA'; description: string; amount: string; date: string;
   payment_method: string | null; reference_id: string | null;
+  gateway_charge?: { received_in_cash: boolean } | null;
   account: { id: string; name: string; kind: string } | null;
   lead: { id: string; name: string } | null;
 }
@@ -93,7 +105,7 @@ export default function CaixaPage() {
         </div>
       </div>
 
-      {view === 'dia' ? <DiaView /> : <FechamentosView canValidate={canValidate} />}
+      {view === 'dia' ? <DiaView /> : <FechamentosView canValidate={canValidate} canOperate={canOperate} />}
     </div>
   );
 }
@@ -135,7 +147,7 @@ function DiaView() {
 
   const status = data.closing?.status || 'ABERTO';
   const st = STATUS_META[status] ?? STATUS_META.ABERTO;
-  const isOpen = status === 'ABERTO';
+  const isOpen = status === 'ABERTO' || status === 'DEVOLVIDO';
   const { by } = data.totals;
 
   return (
@@ -181,6 +193,12 @@ function DiaView() {
       ) : null}
 
       {/* ações */}
+      {status === 'DEVOLVIDO' && (
+        <div className="flex items-start gap-2 text-sm bg-rose-50 border border-rose-200 rounded-lg px-4 py-3 text-rose-700">
+          <RotateCcw className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>O administrador <b>devolveu</b> este caixa pra corrigir{data.closing?.validation_notes ? `: “${data.closing.validation_notes}”` : '.'} Ajuste os lançamentos e <b>feche de novo</b>.</span>
+        </div>
+      )}
       {isOpen ? (
         <div className="flex flex-wrap gap-2.5">
           <button onClick={() => setAddDir('ENTRADA')} className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg bg-emerald-600 text-white font-semibold text-sm hover:bg-emerald-700"><Plus className="w-4 h-4" /> Entrada</button>
@@ -206,14 +224,16 @@ function DiaView() {
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${m.type === 'DESPESA' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'}`}>{m.type === 'DESPESA' ? 'Saída' : 'Entrada'}</span>
-                    {m.reference_id && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-sky-100 text-sky-600">Asaas</span>}
+                    {m.gateway_charge && (m.gateway_charge.received_in_cash
+                      ? <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-violet-100 text-violet-600">Balcão</span>
+                      : <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-sky-100 text-sky-600">Asaas</span>)}
                     <span className="text-sm text-slate-700 truncate">{m.description}{m.lead ? ` · ${m.lead.name}` : ''}</span>
                   </div>
                   <div className="text-xs text-slate-400 mt-0.5">{timeLabel(m.date)} · {m.payment_method || '--'}{m.account ? ` · ${m.account.name}` : ''}</div>
                 </div>
                 <div className="flex items-center gap-2.5 shrink-0">
                   <span className={`text-sm font-bold tabular-nums ${m.type === 'DESPESA' ? 'text-rose-600' : 'text-slate-800'}`}>{m.type === 'DESPESA' ? '− ' : ''}{brl(m.amount)}</span>
-                  {isOpen && !m.reference_id && (
+                  {isOpen && !m.gateway_charge && !m.reference_id && (
                     <button onClick={() => removeMovement(m.id, load)} className="text-slate-300 hover:text-rose-500" title="Remover lançamento"><Trash2 className="w-4 h-4" /></button>
                   )}
                 </div>
@@ -224,7 +244,7 @@ function DiaView() {
       </div>
 
       {addDir && <AddMovementModal direction={addDir} accounts={data.accounts} onClose={() => setAddDir(null)} onSaved={() => { setAddDir(null); load(); }} />}
-      {closing && <CloseModal totals={data.totals} onClose={() => setClosing(false)} onSaved={() => { setClosing(false); load(); }} />}
+      {closing && <CloseModal totals={data.totals} closingId={data.closing?.id} onClose={() => setClosing(false)} onSaved={() => { setClosing(false); load(); }} />}
       {showContas && <ContasModal accounts={data.accounts} onClose={() => setShowContas(false)} onChanged={load} />}
     </div>
   );
@@ -246,7 +266,7 @@ function AddMovementModal({ direction, accounts, onClose, onSaved }: { direction
   const [saving, setSaving] = useState(false);
 
   const save = async () => {
-    const val = Number(String(amount).replace(',', '.'));
+    const val = parseMoney(amount);
     if (!val || val <= 0) return showError('Informe um valor válido.');
     if (!accountId) return showError('Escolha a conta.');
     setSaving(true);
@@ -288,20 +308,23 @@ function AddMovementModal({ direction, accounts, onClose, onSaved }: { direction
 }
 
 /* ── Modal: fechar o caixa ───────────────────────────────── */
-function CloseModal({ totals, onClose, onSaved }: { totals: Totals; onClose: () => void; onSaved: () => void }) {
+function CloseModal({ totals, closingId, onClose, onSaved }: { totals: Totals; closingId?: string; onClose: () => void; onSaved: () => void }) {
   const [counted, setCounted] = useState<Record<string, string>>({ cash: '', card: '', pix: '', transfer: '' });
   const [notes, setNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   const set = (b: string, v: string) => setCounted((p) => ({ ...p, [b]: v }));
-  const numOf = (v: string) => Number(String(v).replace(',', '.')) || 0;
 
   const save = async () => {
     setSaving(true);
     try {
+      // Campo em branco = "não contei" → manda undefined (não 0, que viraria −esperado).
       await api.post('/caixa/close', {
-        counted_cash: numOf(counted.cash), counted_card: numOf(counted.card),
-        counted_pix: numOf(counted.pix), counted_transfer: numOf(counted.transfer),
+        closing_id: closingId,
+        counted_cash: parseMoney(counted.cash) ?? undefined,
+        counted_card: parseMoney(counted.card) ?? undefined,
+        counted_pix: parseMoney(counted.pix) ?? undefined,
+        counted_transfer: parseMoney(counted.transfer) ?? undefined,
         closing_notes: notes.trim() || undefined,
       });
       showSuccess('Caixa fechado. Vai pra validação do administrador.');
@@ -316,9 +339,9 @@ function CloseModal({ totals, onClose, onSaved }: { totals: Totals; onClose: () 
       <div className="space-y-2.5 mb-4">
         {METHODS.map(({ key, label, bucket, Icon }) => {
           const exp = (totals.by as any)[bucket] as number;
-          const cnt = numOf(counted[bucket]);
-          const diff = cnt - exp;
-          const touched = counted[bucket] !== '';
+          const cntN = parseMoney(counted[bucket]);
+          const touched = cntN !== null;
+          const diff = touched ? Math.round((cntN! - exp) * 100) / 100 : 0;
           return (
             <div key={key} className="flex items-center gap-3">
               <div className="flex items-center gap-1.5 w-32 text-sm text-slate-600"><Icon className="w-4 h-4 text-slate-400" /> {label}</div>
@@ -389,7 +412,7 @@ function ContasModal({ accounts, onClose, onChanged }: { accounts: Account[]; on
 /* ════════════════════════════════════════════════════════════
    Fechamentos (admin valida)
 ════════════════════════════════════════════════════════════ */
-function FechamentosView({ canValidate }: { canValidate: boolean }) {
+function FechamentosView({ canValidate, canOperate }: { canValidate: boolean; canOperate: boolean }) {
   const [list, setList] = useState<Closing[]>([]);
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState<Closing | null>(null);
@@ -407,7 +430,7 @@ function FechamentosView({ canValidate }: { canValidate: boolean }) {
   };
 
   if (loading) return <div className="py-20 grid place-items-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>;
-  if (detail) return <ClosingDetail closing={detail} canValidate={canValidate} onBack={() => setDetail(null)} onChanged={() => { setDetail(null); load(); }} />;
+  if (detail) return <ClosingDetail closing={detail} canValidate={canValidate} canOperate={canOperate} onBack={() => setDetail(null)} onChanged={() => { setDetail(null); load(); }} />;
 
   return (
     <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
@@ -435,10 +458,18 @@ function FechamentosView({ canValidate }: { canValidate: boolean }) {
   );
 }
 
-function ClosingDetail({ closing, canValidate, onBack, onChanged }: { closing: Closing; canValidate: boolean; onBack: () => void; onChanged: () => void }) {
+function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: { closing: Closing; canValidate: boolean; canOperate: boolean; onBack: () => void; onChanged: () => void }) {
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
+  const [reclose, setReclose] = useState(false);
   const st = STATUS_META[closing.status] ?? STATUS_META.ABERTO;
+  const expectedTotals: Totals = {
+    by: {
+      cash: Number(closing.expected_cash) || 0, card: Number(closing.expected_card) || 0,
+      pix: Number(closing.expected_pix) || 0, transfer: Number(closing.expected_transfer) || 0, gateway: 0,
+    },
+    entradas: 0, saidas: 0, saldo: 0,
+  };
 
   const act = async (kind: 'validate' | 'return') => {
     setBusy(true);
@@ -513,6 +544,11 @@ function ClosingDetail({ closing, canValidate, onBack, onChanged }: { closing: C
           </div>
         </div>
       )}
+
+      {canOperate && closing.status === 'DEVOLVIDO' && (
+        <button onClick={() => setReclose(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-slate-800 text-white font-semibold text-sm hover:bg-slate-900"><Lock className="w-4 h-4" /> Corrigir contagem e fechar de novo</button>
+      )}
+      {reclose && <CloseModal totals={expectedTotals} closingId={closing.id} onClose={() => setReclose(false)} onSaved={() => { setReclose(false); onChanged(); }} />}
     </div>
   );
 }
