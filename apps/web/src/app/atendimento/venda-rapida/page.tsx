@@ -87,7 +87,7 @@ const unitPriceOf = (it: CartItem) =>
 // passam pelo Asaas online: registram a cobranca como JA RECEBIDA (receive-in-
 // cash) e entram no financeiro do paciente pra prestacao de contas. PIX/CARTAO
 // continuam gerando cobranca online via Asaas.
-type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX';
+type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX' | 'CLINIC_PIX_MAQ';
 
 // Rotulo do metodo recebido na clinica — vai no titulo do orcamento pra
 // aparecer no Financeiro do paciente.
@@ -95,9 +95,10 @@ const CLINIC_METHOD_LABEL: Record<string, string> = {
   CASH: 'Espécie',
   CLINIC_CARD: 'Maquineta (parcelado)',
   CLINIC_PIX: 'PIX da clínica',
+  CLINIC_PIX_MAQ: 'PIX (Maquineta)',
 };
 const isClinicReceived = (t: BillingType) =>
-  t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX';
+  t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX' || t === 'CLINIC_PIX_MAQ';
 
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
@@ -432,6 +433,7 @@ export default function VendaRapidaPage() {
           CASH: 'DINHEIRO',
           CLINIC_CARD: 'CARTAO',
           CLINIC_PIX: 'PIX',
+          CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
         };
         try {
           await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
@@ -841,6 +843,7 @@ export default function VendaRapidaPage() {
                 { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
                 { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (parcelado)', sub: 'cartão parcelado na máquina', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
+                { group: 'Recebido na clínica', key: 'CLINIC_PIX_MAQ' as BillingType, label: 'PIX (Maquineta)', sub: 'PIX na máquina de cartão', Icon: CreditCard },
               ]).map((m, idx, arr) => {
                 const isActive = billingType === m.key;
                 const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
