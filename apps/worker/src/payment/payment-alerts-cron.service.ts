@@ -101,7 +101,8 @@ export class PaymentAlertsCronService {
 
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
     const template = await this.resolveTemplate(pick.tenantId, pick.stage);
-    const message = this.buildMessage(pick, template);
+    const clinica = await this.resolveClinicName(pick.tenantId);
+    const message = this.buildMessage(pick, template, clinica);
     const messageId = await this.sendWhatsApp(pick.phone, message, instanceName);
 
     // Evolution não configurado: NÃO gasta o slot, tenta de novo no próximo tick.
@@ -237,7 +238,7 @@ export class PaymentAlertsCronService {
   }
 
   /** Monta a mensagem do estágio com nome/valor/data/link. */
-  private buildMessage(c: ChargeCandidate, template: string): string {
+  private buildMessage(c: ChargeCandidate, template: string, clinica: string): string {
     const firstName = c.name.split(' ')[0];
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
@@ -246,7 +247,19 @@ export class PaymentAlertsCronService {
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
       .replace(/\{data\}/g, `${dd}/${mm}`)
-      .replace(/\{link\}/g, c.link);
+      .replace(/\{link\}/g, c.link)
+      .replace(/\{clinica\}/g, clinica);
+  }
+
+  /** Nome da clínica (Tenant.name) pra usar como {clinica} no template. */
+  private async resolveClinicName(tenantId: string): Promise<string> {
+    if (!tenantId) return 'a clínica';
+    try {
+      const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } });
+      return t?.name || 'a clínica';
+    } catch {
+      return 'a clínica';
+    }
   }
 
   /**

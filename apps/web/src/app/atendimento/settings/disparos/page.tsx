@@ -229,8 +229,9 @@ export default function CentralDisparosPage() {
               { key: 'nome', desc: 'Primeiro nome do paciente' },
               { key: 'valor', desc: 'Valor pago (ex.: R$ 350,00)' },
               { key: 'descricao', desc: 'Descrição do pagamento (já vem com parênteses, ou vazio)' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', valor: 'R$ 350,00', descricao: ' (Pix recebido)' }}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', descricao: ' (Pix recebido)', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_CONFIRMACAO_PAGAMENTO}
           />
@@ -245,8 +246,9 @@ export default function CentralDisparosPage() {
               { key: 'valor', desc: 'Valor da parcela (ex.: R$ 350,00)' },
               { key: 'data', desc: 'Vencimento (DD/MM)' },
               { key: 'link', desc: 'Link do boleto/pix pra pagar' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/boleto' }}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/boleto', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={(DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[openItem.operacionalKey || ''] || ''}
           />

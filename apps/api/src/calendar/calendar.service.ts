@@ -1699,6 +1699,7 @@ export class CalendarService {
       ? await this.prisma.tenant.findUnique({
           where: { id: tenant_id },
           select: {
+            name: true,
             address: true, address_number: true, address_complement: true,
             neighborhood: true, city: true, state: true,
           },
@@ -1729,7 +1730,7 @@ export class CalendarService {
       dentista: dentistName, dentista_completo: dentistName,
       data: '06/05', hora: '14:00',
       local: tenantAddr || '(endereço não cadastrado — preencha em Configurações › Identidade)',
-      clinica: 'sua clínica', antecedencia: '1 dia', qtd: '1',
+      clinica: (tenantRow as any)?.name || 'sua clínica', antecedencia: '1 dia', qtd: '1',
       // Onda 18.17 — exemplos das variáveis de cobrança (senão sairiam vazias).
       valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste', descricao: ' (Pix recebido)',
     };

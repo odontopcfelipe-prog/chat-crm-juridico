@@ -1796,10 +1796,17 @@ export class PaymentGatewayService {
         } catch { /* corrompido — usa o default */ }
       }
     }
+    // Onda 18.30 — {clinica} = nome do tenant (Tenant.name).
+    let clinicaNome = 'a clínica';
+    if (tenantId) {
+      const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
+      if (t?.name) clinicaNome = t.name;
+    }
     const msg = tpl
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
-      .replace(/\{descricao\}/g, descricao ? ` (${descricao})` : '');
+      .replace(/\{descricao\}/g, descricao ? ` (${descricao})` : '')
+      .replace(/\{clinica\}/g, clinicaNome);
 
     let clientPhone = lead.phone.replace(/\D/g, '');
     if (clientPhone.length <= 11) clientPhone = '55' + clientPhone;
