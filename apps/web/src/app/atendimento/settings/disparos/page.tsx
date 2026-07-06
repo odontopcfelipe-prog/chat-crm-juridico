@@ -383,20 +383,20 @@ export default function CentralDisparosPage() {
                           </div>
                         </div>
                         {hasToggle && (
-                          <label
-                            className={`inline-flex items-center ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
-                            onClick={(e) => e.stopPropagation()}
+                          // Onda 18.29 — botão (não checkbox sr-only). A checkbox
+                          // escondida fazia o navegador FOCAR o input invisível e
+                          // ROLAR a página ("descia a tela") a cada clique. Botão não.
+                          <button
+                            type="button"
+                            role="switch"
+                            aria-checked={on}
+                            disabled={savingThis || !isAdmin}
+                            onClick={(e) => { e.stopPropagation(); toggle(d, !on); }}
                             title={!isAdmin ? 'Apenas ADMIN pode ligar/desligar' : on ? 'Desligar' : 'Ligar'}
+                            className={`relative w-9 h-5 rounded-full shrink-0 transition-colors focus:outline-none disabled:opacity-50 ${on ? 'bg-emerald-500' : 'bg-muted'} ${isAdmin ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'}`}
                           >
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              disabled={savingThis || !isAdmin}
-                              onChange={(e) => toggle(d, e.target.checked)}
-                              className="sr-only peer"
-                            />
-                            <div className="relative w-9 h-5 bg-muted rounded-full peer peer-focus:ring-2 peer-focus:ring-emerald-500/40 peer-checked:bg-emerald-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-4" />
-                          </label>
+                            <span className={`absolute top-0.5 left-0.5 h-4 w-4 rounded-full bg-white border border-border transition-transform ${on ? 'translate-x-4' : ''}`} />
+                          </button>
                         )}
                         {/* slot fixo da seta — reservado sempre, pra os toggles alinharem */}
                         <span className="w-4 shrink-0 flex items-center justify-center">
