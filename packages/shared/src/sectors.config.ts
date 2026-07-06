@@ -20,7 +20,7 @@ export type Permission =
   | 'view_agenda'        | 'manage_agenda'
   | 'view_chat'
   | 'view_clinical'      | 'edit_clinical'
-  | 'view_financial'     | 'manage_financial'
+  | 'view_financial'     | 'manage_financial'  | 'operate_cash'
   | 'view_proposals'     | 'manage_proposals'
   | 'override_price'
   | 'view_reports'
@@ -74,6 +74,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Dar desconto (preco abaixo da tabela) na Venda Rapida', group: 'financeiro' },
   { key: 'view_reports', label: 'Ver relatorios',
     description: 'Dashboards e relatorios consolidados', group: 'financeiro' },
+  { key: 'operate_cash', label: 'Operar caixa',
+    description: 'Lancar entradas/saidas e fechar o caixa do dia (sem mexer em cobrancas)', group: 'financeiro' },
 
   // ─── Marketing / CRM ────────────────────────────────────────
   { key: 'view_marketing', label: 'CRC e Marketing',
@@ -174,6 +176,9 @@ export const SECTORS: SectorMeta[] = [
       // Onda 17.32.115 (revisao 1): recepcao tambem fecha venda
       // balcao (Venda Rapida) e gera proposta inicial.
       'manage_proposals',
+      // Onda 18.x — recepcao OPERA o caixa do dia (lanca entradas/saidas +
+      // fecha conferindo), sem enxergar cobrancas/financeiro (view_financial).
+      'operate_cash',
     ],
     home: {
       persona: 'Recepcionista',
@@ -352,6 +357,8 @@ export const SECTORS: SectorMeta[] = [
       'view_patients',
       'view_agenda',
       'view_financial', 'manage_financial',
+      // Onda 18.x — Financeiro também opera/valida o caixa do dia.
+      'operate_cash',
       // Financeiro acompanha as negociações (Propostas) em SÓ LEITURA pra conferir
       // antes de validar; sem manage_proposals → não cria/edita/encaminha.
       'view_proposals',
@@ -506,6 +513,7 @@ const HREF_TO_PERMISSION: Record<string, Permission> = {
   '/atendimento/return-alerts':            'view_marketing',
   '/atendimento/financeiro':               'manage_financial',
   '/atendimento/financeiro/dashboard':     'view_financial',
+  '/atendimento/caixa':                    'operate_cash',
   '/atendimento/relatorios':               'view_reports',
   '/atendimento/marketing/analytics':      'view_marketing',
   '/atendimento/settings':                 'view_settings',
@@ -521,6 +529,7 @@ const PERMISSION_TO_BALAO: Partial<Record<Permission, HomeAction>> = {
   view_marketing:   { lucide: 'LineChart',     icon: '🎯', label: 'CRM',         desc: 'Funil e relacionamento.',     href: '/atendimento/crm',                  tone: 'violet'  },
   view_financial:   { lucide: 'LineChart',     icon: '📊', label: 'Visão geral', desc: 'Caixa e indicadores.',        href: '/atendimento/financeiro/dashboard', tone: 'emerald' },
   manage_financial: { lucide: 'Receipt',       icon: '🧾', label: 'Cobranças',   desc: 'Boletos e recebimentos.',     href: '/atendimento/financeiro',           tone: 'violet'  },
+  operate_cash:     { lucide: 'Wallet',        icon: '💵', label: 'Caixa',       desc: 'Entradas, saídas e fechamento do dia.', href: '/atendimento/caixa',      tone: 'emerald' },
   view_reports:     { lucide: 'PieChart',      icon: '📈', label: 'Relatórios',  desc: 'Indicadores e metas.',        href: '/atendimento/relatorios',           tone: 'rose'    },
   manage_users:     { lucide: 'UserCog',       icon: '👥', label: 'Equipe',      desc: 'Profissionais e permissões.', href: '/atendimento/settings/users',       tone: 'sky'     },
   view_settings:    { lucide: 'Settings',      icon: '⚙️', label: 'Configurações', desc: 'Ajustes do sistema.',       href: '/atendimento/settings',             tone: 'amber'   },

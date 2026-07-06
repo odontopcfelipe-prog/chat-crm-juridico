@@ -77,6 +77,8 @@ model Tenant {
   followup_sequences          FollowupSequence[]
   financial_transactions      FinancialTransaction[]
   financial_categories        FinancialCategory[]
+  cash_accounts               CashAccount[]
+  cash_closings               CashClosing[]
   payment_gateway_customers   PaymentGatewayCustomer[]
   payment_gateway_charges     PaymentGatewayCharge[]
   notas_fiscais               NotaFiscal[]
@@ -229,6 +231,9 @@ model User {
   ai_chats                      AiChat[]               @relation("AiChatOwner")
   cs_leads                      Lead[]                 @relation("CSManager")
   financial_transactions        FinancialTransaction[] @relation("FinancialDentist")
+  cash_closings_opened          CashClosing[]          @relation("CashOpenedBy")
+  cash_closings_closed          CashClosing[]          @relation("CashClosedBy")
+  cash_closings_validated       CashClosing[]          @relation("CashValidatedBy")
   conversation_notes            ConversationNote[]     @relation("ConversationNoteAuthor")
   broadcast_jobs                BroadcastJob[]
   notification_setting          NotificationSetting?
@@ -1451,6 +1456,9 @@ model FinancialTransaction {
   lead_id                   String?
   dentist_id                String? // mantido — sera usado pra filtrar transacoes visiveis ao dentista
   lead_honorario_payment_id String? @unique // 1:1 com LeadHonorarioPayment (orçamento)
+  // Caixa (Onda 18.x — fechamento diário)
+  account_id                String? // conta onde o dinheiro caiu (CashAccount)
+  cash_closing_id           String? // fechamento do dia ao qual pertence
 
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
@@ -1459,6 +1467,8 @@ model FinancialTransaction {
   lead                   Lead?                 @relation(fields: [lead_id], references: [id], onDelete: SetNull)
   dentist                User?                 @relation("FinancialDentist", fields: [dentist_id], references: [id], onDelete: SetNull)
   lead_honorario_payment LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
+  account                CashAccount?          @relation(fields: [account_id], references: [id], onDelete: SetNull)
+  cash_closing           CashClosing?          @relation(fields: [cash_closing_id], references: [id], onDelete: SetNull)
   gateway_charge         PaymentGatewayCharge?
   nota_fiscal            NotaFiscal?
 
@@ -1468,6 +1478,8 @@ model FinancialTransaction {
   @@index([dentist_id])
   @@index([category])
   @@index([due_date, status])
+  @@index([account_id])
+  @@index([cash_closing_id])
 }
 
 model FinancialCategory {
@@ -1484,6 +1496,76 @@ model FinancialCategory {
 
   @@unique([tenant_id, name, type])
   @@index([tenant_id, type])
+}
+
+// ===============================================
+// CAIXA — Contas e Fechamento Diário (Onda 18.x)
+// ===============================================
+/// Onde o dinheiro "cai": Caixa/gaveta (dinheiro), conta bancária (PIX/TED),
+/// maquininha (cartão). Toda entrada/saída do caixa aponta uma conta.
+/// Configurável por clínica; seed lazy cria as 3 padrão no 1º acesso.
+model CashAccount {
+  id         String   @id @default(uuid())
+  tenant_id  String
+  name       String // "Caixa (gaveta)", "PIX — Banco", "Maquininha"
+  kind       String // CAIXA | BANCO | CARTAO
+  /// Conta onde entra o recebido pelo gateway (Asaas). Máx 1 por tenant.
+  is_gateway Boolean  @default(false)
+  active     Boolean  @default(true)
+  sort_order Int      @default(0)
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  transactions FinancialTransaction[]
+
+  @@index([tenant_id, active])
+}
+
+/// O "caixa do dia" — 1 por tenant por data. Recepção abre (implícito no 1º
+/// lançamento), lança durante o dia, fecha informando o CONTADO por forma, e o
+/// admin valida. Divergência NÃO trava (validação com justificativa — decisão
+/// do dono). Guarda o esperado (snapshot no fechamento) e o contado.
+model CashClosing {
+  id        String   @id @default(uuid())
+  tenant_id String
+  cash_date DateTime // dia (meia-noite local, mesmo padrão naive-UTC da agenda)
+
+  status String @default("ABERTO") // ABERTO | FECHADO | VALIDADO | DEVOLVIDO
+
+  opened_by_id String?
+  opened_at    DateTime @default(now())
+
+  // Conferência informada pela recepção ao fechar (por forma de pagamento)
+  counted_cash     Decimal?
+  counted_card     Decimal?
+  counted_pix      Decimal?
+  counted_transfer Decimal?
+  // Esperado — snapshot calculado das transações do dia no momento do fechamento
+  expected_cash     Decimal?
+  expected_card     Decimal?
+  expected_pix      Decimal?
+  expected_transfer Decimal?
+
+  closed_by_id  String?
+  closed_at     DateTime?
+  closing_notes String? // observação/justificativa da recepção
+
+  validated_by_id  String?
+  validated_at     DateTime?
+  validation_notes String? // justificativa do admin (ex.: divergência aceita)
+
+  created_at DateTime @default(now())
+  updated_at DateTime @updatedAt
+
+  tenant       Tenant                 @relation(fields: [tenant_id], references: [id], onDelete: Cascade)
+  opened_by    User?                  @relation("CashOpenedBy", fields: [opened_by_id], references: [id], onDelete: SetNull)
+  closed_by    User?                  @relation("CashClosedBy", fields: [closed_by_id], references: [id], onDelete: SetNull)
+  validated_by User?                  @relation("CashValidatedBy", fields: [validated_by_id], references: [id], onDelete: SetNull)
+  transactions FinancialTransaction[]
+
+  @@unique([tenant_id, cash_date])
+  @@index([tenant_id, status])
 }
 
 // ===============================================
