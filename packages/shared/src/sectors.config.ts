@@ -196,6 +196,7 @@ export const SECTORS: SectorMeta[] = [
       actions: [
         { lucide: 'Calendar',      icon: '📅', label: 'Agenda',       desc: 'Veja e marque os horários do dia.',      href: '/atendimento/agenda',        badgeKey: 'agenda_today',    tone: 'violet'  },
         { lucide: 'Zap',           icon: '⚡', label: 'Venda rápida', desc: 'Registre uma venda avulsa em segundos.', href: '/atendimento/venda-rapida',  tone: 'emerald' },
+        { lucide: 'Wallet',        icon: '💵', label: 'Caixa',        desc: 'Entradas, saídas e fechamento do dia.',  href: '/atendimento/caixa',         tone: 'emerald' },
         { lucide: 'Users',         icon: '👥', label: 'Pacientes',    desc: 'Busque, cadastre e abra fichas.',        href: '/atendimento/pacientes',     badgeKey: 'patients_total',  tone: 'sky'     },
         { lucide: 'MessageSquare', icon: '💬', label: 'WhatsApp',     desc: 'Converse e confirme com os pacientes.',  href: '/atendimento',               badgeKey: 'whatsapp_open',   tone: 'amber'   },
         { lucide: 'RotateCcw',     icon: '🔄', label: 'Retornos',     desc: 'Veja quem precisa voltar à clínica.',    href: '/atendimento/return-alerts', badgeKey: 'returns_pending', tone: 'rose'    },
