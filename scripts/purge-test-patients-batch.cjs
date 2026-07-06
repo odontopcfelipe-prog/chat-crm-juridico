@@ -1,22 +1,25 @@
 #!/usr/bin/env node
 /**
- * PURGA EM LOTE (keep-patient) de pacientes de TESTE — mesma logica do
- * purge-test-patient.cjs, mas processa varios de uma vez. Mantem o cadastro
- * do Patient + Lead + conversas; apaga so o comercial/financeiro (orcamentos,
+ * PURGA EM LOTE (keep-patient) de pacientes de TESTE. Mantem cadastro do
+ * Patient + Lead + conversas; apaga so o comercial/financeiro (orcamentos,
  * planos, parcelas, cobrancas, receitas, comissoes, agenda, radiografia).
  *
  * Roda DENTRO do container da API (usa DATABASE_URL do ambiente).
  *
  * SELECAO:
- *   --names="Lustosa|Alinne|shirlyanne|zezinho"   (separador = | ; contains, case-insensitive)
- *   --ids=<uuid>,<uuid>                            (mais seguro pro --confirm)
- *   --tenant=<uuid>                                (opcional — escopa a busca a 1 clinica)
+ *   --names="Lustosa|Alinne|zezinho"   (separador = | ; contains, case-insensitive)
+ *   --ids=<uuid>,<uuid>                (mais seguro pro --confirm)
+ *   --tenant=<uuid>                    (opcional — escopa a busca a 1 clinica)
+ *
+ * COBRANCAS: achadas pelo caminho COMPLETO, igual a aba Financeiro
+ * (getChargesByPatient): lead -> PaymentGatewayCustomer -> customer_external_id
+ * -> charges. UNION com plano/parcela. Escopado ao tenant do paciente.
  *
  * SEGURANCA:
  *   - Sem --confirm => DRY-RUN: tabela do que cada um perderia, NAO apaga.
  *   - Nome que casar >1 paciente NAO e apagado — e LISTADO (use --ids).
- *   - Sinaliza quem tem RECEITA JA RECEBIDA (pra voce conferir se e teste mesmo).
- *   - Cada paciente numa transacao propria (um erro nao derruba os outros).
+ *   - Sinaliza quem tem RECEITA JA RECEBIDA (gateway ou caixa).
+ *   - Cada paciente numa transacao propria.
  */
 let PrismaClient;
 try { ({ PrismaClient } = require('@prisma/client')); }
@@ -31,16 +34,20 @@ const NAMES = (arg('names') || '').split('|').map((s) => s.trim()).filter(Boolea
 const IDS = (arg('ids') || '').split(',').map((s) => s.trim()).filter(Boolean);
 const num = (v) => (v == null ? 0 : Number(v));
 const brl = (v) => 'R$ ' + num(v).toFixed(2);
-const sel = { id: true, name: true, cpf: true, phone: true, tenant_id: true, lead_id: true };
+const sel = { id: true, name: true, cpf: true, phone: true, email: true, tenant_id: true, lead_id: true };
+const PAID = ['RECEIVED', 'CONFIRMED'];
 
 async function collect(p) {
+  const custs = p.lead_id ? await prisma.paymentGatewayCustomer.findMany({ where: { lead_id: p.lead_id }, select: { external_id: true } }) : [];
+  const custExt = custs.map((c) => c.external_id).filter(Boolean);
   const plans = await prisma.treatmentPlan.findMany({ where: { patient_id: p.id }, select: { id: true } });
   const insts = await prisma.installment.findMany({ where: { patient_id: p.id }, select: { id: true } });
   const planIds = plans.map((x) => x.id), instIds = insts.map((x) => x.id);
   const chOr = [];
+  if (custExt.length) chOr.push({ customer_external_id: { in: custExt } });
   if (planIds.length) chOr.push({ treatment_plan_id: { in: planIds } });
   if (instIds.length) chOr.push({ installment_id: { in: instIds } });
-  const charges = chOr.length ? await prisma.paymentGatewayCharge.findMany({ where: { OR: chOr }, select: { id: true, external_id: true, transaction_id: true, amount: true } }) : [];
+  const charges = chOr.length ? await prisma.paymentGatewayCharge.findMany({ where: { tenant_id: p.tenant_id, OR: chOr }, select: { id: true, external_id: true, transaction_id: true, amount: true, status: true, received_in_cash: true } }) : [];
   const extIds = charges.map((c) => c.external_id).filter(Boolean);
   const chTx = charges.map((c) => c.transaction_id).filter(Boolean);
   const txOr = [];
@@ -54,9 +61,10 @@ async function collect(p) {
   ]);
   return {
     planIds, instIds, chargeIds: charges.map((c) => c.id), txIds: txs.map((t) => t.id),
-    quotes, comms, chargesN: charges.length, txN: txs.length,
+    quotes, comms, chargesN: charges.length,
     totCh: charges.reduce((s, c) => s + num(c.amount), 0),
-    rec: txs.filter((t) => t.type === 'RECEITA').reduce((s, t) => s + num(t.amount), 0),
+    recGw: charges.filter((c) => PAID.includes(c.status) || c.received_in_cash).reduce((s, c) => s + num(c.amount), 0),
+    recCx: txs.filter((t) => t.type === 'RECEITA').reduce((s, t) => s + num(t.amount), 0),
   };
 }
 
@@ -90,8 +98,8 @@ async function purgeOne(p, d) {
       const found = await prisma.patient.findMany({ where: w, select: sel });
       if (found.length === 0) { notes.push('0 matches: "' + nm + '"'); continue; }
       if (found.length > 1) {
-        notes.push(found.length + ' matches p/ "' + nm + '" (AMBIGUO — use --ids):');
-        found.forEach((f) => notes.push('   - ' + f.id + '  ' + f.name + '  cpf=' + (f.cpf || '-') + '  tenant=' + f.tenant_id));
+        notes.push(found.length + ' matches p/ "' + nm + '" (AMBIGUO - use --ids):');
+        found.forEach((f) => notes.push('   - ' + f.id + '  ' + f.name + '  cpf=' + (f.cpf || '-') + '  tel=' + (f.phone || '-') + '  tenant=' + f.tenant_id));
         continue;
       }
       push(found[0]);
@@ -104,21 +112,21 @@ async function purgeOne(p, d) {
 
     console.log('\n=== ALVOS (' + targets.length + ') ===');
     console.table(data.map(({ p, d }) => ({
-      nome: p.name, cpf: p.cpf || '-', tenant: (p.tenant_id || '').slice(0, 8),
-      cobrancas: d.chargesN, cob_total: brl(d.totCh), RECEBIDO: brl(d.rec),
-      orcamentos: d.quotes, planos: d.planIds.length, comissoes: d.comms,
+      nome: (p.name || '').slice(0, 26), cpf: p.cpf || '-', tel: p.phone || '-', tenant: (p.tenant_id || '').slice(0, 8),
+      cobr: d.chargesN, cob_total: brl(d.totCh), receb_gw: brl(d.recGw), receb_caixa: brl(d.recCx),
+      orc: d.quotes, planos: d.planIds.length, comiss: d.comms,
     })));
-    console.log('TOTAL: ' + brl(data.reduce((s, x) => s + x.d.totCh, 0)) + ' em cobrancas | ' + brl(data.reduce((s, x) => s + x.d.rec, 0)) + ' em RECEITA recebida');
+    console.log('TOTAL: ' + brl(data.reduce((s, x) => s + x.d.totCh, 0)) + ' em cobrancas | recebido ' + brl(data.reduce((s, x) => s + Math.max(x.d.recGw, x.d.recCx), 0)));
 
-    const withRec = data.filter((x) => x.d.rec > 0);
-    if (withRec.length) { console.log('\n[!] ATENCAO — estes tem RECEITA JA RECEBIDA (confirme que e teste):'); withRec.forEach((x) => console.log('   - ' + x.p.name + ': ' + brl(x.d.rec) + '  (id=' + x.p.id + ')')); }
+    const withRec = data.filter((x) => x.d.recGw > 0 || x.d.recCx > 0);
+    if (withRec.length) { console.log('\n[!] ATENCAO - RECEITA JA RECEBIDA (confirme que e teste):'); withRec.forEach((x) => console.log('   - ' + x.p.name + '  gateway=' + brl(x.d.recGw) + '  caixa=' + brl(x.d.recCx) + '  (id=' + x.p.id + ')')); }
     if (notes.length) { console.log('\n--- observacoes ---'); notes.forEach((n) => console.log(n)); }
 
     if (!CONFIRM) { console.log('\n[DRY-RUN] nada apagado. Confira e rode com --confirm (de preferencia por --ids).\n'); return; }
 
     console.log('\n[APAGANDO ' + targets.length + ' pacientes...]');
-    for (const { p, d } of data) { await purgeOne(p, d); console.log('  zerado: ' + p.name); }
-    console.log('\n[OK] batch keep-patient concluido. Relatorio financeiro limpo desses testes.\n');
+    for (const { p, d } of data) { await purgeOne(p, d); console.log('  zerado: ' + p.name + '  (' + d.chargesN + ' cobrancas, ' + brl(d.totCh) + ')'); }
+    console.log('\n[OK] batch keep-patient concluido.\n');
   } catch (e) { console.error('\n[ERRO]', e.message); process.exit(1); }
   finally { await prisma.$disconnect(); }
 })();
