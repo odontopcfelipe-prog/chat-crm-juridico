@@ -101,7 +101,7 @@ export class FollowupService {
 
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
-      bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting,
+      bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -116,6 +116,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_1D_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_15D_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_30D_${tenantId}` } }),
+      // Onda 18.28 — confirmação de pagamento (por evento). Default LIGADA.
+      this.prisma.globalSetting.findUnique({ where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -246,6 +248,8 @@ export class FollowupService {
       boleto_atraso_1d: { enabled: bolA1Setting?.value === 'true' },
       boleto_atraso_15d: { enabled: bolA15Setting?.value === 'true' },
       boleto_atraso_30d: { enabled: bolA30Setting?.value === 'true' },
+      // Default LIGADA (só desliga se o valor salvo for 'false').
+      confirmacao_pagamento: { enabled: (payConfSetting?.value ?? 'true') !== 'false' },
     };
   }
 
@@ -395,6 +399,14 @@ export class FollowupService {
         break;
       case 'reagendamento': {
         const key = `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Onda 18.28 — confirmação de pagamento (por evento). O webhook do Asaas
+      // checa esta key antes de mandar a "Pagamento Confirmado!".
+      case 'confirmacao_pagamento': {
+        const key = `PAYMENT_CONFIRMATION_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

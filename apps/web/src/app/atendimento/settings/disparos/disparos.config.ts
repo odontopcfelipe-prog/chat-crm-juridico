@@ -48,7 +48,10 @@ export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
   // Onda 18.16 — cobrança financeira (chip FINANCEIRO). Cada estágio liga/desliga
   // sozinho; o cron do worker varre o que está em aberto e dispara o certo.
-  | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d';
+  | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d'
+  // Onda 18.28 — confirmação de pagamento (por EVENTO: webhook do Asaas quando cai
+  // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
+  | 'confirmacao_pagamento';
 
 export interface DisparoItem {
   id: string;
@@ -109,6 +112,10 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
     gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_30d' },
+  // Onda 18.28 — por EVENTO (webhook do Asaas), não agendada. Sem editor por ora.
+  { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
+    gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
+    editor: null, operacionalKey: 'confirmacao_pagamento' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

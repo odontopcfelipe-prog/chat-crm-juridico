@@ -55,6 +55,7 @@ interface OperacionalData {
   boleto_atraso_1d?: { enabled: boolean };
   boleto_atraso_15d?: { enabled: boolean };
   boleto_atraso_30d?: { enabled: boolean };
+  confirmacao_pagamento?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }

@@ -1753,6 +1753,19 @@ export class PaymentGatewayService {
    * Notifica o cliente via WhatsApp quando um pagamento é confirmado.
    */
   private async notifyClientPaymentReceived(paymentData: any, charge: any) {
+    // Onda 18.28 — respeita o toggle "Confirmação de pagamento" da Central de
+    // Disparos (default LIGADA; só pula se o admin desligou explicitamente).
+    const tenantId = (charge as any)?.tenant_id;
+    if (tenantId) {
+      const flag = await this.prisma.globalSetting.findUnique({
+        where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` },
+      });
+      if (flag?.value === 'false') {
+        this.logger.log(`[WEBHOOK] Confirmação de pagamento desligada (tenant ${tenantId}) — pulando`);
+        return;
+      }
+    }
+
     const customerId = paymentData.customer;
     if (!customerId) return;
 
