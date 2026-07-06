@@ -351,6 +351,10 @@ export default function VendaRapidaPage() {
       showError('Adicione ao menos 1 procedimento');
       return;
     }
+    if (!dentistId) {
+      showError('Selecione o dentista responsável antes de finalizar');
+      return;
+    }
     setFinishing(true);
     try {
       // Onda 17.32.72 — Em vez de POST /commercial/venda-rapida (rota
@@ -654,7 +658,7 @@ export default function VendaRapidaPage() {
           {/* Onda 17.40 — Dentista responsável (a venda entra na comissão dele) */}
           <div className="mb-4">
             <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-              Dentista responsável <span className="font-medium normal-case tracking-normal text-muted-foreground/60">· padrão da venda</span>
+              Dentista responsável <span className="font-medium normal-case tracking-normal text-orange-500">· obrigatório</span>
             </p>
             {(() => {
               const sel = dentists.find((d) => d.id === dentistId);
@@ -677,7 +681,7 @@ export default function VendaRapidaPage() {
                       sel ? 'pl-11 font-semibold border-teal-500/40' : 'pl-9 border-border'
                     }`}
                   >
-                    <option value="">Sem dentista (não gera comissão)</option>
+                    <option value="" disabled>Selecione o dentista…</option>
                     {dentists.map((d) => (
                       <option key={d.id} value={d.id}>{d.name}</option>
                     ))}
@@ -688,8 +692,8 @@ export default function VendaRapidaPage() {
             })()}
             <p className="text-[10px] text-muted-foreground mt-1">
               {dentistId
-                ? 'Os procedimentos ficam pendentes pra esse dentista confirmar a conclusão — aí entra a comissão de execução dele.'
-                : 'Sem dentista, ninguém recebe comissão de execução nesta venda.'}
+                ? 'Os procedimentos ficam pendentes pra esse dentista confirmar a conclusão.'
+                : 'Escolha o dentista que fez o atendimento.'}
             </p>
           </div>
 
@@ -916,7 +920,7 @@ export default function VendaRapidaPage() {
           <button
             type="button"
             onClick={handleFinish}
-            disabled={finishing || !patient || cart.length === 0}
+            disabled={finishing || !patient || cart.length === 0 || !dentistId}
             className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
           >
             {finishing ? (
@@ -934,6 +938,11 @@ export default function VendaRapidaPage() {
                 <ShoppingCart size={14} />
                 Adicione procedimentos
               </>
+            ) : !dentistId ? (
+              <>
+                <AlertCircle size={14} />
+                Selecione o dentista
+              </>
             ) : (
               <>
                 <Check size={16} strokeWidth={3} />
@@ -948,7 +957,7 @@ export default function VendaRapidaPage() {
             <p className="leading-snug">
               Ao finalizar: registra o recebimento no caixa e lança os procedimentos
               no tratamento como <strong>pendentes</strong> — o dentista confirma a
-              conclusão de cada um (aí entra a comissão de execução).
+              conclusão de cada um depois.
             </p>
           </div>
           </div>{/* fim do rodapé fixo (Total + Finalizar) */}
