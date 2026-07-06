@@ -831,7 +831,7 @@ export class CalendarReminderWorker extends WorkerHost {
       (event.location ? `📍 *Local:* ${event.location}\n` : '') +
       `\nPor favor, anote a nova data.${isPericia ? ' Lembre-se de levar documentos pessoais e laudos médicos, se houver.' : ' Chegue com *30 minutos de antecedência*.'}\n` +
       `Qualquer dúvida, é só responder esta mensagem.\n\n` +
-      `_André Lustosa Advogados_`
+      `_Atendimento_`
     );
   }
 
@@ -848,7 +848,7 @@ export class CalendarReminderWorker extends WorkerHost {
         ? `\nLembre-se de levar documentos pessoais e laudos médicos, se houver. Chegue com *15 minutos de antecedência* e coopere plenamente com o perito.\n`
         : `\nRecomendamos chegar com *30 minutos de antecedência*.\n`) +
       `Qualquer dúvida, estamos à disposição.\n\n` +
-      `_André Lustosa Advogados_`
+      `_Atendimento_`
     );
   }
 
@@ -860,7 +860,7 @@ export class CalendarReminderWorker extends WorkerHost {
     const isPericia = event.type === 'PERICIA';
     const tipoEvento = isPericia ? 'perícia' : 'audiência';
 
-    const systemPrompt = `Você é o assistente do escritório de advocacia André Lustosa Advogados.
+    const systemPrompt = `Você é o assistente do clínica.
 Sua tarefa é enviar uma mensagem via WhatsApp informando ao cliente que sua ${tipoEvento} foi ${isRescheduled ? 'remarcada' : 'agendada'}.
 
 REGRAS:
@@ -874,7 +874,7 @@ ${isPericia
   : '- Se o caso for trabalhista, reforce brevemente a importância da audiência\n- Oriente a chegar com 30 minutos de antecedência'}
 - Deixe claro que pode tirar dúvidas respondendo esta mensagem
 - Limite: máximo 200 palavras
-- Finalize com "_André Lustosa Advogados_"`;
+- Finalize com "_Atendimento_"`;
 
     const userPrompt = isRescheduled
       ? `Crie uma mensagem informando ao cliente que a ${tipoEvento} foi *remarcada* para uma nova data.
@@ -943,7 +943,7 @@ Gere APENAS a mensagem final para WhatsApp, sem explicações.`;
     const firstName = (event.lead?.name || 'Cliente').split(' ')[0];
 
     const isPericia = event.type === 'PERICIA';
-    const systemPrompt = `Você é o assistente virtual do escritório de advocacia André Lustosa Advogados.
+    const systemPrompt = `Você é o assistente virtual do clínica.
 Sua função é enviar lembretes personalizados e humanizados via WhatsApp para os clientes.
 
 REGRAS IMPORTANTES:
@@ -959,7 +959,7 @@ ${isPericia
 - Sempre indique o horário e local de forma clara
 - Finalize sinalizando disponibilidade para dúvidas
 - Limite: máximo 250 palavras
-- NÃO use assinatura longa — apenas "_André Lustosa Advogados_" no final`;
+- NÃO use assinatura longa — apenas "_Atendimento_" no final`;
 
     const userPrompt = `Crie uma mensagem de lembrete personalizada para o cliente sobre a audiência que ocorre em ${prazo}.
 
@@ -1142,7 +1142,7 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
             </p>
           </div>
           <p style="text-align: center; color: #888; font-size: 11px; margin-top: 16px;">
-            Enviado automaticamente pelo CRM — André Lustosa Advogados
+            Enviado automaticamente pelo sistema da clínica
           </p>
         </div>
       `;

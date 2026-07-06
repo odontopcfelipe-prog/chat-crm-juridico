@@ -746,10 +746,7 @@ export class FollowupService {
   // ─── Message Generator ───────────────────────────────────────────────────
 
   async generateMessage(dossie: DossieCompleto, customPrompt?: string | null): Promise<string> {
-    const escritorioNome = 'Lustosa Advogados';
-    const advogadoNome = 'André Lustosa';
-
-    const systemPrompt = `Você é ${advogadoNome}, advogado do escritório ${escritorioNome}.
+    const systemPrompt = `Você é do atendimento da clínica.
 Está escrevendo uma mensagem de follow-up via ${dossie.tarefa.canal} para ${dossie.pessoa.nome}.
 
 REGRAS ABSOLUTAS:

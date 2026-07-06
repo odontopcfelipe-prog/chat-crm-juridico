@@ -48,8 +48,13 @@ export class FollowupService {
     const inadimplente = pagamentosPendentes.some(p => p.due_date && new Date(p.due_date) < new Date());
     const valorDevido = pagamentosPendentes.reduce((sum, p) => sum + (Number(p.amount) || 0), 0);
 
-    // Advogado responsável
-    const advogadoNome = (convo as any)?.assigned_user?.name || 'André Lustosa';
+    // Responsável pelo atendimento (usuário atribuído) + nome da CLÍNICA dinâmico
+    // (Onda 18.27 — a IA de follow-up não se apresenta mais como escritório jurídico).
+    const advogadoNome = (convo as any)?.assigned_user?.name || 'nossa equipe';
+    const tenant = (lead as any)?.tenant_id
+      ? await this.prisma.tenant.findUnique({ where: { id: (lead as any).tenant_id }, select: { name: true } }).catch(() => null)
+      : null;
+    const clinicaNome = tenant?.name || 'a clínica';
 
     // Mensagens anteriores desta sequência
     const msgsAnteriores = await this.prisma.followupMessage.findMany({
@@ -74,7 +79,7 @@ export class FollowupService {
         id: lead.id, nome: lead.name || 'Cliente', telefone: lead.phone, email: lead.email,
         tipo: casos.length > 0 ? 'cliente' : 'lead', estagio: lead.stage,
         canal_preferido: 'whatsapp', horario_responde_mais: horarioResposta,
-        tempo_medio_resposta_horas: tempoMedioResposta, advogado_responsavel: advogadoNome,
+        tempo_medio_resposta_horas: tempoMedioResposta, advogado_responsavel: advogadoNome, clinica_nome: clinicaNome,
         desde: lead.created_at, origem: lead.origin, inadimplente, valor_devido: valorDevido > 0 ? valorDevido : undefined,
         dias_sem_contato: diasSemContato,
       },
@@ -153,8 +158,7 @@ export class FollowupService {
     const canal = dossie.tarefa?.canal || 'whatsapp';
     const tom = dossie.tarefa?.tom || 'amigavel';
     const nome = dossie.pessoa?.nome || 'Cliente';
-    const advogado = dossie.pessoa?.advogado_responsavel || 'André Lustosa';
-    const escritorio = 'Lustosa Advogados';
+    const clinica = dossie.pessoa?.clinica_nome || 'a clínica';
     const limiteChars = dossie.restricoes?.limite_caracteres || 1500;
 
     // Prompts específicos por categoria
@@ -188,11 +192,11 @@ export class FollowupService {
 
     const instrucaoPorCanal: Record<string, string> = {
       whatsapp: `Canal WhatsApp: seja direto, máx ${Math.min(limiteChars, 1500)} caracteres. Saudação breve → ponto principal → pergunta aberta. Máx 1-2 emojis naturais. Sem "*" ou markdown.`,
-      email: `Canal Email: escreva "ASSUNTO: [assunto profissional]" na primeira linha, depois pule linha e escreva o corpo. Parágrafos curtos, profissional. Despedida com nome do escritório. Máx ${Math.min(limiteChars, 3000)} caracteres.`,
+      email: `Canal Email: escreva "ASSUNTO: [assunto profissional]" na primeira linha, depois pule linha e escreva o corpo. Parágrafos curtos, profissional. Despedida com nome da clínica. Máx ${Math.min(limiteChars, 3000)} caracteres.`,
       ligacao: `Script de ligação: escreva um roteiro com tópicos principais, perguntas sugeridas, e respostas para objeções comuns. Formato: ABERTURA → OBJETIVO → PERGUNTAS → OBJEÇÕES PREVISTAS → ENCERRAMENTO.`,
     };
 
-    const systemPrompt = `Você é ${advogado}, advogado(a) do escritório ${escritorio}.
+    const systemPrompt = `Você é do atendimento da ${clinica}.
 Está escrevendo uma mensagem para ${nome} pelo canal ${canal}.
 
 REGRAS ABSOLUTAS — NUNCA QUEBRE ESTAS REGRAS:
@@ -221,21 +225,21 @@ ${JSON.stringify({
   inadimplente: dossie.pessoa?.inadimplente, dias_sem_contato: dossie.pessoa?.dias_sem_contato,
   sentimento: dossie.historico?.sentimento_geral,
   ultima_mensagem: dossie.historico?.ultima_msg_resumo,
-  ultima_mensagem_foi_do: dossie.historico?.ultima_msg_direcao === 'in' ? 'cliente' : 'escritório',
+  ultima_mensagem_foi_do: dossie.historico?.ultima_msg_direcao === 'in' ? 'cliente' : 'a clínica',
   processos: dossie.processual?.processos,
   financeiro: dossie.financeiro,
   objetivo: dossie.tarefa?.objetivo,
 }, null, 2)}
 
 HISTÓRICO RECENTE (últimas mensagens — para ter contexto do que foi dito):
-${(dossie.historico?.ultimas_msgs || []).slice(-6).map((m: any) => `[${m.direcao === 'in' ? 'CLIENTE' : 'ESCRITÓRIO'}]: ${m.text}`).join('\n')}
+${(dossie.historico?.ultimas_msgs || []).slice(-6).map((m: any) => `[${m.direcao === 'in' ? 'CLIENTE' : 'CLÍNICA'}]: ${m.text}`).join('\n')}
 
 MENSAGENS ANTERIORES DESTA SEQUÊNCIA — NÃO REPITA ESTRUTURA OU FRASES:
 ${dossie.tarefa?.mensagens_anteriores?.length > 0
   ? dossie.tarefa.mensagens_anteriores.map((m: string, i: number) => `--- Tentativa ${i + 1} ---\n${m}`).join('\n')
   : 'Esta é a primeira mensagem nesta sequência.'}
 
-${customPrompt ? `\nINSTRUÇÃO ADICIONAL DO ADVOGADO:\n${customPrompt}` : ''}
+${customPrompt ? `\nINSTRUÇÃO ADICIONAL:\n${customPrompt}` : ''}
 
 IMPORTANTE: Gere uma mensagem DIFERENTE das anteriores em estrutura e abordagem.
 Gere APENAS o texto da mensagem final, sem introduções, sem "Aqui está a mensagem:" etc.`;

@@ -373,8 +373,6 @@ export class FollowupProcessor extends WorkerHost {
 
   private async generateBroadcastMessage(lead: any, event: any, type: string, customPrompt?: string): Promise<string> {
     const nome = (lead.name || 'Cliente').split(' ')[0];
-    const advogado = 'André Lustosa';
-    const escritorio = 'Lustosa Advogados';
 
     // Format event date in pt-BR
     const dataEvento = event?.start_at ? new Date(event.start_at).toLocaleString('pt-BR', {
@@ -382,8 +380,8 @@ export class FollowupProcessor extends WorkerHost {
       hour: '2-digit', minute: '2-digit', timeZone: 'UTC',
     }) : 'data a confirmar';
 
-    const systemPrompt = `Você é ${advogado}, advogado do escritório ${escritorio}.
-Está escrevendo uma mensagem de lembrete de ${type === 'AUDIENCIA' ? 'audiência' : type === 'PERICIA' ? 'perícia' : 'prazo'} via WhatsApp para seu cliente ${lead.name || 'Cliente'}.
+    const systemPrompt = `Você é do atendimento da clínica.
+Está escrevendo uma mensagem de lembrete via WhatsApp para ${lead.name || 'Cliente'}.
 
 REGRAS ABSOLUTAS:
 1. Nunca revele que é IA ou mensagem automática
