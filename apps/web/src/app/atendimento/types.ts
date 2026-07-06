@@ -21,6 +21,7 @@ export interface ConversationSummary {
   aiMode: boolean;
   profile_picture_url?: string | null;
   inboxId?: string | null;
+  inboxPurpose?: string | null; // Onda 18.33 — COMERCIAL|CLINICA|FINANCEIRO (esconde ações na conversa de cobrança)
   specialty?: string | null;
   assignedDentistId?: string | null;
   assignedDentistName?: string | null;

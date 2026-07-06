@@ -142,6 +142,9 @@ export class ConversationsService {
           },
           messages: { orderBy: { created_at: 'desc' }, take: 1, include: { media: true } },
           assigned_user: { select: { id: true, name: true } },
+          // Onda 18.33 — purpose do inbox (pra UI esconder ações que não se
+          // aplicam à conversa de cobrança: Mover setor, Funil, Etapa).
+          inbox: { select: { purpose: true } },
           tasks: {
             where: { status: 'A_FAZER' },
             orderBy: { created_at: 'desc' },
@@ -182,6 +185,7 @@ export class ConversationsService {
       id: c.id,
       leadId: c.lead_id,
       inboxId: (c as any).inbox_id || null,
+      inboxPurpose: (c as any).inbox?.purpose || null,
       contactName: c.lead?.name || c.lead?.phone || 'Desconhecido',
       contactPhone: c.lead?.phone || '',
       contactEmail: c.lead?.email || '',

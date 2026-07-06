@@ -220,6 +220,10 @@ export function ChatHeader({
   };
   const isAdiado = selected?.status === 'ADIADO';
   const isOverdue = activeTask?.dueAt ? new Date(activeTask.dueAt) < new Date() : false;
+  // Onda 18.33 — conversa de COBRANÇA (inbox Financeiro): esconde as ações que
+  // atrapalham/não se aplicam — Mover setor (tiraria do isolamento) e Funil/Etapa
+  // (mexeriam no funil de vendas do contato). O resto do header fica igual.
+  const isFinanceiro = selected?.inboxPurpose === 'FINANCEIRO';
 
   return (
     <div className="shrink-0 relative z-40">
@@ -420,7 +424,7 @@ export function ChatHeader({
               {hasPendingTransfer ? 'Aguardando...' : 'Transferir'}
             </button>
           )}
-          {!isClosed && isRealConvo && <MoveSectorButton conversationId={(selected as any)?.id} />}
+          {!isClosed && isRealConvo && !isFinanceiro && <MoveSectorButton conversationId={(selected as any)?.id} />}
           {selected?.originAssignedUserId && selected?.assignedAgentId === currentUserId && !isClosed && (
             <>
               <button
@@ -507,7 +511,7 @@ export function ChatHeader({
             FUNIL: lista todos os pipelines, ao trocar move o lead pra etapa inicial do novo funil.
             ETAPA: lista apenas as etapas do funil atual.
             Backend: PATCH /leads/:id/stage com stage_id resolve pipeline automaticamente. */}
-        {isRealConvo && pipelinesList && pipelinesList.length > 0 && (() => {
+        {isRealConvo && !isFinanceiro && pipelinesList && pipelinesList.length > 0 && (() => {
           const currentPipeline = selected.leadPipeline;
           const currentStage = selected.leadCurrentStage;
           const pipelineColor = currentPipeline?.color || '#6b7280';
