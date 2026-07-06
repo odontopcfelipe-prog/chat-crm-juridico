@@ -104,22 +104,33 @@ export default function CaixaPage() {
 function DiaView() {
   const [data, setData] = useState<TodayData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
   const [addDir, setAddDir] = useState<'ENTRADA' | 'SAIDA' | null>(null);
   const [closing, setClosing] = useState(false);
   const [showContas, setShowContas] = useState(false);
 
   const load = useCallback(async () => {
+    setErr(null);
     try {
       const res = await api.get<TodayData>('/caixa/today');
       setData(res.data);
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao carregar o caixa.');
+      const status = e?.response?.status;
+      const msg = e?.response?.data?.message || e?.message || 'Falha ao carregar o caixa.';
+      setErr(status ? `[${status}] ${msg}` : msg);
     } finally { setLoading(false); }
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
   if (loading) return <div className="py-20 grid place-items-center"><Loader2 className="w-6 h-6 animate-spin text-emerald-500" /></div>;
+  if (err) return (
+    <div className="max-w-lg mx-auto mt-10 text-center bg-rose-50 border border-rose-200 rounded-xl p-6">
+      <p className="font-semibold text-rose-700">Não consegui abrir o caixa</p>
+      <p className="text-sm text-rose-600 mt-2 break-words">{err}</p>
+      <button onClick={() => { setLoading(true); load(); }} className="mt-4 px-4 py-2 rounded-lg bg-rose-600 text-white text-sm font-semibold hover:bg-rose-700">Tentar de novo</button>
+    </div>
+  );
   if (!data) return null;
 
   const status = data.closing?.status || 'ABERTO';

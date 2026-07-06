@@ -526,6 +526,14 @@ export function Sidebar() {
       // Onda 17.65 — venda rápida usa manage_proposals: só com permissão.
       show: hasPermission('manage_proposals'),
     },
+    // Onda 18.x — Caixa do dia (recepção opera; admin/financeiro validam).
+    caixa: {
+      label: 'Caixa',
+      href: '/atendimento/caixa',
+      icon: <Wallet size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/caixa'),
+      show: hasPermission('operate_cash'),
+    },
     // Onda 17.32.88 — Atalho pro admin SaaS. So aparece se SUPER_ADMIN.
     adminTenants: {
       label: 'Admin SaaS',
@@ -813,6 +821,7 @@ export function Sidebar() {
       icon: <LayoutDashboard size={14} strokeWidth={2.5} />,
       items: [
         allItems.vendaRapida,  // Venda rápida (balcão)
+        allItems.caixa,        // Onda 18.x — Caixa do dia
         allItems.agenda,       // Agenda
         allItems.inbox,        // WhatsApp
       ].filter(i => i.show),
