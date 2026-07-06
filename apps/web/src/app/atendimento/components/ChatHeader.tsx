@@ -221,8 +221,8 @@ export function ChatHeader({
   const isAdiado = selected?.status === 'ADIADO';
   const isOverdue = activeTask?.dueAt ? new Date(activeTask.dueAt) < new Date() : false;
   // Onda 18.33 — conversa de COBRANÇA (inbox Financeiro): esconde as ações que
-  // atrapalham/não se aplicam — Mover setor (tiraria do isolamento) e Funil/Etapa
-  // (mexeriam no funil de vendas do contato). O resto do header fica igual.
+  // não se aplicam/atrapalham — Transferir, Mover setor, → Lead, Agendar e Funil/
+  // Etapa. Mantém Tarefa, Editar e o indicador de IA. O resto do header intacto.
   const isFinanceiro = selected?.inboxPurpose === 'FINANCEIRO';
 
   return (
@@ -409,7 +409,7 @@ export function ChatHeader({
               Aceitar Atendimento
             </button>
           )}
-          {!isClosed && isRealConvo && (
+          {!isClosed && isRealConvo && !isFinanceiro && (
             <button
               onClick={onOpenTransferModal}
               disabled={hasPendingTransfer}
@@ -483,7 +483,7 @@ export function ChatHeader({
               pra evitar duplicacao de acoes. */}
           {/* Onda 17.32.58 — Demover Cliente -> Lead (reverte promocao
               manual). Aparece SO se ja eh cliente. */}
-          {selected?.leadId && isRealConvo && !isClosed && selected?.isClient && onDemoteToLead && (
+          {selected?.leadId && isRealConvo && !isClosed && !isFinanceiro && selected?.isClient && onDemoteToLead && (
             <button
               onClick={onDemoteToLead}
               title="Voltar pra Lead (reverter promocao a cliente)"
@@ -495,7 +495,7 @@ export function ChatHeader({
           )}
           {/* Onda 17.32.56 — Atalho de agendamento. Abre painel lateral
               a direita sem fechar a conversa. */}
-          {selected?.leadId && isRealConvo && !isClosed && onCreateAppointment && (
+          {selected?.leadId && isRealConvo && !isClosed && !isFinanceiro && onCreateAppointment && (
             <button
               onClick={onCreateAppointment}
               title="Agendar atendimento (abre painel sem sair da conversa)"
