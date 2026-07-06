@@ -47,6 +47,7 @@ import { GoogleDriveModule } from './google-drive/google-drive.module';
 import { InternModule } from './intern/intern.module';
 import { AdminBotModule } from './admin-bot/admin-bot.module';
 import { FinanceiroModule } from './financeiro/financeiro.module';
+import { CaixaModule } from './caixa/caixa.module';
 import { PaymentGatewayModule } from './payment-gateway/payment-gateway.module';
 import { NotaFiscalModule } from './nota-fiscal/nota-fiscal.module';
 import { MemoriesModule } from './memories/memories.module';
@@ -139,6 +140,7 @@ import { PermissionsGuard } from './auth/decorators/requires-permission.decorato
     InternModule,
     AdminBotModule,
     FinanceiroModule,
+    CaixaModule,
     PaymentGatewayModule,
     NotaFiscalModule,
     NotificationSettingsModule,
