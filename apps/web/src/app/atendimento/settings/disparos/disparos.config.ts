@@ -97,6 +97,11 @@ export const DISPAROS: DisparoItem[] = [
   // estágio cada boleto está (vence amanhã? venceu hoje? atrasou 15 dias?) e, se
   // o estágio estiver ligado, dispara o lembrete + link do boleto. 1 msg por vez,
   // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
+  // Onda 18.31 — Confirmação PRIMEIRO (é por EVENTO: webhook do Asaas quando cai um
+  // pagamento). Editável, sai pelo chip Financeiro, só dispara se o toggle estiver ON.
+  { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
+    gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'confirmacao_pagamento' },
   { id: 'boleto_1d_antes', nome: 'Boleto · 1 dia antes do vencimento', categoria: 'financeiro',
     gatilho: 'Vence amanhã · lembrete gentil', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_1d_antes' },
@@ -112,11 +117,6 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
     gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_30d' },
-  // Onda 18.28 — por EVENTO (webhook do Asaas), não agendada. Editável (reusa o
-  // MensagemEditor da cobrança) — variáveis próprias (nome/valor/descrição).
-  { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
-    gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
-    editor: 'cobranca', operacionalKey: 'confirmacao_pagamento' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',
