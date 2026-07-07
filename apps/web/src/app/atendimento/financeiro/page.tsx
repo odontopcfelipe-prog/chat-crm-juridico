@@ -251,9 +251,9 @@ function KpiCard({ icon: Icon, label, value, color, bgColor, hint, onClick }: {
       <div className={`w-8 h-8 rounded-lg ${bgColor} flex items-center justify-center mb-2`}>
         <Icon size={16} className={color} />
       </div>
-      <p className={`text-xl font-bold ${color} tabular-nums`}>{value}</p>
-      <p className="text-xs text-muted-foreground mt-0.5 font-semibold uppercase tracking-wide">
-        {label}{onClick && <span className="text-emerald-500 ml-1 normal-case tracking-normal">· abrir →</span>}
+      <p className={`text-lg font-bold ${color} tabular-nums whitespace-nowrap`}>{value}</p>
+      <p className="text-[10px] text-muted-foreground mt-0.5 font-semibold uppercase tracking-wide whitespace-nowrap overflow-hidden text-ellipsis">
+        {label}{onClick && <span className="text-emerald-500 ml-0.5">→</span>}
       </p>
     </div>
   );
