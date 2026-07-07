@@ -1199,8 +1199,14 @@ export default function AgendaPage() {
     // v27: carrega config customizavel de lembretes (antecedencias padrao
     // que vao pre-preencher o modal de evento). Cache em useRef.
     api.get('/calendar/reminders/config').then(r => {
+      // Onda 18.x — RESPEITA lista VAZIA. O GET devolve os defaults quando o tenant
+      // NUNCA configurou (lista cheia); devolve [] só quando a clínica DESLIGOU todos
+      // os lembretes na Central. O `.length > 0` de antes tratava [] como "não
+      // configurado" e caía no FALLBACK hardcoded [1440,60,15] — anexando lembretes
+      // que a clínica tinha desligado. Aceitar qualquer array (inclusive vazio) faz
+      // "desliguei tudo" virar "não anexa nada".
       const ant = Array.isArray(r.data?.default_antecedencias) ? r.data.default_antecedencias : null;
-      if (ant && ant.length > 0) {
+      if (ant) {
         reminderAntecedenciasRef.current = ant;
       }
     }).catch(swallow('lazy load reminder config — usa fallback hardcoded'));

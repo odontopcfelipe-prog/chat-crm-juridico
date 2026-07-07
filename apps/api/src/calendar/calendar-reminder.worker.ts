@@ -371,9 +371,28 @@ export class CalendarReminderWorker extends WorkerHost {
     });
     if (remCfg?.value) {
       try {
-        if (JSON.parse(remCfg.value)?.enabled === false) {
+        const cfg = JSON.parse(remCfg.value);
+        if (cfg?.enabled === false) {
           this.logger.log(`[WORKER-API] Lembretes desligados (tenant ${event.tenant_id}) — pulando reminder ${reminderId}`);
           return;
+        }
+        // Onda 18.x — respeita a LISTA de antecedências ativas da Central. Se a
+        // clínica DESLIGOU este lembrete (removeu a antecedência), NÃO envia —
+        // mesmo que o EventReminder já estivesse ANEXADO ao evento (criado antes
+        // de desligar). Antes, desligar na Central só afetava eventos NOVOS; os
+        // já anexados disparavam assim mesmo ("desliguei e mesmo assim caiu").
+        // Só a faixa de LEMBRETE puro (<48h/2880min): a de 48h (pedido de
+        // confirmação) tem interação com o scheduler de confirmação — não é
+        // filtrada aqui pra não abrir buraco de confirmação. Só aplica quando a
+        // lista está EXPLÍCITA (default_antecedencias salvo); sem config, envia.
+        if (reminder.minutes_before < 2880 && Array.isArray(cfg?.default_antecedencias)) {
+          const ativo = cfg.default_antecedencias.some(
+            (a: any) => Number(a?.minutes_before) === reminder.minutes_before,
+          );
+          if (!ativo) {
+            this.logger.log(`[WORKER-API] Lembrete ${reminder.minutes_before}min desligado na Central (tenant ${event.tenant_id}) — pulando reminder ${reminderId}`);
+            return;
+          }
         }
       } catch { /* config corrompida = trata como ligado */ }
     }
