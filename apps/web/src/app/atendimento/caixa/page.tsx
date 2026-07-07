@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   Wallet, Plus, X, Loader2, Lock, Check, RotateCcw, Banknote, CreditCard,
   Landmark, ArrowLeftRight, Trash2, ShieldCheck, TrendingUp, TrendingDown,
@@ -80,6 +81,7 @@ interface TodayData { cash_date: string; closing: Closing | null; accounts: Acco
    Página
 ════════════════════════════════════════════════════════════ */
 export default function CaixaPage() {
+  const router = useRouter();
   const { hasPermission, ready } = useUserPermissions();
   const canOperate = hasPermission('operate_cash');
   const canValidate = hasPermission('manage_financial');
@@ -96,6 +98,9 @@ export default function CaixaPage() {
 
   return (
     <div className="max-w-5xl mx-auto px-4 py-6">
+      <button onClick={() => router.back()} className="flex items-center gap-1 text-sm text-slate-500 hover:text-slate-700 mb-3">
+        <ChevronLeft className="w-4 h-4" /> Voltar
+      </button>
       <div className="flex items-center justify-between gap-3 mb-5">
         <div className="flex items-center gap-2.5">
           <div className="w-10 h-10 rounded-xl bg-emerald-100 text-emerald-700 grid place-items-center"><Wallet className="w-5 h-5" /></div>
