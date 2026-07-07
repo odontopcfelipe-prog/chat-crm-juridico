@@ -771,6 +771,9 @@ export class CalendarService {
     const where: any = {
       assigned_user_id: userId,
       status: { notIn: ['CANCELADO', 'CONCLUIDO', 'NO_SHOW', 'ADIADO'] }, // Onda 17.61 — Desmarcou/Faltou/Adiado liberam o horário (ficam registrados, mas não ocupam o slot)
+      // Onda 18.x — ORTODONTIA é atendimento em FLUXO (vários pacientes no mesmo
+      // horário): não ocupa slot exclusivo, então não conta como conflito.
+      type: { not: 'ORTODONTIA' },
       // Overlap: evento começa antes do fim do range E (termina após início do range OU sem end_at mas começa dentro do range)
       start_at: { lt: end },
       OR: [

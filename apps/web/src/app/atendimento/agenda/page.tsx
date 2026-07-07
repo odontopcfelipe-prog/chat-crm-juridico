@@ -1521,7 +1521,9 @@ export default function AgendaPage() {
 
     // Conflict check — modal simplificado nao tem botao "salvar mesmo assim",
     // entao conflito vira hard-block (operador escolhe outro horario).
-    if (formData.assigned_user_id && endIso) {
+    // Onda 18.x — ORTODONTIA é atendimento em FLUXO: permite vários pacientes no
+    // mesmo horário, então pula o bloqueio de conflito.
+    if (formData.assigned_user_id && endIso && formData.type !== 'ORTODONTIA') {
       try {
         const params: any = { userId: formData.assigned_user_id, start: startIso, end: endIso };
         if (editingEvent) params.excludeId = editingEvent.id;
