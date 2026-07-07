@@ -1268,16 +1268,8 @@ export default function FinanceiroPage() {
               <span className="font-semibold">Vencem 7d</span> mostram sempre a posição de hoje.
             </p>
 
-            {/* Taxa de realização + aging de inadimplência + projeção (Onda 16.3) */}
-            {dashboard && (dashboard.realizacao || dashboard.projecao || (dashboard.atrasado.aging && dashboard.atrasado.count > 0)) && (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {dashboard.realizacao && <RealizacaoCard {...dashboard.realizacao} />}
-                {dashboard.atrasado.aging && dashboard.atrasado.count > 0 && (
-                  <AgingBar aging={dashboard.atrasado.aging} />
-                )}
-                {dashboard.projecao && <ProjecaoCard {...dashboard.projecao} />}
-              </div>
-            )}
+            {/* Onda 18.x — removidos "Taxa de realização", "Inadimplência por faixa"
+                e "Projeção de recebimento" a pedido do dono (tela mais limpa). */}
 
             {/* Widgets Top atrasos + Entrada do dia (lado a lado).
                 Próximos vencimentos foi pra baixo em widget próprio. */}
