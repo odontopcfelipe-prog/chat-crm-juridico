@@ -1263,10 +1263,15 @@ export class PaymentGatewayService {
       },
     });
 
-    // Onda 17.41 — "toda venda vira Receita": pagamento online (PIX/Cartão
-    // Asaas) confirmado também lança RECEITA no caixa. Idempotente via
-    // transaction_id (recebido na clínica já lançou; aqui sai cedo). Best-effort.
-    if (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') {
+    // Onda 18.x — CORREÇÃO: o dinheiro só entra no CAIXA quando o Asaas
+    // efetivamente COMPENSA/RECEBE (status RECEIVED), NÃO em CONFIRMED. Pro
+    // BOLETO, CONFIRMED = cliente pagou/banco registrou, mas a compensação vem
+    // alguns dias depois (a "baixa"); só aí o dinheiro está disponível. PIX (e o
+    // PIX que vem no boleto) compensam na hora, então já chegam como RECEIVED.
+    // Assim o boleto cai no caixa no DIA da compensação, não no vencimento nem
+    // no pagamento. RECEIVED_IN_CASH (dá baixa na recepção) também mapeia p/
+    // RECEIVED. Idempotente via transaction_id. Best-effort.
+    if (mappedStatus === 'RECEIVED') {
       try {
         await this.ensureChargeReceita(charge.id);
       } catch (e: any) {
