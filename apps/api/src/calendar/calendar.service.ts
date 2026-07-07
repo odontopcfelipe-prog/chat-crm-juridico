@@ -336,7 +336,12 @@ export class CalendarService {
 
     // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
     // paciente (best-effort; so eventos clinicos com paciente/lead)
-    if (data.tenant_id && this.isClinicalEvent(event.type)) {
+    // Onda 18.x — ORTODONTIA é por ORDEM DE CHEGADA: o aviso imediato "sua consulta
+    // foi agendada para {data} às {hora}" anuncia HORA FIXA, que CONTRADIZ ordem de
+    // chegada — então NÃO é enviado pra eventos de ortô. A ortô fala com o paciente
+    // pelos disparos dedicados (confirmação ~24h "a partir das" + lembrete 1h dos
+    // portões), que a clínica liga na Central quando quiser.
+    if (data.tenant_id && this.isClinicalEvent(event.type) && event.type !== 'ORTODONTIA') {
       void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
       // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
       // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
@@ -3433,6 +3438,17 @@ export class CalendarService {
           .replace(/\{local\}/g, local || '')
           .replace(/\n{3,}/g, '\n\n')
           .trim();
+      } else if (event.type === 'ORTODONTIA') {
+        // Onda 18.x — ortô é por ORDEM DE CHEGADA: NÃO promete hora exclusiva
+        // ("às {hora}"); usa "a partir das {hora}". (O aviso AUTOMÁTICO de criação
+        // nem chama isto — é suprimido no create pra ortô; isto cobre o botão
+        // "Notificar" manual e qualquer outro caminho de 'created'.)
+        msg =
+          `Olá ${nome}! 😊\n\n` +
+          `Seu atendimento de *ortodontia*${dentista ? ` com ${dentista}` : ''} foi agendado para *${dateStr}*.\n` +
+          `📌 É *por ordem de chegada*, a partir das *${horaStr}*.\n` +
+          localLine +
+          `\nQualquer dúvida, é só chamar por aqui!`;
       } else {
         msg =
           `Olá ${nome}! 😊\n\n` +
