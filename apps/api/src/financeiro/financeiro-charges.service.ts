@@ -301,6 +301,22 @@ export class FinanceiroChargesService {
       0,
     );
 
+    // 8. VENDAS DE HOJE (produção): orçamentos FECHADOS/aceitos hoje. É o valor
+    // VENDIDO hoje (mesmo que o dinheiro entre parcelado depois) — diferente da
+    // entrada (recebimento). Quote não tem tenant_id → escopa por patient.
+    const vendasWhere: any = {
+      status: 'ACCEPTED',
+      accepted_at: { gte: hojeStart, lt: hojeEnd },
+      deleted_at: null,
+    };
+    if (tenantId) vendasWhere.patient = { tenant_id: tenantId };
+    if (dentistId) vendasWhere.created_by_user_id = dentistId;
+    const vendasAgg = await this.prisma.quote.aggregate({
+      where: vendasWhere,
+      _sum: { total_value: true },
+      _count: { _all: true },
+    });
+
     return {
       recebido_no_periodo: {
         value: Math.round(Number(receivedAgg._sum.amount || 0) * 100) / 100,
@@ -346,6 +362,10 @@ export class FinanceiroChargesService {
         value: Math.round(entradasHojeTotal * 100) / 100,
         count: entradas_hoje.length,
         items: this.serializeChargeReceived(entradas_hoje),
+      },
+      vendas_do_dia: {
+        value: Math.round(Number(vendasAgg._sum.total_value || 0) * 100) / 100,
+        count: vendasAgg._count._all,
       },
       now: now.toISOString(),
     };

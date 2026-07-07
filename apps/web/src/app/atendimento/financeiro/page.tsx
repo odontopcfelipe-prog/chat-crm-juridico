@@ -135,6 +135,8 @@ interface DashboardData {
       patient: { id: string; name: string | null; phone: string | null } | null;
     }[];
   };
+  /** Vendas do dia (produção): orçamentos aceitos hoje. */
+  vendas_do_dia?: { value: number; count: number };
   now: string;
 }
 
@@ -1233,15 +1235,23 @@ export default function FinanceiroPage() {
             {/* KPI Grid — Onda 16: 4 KPIs do funil financeiro odontologico.
                 Fonte: GET /financeiro/dashboard (agrega charges + transactions).
                 Fallback pro summary legado quando dashboard nao subiu ainda. */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3">
               <KpiCard
                 icon={DollarSign}
                 label={dashboard ? `Entrada do dia (${dashboard.entrada_do_dia?.count ?? 0})` : 'Entrada do dia'}
                 value={fmt(dashboard?.entrada_do_dia?.value ?? 0)}
                 color="text-emerald-400"
                 bgColor="bg-emerald-500/15"
-                hint="Resumo do caixa: total que entrou HOJE. Clique para abrir o Caixa e ver o detalhe."
+                hint="Resumo do caixa: total que ENTROU hoje (recebimento). Clique para abrir o Caixa."
                 onClick={() => router.push('/atendimento/caixa')}
+              />
+              <KpiCard
+                icon={Handshake}
+                label={dashboard ? `Vendas do dia (${dashboard.vendas_do_dia?.count ?? 0})` : 'Vendas do dia'}
+                value={fmt(dashboard?.vendas_do_dia?.value ?? 0)}
+                color="text-violet-400"
+                bgColor="bg-violet-500/15"
+                hint="Produção: orçamentos FECHADOS (aceitos) hoje. É o valor vendido, mesmo que o dinheiro entre parcelado depois."
               />
               <KpiCard
                 icon={Clock}
@@ -1273,7 +1283,8 @@ export default function FinanceiroPage() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground -mt-2 px-0.5">
-              <span className="font-semibold text-emerald-400/90">Entrada do dia</span> é o resumo do caixa de hoje.{' '}
+              <span className="font-semibold text-emerald-400/90">Entrada do dia</span> = dinheiro que entrou (recebimento);{' '}
+              <span className="font-semibold text-violet-400/90">Vendas do dia</span> = orçamentos fechados hoje (produção).{' '}
               <span className="font-semibold">A receber</span>, <span className="font-semibold">Atrasado</span> e{' '}
               <span className="font-semibold">Vencem 7d</span> mostram a posição de hoje.
             </p>
