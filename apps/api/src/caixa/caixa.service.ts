@@ -302,13 +302,65 @@ export class CaixaService {
   }
 
   // ─── Fechamentos (admin valida) ────────────────────────────────
+  // Etapa 1 — "o caixa nao apaga": garante que TODO dia com dinheiro no caixa
+  // (manual OU recebimento do sistema — venda rapida/Asaas/boleto/pix/parcelado)
+  // tenha um CashClosing, mesmo que ninguem tenha aberto manualmente. Assim
+  // nenhum dia com movimento some do historico. Idempotente e limitado a N dias.
+  async ensureClosingsForRecentDays(tenantId: string, days = 120) {
+    const now = new Date();
+    const since = new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    const txns = await this.prisma.financialTransaction.findMany({
+      where: this.caixaWhere(tenantId, since, new Date(now.getTime() + 60 * 1000)),
+      select: { date: true },
+    });
+    // dias (Maceio) distintos que tem dinheiro
+    const dias = new Set<string>();
+    for (const t of txns) {
+      const maceio = new Date(new Date(t.date).getTime() - 3 * 60 * 60 * 1000);
+      dias.add(maceio.toISOString().slice(0, 10));
+    }
+    if (dias.size === 0) return;
+    const cashDates = [...dias].map((d) => new Date(d + 'T00:00:00.000Z'));
+    const existentes = await this.prisma.cashClosing.findMany({
+      where: { tenant_id: tenantId, cash_date: { in: cashDates } },
+      select: { cash_date: true },
+    });
+    const tem = new Set(existentes.map((c) => c.cash_date.toISOString().slice(0, 10)));
+    for (const d of dias) {
+      if (tem.has(d)) continue;
+      await this.prisma.cashClosing
+        .create({ data: { tenant_id: tenantId, cash_date: new Date(d + 'T00:00:00.000Z'), status: 'ABERTO' } })
+        .catch(() => undefined); // corrida (@@unique) — segue
+    }
+  }
+
   async listClosings(tenantId: string, status?: string) {
-    return this.prisma.cashClosing.findMany({
+    await this.ensureClosingsForRecentDays(tenantId);
+    const closings = await this.prisma.cashClosing.findMany({
       where: { tenant_id: tenantId, ...(status ? { status } : {}) },
       orderBy: { cash_date: 'desc' },
-      take: 60,
+      take: 120,
       include: this.closingInclude,
     });
+    if (closings.length === 0) return closings;
+    // Totais por dia numa query so (janela do mais antigo ao mais novo), agrupado
+    // em Node pelo dia de Maceio — pra cada linha do historico mostrar o valor.
+    const startUTC = this.windowFor(closings[closings.length - 1].cash_date).startUTC;
+    const endUTC = this.windowFor(closings[0].cash_date).endUTC;
+    const txns = await this.prisma.financialTransaction.findMany({
+      where: this.caixaWhere(tenantId, startUTC, endUTC),
+      select: { amount: true, type: true, payment_method: true, date: true, gateway_charge: { select: { received_in_cash: true } } },
+    });
+    const byDay = new Map<string, any[]>();
+    for (const t of txns) {
+      const key = new Date(new Date(t.date).getTime() - 3 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      if (!byDay.has(key)) byDay.set(key, []);
+      byDay.get(key)!.push(t);
+    }
+    return closings.map((c) => ({
+      ...c,
+      totals: this.summarize(byDay.get(c.cash_date.toISOString().slice(0, 10)) || []),
+    }));
   }
 
   // Detalhe: recalcula o ESPERADO ao vivo a partir dos movimentos reais do dia

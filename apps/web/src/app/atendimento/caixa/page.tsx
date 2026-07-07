@@ -67,6 +67,7 @@ interface Closing {
   expected_cash?: string | null; expected_card?: string | null; expected_pix?: string | null; expected_transfer?: string | null;
   opened_by?: { name: string } | null; closed_by?: { name: string } | null; validated_by?: { name: string } | null;
   transactions?: Movement[];
+  totals?: Totals;
 }
 interface Totals { by: { cash: number; card: number; pix: number; transfer: number; gateway: number }; entradas: number; saidas: number; saldo: number }
 interface TodayData { cash_date: string; closing: Closing | null; accounts: Account[]; movements: Movement[]; totals: Totals }
@@ -443,11 +444,17 @@ function FechamentosView({ canValidate, canOperate }: { canValidate: boolean; ca
             return (
               <li key={c.id}>
                 <button onClick={() => openDetail(c.id)} className="w-full flex items-center justify-between gap-3 px-4 py-3.5 hover:bg-slate-50 text-left">
-                  <div>
+                  <div className="min-w-0">
                     <div className="font-semibold text-slate-800 text-sm capitalize">{dayLabel(c.cash_date)}</div>
-                    <div className="text-xs text-slate-400 mt-0.5">{c.closed_by ? `Fechado por ${c.closed_by.name}` : c.opened_by ? `Aberto por ${c.opened_by.name}` : ''}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{c.closed_by ? `Fechado por ${c.closed_by.name}` : c.opened_by ? `Aberto por ${c.opened_by.name}` : 'Movimento do dia'}</div>
                   </div>
-                  <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${st.cls}`}>{st.label}</span>
+                  <div className="flex items-center gap-4 shrink-0">
+                    <div className="text-right">
+                      <div className="text-sm font-bold text-slate-800 tabular-nums">{brl(c.totals?.saldo ?? 0)}</div>
+                      {c.totals && c.totals.entradas > 0 && <div className="text-[11px] text-emerald-600 tabular-nums">+{brl(c.totals.entradas)} entrou</div>}
+                    </div>
+                    <span className={`text-xs font-bold px-2.5 py-1 rounded-full border ${st.cls}`}>{st.label}</span>
+                  </div>
                 </button>
               </li>
             );
@@ -545,8 +552,10 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
         </div>
       )}
 
-      {canOperate && closing.status === 'DEVOLVIDO' && (
-        <button onClick={() => setReclose(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-slate-800 text-white font-semibold text-sm hover:bg-slate-900"><Lock className="w-4 h-4" /> Corrigir contagem e fechar de novo</button>
+      {canOperate && (closing.status === 'DEVOLVIDO' || closing.status === 'ABERTO') && (
+        <button onClick={() => setReclose(true)} className="w-full flex items-center justify-center gap-1.5 py-2.5 rounded-lg bg-slate-800 text-white font-semibold text-sm hover:bg-slate-900">
+          <Lock className="w-4 h-4" /> {closing.status === 'DEVOLVIDO' ? 'Corrigir contagem e fechar de novo' : 'Fechar este dia'}
+        </button>
       )}
       {reclose && <CloseModal totals={expectedTotals} closingId={closing.id} onClose={() => setReclose(false)} onSaved={() => { setReclose(false); onChanged(); }} />}
     </div>
