@@ -3,6 +3,7 @@ import { ReturnAlertExpiratorService } from './return-alert-expirator.service';
 import { GoalsRecalculatorService } from './goals-recalculator.service';
 import { AppointmentConfirmationSchedulerService } from './appointment-confirmation-scheduler.service';
 import { AppointmentConfirmationDispatcherService } from './appointment-confirmation-dispatcher.service';
+import { AppointmentOrtoReminderService } from './appointment-orto-reminder.service';
 import { CollectionEngineService } from './collection-engine.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { SettingsModule } from '../settings/settings.module';
@@ -28,6 +29,7 @@ import { SettingsModule } from '../settings/settings.module';
     GoalsRecalculatorService,
     AppointmentConfirmationSchedulerService,
     AppointmentConfirmationDispatcherService,
+    AppointmentOrtoReminderService,
     CollectionEngineService,
   ],
 })

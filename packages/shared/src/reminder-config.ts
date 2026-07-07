@@ -84,6 +84,41 @@ export const DEFAULT_REMINDER_CONFIG: ReminderConfig = {
 };
 
 /**
+ * Onda 18.x — ORTODONTIA por ORDEM DE CHEGADA.
+ *
+ * Clínicas de ortodontia atendem em FLUXO: vários pacientes no mesmo bloco, sem
+ * hora exclusiva — o paciente chega e é atendido por ordem de chegada. Por isso
+ * os disparos de ORTO são SEPARADOS da confirmação normal:
+ *   - a confirmação de orto avisa que o atendimento é por ordem de chegada
+ *     (não promete uma hora exclusiva como a confirmação padrão);
+ *   - o lembrete de orto avisa ~1h antes que os portões vão abrir.
+ *
+ * Ambos valem SÓ pra eventos type=ORTODONTIA e são OPT-IN (default DESLIGADO).
+ * Regra de fallback: com a confirmação de orto DESLIGADA, o evento de orto
+ * recebe a confirmação NORMAL (a original) — assim nada fica sem confirmação.
+ *
+ * Persistidos em GlobalSetting (por tenant):
+ *   APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE_<tenant> / APPOINTMENT_CONFIRMATION_ORTO_ENABLED_<tenant>
+ *   APPOINTMENT_ORTO_REMINDER_TEMPLATE_<tenant>     / APPOINTMENT_ORTO_REMINDER_ENABLED_<tenant>
+ *
+ * Variáveis: {nome}, {nome_completo}, {dentista}, {data}, {hora}, {local}/{local_line}.
+ * ({hora} = horário de ABERTURA do atendimento / dos portões.)
+ */
+export const DEFAULT_CONFIRMACAO_ORTO =
+  'Oi {nome}, tudo bem? 😊\n\n' +
+  'Passando pra confirmar seu atendimento de *ortodontia* com {dentista} amanhã, *{data}*, a partir das *{hora}*.\n' +
+  '{local_line}\n' +
+  '⚠️ O atendimento é *por ordem de chegada* — quanto mais cedo você chegar, mais cedo é atendido(a).\n' +
+  'Posso confirmar sua presença? 🙂';
+
+export const DEFAULT_ORTO_REMINDER =
+  'Oi {nome}! 👋\n\n' +
+  'Passando pra lembrar do seu atendimento de *ortodontia* com {dentista} hoje. ' +
+  'Abrimos os portões em cerca de *1 hora* (por volta das *{hora}*).\n' +
+  '{local_line}\n' +
+  '📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙';
+
+/**
  * Aplica substituicao de variaveis num template.
  * {chave} eh substituido pelo valor de vars[chave]; ausentes ficam vazios.
  *

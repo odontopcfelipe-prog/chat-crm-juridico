@@ -1641,6 +1641,69 @@ export class CalendarService {
     return this.getAppointmentConfirmationConfig(tenant_id);
   }
 
+  // ─── Confirmação de ORTODONTIA (Onda 18.x) — por ORDEM DE CHEGADA ─────
+  // Disparo SEPARADO da confirmação normal: só vale pra eventos type=ORTODONTIA
+  // e avisa que o atendimento é por ordem de chegada. Liga/desliga vive em
+  // APPOINTMENT_CONFIRMATION_ORTO_ENABLED_<tenant> (Central). Aqui só o TEXTO,
+  // em APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE_<tenant>. O worker scheduler aplica.
+  async getAppointmentConfirmationOrtoConfig(tenant_id?: string) {
+    const { DEFAULT_CONFIRMACAO_ORTO } = await import('@crm/shared');
+    const key = tenant_id ? `APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return { template: DEFAULT_CONFIRMACAO_ORTO };
+      const parsed = JSON.parse(setting.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : DEFAULT_CONFIRMACAO_ORTO;
+      return { template: tpl };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
+      return { template: DEFAULT_CONFIRMACAO_ORTO };
+    }
+  }
+
+  async setAppointmentConfirmationOrtoConfig(tenant_id: string | undefined, config: { template?: string }) {
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    }
+    const key = tenant_id ? `APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE_${tenant_id}` : 'APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE';
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE] salvo pra ${key}`);
+    return this.getAppointmentConfirmationOrtoConfig(tenant_id);
+  }
+
+  // ─── Lembrete de ORTODONTIA · ~1h antes (portões) — Onda 18.x ─────────
+  // Disparo SÓ pra eventos type=ORTODONTIA: avisa ~1h antes que os portões
+  // abrem. Liga/desliga em APPOINTMENT_ORTO_REMINDER_ENABLED_<tenant> (Central);
+  // texto em APPOINTMENT_ORTO_REMINDER_TEMPLATE_<tenant>. O worker envia direto.
+  async getAppointmentOrtoReminderConfig(tenant_id?: string) {
+    const { DEFAULT_ORTO_REMINDER } = await import('@crm/shared');
+    const key = tenant_id ? `APPOINTMENT_ORTO_REMINDER_TEMPLATE_${tenant_id}` : 'APPOINTMENT_ORTO_REMINDER_TEMPLATE';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return { template: DEFAULT_ORTO_REMINDER };
+      const parsed = JSON.parse(setting.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : DEFAULT_ORTO_REMINDER;
+      return { template: tpl };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
+      return { template: DEFAULT_ORTO_REMINDER };
+    }
+  }
+
+  async setAppointmentOrtoReminderConfig(tenant_id: string | undefined, config: { template?: string }) {
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    }
+    const key = tenant_id ? `APPOINTMENT_ORTO_REMINDER_TEMPLATE_${tenant_id}` : 'APPOINTMENT_ORTO_REMINDER_TEMPLATE';
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[APPOINTMENT_ORTO_REMINDER_TEMPLATE] salvo pra ${key}`);
+    return this.getAppointmentOrtoReminderConfig(tenant_id);
+  }
+
   // ─── Re-agendamento (Onda 17.59) — mensagem editável ─────────────────
   // Liga/desliga vive em APPOINTMENT_RESCHEDULED_ENABLED (Central). Aqui só o TEXTO,
   // em APPOINTMENT_RESCHEDULED_TEMPLATE_<tenant>. Aplicado em sendAppointmentEventWhatsapp.
@@ -1754,6 +1817,12 @@ export class CalendarService {
     } else switch (disparo) {
       case 'confirmacao':
         msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
+        break;
+      case 'confirmacao_orto':
+        msg = apply((await this.getAppointmentConfirmationOrtoConfig(tenant_id)).template);
+        break;
+      case 'lembrete_orto_1h':
+        msg = apply((await this.getAppointmentOrtoReminderConfig(tenant_id)).template);
         break;
       case 'reagendamento':
         msg = apply((await this.getAppointmentRescheduledConfig(tenant_id)).template);

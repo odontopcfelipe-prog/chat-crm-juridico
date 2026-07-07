@@ -102,6 +102,7 @@ export class FollowupService {
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
+      confOrtoSetting, ortoRemSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -118,6 +119,11 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_30D_${tenantId}` } }),
       // Onda 18.28 — confirmação de pagamento (por evento). Default LIGADA.
       this.prisma.globalSetting.findUnique({ where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
+      // Onda 18.x — ORTODONTIA por ordem de chegada. Ambos OPT-IN (default OFF):
+      // confirmação de orto (só ativa muda a confirmação de eventos ORTODONTIA) e
+      // lembrete de orto ~1h antes (portões).
+      this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_REMINDER_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -250,6 +256,9 @@ export class FollowupService {
       boleto_atraso_30d: { enabled: bolA30Setting?.value === 'true' },
       // Default LIGADA (só desliga se o valor salvo for 'false').
       confirmacao_pagamento: { enabled: (payConfSetting?.value ?? 'true') !== 'false' },
+      // Onda 18.x — ortodontia por ordem de chegada. Default OFF (só liga com 'true').
+      confirmacao_orto: { enabled: confOrtoSetting?.value === 'true' },
+      lembrete_orto_1h: { enabled: ortoRemSetting?.value === 'true' },
     };
   }
 
@@ -277,6 +286,7 @@ export class FollowupService {
       resumo_dentista: 'Resumo do dentista',
       agendamento_criado: 'Consulta agendada',
       agendamento_remarcado: 'Consulta remarcada',
+      orto_reminder: 'Lembrete de ortodontia (portões)',
     };
 
     const rows: DisparoRow[] = [];
@@ -419,6 +429,20 @@ export class FollowupService {
       case 'boleto_atraso_15d':
       case 'boleto_atraso_30d': {
         const key = `${which.toUpperCase()}_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Onda 18.x — ortodontia por ordem de chegada. Cada um numa key boolean
+      // própria; o worker (scheduler/dispatcher/orto-reminder) lê exatamente estas.
+      case 'confirmacao_orto': {
+        const key = `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      case 'lembrete_orto_1h': {
+        const key = `APPOINTMENT_ORTO_REMINDER_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

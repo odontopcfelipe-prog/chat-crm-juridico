@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
-import { formatTenantAddress } from '@crm/shared';
+import { formatTenantAddress, DEFAULT_CONFIRMACAO_ORTO } from '@crm/shared';
 
 /**
  * Cron horario que cria AppointmentConfirmation pendente para
@@ -35,9 +35,12 @@ export class AppointmentConfirmationSchedulerService {
       // Onda 17.61 — TODOS os atendimentos com paciente (CONSULTA + PROCEDIMENTO +
       // RETORNO), AGENDADO, em 24-25h. Antes era so CONSULTA — procedimento/retorno
       // nao recebiam a confirmacao de agendamento.
+      // Onda 18.x — + ORTODONTIA: eventos de orto TAMBÉM recebem confirmação. Se a
+      // confirmação de orto estiver LIGADA, usam o texto de orto (ordem de chegada);
+      // se DESLIGADA, caem na confirmação NORMAL (original).
       const eligible = await this.prisma.calendarEvent.findMany({
         where: {
-          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'] },
+          type: { in: ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'] },
           status: 'AGENDADO',
           patient_id: { not: null },
           start_at: { gte: in24h, lt: in25h },
@@ -45,6 +48,7 @@ export class AppointmentConfirmationSchedulerService {
         select: {
           id: true,
           tenant_id: true,
+          type: true,
           title: true,
           start_at: true,
           location: true,
@@ -63,6 +67,9 @@ export class AppointmentConfirmationSchedulerService {
       const templateByTenant = new Map<string, string>();
       // Onda 17.57 — cache do endereço da clínica por tenant (fallback do {local})
       const addressByTenant = new Map<string, string>();
+      // Onda 18.x — caches do disparo de ORTODONTIA (liga/desliga + texto por tenant)
+      const orthoEnabledByTenant = new Map<string, boolean>();
+      const orthoTemplateByTenant = new Map<string, string>();
       const DEFAULT_TPL =
         'Oi {nome}, tudo bem? 😊\n\nAqui é pra confirmar seu atendimento com {dentista} amanhã, *{data}* às *{hora}*.\n{local_line}\nPosso confirmar sua presença? 🙂 Qualquer imprevisto, me avisa que a gente ajeita um novo horário.';
 
@@ -75,6 +82,7 @@ export class AppointmentConfirmationSchedulerService {
         // Onda 17.49 — respeita o toggle "Confirmação" (default LIGADO): nao cria
         // a confirmacao se o tenant desligou no painel Operacional.
         const tid = ev.tenant_id || '';
+        const isOrtho = ev.type === 'ORTODONTIA';
         let confEnabled = enabledByTenant.get(tid);
         if (confEnabled === undefined) {
           const s = await this.prisma.globalSetting.findUnique({
@@ -83,7 +91,29 @@ export class AppointmentConfirmationSchedulerService {
           confEnabled = (s?.value ?? 'true') !== 'false';
           enabledByTenant.set(tid, confEnabled);
         }
-        if (!confEnabled) { skipped++; continue; }
+
+        // Onda 18.x — confirmação de ORTODONTIA (default DESLIGADA). Só carrega pra
+        // eventos de orto. Regra: orto LIGADA → usa o texto de orto (ordem de
+        // chegada); orto DESLIGADA → o evento de orto cai na confirmação NORMAL
+        // (gated pelo toggle principal, como qualquer outro tipo).
+        let orthoEnabled = false;
+        if (isOrtho) {
+          const cached = orthoEnabledByTenant.get(tid);
+          if (cached === undefined) {
+            const s = await this.prisma.globalSetting.findUnique({
+              where: { key: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tid}` },
+            });
+            orthoEnabled = s?.value === 'true';
+            orthoEnabledByTenant.set(tid, orthoEnabled);
+          } else {
+            orthoEnabled = cached;
+          }
+        }
+        const useOrthoTpl = isOrtho && orthoEnabled;
+        // Passa se: não-orto → toggle principal; orto → orto-on OU principal-on
+        // (orto desligada não deixa o paciente sem confirmação — cai na original).
+        const allowed = isOrtho ? (orthoEnabled || confEnabled) : confEnabled;
+        if (!allowed) { skipped++; continue; }
 
         // Onda 17.60 — dedup só contra a CONFIRMAÇÃO de 48h (>= 2880 min). Antes era
         // qualquer lembrete >=12h, mas os lembretes (1d/1h/15min) viraram puro lembrete
@@ -122,22 +152,42 @@ export class AppointmentConfirmationSchedulerService {
           month: '2-digit',
         });
 
-        // Onda 17.56 — usa o template editável do tenant (cache por tenant)
+        // Onda 17.56 — usa o template editável do tenant (cache por tenant).
+        // Onda 18.x — se for orto COM a confirmação de orto ligada, usa o texto de
+        // orto (APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE); senão, o template normal.
         let tpl: string;
-        const cachedTpl = templateByTenant.get(tid);
-        if (cachedTpl !== undefined) {
-          tpl = cachedTpl;
+        if (useOrthoTpl) {
+          const cachedOrtho = orthoTemplateByTenant.get(tid);
+          if (cachedOrtho !== undefined) {
+            tpl = cachedOrtho;
+          } else {
+            const ts = await this.prisma.globalSetting.findUnique({
+              where: { key: `APPOINTMENT_CONFIRMATION_ORTO_TEMPLATE_${tid}` },
+            });
+            let parsed: any = null;
+            try { parsed = ts?.value ? JSON.parse(ts.value) : null; } catch { parsed = null; }
+            tpl =
+              parsed && typeof parsed.template === 'string' && parsed.template.trim()
+                ? String(parsed.template)
+                : DEFAULT_CONFIRMACAO_ORTO;
+            orthoTemplateByTenant.set(tid, tpl);
+          }
         } else {
-          const ts = await this.prisma.globalSetting.findUnique({
-            where: { key: `APPOINTMENT_CONFIRMATION_TEMPLATE_${tid}` },
-          });
-          let parsed: any = null;
-          try { parsed = ts?.value ? JSON.parse(ts.value) : null; } catch { parsed = null; }
-          tpl =
-            parsed && typeof parsed.template === 'string' && parsed.template.trim()
-              ? String(parsed.template)
-              : DEFAULT_TPL;
-          templateByTenant.set(tid, tpl);
+          const cachedTpl = templateByTenant.get(tid);
+          if (cachedTpl !== undefined) {
+            tpl = cachedTpl;
+          } else {
+            const ts = await this.prisma.globalSetting.findUnique({
+              where: { key: `APPOINTMENT_CONFIRMATION_TEMPLATE_${tid}` },
+            });
+            let parsed: any = null;
+            try { parsed = ts?.value ? JSON.parse(ts.value) : null; } catch { parsed = null; }
+            tpl =
+              parsed && typeof parsed.template === 'string' && parsed.template.trim()
+                ? String(parsed.template)
+                : DEFAULT_TPL;
+            templateByTenant.set(tid, tpl);
+          }
         }
 
         // Onda 17.57 — {local} = local do evento OU endereço cadastrado da clínica.

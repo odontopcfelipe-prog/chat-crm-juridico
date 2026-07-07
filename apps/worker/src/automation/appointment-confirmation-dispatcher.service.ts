@@ -47,6 +47,7 @@ export class AppointmentConfirmationDispatcherService {
             select: {
               id: true,
               tenant_id: true,
+              type: true,
               start_at: true,
               patient: { select: { id: true, name: true, phone: true } },
             },
@@ -67,6 +68,8 @@ export class AppointmentConfirmationDispatcherService {
       const instanceByTenant = new Map<string, string | null>();
       // Onda 17.49 — cache do liga/desliga da confirmacao por tenant
       const enabledByTenant = new Map<string, boolean>();
+      // Onda 18.x — cache do liga/desliga da confirmação de ORTODONTIA por tenant
+      const orthoEnabledByTenant = new Map<string, boolean>();
 
       let sent = 0;
       let failed = 0;
@@ -93,7 +96,26 @@ export class AppointmentConfirmationDispatcherService {
           confEnabled = (s?.value ?? 'true') !== 'false';
           enabledByTenant.set(tenantId, confEnabled);
         }
-        if (!confEnabled) { skipped++; continue; }
+        // Onda 18.x — espelha o gate do scheduler: eventos de ORTODONTIA passam se a
+        // confirmação de orto (default OFF) OU a principal estiverem ligadas. Assim a
+        // confirmação de orto sai mesmo com a principal desligada (cada uma na sua),
+        // e a confirmação normal continua honrando só o toggle principal.
+        const isOrtho = c.appointment?.type === 'ORTODONTIA';
+        let orthoEnabled = false;
+        if (isOrtho) {
+          const cached = orthoEnabledByTenant.get(tenantId);
+          if (cached === undefined) {
+            const s = await this.prisma.globalSetting.findUnique({
+              where: { key: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tenantId}` },
+            });
+            orthoEnabled = s?.value === 'true';
+            orthoEnabledByTenant.set(tenantId, orthoEnabled);
+          } else {
+            orthoEnabled = cached;
+          }
+        }
+        const allowed = isOrtho ? (orthoEnabled || confEnabled) : confEnabled;
+        if (!allowed) { skipped++; continue; }
 
         // Resolve instance do tenant
         let instance = instanceByTenant.get(tenantId);

@@ -447,6 +447,30 @@ export class CalendarController {
     return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Confirmação de ORTODONTIA (Onda 18.x) — por ordem de chegada ─────
+  @Get('appointment-confirmation-orto/config')
+  getAppointmentConfirmationOrtoConfig(@Request() req: any) {
+    return this.calendarService.getAppointmentConfirmationOrtoConfig(req.user?.tenant_id);
+  }
+
+  @Put('appointment-confirmation-orto/config')
+  @Roles('ADMIN')
+  setAppointmentConfirmationOrtoConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setAppointmentConfirmationOrtoConfig(req.user?.tenant_id, body);
+  }
+
+  // ─── Lembrete de ORTODONTIA · ~1h antes (portões) — Onda 18.x ─────────
+  @Get('appointment-orto-reminder/config')
+  getAppointmentOrtoReminderConfig(@Request() req: any) {
+    return this.calendarService.getAppointmentOrtoReminderConfig(req.user?.tenant_id);
+  }
+
+  @Put('appointment-orto-reminder/config')
+  @Roles('ADMIN')
+  setAppointmentOrtoReminderConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setAppointmentOrtoReminderConfig(req.user?.tenant_id, body);
+  }
+
   // ─── Re-agendamento (Onda 17.59) — mensagem editável ──────────────────
   @Get('appointment-rescheduled/config')
   getAppointmentRescheduledConfig(@Request() req: any) {

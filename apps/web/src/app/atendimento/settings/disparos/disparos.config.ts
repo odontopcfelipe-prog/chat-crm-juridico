@@ -42,7 +42,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -51,7 +51,9 @@ export type OperacionalKey =
   | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d'
   // Onda 18.28 — confirmação de pagamento (por EVENTO: webhook do Asaas quando cai
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
-  | 'confirmacao_pagamento';
+  | 'confirmacao_pagamento'
+  // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
+  | 'confirmacao_orto' | 'lembrete_orto_1h';
 
 export interface DisparoItem {
   id: string;
@@ -76,6 +78,14 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'confirmacao', nome: 'Confirmação de agendamento', categoria: 'agendamento',
     gatilho: 'Assim que marca o horário', canal: 'WhatsApp', tags: ['Template'],
     editor: 'confirmacao', operacionalKey: 'confirmacao' },
+  // Onda 18.x — ORTODONTIA por ordem de chegada (OPT-IN). A confirmação de orto só
+  // muda a mensagem dos eventos ORTODONTIA; desligada, orto cai na confirmação normal.
+  { id: 'confirmacao_orto', nome: 'Confirmação de ortodontia (ordem de chegada)', categoria: 'agendamento',
+    gatilho: '~24h antes · só ortodontia · avisa que é por ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    editor: 'confirmacao_orto', operacionalKey: 'confirmacao_orto' },
+  { id: 'lembrete_orto_1h', nome: 'Lembrete de ortodontia · 1h antes (portões)', categoria: 'agendamento',
+    gatilho: '~1h antes de abrir os portões · só ortodontia', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    editor: 'orto_reminder', operacionalKey: 'lembrete_orto_1h' },
   { id: 'confirmacao_48h', nome: 'Confirmação de presença · 48h antes', categoria: 'agendamento',
     gatilho: '48h antes · pede pra confirmar (responde no WhatsApp)', canal: 'WhatsApp', tags: ['Template', 'Confirma'],
     editor: 'reminders', antecedenciaMin: 2880 },

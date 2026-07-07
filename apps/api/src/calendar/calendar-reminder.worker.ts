@@ -544,7 +544,43 @@ export class CalendarReminderWorker extends WorkerHost {
     // Onda 5e v17: ANTES era `if (isAudiencia && ...)` — bug critico que excluia
     // CONSULTA odonto (paciente nunca recebia lembrete!). Agora envia pra
     // qualquer evento com lead.phone, usando template apropriado por tipo.
-    const shouldNotifyClient = (isAudiencia || isClinical) && event.lead?.phone;
+    //
+    // Onda 18.x — ORTODONTIA por ordem de chegada: se a clínica LIGOU os disparos
+    // dedicados de ortô, o lembrete GENÉRICO ao paciente naquela faixa DUPLICARIA a
+    // mensagem — então suprime o lembrete genérico do CLIENTE nessa faixa (o disparo
+    // de ortô cobre). Mapa: faixa ~24h (1440–2879min) ↔ confirmação de ortô; faixa
+    // same-day (<1440) ↔ lembrete de ortô (portões). A faixa 48h (>=2880, pedido de
+    // confirmação) e o lembrete do DENTISTA (acima) NÃO são afetados.
+    let suppressOrtoClient = false;
+    if (event.type === 'ORTODONTIA' && event.tenant_id && minutesBefore < 2880) {
+      const ortoKey =
+        minutesBefore >= 1440
+          ? `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${event.tenant_id}`
+          : `APPOINTMENT_ORTO_REMINDER_ENABLED_${event.tenant_id}`;
+      const ortoSetting = await this.prisma.globalSetting
+        .findUnique({ where: { key: ortoKey } })
+        .catch(() => null);
+      suppressOrtoClient = ortoSetting?.value === 'true';
+      // Faixa ~24h: só suprime se a confirmação de ortô REALMENTE vai disparar. O
+      // scheduler PULA a confirmação (AppointmentConfirmation) quando existe um
+      // lembrete de 48h (>=2880) NÃO enviado — ele "confia" que o de 48h confirma.
+      // Se suprimíssemos o de 24h nesse caso e o de 48h falhasse, o paciente
+      // ficaria SEM NADA. Então espelha o predicado do scheduler: com 48h pendente,
+      // NÃO suprime o lembrete de 24h (rede de segurança).
+      if (suppressOrtoClient && minutesBefore >= 1440) {
+        const pending48h = await this.prisma.eventReminder
+          .findFirst({
+            where: { event_id: event.id, channel: 'WHATSAPP', sent_at: null, minutes_before: { gte: 2880 } },
+            select: { id: true },
+          })
+          .catch(() => null);
+        if (pending48h) suppressOrtoClient = false;
+      }
+      if (suppressOrtoClient) {
+        this.logger.log(`[REMINDER] ORTODONTIA ${event.id} (${minutesBefore}min) — lembrete genérico do paciente suprimido (disparo de ortô ativo cobre a faixa)`);
+      }
+    }
+    const shouldNotifyClient = (isAudiencia || isClinical) && event.lead?.phone && !suppressOrtoClient;
     if (shouldNotifyClient) {
       const clientPhone = event.lead.phone.replace(/\D/g, '');
       // Onda 17.60 — cada disparo é EXPLÍCITO (você liga o que quer): a CONFIRMAÇÃO
