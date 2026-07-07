@@ -234,16 +234,25 @@ function whatsappLink(phone: string, message: string): string {
 /* ──────────────────────────────────────────────────────────────
    KPI Card
 ────────────────────────────────────────────────────────────── */
-function KpiCard({ icon: Icon, label, value, color, bgColor, hint }: {
-  icon: any; label: string; value: string; color: string; bgColor: string; hint?: string;
+function KpiCard({ icon: Icon, label, value, color, bgColor, hint, onClick }: {
+  icon: any; label: string; value: string; color: string; bgColor: string; hint?: string; onClick?: () => void;
 }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4" title={hint}>
+    <div
+      className={`bg-card border border-border rounded-xl p-4 text-left w-full ${onClick ? 'cursor-pointer hover:border-emerald-500/40 hover:shadow-sm transition' : ''}`}
+      title={hint}
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } } : undefined}
+    >
       <div className={`w-8 h-8 rounded-lg ${bgColor} flex items-center justify-center mb-2`}>
         <Icon size={16} className={color} />
       </div>
       <p className={`text-xl font-bold ${color} tabular-nums`}>{value}</p>
-      <p className="text-xs text-muted-foreground mt-0.5 font-semibold uppercase tracking-wide">{label}</p>
+      <p className="text-xs text-muted-foreground mt-0.5 font-semibold uppercase tracking-wide">
+        {label}{onClick && <span className="text-emerald-500 ml-1 normal-case tracking-normal">· abrir →</span>}
+      </p>
     </div>
   );
 }
@@ -1231,7 +1240,8 @@ export default function FinanceiroPage() {
                 value={fmt(dashboard?.entrada_do_dia?.value ?? 0)}
                 color="text-emerald-400"
                 bgColor="bg-emerald-500/15"
-                hint="Resumo do caixa: total que entrou HOJE (dinheiro, cartão, PIX, boleto/online). Sempre a posição de hoje."
+                hint="Resumo do caixa: total que entrou HOJE. Clique para abrir o Caixa e ver o detalhe."
+                onClick={() => router.push('/atendimento/caixa')}
               />
               <KpiCard
                 icon={Clock}
