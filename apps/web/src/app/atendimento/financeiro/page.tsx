@@ -1227,11 +1227,11 @@ export default function FinanceiroPage() {
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
               <KpiCard
                 icon={DollarSign}
-                label={dashboard ? `Recebido (${dashboard.recebido_no_periodo.count})` : 'Recebido'}
-                value={fmt(dashboard?.recebido_no_periodo.value ?? summary.totalRevenue)}
+                label={dashboard ? `Entrada do dia (${dashboard.entrada_do_dia?.count ?? 0})` : 'Entrada do dia'}
+                value={fmt(dashboard?.entrada_do_dia?.value ?? 0)}
                 color="text-emerald-400"
                 bgColor="bg-emerald-500/15"
-                hint="Cobranças de pacientes recebidas (Asaas + espécie) no período selecionado"
+                hint="Resumo do caixa: total que entrou HOJE (dinheiro, cartão, PIX, boleto/online). Sempre a posição de hoje."
               />
               <KpiCard
                 icon={Clock}
@@ -1263,9 +1263,9 @@ export default function FinanceiroPage() {
               />
             </div>
             <p className="text-[11px] text-muted-foreground -mt-2 px-0.5">
-              <span className="font-semibold text-emerald-400/90">Recebido</span> segue o período selecionado.{' '}
+              <span className="font-semibold text-emerald-400/90">Entrada do dia</span> é o resumo do caixa de hoje.{' '}
               <span className="font-semibold">A receber</span>, <span className="font-semibold">Atrasado</span> e{' '}
-              <span className="font-semibold">Vencem 7d</span> mostram sempre a posição de hoje.
+              <span className="font-semibold">Vencem 7d</span> mostram a posição de hoje.
             </p>
 
             {/* Onda 18.x — removidos "Taxa de realização", "Inadimplência por faixa"
