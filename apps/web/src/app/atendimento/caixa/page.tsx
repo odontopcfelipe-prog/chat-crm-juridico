@@ -68,6 +68,10 @@ interface Closing {
   opened_by?: { name: string } | null; closed_by?: { name: string } | null; validated_by?: { name: string } | null;
   transactions?: Movement[];
   totals?: Totals;
+  online_total?: string | number | null;
+  day_entradas?: string | number | null;
+  day_saidas?: string | number | null;
+  day_saldo?: string | number | null;
 }
 interface Totals { by: { cash: number; card: number; pix: number; transfer: number; gateway: number }; entradas: number; saidas: number; saldo: number }
 interface TodayData { cash_date: string; closing: Closing | null; accounts: Account[]; movements: Movement[]; totals: Totals }
@@ -523,6 +527,26 @@ function ClosingDetail({ closing, canValidate, canOperate, onBack, onChanged }: 
             ))}
           </tbody>
         </table>
+        <p className="px-4 py-2.5 text-[11px] text-slate-400 border-t border-slate-100">Conferência do que se conta na mão (gaveta / maquineta / PIX na chave).</p>
+      </div>
+
+      {/* Etapa 2 — dia completo: online + total */}
+      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 space-y-2.5">
+        {Number(closing.online_total) > 0 && (
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-slate-600 flex items-center gap-1.5"><Landmark className="w-4 h-4 text-sky-500" /> Recebido online <span className="text-slate-400 text-xs">(boleto/Asaas — concilia c/ extrato)</span></span>
+            <span className="font-bold text-slate-700 tabular-nums">{brl(closing.online_total)}</span>
+          </div>
+        )}
+        {Number(closing.day_saidas) > 0 && (
+          <div className="flex items-center justify-between text-xs text-rose-500">
+            <span>Saídas do dia</span><span className="tabular-nums">− {brl(closing.day_saidas)}</span>
+          </div>
+        )}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+          <span className="font-semibold text-slate-700 text-sm">Total que entrou no dia</span>
+          <span className="font-extrabold text-emerald-700 tabular-nums text-lg">{brl(closing.day_entradas ?? 0)}</span>
+        </div>
       </div>
 
       {closing.closing_notes && <p className="text-sm text-slate-500"><b>Obs. da recepção:</b> {closing.closing_notes}</p>}

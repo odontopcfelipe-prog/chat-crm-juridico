@@ -371,11 +371,15 @@ export class CaixaService {
     if (!c || c.tenant_id !== tenantId) throw new NotFoundException('Fechamento nao encontrado');
     const { startUTC, endUTC } = this.windowFor(c.cash_date);
     const movements = await this.dayMovements(tenantId, startUTC, endUTC);
-    const { by } = this.summarize(movements as any);
+    const s = this.summarize(movements as any);
     return {
       ...c,
       // esperado ao vivo (o gravado fica como snapshot histórico interno)
-      expected_cash: by.cash, expected_card: by.card, expected_pix: by.pix, expected_transfer: by.transfer,
+      expected_cash: s.by.cash, expected_card: s.by.card, expected_pix: s.by.pix, expected_transfer: s.by.transfer,
+      // Etapa 2 — dia COMPLETO: recebido online (boleto/Asaas, concilia com extrato,
+      // fora da conferência física) + o total do dia inteiro.
+      online_total: s.by.gateway,
+      day_entradas: s.entradas, day_saidas: s.saidas, day_saldo: s.saldo,
       transactions: movements,
     };
   }
