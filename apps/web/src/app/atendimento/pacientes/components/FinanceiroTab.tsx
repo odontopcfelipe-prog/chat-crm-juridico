@@ -933,13 +933,19 @@ function ProposalFinancialCard({
 
   // Constrói lista de parcelas (combinando charges 1x + sub_installments de parcelas)
   const parcelas: ParcelaItem[] = useMemo(() => {
-    const list: ParcelaItem[] = [];
+    const raw: ParcelaItem[] = [];
     for (const c of relatedCharges) {
+      // Onda 18.x — cobrança CANCELADA (DELETED/REFUNDED/CANCELLED) NÃO conta e NÃO
+      // é expandida. Um parent cancelado localmente (contrato revertido/reaprovado,
+      // ex.: #016) tinha as FILHAS do Asaas — ainda PENDENTES — somadas no total do
+      // card, estourando "venda + juros" (ex.: R$ 304.803 num contrato de R$ 12.530).
+      // O KPI de cima já pula as canceladas; o card passa a fazer igual.
+      if (c.status === 'DELETED' || c.status === 'REFUNDED' || c.status === 'CANCELLED') continue;
       const subs = subInstallmentsByCharge[c.id];
       if (subs && subs.length > 0) {
         // Parcelada: usa as filhas. chargeId = id da mae (resend reenvia a mae).
         for (const s of subs) {
-          list.push({
+          raw.push({
             chargeId: c.id,
             asaasId: s.external_id,
             number: s.installment_number,
@@ -962,7 +968,7 @@ function ProposalFinancialCard({
         // do sort (o installmentNumber do Asaas às vezes vem 1 pra TODAS, o que
         // gerava "Parcela 1 de 24" repetido).
         const isInstallment = c.kind === 'INSTALLMENT';
-        list.push({
+        raw.push({
           chargeId: c.id,
           asaasId: c.external_id,
           number: isInstallment ? 0 : 1,
@@ -979,6 +985,17 @@ function ProposalFinancialCard({
         });
       }
     }
+    // Onda 18.x — de-dup por asaasId (external_id): a MESMA parcela do Asaas pode
+    // ser puxada por mais de um parent que aponta pro MESMO plano de parcelamento
+    // (installment), sendo contada em duplicidade. Entradas sem asaasId (raras)
+    // são mantidas.
+    const seenAsaas = new Set<string>();
+    const list = raw.filter((p) => {
+      if (!p.asaasId) return true;
+      if (seenAsaas.has(p.asaasId)) return false;
+      seenAsaas.add(p.asaasId);
+      return true;
+    });
     // Onda 17.32.45 — Ordenacao logica em camadas:
     //  1. KIND: Sinal -> Entrada -> Parcelas (operador ve o "começo" do
     //     contrato no topo, parcelas longas embaixo).
