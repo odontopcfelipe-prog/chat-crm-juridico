@@ -22,6 +22,7 @@ const TYPE_LABEL: Record<string, string> = {
   PRAZO: 'Prazo',
   TAREFA: 'Tarefa',
   CONSULTA: 'Consulta',
+  ORTODONTIA: 'Ortodontia',
   OUTRO: 'Evento',
 };
 
@@ -31,6 +32,7 @@ const TYPE_EMOJI: Record<string, string> = {
   PRAZO: '⏰',
   TAREFA: '✅',
   CONSULTA: '🟣',
+  ORTODONTIA: '😁',
   OUTRO: '📅',
 };
 
@@ -509,7 +511,7 @@ export class CalendarReminderWorker extends WorkerHost {
     // Onda 17.61 — lembretes pra TODOS os atendimentos da agenda: CONSULTA +
     // PROCEDIMENTO + RETORNO (igual ao isClinicalEvent do backend). Bloqueio/
     // tarefa/outro não têm paciente pra lembrar.
-    const isClinical = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(event.type);
+    const isClinical = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'].includes(event.type);
 
     // Carrega contexto adicional do cliente (memória)
     // STUBBED: LegalCase/DjenPublication/FichaTrabalhista removidos Fase 0.2

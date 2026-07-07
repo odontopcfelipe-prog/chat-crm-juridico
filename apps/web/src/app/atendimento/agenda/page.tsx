@@ -93,6 +93,7 @@ const EVENT_TYPES = [
   { id: 'CONSULTA', label: 'Consulta', emoji: '🟣', color: '#8b5cf6' },
   { id: 'PROCEDIMENTO', label: 'Procedimento', emoji: '🦷', color: '#14b8a6' },
   { id: 'RETORNO', label: 'Retorno', emoji: '🔁', color: '#0ea5e9' },
+  { id: 'ORTODONTIA', label: 'Ortodontia', emoji: '😁', color: '#ec4899' },
   { id: 'BLOQUEIO', label: 'Bloqueio', emoji: '🚫', color: '#f59e0b' },
   { id: 'TAREFA', label: 'Tarefa', emoji: '🟢', color: '#22c55e' },
   { id: 'OUTRO', label: 'Outro', emoji: '⚪', color: '#6b7280' },
@@ -113,6 +114,7 @@ const LEGEND_STATUS = [
 const LEGEND_TYPE = [
   { label: 'Procedimento', color: '#14b8a6' },
   { label: 'Retorno', color: '#0ea5e9' },
+  { label: 'Ortodontia', color: '#ec4899' },
   { label: 'Bloqueio', color: '#dc2626' },
   { label: 'Tarefa', color: '#22c55e' },
 ] as const;
@@ -1069,6 +1071,11 @@ export default function AgendaPage() {
         colorName: 'retorno',
         lightColors: { main: '#0ea5e9', container: '#e0f2fe', onContainer: '#0c4a6e' },
         darkColors:  { main: '#0ea5e9', container: '#0c4a6e', onContainer: '#e0f2fe' },
+      },
+      ORTODONTIA: {
+        colorName: 'ortodontia',
+        lightColors: { main: '#ec4899', container: '#fce7f3', onContainer: '#831843' },
+        darkColors:  { main: '#ec4899', container: '#831843', onContainer: '#fce7f3' },
       },
       // v11: BLOQUEIO em vermelho semantico — alinha com botao "Bloquear"
       // do header e com a UX de "isso impede agendamentos"

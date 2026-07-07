@@ -14,7 +14,7 @@ import { Type } from 'class-transformer';
 // AUDIENCIA/PERICIA/PRAZO sao mantidos por compat com dados antigos do
 // CRM juridico — sao validos no DTO mas nao aparecem no front novo.
 const EVENT_TYPES = [
-  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
+  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA', 'BLOQUEIO', 'TAREFA', 'OUTRO',
   'AUDIENCIA', 'PERICIA', 'PRAZO',
 ] as const;
 // Onda 17.61 — mantém em sincronia com calendar.service.ts (fluxo de recepção):

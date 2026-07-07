@@ -65,6 +65,7 @@ const TYPE_LABEL: Record<string, string> = {
   CONSULTA: 'Consulta',
   PROCEDIMENTO: 'Procedimento',
   RETORNO: 'Retorno',
+  ORTODONTIA: 'Ortodontia',
   BLOQUEIO: 'Bloqueio',
   TAREFA: 'Tarefa',
   OUTRO: 'Outro',
@@ -234,7 +235,7 @@ export function AgendaListView({
                 // Atender so faz sentido em evento clinico com paciente vinculado.
                 // Bloqueio/tarefa nao tem ficha pra abrir.
                 const canAttend = !!ev.patient_id && !isCancelled
-                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(ev.type);
+                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'].includes(ev.type);
 
                 return (
                   <div

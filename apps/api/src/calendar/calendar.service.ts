@@ -16,7 +16,7 @@ import type { LeadsService } from '../leads/leads.service';
 // AUDIENCIA/PERICIA/PRAZO mantidos por compat com dados antigos do CRM
 // juridico (eventos legados ainda existem no banco e precisam editar/deletar).
 const EVENT_TYPES = [
-  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'BLOQUEIO', 'TAREFA', 'OUTRO',
+  'CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA', 'BLOQUEIO', 'TAREFA', 'OUTRO',
   'AUDIENCIA', 'PERICIA', 'PRAZO',
 ] as const;
 // Onda 17.61 — fluxo de recepção mais rico: + COMPARECEU (paciente chegou),
@@ -3216,7 +3216,7 @@ export class CalendarService {
 
   /** Tipos de evento que contam como "visita do paciente" */
   private isClinicalEvent(type: string): boolean {
-    return ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(type);
+    return ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'].includes(type);
   }
 
   /**
