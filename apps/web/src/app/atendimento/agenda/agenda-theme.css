@@ -159,13 +159,16 @@
  * pra vencer as cores do schedule-x. Cores iguais às do dropdown de Status
  * (EVENT_STATUSES). Agendado = rosa (não confirmado), convenção Dental Office.
  */
-.sx-react-calendar-wrapper .sx__event.ag-status-agendado       { background-color: color-mix(in srgb, #E91E63 18%, transparent) !important; border-left: 4px solid #E91E63 !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-confirmado     { background-color: color-mix(in srgb, #22c55e 24%, transparent) !important; border-left: 4px solid #22c55e !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-compareceu     { background-color: color-mix(in srgb, #0ea5e9 24%, transparent) !important; border-left: 4px solid #0ea5e9 !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f97316 24%, transparent) !important; border-left: 4px solid #f97316 !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-concluido      { background-color: color-mix(in srgb, #15803d 20%, transparent) !important; border-left: 4px solid #15803d !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-cancelado      { background-color: color-mix(in srgb, #eab308 26%, transparent) !important; border-left: 4px solid #eab308 !important; }
-.sx-react-calendar-wrapper .sx__event.ag-status-no_show        { background-color: color-mix(in srgb, #991b1b 22%, transparent) !important; border-left: 4px solid #991b1b !important; }
+/* Redesign etapa 3 — fundo = status (tinta) + borda FINA e completa do status.
+   A barra grossa à esquerda deixou de ser o status: agora ela é o DENTISTA
+   (desenhada no card via _customContent, .ag-bar). */
+.sx-react-calendar-wrapper .sx__event.ag-status-agendado       { background-color: color-mix(in srgb, #E91E63 15%, transparent) !important; border: 1px solid color-mix(in srgb, #E91E63 34%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-confirmado     { background-color: color-mix(in srgb, #22c55e 20%, transparent) !important; border: 1px solid color-mix(in srgb, #22c55e 38%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-compareceu     { background-color: color-mix(in srgb, #0ea5e9 20%, transparent) !important; border: 1px solid color-mix(in srgb, #0ea5e9 38%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento { background-color: color-mix(in srgb, #f97316 20%, transparent) !important; border: 1px solid color-mix(in srgb, #f97316 38%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-concluido      { background-color: color-mix(in srgb, #15803d 17%, transparent) !important; border: 1px solid color-mix(in srgb, #15803d 34%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-cancelado      { background-color: color-mix(in srgb, #eab308 22%, transparent) !important; border: 1px solid color-mix(in srgb, #eab308 40%, transparent) !important; }
+.sx-react-calendar-wrapper .sx__event.ag-status-no_show        { background-color: color-mix(in srgb, #991b1b 18%, transparent) !important; border: 1px solid color-mix(in srgb, #991b1b 36%, transparent) !important; }
 
 /**
  * SEPARACAO VISUAL ENTRE EVENTOS CONSECUTIVOS
@@ -492,6 +495,64 @@
 @media (prefers-reduced-motion: reduce) {
   .sx-react-calendar-wrapper .sx__time-grid-event,
   .sx-react-calendar-wrapper .sx__event[class*="ag-status-"] { transition: none !important; }
+}
+
+/* ════════════════════════════════════════════════════════════════════
+ * Redesign etapa 3 (skill agenda-redesign-odonto) — CARD do paciente.
+ * Conteúdo injetado por _customContent.timeGrid (page.tsx). O card ocupa o
+ * inner inteiro; a barra à esquerda é o DENTISTA; o dot + horário usam a cor
+ * do STATUS (inline). Nome do paciente em destaque; procedimento e dentista
+ * secundários. Compacta sozinho em slots curtos (container query).
+ * ════════════════════════════════════════════════════════════════════ */
+.sx-react-calendar-wrapper .sx__time-grid-event.ag-has-card {
+  padding: 0 !important;
+  outline: none !important; /* a borda + sombra já separam cards; sem moldura vazada */
+}
+.sx-react-calendar-wrapper .ag-has-card .sx__time-grid-event-inner { height: 100%; padding: 0; }
+/* o wrapper bare do dangerouslySetInnerHTML preenche a altura (NÃO o resize-handle) */
+.sx-react-calendar-wrapper .ag-has-card .sx__time-grid-event-inner > div:not(.sx__time-grid-event-resize-handle) { height: 100%; }
+/* Card preenche o wrapper (que é position:absolute no schedule-x) — robusto,
+   sem depender da cadeia de height:100% dos divs intermediários. */
+.sx-react-calendar-wrapper .ag-card {
+  position: absolute; inset: 0; overflow: hidden;
+  padding: 4px 6px 4px 11px;
+  container-type: size;
+  font-family: inherit;
+}
+.sx-react-calendar-wrapper .ag-card .ag-bar {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 4px;
+  border-radius: 4px 0 0 4px;
+}
+.sx-react-calendar-wrapper .ag-card .ag-body { display: flex; flex-direction: column; min-width: 0; gap: 0; }
+.sx-react-calendar-wrapper .ag-card .ag-r1 { display: flex; align-items: center; gap: 4px; }
+.sx-react-calendar-wrapper .ag-card .ag-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.sx-react-calendar-wrapper .ag-card .ag-time {
+  font-size: 9.5px; font-weight: 700; letter-spacing: .02em;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.sx-react-calendar-wrapper .ag-card .ag-name {
+  font-size: 11.5px; font-weight: 700; color: inherit; line-height: 1.25;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px;
+}
+.sx-react-calendar-wrapper .ag-card .ag-proc {
+  font-size: 10px; font-weight: 500; color: inherit; opacity: .72;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.2;
+}
+.sx-react-calendar-wrapper .ag-card .ag-dent {
+  display: flex; align-items: center; gap: 3px; margin-top: 1px;
+  font-size: 9px; font-weight: 600; color: inherit; opacity: .6;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.sx-react-calendar-wrapper .ag-card .ag-dent-dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
+/* Slots curtos: esconde procedimento + dentista pra não estourar. */
+@container (max-height: 46px) {
+  .sx-react-calendar-wrapper .ag-card .ag-proc,
+  .sx-react-calendar-wrapper .ag-card .ag-dent { display: none; }
+  .sx-react-calendar-wrapper .ag-card .ag-name { font-size: 10.5px; }
+}
+@container (max-height: 30px) {
+  .sx-react-calendar-wrapper .ag-card { padding-top: 2px; }
+  .sx-react-calendar-wrapper .ag-card .ag-r1 { display: none; }
 }
 .sx-react-calendar-wrapper.is-dark .sx__time-grid-event:hover,
 [data-theme="noturno"] .sx-react-calendar-wrapper .sx__time-grid-event:hover,

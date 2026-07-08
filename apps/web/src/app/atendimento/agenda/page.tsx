@@ -157,6 +157,25 @@ const EVENT_STATUSES = [
 
 // (PRIORITY_COLORS / PRIORITY_LABELS removidos — Prioridade saiu do UI na Onda 17.61.)
 
+// Redesign etapa 3 (skill agenda-redesign-odonto) — CARD de evento no formato da
+// referência via _customContent.timeGrid do schedule-x: barra do dentista à
+// esquerda + linha (dot de status + horário) + NOME DO PACIENTE em destaque +
+// procedimento + dentista. Sem emojis no card (o status vira o DOT colorido).
+// Cor estável por dentista (hash do id → paleta fixa). Escape de HTML no conteúdo.
+const AGENDA_DT_PALETTE = ['#8B5CF6', '#14B8A6', '#F59E0B', '#EC4899', '#3B82F6', '#10B981', '#EF4444', '#6366F1', '#0EA5E9', '#F97316'];
+function agendaDentistColor(id?: string | null): string {
+  if (!id) return '#94A3B8';
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return AGENDA_DT_PALETTE[h % AGENDA_DT_PALETTE.length];
+}
+function agendaEsc(s: unknown): string {
+  return String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
+}
+// Tipos que recebem o card de paciente (os demais — Bloqueio/Tarefa/Outro — mantêm
+// o render padrão do schedule-x).
+const AGENDA_CARD_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+
 const KANBAN_COLUMNS = [
   { id: 'AGENDADO',  label: 'A Fazer',      emoji: '📋', color: '#3b82f6' },
   { id: 'CONFIRMADO', label: 'Em Andamento', emoji: '🔄', color: '#f59e0b' },
@@ -1322,17 +1341,41 @@ export default function AgendaPage() {
             ? `ag-status-${(e.status || 'AGENDADO').toLowerCase()}`
             : '';
 
+          // Redesign etapa 3 — card do paciente (barra dentista + dot status +
+          // horário + nome em destaque + procedimento + dentista). HTML escapado,
+          // injetado via _customContent.timeGrid; o clique/arrastar seguem sendo do
+          // schedule-x. Demais tipos (Bloqueio/Tarefa/Outro) mantêm o render padrão.
+          const isCardType = AGENDA_CARD_TYPES.includes(e.type);
+          let cardHtml = '';
+          if (isCardType) {
+            const timeLabel = `${startLocal.slice(11, 16)} – ${endLocal.slice(11, 16)}`;
+            const stColor = eventAccentColor(e);
+            const dtColor = agendaDentistColor(e.assigned_user?.id);
+            const nm = clientName || e.title;
+            cardHtml =
+              '<div class="ag-card">' +
+                `<span class="ag-bar" style="background:${dtColor}"></span>` +
+                '<div class="ag-body">' +
+                  `<div class="ag-r1"><span class="ag-dot" style="background:${stColor}"></span>` +
+                  `<span class="ag-time" style="color:${stColor}">${agendaEsc(timeLabel)}</span></div>` +
+                  `<div class="ag-name">${agendaEsc(nm)}</div>` +
+                  (clientName ? `<div class="ag-proc">${agendaEsc(e.title)}</div>` : '') +
+                  (e.assigned_user ? `<div class="ag-dent"><span class="ag-dent-dot" style="background:${dtColor}"></span>${agendaEsc(e.assigned_user.name)}</div>` : '') +
+                '</div>' +
+              '</div>';
+          }
+
           return {
             id: e.id,
-            // Onda 17.61: linha 1 = "Paciente — Procedimento" (status + emoji na frente),
-            // linha 2 = dentista. O horário (ex.: 08:30-09:00) o schedule-x já mostra.
+            // title mantido (tooltip dos "Próximos", view de mês, busca, a11y). No
+            // grid semana/dia o _customContent.timeGrid abaixo é que aparece.
             title: `${statusIcon}${typeEmoji ? typeEmoji + ' ' : ''}${headline}${caseTag}${recurringTag}${commentsTag}${dentistTail}`,
             start: startSx,
             end: endSx,
             // Fase 12: cores semanticas Clinicorp para CONSULTA, tipo legado para resto
             calendarId: getSemanticCalendarId(e),
-            _customContent: {},
-            _options: { additionalClasses: [statusClass].filter(Boolean) },
+            _customContent: cardHtml ? { timeGrid: cardHtml } : {},
+            _options: { additionalClasses: [statusClass, isCardType ? 'ag-has-card' : ''].filter(Boolean) },
           };
         });
 
