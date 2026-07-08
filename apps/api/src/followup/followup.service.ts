@@ -102,7 +102,7 @@ export class FollowupService {
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
-      confOrtoSetting, ortoRemSetting,
+      confOrtoSetting, ortoRemSetting, ortoImmSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -124,6 +124,7 @@ export class FollowupService {
       // lembrete de orto ~1h antes (portões).
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_REMINDER_ENABLED_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -259,6 +260,7 @@ export class FollowupService {
       // Onda 18.x — ortodontia por ordem de chegada. Default OFF (só liga com 'true').
       confirmacao_orto: { enabled: confOrtoSetting?.value === 'true' },
       lembrete_orto_1h: { enabled: ortoRemSetting?.value === 'true' },
+      confirmacao_orto_imediata: { enabled: ortoImmSetting?.value === 'true' },
     };
   }
 
@@ -443,6 +445,12 @@ export class FollowupService {
       }
       case 'lembrete_orto_1h': {
         const key = `APPOINTMENT_ORTO_REMINDER_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      case 'confirmacao_orto_imediata': {
+        const key = `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

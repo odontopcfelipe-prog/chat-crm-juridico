@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -59,6 +59,7 @@ interface OperacionalData {
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
+  confirmacao_orto_imediata?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }
@@ -201,10 +202,28 @@ export default function CentralDisparosPage() {
         </button>
         {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} onCurrentTextChange={setLiveText} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
+        {openItem.editor === 'orto_immediate' && (
+          <MensagemEditor
+            titulo="Confirmação de agendamento · Ortodontia (na hora)"
+            descricao="Enviada NA HORA que você marca o agendamento, SÓ para Ortodontia. Avisa que agendou, já dizendo que é por ordem de chegada. Não espera 24h. Use as variáveis abaixo."
+            endpoint="/calendar/appointment-orto-immediate/config"
+            usaLocal
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'dentista', desc: 'Profissional' },
+              { key: 'data', desc: 'Data do atendimento (DD/MM)' },
+              { key: 'hora', desc: 'Horário de abertura (ex.: 14:00)' },
+              { key: 'local', desc: 'Endereço da clínica' },
+            ]}
+            preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '06/05', hora: '14:00' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_ORTO_IMMEDIATE}
+          />
+        )}
         {openItem.editor === 'confirmacao_orto' && (
           <MensagemEditor
-            titulo="Confirmação de ortodontia (ordem de chegada)"
-            descricao="Enviada ~24h antes, SÓ para agendamentos de Ortodontia. Avisa que o atendimento é por ordem de chegada. Se este disparo estiver DESLIGADO, a ortodontia recebe a confirmação normal. Use as variáveis abaixo."
+            titulo="Confirmação de ortodontia · 1 dia antes"
+            descricao="Enviada ~1 dia antes (na véspera), SÓ para agendamentos de Ortodontia. Confirma a presença, lembrando que é por ordem de chegada. Se este disparo estiver DESLIGADO, a ortodontia recebe a confirmação normal. Use as variáveis abaixo."
             endpoint="/calendar/appointment-confirmation-orto/config"
             usaLocal
             variaveis={[

@@ -42,7 +42,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -53,7 +53,7 @@ export type OperacionalKey =
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
   | 'confirmacao_pagamento'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
-  | 'confirmacao_orto' | 'lembrete_orto_1h';
+  | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata';
 
 export interface DisparoItem {
   id: string;
@@ -78,10 +78,15 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'confirmacao', nome: 'Confirmação de agendamento', categoria: 'agendamento',
     gatilho: 'Assim que marca o horário', canal: 'WhatsApp', tags: ['Template'],
     editor: 'confirmacao', operacionalKey: 'confirmacao' },
-  // Onda 18.x — ORTODONTIA por ordem de chegada (OPT-IN). A confirmação de orto só
-  // muda a mensagem dos eventos ORTODONTIA; desligada, orto cai na confirmação normal.
-  { id: 'confirmacao_orto', nome: 'Confirmação de ortodontia (ordem de chegada)', categoria: 'agendamento',
-    gatilho: '~24h antes · só ortodontia · avisa que é por ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+  // Onda 18.x — ORTODONTIA por ordem de chegada (OPT-IN). 3 disparos em ordem
+  // cronológica: ao marcar (imediato) → 1 dia antes → 1h antes (portões). Só valem
+  // pra eventos ORTODONTIA; a confirmação de orto usa o texto de ordem de chegada
+  // (nunca "às {hora}", que contradiz a fila).
+  { id: 'confirmacao_orto_imediata', nome: 'Confirmação de agendamento · Ortodontia (na hora)', categoria: 'agendamento',
+    gatilho: 'Assim que marca o horário · só ortodontia · ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
+    editor: 'orto_immediate', operacionalKey: 'confirmacao_orto_imediata' },
+  { id: 'confirmacao_orto', nome: 'Confirmação de ortodontia · 1 dia antes', categoria: 'agendamento',
+    gatilho: '~24h antes (véspera) · só ortodontia · ordem de chegada', canal: 'WhatsApp', tags: ['Template', 'Ortô'],
     editor: 'confirmacao_orto', operacionalKey: 'confirmacao_orto' },
   { id: 'lembrete_orto_1h', nome: 'Lembrete de ortodontia · 1h antes (portões)', categoria: 'agendamento',
     gatilho: '~1h antes de abrir os portões · só ortodontia', canal: 'WhatsApp', tags: ['Template', 'Ortô'],

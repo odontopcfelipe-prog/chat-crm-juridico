@@ -336,16 +336,26 @@ export class CalendarService {
 
     // Onda 17.32.181 — e-mail automatico "consulta agendada" pro
     // paciente (best-effort; so eventos clinicos com paciente/lead)
-    // Onda 18.x — ORTODONTIA é por ORDEM DE CHEGADA: o aviso imediato "sua consulta
-    // foi agendada para {data} às {hora}" anuncia HORA FIXA, que CONTRADIZ ordem de
-    // chegada — então NÃO é enviado pra eventos de ortô. A ortô fala com o paciente
-    // pelos disparos dedicados (confirmação ~24h "a partir das" + lembrete 1h dos
-    // portões), que a clínica liga na Central quando quiser.
-    if (data.tenant_id && this.isClinicalEvent(event.type) && event.type !== 'ORTODONTIA') {
-      void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
-      // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
-      // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
-      void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+    if (data.tenant_id && this.isClinicalEvent(event.type)) {
+      if (event.type === 'ORTODONTIA') {
+        // Onda 18.x — ortô é por ORDEM DE CHEGADA e tem uma "Confirmação de
+        // agendamento" IMEDIATA própria (texto "a partir das {hora}", sem hora
+        // fixa), OPT-IN (default OFF). Só sai na hora que marca SE o toggle
+        // APPOINTMENT_ORTO_IMMEDIATE_ENABLED estiver ligado na Central. O texto
+        // padrão "agendada às {hora}" NUNCA é usado pra ortô (contradiz ordem de
+        // chegada). Sem e-mail (o disparo de ortô é por WhatsApp).
+        const imm = await this.prisma.globalSetting
+          .findUnique({ where: { key: `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${data.tenant_id}` } })
+          .catch(() => null);
+        if (imm?.value === 'true') {
+          void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+        }
+      } else {
+        void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
+        // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
+        // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
+        void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+      }
     }
 
     // Enqueue WhatsApp + Email reminders (bounded — não trava o create se o Redis pendurar)
@@ -1709,6 +1719,37 @@ export class CalendarService {
     return this.getAppointmentOrtoReminderConfig(tenant_id);
   }
 
+  // ─── Confirmação de agendamento de ORTODONTIA · IMEDIATA (Onda 18.x) ──
+  // Sai NA HORA que marca o agendamento (não espera 24h). Aviso "agendamos pra
+  // você" com ordem de chegada. Liga/desliga em APPOINTMENT_ORTO_IMMEDIATE_ENABLED
+  // (Central); texto em APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE. Aplicado no create().
+  async getAppointmentOrtoImmediateConfig(tenant_id?: string) {
+    const { DEFAULT_ORTO_IMMEDIATE } = await import('@crm/shared');
+    const key = tenant_id ? `APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE_${tenant_id}` : 'APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE';
+    try {
+      const setting = await this.prisma.globalSetting.findUnique({ where: { key } });
+      if (!setting?.value) return { template: DEFAULT_ORTO_IMMEDIATE };
+      const parsed = JSON.parse(setting.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : DEFAULT_ORTO_IMMEDIATE;
+      return { template: tpl };
+    } catch (e) {
+      this.logger.warn(`Falha ao parsear ${key}, usando default: ${(e as any)?.message}`);
+      return { template: DEFAULT_ORTO_IMMEDIATE };
+    }
+  }
+
+  async setAppointmentOrtoImmediateConfig(tenant_id: string | undefined, config: { template?: string }) {
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    }
+    const key = tenant_id ? `APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE_${tenant_id}` : 'APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE';
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE] salvo pra ${key}`);
+    return this.getAppointmentOrtoImmediateConfig(tenant_id);
+  }
+
   // ─── Re-agendamento (Onda 17.59) — mensagem editável ─────────────────
   // Liga/desliga vive em APPOINTMENT_RESCHEDULED_ENABLED (Central). Aqui só o TEXTO,
   // em APPOINTMENT_RESCHEDULED_TEMPLATE_<tenant>. Aplicado em sendAppointmentEventWhatsapp.
@@ -1825,6 +1866,9 @@ export class CalendarService {
         break;
       case 'confirmacao_orto':
         msg = apply((await this.getAppointmentConfirmationOrtoConfig(tenant_id)).template);
+        break;
+      case 'confirmacao_orto_imediata':
+        msg = apply((await this.getAppointmentOrtoImmediateConfig(tenant_id)).template);
         break;
       case 'lembrete_orto_1h':
         msg = apply((await this.getAppointmentOrtoReminderConfig(tenant_id)).template);
@@ -3439,16 +3483,22 @@ export class CalendarService {
           .replace(/\n{3,}/g, '\n\n')
           .trim();
       } else if (event.type === 'ORTODONTIA') {
-        // Onda 18.x — ortô é por ORDEM DE CHEGADA: NÃO promete hora exclusiva
-        // ("às {hora}"); usa "a partir das {hora}". (O aviso AUTOMÁTICO de criação
-        // nem chama isto — é suprimido no create pra ortô; isto cobre o botão
-        // "Notificar" manual e qualquer outro caminho de 'created'.)
-        msg =
-          `Olá ${nome}! 😊\n\n` +
-          `Seu atendimento de *ortodontia*${dentista ? ` com ${dentista}` : ''} foi agendado para *${dateStr}*.\n` +
-          `📌 É *por ordem de chegada*, a partir das *${horaStr}*.\n` +
-          localLine +
-          `\nQualquer dúvida, é só chamar por aqui!`;
+        // Onda 18.x — ortô usa o TEXTO EDITÁVEL da "Confirmação de agendamento de
+        // ortodontia (na hora)" (APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE), que fala "a
+        // partir das {hora}" / ordem de chegada — nunca "às {hora}" (hora fixa
+        // contradiz ordem de chegada). Chamado no create() SÓ quando o toggle está
+        // ligado; cobre também o botão "Notificar" manual.
+        const tpl = (await this.getAppointmentOrtoImmediateConfig(tenantId)).template;
+        msg = tpl
+          .replace(/\{local_line\}/g, localLine)
+          .replace(/\{nome_completo\}/g, name || 'paciente')
+          .replace(/\{nome\}/g, nome)
+          .replace(/\{dentista\}/g, dentista || 'a clínica')
+          .replace(/\{data\}/g, dateStr)
+          .replace(/\{hora\}/g, horaStr)
+          .replace(/\{local\}/g, local || '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
       } else {
         msg =
           `Olá ${nome}! 😊\n\n` +

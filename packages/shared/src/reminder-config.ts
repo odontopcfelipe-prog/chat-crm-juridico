@@ -119,6 +119,20 @@ export const DEFAULT_ORTO_REMINDER =
   '📌 É *por ordem de chegada* — chegue com antecedência pra garantir um bom lugar na fila. Te esperamos! 💙';
 
 /**
+ * Confirmação de agendamento IMEDIATA de ortodontia — sai NA HORA que marca o
+ * agendamento (não espera 24h como a `DEFAULT_CONFIRMACAO_ORTO`). É um aviso de
+ * "agendamos pra você", já deixando claro que é por ordem de chegada (não promete
+ * hora exclusiva). Persistida em APPOINTMENT_ORTO_IMMEDIATE_TEMPLATE_<tenant> /
+ * _ENABLED_<tenant>, aplicada no `create()` do CalendarEvent. OPT-IN (default OFF).
+ */
+export const DEFAULT_ORTO_IMMEDIATE =
+  'Olá {nome}! 😊\n\n' +
+  'Agendamos seu atendimento de *ortodontia* com {dentista} para *{data}*.\n' +
+  '📌 É *por ordem de chegada*, a partir das *{hora}*.\n' +
+  '{local_line}\n' +
+  'Qualquer dúvida, é só chamar por aqui!';
+
+/**
  * Aplica substituicao de variaveis num template.
  * {chave} eh substituido pelo valor de vars[chave]; ausentes ficam vazios.
  *

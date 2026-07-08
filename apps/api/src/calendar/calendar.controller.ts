@@ -471,6 +471,18 @@ export class CalendarController {
     return this.calendarService.setAppointmentOrtoReminderConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Confirmação de agendamento de ORTODONTIA · IMEDIATA (Onda 18.x) ──
+  @Get('appointment-orto-immediate/config')
+  getAppointmentOrtoImmediateConfig(@Request() req: any) {
+    return this.calendarService.getAppointmentOrtoImmediateConfig(req.user?.tenant_id);
+  }
+
+  @Put('appointment-orto-immediate/config')
+  @Roles('ADMIN')
+  setAppointmentOrtoImmediateConfig(@Body() body: any, @Request() req: any) {
+    return this.calendarService.setAppointmentOrtoImmediateConfig(req.user?.tenant_id, body);
+  }
+
   // ─── Re-agendamento (Onda 17.59) — mensagem editável ──────────────────
   @Get('appointment-rescheduled/config')
   getAppointmentRescheduledConfig(@Request() req: any) {
