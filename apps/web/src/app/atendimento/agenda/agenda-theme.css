@@ -462,17 +462,36 @@
  * gridHeight). Cards mais suaves + hover, dias mais legíveis, header limpo.
  * ════════════════════════════════════════════════════════════════════ */
 
-/* Cards de evento: cantos mais suaves + sombra de "card" + hover sutil.
-   Mantém o outline de separação e o padding já tunados (regras acima). */
+/* Cards de evento: cantos mais suaves + sombra de "card" flutuante + hover.
+   Mantém o outline de separação e o padding já tunados (regras acima).
+   Redesign (skill agenda-redesign-odonto) — TRANSIÇÃO DE COR: quando o status
+   muda (agendado→confirmado→chegou→…), o fundo/borda animam suave, então a
+   evolução é percebida ao vivo, não como um corte seco. É o princípio central
+   do redesign. Também um raio maior e uma sombra mais "flutuante". */
 .sx-react-calendar-wrapper .sx__time-grid-event {
-  border-radius: 8px !important;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06), 0 2px 5px rgba(0, 0, 0, 0.07) !important;
-  transition: box-shadow 0.15s ease, filter 0.15s ease !important;
+  border-radius: 10px !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05), 0 4px 14px rgba(0, 0, 0, 0.06) !important;
+  transition: box-shadow 0.15s ease, filter 0.15s ease,
+              background-color 0.4s ease, border-color 0.4s ease, border-left-color 0.4s ease !important;
+}
+/* garante a transição de cor também no elemento que carrega o status (mesmo nó) */
+.sx-react-calendar-wrapper .sx__event.ag-status-agendado,
+.sx-react-calendar-wrapper .sx__event.ag-status-confirmado,
+.sx-react-calendar-wrapper .sx__event.ag-status-compareceu,
+.sx-react-calendar-wrapper .sx__event.ag-status-em_atendimento,
+.sx-react-calendar-wrapper .sx__event.ag-status-concluido,
+.sx-react-calendar-wrapper .sx__event.ag-status-cancelado,
+.sx-react-calendar-wrapper .sx__event.ag-status-no_show {
+  transition: background-color 0.4s ease, border-color 0.4s ease, border-left-color 0.4s ease !important;
 }
 .sx-react-calendar-wrapper .sx__time-grid-event:hover {
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.16) !important;
+  box-shadow: 0 8px 26px rgba(0, 0, 0, 0.16) !important;
   filter: brightness(1.04) saturate(1.04);
   z-index: 2;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sx-react-calendar-wrapper .sx__time-grid-event,
+  .sx-react-calendar-wrapper .sx__event[class*="ag-status-"] { transition: none !important; }
 }
 .sx-react-calendar-wrapper.is-dark .sx__time-grid-event:hover,
 [data-theme="noturno"] .sx-react-calendar-wrapper .sx__time-grid-event:hover,
