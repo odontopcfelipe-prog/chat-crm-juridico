@@ -303,10 +303,31 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     const matches = (text: string | null | undefined) =>
       !q || (text || '').toLowerCase().includes(q);
 
+    // Onda 18.x — RANKING de relevância (espelha os "baldes" do backend). Antes o
+    // filtro só fazia `includes` e mantinha a ordem alfabética da lista pré-carregada:
+    // digitar "f" mostrava "Abraão *F*erreira", "Adelma *F*austino"… (contêm f no
+    // sobrenome, e A vem antes) ANTES de "Felipe"/"Fernanda". Agora rankeia:
+    //   0 = NOME começa com o termo (Felipe, Fernanda) — o que o operador espera
+    //   1 = alguma PALAVRA do nome começa com o termo (Abraão Ferreira)
+    //   2 = termo aparece no meio / telefone / CPF
+    // Dentro de cada balde, ordem alfabética.
+    const rank = (name: string | null | undefined, phone?: string | null, cpf?: string | null): number => {
+      if (!q) return 3;
+      const n = (name || '').toLowerCase();
+      if (n.startsWith(q)) return 0;
+      if (n.split(/\s+/).some((w) => w.startsWith(q))) return 1;
+      if (n.includes(q) || (phone || '').includes(q) || (cpf || '').includes(q)) return 2;
+      return 99;
+    };
+    const byRankThenName = <T extends { name: string | null; phone?: string | null; cpf?: string | null }>(a: T, b: T) =>
+      rank(a.name, a.phone, a.cpf) - rank(b.name, b.phone, b.cpf) ||
+      (a.name || '').localeCompare(b.name || '', 'pt-BR');
+
     const patientOpts: ContactOption[] = patients
       .filter((p) =>
         matches(p.name) || matches(p.phone || '') || matches(p.cpf || ''),
       )
+      .sort(byRankThenName)
       .map((p) => ({
         kind: 'patient',
         id: p.id,
@@ -323,6 +344,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     const leadOpts: ContactOption[] = leads
       .filter((l) => !linkedLeadIds.has(l.id))
       .filter((l) => matches(l.name) || matches(l.phone))
+      .sort(byRankThenName)
       .map((l) => ({
         kind: 'lead',
         id: l.id,
