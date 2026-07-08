@@ -15,15 +15,22 @@ const prisma = new PrismaClient();
 
 const argv = process.argv.slice(2);
 const arg = (n) => { const p = argv.find((a) => a.startsWith(`--${n}=`)); return p ? p.slice(n.length + 3) : undefined; };
-const PATIENT = arg('patient') || '29384f08-c1fc-4203-a0c8-23e17ca92fe4';
+const PATIENT = arg('patient');
+const NAME = arg('name');
 
 const brl = (v) => `R$ ${Number(v || 0).toFixed(2)}`;
 const CANCELLED = new Set(['DELETED', 'REFUNDED', 'CANCELLED']);
 const PAID = new Set(['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH']);
 
 async function main() {
-  const patient = await prisma.patient.findUnique({ where: { id: PATIENT }, select: { id: true, name: true, lead_id: true, tenant_id: true } });
-  if (!patient) { console.log(`Paciente ${PATIENT} não encontrado`); return; }
+  // Seleção: --patient=<uuid> OU --name="Rodrigo" OU (default) o Anthony do #016.
+  let patient;
+  if (NAME) {
+    patient = await prisma.patient.findFirst({ where: { name: { contains: NAME, mode: 'insensitive' } }, select: { id: true, name: true, lead_id: true, tenant_id: true } });
+  } else {
+    patient = await prisma.patient.findUnique({ where: { id: PATIENT || '29384f08-c1fc-4203-a0c8-23e17ca92fe4' }, select: { id: true, name: true, lead_id: true, tenant_id: true } });
+  }
+  if (!patient) { console.log(`Paciente não encontrado (${NAME || PATIENT})`); return; }
   console.log(`\n=== ${patient.name} (${patient.id}) ===`);
 
   // planos do paciente
