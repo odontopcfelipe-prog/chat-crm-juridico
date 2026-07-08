@@ -351,10 +351,21 @@ export class CalendarService {
           void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
         }
       } else {
-        void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
-        // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
-        // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
-        void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+        // Onda 18.x — o aviso imediato "sua consulta foi agendada às {hora}" agora
+        // RESPEITA o toggle "Confirmação de agendamento" (APPOINTMENT_CONFIRMATION_
+        // ENABLED, default LIGADO). Antes saía SEMPRE, ignorando o toggle —
+        // "desliguei a confirmação e mesmo assim chegou". Desligou → não sai nem o
+        // WhatsApp nem o e-mail na criação (a confirmação de 24h já era gated por
+        // esta mesma key no worker).
+        const conf = await this.prisma.globalSetting
+          .findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${data.tenant_id}` } })
+          .catch(() => null);
+        if ((conf?.value ?? 'true') !== 'false') {
+          void this.sendAppointmentEventEmail(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'agendamento_criado');
+          // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
+          // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
+          void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+        }
       }
     }
 
