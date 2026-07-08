@@ -136,7 +136,31 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
       });
   }, [open, patients.length, leads.length]);
 
-  // Busca NO SERVIDOR ao digitar (debounce 250ms). O preload acima é limitado a
+  // Onda 18.x — SINCRONIZA a lista pré-carregada pelo pai (agenda) quando ela chega
+  // DEPOIS do mount. `useState(patientsProp)` só lê o prop no 1º render; se a agenda
+  // termina o preload (500 pacientes) DEPOIS do ContactPicker montar, o estado ficava
+  // preso vazio e o filtro instantâneo não achava ninguém — só o server-search (30)
+  // alimentava a lista, dando a sensação de "só a partir da 4ª letra". Mescla aditiva.
+  useEffect(() => {
+    if (patientsProp && patientsProp.length) {
+      setPatients((prev) => {
+        const byId = new Map(prev.map((p) => [p.id, p] as const));
+        for (const p of patientsProp) if (p?.id && !byId.has(p.id)) byId.set(p.id, p);
+        return byId.size === prev.length ? prev : Array.from(byId.values());
+      });
+    }
+  }, [patientsProp]);
+  useEffect(() => {
+    if (leadsProp && leadsProp.length) {
+      setLeads((prev) => {
+        const byId = new Map(prev.map((l) => [l.id, l] as const));
+        for (const l of leadsProp) if (l?.id && !byId.has(l.id)) byId.set(l.id, l);
+        return byId.size === prev.length ? prev : Array.from(byId.values());
+      });
+    }
+  }, [leadsProp]);
+
+  // Busca NO SERVIDOR ao digitar (debounce 200ms). O preload acima é limitado a
   // 500 por tenant e em listas grandes (ou preload incompleto) o paciente buscado
   // não aparecia em letra nenhuma. Agora cada termo digitado consulta o backend
   // (busca por nome/telefone/CPF) e mescla na lista — acha desde a 1ª letra,
@@ -145,7 +169,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     const q = search.trim();
     if (!open || q.length < 1) return;
     const t = setTimeout(() => {
-      api.get(`/patients?search=${encodeURIComponent(q)}&limit=30`)
+      api.get(`/patients?search=${encodeURIComponent(q)}&limit=50`)
         .then((res) => {
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.patients || []);
           if (!data.length) return;
@@ -159,7 +183,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
           });
         })
         .catch(() => { /* best-effort */ });
-      api.get(`/leads?search=${encodeURIComponent(q)}&limit=30`)
+      api.get(`/leads?search=${encodeURIComponent(q)}&limit=50`)
         .then((res) => {
           const data = Array.isArray(res.data) ? res.data : (res.data?.data || res.data?.leads || []);
           if (!data.length) return;
@@ -173,7 +197,7 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
           });
         })
         .catch(() => { /* /leads pode não ter ?search — best-effort */ });
-    }, 250);
+    }, 200);
     return () => clearTimeout(t);
   }, [search, open]);
 
