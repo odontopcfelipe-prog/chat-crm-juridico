@@ -2118,9 +2118,10 @@ export default function AgendaPage() {
           {/* Bloquear agenda — apenas pra quem pode gerenciar (ADMIN/OPERADOR/ASSISTANT).
               DENTIST nao tem permissao de criar/bloquear na agenda. */}
           {role.canCreateAgendaEvent && (
+            // Redesign — Bloquear: destrutivo SUAVE (vermelho translúcido), não sólido.
             <button
               onClick={() => setShowBlockModal(true)}
-              className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-red-600 text-white text-xs font-semibold hover:bg-red-700 transition-colors shadow-md"
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-red-500/35 bg-red-500/10 text-red-600 dark:text-red-400 text-xs font-semibold hover:bg-red-500/20 transition-colors"
               title="Bloquear agenda (férias, doença, etc)"
             >
               <Ban size={12} />
@@ -2130,9 +2131,14 @@ export default function AgendaPage() {
 
           {/* Novo Evento — mesma regra de Bloquear */}
           {role.canCreateAgendaEvent && (
+            // Redesign — botão primário com gradiente do acento + sombra colorida (glow).
             <button
               onClick={() => openCreateModal()}
-              className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground font-semibold text-xs hover:bg-primary/90 transition-colors shadow-md"
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-primary-foreground font-bold text-xs transition-transform hover:-translate-y-px"
+              style={{
+                background: 'linear-gradient(135deg, var(--accent-primary), color-mix(in srgb, var(--accent-primary) 78%, #000))',
+                boxShadow: '0 4px 14px rgba(var(--accent-glow), 0.35)',
+              }}
               title="Criar evento (atalho: N)"
             >
               <Plus size={13} />
@@ -2333,25 +2339,31 @@ export default function AgendaPage() {
             não no Kanban. Consulta = cor por STATUS; demais tipos = cor própria;
             barra colorida à esquerda do card = dentista. */}
         {!kanbanView && (
-          <div className="shrink-0 border-t border-border bg-card/40 px-3 py-1.5 flex items-center gap-x-3 gap-y-1 flex-wrap text-[10px] leading-none">
-            <span className="font-bold uppercase tracking-wider text-muted-foreground/80">Consulta</span>
-            {LEGEND_STATUS.map((s) => (
-              <span key={s.label} className="inline-flex items-center gap-1 text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5" style={{ background: s.color }} />
-                {s.label}
-              </span>
-            ))}
-            <span className="w-px h-3 bg-border mx-0.5 hidden sm:block" />
-            <span className="font-bold uppercase tracking-wider text-muted-foreground/80">Tipos</span>
-            {LEGEND_TYPE.map((s) => (
-              <span key={s.label} className="inline-flex items-center gap-1 text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-full shrink-0 ring-1 ring-black/5" style={{ background: s.color }} />
-                {s.label}
-              </span>
-            ))}
-            <span className="w-px h-3 bg-border mx-0.5 hidden md:block" />
-            <span className="inline-flex items-center gap-1 text-muted-foreground/80 italic">
-              <span className="w-0.5 h-3 rounded-full shrink-0 bg-gradient-to-b from-fuchsia-500 to-cyan-500" />
+          // Redesign (skill agenda-redesign-odonto) — legenda em CHIPS legíveis,
+          // agrupados por Consulta (status) e Tipos, + a dica da barra de dentista.
+          <div className="shrink-0 border-t border-border bg-card/40 px-3 py-2 flex items-center gap-x-4 gap-y-1.5 flex-wrap text-[10px] leading-none overflow-x-auto">
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="font-extrabold uppercase tracking-[0.14em] text-[9px] text-muted-foreground/70">Consulta</span>
+              {LEGEND_STATUS.map((s) => (
+                <span key={s.label} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 font-semibold text-muted-foreground whitespace-nowrap">
+                  <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: s.color }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+            <span className="w-px h-4 bg-border shrink-0 hidden sm:block" />
+            <div className="flex items-center gap-1.5 shrink-0">
+              <span className="font-extrabold uppercase tracking-[0.14em] text-[9px] text-muted-foreground/70">Tipos</span>
+              {LEGEND_TYPE.map((s) => (
+                <span key={s.label} className="inline-flex items-center gap-1.5 rounded-full border border-border bg-card px-2 py-1 font-semibold text-muted-foreground whitespace-nowrap">
+                  <span className="w-[7px] h-[7px] rounded-full shrink-0" style={{ background: s.color }} />
+                  {s.label}
+                </span>
+              ))}
+            </div>
+            <span className="w-px h-4 bg-border shrink-0 hidden md:block" />
+            <span className="inline-flex items-center gap-1.5 text-muted-foreground/70 italic shrink-0">
+              <span className="w-1 h-3.5 rounded-full shrink-0 bg-gradient-to-b from-fuchsia-500 to-cyan-500" />
               barra à esquerda = dentista
             </span>
           </div>
