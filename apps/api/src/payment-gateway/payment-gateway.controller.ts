@@ -323,7 +323,13 @@ export class PaymentGatewayController {
   @Post('charges/asaas/:chargeId/receive-in-cash')
   async receiveInCash(
     @Param('chargeId') chargeId: string,
-    @Body() body: { payment_method?: string; installments?: number } = {},
+    @Body() body: {
+      payment_method?: string;
+      installments?: number;
+      // Onda 18.x — split de 2 cartões na maquineta: lista de formas (cada uma vira
+      // uma receita no caixa). Quando presente, ignora payment_method/installments.
+      payments?: Array<{ method: string; value: number; installments?: number; debit?: boolean }>;
+    } = {},
     @Req() req: any,
   ) {
     this.logger.log(`[POST /charges/asaas/${chargeId}/receive-in-cash] Confirmando pagamento em dinheiro`);
@@ -342,6 +348,7 @@ export class PaymentGatewayController {
       paymentMethod: body?.payment_method,
       userId: req?.user?.id,
       installments: body?.installments,
+      payments: body?.payments,
     });
     return { ...(result || {}), caixa };
   }

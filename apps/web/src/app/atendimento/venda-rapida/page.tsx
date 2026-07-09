@@ -93,7 +93,7 @@ type BillingType = 'PIX' | 'CREDIT_CARD' | 'CASH' | 'CLINIC_CARD' | 'CLINIC_PIX'
 // aparecer no Financeiro do paciente.
 const CLINIC_METHOD_LABEL: Record<string, string> = {
   CASH: 'Espécie',
-  CLINIC_CARD: 'Maquineta (parcelado)',
+  CLINIC_CARD: 'Maquineta',
   CLINIC_PIX: 'PIX da clínica',
   CLINIC_PIX_MAQ: 'PIX (Maquineta)',
 };
@@ -192,7 +192,14 @@ export default function VendaRapidaPage() {
   const [dentistId, setDentistId] = useState<string>('');
   // Onda 17.42 — padrão "Espécie" (online Asaas removido da venda rápida).
   const [billingType, setBillingType] = useState<BillingType>('CASH');
-  const [installments, setInstallments] = useState<number>(1);
+  // Onda 18.x — Maquineta em 2 cartões: cada cartão tem tipo (débito/crédito) +
+  // parcelas (se crédito). O cartão 1 tem o valor editável; o cartão 2 pega o
+  // RESTANTE (total − cartão 1), então a soma sempre bate com o total.
+  const [card1, setCard1] = useState<{ kind: 'DEBITO' | 'CREDITO'; value: number; inst: number }>({ kind: 'CREDITO', value: 0, inst: 1 });
+  const [card2, setCard2] = useState<{ kind: 'DEBITO' | 'CREDITO'; inst: number }>({ kind: 'CREDITO', inst: 1 });
+  // Onda 18.x — 2º cartão OPCIONAL na maquineta: começa com 1 cartão (valor cheio);
+  // o botão "adicionar 2º cartão" liga o split (card1 vira editável + card2 = restante).
+  const [split2, setSplit2] = useState(false);
   const [finishing, setFinishing] = useState(false);
   // Onda 17.32.70 — Dialog de sucesso com QR PIX ou link de cartao
   const [successDialog, setSuccessDialog] = useState<{
@@ -340,6 +347,11 @@ export default function VendaRapidaPage() {
   // o desconto à vista do PIX. Desconto manual por item (override_price) segue
   // valendo via unitPriceOf; aqui não há mais desconto por forma de pagamento.
   const total = subtotal;
+  // Onda 18.x — split de 2 cartões: cartão 2 = restante; soma sempre = total.
+  const card2Value = Math.round(Math.max(0, total - card1.value) * 100) / 100;
+  // Só valida o split quando é Maquineta COM 2º cartão ativo.
+  const isSplit = billingType === 'CLINIC_CARD' && split2;
+  const splitOk = !isSplit || (card1.value > 0 && card1.value < total);
 
   // Finaliza venda
   const handleFinish = async () => {
@@ -353,6 +365,10 @@ export default function VendaRapidaPage() {
     }
     if (!dentistId) {
       showError('Selecione o dentista responsável antes de finalizar');
+      return;
+    }
+    if (isSplit && !(card1.value > 0 && card1.value < total)) {
+      showError('Pagamento em 2 cartões: o valor do Cartão 1 deve ser maior que zero e menor que o total.');
       return;
     }
     setFinishing(true);
@@ -419,7 +435,8 @@ export default function VendaRapidaPage() {
           // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
           // com 15 casas -> 400 "value must be a number...").
           value: Math.round(total * 100) / 100,
-          installment_count: billingType === 'CREDIT_CARD' ? installments : undefined,
+          // Venda rápida só recebe na clínica (sem cartão online Asaas) → sem parcelas aqui.
+          installment_count: undefined,
           // Onda 17.67 — Modelo B: os procedimentos ficam PENDENTES pro dentista
           // confirmar a conclusão (aí nasce a comissão de execução). A comissão de
           // VENDA já nasce no fechamento (approveAndBill), pro vendedor.
@@ -432,23 +449,47 @@ export default function VendaRapidaPage() {
       // joga no financeiro do paciente E lança no caixa (fechamento). O método
       // (DINHEIRO/CARTAO/PIX) vai junto pra aparecer certo no caixa.
       const asaasId = billData?.charge?.external_id;
+      // Onda 18.x — se o registro no caixa falhar, NÃO mentir "finalizada": avisa.
+      let caixaOk = true;
       if (clinicReceived && asaasId) {
-        const CLINIC_METHOD_TO_CAIXA: Record<string, string> = {
-          CASH: 'DINHEIRO',
-          CLINIC_CARD: 'CARTAO',
-          CLINIC_PIX: 'PIX',
-          CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
-        };
         try {
-          await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
-            payment_method: CLINIC_METHOD_TO_CAIXA[billingType] || 'DINHEIRO',
-            // Maquineta física: parcela é só INFO (a adquirente faz o split; não vai
-            // pro Asaas gerar cobrança). Aparece como "Cartão N×" no caixa.
-            installments: billingType === 'CLINIC_CARD' ? installments : undefined,
-          });
+          if (billingType === 'CLINIC_CARD') {
+            // Maquineta: 1 cartão (valor cheio) ou 2 cartões (split2). Cada cartão vira
+            // uma receita no caixa. method='CARTAO' pros dois (o caixa tem 1 balde
+            // "Maquininha/cartão" p/ débito E crédito → concilia certo); `debit` só
+            // refina a descrição. c2 deriva do c1 arredondado → soma exata.
+            const c1 = split2 ? Math.round(card1.value * 100) / 100 : Math.round(total * 100) / 100;
+            const payments: Array<{ method: string; value: number; installments?: number; debit: boolean }> = [
+              {
+                method: 'CARTAO',
+                value: c1,
+                installments: card1.kind === 'CREDITO' ? card1.inst : undefined,
+                debit: card1.kind === 'DEBITO',
+              },
+            ];
+            if (split2) {
+              payments.push({
+                method: 'CARTAO',
+                value: Math.round((total - c1) * 100) / 100,
+                installments: card2.kind === 'CREDITO' ? card2.inst : undefined,
+                debit: card2.kind === 'DEBITO',
+              });
+            }
+            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, { payments });
+          } else {
+            const CLINIC_METHOD_TO_CAIXA: Record<string, string> = {
+              CASH: 'DINHEIRO',
+              CLINIC_PIX: 'PIX',
+              CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
+            };
+            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, {
+              payment_method: CLINIC_METHOD_TO_CAIXA[billingType] || 'DINHEIRO',
+            });
+          }
         } catch (e: any) {
           console.warn('[VENDA-RAPIDA] receiveInCash falhou:', e?.message);
-          // Nao bloqueia — operador pode marcar manualmente depois
+          // Nao bloqueia a venda, mas marca que o caixa NÃO recebeu — avisa no fim.
+          caixaOk = false;
         }
       }
 
@@ -464,7 +505,8 @@ export default function VendaRapidaPage() {
         boletoUrl: billData?.boleto?.url || null,
       });
       setCart([]);
-      showSuccess('Venda finalizada!');
+      if (caixaOk) showSuccess('Venda finalizada!');
+      else showError('Venda criada, mas o pagamento NÃO entrou no caixa. Registre manualmente no Caixa.');
     } catch (err: any) {
       const msg = err?.response?.data?.message || 'Erro ao finalizar venda';
       showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao finalizar'));
@@ -845,7 +887,7 @@ export default function VendaRapidaPage() {
                 // Onda 17.42 — Venda Rápida só recebe NA CLÍNICA (cobrança online
                 // via Asaas foi removida — PIX QR / Cartão link saíram do balcão).
                 { group: 'Recebido na clínica', key: 'CASH' as BillingType, label: 'Espécie', sub: 'dinheiro em mãos', Icon: DollarSign },
-                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta (parcelado)', sub: 'cartão parcelado na máquina', Icon: CreditCard },
+                { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta', sub: 'débito ou crédito · 1 ou 2 cartões', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX_MAQ' as BillingType, label: 'PIX (Maquineta)', sub: 'PIX na máquina de cartão', Icon: CreditCard },
               ]).map((m, idx, arr) => {
@@ -883,20 +925,86 @@ export default function VendaRapidaPage() {
               })}
             </div>
             {billingType === 'CLINIC_CARD' && (
-              <div className="mt-2">
-                <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 block">
-                  Parcelas na maquineta
-                </label>
-                <select
-                  value={installments}
-                  onChange={(e) => setInstallments(Number(e.target.value))}
-                  className="w-full px-3 py-2 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
-                >
-                  {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
-                    <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}× de R$ ${fmtBRL(total / n)}`}</option>
-                  ))}
-                </select>
-                <p className="text-[10px] text-muted-foreground mt-1">Só registra a info pra bater com o extrato da maquininha. O valor cheio entra no caixa de hoje.</p>
+              <div className="mt-2 space-y-2">
+                {/* Cartão 1 (ou único) */}
+                <div className="rounded-lg border border-border p-2.5 space-y-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold text-foreground">{split2 ? 'Cartão 1' : 'Cartão'}</span>
+                    <div className="flex gap-1">
+                      {(['DEBITO', 'CREDITO'] as const).map((k) => (
+                        <button key={k} type="button" onClick={() => setCard1((c) => ({ ...c, kind: k }))}
+                          className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
+                            card1.kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700' : 'border-border text-muted-foreground hover:bg-accent/40'
+                          }`}>
+                          {k === 'DEBITO' ? 'Débito' : 'Crédito'}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {split2 ? (
+                      <>
+                        <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
+                        <input type="number" min={0} max={total} step="0.01"
+                          value={card1.value || ''}
+                          onChange={(e) => setCard1((c) => ({ ...c, value: Math.round(Math.max(0, Math.min(total, Number(e.target.value) || 0)) * 100) / 100 }))}
+                          placeholder="0,00"
+                          className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30" />
+                      </>
+                    ) : (
+                      <span className="flex-1 text-[11px] text-muted-foreground">Valor: <span className="font-semibold text-foreground">R$ {fmtBRL(total)}</span></span>
+                    )}
+                    {card1.kind === 'CREDITO' && (
+                      <select value={card1.inst} onChange={(e) => setCard1((c) => ({ ...c, inst: Number(e.target.value) }))}
+                        className="shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                        {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}×`}</option>)}
+                      </select>
+                    )}
+                  </div>
+                </div>
+                {/* Cartão 2 — OPCIONAL (restante) */}
+                {split2 && (
+                  <div className="rounded-lg border border-border p-2.5 space-y-2">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[11px] font-bold text-foreground">Cartão 2 · restante</span>
+                      <div className="flex items-center gap-1">
+                        {(['DEBITO', 'CREDITO'] as const).map((k) => (
+                          <button key={k} type="button" onClick={() => setCard2((c) => ({ ...c, kind: k }))}
+                            className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors ${
+                              card2.kind === k ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700' : 'border-border text-muted-foreground hover:bg-accent/40'
+                            }`}>
+                            {k === 'DEBITO' ? 'Débito' : 'Crédito'}
+                          </button>
+                        ))}
+                        <button type="button" onClick={() => setSplit2(false)} title="Remover 2º cartão"
+                          className="ml-1 px-1.5 py-0.5 rounded text-[11px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">✕</button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
+                      <div className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-muted/40 text-foreground font-semibold tabular-nums">{fmtBRL(card2Value)}</div>
+                      {card2.kind === 'CREDITO' && (
+                        <select value={card2.inst} onChange={(e) => setCard2((c) => ({ ...c, inst: Number(e.target.value) }))}
+                          className="shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30">
+                          {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => <option key={n} value={n}>{n === 1 ? 'À vista (1×)' : `${n}×`}</option>)}
+                        </select>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {/* Botão "adicionar 2º cartão" (opcional) OU conferência da soma */}
+                {!split2 ? (
+                  <button type="button" onClick={() => { setSplit2(true); setCard1((c) => ({ ...c, value: 0 })); }}
+                    className="w-full py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
+                    + adicionar 2º cartão
+                  </button>
+                ) : (
+                  <div className={`flex items-center justify-between text-[11px] px-1 ${splitOk ? 'text-emerald-600' : 'text-red-600'}`}>
+                    <span className="font-semibold">{splitOk ? '✓ Soma confere' : 'Ajuste o valor do Cartão 1'}</span>
+                    <span className="font-bold tabular-nums">{fmtBRL(card1.value)} + {fmtBRL(card2Value)} = {fmtBRL(total)}</span>
+                  </div>
+                )}
+                <p className="text-[10px] text-muted-foreground">Parcelas são só info pra bater com o extrato da maquininha. O valor entra no caixa de hoje.</p>
               </div>
             )}
           </div>
@@ -920,7 +1028,7 @@ export default function VendaRapidaPage() {
           <button
             type="button"
             onClick={handleFinish}
-            disabled={finishing || !patient || cart.length === 0 || !dentistId}
+            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk}
             className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
           >
             {finishing ? (

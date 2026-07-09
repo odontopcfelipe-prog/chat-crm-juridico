@@ -16,6 +16,10 @@ import { EmailAutomationService } from '../email-automation/email-automation.ser
 // Onda 14.53 — Resolvido via ModuleRef (strict:false) — LeadsService eh
 // global no AppModule. Mesmo padrao de quotes.service.ts tryGraduateLead.
 import { LeadsService } from '../leads/leads.service';
+// Onda 18.x — CaixaService resolvido via ModuleRef (strict:false), sem dep de módulo
+// (o caixa NÃO importa payment-gateway → sem ciclo). Usado só p/ garantir as contas
+// padrão do caixa antes de amarrar a receita do split à conta CARTAO.
+import { CaixaService } from '../caixa/caixa.service';
 
 // Mapeamento de status Asaas → interno
 const ASAAS_STATUS_MAP: Record<string, string> = {
@@ -62,7 +66,17 @@ export class PaymentGatewayService {
    */
   async registerClinicReceipt(
     externalId: string,
-    opts?: { paymentMethod?: string; userId?: string; installments?: number },
+    opts?: {
+      paymentMethod?: string;
+      userId?: string;
+      installments?: number;
+      // Onda 18.x — split de 2+ formas na maquineta (2 cartões: parte no débito,
+      // parte no crédito). Cada item vira UMA receita no caixa, todas amarradas à
+      // MESMA venda (external_id). Se vazio/ausente, cai no fluxo normal de 1 receita.
+      // `method` é a forma do CAIXA (CARTAO p/ débito E crédito — caixa tem 1 balde
+      // "Maquininha (cartão)"); `debit` só refina a DESCRIÇÃO (Cartão débito/crédito).
+      payments?: Array<{ method: string; value: number; installments?: number; debit?: boolean }>;
+    },
   ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
@@ -87,7 +101,13 @@ export class PaymentGatewayService {
       },
     });
 
-    // 2. Lança no caixa (RECEITA) — método informado (DINHEIRO/CARTAO/PIX clínica)
+    // 2. Lança no caixa (RECEITA). Split (2 cartões na maquineta) => UMA receita
+    // por forma; senão, o fluxo normal com o valor cheio numa forma só.
+    const splits = (opts?.payments || []).filter((p) => p && p.value > 0);
+    if (splits.length > 0) {
+      const txId = await this.ensureChargeReceitaSplit(charge.id, splits);
+      return { ok: true, transaction_id: txId, charge_id: charge.id, split: splits.length };
+    }
     const txId = await this.ensureChargeReceita(charge.id, {
       paymentMethod: opts?.paymentMethod || 'DINHEIRO',
       receivedInClinic: true,
@@ -171,6 +191,125 @@ export class PaymentGatewayService {
     // ON_PAYMENT). Cobre clínica E Asaas (ambos passam por aqui). Best-effort.
     await this.releaseCommissionsForPlan(charge.tenant_id, charge.treatment_plan_id, now);
     return tx.id;
+  }
+
+  /**
+   * Onda 18.x — variante de ensureChargeReceita p/ pagamento DIVIDIDO (ex.: 2
+   * cartões na maquineta: parte no débito, parte no crédito parcelado). Cria UMA
+   * RECEITA no caixa por forma (cada uma com o SEU valor), todas amarradas à mesma
+   * venda via reference_id (external_id) — o fechamento concilia por forma. A
+   * cobrança liga 1:1 à PRIMEIRA receita (idempotência via transaction_id).
+   */
+  private async ensureChargeReceitaSplit(
+    chargeId: string,
+    payments: Array<{ method: string; value: number; installments?: number; debit?: boolean }>,
+  ): Promise<string | null> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { id: chargeId },
+      include: {
+        treatment_plan: {
+          select: {
+            patient: { select: { name: true } },
+            quote: { select: { created_by_user_id: true } },
+          },
+        },
+      },
+    });
+    if (!charge) return null;
+    if (charge.transaction_id) return charge.transaction_id; // idempotente — já lançado
+    if (charge.lead_honorario_payment_id) return null; // jurídico tem caixa próprio
+
+    const now = new Date();
+    const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
+    const dentistId = charge.treatment_plan?.quote?.created_by_user_id ?? null;
+
+    // As receitas do split precisam entrar no ESCOPO do caixa. A 1ª pegaria isso via
+    // vínculo 1:1 com a cobrança (transaction_id); a 2ª NÃO — então amarramos TODAS à
+    // conta física do CARTÃO (kind CARTAO). Sem isso o 2º cartão sumiria do fechamento
+    // (caixaWhere exige account_id | cash_closing_id | gateway_charge).
+    // Garante que as contas padrão do caixa existem (idempotente) — senão, num tenant
+    // que ainda não abriu o caixa (contas são lazy), a 2ª receita do split ficaria fora
+    // do fechamento por falta da conta CARTAO. Resolve o CaixaService via moduleRef.
+    if (charge.tenant_id) {
+      try {
+        const caixa = this.moduleRef.get(CaixaService, { strict: false });
+        await caixa?.ensureDefaultAccounts(charge.tenant_id);
+      } catch (e: any) {
+        this.logger.warn(`[caixa] ensureDefaultAccounts falhou: ${e?.message}`);
+      }
+    }
+    const cardAccount = charge.tenant_id
+      ? await this.prisma.cashAccount.findFirst({
+          where: { tenant_id: charge.tenant_id, kind: 'CARTAO' },
+          select: { id: true },
+          orderBy: { active: 'desc' },
+        })
+      : null;
+    if (!cardAccount) {
+      this.logger.warn(`[caixa] sem conta CARTAO p/ tenant ${charge.tenant_id} — split pode não aparecer no fechamento`);
+    }
+
+    // Sanidade: a soma das formas deveria bater com o total da cobrança. Não
+    // BLOQUEIA (registra o que realmente aconteceu na maquineta), mas loga o
+    // desvio pra auditoria do caixa.
+    const soma = payments.reduce((s, p) => s + (p.value || 0), 0);
+    if (Math.abs(soma - Number(charge.amount)) > 0.02) {
+      this.logger.warn(
+        `[caixa] split não bate: soma R$${soma.toFixed(2)} ≠ cobrança R$${Number(charge.amount).toFixed(2)} (charge ${charge.id})`,
+      );
+    }
+
+    const createdIds: string[] = [];
+    for (const p of payments) {
+      const parcelaSuffix = p.installments && p.installments > 1 ? ` ${p.installments}×` : '';
+      const formaLabel = p.debit ? 'Cartão débito' : this.caixaMethodLabel(p.method);
+      const tx = await this.prisma.financialTransaction.create({
+        data: {
+          tenant_id: charge.tenant_id,
+          type: 'RECEITA',
+          category: 'PROCEDIMENTO',
+          description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''} · ${formaLabel}${parcelaSuffix}`,
+          amount: p.value,
+          date: now,
+          paid_at: charge.paid_at ?? now,
+          payment_method: p.method,
+          status: 'PAGO',
+          dentist_id: dentistId,
+          reference_id: charge.external_id,
+          // Amarra à conta física do cartão → entra no escopo do caixa (senão a 2ª some).
+          account_id: cardAccount?.id ?? null,
+          notes: 'Venda recebida na clínica — 2 cartões na maquineta (fechamento de caixa)',
+        },
+      });
+      createdIds.push(tx.id);
+    }
+
+    // Liga a cobrança à PRIMEIRA receita (1:1 primário + idempotência).
+    await this.prisma.paymentGatewayCharge.update({
+      where: { id: charge.id },
+      data: { transaction_id: createdIds[0] ?? null },
+    });
+    this.logger.log(
+      `[caixa] RECEITA SPLIT (${createdIds.length} formas: ${payments
+        .map((p) => `${p.method} R$${p.value}`)
+        .join(' + ')}) p/ cobrança ${charge.id}`,
+    );
+    // Paciente pagou → libera comissões DEVIDA (ON_PAYMENT). Uma vez só.
+    await this.releaseCommissionsForPlan(charge.tenant_id, charge.treatment_plan_id, now);
+    return createdIds[0] ?? null;
+  }
+
+  /** Onda 18.x — rótulo humano da forma de pagamento p/ descrição da receita. */
+  private caixaMethodLabel(method: string): string {
+    switch (method) {
+      case 'CARTAO_DEBITO': return 'Cartão débito';
+      case 'CARTAO': return 'Cartão crédito';
+      case 'PIX': return 'PIX';
+      case 'PIX_MAQUININHA': return 'PIX maquineta';
+      case 'DINHEIRO': return 'Espécie';
+      case 'BOLETO': return 'Boleto';
+      default: return method;
+    }
   }
 
   /**
