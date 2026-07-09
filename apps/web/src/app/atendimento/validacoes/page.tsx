@@ -21,7 +21,7 @@ import { useRole } from '@/lib/useRole';
 
 interface PendingEvent {
   id: string;
-  type: 'CONSULTA' | 'PROCEDIMENTO' | 'RETORNO';
+  type: 'CONSULTA' | 'PROCEDIMENTO' | 'RETORNO' | 'ORTODONTIA';
   title: string;
   status: string;
   start_at: string;
@@ -36,12 +36,14 @@ const TYPE_LABEL: Record<PendingEvent['type'], string> = {
   CONSULTA: 'Consulta',
   PROCEDIMENTO: 'Procedimento',
   RETORNO: 'Retorno',
+  ORTODONTIA: 'Ortodontia',
 };
 
 const TYPE_COLOR: Record<PendingEvent['type'], string> = {
   CONSULTA: 'bg-purple-500/10 text-purple-600 border-purple-500/20',
   PROCEDIMENTO: 'bg-teal-500/10 text-teal-600 border-teal-500/20',
   RETORNO: 'bg-sky-500/10 text-sky-600 border-sky-500/20',
+  ORTODONTIA: 'bg-pink-500/10 text-pink-600 border-pink-500/20',
 };
 
 function formatDateTime(iso: string) {

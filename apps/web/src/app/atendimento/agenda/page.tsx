@@ -135,7 +135,11 @@ function agendaGridHeight(density: AgendaDensity, hideMadrugada: boolean, mobile
 // (Agendado → Confirmado → Em atendimento → Atendido, etc), ficando mais fácil
 // de ler a agenda de relance. Tipos que NÃO são paciente (Bloqueio/Tarefa/Outro)
 // mantêm a cor própria do tipo.
-const PATIENT_APPT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'];
+// Onda 18.x — ORTODONTIA É atendimento de paciente: entra aqui pra ser colorido
+// por STATUS (Chegou = azul, etc), igual a Procedimento/Retorno. Antes ficava de
+// fora e o card saía com a cor do TIPO (rosa), ignorando o status — bug do "Chegou
+// ficou vermelho". O tipo continua indicado pelo marcador (quadradinho rosa).
+const PATIENT_APPT_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
 function eventAccentColor(ev: { type: string; status: string }): string {
   if (PATIENT_APPT_TYPES.includes(ev.type)) {
     return EVENT_STATUSES.find(s => s.id === ev.status)?.color || '#E91E63';
@@ -173,8 +177,10 @@ function agendaEsc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 }
 // Tipos que recebem o card de paciente (os demais — Bloqueio/Tarefa/Outro — mantêm
-// o render padrão do schedule-x).
-const AGENDA_CARD_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+// o render padrão do schedule-x). É o MESMO conjunto de PATIENT_APPT_TYPES: todo
+// atendimento de paciente ganha card customizado E cor por status. Aliás direto pra
+// os dois NUNCA divergirem de novo (foi a divergência que causou o "Chegou vermelho").
+const AGENDA_CARD_TYPES = PATIENT_APPT_TYPES;
 
 const KANBAN_COLUMNS = [
   { id: 'AGENDADO',  label: 'A Fazer',      emoji: '📋', color: '#3b82f6' },
@@ -1352,14 +1358,21 @@ export default function AgendaPage() {
             const stColor = eventAccentColor(e);
             const dtColor = agendaDentistColor(e.assigned_user?.id);
             const nm = clientName || e.title;
+            // v2 (robustez com dado real): procedimento com ≤2 chars ("r","f") é lixo
+            // de teste — não renderiza. Marcador de TIPO (quadradinho) só pros tipos
+            // que não são CONSULTA (o status já identifica a consulta).
+            const showProc = !!clientName && !!e.title && e.title.trim().length > 2;
+            const showType = e.type !== 'CONSULTA';
+            const tpColor = getEventColor(e.type);
             cardHtml =
               '<div class="ag-card">' +
                 `<span class="ag-bar" style="background:${dtColor}"></span>` +
                 '<div class="ag-body">' +
                   `<div class="ag-r1"><span class="ag-dot" style="background:${stColor}"></span>` +
-                  `<span class="ag-time" style="color:${stColor}">${agendaEsc(timeLabel)}</span></div>` +
+                  `<span class="ag-time">${agendaEsc(timeLabel)}</span>` +
+                  (showType ? `<span class="ag-type" style="background:${tpColor}"></span>` : '') + '</div>' +
                   `<div class="ag-name">${agendaEsc(nm)}</div>` +
-                  (clientName ? `<div class="ag-proc">${agendaEsc(e.title)}</div>` : '') +
+                  (showProc ? `<div class="ag-proc">${agendaEsc(e.title)}</div>` : '') +
                   (e.assigned_user ? `<div class="ag-dent"><span class="ag-dent-dot" style="background:${dtColor}"></span>${agendaEsc(e.assigned_user.name)}</div>` : '') +
                 '</div>' +
               '</div>';
@@ -2542,7 +2555,7 @@ export default function AgendaPage() {
             {/* (Status agora fica no slot que era da Prioridade, mais abaixo — Onda 17.61.) */}
 
             {/* Validacao clinica (Fase 23) — so pra eventos clinicos */}
-            {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+            {editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
               <div className="px-5 pt-3">
                 {editingEvent.validated_at ? (
                   // Atendimento ja validado — mostra badge e (se admin) botao reverter
@@ -2747,7 +2760,7 @@ export default function AgendaPage() {
                     <Download size={12} /> <span className="hidden md:inline">.ics</span>
                   </button>
                 )}
-                {editingEvent && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+                {editingEvent && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
                   <button
                     onClick={handleNotify}
                     disabled={sendingNotify}
@@ -2760,7 +2773,7 @@ export default function AgendaPage() {
                 {/* Avaliação — abre a ficha do paciente na aba Odontograma (atalho clínico).
                     O status agora é controlado pelo dropdown de Status (Onda 17.61). */}
                 {editingEvent && editingEvent.patient_id
-                  && ['CONSULTA', 'PROCEDIMENTO', 'RETORNO'].includes(editingEvent.type) && (
+                  && PATIENT_APPT_TYPES.includes(editingEvent.type) && (
                   <button
                     onClick={() => { setShowModal(false); router.push(`/atendimento/pacientes/${editingEvent.patient_id}?tab=odontogram`); }}
                     className="px-2.5 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 rounded-lg transition-colors inline-flex items-center gap-1"
