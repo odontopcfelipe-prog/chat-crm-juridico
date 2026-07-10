@@ -4,9 +4,11 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { CreditCard, Save, Loader2, Check, AlertTriangle, ExternalLink, ToggleLeft, ToggleRight } from 'lucide-react';
 import api from '@/lib/api';
+import { useRole } from '@/lib/useRole';
 
 export default function PaymentGatewaySettingsPage() {
   const router = useRouter();
+  const { isSuperAdmin } = useRole();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
@@ -38,9 +40,21 @@ export default function PaymentGatewaySettingsPage() {
   const handleSave = async () => {
     setSaving(true);
     try {
-      if (apiKey.trim()) await api.put('/settings', { key: 'asaas_api_key', value: apiKey.trim() });
-      if (webhookToken.trim()) await api.put('/settings', { key: 'asaas_webhook_token', value: webhookToken.trim() });
-      await api.put('/settings', { key: 'asaas_sandbox', value: sandbox ? 'true' : 'false' });
+      if (isSuperAdmin) {
+        // SUPER_ADMIN (matriz) configura a conta Asaas GLOBAL da plataforma
+        // (GlobalSetting compartilhada, fallback do isolamento por tenant).
+        if (apiKey.trim()) await api.put('/settings', { key: 'asaas_api_key', value: apiKey.trim() });
+        if (webhookToken.trim()) await api.put('/settings', { key: 'asaas_webhook_token', value: webhookToken.trim() });
+        await api.put('/settings', { key: 'asaas_sandbox', value: sandbox ? 'true' : 'false' });
+      } else {
+        // Admin de TENANT configura a conta Asaas PRÓPRIA da clínica.
+        // POST /payment-gateway/setup valida a chave no Asaas e grava em
+        // TenantSetting (ASAAS_API_KEY + ASAAS_BASE_URL) — isolado por clínica.
+        // NÃO usar PUT /settings aqui: escreveria a GlobalSetting compartilhada
+        // (a cobrança de uma clínica cairia na conta de outra) e hoje o guard
+        // do backend 403 nessas chaves pra não-SUPER_ADMIN.
+        await api.post('/payment-gateway/setup', { apiKey: apiKey.trim(), sandbox });
+      }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       // Refresh status
@@ -129,6 +143,11 @@ export default function PaymentGatewaySettingsPage() {
           </button>
         </div>
 
+        {/* Token do webhook é infra GLOBAL da plataforma (validado antes de
+            resolver o tenant). Só o SUPER_ADMIN o define — pra não repetir o
+            vazamento cross-tenant da chave (uma clínica sobrescrevia o token
+            que valida os webhooks das outras). */}
+        {isSuperAdmin && (
         <div>
           <label className="text-sm font-medium text-foreground block mb-1.5">Token do Webhook (Asaas)</label>
           <input
@@ -142,6 +161,7 @@ export default function PaymentGatewaySettingsPage() {
             Token gerado no painel Asaas ao configurar o webhook. Usado para validar a autenticidade dos eventos.
           </p>
         </div>
+        )}
 
         <div>
           <label className="text-sm font-medium text-foreground block mb-1.5">URL do Webhook</label>

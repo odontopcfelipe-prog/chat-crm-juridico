@@ -95,17 +95,21 @@ export class AsaasClient {
     }
 
     const newBaseUrl = await getTenantSetting(this.prisma, 'ASAAS_BASE_URL', tenantId);
-    const sandboxStr = await this.settingsService.get('asaas_sandbox');
-    const sandbox = sandboxStr === 'true';
+    const globalSandbox = (await this.settingsService.get('asaas_sandbox')) === 'true';
     const webhookToken = await this.settingsService.get('asaas_webhook_token');
 
     // Onda 17.32.82 — Base URL pode vir do TenantSetting (caso a clinica
-    // queira usar sandbox/prod especifico). Senao deriva do flag sandbox.
+    // queira usar sandbox/prod especifico). Senao deriva do flag global.
     const baseUrl = newBaseUrl
       ? (newBaseUrl.endsWith('/v3') ? newBaseUrl : `${newBaseUrl}/v3`)
-      : sandbox
+      : globalSandbox
         ? 'https://api-sandbox.asaas.com/v3'
         : 'https://api.asaas.com/v3';
+
+    // Onda 18.x — sandbox reflete a base URL EFETIVA (o setup por tenant grava
+    // ASAAS_BASE_URL). Assim uma clinica em producao mostra "Producao" mesmo
+    // que o flag global (asaas_sandbox) ainda esteja em sandbox.
+    const sandbox = baseUrl.includes('sandbox');
 
     this.logger.debug(`[ASAAS] Config (tenant=${tenantId || 'global'}): baseUrl=${baseUrl}, apiKey=${apiKey ? `${apiKey.slice(0, 10)}...` : 'NAO CONFIGURADA'}`);
 
