@@ -10,6 +10,7 @@ import {
   Req,
   Res,
   Logger,
+  ForbiddenException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { PaymentGatewayService } from './payment-gateway.service';
@@ -27,6 +28,35 @@ export class PaymentGatewayController {
     private asaasClient: AsaasClient,
     private prisma: PrismaService,
   ) {}
+
+  /**
+   * Onda 18.x — ISOLAMENTO POR TENANT nos endpoints diretos do Asaas.
+   * Resolve QUAL conta Asaas usar pra uma cobrança e barra acesso cross-tenant.
+   *
+   * Sem isso, os endpoints diretos (detail/update/delete/receive-in-cash)
+   * chamavam o AsaasClient sem tenantId → getConfig(undefined) → sempre a conta
+   * GLOBAL (matriz), independente de quem chamou (IDOR: ver/baixar/excluir
+   * cobrança da matriz; e clínica com chave própria não enxergava as dela).
+   *
+   * Regra: acha a charge local por external_id. Se pertence a OUTRO tenant
+   * (tenant_id preenchido e diferente) → 403. Retorna o tenantId a passar pro
+   * AsaasClient = tenant_id da charge (quando houver) senão o do caller. Charge
+   * sem tenant_id (legado) ou ausente localmente cai no tenant do caller — daí o
+   * próprio isolamento por chave (getConfig) faz o resto.
+   */
+  private async resolveChargeTenant(
+    chargeId: string,
+    callerTenantId: string | undefined,
+  ): Promise<string | undefined> {
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { external_id: chargeId },
+      select: { tenant_id: true },
+    });
+    if (charge?.tenant_id && charge.tenant_id !== callerTenantId) {
+      throw new ForbiddenException('Cobrança de outra clínica');
+    }
+    return charge?.tenant_id || callerTenantId;
+  }
 
   // ─── ROTAS FIXAS PRIMEIRO (antes de :param) ─────────────
 
@@ -77,8 +107,9 @@ export class PaymentGatewayController {
   }
 
   @Get('balance')
-  async getBalance() {
-    return this.asaasClient.getBalance();
+  async getBalance(@Req() req: any) {
+    // Isolamento: saldo é o da conta Asaas DO TENANT (não a global/matriz).
+    return this.asaasClient.getBalance(req.user?.tenant_id);
   }
 
   @Get('settings')
@@ -113,7 +144,10 @@ export class PaymentGatewayController {
     @Query('billingType') billingType: string | undefined,
     @Query('dateGe') dateGe: string | undefined,
     @Query('dateLe') dateLe: string | undefined,
+    @Req() req: any,
   ) {
+    // Isolamento: lista as cobranças da conta Asaas DO TENANT (não a global/matriz).
+    const tenantId = req.user?.tenant_id;
     this.logger.log('[GET /charges/asaas] Buscando cobranças direto do Asaas...');
     try {
       const params: any = {
@@ -125,7 +159,7 @@ export class PaymentGatewayController {
       if (dateGe) params['dueDate[ge]'] = dateGe;
       if (dateLe) params['dueDate[le]'] = dateLe;
 
-      const result = await this.asaasClient.listCharges(params);
+      const result = await this.asaasClient.listCharges(params, tenantId);
 
       // Enriquecer com nomes dos clientes (cache para não repetir chamadas)
       const customerCache = new Map<string, string>();
@@ -137,7 +171,7 @@ export class PaymentGatewayController {
           continue;
         }
         try {
-          const cust = await this.asaasClient.getCustomer(charge.customer);
+          const cust = await this.asaasClient.getCustomer(charge.customer, tenantId);
           const name = cust?.name || charge.customer;
           customerCache.set(charge.customer, name);
           charge.customerName = name;
@@ -281,13 +315,15 @@ export class PaymentGatewayController {
 
   /** Detalhes completos de uma cobrança no Asaas */
   @Get('charges/asaas/detail/:chargeId')
-  async getAsaasChargeDetail(@Param('chargeId') chargeId: string) {
+  async getAsaasChargeDetail(@Param('chargeId') chargeId: string, @Req() req: any) {
     this.logger.log(`[GET /charges/asaas/detail/${chargeId}]`);
-    const charge = await this.asaasClient.getCharge(chargeId);
+    // Isolamento + authz: barra cobrança de outra clínica, usa a conta do dono.
+    const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
+    const charge = await this.asaasClient.getCharge(chargeId, tenantId);
     // Enriquecer com nome do cliente
     if (charge?.customer) {
       try {
-        const cust = await this.asaasClient.getCustomer(charge.customer);
+        const cust = await this.asaasClient.getCustomer(charge.customer, tenantId);
         charge.customerName = cust?.name;
         charge.customerEmail = cust?.email;
         charge.customerPhone = cust?.mobilePhone || cust?.phone;
@@ -297,7 +333,7 @@ export class PaymentGatewayController {
     // Se PIX, buscar QR code
     if (charge?.billingType === 'PIX' && charge?.status === 'PENDING') {
       try {
-        const pix = await this.asaasClient.getPixQrCode(chargeId);
+        const pix = await this.asaasClient.getPixQrCode(chargeId, tenantId);
         charge.pixQrCode = pix?.encodedImage;
         charge.pixCopyPaste = pix?.payload;
         charge.pixExpirationDate = pix?.expirationDate;
@@ -311,9 +347,12 @@ export class PaymentGatewayController {
   async updateAsaasCharge(
     @Param('chargeId') chargeId: string,
     @Body() body: { value?: number; dueDate?: string; description?: string },
+    @Req() req: any,
   ) {
     this.logger.log(`[PUT /charges/asaas/${chargeId}] Atualizando cobranca`);
-    return this.asaasClient.updateCharge(chargeId, body);
+    // Isolamento + authz: só edita cobrança da própria clínica, na conta dela.
+    const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
+    return this.asaasClient.updateCharge(chargeId, body, tenantId);
   }
 
   /** Confirmar recebimento em dinheiro (espécie/maquineta/PIX da clínica).
@@ -333,13 +372,16 @@ export class PaymentGatewayController {
     @Req() req: any,
   ) {
     this.logger.log(`[POST /charges/asaas/${chargeId}/receive-in-cash] Confirmando pagamento em dinheiro`);
+    // Isolamento + authz: barra baixar cobrança de outra clínica (roda ANTES de
+    // mexer no Asaas E no caixa via registerClinicReceipt) e usa a conta do dono.
+    const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
     // Asaas é best-effort: se falhar, ainda registramos local + caixa.
     let result: any = null;
     try {
-      const charge = await this.asaasClient.getCharge(chargeId);
+      const charge = await this.asaasClient.getCharge(chargeId, tenantId);
       const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
       const value = charge?.value || 1;
-      result = await this.asaasClient.receiveInCash(chargeId, today, value);
+      result = await this.asaasClient.receiveInCash(chargeId, today, value, tenantId);
     } catch (e: any) {
       this.logger.warn(`[receive-in-cash] Asaas falhou (segue com registro local): ${e?.message}`);
     }
@@ -355,9 +397,11 @@ export class PaymentGatewayController {
 
   /** Excluir cobrança no Asaas */
   @Delete('charges/asaas/:chargeId')
-  async deleteAsaasCharge(@Param('chargeId') chargeId: string) {
+  async deleteAsaasCharge(@Param('chargeId') chargeId: string, @Req() req: any) {
     this.logger.log(`[DELETE /charges/asaas/${chargeId}] Excluindo cobranca no Asaas`);
-    return this.asaasClient.deleteCharge(chargeId);
+    // Isolamento + authz: só exclui cobrança da própria clínica, na conta dela.
+    const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
+    return this.asaasClient.deleteCharge(chargeId, tenantId);
   }
 
   /** Detalhes de uma cobrança por honorarioPaymentId */
@@ -432,13 +476,15 @@ export class PaymentGatewayController {
     @Query('cpfCnpj') cpfCnpj: string | undefined,
     @Query('offset') offset: string | undefined,
     @Query('limit') limit: string | undefined,
+    @Req() req: any,
   ) {
+    // Isolamento: lista clientes da conta Asaas DO TENANT (não a global/matriz).
     return this.asaasClient.listCustomers({
       name: name || undefined,
       cpfCnpj: cpfCnpj || undefined,
       offset: offset ? parseInt(offset) : 0,
       limit: limit ? parseInt(limit) : 100,
-    });
+    }, req.user?.tenant_id);
   }
 
   /** Importa e vincula automaticamente (match CPF/nome) */
