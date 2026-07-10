@@ -82,7 +82,7 @@ export class TreatmentPlanBillingService {
       externalReference: planId,
       installmentCount: options.installmentCount,
       installmentValue,
-    });
+    }, tenantId);
 
     this.logger.log(
       `[BILLING] Charge Asaas criada para plan ${planId}: ${asaasCharge.id} | ` +
@@ -92,7 +92,7 @@ export class TreatmentPlanBillingService {
     // PIX QR code (se aplicavel)
     let pixData: any = null;
     if (options.billingType === 'PIX' && asaasCharge.id) {
-      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id, tenantId); }
       catch (e: any) { this.logger.warn(`[BILLING] Falha QR PIX: ${e.message}`); }
     }
 
@@ -245,7 +245,7 @@ export class TreatmentPlanBillingService {
         dueDate: today.toISOString().slice(0, 10),
         description: `Sinal de fechamento — ${plan.patient.name} [plan:${planId}]`,
         externalReference: planId,
-      });
+      }, tenantId);
       this.logger.log(
         `[FINANCING] Sinal ${signalMethod} criado para plan ${planId}: ${signalAsaas.id} | R$ ${signalValue}`,
       );
@@ -294,7 +294,7 @@ export class TreatmentPlanBillingService {
         dueDate: downPaymentDue.toISOString().slice(0, 10),
         description: `Entrada Financiamento Banco PASSOS — ${plan.patient.name} [plan:${planId}]`,
         externalReference: planId,
-      });
+      }, tenantId);
       this.logger.log(
         `[FINANCING] Entrada Asaas criada para plan ${planId}: ${downAsaas.id} | R$ ${entradaBoletoValue} (total entrada R$ ${options.downPaymentValue} - sinal R$ ${signalValue})`,
       );
@@ -343,7 +343,7 @@ export class TreatmentPlanBillingService {
         externalReference: planId,
         installmentCount: options.installmentCount,
         installmentValue: options.installmentValue,
-      });
+      }, tenantId);
       this.logger.log(
         `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} ` +
         `(installment ${installmentsAsaas.installment}) | ` +
@@ -647,7 +647,7 @@ export class TreatmentPlanBillingService {
       description,
       externalReference: planId,
       ...(installmentCount ? { installmentCount, installmentValue } : {}),
-    });
+    }, tenantId);
 
     this.logger.log(
       `[SIMPLE-CHARGE] Plan ${planId}: ${options.billingType} ` +
@@ -657,7 +657,7 @@ export class TreatmentPlanBillingService {
     // PIX QR code
     let pixData: any = null;
     if (options.billingType === 'PIX' && asaasCharge.id) {
-      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id); }
+      try { pixData = await this.asaas.getPixQrCode(asaasCharge.id, tenantId); }
       catch (e: any) { this.logger.warn(`[SIMPLE-CHARGE] Falha QR PIX: ${e.message}`); }
     }
 

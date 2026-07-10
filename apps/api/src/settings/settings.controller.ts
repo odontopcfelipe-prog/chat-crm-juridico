@@ -48,8 +48,15 @@ export class SettingsController {
     // Onda 17.32.180 — admin de tenant NAO pode sobrescrever o SMTP
     // global do SaaS (mesma classe do vazamento Evolution da Onda 74)
     const isSuper = (req.user?.roles || []).includes('SUPER_ADMIN');
-    if (String(data?.key || '').startsWith('SMTP_') && !isSuper) {
-      throw new ForbiddenException('Configuração de e-mail da plataforma — somente o administrador do SaaS.');
+    const key = String(data?.key || '');
+    // Onda 18.x — CHAVES GLOBAIS DA PLATAFORMA (Asaas + dono da chave global):
+    // admin de TENANT não pode sobrescrever, senão (a) a cobrança de uma clínica cai
+    // na conta Asaas de outra, ou (b) o isolamento por tenant é burlado (poisonar o
+    // ASAAS_GLOBAL_OWNER_TENANT). A chave Asaas PRÓPRIA da clínica vai por outro caminho
+    // (POST /payment-gateway/setup → TenantSetting), não por aqui.
+    const PLATFORM_GLOBAL_KEYS = ['asaas_api_key', 'asaas_webhook_token', 'asaas_sandbox', 'ASAAS_GLOBAL_OWNER_TENANT'];
+    if ((key.startsWith('SMTP_') || PLATFORM_GLOBAL_KEYS.includes(key)) && !isSuper) {
+      throw new ForbiddenException('Configuração global da plataforma — somente o administrador do SaaS. Para a conta Asaas da sua clínica, use "Configurar gateway".');
     }
     return this.settingsService.upsert(data.key, data.value);
   }

@@ -63,11 +63,36 @@ export class AsaasClient {
    */
   async getConfig(tenantId?: string | null): Promise<AsaasConfig> {
     const { getTenantSetting } = await import('../../tenants/tenant-settings.helper.js');
-    // Onda 17.32.82 — Chaves novas (CAPS) tem prioridade sobre as legadas
-    // (lowercase). Caller pode setar TenantSetting{ASAAS_API_KEY} ou
-    // GlobalSetting{asaas_api_key} — ambos funcionam.
-    const newKey = await getTenantSetting(this.prisma, 'ASAAS_API_KEY', tenantId, 'ASAAS_API_KEY');
-    const apiKey = newKey || await this.settingsService.get('asaas_api_key');
+    // Onda 18.x — ISOLAMENTO POR TENANT (anti-vazamento de cobrança entre clínicas).
+    // Regra: operação com tenant explícito usa a chave DELE (TenantSetting, texto cru).
+    // NUNCA cai na chave global de outra clínica. Exceção: o "dono" da chave global
+    // (GlobalSetting ASAAS_GLOBAL_OWNER_TENANT — normalmente a matriz) segue usando a
+    // global como conta dele. Enquanto o dono NÃO estiver setado, mantém o comportamento
+    // LEGADO (fallback global p/ todos) — assim o DEPLOY do código não quebra ninguém; o
+    // isolamento "liga" (e desliga) só ao setar/limpar esse GlobalSetting. Reversível.
+    let apiKey: string | null = null;
+    if (tenantId) {
+      const ts = await this.prisma.tenantSetting
+        .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key: 'ASAAS_API_KEY' } } })
+        .catch(() => null);
+      if (ts?.value) {
+        apiKey = ts.value; // clínica com conta Asaas PRÓPRIA
+      } else {
+        const owner = await getTenantSetting(this.prisma, 'ASAAS_GLOBAL_OWNER_TENANT', null);
+        if (!owner) {
+          apiKey = await this.settingsService.get('asaas_api_key'); // isolamento não ativado (legado)
+        } else if (owner === tenantId) {
+          apiKey = await this.settingsService.get('asaas_api_key'); // dono da chave global (matriz)
+        } else {
+          apiKey = null; // clínica sem chave própria e não-dona → BLOQUEADA (não vaza p/ a matriz)
+          this.logger.warn(`[ASAAS] tenant ${tenantId} sem chave propria e nao e o dono da global — cobranca BLOQUEADA (isolamento)`);
+        }
+      }
+    } else {
+      // Contexto legado/sistema sem tenant explícito: resolução com fallback global (como antes).
+      const legacyKey = await getTenantSetting(this.prisma, 'ASAAS_API_KEY', null, 'ASAAS_API_KEY');
+      apiKey = legacyKey || await this.settingsService.get('asaas_api_key');
+    }
 
     const newBaseUrl = await getTenantSetting(this.prisma, 'ASAAS_BASE_URL', tenantId);
     const sandboxStr = await this.settingsService.get('asaas_sandbox');

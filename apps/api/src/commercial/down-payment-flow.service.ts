@@ -319,7 +319,7 @@ export class DownPaymentFlowService {
       dueDate: args.dueDate.toISOString().slice(0, 10),
       description,
       externalReference: args.planId,
-    });
+    }, args.tenantId);
 
     // Onda 15 (etapa 14) — Pra PIX, buscar QR code + copia-cola NA HORA da
     // criacao (sem esperar o webhook do Asaas, que so dispara quando o
@@ -330,7 +330,7 @@ export class DownPaymentFlowService {
     let pixData: { encodedImage?: string; payload?: string } | null = null;
     if (args.method === 'PIX') {
       try {
-        pixData = await this.asaas.getPixQrCode(asaasCharge.id);
+        pixData = await this.asaas.getPixQrCode(asaasCharge.id, args.tenantId);
       } catch (err: any) {
         this.logger.warn(
           `[DOWN-PMT] Falha ao buscar QR PIX da charge ${asaasCharge.id}: ${err?.message || err}`,
@@ -560,7 +560,7 @@ export class DownPaymentFlowService {
       externalReference: plan.id,
       installmentCount: options.installmentCount,
       installmentValue: options.installmentValue,
-    });
+    }, tenantId);
 
     const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
       data: {
