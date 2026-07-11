@@ -119,6 +119,9 @@ function OrcamentosPageInner() {
   const [stats, setStats] = useState<DashboardStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
+  // Onda 18.x — visão PROPOSTAS ganha 2 abas: 'aguardando' (rascunho+enviado) e
+  // 'aprovados' (fechados, por ordem) — pra não perder quem fechou e falta agendar.
+  const [propostaTab, setPropostaTab] = useState<'aguardando' | 'aprovados'>('aguardando');
   // Mantem filtro em sincro com o URL (quando operador clica entre Orcamentos
   // e Propostas no sidebar, ou volta/avanca no historico do browser).
   useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
@@ -153,18 +156,20 @@ function OrcamentosPageInner() {
       ? list.filter((q) => (q.created_by?.id || 'SEM_DENTISTA') === dentistFilter)
       : list;
     if (isPropostas) {
-      // Propostas a fazer = rascunho (montar) + enviado (aguardando decisão). Os já
-      // fechados (Aceito), recusados/expirados não entram aqui.
-      l = l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
+      // Aba 'aprovados' = fechados (ACCEPTED), por ordem. Aba 'aguardando' = rascunho
+      // (montar) + enviado (aguardando decisão). Recusados/expirados não entram aqui.
+      l = propostaTab === 'aprovados'
+        ? l.filter((q) => q.status === 'ACCEPTED')
+        : l.filter((q) => q.status === 'DRAFT' || q.status === 'SENT');
     } else {
       // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
       l = l.filter((q) => q.status !== 'SENT');
     }
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
-    if (isPropostas) {
-      // UM por PACIENTE — clicar no nome já puxa TODAS as propostas dele. Mantém a mais
-      // recente (a lista vem ordenada por created_at desc).
+    if (isPropostas && propostaTab !== 'aprovados') {
+      // Aguardando: UM por PACIENTE — clicar no nome já puxa TODAS as propostas dele.
+      // Aprovados mostra TODA proposta aprovada (não deduplica), por ordem de criação.
       const seen = new Set<string>();
       l = l.filter((q) => {
         const pid = q.patient?.id;
@@ -174,7 +179,7 @@ function OrcamentosPageInner() {
       });
     }
     return l;
-  }, [list, dentistFilter, dateFrom, dateTo, isPropostas]);
+  }, [list, dentistFilter, dateFrom, dateTo, isPropostas, propostaTab]);
 
   // Onda 15 (etapa 19.6) — Stats CALCULADAS NO CLIENTE a partir da lista
   // carregada. Antes dependia do endpoint /quotes/dashboard, que tinha
@@ -344,7 +349,9 @@ function OrcamentosPageInner() {
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
             {isPropostas
-              ? 'Propostas a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.'
+              ? (propostaTab === 'aprovados'
+                ? 'Propostas aprovadas — pacientes que fecharam, por ordem. Clique na ficha pra agendar a consulta e não perder ninguém.'
+                : 'Propostas a fazer — rascunhos a montar e enviados aguardando a decisão do paciente. Clique no paciente pra aprovar.')
               : 'Funil comercial. Acompanhe as avaliações: rascunhos, aceitações e taxa de conversão.'}
           </p>
         </div>
@@ -423,8 +430,28 @@ function OrcamentosPageInner() {
       {/* Filtros */}
       <div className="flex flex-col gap-2 mb-4">
         <div className="flex flex-col sm:flex-row gap-2">
-          {/* Abas de status — só na visão Avaliação. Na Propostas o operador pediu
-              pra sair (mostra só os enviados). */}
+          {/* Abas da visão PROPOSTAS: Aguardando negociação | Aprovados (fechados). */}
+          {isPropostas && (
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
+            {([
+              { key: 'aguardando' as const, label: 'Aguardando negociação' },
+              { key: 'aprovados' as const, label: 'Aprovados' },
+            ]).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setPropostaTab(t.key)}
+                className={`px-3 py-1.5 rounded text-xs font-medium ${
+                  propostaTab === t.key
+                    ? (t.key === 'aprovados' ? 'bg-emerald-600 text-white' : 'bg-primary text-primary-foreground')
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          )}
+          {/* Abas de status — só na visão Avaliação. */}
           {!isPropostas && (
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
             {STATUS_TABS.map((s) => {
@@ -666,10 +693,10 @@ function QuoteTable({
                     )}
                     className="text-xs px-2 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent"
                     title={isPropostas
-                      ? 'Abrir a negociação (aba Propostas do paciente)'
+                      ? (q.status === 'ACCEPTED' ? 'Abrir a ficha do paciente pra agendar' : 'Abrir a negociação (aba Propostas do paciente)')
                       : 'Abrir a avaliação do paciente'}
                   >
-                    {isPropostas ? 'Ver negociação' : 'Ver avaliação'}
+                    {isPropostas ? (q.status === 'ACCEPTED' ? 'Ver ficha' : 'Ver negociação') : 'Ver avaliação'}
                   </button>
                 </div>
               </td>
