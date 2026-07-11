@@ -997,46 +997,41 @@ export class PatientsService {
    * "month": qualquer dia do mes corrente.
    */
   async getBirthdays(tenantId: string, period: 'today' | 'week' | 'month' = 'today') {
-    // Usamos uma query SQL crua pra trabalhar com extract(month/day) — Prisma
-    // nao tem suporte nativo a comparacao de "mes/dia" de DateTime.
-    let whereSql: string;
+    // Onda 18.x — Prisma ORM (findMany) + filtro de mês/dia no NODE. Raw SQL em
+    // Patient quebra ("relation patients does not exist" → 500 no widget de
+    // aniversariantes) — ver memória do projeto: SEMPRE ORM pra Patient.
+    const patients = await this.prisma.patient.findMany({
+      where: { tenant_id: tenantId, status: 'ACTIVE', birth_date: { not: null } },
+      select: { id: true, name: true, phone: true, birth_date: true, avatar_url: true, primary_dentist_id: true },
+    });
+
+    const now = new Date();
+    const mdKey = (d: Date) => (d.getUTCMonth() + 1) * 100 + d.getUTCDate();
+    let matchesBirthday: (bd: Date) => boolean;
     if (period === 'today') {
-      whereSql = `
-        EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM CURRENT_DATE)
-        AND EXTRACT(DAY FROM birth_date) = EXTRACT(DAY FROM CURRENT_DATE)
-      `;
+      const k = mdKey(now);
+      matchesBirthday = (bd) => mdKey(bd) === k;
     } else if (period === 'week') {
-      // Próximos 7 dias considerando virada de mês: gera o conjunto (mês, dia)
-      // dos próximos 7 dias e usa em (...) IN
-      whereSql = `
-        (EXTRACT(MONTH FROM birth_date), EXTRACT(DAY FROM birth_date))
-        IN (
-          SELECT EXTRACT(MONTH FROM d), EXTRACT(DAY FROM d)
-          FROM generate_series(CURRENT_DATE, CURRENT_DATE + INTERVAL '6 days', INTERVAL '1 day') AS d
-        )
-      `;
+      const set = new Set<number>();
+      for (let i = 0; i < 7; i++) set.add(mdKey(new Date(now.getTime() + i * 86400000)));
+      matchesBirthday = (bd) => set.has(mdKey(bd));
     } else {
-      whereSql = `EXTRACT(MONTH FROM birth_date) = EXTRACT(MONTH FROM CURRENT_DATE)`;
+      const m = now.getUTCMonth();
+      matchesBirthday = (bd) => bd.getUTCMonth() === m;
     }
 
-    const rows = await this.prisma.$queryRawUnsafe<Array<{
-      id: string; name: string; phone: string | null; birth_date: Date;
-      avatar_url: string | null; primary_dentist_id: string | null;
-    }>>(`
-      SELECT id, name, phone, birth_date, avatar_url, primary_dentist_id
-      FROM patients
-      WHERE tenant_id = $1
-        AND status = 'ACTIVE'
-        AND birth_date IS NOT NULL
-        AND ${whereSql}
-      ORDER BY EXTRACT(MONTH FROM birth_date), EXTRACT(DAY FROM birth_date), name
-      LIMIT 200
-    `, tenantId);
+    const rows = patients
+      .filter((p) => p.birth_date && matchesBirthday(new Date(p.birth_date)))
+      .sort((a, b) =>
+        mdKey(new Date(a.birth_date as Date)) - mdKey(new Date(b.birth_date as Date)) ||
+        String(a.name).localeCompare(String(b.name)),
+      )
+      .slice(0, 200);
 
     return rows.map((r) => {
       // Calcula idade que vai fazer
       const today = new Date();
-      const b = new Date(r.birth_date);
+      const b = new Date(r.birth_date as Date);
       let ageTurning = today.getUTCFullYear() - b.getUTCFullYear();
       // Se ainda nao passou o aniversario esse ano, soma 1 (vai fazer)
       const monthDayBefore =

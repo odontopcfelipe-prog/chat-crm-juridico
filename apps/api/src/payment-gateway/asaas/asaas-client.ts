@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import axios, { AxiosError } from 'axios';
 import { SettingsService } from '../../settings/settings.service';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -132,7 +132,12 @@ export class AsaasClient {
   ): Promise<T> {
     const config = await this.getConfig(tenantId);
     if (!config.apiKey) {
-      throw new Error('Asaas API key nao configurada. Configure "asaas_api_key" nas configuracoes.');
+      // Onda 18.x — clínica sem gateway Asaas configurado (ou bloqueada pelo
+      // isolamento por tenant). Erro LIMPO 503, não Error cru → não vira "erro
+      // interno / 500". A venda rápida mostra a mensagem em vez de crashar.
+      throw new ServiceUnavailableException(
+        'Cobrança Asaas não está configurada para esta clínica. Configure a conta Asaas da clínica no cadastro do gateway (ou use recebimento na clínica assim que o suporte habilitar).',
+      );
     }
 
     const url = `${config.baseUrl}${path}`;
