@@ -115,6 +115,9 @@ export class ApproveAndBillDto {
   // caixa com este método (PIX | PIX_MAQUININHA | DINHEIRO) SEM gerar cobrança
   // Asaas. Quando ausente, segue o fluxo normal (Asaas).
   @IsOptional() @IsString() @IsIn(['PIX', 'PIX_MAQUININHA', 'DINHEIRO']) manual_payment_method?: string;
+  // Onda 18.x — venda rápida "recebido na clínica": numa clínica SEM conta Asaas,
+  // cria cobrança LOCAL (cai só no caixa via receive-in-cash) em vez de falhar 503.
+  @IsOptional() @IsBoolean() received_in_clinic?: boolean;
 }
 
 // Onda 18.6 — Admin edita o preco (total) de um item da proposta.

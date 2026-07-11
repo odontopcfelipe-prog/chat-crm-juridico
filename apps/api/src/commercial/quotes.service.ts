@@ -784,6 +784,8 @@ export class QuotesService {
       // PIX em conta / na maquininha / espécie recebidos PRESENCIALMENTE: lança no
       // caixa com este método SEM cobrança Asaas. Quando ausente, segue via Asaas.
       manual_payment_method?: string;
+      // Onda 18.x — clínica sem Asaas: cobrança LOCAL p/ recebido na clínica.
+      received_in_clinic?: boolean;
     },
   ) {
     if (!this.billingService) {
@@ -858,6 +860,7 @@ export class QuotesService {
           billingType: data.billing_type,
           value: data.value,
           installmentCount: data.installment_count,
+          receivedInClinic: data.received_in_clinic,
         });
       }
 

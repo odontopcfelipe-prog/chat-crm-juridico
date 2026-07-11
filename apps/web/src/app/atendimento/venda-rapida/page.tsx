@@ -431,6 +431,9 @@ export default function VendaRapidaPage() {
         `/quotes/${quoteId}/approve-and-bill`,
         {
           billing_type: clinicReceived ? 'PIX' : billingType,
+          // Onda 18.x — clínica sem Asaas: aprova+cobra como LOCAL (cai só no caixa),
+          // não falha. Online (não-clínica) segue exigindo Asaas.
+          received_in_clinic: clinicReceived,
           // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida
           // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
           // com 15 casas -> 400 "value must be a number...").

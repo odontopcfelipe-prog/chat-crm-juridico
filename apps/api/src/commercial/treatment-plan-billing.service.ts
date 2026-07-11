@@ -550,6 +550,9 @@ export class TreatmentPlanBillingService {
       value: number;
       installmentCount?: number; // so pra CREDIT_CARD
       firstDueDate?: string;
+      // Onda 18.x — recebido na clínica (venda rápida). Se a clínica NÃO tem Asaas,
+      // vira cobrança LOCAL (cai só no caixa via receive-in-cash) em vez de falhar.
+      receivedInClinic?: boolean;
     },
   ) {
     const plan = await this.prisma.treatmentPlan.findUnique({
@@ -619,8 +622,6 @@ export class TreatmentPlanBillingService {
       }
     }
 
-    const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
-
     const dueDate = options.firstDueDate
       ? new Date(options.firstDueDate)
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
@@ -638,6 +639,41 @@ export class TreatmentPlanBillingService {
       `[plan:${planId}]`,
     ];
     const description = descriptionParts.join(' ');
+
+    // Onda 18.x — RECEBIDO NA CLÍNICA numa clínica SEM gateway Asaas: cobrança LOCAL
+    // (gateway CASH, sem chamar o Asaas nem criar customer). O receive-in-cash lança
+    // a(s) receita(s) no caixa depois (inclusive o split de 2 cartões). Cobrança
+    // ONLINE (sem receivedInClinic) segue exigindo Asaas — clínica sem conta não
+    // fatura online, o que é o correto.
+    if (options.receivedInClinic && !(await this.asaas.isConfigured(tenantId))) {
+      const externalId = `local-${planId}-${Date.now()}`;
+      const charge = await this.prisma.paymentGatewayCharge.create({
+        data: {
+          tenant_id: tenantId,
+          treatment_plan_id: planId,
+          gateway: 'CASH',
+          external_id: externalId,
+          customer_external_id: 'CASH',
+          billing_type: options.billingType,
+          amount: options.value,
+          due_date: dueDate,
+          status: 'PENDING',
+          description,
+        },
+      });
+      this.logger.log(`[SIMPLE-CHARGE] Plan ${planId}: LOCAL (clínica sem Asaas) R$ ${options.value} → recebido na clínica`);
+      return {
+        plan_id: planId,
+        charge,
+        billing_type: options.billingType,
+        installment_count: installmentCount,
+        pix: null,
+        boleto: null,
+        invoice_url: null,
+      };
+    }
+
+    const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
     const asaasCharge = await this.asaas.createCharge({
       customer: customer.external_id,

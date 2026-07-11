@@ -116,6 +116,13 @@ export class AsaasClient {
     return { apiKey: apiKey || '', baseUrl, sandbox, webhookToken: webhookToken || '' };
   }
 
+  /** Onda 18.x — a clínica tem gateway Asaas UTILIZÁVEL? (chave própria, ou é a dona
+   *  da chave global). Usado p/ decidir cobrança online (Asaas) vs local (só caixa). */
+  async isConfigured(tenantId?: string | null): Promise<boolean> {
+    const cfg = await this.getConfig(tenantId);
+    return !!cfg.apiKey;
+  }
+
   // ─── Core HTTP wrapper ─────────────────────────────────
 
   /**
