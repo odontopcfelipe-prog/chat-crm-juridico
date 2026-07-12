@@ -24,7 +24,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, DollarSign, Layers, Wallet, Check,
+  CircleCheck, Clock, Layers, Check,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -38,7 +38,6 @@ interface JourneyCard {
   quote_id: string;
   plan_id: string | null;
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
-  total_value: number;
   accepted_at: string | null;
   dentist: { id: string; name: string } | null;
   stage: StageKey;
@@ -50,13 +49,11 @@ interface JourneyCard {
 interface BoardData {
   summary: {
     count_total: number;
-    total_value: number;
-    ticket_medio: number;
     open_count: number;
     to_schedule_count: number;
-    to_schedule_value: number;
+    agendado_count: number;
+    em_tratamento_count: number;
     month_count: number;
-    month_value: number;
     concluido_total: number;
   };
   by_stage: Record<StageKey, JourneyCard[]>;
@@ -64,9 +61,8 @@ interface BoardData {
 
 const EMPTY_BOARD: BoardData = {
   summary: {
-    count_total: 0, total_value: 0, ticket_medio: 0, open_count: 0,
-    to_schedule_count: 0, to_schedule_value: 0, month_count: 0, month_value: 0,
-    concluido_total: 0,
+    count_total: 0, open_count: 0, to_schedule_count: 0,
+    agendado_count: 0, em_tratamento_count: 0, month_count: 0, concluido_total: 0,
   },
   by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [] },
 };
@@ -85,9 +81,6 @@ const COLUMNS: Array<{
 ];
 
 // ─── Formatação ─────────────────────────────────────────────────────────────
-
-const formatBRL = (v: number) =>
-  Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 
 /** Data de fechamento (accepted_at = instante real; tz do navegador). */
 function formatCloseDate(iso: string | null): string | null {
@@ -193,13 +186,13 @@ export default function ProgressoPage() {
         </div>
       )}
 
-      {/* KPIs */}
+      {/* KPIs — só contagens (processo), sem valores monetários */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard
           icon={AlertTriangle}
           label="A agendar"
           value={String(summary.to_schedule_count)}
-          sub={summary.to_schedule_value > 0 ? `${formatBRL(summary.to_schedule_value)} parados` : 'tudo agendado'}
+          sub={summary.to_schedule_count > 0 ? 'aguardando agenda' : 'tudo agendado'}
           accent={summary.to_schedule_count > 0 ? 'text-amber-600' : 'text-emerald-600'}
           highlight={summary.to_schedule_count > 0}
         />
@@ -207,21 +200,21 @@ export default function ProgressoPage() {
           icon={Layers}
           label="Em aberto"
           value={String(summary.open_count)}
-          sub="tratamentos ativos"
+          sub="em andamento"
           accent="text-sky-600"
         />
         <KpiCard
-          icon={DollarSign}
-          label="Fechado no mês"
-          value={formatBRL(summary.month_value)}
-          sub={`${summary.month_count} ${summary.month_count === 1 ? 'venda' : 'vendas'}`}
+          icon={CalendarClock}
+          label="Fechados no mês"
+          value={String(summary.month_count)}
+          sub="neste mês"
           accent="text-emerald-600"
         />
         <KpiCard
-          icon={Wallet}
-          label="Ticket médio"
-          value={formatBRL(summary.ticket_medio)}
-          sub={`${summary.count_total} no total`}
+          icon={CircleCheck}
+          label="Concluídos"
+          value={String(summary.concluido_total)}
+          sub="no total"
           accent="text-violet-600"
         />
       </div>
@@ -230,7 +223,6 @@ export default function ProgressoPage() {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {COLUMNS.map((col) => {
           const cards = by_stage[col.key] || [];
-          const colTotal = cards.reduce((s, c) => s + c.total_value, 0);
           const Icon = col.icon;
           return (
             <div key={col.key} className="flex flex-col bg-card border rounded-xl overflow-hidden">
@@ -242,13 +234,13 @@ export default function ProgressoPage() {
                 </div>
                 <span className="text-xs font-mono opacity-70 shrink-0">{cards.length}</span>
               </div>
-              {/* Total da coluna */}
-              <div className="px-3 py-1.5 text-xs text-muted-foreground border-b bg-background/50">
-                {colTotal > 0 ? formatBRL(colTotal) : '—'}
-                {col.key === 'CONCLUIDO' && summary.concluido_total > cards.length && (
-                  <span className="ml-1 opacity-70">(+{summary.concluido_total - cards.length} antigos)</span>
-                )}
-              </div>
+              {/* Nota "+N concluídos anteriores" (Concluído mostra só os
+                  recentes). Sem totais em R$ — foco no processo, não no valor. */}
+              {col.key === 'CONCLUIDO' && summary.concluido_total > cards.length && (
+                <div className="px-3 py-1.5 text-xs text-muted-foreground border-b bg-background/50">
+                  +{summary.concluido_total - cards.length} concluídos anteriores
+                </div>
+              )}
               {/* Cards */}
               <div className="flex-1 p-2 space-y-2 min-h-[200px] max-h-[calc(100vh-20rem)] overflow-y-auto">
                 {cards.length === 0 ? (

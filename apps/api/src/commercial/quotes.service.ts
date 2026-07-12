@@ -2466,7 +2466,6 @@ export class QuotesService {
         quote_id: q.id,
         plan_id: plan?.id || null,
         patient: q.patient,
-        total_value: Number(q.total_value),
         accepted_at: q.accepted_at,
         dentist,
         stage,
@@ -2482,39 +2481,34 @@ export class QuotesService {
     const concluidoTotal = byStage.CONCLUIDO.length;
     byStage.CONCLUIDO = byStage.CONCLUIDO.slice(0, 30);
 
-    // ─── Summary (KPIs) ───
-    const toSchedule = byStage.A_AGENDAR;
+    // ─── Summary (KPIs) — só CONTAGENS. Sem valores monetários: esta tela é de
+    // acompanhamento do PROCESSO, não financeira (dinheiro fica no Financeiro /
+    // Aprovados). Por isso o valor não é sequer devolvido no payload. ───
     const openCount =
       byStage.A_AGENDAR.length + byStage.AGENDADO.length + byStage.EM_TRATAMENTO.length;
-    const totalValue = quotes.reduce((s, q) => s + Number(q.total_value), 0);
-    const ticketMedio = quotes.length > 0 ? totalValue / quotes.length : 0;
 
-    // Fechado no mês corrente (Maceió). accepted_at é instante real; o skew de
-    // 3h na virada do mês é imaterial pra um KPI mensal.
+    // Fechados no mês corrente (Maceió) — CONTAGEM, não valor.
     const monthStart = new Date(
       Date.UTC(nowMaceio.getUTCFullYear(), nowMaceio.getUTCMonth(), 1),
     );
-    const acceptedThisMonth = quotes.filter(
+    const monthCount = quotes.filter(
       (q) => q.accepted_at && q.accepted_at >= monthStart,
-    );
-    const monthValue = acceptedThisMonth.reduce((s, q) => s + Number(q.total_value), 0);
+    ).length;
 
     const result = {
       summary: {
         count_total: quotes.length,
-        total_value: totalValue,
-        ticket_medio: ticketMedio,
         open_count: openCount,
-        to_schedule_count: toSchedule.length,
-        to_schedule_value: toSchedule.reduce((s, c) => s + c.total_value, 0),
-        month_count: acceptedThisMonth.length,
-        month_value: monthValue,
+        to_schedule_count: byStage.A_AGENDAR.length,
+        agendado_count: byStage.AGENDADO.length,
+        em_tratamento_count: byStage.EM_TRATAMENTO.length,
+        month_count: monthCount,
         concluido_total: concluidoTotal,
       },
       by_stage: byStage,
     };
     this.logger.log(
-      `[JOURNEY_BOARD] OK deals=${quotes.length} a_agendar=${toSchedule.length} open=${openCount}`,
+      `[JOURNEY_BOARD] OK deals=${quotes.length} a_agendar=${byStage.A_AGENDAR.length} open=${openCount}`,
     );
     return result;
   }
