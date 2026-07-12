@@ -2121,6 +2121,22 @@ export default function AgendaPage() {
       {/* ═══ Área principal ═══ */}
       <div className="flex-1 flex flex-col overflow-hidden relative">
 
+        {/* Voltar — faixa à ESQUERDA, acima do calendário. Só aparece quando
+            o operador chegou por um deep-link "Agendar" (ex.: ?from=/atendimento/progresso).
+            Fica fora do header do schedule-x (que ocupa o topo-esquerdo com "Hoje"). */}
+        {returnTo && (
+          <div className="shrink-0 px-3 py-1.5 border-b border-border bg-card/40 flex items-center">
+            <button
+              onClick={() => router.push(returnTo)}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:bg-accent transition-colors"
+              title="Voltar de onde você veio"
+            >
+              <span aria-hidden className="text-sm leading-none">←</span>
+              <span>{returnTo.includes('progresso') ? 'Voltar ao Progresso' : 'Voltar'}</span>
+            </button>
+          </div>
+        )}
+
         {/* Onda 5e v6 (Fase 25): top bar global REMOVIDA — Kanban + Novo
             Evento foram pra position absolute sobre o header do schedule-x
             (alinhados com "Abril – Maio 2026"), economizando ~40px verticais.
@@ -2152,18 +2168,6 @@ export default function AgendaPage() {
             schedule-x (canto superior direito da area do calendario). z-20 pra
             ficar acima do header do schedule-x. */}
         <div className="hidden sm:flex absolute top-2 right-3 z-20 items-center gap-2 pointer-events-none">
-          {/* Voltar — só aparece quando o operador chegou por um deep-link
-              "Agendar" (ex.: do Progresso). Evita ficar preso na agenda. */}
-          {returnTo && (
-            <button
-              onClick={() => router.push(returnTo)}
-              className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:bg-accent transition-colors"
-              title="Voltar de onde você veio"
-            >
-              <span aria-hidden className="text-sm leading-none">←</span>
-              <span>{returnTo.includes('progresso') ? 'Voltar ao Progresso' : 'Voltar'}</span>
-            </button>
-          )}
           {/* Filtro por dentista — alinhado com o header do mês (antes ficava na
               sidebar). Some quando o operador está em "Meus eventos" (showAllUsers=false). */}
           {role.canViewAllAgenda && showAllUsers && (
