@@ -2583,12 +2583,16 @@ export class QuotesService {
         if (d) { dentist = d; break; }
       }
 
+      // "stand by" = algum plano PAUSED (pausado por decisão do adm/dentista)
+      const standby = pQuotes.some((q) => q.treatment_plan?.status === 'PAUSED');
+
       byStage[stage].push({
         patient: primary.patient,
         plan_ids: planIds,
         contracts: pQuotes.length,
         accepted_at: primary.accepted_at,
         dentist,
+        standby,
         primary_dentist: primary.patient?.primary_dentist ?? null, // atendendo
         created_by: primary.created_by ?? null, // quem orçou
         closed_by: closerByQuote.get(primary.id) ?? null, // quem fechou
@@ -2629,8 +2633,10 @@ export class QuotesService {
         to_schedule_count: byStage.A_AGENDAR.length,
         agendado_count: byStage.AGENDADO.length,
         em_tratamento_count: byStage.EM_TRATAMENTO.length,
-        // "parados" = em tratamento SEM próxima consulta marcada (risco de esquecer)
-        stalled_count: byStage.EM_TRATAMENTO.filter((c) => !c.has_future_appt).length,
+        // "parados" = em tratamento SEM próxima consulta E NÃO em stand by (risco de esquecer)
+        stalled_count: byStage.EM_TRATAMENTO.filter((c) => !c.has_future_appt && !c.standby).length,
+        // "stand by" = tratamento pausado (PAUSED) por decisão do adm/dentista
+        standby_count: [...byStage.A_AGENDAR, ...byStage.AGENDADO, ...byStage.EM_TRATAMENTO].filter((c) => c.standby).length,
         month_count: monthCount,
         concluido_total: concluidoTotal,
       },

@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, Layers, Check, BookOpen, X,
+  CircleCheck, Clock, Layers, Check, BookOpen, PauseCircle, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -51,6 +51,7 @@ interface JourneyCard {
   stage: StageKey;
   next_appointment_at: string | null;
   has_future_appt: boolean;
+  standby: boolean; // tratamento pausado (PAUSED) por adm/dentista
   days_stalled: number | null;
   items_done: number;
   items_total: number;
@@ -64,6 +65,7 @@ interface BoardData {
     agendado_count: number;
     em_tratamento_count: number;
     stalled_count: number;
+    standby_count: number;
     month_count: number;
     concluido_total: number;
   };
@@ -73,7 +75,7 @@ interface BoardData {
 const EMPTY_BOARD: BoardData = {
   summary: {
     count_total: 0, open_count: 0, to_schedule_count: 0, agendado_count: 0,
-    em_tratamento_count: 0, stalled_count: 0, month_count: 0, concluido_total: 0,
+    em_tratamento_count: 0, stalled_count: 0, standby_count: 0, month_count: 0, concluido_total: 0,
   },
   by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [] },
 };
@@ -381,7 +383,8 @@ export default function ProgressoPage() {
         to_schedule_count: by.A_AGENDAR.length,
         agendado_count: by.AGENDADO.length,
         em_tratamento_count: by.EM_TRATAMENTO.length,
-        stalled_count: by.EM_TRATAMENTO.filter((c) => !c.has_future_appt).length,
+        stalled_count: by.EM_TRATAMENTO.filter((c) => !c.has_future_appt && !c.standby).length,
+        standby_count: [...by.A_AGENDAR, ...by.AGENDADO, ...by.EM_TRATAMENTO].filter((c) => c.standby).length,
         month_count: monthCount,
         concluido_total: by.CONCLUIDO.length,
       },
@@ -468,18 +471,18 @@ export default function ProgressoPage() {
           highlight={summary.stalled_count > 0 ? 'red' : undefined}
         />
         <KpiCard
-          icon={CalendarClock}
-          label="Fechados no mês"
-          value={String(summary.month_count)}
-          sub="neste mês"
-          accent="text-emerald-600"
+          icon={PauseCircle}
+          label="Em stand by"
+          value={String(summary.standby_count)}
+          sub="pausados"
+          accent="text-slate-500"
         />
         <KpiCard
           icon={CircleCheck}
           label="Concluídos"
           value={String(summary.concluido_total)}
           sub="no total"
-          accent="text-violet-600"
+          accent="text-emerald-600"
         />
       </div>
 
@@ -489,7 +492,7 @@ export default function ProgressoPage() {
           const cards = by_stage[col.key] || [];
           const Icon = col.icon;
           const colStalled = col.key === 'EM_TRATAMENTO'
-            ? cards.filter((c) => !c.has_future_appt).length
+            ? cards.filter((c) => !c.has_future_appt && !c.standby).length
             : 0;
           return (
             <div key={col.key} className="flex flex-col bg-card border rounded-xl overflow-hidden">
@@ -590,7 +593,7 @@ function JourneyCardItem({
   const isToSchedule = c.stage === 'A_AGENDAR';
   const daysWaiting = daysSince(c.accepted_at);
   // Em tratamento SEM próxima consulta = risco de esquecer (abandono no meio).
-  const isStalled = c.stage === 'EM_TRATAMENTO' && !c.has_future_appt;
+  const isStalled = c.stage === 'EM_TRATAMENTO' && !c.has_future_appt && !c.standby;
 
   return (
     <div
@@ -629,6 +632,14 @@ function JourneyCardItem({
             title={`Parado há ${c.days_stalled} ${c.days_stalled === 1 ? 'dia' : 'dias'}`}
           >
             parado {c.days_stalled}d
+          </span>
+        )}
+        {c.standby && (
+          <span
+            className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200"
+            title="Tratamento em stand by (pausado)"
+          >
+            <PauseCircle size={10} /> stand by
           </span>
         )}
       </div>
