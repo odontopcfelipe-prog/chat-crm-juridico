@@ -232,7 +232,7 @@ export default function ProgressoPage() {
           const colTotal = cards.reduce((s, c) => s + c.total_value, 0);
           const Icon = col.icon;
           return (
-            <div key={col.key} className="flex flex-col bg-card border rounded-lg overflow-hidden">
+            <div key={col.key} className="flex flex-col bg-card border rounded-xl overflow-hidden">
               {/* Header da coluna */}
               <div className={`px-3 py-2 border-b-2 ${col.accent} flex items-center justify-between`}>
                 <div className="flex items-center gap-2 min-w-0">
@@ -282,7 +282,7 @@ function KpiCard({
   accent: string; highlight?: boolean;
 }) {
   return (
-    <div className={`p-3 border rounded-lg bg-card ${highlight ? 'border-amber-300 bg-amber-50/40' : ''}`}>
+    <div className={`p-3 border rounded-xl bg-card ${highlight ? 'border-amber-300 bg-amber-50/40' : ''}`}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Icon size={14} className={accent} />
         <span className="truncate">{label}</span>
@@ -303,71 +303,81 @@ function JourneyCardItem({
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
+  const isToSchedule = c.stage === 'A_AGENDAR';
 
   return (
-    <div className="border rounded-md p-2.5 bg-card hover:shadow-sm transition-shadow space-y-2">
-      {/* Linha 1: Avatar + Nome + valor */}
-      <div className="flex items-start justify-between gap-2">
-        <button
-          onClick={onOpen}
-          className="flex items-center gap-2 hover:text-blue-600 flex-1 min-w-0 text-left"
-          title={c.patient.name || 'Sem nome'}
-        >
-          <PatientAvatar
-            patientId={c.patient.id}
-            patientName={c.patient.name || 'Sem nome'}
-            avatarUrl={c.patient.avatar_url}
-            size={28}
-          />
-          <span className="font-medium text-sm truncate min-w-0">
-            {c.patient.name || 'Sem nome'}
-          </span>
-        </button>
-        <span className="text-sm font-bold text-emerald-700 whitespace-nowrap shrink-0">
-          {formatBRL(c.total_value)}
+    <div
+      className={`rounded-xl p-3 bg-card border transition-shadow hover:shadow-md ${
+        isToSchedule ? 'border-amber-300' : 'border-border'
+      }`}
+    >
+      {/* Nome (clicável → ficha) */}
+      <button
+        onClick={onOpen}
+        className="flex items-center gap-2 w-full min-w-0 text-left group"
+        title={c.patient.name || 'Sem nome'}
+      >
+        <PatientAvatar
+          patientId={c.patient.id}
+          patientName={c.patient.name || 'Sem nome'}
+          avatarUrl={c.patient.avatar_url}
+          size={26}
+        />
+        <span className="font-medium text-[13px] text-foreground truncate min-w-0 group-hover:text-blue-600">
+          {c.patient.name || 'Sem nome'}
         </span>
+      </button>
+
+      {/* Valor (destaque, cor do texto = preto/foreground como no mockup) */}
+      <div className="text-[15px] font-semibold text-foreground mt-1.5 tabular-nums">
+        {formatBRL(c.total_value)}
       </div>
 
-      {/* Linha 2: dentista + data de fechamento */}
-      <div className="text-xs text-muted-foreground truncate">
+      {/* Dentista · data de fechamento */}
+      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
         {c.dentist?.name || 'Sem dentista'}
-        {closeDate && <span className="opacity-70"> · fechou {closeDate}</span>}
+        {closeDate && ` · fechou ${closeDate}`}
       </div>
 
-      {/* Linha 3: rodapé por etapa */}
-      {c.stage === 'A_AGENDAR' && (
-        <button
-          onClick={onSchedule}
-          className="w-full text-xs px-2 py-1.5 rounded bg-amber-100 border border-amber-300 hover:bg-amber-200 text-amber-800 font-medium flex items-center justify-center gap-1 transition-colors"
-          title="Abrir a agenda com este paciente já selecionado"
-        >
-          <CalendarPlus size={12} /> Agendar
-        </button>
-      )}
+      {/* Rodapé por etapa */}
+      <div className="mt-2.5">
+        {c.stage === 'A_AGENDAR' && (
+          <button
+            onClick={onSchedule}
+            className="w-full text-xs px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-amber-950 font-medium flex items-center justify-center gap-1.5 transition-colors"
+            title="Abrir a agenda com este paciente já selecionado"
+          >
+            <CalendarPlus size={13} /> Agendar
+          </button>
+        )}
 
-      {c.stage === 'AGENDADO' && (
-        <div className="flex items-center gap-1 text-xs text-sky-700 bg-sky-50 rounded px-2 py-1">
-          <Clock size={12} className="shrink-0" />
-          <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
-        </div>
-      )}
-
-      {c.stage === 'EM_TRATAMENTO' && (
-        <div>
-          <div className="h-1.5 bg-violet-100 rounded-full overflow-hidden">
-            <div className="h-full bg-violet-500 rounded-full" style={{ width: `${pct}%` }} />
+        {c.stage === 'AGENDADO' && (
+          <div className="flex items-center gap-1.5 text-xs text-sky-600 font-medium">
+            <Clock size={13} className="shrink-0" />
+            <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
           </div>
-          <div className="text-[11px] text-violet-700 mt-1">
-            {c.items_done} de {c.items_total} procedimentos
-          </div>
-        </div>
-      )}
+        )}
 
-      {c.stage === 'CONCLUIDO' && (
-        <div className="flex items-center gap-1 text-xs text-emerald-700">
-          <Check size={12} className="shrink-0" /> Tratamento finalizado
-        </div>
-      )}
+        {c.stage === 'EM_TRATAMENTO' && (
+          <div>
+            <div className="h-1.5 bg-violet-100 rounded-full overflow-hidden">
+              <div
+                className="h-full bg-violet-500 rounded-full transition-all"
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="text-[11px] text-violet-600 mt-1">
+              {c.items_done} de {c.items_total} procedimentos
+            </div>
+          </div>
+        )}
+
+        {c.stage === 'CONCLUIDO' && (
+          <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
+            <Check size={13} className="shrink-0" /> Tratamento finalizado
+          </div>
+        )}
+      </div>
     </div>
   );
 }
