@@ -308,13 +308,6 @@ function JourneyCardItem({
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
   const isToSchedule = c.stage === 'A_AGENDAR';
   const daysWaiting = daysSince(c.accepted_at);
-  // Mostra só QUEM FECHOU (dono da proposta). Sem registro de fechamento
-  // (aceite antigo/parcial), cai pra quem orçou.
-  const partyLabel = c.closed_by?.name
-    ? { verb: 'Fechou', name: c.closed_by.name }
-    : c.created_by?.name
-      ? { verb: 'Orçou', name: c.created_by.name }
-      : null;
 
   return (
     <div
@@ -369,18 +362,22 @@ function JourneyCardItem({
         )}
       </div>
 
-      {/* Responsável clínico */}
-      <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
-        {c.dentist?.name || 'Sem dentista'}
-      </div>
-
-      {/* Quem fechou a proposta (fallback: quem orçou) */}
-      {partyLabel && (
-        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-          {partyLabel.verb} <span className="text-foreground/75">{partyLabel.name}</span>
-          {closeDate && <span className="opacity-70"> · {closeDate}</span>}
+      {/* Quem orçou · quem fechou — linhas separadas */}
+      {c.created_by?.name && (
+        <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
+          Orçou <span className="text-foreground/75">{c.created_by.name}</span>
         </div>
       )}
+      {c.closed_by?.name ? (
+        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+          Fechou <span className="text-foreground/75">{c.closed_by.name}</span>
+          {closeDate && <span className="opacity-70"> · {closeDate}</span>}
+        </div>
+      ) : closeDate ? (
+        <div className="text-[11px] text-muted-foreground mt-0.5 truncate opacity-70">
+          Fechou em {closeDate}
+        </div>
+      ) : null}
 
       {/* Rodapé por etapa — ação/info (Em tratamento já mostra o progresso acima) */}
       {c.stage === 'A_AGENDAR' && (
