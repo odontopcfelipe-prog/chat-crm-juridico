@@ -40,8 +40,8 @@ interface Dentist {
 }
 
 interface JourneyCard {
-  quote_id: string;
-  plan_id: string | null;
+  plan_ids: string[];
+  contracts: number; // nº de contratos aceitos do paciente juntados neste card
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
   accepted_at: string | null;
   dentist: { id: string; name: string } | null;
@@ -131,20 +131,28 @@ interface PlanItem {
 
 /** Modal por card: procedimentos do plano separados em Feitos / Falta fazer
  *  (execução real — status DONE). Aberto pela engrenagem do card. */
-function ProceduresModal({ planId, patientName, onClose }: {
-  planId: string; patientName: string; onClose: () => void;
+function ProceduresModal({ planIds, patientName, onClose }: {
+  planIds: string[]; patientName: string; onClose: () => void;
 }) {
   const [items, setItems] = useState<PlanItem[] | null>(null);
   const [loading, setLoading] = useState(true);
+  const planKey = planIds.join(',');
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    api.get<{ items?: PlanItem[] }>(`/treatment-plans/${planId}`)
-      .then((r) => { if (!cancelled) setItems(r.data?.items || []); })
-      .catch(() => { if (!cancelled) setItems([]); })
+    // Junta os itens de TODOS os planos do paciente (pode ter mais de 1 contrato).
+    Promise.all(
+      planIds.map((id) =>
+        api.get<{ items?: PlanItem[] }>(`/treatment-plans/${id}`)
+          .then((r) => r.data?.items || [])
+          .catch(() => [] as PlanItem[]),
+      ),
+    )
+      .then((lists) => { if (!cancelled) setItems(lists.flat()); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [planId]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [planKey]);
   const feitos = (items || []).filter((i) => i.status === 'DONE');
   const faltam = (items || []).filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED');
   const totalExec = feitos.length + faltam.length;
@@ -243,7 +251,7 @@ export default function ProgressoPage() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Modal de procedimentos (feito / falta fazer) por card — aberto pela engrenagem.
-  const [procModal, setProcModal] = useState<{ planId: string; patientName: string } | null>(null);
+  const [procModal, setProcModal] = useState<{ planIds: string[]; patientName: string } | null>(null);
   // Dentistas do tenant, pro seletor "quem está atendendo".
   const [dentists, setDentists] = useState<Dentist[]>([]);
   // Filtro do quadro por dentista ('' = todos, '__none__' = sem dentista).
@@ -478,11 +486,11 @@ export default function ProgressoPage() {
                 ) : (
                   cards.map((c) => (
                     <JourneyCardItem
-                      key={c.quote_id}
+                      key={c.patient.id}
                       card={c}
                       onOpen={() => goToPatient(c)}
                       onSchedule={() => goToSchedule(c)}
-                      onProcedures={() => c.plan_id && setProcModal({ planId: c.plan_id, patientName: c.patient.name || 'Paciente' })}
+                      onProcedures={() => (c.plan_ids?.length ?? 0) > 0 && setProcModal({ planIds: c.plan_ids, patientName: c.patient.name || 'Paciente' })}
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
                     />
@@ -496,7 +504,7 @@ export default function ProgressoPage() {
 
       {procModal && (
         <ProceduresModal
-          planId={procModal.planId}
+          planIds={procModal.planIds}
           patientName={procModal.patientName}
           onClose={() => setProcModal(null)}
         />
@@ -602,7 +610,7 @@ function JourneyCardItem({
               <span className="text-[11px] text-muted-foreground tabular-nums">
                 {c.items_done} de {c.items_total} procedimentos
               </span>
-              {c.plan_id && (
+              {(c.plan_ids?.length ?? 0) > 0 && (
                 <button
                   onClick={(e) => { e.stopPropagation(); onProcedures(); }}
                   className="shrink-0 p-0.5 -mr-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
@@ -647,6 +655,12 @@ function JourneyCardItem({
           Fechou em {closeDate}
         </div>
       ) : null}
+
+      {c.contracts > 1 && (
+        <div className="text-[10px] text-violet-700 mt-1 inline-flex items-center gap-1 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">
+          <Layers size={10} /> {c.contracts} contratos juntos
+        </div>
+      )}
 
       {/* Rodapé por etapa — ação/info (Em tratamento já mostra o progresso acima) */}
       {c.stage === 'A_AGENDAR' && (

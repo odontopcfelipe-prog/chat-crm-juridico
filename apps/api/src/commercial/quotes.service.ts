@@ -2493,39 +2493,75 @@ export class QuotesService {
     const nowMaceioMs = nowMaceio.getTime();
     const DAY_MS = 86400000;
 
+    // Agrupa por PACIENTE — 1 card por paciente, agregando TODOS os contratos
+    // (paciente com 2 orçamentos aceitos = 1 card, procedimentos somados).
+    const quotesByPatient = new Map<string, typeof quotes>();
     for (const q of quotes) {
-      const plan = q.treatment_plan;
-      const planItems = plan?.items || [];
-      const itemsTotal = planItems.length;
-      const doneItems = planItems.filter((i) => i.status === 'DONE');
-      const itemsDone = doneItems.length;
-      // "todos resolvidos" = itens só DONE/CANCELLED (com pelo menos 1 DONE)
-      const allSettled =
-        itemsTotal > 0 &&
-        planItems.every((i) => i.status === 'DONE' || i.status === 'CANCELLED');
-      const patientId = q.patient?.id || null;
-      const nextAppt = patientId ? nextApptByPatient.get(patientId) ?? null : null;
-      const lastAttended = patientId ? lastAttendedByPatient.get(patientId) ?? null : null;
-      // compareceu/foi atendido DEPOIS de fechar ESTE negócio? (um comparecimento
-      // antigo, de outro tratamento, não deve promover este por engano)
-      const attendedThisDeal =
-        !!lastAttended && !!q.accepted_at &&
-        lastAttended.getTime() >= new Date(q.accepted_at).getTime();
+      const pid = q.patient?.id;
+      if (!pid) continue;
+      const arr = quotesByPatient.get(pid);
+      if (arr) arr.push(q);
+      else quotesByPatient.set(pid, [q]);
+    }
+
+    for (const [patientId, pQuotes] of quotesByPatient) {
+      // "primária" = contrato mais recente (base de fechou/quem fechou/dentista)
+      const primary = pQuotes.reduce((a, b) => {
+        const ta = a.accepted_at ? a.accepted_at.getTime() : 0;
+        const tb = b.accepted_at ? b.accepted_at.getTime() : 0;
+        return tb > ta ? b : a;
+      });
+
+      // agrega itens de TODOS os planos do paciente
+      let itemsTotal = 0;
+      let itemsDone = 0;
+      let allItemsSettled = true; // todo item DONE/CANCELLED
+      let hasItems = false;
+      let lastDoneMs = 0;
+      let earliestAcceptedMs: number | null = null;
+      const planIds: string[] = [];
+      for (const q of pQuotes) {
+        if (q.accepted_at) {
+          const t = q.accepted_at.getTime();
+          if (earliestAcceptedMs == null || t < earliestAcceptedMs) earliestAcceptedMs = t;
+        }
+        const plan = q.treatment_plan;
+        if (plan?.id) planIds.push(plan.id);
+        for (const it of plan?.items || []) {
+          itemsTotal++;
+          hasItems = true;
+          if (it.status === 'DONE') {
+            itemsDone++;
+            if (it.executed_at) {
+              const t = new Date(it.executed_at).getTime();
+              if (t > lastDoneMs) lastDoneMs = t;
+            }
+          }
+          if (it.status !== 'DONE' && it.status !== 'CANCELLED') allItemsSettled = false;
+        }
+      }
+
+      const nextAppt = nextApptByPatient.get(patientId) ?? null;
+      const lastAttended = lastAttendedByPatient.get(patientId) ?? null;
+      // compareceu/foi atendido DEPOIS que começou a tratar (1º fechamento)
+      const attended =
+        !!lastAttended && earliestAcceptedMs != null &&
+        lastAttended.getTime() >= earliestAcceptedMs;
+
+      // Concluído só quando TODO o trabalho do paciente terminou (todos os
+      // contratos): todos os itens DONE/CANCELLED (com ≥1 DONE) OU todo plano COMPLETED.
+      const concluido =
+        (hasItems && allItemsSettled && itemsDone > 0) ||
+        pQuotes.every((q) => q.treatment_plan?.status === 'COMPLETED');
 
       let stage: string;
-      if (plan?.status === 'COMPLETED' || (allSettled && itemsDone > 0)) stage = 'CONCLUIDO';
-      // Em tratamento = executou ≥1 procedimento OU já compareceu/foi atendido
-      // (não regride pra "a agendar" quando a consulta passa).
-      else if (itemsDone > 0 || attendedThisDeal) stage = 'EM_TRATAMENTO';
+      if (concluido) stage = 'CONCLUIDO';
+      else if (itemsDone > 0 || attended) stage = 'EM_TRATAMENTO';
       else if (nextAppt) stage = 'AGENDADO';
       else stage = 'A_AGENDAR';
 
-      // "Parado há X dias": dias desde a última atividade = último procedimento
-      // feito OU última consulta atendida; sem nenhum, desde o fechamento.
-      const lastDoneMs = doneItems.reduce((mx, i) => {
-        const t = i.executed_at ? new Date(i.executed_at).getTime() : 0;
-        return t > mx ? t : mx;
-      }, 0);
+      // "Parado há X dias": última atividade = último procedimento feito OU
+      // última consulta atendida; sem nenhum, desde o fechamento mais recente.
       const daysSinceDone = lastDoneMs ? Math.floor((nowMs - lastDoneMs) / DAY_MS) : null;
       const daysSinceAttended = lastAttended
         ? Math.floor((nowMaceioMs - lastAttended.getTime()) / DAY_MS)
@@ -2536,21 +2572,26 @@ export class QuotesService {
       const daysStalled: number | null =
         activityDays.length > 0
           ? Math.max(0, Math.min(...activityDays))
-          : q.accepted_at
-            ? Math.max(0, Math.floor((nowMs - new Date(q.accepted_at).getTime()) / DAY_MS))
+          : primary.accepted_at
+            ? Math.max(0, Math.floor((nowMs - primary.accepted_at.getTime()) / DAY_MS))
             : null;
 
-      const dentist = q.items.find((it) => it.dentist)?.dentist || null;
+      // dentista responsável = 1º item (de qualquer contrato) com dentist
+      let dentist: { id: string; name: string } | null = null;
+      for (const q of pQuotes) {
+        const d = q.items.find((it) => it.dentist)?.dentist;
+        if (d) { dentist = d; break; }
+      }
 
       byStage[stage].push({
-        quote_id: q.id,
-        plan_id: plan?.id || null,
-        patient: q.patient,
-        accepted_at: q.accepted_at,
+        patient: primary.patient,
+        plan_ids: planIds,
+        contracts: pQuotes.length,
+        accepted_at: primary.accepted_at,
         dentist,
-        primary_dentist: q.patient?.primary_dentist ?? null, // atendendo
-        created_by: q.created_by ?? null, // quem orçou
-        closed_by: closerByQuote.get(q.id) ?? null, // quem fechou
+        primary_dentist: primary.patient?.primary_dentist ?? null, // atendendo
+        created_by: primary.created_by ?? null, // quem orçou
+        closed_by: closerByQuote.get(primary.id) ?? null, // quem fechou
         stage,
         next_appointment_at:
           stage === 'AGENDADO' || stage === 'EM_TRATAMENTO' ? nextAppt : null,
