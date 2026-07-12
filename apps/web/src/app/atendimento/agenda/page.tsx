@@ -526,12 +526,19 @@ export default function AgendaPage() {
 
   // Lê o tab da URL no client side sem useSearchParams (evita prerender error do Next.js)
   const [activeTab, setActiveTab] = useState<'calendar' | 'tasks'>('calendar');
+  // Onda — deep-link "Agendar" (ex.: do Progresso) manda ?from=<rota>; guardamos
+  // pra oferecer um botão "Voltar" pro operador não ficar preso na agenda.
+  const [returnTo, setReturnTo] = useState<string | null>(null);
   // Fase 12 PR2: visualizacao multi-coluna por profissional (DayPilot Lite)
   const [calendarMode, setCalendarMode] = useState<'week' | 'professional' | 'list'>('week');
   const [resourceDate, setResourceDate] = useState<Date>(new Date());
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('tab') === 'tasks') setActiveTab('tasks');
+
+    // Origem do deep-link (ex.: ?from=/atendimento/progresso) → botão "Voltar".
+    const from = params.get('from');
+    if (from && from.startsWith('/')) setReturnTo(from);
 
     // Onda 5e v30: deep-link "Agendar" da ficha do paciente abre modal
     // de novo evento ja com paciente pre-preenchido.
@@ -2145,6 +2152,18 @@ export default function AgendaPage() {
             schedule-x (canto superior direito da area do calendario). z-20 pra
             ficar acima do header do schedule-x. */}
         <div className="hidden sm:flex absolute top-2 right-3 z-20 items-center gap-2 pointer-events-none">
+          {/* Voltar — só aparece quando o operador chegou por um deep-link
+              "Agendar" (ex.: do Progresso). Evita ficar preso na agenda. */}
+          {returnTo && (
+            <button
+              onClick={() => router.push(returnTo)}
+              className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-foreground shadow-sm hover:bg-accent transition-colors"
+              title="Voltar de onde você veio"
+            >
+              <span aria-hidden className="text-sm leading-none">←</span>
+              <span>{returnTo.includes('progresso') ? 'Voltar ao Progresso' : 'Voltar'}</span>
+            </button>
+          )}
           {/* Filtro por dentista — alinhado com o header do mês (antes ficava na
               sidebar). Some quando o operador está em "Meus eventos" (showAllUsers=false). */}
           {role.canViewAllAgenda && showAllUsers && (

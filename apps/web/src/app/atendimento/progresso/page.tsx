@@ -150,6 +150,7 @@ export default function ProgressoPage() {
     const params = new URLSearchParams({ new: '1', patient_id: c.patient.id });
     if (c.patient.name) params.set('patient_name', c.patient.name);
     if (c.patient.phone) params.set('phone', c.patient.phone);
+    params.set('from', '/atendimento/progresso'); // botão "Voltar" na agenda
     router.push(`/atendimento/agenda?${params.toString()}`);
   };
 
