@@ -328,56 +328,55 @@ function JourneyCardItem({
         </span>
       </button>
 
-      {/* Valor (destaque, cor do texto = preto/foreground como no mockup) */}
-      <div className="text-[15px] font-semibold text-foreground mt-1.5 tabular-nums">
-        {formatBRL(c.total_value)}
+      {/* Progresso do tratamento (no lugar do valor) — barra + X de N.
+          O valor da venda continua no total da coluna e nos KPIs. */}
+      <div className="mt-2">
+        {c.items_total > 0 ? (
+          <>
+            <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-all ${pct === 100 ? 'bg-emerald-500' : 'bg-violet-500'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="text-[11px] text-muted-foreground mt-1 tabular-nums">
+              {c.items_done} de {c.items_total} procedimentos
+            </div>
+          </>
+        ) : (
+          <div className="text-[11px] text-muted-foreground italic">Plano ainda não montado</div>
+        )}
       </div>
 
       {/* Dentista · data de fechamento */}
-      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+      <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
         {c.dentist?.name || 'Sem dentista'}
         {closeDate && ` · fechou ${closeDate}`}
       </div>
 
-      {/* Rodapé por etapa */}
-      <div className="mt-2.5">
-        {c.stage === 'A_AGENDAR' && (
-          <button
-            onClick={onSchedule}
-            className="w-full text-xs px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-amber-950 font-medium flex items-center justify-center gap-1.5 transition-colors"
-            title="Abrir a agenda com este paciente já selecionado"
-          >
-            <CalendarPlus size={13} /> Agendar
-          </button>
-        )}
+      {/* Rodapé por etapa — ação/info (Em tratamento já mostra o progresso acima) */}
+      {c.stage === 'A_AGENDAR' && (
+        <button
+          onClick={onSchedule}
+          className="w-full mt-2.5 text-xs px-2 py-1.5 rounded-lg bg-amber-400 hover:bg-amber-500 text-amber-950 font-medium flex items-center justify-center gap-1.5 transition-colors"
+          title="Abrir a agenda com este paciente já selecionado"
+        >
+          <CalendarPlus size={13} /> Agendar
+        </button>
+      )}
 
-        {c.stage === 'AGENDADO' && (
-          <div className="flex items-center gap-1.5 text-xs text-sky-600 font-medium">
-            <Clock size={13} className="shrink-0" />
-            <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
-          </div>
-        )}
+      {c.stage === 'AGENDADO' && (
+        <div className="flex items-center gap-1.5 mt-2.5 text-xs text-sky-600 font-medium">
+          <Clock size={13} className="shrink-0" />
+          <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
+        </div>
+      )}
 
-        {c.stage === 'EM_TRATAMENTO' && (
-          <div>
-            <div className="h-1.5 bg-violet-100 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-violet-500 rounded-full transition-all"
-                style={{ width: `${pct}%` }}
-              />
-            </div>
-            <div className="text-[11px] text-violet-600 mt-1">
-              {c.items_done} de {c.items_total} procedimentos
-            </div>
-          </div>
-        )}
-
-        {c.stage === 'CONCLUIDO' && (
-          <div className="flex items-center gap-1.5 text-xs text-emerald-600 font-medium">
-            <Check size={13} className="shrink-0" /> Tratamento finalizado
-          </div>
-        )}
-      </div>
+      {c.stage === 'CONCLUIDO' && (
+        <div className="flex items-center gap-1.5 mt-2.5 text-xs text-emerald-600 font-medium">
+          <Check size={13} className="shrink-0" /> Tratamento finalizado
+        </div>
+      )}
     </div>
   );
 }
