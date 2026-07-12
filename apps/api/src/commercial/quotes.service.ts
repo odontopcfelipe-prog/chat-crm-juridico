@@ -2396,7 +2396,13 @@ export class QuotesService {
     const quotes = await this.prisma.quote.findMany({
       where: { patient: { tenant_id: tenantId }, status: 'ACCEPTED' },
       include: {
-        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
+        patient: {
+          select: {
+            id: true, name: true, phone: true, avatar_url: true,
+            // dentista que está atendendo (editável no card do Progresso)
+            primary_dentist: { select: { id: true, name: true } },
+          },
+        },
         // dentista responsável = primeiro item com dentist preenchido
         items: { select: { dentist: { select: { id: true, name: true } } } },
         created_by: { select: { id: true, name: true } }, // quem fez o orçamento
@@ -2485,6 +2491,7 @@ export class QuotesService {
         patient: q.patient,
         accepted_at: q.accepted_at,
         dentist,
+        primary_dentist: q.patient?.primary_dentist ?? null, // atendendo
         created_by: q.created_by ?? null, // quem orçou
         closed_by: closerByQuote.get(q.id) ?? null, // quem fechou
         stage,

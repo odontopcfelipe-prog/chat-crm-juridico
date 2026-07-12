@@ -34,12 +34,18 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 
 type StageKey = 'A_AGENDAR' | 'AGENDADO' | 'EM_TRATAMENTO' | 'CONCLUIDO';
 
+interface Dentist {
+  id: string;
+  name: string;
+}
+
 interface JourneyCard {
   quote_id: string;
   plan_id: string | null;
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
   accepted_at: string | null;
   dentist: { id: string; name: string } | null;
+  primary_dentist: { id: string; name: string } | null; // atendendo (editável)
   created_by: { id: string; name: string } | null; // quem orçou
   closed_by: { id: string; name: string } | null;  // quem fechou
   stage: StageKey;
@@ -235,6 +241,8 @@ export default function ProgressoPage() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   // Modal de procedimentos (feito / falta fazer) por card — aberto pela engrenagem.
   const [procModal, setProcModal] = useState<{ planId: string; patientName: string } | null>(null);
+  // Dentistas do tenant, pro seletor "quem está atendendo".
+  const [dentists, setDentists] = useState<Dentist[]>([]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -260,6 +268,31 @@ export default function ProgressoPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Lista de dentistas pro seletor "quem está atendendo" (tenant-scoped).
+  useEffect(() => {
+    api.get<Dentist[]>('/users/lawyers')
+      .then((r) => setDentists(r.data || []))
+      .catch(() => { /* silencioso: seletor fica só com "Sem dentista" */ });
+  }, []);
+
+  // Define/atualiza o dentista que está atendendo (salva no paciente).
+  // Otimista: atualiza TODOS os cards do mesmo paciente na hora.
+  const setDentist = useCallback(async (patientId: string, dentist: Dentist | null) => {
+    setBoard((b) => {
+      const by = { ...b.by_stage };
+      (Object.keys(by) as StageKey[]).forEach((k) => {
+        by[k] = by[k].map((c) => (c.patient.id === patientId ? { ...c, primary_dentist: dentist } : c));
+      });
+      return { ...b, by_stage: by };
+    });
+    try {
+      await api.patch(`/patients/${patientId}`, { primary_dentist_id: dentist?.id ?? null });
+    } catch {
+      showError('Não foi possível salvar o dentista');
+      load();
+    }
+  }, [load]);
 
   const goToPatient = (c: JourneyCard) =>
     router.push(`/atendimento/pacientes/${c.patient.id}?tab=tratamento`);
@@ -382,6 +415,8 @@ export default function ProgressoPage() {
                       onOpen={() => goToPatient(c)}
                       onSchedule={() => goToSchedule(c)}
                       onProcedures={() => c.plan_id && setProcModal({ planId: c.plan_id, patientName: c.patient.name || 'Paciente' })}
+                      dentists={dentists}
+                      onSetDentist={(d) => setDentist(c.patient.id, d)}
                     />
                   ))
                 )}
@@ -425,9 +460,12 @@ function KpiCard({
 // ─── Card ───────────────────────────────────────────────────────────────────
 
 function JourneyCardItem({
-  card: c, onOpen, onSchedule, onProcedures,
+  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist,
 }: {
-  card: JourneyCard; onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
+  card: JourneyCard;
+  onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
+  dentists: Dentist[];
+  onSetDentist: (d: Dentist | null) => void;
 }) {
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
@@ -499,10 +537,24 @@ function JourneyCardItem({
         )}
       </div>
 
-      {/* Dentista responsável — fallback: quem fez a avaliação (criou o
-          orçamento); senão "Sem dentista". */}
-      <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
-        {c.dentist?.name || c.created_by?.name || 'Sem dentista'}
+      {/* Dentista que está atendendo — seletor (salva no paciente). Default:
+          o dentista já assinalado (atendendo) ou o do orçamento. */}
+      <div className="mt-1.5">
+        <select
+          value={c.primary_dentist?.id || c.dentist?.id || ''}
+          onClick={(e) => e.stopPropagation()}
+          onChange={(e) => {
+            const id = e.target.value;
+            onSetDentist(id ? (dentists.find((d) => d.id === id) || null) : null);
+          }}
+          className="w-full text-[11px] text-muted-foreground bg-transparent border-none outline-none cursor-pointer hover:text-foreground truncate py-0 focus:ring-0"
+          title="Dentista que está atendendo"
+        >
+          <option value="">Sem dentista</option>
+          {dentists.map((d) => (
+            <option key={d.id} value={d.id}>{d.name}</option>
+          ))}
+        </select>
       </div>
       {c.closed_by?.name ? (
         <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
