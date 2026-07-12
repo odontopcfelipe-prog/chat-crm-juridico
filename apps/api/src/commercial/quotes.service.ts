@@ -2399,6 +2399,7 @@ export class QuotesService {
         patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         // dentista responsável = primeiro item com dentist preenchido
         items: { select: { dentist: { select: { id: true, name: true } } } },
+        created_by: { select: { id: true, name: true } }, // quem fez o orçamento
         // etapa do tratamento sai do plano 1:1 + status dos itens
         treatment_plan: {
           select: { id: true, status: true, items: { select: { status: true } } },
@@ -2438,6 +2439,22 @@ export class QuotesService {
       }
     }
 
+    // "Quem fechou" — o usuário que aceitou o orçamento. Não há coluna própria
+    // no Quote; reusamos o snapshot de versão trigger='ACCEPT' (created_by = quem
+    // aceitou). Best-effort: aceites antigos/parciais podem não ter snapshot → null.
+    const quoteIds = quotes.map((q) => q.id);
+    const closerByQuote = new Map<string, { id: string; name: string }>();
+    if (quoteIds.length > 0) {
+      const acceptVersions = await this.prisma.quoteVersion.findMany({
+        where: { quote_id: { in: quoteIds }, trigger: 'ACCEPT' },
+        orderBy: { created_at: 'desc' },
+        select: { quote_id: true, created_by: { select: { id: true, name: true } } },
+      });
+      for (const v of acceptVersions) {
+        if (!closerByQuote.has(v.quote_id)) closerByQuote.set(v.quote_id, v.created_by);
+      }
+    }
+
     const STAGES = ['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO'] as const;
     const byStage: Record<string, any[]> = {};
     for (const s of STAGES) byStage[s] = [];
@@ -2468,6 +2485,8 @@ export class QuotesService {
         patient: q.patient,
         accepted_at: q.accepted_at,
         dentist,
+        created_by: q.created_by ?? null, // quem orçou
+        closed_by: closerByQuote.get(q.id) ?? null, // quem fechou
         stage,
         next_appointment_at: stage === 'AGENDADO' ? nextAppt : null,
         items_done: itemsDone,

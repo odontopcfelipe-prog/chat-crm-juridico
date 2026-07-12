@@ -40,6 +40,8 @@ interface JourneyCard {
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
   accepted_at: string | null;
   dentist: { id: string; name: string } | null;
+  created_by: { id: string; name: string } | null; // quem orçou
+  closed_by: { id: string; name: string } | null;  // quem fechou
   stage: StageKey;
   next_appointment_at: string | null;
   items_done: number;
@@ -99,6 +101,14 @@ function formatApptMaceio(iso: string | null): string | null {
       timeZone: 'UTC', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
     });
   } catch { return null; }
+}
+
+/** Dias corridos desde uma data (para "dias sem agendamento"). */
+function daysSince(iso: string | null): number | null {
+  if (!iso) return null;
+  const ms = Date.now() - new Date(iso).getTime();
+  if (Number.isNaN(ms)) return null;
+  return Math.max(0, Math.floor(ms / 86400000));
 }
 
 // ─── Página ─────────────────────────────────────────────────────────────────
@@ -297,6 +307,8 @@ function JourneyCardItem({
   const apptStr = formatApptMaceio(c.next_appointment_at);
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
   const isToSchedule = c.stage === 'A_AGENDAR';
+  const daysWaiting = daysSince(c.accepted_at);
+  const sameParty = !!c.created_by && !!c.closed_by && c.created_by.id === c.closed_by.id;
 
   return (
     <div
@@ -304,22 +316,32 @@ function JourneyCardItem({
         isToSchedule ? 'border-amber-300' : 'border-border'
       }`}
     >
-      {/* Nome (clicável → ficha) */}
-      <button
-        onClick={onOpen}
-        className="flex items-center gap-2 w-full min-w-0 text-left group"
-        title={c.patient.name || 'Sem nome'}
-      >
-        <PatientAvatar
-          patientId={c.patient.id}
-          patientName={c.patient.name || 'Sem nome'}
-          avatarUrl={c.patient.avatar_url}
-          size={26}
-        />
-        <span className="font-medium text-[13px] text-foreground truncate min-w-0 group-hover:text-blue-600">
-          {c.patient.name || 'Sem nome'}
-        </span>
-      </button>
+      {/* Nome + miniatura vermelha de dias sem agendamento (só "A agendar") */}
+      <div className="flex items-center gap-2">
+        <button
+          onClick={onOpen}
+          className="flex items-center gap-2 flex-1 min-w-0 text-left group"
+          title={c.patient.name || 'Sem nome'}
+        >
+          <PatientAvatar
+            patientId={c.patient.id}
+            patientName={c.patient.name || 'Sem nome'}
+            avatarUrl={c.patient.avatar_url}
+            size={26}
+          />
+          <span className="font-medium text-[13px] text-foreground truncate min-w-0 group-hover:text-blue-600">
+            {c.patient.name || 'Sem nome'}
+          </span>
+        </button>
+        {isToSchedule && daysWaiting != null && (
+          <span
+            className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200"
+            title={`${daysWaiting} ${daysWaiting === 1 ? 'dia' : 'dias'} sem agendamento`}
+          >
+            {daysWaiting}d
+          </span>
+        )}
+      </div>
 
       {/* Progresso do tratamento (no lugar do valor) — barra + X de N.
           O valor da venda continua no total da coluna e nos KPIs. */}
@@ -341,10 +363,24 @@ function JourneyCardItem({
         )}
       </div>
 
-      {/* Dentista · data de fechamento */}
+      {/* Responsável clínico */}
       <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
         {c.dentist?.name || 'Sem dentista'}
-        {closeDate && ` · fechou ${closeDate}`}
+      </div>
+
+      {/* Quem orçou · quem fechou */}
+      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+        {sameParty ? (
+          <>Orçou e fechou <span className="text-foreground/75">{c.created_by?.name}</span></>
+        ) : (
+          <>
+            Orçou <span className="text-foreground/75">{c.created_by?.name || '—'}</span>
+            {c.closed_by?.name && (
+              <> · Fechou <span className="text-foreground/75">{c.closed_by.name}</span></>
+            )}
+          </>
+        )}
+        {closeDate && <span className="opacity-70"> · {closeDate}</span>}
       </div>
 
       {/* Rodapé por etapa — ação/info (Em tratamento já mostra o progresso acima) */}
