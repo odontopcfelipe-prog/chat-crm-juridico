@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList, CheckCircle2,
+  ClipboardList, CheckCircle2, Settings,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -1870,6 +1870,13 @@ function ContractStepCard({ label, done, date }: { label: string; done: boolean;
 /** Onda 17.32.52 — Modal de procedimentos solicitados do orcamento.
  *  Lista cada item com nome, dente FDI (se houver), quantidade, dentista
  *  (se houver) e valor. Soma o total no rodape. */
+interface PlanItem {
+  id: string;
+  status: string; // PENDING|SCHEDULED|IN_PROGRESS|DONE|CANCELLED
+  tooth_fdi: string | null;
+  procedure: { name: string };
+}
+
 function ProceduresListModal({
   quoteDetail,
   loading,
@@ -1882,6 +1889,27 @@ function ProceduresListModal({
   onClose: () => void;
 }) {
   const total = quoteDetail?.items.reduce((s, it) => s + Number(it.total_price), 0) || 0;
+  // Aba "Progresso" (engrenagem) — busca os itens do PLANO (execução real:
+  // status DONE), NÃO do orçamento: approved_at não é setado no fluxo atual
+  // (aprovação parcial foi removida). Lazy: só busca ao abrir a aba.
+  const [tab, setTab] = useState<'lista' | 'progresso'>('lista');
+  const planId = quoteDetail?.treatment_plan?.id || null;
+  const [planItems, setPlanItems] = useState<PlanItem[] | null>(null);
+  const [planLoading, setPlanLoading] = useState(false);
+  useEffect(() => {
+    if (tab !== 'progresso' || !planId || planItems !== null) return;
+    let cancelled = false;
+    setPlanLoading(true);
+    api.get<{ items?: PlanItem[] }>(`/treatment-plans/${planId}`)
+      .then((r) => { if (!cancelled) setPlanItems(r.data?.items || []); })
+      .catch(() => { if (!cancelled) setPlanItems([]); })
+      .finally(() => { if (!cancelled) setPlanLoading(false); });
+    return () => { cancelled = true; };
+  }, [tab, planId, planItems]);
+  const feitos = (planItems || []).filter((i) => i.status === 'DONE');
+  const faltam = (planItems || []).filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED');
+  const totalExec = feitos.length + faltam.length;
+  const pctFeito = totalExec ? Math.round((feitos.length / totalExec) * 100) : 0;
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -1903,14 +1931,29 @@ function ProceduresListModal({
               {quoteDetail?.items?.length ? ` · ${quoteDetail.items.length} ${quoteDetail.items.length === 1 ? 'item' : 'itens'}` : ''}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors shrink-0"
-            title="Fechar"
-          >
-            <X size={18} />
-          </button>
+          <div className="flex items-center gap-1 shrink-0">
+            {/* Engrenagem — alterna pra aba "Progresso" (feito / falta fazer) */}
+            <button
+              type="button"
+              onClick={() => setTab((t) => (t === 'lista' ? 'progresso' : 'lista'))}
+              className={`p-1.5 rounded-md transition-colors ${
+                tab === 'progresso'
+                  ? 'bg-primary/10 text-primary'
+                  : 'hover:bg-accent/40 text-muted-foreground hover:text-foreground'
+              }`}
+              title={tab === 'progresso' ? 'Ver lista completa' : 'Ver progresso (feito / falta fazer)'}
+            >
+              <Settings size={16} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors"
+              title="Fechar"
+            >
+              <X size={18} />
+            </button>
+          </div>
         </div>
         {/* Lista de procedimentos */}
         <div className="flex-1 overflow-auto bg-muted/10">
@@ -1925,6 +1968,76 @@ function ProceduresListModal({
                 Nenhum procedimento listado nesse orcamento.
               </p>
             </div>
+          ) : tab === 'progresso' ? (
+            !planId ? (
+              <div className="h-full flex items-center justify-center p-8 text-center">
+                <p className="text-sm text-muted-foreground italic">
+                  Tratamento ainda não iniciado — o progresso aparece quando o orçamento virar plano.
+                </p>
+              </div>
+            ) : planLoading && planItems === null ? (
+              <div className="h-full flex items-center justify-center p-8 text-muted-foreground">
+                <Loader2 size={16} className="animate-spin mr-2" />
+                Carregando progresso...
+              </div>
+            ) : (
+              <div className="p-4 space-y-4">
+                {/* Resumo */}
+                <div>
+                  <div className="flex items-center justify-between text-[11px] mb-1">
+                    <span className="font-bold text-foreground">{feitos.length} de {totalExec} feitos</span>
+                    <span className="text-muted-foreground">{pctFeito}%</span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pctFeito}%` }} />
+                  </div>
+                </div>
+
+                {/* Feitos */}
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 mb-1.5">
+                    <Check size={13} strokeWidth={3} /> Feitos ({feitos.length})
+                  </div>
+                  {feitos.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground italic pl-1">Nenhum procedimento feito ainda.</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {feitos.map((it) => (
+                        <li key={it.id} className="flex items-start gap-2 text-sm">
+                          <Check size={13} strokeWidth={3} className="text-emerald-600 mt-1 shrink-0" />
+                          <span className="text-foreground">
+                            {it.procedure.name}
+                            {it.tooth_fdi && <span className="text-[11px] text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Falta fazer */}
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700 mb-1.5">
+                    <Clock size={13} /> Falta fazer ({faltam.length})
+                  </div>
+                  {faltam.length === 0 ? (
+                    <p className="text-[11px] text-muted-foreground italic pl-1">Tudo feito!</p>
+                  ) : (
+                    <ul className="space-y-1.5">
+                      {faltam.map((it) => (
+                        <li key={it.id} className="flex items-start gap-2 text-sm">
+                          <Clock size={13} className="text-amber-600 mt-1 shrink-0" />
+                          <span className="text-foreground">
+                            {it.procedure.name}
+                            {it.tooth_fdi && <span className="text-[11px] text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )
           ) : (
             <ul className="divide-y divide-border">
               {quoteDetail.items.map((it) => {
@@ -1954,8 +2067,8 @@ function ProceduresListModal({
             </ul>
           )}
         </div>
-        {/* Footer com total */}
-        {quoteDetail?.items?.length ? (
+        {/* Footer com total (só na lista — a aba Progresso é sobre execução) */}
+        {tab === 'lista' && quoteDetail?.items?.length ? (
           <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0">
             <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total solicitado</span>
             <span className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(total)}</span>
