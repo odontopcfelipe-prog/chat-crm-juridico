@@ -308,7 +308,13 @@ function JourneyCardItem({
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
   const isToSchedule = c.stage === 'A_AGENDAR';
   const daysWaiting = daysSince(c.accepted_at);
-  const sameParty = !!c.created_by && !!c.closed_by && c.created_by.id === c.closed_by.id;
+  // Mostra só QUEM FECHOU (dono da proposta). Sem registro de fechamento
+  // (aceite antigo/parcial), cai pra quem orçou.
+  const partyLabel = c.closed_by?.name
+    ? { verb: 'Fechou', name: c.closed_by.name }
+    : c.created_by?.name
+      ? { verb: 'Orçou', name: c.created_by.name }
+      : null;
 
   return (
     <div
@@ -368,20 +374,13 @@ function JourneyCardItem({
         {c.dentist?.name || 'Sem dentista'}
       </div>
 
-      {/* Quem orçou · quem fechou */}
-      <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
-        {sameParty ? (
-          <>Orçou e fechou <span className="text-foreground/75">{c.created_by?.name}</span></>
-        ) : (
-          <>
-            Orçou <span className="text-foreground/75">{c.created_by?.name || '—'}</span>
-            {c.closed_by?.name && (
-              <> · Fechou <span className="text-foreground/75">{c.closed_by.name}</span></>
-            )}
-          </>
-        )}
-        {closeDate && <span className="opacity-70"> · {closeDate}</span>}
-      </div>
+      {/* Quem fechou a proposta (fallback: quem orçou) */}
+      {partyLabel && (
+        <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
+          {partyLabel.verb} <span className="text-foreground/75">{partyLabel.name}</span>
+          {closeDate && <span className="opacity-70"> · {closeDate}</span>}
+        </div>
+      )}
 
       {/* Rodapé por etapa — ação/info (Em tratamento já mostra o progresso acima) */}
       {c.stage === 'A_AGENDAR' && (
