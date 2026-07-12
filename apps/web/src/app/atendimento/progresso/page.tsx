@@ -24,7 +24,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, Layers, Check,
+  CircleCheck, Clock, Layers, Check, Settings, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -113,11 +113,128 @@ function daysSince(iso: string | null): number | null {
 
 // ─── Página ─────────────────────────────────────────────────────────────────
 
+interface PlanItem {
+  id: string;
+  status: string; // PENDING|SCHEDULED|IN_PROGRESS|DONE|CANCELLED
+  tooth_fdi: string | null;
+  procedure: { name: string };
+}
+
+/** Modal por card: procedimentos do plano separados em Feitos / Falta fazer
+ *  (execução real — status DONE). Aberto pela engrenagem do card. */
+function ProceduresModal({ planId, patientName, onClose }: {
+  planId: string; patientName: string; onClose: () => void;
+}) {
+  const [items, setItems] = useState<PlanItem[] | null>(null);
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    api.get<{ items?: PlanItem[] }>(`/treatment-plans/${planId}`)
+      .then((r) => { if (!cancelled) setItems(r.data?.items || []); })
+      .catch(() => { if (!cancelled) setItems([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [planId]);
+  const feitos = (items || []).filter((i) => i.status === 'DONE');
+  const faltam = (items || []).filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED');
+  const totalExec = feitos.length + faltam.length;
+  const pct = totalExec ? Math.round((feitos.length / totalExec) * 100) : 0;
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
+      <div
+        className="bg-card border border-border rounded-xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-border bg-muted/30 shrink-0">
+          <div className="min-w-0">
+            <h2 className="text-sm font-bold text-foreground truncate">Procedimentos</h2>
+            <p className="text-[11px] text-muted-foreground truncate">{patientName}</p>
+          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-md hover:bg-accent/40 text-muted-foreground hover:text-foreground transition-colors shrink-0"
+            title="Fechar"
+          >
+            <X size={18} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-4">
+          {loading ? (
+            <div className="py-8 flex items-center justify-center text-muted-foreground">
+              <Loader2 size={16} className="animate-spin mr-2" /> Carregando...
+            </div>
+          ) : totalExec === 0 ? (
+            <p className="text-sm text-muted-foreground italic text-center py-8">Nenhum procedimento no plano.</p>
+          ) : (
+            <div className="space-y-4">
+              {/* Resumo */}
+              <div>
+                <div className="flex items-center justify-between text-[11px] mb-1">
+                  <span className="font-bold text-foreground">{feitos.length} de {totalExec} feitos</span>
+                  <span className="text-muted-foreground">{pct}%</span>
+                </div>
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
+                </div>
+              </div>
+              {/* Feitos */}
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 mb-1.5">
+                  <Check size={13} strokeWidth={3} /> Feitos ({feitos.length})
+                </div>
+                {feitos.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic pl-1">Nenhum procedimento feito ainda.</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {feitos.map((it) => (
+                      <li key={it.id} className="flex items-start gap-2 text-sm">
+                        <Check size={13} strokeWidth={3} className="text-emerald-600 mt-1 shrink-0" />
+                        <span className="text-foreground">
+                          {it.procedure.name}
+                          {it.tooth_fdi && <span className="text-[11px] text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {/* Falta fazer */}
+              <div>
+                <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-amber-700 mb-1.5">
+                  <Clock size={13} /> Falta fazer ({faltam.length})
+                </div>
+                {faltam.length === 0 ? (
+                  <p className="text-[11px] text-muted-foreground italic pl-1">Tudo feito!</p>
+                ) : (
+                  <ul className="space-y-1.5">
+                    {faltam.map((it) => (
+                      <li key={it.id} className="flex items-start gap-2 text-sm">
+                        <Clock size={13} className="text-amber-600 mt-1 shrink-0" />
+                        <span className="text-foreground">
+                          {it.procedure.name}
+                          {it.tooth_fdi && <span className="text-[11px] text-muted-foreground"> · Dente {it.tooth_fdi}</span>}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ProgressoPage() {
   const router = useRouter();
   const [board, setBoard] = useState<BoardData>(EMPTY_BOARD);
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  // Modal de procedimentos (feito / falta fazer) por card — aberto pela engrenagem.
+  const [procModal, setProcModal] = useState<{ planId: string; patientName: string } | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -264,6 +381,7 @@ export default function ProgressoPage() {
                       card={c}
                       onOpen={() => goToPatient(c)}
                       onSchedule={() => goToSchedule(c)}
+                      onProcedures={() => c.plan_id && setProcModal({ planId: c.plan_id, patientName: c.patient.name || 'Paciente' })}
                     />
                   ))
                 )}
@@ -272,6 +390,14 @@ export default function ProgressoPage() {
           );
         })}
       </div>
+
+      {procModal && (
+        <ProceduresModal
+          planId={procModal.planId}
+          patientName={procModal.patientName}
+          onClose={() => setProcModal(null)}
+        />
+      )}
     </div>
   );
 }
@@ -299,9 +425,9 @@ function KpiCard({
 // ─── Card ───────────────────────────────────────────────────────────────────
 
 function JourneyCardItem({
-  card: c, onOpen, onSchedule,
+  card: c, onOpen, onSchedule, onProcedures,
 }: {
-  card: JourneyCard; onOpen: () => void; onSchedule: () => void;
+  card: JourneyCard; onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
 }) {
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
@@ -353,8 +479,19 @@ function JourneyCardItem({
                 style={{ width: `${pct}%` }}
               />
             </div>
-            <div className="text-[11px] text-muted-foreground mt-1 tabular-nums">
-              {c.items_done} de {c.items_total} procedimentos
+            <div className="flex items-center justify-between gap-2 mt-1">
+              <span className="text-[11px] text-muted-foreground tabular-nums">
+                {c.items_done} de {c.items_total} procedimentos
+              </span>
+              {c.plan_id && (
+                <button
+                  onClick={(e) => { e.stopPropagation(); onProcedures(); }}
+                  className="shrink-0 p-0.5 -mr-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
+                  title="Ver procedimentos (feito / falta fazer)"
+                >
+                  <Settings size={13} />
+                </button>
+              )}
             </div>
           </>
         ) : (
