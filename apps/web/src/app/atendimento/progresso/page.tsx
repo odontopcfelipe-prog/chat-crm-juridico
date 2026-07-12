@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, Layers, Check, BookOpen, PauseCircle, X,
+  CircleCheck, Clock, Layers, Check, BookOpen, PauseCircle, Pause, Play, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -32,7 +32,7 @@ import { PatientAvatar } from '@/components/PatientAvatar';
 
 // ─── Tipos ──────────────────────────────────────────────────────────────────
 
-type StageKey = 'A_AGENDAR' | 'AGENDADO' | 'EM_TRATAMENTO' | 'CONCLUIDO';
+type StageKey = 'A_AGENDAR' | 'AGENDADO' | 'EM_TRATAMENTO' | 'CONCLUIDO' | 'STANDBY';
 
 interface Dentist {
   id: string;
@@ -77,7 +77,7 @@ const EMPTY_BOARD: BoardData = {
     count_total: 0, open_count: 0, to_schedule_count: 0, agendado_count: 0,
     em_tratamento_count: 0, stalled_count: 0, standby_count: 0, month_count: 0, concluido_total: 0,
   },
-  by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [] },
+  by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [], STANDBY: [] },
 };
 
 const COLUMNS: Array<{
@@ -91,6 +91,7 @@ const COLUMNS: Array<{
   { key: 'AGENDADO', label: 'Agendado', icon: CalendarClock, accent: 'border-sky-400 bg-sky-50 text-sky-900' },
   { key: 'EM_TRATAMENTO', label: 'Em tratamento', icon: Activity, accent: 'border-violet-400 bg-violet-50 text-violet-900' },
   { key: 'CONCLUIDO', label: 'Concluído', icon: CircleCheck, accent: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
+  { key: 'STANDBY', label: 'Stand by', icon: PauseCircle, accent: 'border-slate-400 bg-slate-100 text-slate-800' },
 ];
 
 // ─── Formatação ─────────────────────────────────────────────────────────────
@@ -347,6 +348,18 @@ export default function ProgressoPage() {
     }
   }, [load]);
 
+  // Coloca/tira o paciente de STAND BY (pausa/retoma TODOS os planos dele).
+  const toggleStandby = useCallback(async (c: JourneyCard) => {
+    const resume = c.standby;
+    const ok = window.confirm(
+      resume ? 'Retomar o tratamento deste paciente?' : 'Colocar este paciente em stand by?',
+    );
+    if (!ok) return;
+    const action = resume ? 'activate' : 'pause';
+    await Promise.allSettled((c.plan_ids || []).map((id) => api.post(`/treatment-plans/${id}/${action}`)));
+    load();
+  }, [load]);
+
   const goToPatient = (c: JourneyCard) =>
     router.push(`/atendimento/pacientes/${c.patient.id}?tab=tratamento`);
 
@@ -369,7 +382,7 @@ export default function ProgressoPage() {
       return dentistFilter === '__none__' ? !did : did === dentistFilter;
     };
     const by = {} as Record<StageKey, JourneyCard[]>;
-    (['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO'] as StageKey[]).forEach((k) => {
+    (['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO', 'STANDBY'] as StageKey[]).forEach((k) => {
       by[k] = (board.by_stage[k] || []).filter(match);
     });
     const all = [...by.A_AGENDAR, ...by.AGENDADO, ...by.EM_TRATAMENTO, ...by.CONCLUIDO];
@@ -384,7 +397,7 @@ export default function ProgressoPage() {
         agendado_count: by.AGENDADO.length,
         em_tratamento_count: by.EM_TRATAMENTO.length,
         stalled_count: by.EM_TRATAMENTO.filter((c) => !c.has_future_appt && !c.standby).length,
-        standby_count: [...by.A_AGENDAR, ...by.AGENDADO, ...by.EM_TRATAMENTO].filter((c) => c.standby).length,
+        standby_count: by.STANDBY.length,
         month_count: monthCount,
         concluido_total: by.CONCLUIDO.length,
       },
@@ -487,7 +500,7 @@ export default function ProgressoPage() {
       </div>
 
       {/* Kanban de 4 colunas */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
         {COLUMNS.map((col) => {
           const cards = by_stage[col.key] || [];
           const Icon = col.icon;
@@ -534,6 +547,7 @@ export default function ProgressoPage() {
                       onProcedures={() => (c.plan_ids?.length ?? 0) > 0 && setProcModal({ planIds: c.plan_ids, patientName: c.patient.name || 'Paciente' })}
                       dentists={dentists}
                       onSetDentist={(d) => setDentist(c.patient.id, d)}
+                      onToggleStandby={() => toggleStandby(c)}
                     />
                   ))
                 )}
@@ -580,12 +594,13 @@ function KpiCard({
 // ─── Card ───────────────────────────────────────────────────────────────────
 
 function JourneyCardItem({
-  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist,
+  card: c, onOpen, onSchedule, onProcedures, dentists, onSetDentist, onToggleStandby,
 }: {
   card: JourneyCard;
   onOpen: () => void; onSchedule: () => void; onProcedures: () => void;
   dentists: Dentist[];
   onSetDentist: (d: Dentist | null) => void;
+  onToggleStandby: () => void;
 }) {
   const closeDate = formatCloseDate(c.accepted_at);
   const apptStr = formatApptMaceio(c.next_appointment_at);
@@ -634,13 +649,14 @@ function JourneyCardItem({
             parado {c.days_stalled}d
           </span>
         )}
-        {c.standby && (
-          <span
-            className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-600 border border-slate-200"
-            title="Tratamento em stand by (pausado)"
+        {c.stage !== 'CONCLUIDO' && (
+          <button
+            onClick={(e) => { e.stopPropagation(); onToggleStandby(); }}
+            className="shrink-0 p-1 rounded text-muted-foreground hover:text-slate-700 hover:bg-slate-100 transition-colors"
+            title={c.standby ? 'Retomar tratamento' : 'Colocar em stand by'}
           >
-            <PauseCircle size={10} /> stand by
-          </span>
+            {c.standby ? <Play size={13} /> : <Pause size={13} />}
+          </button>
         )}
       </div>
 

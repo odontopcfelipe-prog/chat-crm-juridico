@@ -283,6 +283,17 @@ export class TreatmentPlansService {
     return updated;
   }
 
+  /** Coloca o plano em STAND BY (status PAUSED) — pausa por decisão do adm/dentista.
+   *  Reversível via activate(). Não pausa planos já COMPLETED/CANCELLED. */
+  async pause(id: string, tenantId: string) {
+    const plan = await this.findOne(id, tenantId);
+    if (plan.status === 'PAUSED') return plan;
+    if (plan.status === 'COMPLETED' || plan.status === 'CANCELLED') {
+      throw new BadRequestException(`Plano esta ${plan.status} — nao pode ser pausado`);
+    }
+    return this.prisma.treatmentPlan.update({ where: { id }, data: { status: 'PAUSED' } });
+  }
+
   /** Onda 17.72 — Validação financeira: o Financeiro confere a negociação e LIBERA o
    *  tratamento. Seta validated_by_financial_at (gate pra o dentista confirmar os
    *  procedimentos no Tratamento). Idempotente. */

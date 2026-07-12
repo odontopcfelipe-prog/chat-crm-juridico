@@ -2485,7 +2485,7 @@ export class QuotesService {
       }
     }
 
-    const STAGES = ['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO'] as const;
+    const STAGES = ['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO', 'STANDBY'] as const;
     const byStage: Record<string, any[]> = {};
     for (const s of STAGES) byStage[s] = [];
 
@@ -2553,9 +2553,12 @@ export class QuotesService {
       const concluido =
         (hasItems && allItemsSettled && itemsDone > 0) ||
         pQuotes.every((q) => q.treatment_plan?.status === 'COMPLETED');
+      // "stand by" = algum plano PAUSED (pausado por decisão do adm/dentista)
+      const standby = pQuotes.some((q) => q.treatment_plan?.status === 'PAUSED');
 
       let stage: string;
-      if (concluido) stage = 'CONCLUIDO';
+      if (standby) stage = 'STANDBY'; // pausado → coluna Stand by (tem precedência)
+      else if (concluido) stage = 'CONCLUIDO';
       else if (itemsDone > 0 || attended) stage = 'EM_TRATAMENTO';
       else if (nextAppt) stage = 'AGENDADO';
       else stage = 'A_AGENDAR';
@@ -2582,9 +2585,6 @@ export class QuotesService {
         const d = q.items.find((it) => it.dentist)?.dentist;
         if (d) { dentist = d; break; }
       }
-
-      // "stand by" = algum plano PAUSED (pausado por decisão do adm/dentista)
-      const standby = pQuotes.some((q) => q.treatment_plan?.status === 'PAUSED');
 
       byStage[stage].push({
         patient: primary.patient,
@@ -2635,8 +2635,8 @@ export class QuotesService {
         em_tratamento_count: byStage.EM_TRATAMENTO.length,
         // "parados" = em tratamento SEM próxima consulta E NÃO em stand by (risco de esquecer)
         stalled_count: byStage.EM_TRATAMENTO.filter((c) => !c.has_future_appt && !c.standby).length,
-        // "stand by" = tratamento pausado (PAUSED) por decisão do adm/dentista
-        standby_count: [...byStage.A_AGENDAR, ...byStage.AGENDADO, ...byStage.EM_TRATAMENTO].filter((c) => c.standby).length,
+        // "stand by" = tratamento pausado (PAUSED) — agora tem coluna própria
+        standby_count: byStage.STANDBY.length,
         month_count: monthCount,
         concluido_total: concluidoTotal,
       },

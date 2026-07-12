@@ -1199,6 +1199,13 @@ export class CommercialController {
     return this.plansService.activate(id, tenantId);
   }
 
+  @Post('treatment-plans/:id/pause')
+  pausePlan(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.plansService.pause(id, tenantId);
+  }
+
   // Onda 17.72 — Validação financeira: SÓ o Financeiro (manage_financial) libera o
   // tratamento. Seta a flag que destrava a confirmação dos procedimentos pelo dentista.
   @RequiresPermission('manage_financial')
