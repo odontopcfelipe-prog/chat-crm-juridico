@@ -90,8 +90,8 @@ const COLUMNS: Array<{
   { key: 'A_AGENDAR', label: 'A agendar', icon: CalendarPlus, accent: 'border-amber-400 bg-amber-50 text-amber-900', urgent: true },
   { key: 'AGENDADO', label: 'Agendado', icon: CalendarClock, accent: 'border-sky-400 bg-sky-50 text-sky-900' },
   { key: 'EM_TRATAMENTO', label: 'Em tratamento', icon: Activity, accent: 'border-violet-400 bg-violet-50 text-violet-900' },
-  { key: 'CONCLUIDO', label: 'Concluído', icon: CircleCheck, accent: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
   { key: 'STANDBY', label: 'Stand by', icon: PauseCircle, accent: 'border-slate-400 bg-slate-100 text-slate-800' },
+  { key: 'CONCLUIDO', label: 'Concluído', icon: CircleCheck, accent: 'border-emerald-400 bg-emerald-50 text-emerald-900' },
 ];
 
 // ─── Formatação ─────────────────────────────────────────────────────────────
