@@ -20,7 +20,7 @@
  * Recebe: { summary, by_stage: { A_AGENDAR: [...], AGENDADO, EM_TRATAMENTO, CONCLUIDO } }
  */
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
@@ -243,6 +243,8 @@ export default function ProgressoPage() {
   const [procModal, setProcModal] = useState<{ planId: string; patientName: string } | null>(null);
   // Dentistas do tenant, pro seletor "quem está atendendo".
   const [dentists, setDentists] = useState<Dentist[]>([]);
+  // Filtro do quadro por dentista ('' = todos, '__none__' = sem dentista).
+  const [dentistFilter, setDentistFilter] = useState('');
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -307,7 +309,37 @@ export default function ProgressoPage() {
     router.push(`/atendimento/agenda?${params.toString()}`);
   };
 
-  const { summary, by_stage } = board;
+  // Filtro por dentista (client-side). Sem filtro → usa board/summary do backend
+  // (concluido_total exato). Com filtro → recomputa a partir dos cards visíveis.
+  const view = useMemo(() => {
+    if (!dentistFilter) return board;
+    const match = (c: JourneyCard) => {
+      const did = c.primary_dentist?.id || c.dentist?.id || null;
+      return dentistFilter === '__none__' ? !did : did === dentistFilter;
+    };
+    const by = {} as Record<StageKey, JourneyCard[]>;
+    (['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO'] as StageKey[]).forEach((k) => {
+      by[k] = (board.by_stage[k] || []).filter(match);
+    });
+    const all = [...by.A_AGENDAR, ...by.AGENDADO, ...by.EM_TRATAMENTO, ...by.CONCLUIDO];
+    const now = new Date(Date.now() - 3 * 3600 * 1000);
+    const monthStart = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1);
+    const monthCount = all.filter((c) => c.accepted_at && new Date(c.accepted_at).getTime() >= monthStart).length;
+    return {
+      summary: {
+        count_total: all.length,
+        open_count: by.A_AGENDAR.length + by.AGENDADO.length + by.EM_TRATAMENTO.length,
+        to_schedule_count: by.A_AGENDAR.length,
+        agendado_count: by.AGENDADO.length,
+        em_tratamento_count: by.EM_TRATAMENTO.length,
+        month_count: monthCount,
+        concluido_total: by.CONCLUIDO.length,
+      },
+      by_stage: by,
+    };
+  }, [board, dentistFilter]);
+
+  const { summary, by_stage } = view;
 
   return (
     <div className="p-6 space-y-6 min-h-screen bg-background">
@@ -319,14 +351,28 @@ export default function ProgressoPage() {
             A jornada de cada paciente depois que a venda fecha — do agendamento à conclusão.
           </p>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2 shrink-0"
-        >
-          {loading && <Loader2 size={14} className="animate-spin" />}
-          Atualizar
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          <select
+            value={dentistFilter}
+            onChange={(e) => setDentistFilter(e.target.value)}
+            className="px-2.5 py-1.5 text-sm border rounded-lg bg-card text-foreground hover:bg-muted transition-colors outline-none cursor-pointer max-w-[190px]"
+            title="Filtrar o quadro por dentista"
+          >
+            <option value="">Todos os dentistas</option>
+            <option value="__none__">Sem dentista</option>
+            {dentists.map((d) => (
+              <option key={d.id} value={d.id}>{d.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="px-3 py-1.5 text-sm border rounded-lg hover:bg-muted transition-colors disabled:opacity-50 flex items-center gap-2"
+          >
+            {loading && <Loader2 size={14} className="animate-spin" />}
+            Atualizar
+          </button>
+        </div>
       </div>
 
       {/* Erro inline */}
