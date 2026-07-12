@@ -2408,7 +2408,7 @@ export class QuotesService {
         created_by: { select: { id: true, name: true } }, // quem fez o orçamento
         // etapa do tratamento sai do plano 1:1 + status dos itens
         treatment_plan: {
-          select: { id: true, status: true, items: { select: { status: true } } },
+          select: { id: true, status: true, items: { select: { status: true, executed_at: true } } },
         },
       },
       // accepted_at pode ser null em quotes ACCEPTED antigos → nulls last
@@ -2445,6 +2445,30 @@ export class QuotesService {
       }
     }
 
+    // "Chegou/atendido" — paciente compareceu a uma consulta clínica (status
+    // COMPARECEU/EM_ATENDIMENTO/CONCLUIDO). Promove pra "Em tratamento" e evita
+    // regredir pra "a agendar" depois que a consulta passa; guarda a data mais
+    // recente (base do "parado há X dias").
+    const ATTENDED_STATUSES = ['COMPARECEU', 'EM_ATENDIMENTO', 'CONCLUIDO'];
+    const lastAttendedByPatient = new Map<string, Date>();
+    if (patientIds.length > 0) {
+      const attended = await this.prisma.calendarEvent.findMany({
+        where: {
+          tenant_id: tenantId,
+          patient_id: { in: patientIds },
+          type: { in: CLINICAL_TYPES },
+          status: { in: ATTENDED_STATUSES },
+        },
+        orderBy: { start_at: 'desc' }, // primeira = comparecimento mais recente
+        select: { patient_id: true, start_at: true },
+      });
+      for (const e of attended) {
+        if (e.patient_id && !lastAttendedByPatient.has(e.patient_id)) {
+          lastAttendedByPatient.set(e.patient_id, e.start_at);
+        }
+      }
+    }
+
     // "Quem fechou" — o usuário que aceitou o orçamento. Não há coluna própria
     // no Quote; reusamos o snapshot de versão trigger='ACCEPT' (created_by = quem
     // aceitou). Best-effort: aceites antigos/parciais podem não ter snapshot → null.
@@ -2465,23 +2489,56 @@ export class QuotesService {
     const byStage: Record<string, any[]> = {};
     for (const s of STAGES) byStage[s] = [];
 
+    const nowMs = Date.now();
+    const nowMaceioMs = nowMaceio.getTime();
+    const DAY_MS = 86400000;
+
     for (const q of quotes) {
       const plan = q.treatment_plan;
       const planItems = plan?.items || [];
       const itemsTotal = planItems.length;
-      const itemsDone = planItems.filter((i) => i.status === 'DONE').length;
+      const doneItems = planItems.filter((i) => i.status === 'DONE');
+      const itemsDone = doneItems.length;
       // "todos resolvidos" = itens só DONE/CANCELLED (com pelo menos 1 DONE)
       const allSettled =
         itemsTotal > 0 &&
         planItems.every((i) => i.status === 'DONE' || i.status === 'CANCELLED');
       const patientId = q.patient?.id || null;
       const nextAppt = patientId ? nextApptByPatient.get(patientId) ?? null : null;
+      const lastAttended = patientId ? lastAttendedByPatient.get(patientId) ?? null : null;
+      // compareceu/foi atendido DEPOIS de fechar ESTE negócio? (um comparecimento
+      // antigo, de outro tratamento, não deve promover este por engano)
+      const attendedThisDeal =
+        !!lastAttended && !!q.accepted_at &&
+        lastAttended.getTime() >= new Date(q.accepted_at).getTime();
 
       let stage: string;
       if (plan?.status === 'COMPLETED' || (allSettled && itemsDone > 0)) stage = 'CONCLUIDO';
-      else if (itemsDone > 0) stage = 'EM_TRATAMENTO';
+      // Em tratamento = executou ≥1 procedimento OU já compareceu/foi atendido
+      // (não regride pra "a agendar" quando a consulta passa).
+      else if (itemsDone > 0 || attendedThisDeal) stage = 'EM_TRATAMENTO';
       else if (nextAppt) stage = 'AGENDADO';
       else stage = 'A_AGENDAR';
+
+      // "Parado há X dias": dias desde a última atividade = último procedimento
+      // feito OU última consulta atendida; sem nenhum, desde o fechamento.
+      const lastDoneMs = doneItems.reduce((mx, i) => {
+        const t = i.executed_at ? new Date(i.executed_at).getTime() : 0;
+        return t > mx ? t : mx;
+      }, 0);
+      const daysSinceDone = lastDoneMs ? Math.floor((nowMs - lastDoneMs) / DAY_MS) : null;
+      const daysSinceAttended = lastAttended
+        ? Math.floor((nowMaceioMs - lastAttended.getTime()) / DAY_MS)
+        : null;
+      const activityDays = [daysSinceDone, daysSinceAttended].filter(
+        (d): d is number => d != null,
+      );
+      const daysStalled: number | null =
+        activityDays.length > 0
+          ? Math.max(0, Math.min(...activityDays))
+          : q.accepted_at
+            ? Math.max(0, Math.floor((nowMs - new Date(q.accepted_at).getTime()) / DAY_MS))
+            : null;
 
       const dentist = q.items.find((it) => it.dentist)?.dentist || null;
 
@@ -2495,7 +2552,10 @@ export class QuotesService {
         created_by: q.created_by ?? null, // quem orçou
         closed_by: closerByQuote.get(q.id) ?? null, // quem fechou
         stage,
-        next_appointment_at: stage === 'AGENDADO' ? nextAppt : null,
+        next_appointment_at:
+          stage === 'AGENDADO' || stage === 'EM_TRATAMENTO' ? nextAppt : null,
+        has_future_appt: !!nextAppt,
+        days_stalled: daysStalled,
         items_done: itemsDone,
         items_total: itemsTotal,
       });
@@ -2528,6 +2588,8 @@ export class QuotesService {
         to_schedule_count: byStage.A_AGENDAR.length,
         agendado_count: byStage.AGENDADO.length,
         em_tratamento_count: byStage.EM_TRATAMENTO.length,
+        // "parados" = em tratamento SEM próxima consulta marcada (risco de esquecer)
+        stalled_count: byStage.EM_TRATAMENTO.filter((c) => !c.has_future_appt).length,
         month_count: monthCount,
         concluido_total: concluidoTotal,
       },

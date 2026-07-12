@@ -50,6 +50,8 @@ interface JourneyCard {
   closed_by: { id: string; name: string } | null;  // quem fechou
   stage: StageKey;
   next_appointment_at: string | null;
+  has_future_appt: boolean;
+  days_stalled: number | null;
   items_done: number;
   items_total: number;
 }
@@ -61,6 +63,7 @@ interface BoardData {
     to_schedule_count: number;
     agendado_count: number;
     em_tratamento_count: number;
+    stalled_count: number;
     month_count: number;
     concluido_total: number;
   };
@@ -69,8 +72,8 @@ interface BoardData {
 
 const EMPTY_BOARD: BoardData = {
   summary: {
-    count_total: 0, open_count: 0, to_schedule_count: 0,
-    agendado_count: 0, em_tratamento_count: 0, month_count: 0, concluido_total: 0,
+    count_total: 0, open_count: 0, to_schedule_count: 0, agendado_count: 0,
+    em_tratamento_count: 0, stalled_count: 0, month_count: 0, concluido_total: 0,
   },
   by_stage: { A_AGENDAR: [], AGENDADO: [], EM_TRATAMENTO: [], CONCLUIDO: [] },
 };
@@ -332,6 +335,7 @@ export default function ProgressoPage() {
         to_schedule_count: by.A_AGENDAR.length,
         agendado_count: by.AGENDADO.length,
         em_tratamento_count: by.EM_TRATAMENTO.length,
+        stalled_count: by.EM_TRATAMENTO.filter((c) => !c.has_future_appt).length,
         month_count: monthCount,
         concluido_total: by.CONCLUIDO.length,
       },
@@ -393,14 +397,14 @@ export default function ProgressoPage() {
       )}
 
       {/* KPIs — só contagens (processo), sem valores monetários */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard
           icon={AlertTriangle}
           label="A agendar"
           value={String(summary.to_schedule_count)}
           sub={summary.to_schedule_count > 0 ? 'aguardando agenda' : 'tudo agendado'}
           accent={summary.to_schedule_count > 0 ? 'text-amber-600' : 'text-emerald-600'}
-          highlight={summary.to_schedule_count > 0}
+          highlight={summary.to_schedule_count > 0 ? 'amber' : undefined}
         />
         <KpiCard
           icon={Layers}
@@ -408,6 +412,14 @@ export default function ProgressoPage() {
           value={String(summary.open_count)}
           sub="em andamento"
           accent="text-sky-600"
+        />
+        <KpiCard
+          icon={AlertTriangle}
+          label="Parados"
+          value={String(summary.stalled_count)}
+          sub="em trat. sem consulta"
+          accent={summary.stalled_count > 0 ? 'text-red-600' : 'text-emerald-600'}
+          highlight={summary.stalled_count > 0 ? 'red' : undefined}
         />
         <KpiCard
           icon={CalendarClock}
@@ -430,6 +442,9 @@ export default function ProgressoPage() {
         {COLUMNS.map((col) => {
           const cards = by_stage[col.key] || [];
           const Icon = col.icon;
+          const colStalled = col.key === 'EM_TRATAMENTO'
+            ? cards.filter((c) => !c.has_future_appt).length
+            : 0;
           return (
             <div key={col.key} className="flex flex-col bg-card border rounded-xl overflow-hidden">
               {/* Header da coluna */}
@@ -438,7 +453,14 @@ export default function ProgressoPage() {
                   <Icon size={16} className="shrink-0" />
                   <span className="font-semibold text-sm truncate">{col.label}</span>
                 </div>
-                <span className="text-xs font-mono opacity-70 shrink-0">{cards.length}</span>
+                <div className="flex items-center gap-1.5 shrink-0">
+                  {colStalled > 0 && (
+                    <span className="text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 rounded-full px-1.5 py-0.5">
+                      {colStalled} parado{colStalled > 1 ? 's' : ''}
+                    </span>
+                  )}
+                  <span className="text-xs font-mono opacity-70">{cards.length}</span>
+                </div>
               </div>
               {/* Nota "+N concluídos anteriores" (Concluído mostra só os
                   recentes). Sem totais em R$ — foco no processo, não no valor. */}
@@ -489,10 +511,13 @@ function KpiCard({
   icon: Icon, label, value, sub, accent, highlight,
 }: {
   icon: React.ElementType; label: string; value: string; sub?: string;
-  accent: string; highlight?: boolean;
+  accent: string; highlight?: 'amber' | 'red';
 }) {
   return (
-    <div className={`p-3 border rounded-xl bg-card ${highlight ? 'border-amber-300 bg-amber-50/40' : ''}`}>
+    <div className={`p-3 border rounded-xl bg-card ${
+      highlight === 'red' ? 'border-red-300 bg-red-50/50'
+        : highlight === 'amber' ? 'border-amber-300 bg-amber-50/40' : ''
+    }`}>
       <div className="flex items-center gap-2 text-xs text-muted-foreground">
         <Icon size={14} className={accent} />
         <span className="truncate">{label}</span>
@@ -518,11 +543,13 @@ function JourneyCardItem({
   const pct = c.items_total > 0 ? Math.round((c.items_done / c.items_total) * 100) : 0;
   const isToSchedule = c.stage === 'A_AGENDAR';
   const daysWaiting = daysSince(c.accepted_at);
+  // Em tratamento SEM próxima consulta = risco de esquecer (abandono no meio).
+  const isStalled = c.stage === 'EM_TRATAMENTO' && !c.has_future_appt;
 
   return (
     <div
       className={`rounded-xl p-3 bg-card border transition-shadow hover:shadow-md ${
-        isToSchedule ? 'border-amber-300' : 'border-border'
+        isToSchedule ? 'border-amber-300' : isStalled ? 'border-red-300' : 'border-border'
       }`}
     >
       {/* Nome + miniatura vermelha de dias sem agendamento (só "A agendar") */}
@@ -548,6 +575,14 @@ function JourneyCardItem({
             title={`${daysWaiting} ${daysWaiting === 1 ? 'dia' : 'dias'} sem agendamento`}
           >
             {daysWaiting}d
+          </span>
+        )}
+        {isStalled && c.days_stalled != null && c.days_stalled > 0 && (
+          <span
+            className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200"
+            title={`Parado há ${c.days_stalled} ${c.days_stalled === 1 ? 'dia' : 'dias'}`}
+          >
+            parado {c.days_stalled}d
           </span>
         )}
       </div>
@@ -629,6 +664,29 @@ function JourneyCardItem({
           <Clock size={13} className="shrink-0" />
           <span className="truncate">{apptStr ? `Consulta ${apptStr}` : 'Consulta marcada'}</span>
         </div>
+      )}
+
+      {c.stage === 'EM_TRATAMENTO' && (
+        c.has_future_appt ? (
+          <div className="flex items-center gap-1.5 mt-2.5 text-xs text-sky-600 font-medium">
+            <Clock size={13} className="shrink-0" />
+            <span className="truncate">{apptStr ? `Próxima consulta ${apptStr}` : 'Consulta marcada'}</span>
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center gap-1.5 mt-2.5 text-xs text-red-600 font-medium">
+              <AlertTriangle size={13} className="shrink-0" />
+              <span>Sem próxima consulta</span>
+            </div>
+            <button
+              onClick={onSchedule}
+              className="w-full mt-2 text-xs px-2 py-1.5 rounded-lg bg-red-500 hover:bg-red-600 text-white font-medium flex items-center justify-center gap-1.5 transition-colors"
+              title="Marcar a próxima consulta deste tratamento"
+            >
+              <CalendarPlus size={13} /> Agendar próxima
+            </button>
+          </>
+        )
       )}
 
       {c.stage === 'CONCLUIDO' && (
