@@ -362,12 +362,11 @@ function JourneyCardItem({
         )}
       </div>
 
-      {/* Quem orçou · quem fechou — linhas separadas */}
-      {c.created_by?.name && (
-        <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
-          Orçou <span className="text-foreground/75">{c.created_by.name}</span>
-        </div>
-      )}
+      {/* Dentista responsável — fallback: quem fez a avaliação (criou o
+          orçamento); senão "Sem dentista". */}
+      <div className="text-[11px] text-muted-foreground mt-1.5 truncate">
+        {c.dentist?.name || c.created_by?.name || 'Sem dentista'}
+      </div>
       {c.closed_by?.name ? (
         <div className="text-[11px] text-muted-foreground mt-0.5 truncate">
           Fechou <span className="text-foreground/75">{c.closed_by.name}</span>
