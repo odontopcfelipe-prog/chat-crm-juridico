@@ -2372,6 +2372,153 @@ export class QuotesService {
     return result;
   }
 
+  /**
+   * Journey Board — pipeline PÓS-VENDA (Jornada do paciente → "Progresso").
+   * Cada venda FECHADA (Quote status=ACCEPTED) vira um card, classificado pela
+   * ETAPA do tratamento pra a clínica não perder o paciente depois de fechar:
+   *   A_AGENDAR     — fechou mas SEM consulta clínica futura marcada  ⚠
+   *   AGENDADO      — tem consulta clínica futura (não-cancelada)
+   *   EM_TRATAMENTO — já tem ≥1 procedimento executado (item DONE)
+   *   CONCLUIDO     — plano COMPLETED, ou todos os itens DONE/CANCELLED
+   * Precedência: Concluído > Em tratamento > Agendado > A agendar.
+   *
+   * Fonte-de-verdade: Quote(ACCEPTED) (dono do valor + accepted_at + paciente
+   * + dentista via items[].dentist), com o treatment_plan 1:1 juntado pra ler
+   * a etapa. Tenant-scope via patient.tenant_id (Quote/TreatmentPlan não têm
+   * coluna tenant_id). CalendarEvent tem tenant_id → filtrado direto.
+   *
+   * ⚠️ DEVE vir ANTES de @Get('quotes/:id') no controller (mesmo motivo do
+   * closing-board — senão 'journey-board' é capturado como :id).
+   */
+  async getJourneyBoard(tenantId: string) {
+    this.logger.log(`[JOURNEY_BOARD] start tenantId=${tenantId}`);
+
+    const quotes = await this.prisma.quote.findMany({
+      where: { patient: { tenant_id: tenantId }, status: 'ACCEPTED' },
+      include: {
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
+        // dentista responsável = primeiro item com dentist preenchido
+        items: { select: { dentist: { select: { id: true, name: true } } } },
+        // etapa do tratamento sai do plano 1:1 + status dos itens
+        treatment_plan: {
+          select: { id: true, status: true, items: { select: { status: true } } },
+        },
+      },
+      // accepted_at pode ser null em quotes ACCEPTED antigos → nulls last
+      orderBy: [{ accepted_at: { sort: 'desc', nulls: 'last' } }],
+      take: 500,
+    });
+
+    // Consulta clínica FUTURA por paciente — 1 query batch (evita N+1).
+    // start_at é naive-UTC (hora local de Maceió gravada no campo UTC), então
+    // "agora" = Date.now()-3h pra comparar apples-to-apples (quirk da agenda:
+    // sem isso, à noite o UTC já virou o dia seguinte e a consulta "some").
+    const CLINICAL_TYPES = ['CONSULTA', 'PROCEDIMENTO', 'RETORNO', 'ORTODONTIA'];
+    const nowMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000);
+    const patientIds = Array.from(
+      new Set(quotes.map((q) => q.patient?.id).filter((id): id is string => !!id)),
+    );
+    const nextApptByPatient = new Map<string, Date>();
+    if (patientIds.length > 0) {
+      const events = await this.prisma.calendarEvent.findMany({
+        where: {
+          tenant_id: tenantId,
+          patient_id: { in: patientIds },
+          type: { in: CLINICAL_TYPES },
+          status: { notIn: ['CANCELADO', 'NO_SHOW'] },
+          start_at: { gte: nowMaceio },
+        },
+        orderBy: { start_at: 'asc' }, // primeira ocorrência = próxima consulta
+        select: { patient_id: true, start_at: true },
+      });
+      for (const e of events) {
+        if (e.patient_id && !nextApptByPatient.has(e.patient_id)) {
+          nextApptByPatient.set(e.patient_id, e.start_at);
+        }
+      }
+    }
+
+    const STAGES = ['A_AGENDAR', 'AGENDADO', 'EM_TRATAMENTO', 'CONCLUIDO'] as const;
+    const byStage: Record<string, any[]> = {};
+    for (const s of STAGES) byStage[s] = [];
+
+    for (const q of quotes) {
+      const plan = q.treatment_plan;
+      const planItems = plan?.items || [];
+      const itemsTotal = planItems.length;
+      const itemsDone = planItems.filter((i) => i.status === 'DONE').length;
+      // "todos resolvidos" = itens só DONE/CANCELLED (com pelo menos 1 DONE)
+      const allSettled =
+        itemsTotal > 0 &&
+        planItems.every((i) => i.status === 'DONE' || i.status === 'CANCELLED');
+      const patientId = q.patient?.id || null;
+      const nextAppt = patientId ? nextApptByPatient.get(patientId) ?? null : null;
+
+      let stage: string;
+      if (plan?.status === 'COMPLETED' || (allSettled && itemsDone > 0)) stage = 'CONCLUIDO';
+      else if (itemsDone > 0) stage = 'EM_TRATAMENTO';
+      else if (nextAppt) stage = 'AGENDADO';
+      else stage = 'A_AGENDAR';
+
+      const dentist = q.items.find((it) => it.dentist)?.dentist || null;
+
+      byStage[stage].push({
+        quote_id: q.id,
+        plan_id: plan?.id || null,
+        patient: q.patient,
+        total_value: Number(q.total_value),
+        accepted_at: q.accepted_at,
+        dentist,
+        stage,
+        next_appointment_at: stage === 'AGENDADO' ? nextAppt : null,
+        items_done: itemsDone,
+        items_total: itemsTotal,
+      });
+    }
+
+    // Concluído cresce sem limite → mostra só os 30 mais recentes (já ordenados
+    // por accepted_at desc). As colunas "abertas" (a agendar/agendado/em trat.)
+    // mostram tudo — são o trabalho vivo que não pode sumir.
+    const concluidoTotal = byStage.CONCLUIDO.length;
+    byStage.CONCLUIDO = byStage.CONCLUIDO.slice(0, 30);
+
+    // ─── Summary (KPIs) ───
+    const toSchedule = byStage.A_AGENDAR;
+    const openCount =
+      byStage.A_AGENDAR.length + byStage.AGENDADO.length + byStage.EM_TRATAMENTO.length;
+    const totalValue = quotes.reduce((s, q) => s + Number(q.total_value), 0);
+    const ticketMedio = quotes.length > 0 ? totalValue / quotes.length : 0;
+
+    // Fechado no mês corrente (Maceió). accepted_at é instante real; o skew de
+    // 3h na virada do mês é imaterial pra um KPI mensal.
+    const monthStart = new Date(
+      Date.UTC(nowMaceio.getUTCFullYear(), nowMaceio.getUTCMonth(), 1),
+    );
+    const acceptedThisMonth = quotes.filter(
+      (q) => q.accepted_at && q.accepted_at >= monthStart,
+    );
+    const monthValue = acceptedThisMonth.reduce((s, q) => s + Number(q.total_value), 0);
+
+    const result = {
+      summary: {
+        count_total: quotes.length,
+        total_value: totalValue,
+        ticket_medio: ticketMedio,
+        open_count: openCount,
+        to_schedule_count: toSchedule.length,
+        to_schedule_value: toSchedule.reduce((s, c) => s + c.total_value, 0),
+        month_count: acceptedThisMonth.length,
+        month_value: monthValue,
+        concluido_total: concluidoTotal,
+      },
+      by_stage: byStage,
+    };
+    this.logger.log(
+      `[JOURNEY_BOARD] OK deals=${quotes.length} a_agendar=${toSchedule.length} open=${openCount}`,
+    );
+    return result;
+  }
+
   // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────
 
   /**

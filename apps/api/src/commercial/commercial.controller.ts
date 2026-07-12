@@ -192,6 +192,20 @@ export class CommercialController {
     return this.quotesService.listArchivedQuotes(user.tenant_id);
   }
 
+  /**
+   * Journey Board — pipeline pós-venda (Jornada do paciente → "Progresso").
+   * Vendas FECHADAS (ACCEPTED) agrupadas por etapa do tratamento (a agendar /
+   * agendado / em tratamento / concluído). Frontend: /atendimento/progresso.
+   *
+   * ⚠️ DEVE vir ANTES de @Get('quotes/:id') — senão 'journey-board' é
+   * capturado como :id e retorna "Orçamento não encontrado".
+   */
+  @RequiresPermission('manage_proposals', 'view_proposals')
+  @Get('quotes/journey-board')
+  quotesJourneyBoard(@Authenticated() user: AuthUser) {
+    return this.quotesService.getJourneyBoard(user.tenant_id);
+  }
+
   @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {

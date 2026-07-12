@@ -11,7 +11,7 @@ import {
   Camera, Loader2, Trash2, Package, Bell, Banknote, Target, BarChart3, Network,
   Hourglass, Trophy, ShieldCheck, FileText, UserPlus, Handshake, Smartphone,
   Megaphone, HandCoins, Square, CircleDashed, Layers, Zap, CreditCard,
-  User, UserCog,
+  User, UserCog, Route,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { API_BASE_URL, clearSessionTraces } from '@/lib/api';
@@ -576,6 +576,16 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/pacientes') && !p.includes('?new'),
       show: true,
     },
+    progresso: {
+      // Jornada do paciente pós-venda: pipeline "central de vendas" por etapa
+      // (a agendar / agendado / em tratamento / concluído). Fecha o buraco de
+      // "fechei e esqueci de agendar". Mesma permissão de Propostas/Orçamentos.
+      label: 'Progresso',
+      href: '/atendimento/progresso',
+      icon: <Route size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/progresso'),
+      show: hasPermission('manage_proposals'),
+    },
     novoPaciente: {
       // Onda 5c — antes era subItem de Pacientes; agora item top-level
       label: 'Novo paciente',
@@ -833,6 +843,7 @@ export function Sidebar() {
       icon: <Users size={14} strokeWidth={2.5} />,
       items: [
         allItems.pacientes,    // Pacientes (lista)
+        allItems.progresso,    // Progresso (pipeline pós-venda por etapa)
         // Onda 15 (etapa 18) — Orcamentos e Financeiro moveram pro
         // grupo "Financeiro" abaixo (operador preferiu agrupar la).
         // Orcamentos continua duplicado no CRM como atalho.
