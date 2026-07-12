@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, Layers, Check, Settings, X,
+  CircleCheck, Clock, Layers, Check, BookOpen, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -131,32 +131,46 @@ interface PlanItem {
 
 /** Modal por card: procedimentos do plano separados em Feitos / Falta fazer
  *  (execução real — status DONE). Aberto pela engrenagem do card. */
+interface PlanData {
+  planId: string;
+  title: string | null;
+  acceptedAt: string | null;
+  items: PlanItem[];
+}
+
 function ProceduresModal({ planIds, patientName, onClose }: {
   planIds: string[]; patientName: string; onClose: () => void;
 }) {
-  const [items, setItems] = useState<PlanItem[] | null>(null);
+  const [plans, setPlans] = useState<PlanData[] | null>(null);
   const [loading, setLoading] = useState(true);
   const planKey = planIds.join(',');
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
-    // Junta os itens de TODOS os planos do paciente (pode ter mais de 1 contrato).
+    // Um plano por contrato aceito — guarda info do contrato (título/data) + itens.
     Promise.all(
       planIds.map((id) =>
-        api.get<{ items?: PlanItem[] }>(`/treatment-plans/${id}`)
-          .then((r) => r.data?.items || [])
-          .catch(() => [] as PlanItem[]),
+        api.get<{ quote?: { title?: string | null; accepted_at?: string | null } | null; items?: PlanItem[] }>(`/treatment-plans/${id}`)
+          .then((r) => ({
+            planId: id,
+            title: r.data?.quote?.title ?? null,
+            acceptedAt: r.data?.quote?.accepted_at ?? null,
+            items: r.data?.items || [],
+          }))
+          .catch(() => ({ planId: id, title: null, acceptedAt: null, items: [] as PlanItem[] })),
       ),
     )
-      .then((lists) => { if (!cancelled) setItems(lists.flat()); })
+      .then((res) => { if (!cancelled) setPlans(res); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [planKey]);
-  const feitos = (items || []).filter((i) => i.status === 'DONE');
-  const faltam = (items || []).filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED');
+  const allItems = (plans || []).flatMap((p) => p.items);
+  const feitos = allItems.filter((i) => i.status === 'DONE');
+  const faltam = allItems.filter((i) => i.status !== 'DONE' && i.status !== 'CANCELLED');
   const totalExec = feitos.length + faltam.length;
   const pct = totalExec ? Math.round((feitos.length / totalExec) * 100) : 0;
+  const multi = (plans?.length ?? 0) > 1;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
       <div
@@ -195,6 +209,30 @@ function ProceduresModal({ planIds, patientName, onClose }: {
                   <div className="h-full bg-emerald-500 rounded-full transition-all" style={{ width: `${pct}%` }} />
                 </div>
               </div>
+              {/* Contratos (quando o paciente tem mais de um) */}
+              {multi && (
+                <div>
+                  <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-violet-700 mb-1.5">
+                    <Layers size={13} /> Contratos ({plans!.length})
+                  </div>
+                  <ul className="space-y-1">
+                    {plans!.map((p, i) => {
+                      const d = p.items.filter((it) => it.status === 'DONE').length;
+                      const t = p.items.filter((it) => it.status !== 'CANCELLED').length;
+                      const cd = formatCloseDate(p.acceptedAt);
+                      return (
+                        <li key={p.planId} className="flex items-center justify-between gap-2 text-sm">
+                          <span className="text-foreground truncate">
+                            {p.title || `Contrato ${i + 1}`}
+                            {cd && <span className="text-[11px] text-muted-foreground"> · {cd}</span>}
+                          </span>
+                          <span className="text-[11px] text-muted-foreground tabular-nums shrink-0">{d}/{t}</span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
+              )}
               {/* Feitos */}
               <div>
                 <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide text-emerald-700 mb-1.5">
@@ -614,9 +652,9 @@ function JourneyCardItem({
                 <button
                   onClick={(e) => { e.stopPropagation(); onProcedures(); }}
                   className="shrink-0 p-0.5 -mr-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-accent/40 transition-colors"
-                  title="Ver procedimentos (feito / falta fazer)"
+                  title="Ver procedimentos e contratos"
                 >
-                  <Settings size={13} />
+                  <BookOpen size={13} />
                 </button>
               )}
             </div>
