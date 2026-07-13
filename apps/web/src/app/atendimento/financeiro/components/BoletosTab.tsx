@@ -50,7 +50,7 @@ interface Charge {
   treatment_plan_id: string | null;
   installment_id: string | null;
   installment_label: string | null;
-  patient: { id: string; name: string | null; phone: string | null } | null;
+  patient: { id: string; name: string | null; phone: string | null; cpf: string | null } | null;
   dentist: { id: string; name: string } | null;
   quote_number: number | null;
   created_at: string;
@@ -147,15 +147,24 @@ export default function BoletosTab({ dentistId }: Props) {
   }, [fetchData]);
 
   const filtered = useMemo(() => {
-    if (!search.trim()) return charges;
-    const s = search.toLowerCase();
-    return charges.filter(
-      (c) =>
+    const s = search.trim().toLowerCase();
+    if (!s) return charges;
+    const digits = s.replace(/\D/g, ''); // dígitos do termo — pra casar telefone/CPF sem máscara
+    return charges.filter((c) => {
+      if (
         c.patient?.name?.toLowerCase().includes(s) ||
         c.dentist?.name?.toLowerCase().includes(s) ||
         c.installment_label?.toLowerCase().includes(s) ||
-        String(c.quote_number || '').includes(s),
-    );
+        String(c.quote_number || '').includes(s)
+      ) return true;
+      // Telefone / CPF: compara SÓ dígitos (ignora máscara/pontuação dos dois lados).
+      if (digits.length >= 3) {
+        const phoneDigits = (c.patient?.phone || '').replace(/\D/g, '');
+        const cpfDigits = (c.patient?.cpf || '').replace(/\D/g, '');
+        if (phoneDigits.includes(digits) || cpfDigits.includes(digits)) return true;
+      }
+      return false;
+    });
   }, [charges, search]);
 
   // Stats da lista atual (count + R$)
@@ -247,7 +256,7 @@ export default function BoletosTab({ dentistId }: Props) {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Buscar paciente, dentista, parcela..."
+              placeholder="Buscar por nome, telefone ou CPF..."
               className="flex-1 bg-transparent text-xs focus:outline-none"
             />
           </div>

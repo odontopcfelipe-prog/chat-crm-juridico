@@ -47,7 +47,7 @@ type ChargeRow = {
     proposal_status: string;
     status: string;
     total_value: any;
-    patient: { id: string; name: string | null; phone: string | null } | null;
+    patient: { id: string; name: string | null; phone: string | null; cpf?: string | null } | null;
     quote: { id: string; quote_number: number | null; created_by: { id: string; name: string } | null } | null;
   } | null;
   installment?: {
@@ -442,7 +442,7 @@ export class FinanceiroChargesService {
               proposal_status: true,
               status: true,
               total_value: true,
-              patient: { select: { id: true, name: true, phone: true } },
+              patient: { select: { id: true, name: true, phone: true, cpf: true } },
               quote: {
                 select: {
                   id: true,
