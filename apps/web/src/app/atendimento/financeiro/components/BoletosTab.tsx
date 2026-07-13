@@ -18,7 +18,7 @@
  * Endpoint: GET /financeiro/charges
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
@@ -194,6 +194,26 @@ export default function BoletosTab({ dentistId }: Props) {
     }
   };
 
+  // Agrupa a visão "Todos" em Em Aberto / Vencidos / Pagos, cada grupo por data
+  // (aberto e vencidos por vencimento; pagos pelo pagamento mais recente). Com um
+  // chip específico selecionado o backend já filtrou → lista única, sem cabeçalho.
+  const groups = useMemo(() => {
+    if (statusGroup !== 'all') {
+      return [{ key: 'flat', label: '', icon: FileText, color: 'text-foreground', rows: filtered, total: filtered.reduce((s, c) => s + c.amount, 0) }];
+    }
+    const byDueAsc = (a: Charge, b: Charge) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+    const paidTime = (c: Charge) => new Date(c.paid_at || c.payment_date || c.due_date).getTime();
+    const emAberto = filtered.filter((c) => c.computed_status === 'EM_ABERTO').sort(byDueAsc);
+    const vencidos = filtered.filter((c) => c.computed_status === 'ATRASADO').sort(byDueAsc);
+    const pagos = filtered.filter((c) => c.computed_status === 'PAGO').sort((a, b) => paidTime(b) - paidTime(a));
+    const sum = (rows: Charge[]) => rows.reduce((s, c) => s + c.amount, 0);
+    return [
+      { key: 'aberto', label: 'Em Aberto', icon: Clock, color: 'text-blue-400', rows: emAberto, total: sum(emAberto) },
+      { key: 'vencidos', label: 'Vencidos', icon: AlertTriangle, color: 'text-red-400', rows: vencidos, total: sum(vencidos) },
+      { key: 'pagos', label: 'Pagos', icon: Check, color: 'text-emerald-400', rows: pagos, total: sum(pagos) },
+    ].filter((g) => g.rows.length > 0);
+  }, [filtered, statusGroup]);
+
   return (
     <div className="space-y-4">
       {/* Filtros */}
@@ -299,7 +319,23 @@ export default function BoletosTab({ dentistId }: Props) {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((c) => {
+                {groups.map((g) => {
+                  const GIcon = g.icon;
+                  return (
+                  <Fragment key={g.key}>
+                  {g.label && (
+                    <tr className="bg-muted/40 border-y border-border">
+                      <td colSpan={7} className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <GIcon size={13} className={g.color} />
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">{g.label}</span>
+                          <span className="text-[10px] text-muted-foreground">({g.rows.length})</span>
+                          <span className={`ml-auto text-[11px] font-bold tabular-nums ${g.color}`}>{fmtBRL(g.total)}</span>
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                  {g.rows.map((c) => {
                   const isOverdue = c.computed_status === 'ATRASADO';
                   const isPaid = c.computed_status === 'PAGO';
                   const reminderMsg = `Olá ${c.patient?.name || ''}! Lembrando do pagamento de ${fmtBRL(c.amount)} (${c.installment_label}) com vencimento em ${fmtDate(c.due_date)}.${
@@ -399,6 +435,9 @@ export default function BoletosTab({ dentistId }: Props) {
                         </div>
                       </td>
                     </tr>
+                  );
+                  })}
+                  </Fragment>
                   );
                 })}
               </tbody>
