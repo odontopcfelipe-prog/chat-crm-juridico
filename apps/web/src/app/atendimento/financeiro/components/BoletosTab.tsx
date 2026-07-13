@@ -181,6 +181,27 @@ export default function BoletosTab({ dentistId }: Props) {
     );
   }, [filtered]);
 
+  // "Este mês": só as cobranças com VENCIMENTO no mês atual (respeita a busca).
+  const monthStats = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    return filtered.reduce(
+      (acc, c) => {
+        const d = new Date(c.due_date);
+        if (d.getFullYear() !== y || d.getMonth() !== m) return acc;
+        acc.count += 1;
+        acc.totalValue += c.amount;
+        if (c.computed_status === 'ATRASADO') acc.overdue += c.amount;
+        else if (c.computed_status === 'EM_ABERTO') acc.open += c.amount;
+        else if (c.computed_status === 'PAGO') acc.paid += c.amount;
+        return acc;
+      },
+      { count: 0, totalValue: 0, paid: 0, open: 0, overdue: 0 },
+    );
+  }, [filtered]);
+  const mesLabel = new Date().toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
+
   const handleMarkCash = async (c: Charge) => {
     if (!confirm(`Marcar ${c.installment_label || 'cobrança'} de ${c.patient?.name} (${fmtBRL(c.amount)}) como recebida em espécie?`)) return;
     setMarkingCash(c.id);
@@ -283,7 +304,8 @@ export default function BoletosTab({ dentistId }: Props) {
         </div>
 
         {/* Stats da listagem atual */}
-        <div className="flex items-center gap-4 pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider">
+        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider">
+          {/* Esquerda: geral (todas as cobranças carregadas) */}
           <span className="text-muted-foreground">
             {filtered.length} de {total} cobrança(s)
           </span>
@@ -298,6 +320,25 @@ export default function BoletosTab({ dentistId }: Props) {
           {stats.open > 0 && (
             <span className="text-blue-400">
               Em aberto: <span className="tabular-nums">{fmtBRL(stats.open)}</span>
+            </span>
+          )}
+
+          {/* Direita: só o mês atual (por vencimento) */}
+          <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
+            <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">Este mês ({mesLabel})</span>
+            {monthStats.count} cobrança(s)
+          </span>
+          <span className="text-foreground">
+            Total: <span className="tabular-nums">{fmtBRL(monthStats.totalValue)}</span>
+          </span>
+          {monthStats.overdue > 0 && (
+            <span className="text-red-400">
+              Atrasado: <span className="tabular-nums">{fmtBRL(monthStats.overdue)}</span>
+            </span>
+          )}
+          {monthStats.open > 0 && (
+            <span className="text-blue-400">
+              Em aberto: <span className="tabular-nums">{fmtBRL(monthStats.open)}</span>
             </span>
           )}
         </div>
