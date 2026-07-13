@@ -1292,7 +1292,7 @@ export default function FinanceiroPage() {
             {/* Gestão de entradas — puxada da antiga aba "Receitas" pra dentro de "Entradas"
                 a pedido do dono: tabela gerenciável (nova entrada / editar / excluir / marcar
                 recebido / gerar cobrança) + a visão "A Receber". A aba "Receitas" foi removida. */}
-            <ReceitasTab receitas={receitas} onRefresh={fetchData} lawyerId={effectiveDentistId} />
+            <ReceitasTab receitas={receitas} onRefresh={fetchData} lawyerId={effectiveDentistId} validatedOnly />
 
             {/* Onda 18.x — removidos "Taxa de realização", "Inadimplência por faixa"
                 e "Projeção de recebimento" a pedido do dono (tela mais limpa). */}
@@ -1818,7 +1818,7 @@ const RECEITA_CAT_ICONS: Record<string, string> = {
   HONORARIO: '⚖️', CONSULTA: '📞', ACORDO: '🤝', OUTRO: '📋',
 };
 
-function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[]; onRefresh: () => void; lawyerId?: string }) {
+function ReceitasTab({ receitas, onRefresh, lawyerId, validatedOnly = false }: { receitas: Transaction[]; onRefresh: () => void; lawyerId?: string; validatedOnly?: boolean }) {
   const router = useRouter();
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -1835,6 +1835,8 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   const [chargeGroupResult, setChargeGroupResult] = useState<{ key: string; data: any } | null>(null);
 
   const fetchPending = useCallback(async () => {
+    // Modo "entradas validadas": não busca o "A Receber" (honorário jurídico legado).
+    if (validatedOnly) { setPendingPayments([]); setLoadingPending(false); return; }
     setLoadingPending(true);
     try {
       const params: any = {};
@@ -1851,7 +1853,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
       }));
     } catch { setPendingPayments([]); }
     finally { setLoadingPending(false); }
-  }, [lawyerId]);
+  }, [lawyerId, validatedOnly]);
 
   useEffect(() => { fetchPending(); }, [fetchPending]);
 
@@ -1862,7 +1864,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [dueDate, setDueDate] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
-  const [status, setStatus] = useState('PENDENTE');
+  const [status, setStatus] = useState(validatedOnly ? 'PAGO' : 'PENDENTE');
   const [clientSearch, setClientSearch] = useState('');
   const [clientResults, setClientResults] = useState<any[]>([]);
   const [selectedClient, setSelectedClient] = useState<any>(null);
@@ -1875,7 +1877,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
 
   const resetForm = () => {
     setDesc(''); setAmount(''); setCategory('Procedimento'); setDate(new Date().toISOString().slice(0,10));
-    setDueDate(''); setPaymentMethod(''); setStatus('PENDENTE'); setClientSearch('');
+    setDueDate(''); setPaymentMethod(''); setStatus(validatedOnly ? 'PAGO' : 'PENDENTE'); setClientSearch('');
     setClientResults([]); setSelectedClient(null); setGenerateCharge(false); setNotes('');
   };
 
@@ -1924,6 +1926,8 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   };
 
   const filtered = receitas.filter(r => {
+    // "Entradas validadas": só o que de fato entrou (PAGO). Pendente/a-receber não é entrada.
+    if (validatedOnly && r.status !== 'PAGO') return false;
     if (searchQ) {
       const q = searchQ.toLowerCase();
       return (r.description || '').toLowerCase().includes(q) || (r.lead?.name || '').toLowerCase().includes(q)
@@ -1953,17 +1957,25 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
           <div className="flex items-center gap-3">
-            {/* Toggle A Receber / Recebidas */}
-            <div className="flex bg-background border border-border rounded-lg overflow-hidden">
-              <button onClick={() => setViewMode('a_receber')}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'a_receber' ? 'bg-amber-500/15 text-amber-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
-                A Receber ({pendingPayments.length})
-              </button>
-              <button onClick={() => setViewMode('recebidas')}
-                className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'recebidas' ? 'bg-emerald-500/15 text-emerald-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
-                Recebidas ({receitas.length})
-              </button>
-            </div>
+            {/* Modo "entradas validadas": só o que de fato entrou; sem o toggle "A Receber" (jurídico legado). */}
+            {validatedOnly ? (
+              <div className="flex items-center gap-2 text-sm font-bold text-foreground">
+                <TrendingUp size={15} className="text-emerald-400" /> Entradas validadas
+                <span className="text-[11px] font-normal text-muted-foreground">(dinheiro que de fato entrou)</span>
+              </div>
+            ) : (
+              /* Toggle A Receber / Recebidas */
+              <div className="flex bg-background border border-border rounded-lg overflow-hidden">
+                <button onClick={() => setViewMode('a_receber')}
+                  className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'a_receber' ? 'bg-amber-500/15 text-amber-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
+                  A Receber ({pendingPayments.length})
+                </button>
+                <button onClick={() => setViewMode('recebidas')}
+                  className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'recebidas' ? 'bg-emerald-500/15 text-emerald-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
+                  Recebidas ({receitas.length})
+                </button>
+              </div>
+            )}
             <div className="relative">
               <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
               <input type="text" value={searchQ} onChange={e => setSearchQ(e.target.value)} placeholder="Buscar..."
@@ -2082,7 +2094,7 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
         )}
 
         {/* ── A RECEBER (parcelas agrupadas por honorário) ── */}
-        {viewMode === 'a_receber' && (
+        {!validatedOnly && viewMode === 'a_receber' && (
           loadingPending ? (
             <div className="flex justify-center py-12"><Loader2 size={20} className="animate-spin text-primary" /></div>
           ) : filteredPending.length === 0 ? (
@@ -2257,8 +2269,8 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
           })()
         )}
 
-        {/* ── RECEBIDAS (transações financeiras PAGO) ── */}
-        {viewMode === 'recebidas' && (
+        {/* ── RECEBIDAS / Entradas validadas (transações financeiras PAGO) ── */}
+        {(validatedOnly || viewMode === 'recebidas') && (
           filtered.length === 0 ? (
             <div className="bg-card border border-border rounded-xl p-12 text-center">
               <TrendingUp size={40} className="mx-auto text-muted-foreground/30 mb-3" />
