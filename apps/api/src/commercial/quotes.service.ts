@@ -2428,7 +2428,21 @@ export class QuotesService {
     this.logger.log(`[JOURNEY_BOARD] start tenantId=${tenantId}`);
 
     const quotes = await this.prisma.quote.findMany({
-      where: { patient: { tenant_id: tenantId }, status: 'ACCEPTED' },
+      // Venda rápida (balcão, serviço feito na hora) NÃO entra no Progresso — não tem
+      // pipeline de agendamento→conclusão. Não há flag no schema, então identifica pelo
+      // texto que o fluxo SEMPRE grava: title "Venda rápida…" / notes "Venda rapida…".
+      // Fica no WHERE (não pós-filtro) pra manter contagens e queries em lote coerentes,
+      // e de quebra tira o balcão dos disparos "sem agendamento" que reusam esta função.
+      where: {
+        patient: { tenant_id: tenantId },
+        status: 'ACCEPTED',
+        NOT: {
+          OR: [
+            { title: { startsWith: 'Venda rápida', mode: 'insensitive' } },
+            { notes: { startsWith: 'Venda rapida', mode: 'insensitive' } },
+          ],
+        },
+      },
       include: {
         patient: {
           select: {
