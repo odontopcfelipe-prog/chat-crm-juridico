@@ -2767,11 +2767,15 @@ export class QuotesService {
         standby: 0,
       };
     }
+    // Cada linha: NOME completo + situação + TELEFONE (pra o adm identificar
+    // exatamente quem é e já ligar direto pelo WhatsApp).
+    const line = (c: any, situacao: string) => {
+      const tel = c.patient?.phone ? ` · ${c.patient.phone}` : '';
+      return `• ${c.patient?.name || 'Paciente'} — ${situacao}${tel}`;
+    };
     const lines: string[] = [];
-    for (const c of semAgendar.slice(0, 15))
-      lines.push(`• ${c.patient?.name || 'Paciente'} — ${c.days_stalled}d sem agendar`);
-    for (const c of standby.slice(0, 10))
-      lines.push(`• ${c.patient?.name || 'Paciente'} — em stand by`);
+    for (const c of semAgendar.slice(0, 15)) lines.push(line(c, `${c.days_stalled}d sem agendar`));
+    for (const c of standby.slice(0, 10)) lines.push(line(c, 'em stand by'));
     const extra = semAgendar.length + standby.length - lines.length;
     const text =
       `${header}\n\n` +
