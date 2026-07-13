@@ -144,6 +144,9 @@ export default function OrtodontiaPage() {
   };
 
   const s = board?.summary;
+  // Ortodontista de hoje — derivado dos dias configurados no cadastro (ortho_days).
+  const todayWd = useMemo(() => new Date(Date.now() - 3 * 3600 * 1000).getUTCDay(), []); // fuso Maceió
+  const orthoToday = useMemo(() => dentists.filter((d) => (d.ortho_days || []).includes(todayWd)), [dentists, todayWd]);
 
   return (
     <div className="h-full overflow-y-auto p-6 w-full space-y-4">
@@ -159,6 +162,26 @@ export default function OrtodontiaPage() {
         <button onClick={load} className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border border-border text-sm hover:bg-accent/30 shrink-0">
           <RefreshCw size={14} /> Atualizar
         </button>
+      </div>
+
+      {/* Espaço "Ortodontista de hoje" — identifica quem faz ortô no dia (pelos dias do cadastro) */}
+      <div className="rounded-xl border border-primary/30 bg-primary/5 px-4 py-3 flex items-center gap-3 flex-wrap">
+        <span className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wide text-primary shrink-0">
+          <CalendarClock size={15} /> Ortodontista de hoje · {WD_FULL[todayWd]}
+        </span>
+        {orthoToday.length ? (
+          <div className="flex items-center gap-2 flex-wrap">
+            {orthoToday.map((d) => (
+              <span key={d.id} className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-card border border-border text-sm font-semibold text-foreground">
+                <Stethoscope size={13} className="text-primary" /> {d.name}
+              </span>
+            ))}
+          </div>
+        ) : (
+          <span className="text-sm text-muted-foreground">
+            Nenhum ortodontista com {WD_FULL[todayWd]} definido — marque os dias no cadastro do dentista.
+          </span>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
