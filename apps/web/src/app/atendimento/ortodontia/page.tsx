@@ -36,25 +36,20 @@ const STATUS_META: Record<OrthoStatus, { label: string; badge: string }> = {
   saiu: { label: 'Saiu', badge: 'bg-red-500/15 text-red-500' },
 };
 
-const FILTERS: Array<{ key: 'todos' | OrthoStatus; label: string }> = [
-  { key: 'todos', label: 'Todos' },
+// Barra única: "Todos os pacientes" (colunas por dentista) e "Todos os dias" (expõe a
+// semana — colunas por dia) + os status (Agendados/Não agendados/Concluídos/Saíram).
+type ViewKey = 'todos' | 'dias' | OrthoStatus;
+const VIEWS: Array<{ key: ViewKey; label: string }> = [
+  { key: 'todos', label: 'Todos os pacientes' },
+  { key: 'dias', label: 'Todos os dias' },
   { key: 'agendado', label: 'Agendados' },
   { key: 'nao_agendado', label: 'Não agendados' },
   { key: 'concluido', label: 'Concluídos' },
   { key: 'saiu', label: 'Saíram' },
 ];
-
-// Ortô é fixo no dia da semana; cada dia pode ter um ortodontista diferente.
-const DAYS: Array<{ key: 'todos' | number; label: string }> = [
-  { key: 'todos', label: 'Todos os dias' },
-  { key: 1, label: 'Seg' },
-  { key: 2, label: 'Ter' },
-  { key: 3, label: 'Qua' },
-  { key: 4, label: 'Qui' },
-  { key: 5, label: 'Sex' },
-  { key: 6, label: 'Sáb' },
-];
+const ORTHO_WEEKDAYS = [1, 2, 3, 4, 5, 6]; // Seg–Sáb
 const WD_LABEL: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
+const WD_FULL: Record<number, string> = { 0: 'Domingo', 1: 'Segunda', 2: 'Terça', 3: 'Quarta', 4: 'Quinta', 5: 'Sexta', 6: 'Sábado' };
 
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
 const fmtDateTime = (iso: string | null) =>
@@ -66,8 +61,7 @@ export default function OrtodontiaPage() {
   const router = useRouter();
   const [board, setBoard] = useState<OrthoBoard | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'todos' | OrthoStatus>('todos');
-  const [dayFilter, setDayFilter] = useState<'todos' | number>('todos');
+  const [view, setView] = useState<ViewKey>('todos');
   const [completing, setCompleting] = useState<string | null>(null);
   const [dentists, setDentists] = useState<{ id: string; name: string; ortho_days?: number[] }[]>([]);
   const [migrating, setMigrating] = useState<string | null>(null);
@@ -91,14 +85,26 @@ export default function OrtodontiaPage() {
   // Colunas = dentistas presentes (+ "Sem dentista" por último). Filtra pelo status escolhido.
   const columns = useMemo(() => {
     if (!board) return [];
+    // "Todos os dias": colunas = dias da semana (Seg–Sáb), expondo a semana inteira.
+    if (view === 'dias') {
+      const cols = ORTHO_WEEKDAYS.map((wd) => ({
+        id: `d${wd}`,
+        name: WD_FULL[wd],
+        weekday: wd as number | null,
+        cards: board.patients.filter((c) => c.weekday === wd),
+      }));
+      const semDia = board.patients.filter((c) => c.weekday == null);
+      if (semDia.length) cols.push({ id: 'sem-dia', name: 'Sem dia definido', weekday: null, cards: semDia });
+      return cols;
+    }
+    // Senão: colunas = dentistas, filtradas pelo status escolhido.
     let cards = board.patients;
-    if (filter !== 'todos') cards = cards.filter((c) => c.status === filter);
-    if (dayFilter !== 'todos') cards = cards.filter((c) => c.weekday === dayFilter);
-    const byDentist = new Map<string, { id: string; name: string; cards: OrthoCard[] }>();
+    if (view !== 'todos') cards = cards.filter((c) => c.status === view);
+    const byDentist = new Map<string, { id: string; name: string; weekday: number | null; cards: OrthoCard[] }>();
     for (const c of cards) {
       const key = c.dentist?.id || '__none__';
       const name = c.dentist?.name || 'Sem dentista';
-      if (!byDentist.has(key)) byDentist.set(key, { id: key, name, cards: [] });
+      if (!byDentist.has(key)) byDentist.set(key, { id: key, name, weekday: null, cards: [] });
       byDentist.get(key)!.cards.push(c);
     }
     return Array.from(byDentist.values()).sort((a, b) => {
@@ -106,7 +112,7 @@ export default function OrtodontiaPage() {
       if (b.id === '__none__') return -1;
       return a.name.localeCompare(b.name);
     });
-  }, [board, filter, dayFilter]);
+  }, [board, view]);
 
   const conclude = async (card: OrthoCard) => {
     if (!card.plan_ids.length) { showError('Sem plano de ortodontia pra concluir'); return; }
@@ -164,25 +170,12 @@ export default function OrtodontiaPage() {
       </div>
 
       <div className="flex items-center gap-1.5 flex-wrap">
-        {FILTERS.map((f) => (
-          <button key={f.key} onClick={() => setFilter(f.key)}
+        {VIEWS.map((v) => (
+          <button key={v.key} onClick={() => setView(v.key)}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              filter === f.key ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-muted-foreground hover:bg-accent/30'
+              view === v.key ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-muted-foreground hover:bg-accent/30'
             }`}>
-            {f.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Filtro Dia da Semana — cada dia pode ter um ortodontista diferente */}
-      <div className="flex items-center gap-1.5 flex-wrap">
-        <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mr-1">Dia da semana</span>
-        {DAYS.map((d) => (
-          <button key={String(d.key)} onClick={() => setDayFilter(d.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
-              dayFilter === d.key ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-muted-foreground hover:bg-accent/30'
-            }`}>
-            {d.label}
+            {v.label}
           </button>
         ))}
       </div>
@@ -191,21 +184,26 @@ export default function OrtodontiaPage() {
         <div className="p-12 text-center"><Loader2 size={24} className="mx-auto animate-spin text-primary" /></div>
       ) : columns.length === 0 ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center text-sm text-muted-foreground">
-          Nenhum paciente de ortodontia{filter !== 'todos' ? ' nesse filtro' : ''}.
+          Nenhum paciente de ortodontia{view !== 'todos' ? ' nesse filtro' : ''}.
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
           {columns.map((col) => {
-            const dias = (dentists.find((d) => d.id === col.id)?.ortho_days || []).slice().sort((a, b) => a - b);
+            const isDayView = view === 'dias';
+            // dentist-view: dias que o dentista atende; day-view: dentistas que atendem nesse dia
+            const headerSub = isDayView
+              ? dentists.filter((d) => col.weekday != null && (d.ortho_days || []).includes(col.weekday)).map((d) => d.name).join(' · ')
+              : (dentists.find((d) => d.id === col.id)?.ortho_days || []).slice().sort((a, b) => a - b).map((d) => WD_LABEL[d]).join(' · ');
+            const HeadIcon = isDayView ? CalendarDays : Stethoscope;
             return (
             <div key={col.id} className="shrink-0 w-[300px] bg-muted/30 rounded-xl border border-border flex flex-col">
               <div className="px-3 py-2.5 border-b border-border flex items-center justify-between bg-muted/40 rounded-t-xl gap-2">
                 <div className="min-w-0">
                   <span className="text-sm font-bold text-foreground flex items-center gap-2 truncate">
-                    <Stethoscope size={14} className="text-primary shrink-0" /> {col.name}
+                    <HeadIcon size={14} className="text-primary shrink-0" /> {col.name}
                   </span>
-                  {dias.length > 0 && (
-                    <span className="text-[10px] text-muted-foreground block ml-6">{dias.map((d) => WD_LABEL[d]).join(' · ')}</span>
+                  {headerSub && (
+                    <span className="text-[10px] text-muted-foreground block ml-6 truncate">{headerSub}</span>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">{col.cards.length}</span>
@@ -218,6 +216,7 @@ export default function OrtodontiaPage() {
                     <OrthoCardItem
                       key={c.patient.id}
                       card={c}
+                      showDentist={view === 'dias'}
                       dentists={dentists}
                       completing={completing === c.patient.id}
                       migrating={migrating === c.patient.id}
@@ -247,8 +246,8 @@ function Kpi({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-function OrthoCardItem({ card, completing, dentists, migrating, onConclude, onOpen, onSchedule, onMigrate }: {
-  card: OrthoCard; completing: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
+function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onConclude, onOpen, onSchedule, onMigrate }: {
+  card: OrthoCard; showDentist?: boolean; completing: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
   onConclude: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
 }) {
   const meta = STATUS_META[card.status];
@@ -266,6 +265,12 @@ function OrthoCardItem({ card, completing, dentists, migrating, onConclude, onOp
         )}
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${meta.badge}`}>{meta.label}</span>
       </div>
+
+      {showDentist && card.dentist && (
+        <div className="text-[11px] text-muted-foreground flex items-center gap-1 truncate">
+          <Stethoscope size={11} className="shrink-0" /> {card.dentist.name}
+        </div>
+      )}
 
       {card.status === 'agendado' && card.next_appointment_at ? (
         <div className="text-xs text-blue-500 flex items-center gap-1">
