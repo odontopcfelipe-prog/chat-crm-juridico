@@ -34,7 +34,7 @@ export class FinanceiroService {
 
   // ─── Audit Log ──────────────────────────────────────────
 
-  async logAction(userId: string | null, action: string, entityId: string, meta: Record<string, any>) {
+  async logAction(userId: string | null, action: string, entityId: string, tenantId: string | null, meta: Record<string, any>) {
     try {
       await this.prisma.auditLog.create({
         data: {
@@ -42,6 +42,7 @@ export class FinanceiroService {
           action,
           entity: 'FINANCEIRO',
           entity_id: entityId,
+          tenant_id: tenantId, // escopo por clínica — sem isso o Log vazava entre tenants (IDOR)
           meta_json: meta,
         },
       });
@@ -271,7 +272,7 @@ export class FinanceiroService {
     });
 
     const actionType = data.type === 'DESPESA' ? 'DESPESA_CRIADA' : 'RECEITA_CRIADA';
-    await this.logAction(data.actor_id || null, actionType, tx.id, {
+    await this.logAction(data.actor_id || null, actionType, tx.id, tx.tenant_id, {
       tipo: data.type, categoria: data.category, descricao: data.description,
       valor: data.amount, status: data.status || 'PENDENTE',
       cliente: (tx as any).lead?.name,
@@ -339,7 +340,7 @@ export class FinanceiroService {
       },
     });
 
-    await this.logAction(data.actor_id || null, 'DIARIA_LANCADA', tx.id, {
+    await this.logAction(data.actor_id || null, 'DIARIA_LANCADA', tx.id, tx.tenant_id, {
       profissional_id: professional.id,
       profissional: professional.name,
       meia_diaria: !!data.is_half_day,
@@ -383,7 +384,7 @@ export class FinanceiroService {
     const isDespesa = updated.type === 'DESPESA';
     let actionType = isDespesa ? 'DESPESA_EDITADA' : 'RECEITA_EDITADA';
     if (isPago) actionType = isDespesa ? 'DESPESA_PAGA' : 'PAGAMENTO_RECEBIDO';
-    await this.logAction(actorId || null, actionType, id, {
+    await this.logAction(actorId || null, actionType, id, updated.tenant_id, {
       campos: Object.keys(updateData), valor: updated.amount ? Number(updated.amount) : undefined,
       descricao: updated.description, status: updated.status,
       metodo: updated.payment_method, dentist_id: (updated as any).dentist_id,
@@ -445,7 +446,7 @@ export class FinanceiroService {
       });
     }
 
-    await this.logAction(actorId || null, 'PAGAMENTO_PARCIAL', id, {
+    await this.logAction(actorId || null, 'PAGAMENTO_PARCIAL', id, original.tenant_id, {
       valor_recebido: amount, saldo_restante: remaining,
       metodo: paymentMethod, descricao: original.description,
       dentist_id: (original as any).dentist_id,
@@ -458,7 +459,7 @@ export class FinanceiroService {
     const tx = await this.verifyTransactionAccess(id, tenantId);
 
     const actionType = tx.type === 'DESPESA' ? 'DESPESA_EXCLUIDA' : 'RECEITA_EXCLUIDA';
-    await this.logAction(actorId || null, actionType, id, {
+    await this.logAction(actorId || null, actionType, id, tx.tenant_id, {
       descricao: tx.description, valor: Number(tx.amount),
       tipo: tx.type, categoria: tx.category, dentist_id: (tx as any).dentist_id,
     });
@@ -538,8 +539,11 @@ export class FinanceiroService {
 
   // ─── Audit Log ─────────────────────────────────────────
 
-  async getAuditLog(dentistId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0) {
+  async getAuditLog(tenantId: string | undefined, dentistId?: string, startDate?: string, endDate?: string, limit = 50, offset = 0) {
     const where: any = { entity: 'FINANCEIRO' };
+    // Escopo por clínica — o Log estava sem filtro de tenant e vazava movimentações
+    // de outros tenants (IDOR). Linhas antigas sem tenant_id ficam ocultas (fail-safe).
+    if (tenantId) where.tenant_id = tenantId;
 
     if (startDate || endDate) {
       where.created_at = {};

@@ -22,45 +22,47 @@ export class OverdueAlertsService {
     try {
       const now = new Date();
 
-      // 1. Despesas pendentes vencidas
+      // 1. Despesas pendentes vencidas (de TODAS as clínicas — agrupadas por tenant abaixo)
       const overdueDespesas = await this.prisma.financialTransaction.findMany({
         where: {
           type: 'DESPESA',
           status: 'PENDENTE',
           due_date: { lt: now },
         },
-        select: { id: true, description: true, amount: true, due_date: true, dentist_id: true, visible_to_dentist: true },
+        select: { id: true, tenant_id: true, description: true, amount: true, due_date: true, dentist_id: true, visible_to_dentist: true },
       });
 
-      // 2. Honorários pendentes/atrasados (recebíveis vencidos) — descontinuado na transição odonto.
-      // Será reativado via Installment na Fase 2.
-      const overdueHonorarios: any[] = [];
+      if (overdueDespesas.length === 0) return;
 
-      const totalDespesasVencidas = overdueDespesas.reduce((s, d) => s + Number(d.amount), 0);
-      const totalRecebiveisVencidos = overdueHonorarios.reduce((s, h) => s + Number(h.amount), 0);
+      // Agrupa por tenant — 1 alerta POR clínica, com tenant_id. Antes era 1 alerta
+      // global (entity_id:'sistema') somando todas as clínicas, o que vazava o total
+      // de uma clínica no Log de outra (IDOR).
+      const byTenant = new Map<string, typeof overdueDespesas>();
+      for (const d of overdueDespesas) {
+        const key = d.tenant_id || '__sem_tenant__';
+        if (!byTenant.has(key)) byTenant.set(key, []);
+        byTenant.get(key)!.push(d);
+      }
 
-      if (overdueDespesas.length === 0 && overdueHonorarios.length === 0) return;
-
-      this.logger.log(
-        `[OVERDUE] ${overdueDespesas.length} despesa(s) vencida(s) (R$ ${totalDespesasVencidas.toFixed(2)}) | ` +
-        `${overdueHonorarios.length} recebível(is) vencido(s) (R$ ${totalRecebiveisVencidos.toFixed(2)})`,
-      );
-
-      // Criar registro de alerta no AuditLog para rastreabilidade
-      await this.prisma.auditLog.create({
-        data: {
-          action: 'ALERTA_VENCIDOS',
-          entity: 'FINANCEIRO',
-          entity_id: 'sistema',
-          meta_json: {
-            despesas_vencidas: overdueDespesas.length,
-            total_despesas: totalDespesasVencidas,
-            recebiveis_vencidos: overdueHonorarios.length,
-            total_recebiveis: totalRecebiveisVencidos,
-            checked_at: now.toISOString(),
+      for (const [key, list] of byTenant) {
+        const total = list.reduce((s, d) => s + Number(d.amount), 0);
+        this.logger.log(
+          `[OVERDUE] tenant ${key}: ${list.length} despesa(s) vencida(s) (R$ ${total.toFixed(2)})`,
+        );
+        await this.prisma.auditLog.create({
+          data: {
+            action: 'ALERTA_VENCIDOS',
+            entity: 'FINANCEIRO',
+            entity_id: 'sistema',
+            tenant_id: key === '__sem_tenant__' ? null : key,
+            meta_json: {
+              despesas_vencidas: list.length,
+              total_despesas: total,
+              checked_at: now.toISOString(),
+            },
           },
-        },
-      });
+        });
+      }
     } catch (e: any) {
       this.logger.error(`[OVERDUE] Erro ao verificar vencidos: ${e.message}`);
     }

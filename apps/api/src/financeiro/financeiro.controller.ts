@@ -140,7 +140,7 @@ export class FinanceiroController {
     @Query('offset') offset: string,
     @Request() req: any,
   ) {
-    return this.service.getAuditLog(dentistId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'));
+    return this.service.getAuditLog(req.user.tenant_id, dentistId, startDate, endDate, parseInt(limit || '50'), parseInt(offset || '0'));
   }
 
   // ─── Summary & Cash Flow ───────────────────────────────

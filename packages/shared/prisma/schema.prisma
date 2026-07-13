@@ -594,12 +594,14 @@ model AuditLog {
   action        String
   entity        String
   entity_id     String
+  tenant_id     String?
   meta_json     Json?
   created_at    DateTime @default(now())
   actor         User?    @relation(fields: [actor_user_id], references: [id], onDelete: SetNull)
 
   @@index([actor_user_id, created_at])
   @@index([entity, entity_id])
+  @@index([entity, tenant_id, created_at])
 }
 
 model GlobalSetting {
