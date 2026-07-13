@@ -2025,18 +2025,35 @@ export class QuotesService {
         : {}),
     };
 
-    return this.prisma.quote.findMany({
+    const quotes = await this.prisma.quote.findMany({
       where,
       orderBy: { created_at: 'desc' },
       take: limit,
       include: {
         patient: { select: { id: true, name: true, phone: true } },
-        created_by: { select: { id: true, name: true } },
+        created_by: { select: { id: true, name: true } }, // quem fez a avaliação/orçamento
         _count: { select: { items: true } },
         // status "Financeiro" da venda (aba Aprovados): validado ou a validar
         treatment_plan: { select: { validated_by_financial_at: true } },
       },
     });
+
+    // "Quem fechou a venda" = quem aceitou o orçamento (snapshot QuoteVersion
+    // trigger='ACCEPT'). Não há coluna própria; batch por quote_id (só as aceitas).
+    const acceptedIds = quotes.filter((q) => q.status === 'ACCEPTED').map((q) => q.id);
+    const closerByQuote = new Map<string, { id: string; name: string }>();
+    if (acceptedIds.length > 0) {
+      const versions = await this.prisma.quoteVersion.findMany({
+        where: { quote_id: { in: acceptedIds }, trigger: 'ACCEPT' },
+        orderBy: { created_at: 'desc' },
+        select: { quote_id: true, created_by: { select: { id: true, name: true } } },
+      });
+      for (const v of versions) {
+        if (!closerByQuote.has(v.quote_id)) closerByQuote.set(v.quote_id, v.created_by);
+      }
+    }
+
+    return quotes.map((q) => ({ ...q, closed_by: closerByQuote.get(q.id) ?? null }));
   }
 
   /**
