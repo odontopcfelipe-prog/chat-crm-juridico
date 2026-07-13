@@ -119,6 +119,7 @@ interface UserForm {
   roles: RoleKey[];
   inboxIds: string[];
   specialties: string[];
+  ortho_days: number[]; // dias de atendimento de ortô (0=dom..6=sáb)
   supervisorIds: string[];
   cro_number: string;
   cro_uf: string;
@@ -136,7 +137,13 @@ interface UserForm {
 
 const UF_OPTIONS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT','PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];
 
-const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [] };
+// Dias de atendimento de ortodontia (0=dom..6=sáb; ofertamos Seg–Sáb).
+const ORTHO_WEEKDAYS = [
+  { value: 1, label: 'Seg' }, { value: 2, label: 'Ter' }, { value: 3, label: 'Qua' },
+  { value: 4, label: 'Qui' }, { value: 5, label: 'Sex' }, { value: 6, label: 'Sáb' },
+];
+
+const emptyForm: UserForm = { name: '', email: '', phone: '', password: '', roles: [], inboxIds: [], specialties: [], ortho_days: [], supervisorIds: [], cro_number: '', cro_uf: 'AL', commission_sale_type: '', commission_sale_value: '', commission_exec_type: '', commission_exec_value: '', daily_rate: '', sector: '', extra_grants: [], extra_revokes: [] };
 
 export default function UsersSettingsPage() {
   const router = useRouter();
@@ -252,6 +259,7 @@ export default function UsersSettingsPage() {
       roles: uniqueRoles,
       inboxIds: user.inboxes?.map((i: any) => i.id) || [],
       specialties: user.specialties || [],
+      ortho_days: user.ortho_days || [],
       supervisorIds: user.supervisors?.map((s: any) => s.id) || [],
       cro_number: user.cro_number || '',
       cro_uf: user.cro_uf || 'AL',
@@ -326,6 +334,7 @@ export default function UsersSettingsPage() {
           roles: form.roles,
           inboxIds: form.inboxIds,
           specialties: form.specialties,
+          ortho_days: form.ortho_days,
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
           // Onda 17.67 — Remuneração do profissional
@@ -357,6 +366,7 @@ export default function UsersSettingsPage() {
           roles: form.roles,
           inboxIds: form.inboxIds,
           specialties: form.specialties,
+          ortho_days: form.ortho_days,
           cro_number: form.cro_number || null,
           cro_uf: form.cro_uf || null,
           // Onda 17.32.117 — Setor + overrides
@@ -903,6 +913,28 @@ export default function UsersSettingsPage() {
                       </button>
                     ))}
                   </div>
+                </div>
+              )}
+
+              {/* Dias de atendimento de ortodontia — só pra ortodontistas (especialidade Ortodontia) */}
+              {form.specialties.some(s => s.toLowerCase().includes('ortodont')) && (
+                <div className="space-y-1.5">
+                  <label className="text-[12px] font-bold text-muted-foreground uppercase tracking-wider ml-1">
+                    🗓️ Dias de atendimento (ortodontia)
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {ORTHO_WEEKDAYS.map(d => {
+                      const on = form.ortho_days.includes(d.value);
+                      return (
+                        <button key={d.value} type="button"
+                          onClick={() => setForm(f => ({ ...f, ortho_days: on ? f.ortho_days.filter(x => x !== d.value) : [...f.ortho_days, d.value].sort((a, b) => a - b) }))}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${on ? 'bg-primary text-primary-foreground border-primary' : 'bg-background border-border text-muted-foreground hover:bg-accent/30'}`}>
+                          {d.label}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[11px] text-muted-foreground ml-1">Em quais dias esse ortodontista atende — alimenta as colunas do quadro de Ortodontia.</p>
                 </div>
               )}
 

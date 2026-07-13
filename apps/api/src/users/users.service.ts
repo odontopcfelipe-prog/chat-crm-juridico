@@ -107,7 +107,7 @@ export class UsersService {
     return result;
   }
 
-  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string }): Promise<Omit<User, 'password_hash'>> {
+  async create(data: { name: string; email: string; password: string; role?: string; roles?: string[]; tenant_id?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; ortho_days?: number[] }): Promise<Omit<User, 'password_hash'>> {
     // Onda 17.32.79 — Valida limite do plano antes de criar.
     // Lazy import pra evitar ciclo de dependencia.
     if (data.tenant_id) {
@@ -144,6 +144,7 @@ export class UsersService {
           password_hash,
           roles: normalizedRoles,
           specialties: data.specialties ?? [],
+          ortho_days: data.ortho_days ?? [],
           cro_number: data.cro_number || null,
           cro_uf: data.cro_uf || null,
           tenant_id: data.tenant_id,
@@ -276,7 +277,7 @@ export class UsersService {
     return { ok: true, sent: true };
   }
 
-  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
+  async update(id: string, data: { name?: string; email?: string; role?: string; roles?: string[]; password?: string; inboxIds?: string[]; specialties?: string[]; phone?: string; cro_number?: string; cro_uf?: string; sector?: string; extra_grants?: string[]; extra_revokes?: string[]; commission_sale_type?: string; commission_sale_value?: number | null; commission_exec_type?: string; commission_exec_value?: number | null; daily_rate?: number | null; ortho_days?: number[] }, tenantId?: string): Promise<Omit<User, 'password_hash'>> {
     await this.verifyTenantOwnership(id, tenantId);
     const updateData: Prisma.UserUpdateInput = {};
     if (data.name) updateData.name = data.name;
@@ -310,6 +311,8 @@ export class UsersService {
     if (data.commission_exec_type !== undefined) { validCommType(data.commission_exec_type); (updateData as any).commission_exec_type = data.commission_exec_type || null; }
     if (data.commission_exec_value !== undefined) (updateData as any).commission_exec_value = toNum(data.commission_exec_value, 'Comissão de execução');
     if (data.daily_rate !== undefined) (updateData as any).daily_rate = toNum(data.daily_rate, 'Diária');
+    // Dias de atendimento de ortodontia (0=dom..6=sáb) — alimenta o quadro de Ortodontia.
+    if (data.ortho_days !== undefined) (updateData as any).ortho_days = { set: (data.ortho_days || []).filter((d) => Number.isInteger(d) && d >= 0 && d <= 6) };
 
     // Onda 17.32.116 — Setor e overrides de permissoes
     if (data.sector !== undefined) {
@@ -442,7 +445,7 @@ export class UsersService {
           ...(Object.keys(tenantFilter).length > 0 ? [tenantFilter] : []),
         ],
       },
-      select: { id: true, name: true, roles: true, specialties: true },
+      select: { id: true, name: true, roles: true, specialties: true, ortho_days: true },
       orderBy: { name: 'asc' },
     });
   }

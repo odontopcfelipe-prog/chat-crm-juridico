@@ -69,7 +69,7 @@ export default function OrtodontiaPage() {
   const [filter, setFilter] = useState<'todos' | OrthoStatus>('todos');
   const [dayFilter, setDayFilter] = useState<'todos' | number>('todos');
   const [completing, setCompleting] = useState<string | null>(null);
-  const [dentists, setDentists] = useState<{ id: string; name: string }[]>([]);
+  const [dentists, setDentists] = useState<{ id: string; name: string; ortho_days?: number[] }[]>([]);
   const [migrating, setMigrating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -85,7 +85,7 @@ export default function OrtodontiaPage() {
   }, []);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    api.get<{ id: string; name: string }[]>('/users/lawyers').then((r) => setDentists(r.data || [])).catch(() => {});
+    api.get<{ id: string; name: string; ortho_days?: number[] }[]>('/users/lawyers').then((r) => setDentists(r.data || [])).catch(() => {});
   }, []);
 
   // Colunas = dentistas presentes (+ "Sem dentista" por último). Filtra pelo status escolhido.
@@ -195,12 +195,19 @@ export default function OrtodontiaPage() {
         </div>
       ) : (
         <div className="flex gap-4 overflow-x-auto pb-4">
-          {columns.map((col) => (
+          {columns.map((col) => {
+            const dias = (dentists.find((d) => d.id === col.id)?.ortho_days || []).slice().sort((a, b) => a - b);
+            return (
             <div key={col.id} className="shrink-0 w-[300px] bg-muted/30 rounded-xl border border-border flex flex-col">
-              <div className="px-3 py-2.5 border-b border-border flex items-center justify-between bg-muted/40 rounded-t-xl">
-                <span className="text-sm font-bold text-foreground flex items-center gap-2 truncate">
-                  <Stethoscope size={14} className="text-primary shrink-0" /> {col.name}
-                </span>
+              <div className="px-3 py-2.5 border-b border-border flex items-center justify-between bg-muted/40 rounded-t-xl gap-2">
+                <div className="min-w-0">
+                  <span className="text-sm font-bold text-foreground flex items-center gap-2 truncate">
+                    <Stethoscope size={14} className="text-primary shrink-0" /> {col.name}
+                  </span>
+                  {dias.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground block ml-6">{dias.map((d) => WD_LABEL[d]).join(' · ')}</span>
+                  )}
+                </div>
                 <span className="text-xs text-muted-foreground shrink-0">{col.cards.length}</span>
               </div>
               <div className="p-2 space-y-2">
@@ -223,7 +230,8 @@ export default function OrtodontiaPage() {
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

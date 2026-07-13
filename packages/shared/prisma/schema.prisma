@@ -173,6 +173,9 @@ model User {
   password_hash                 String
   roles                         String[]               @default(["OPERADOR"])
   specialties                   String[]               @default([])
+  // Dias da semana em que o dentista atende ORTODONTIA (0=dom..6=sáb) — alimenta o
+  // quadro de Ortodontia (colunas por dia). Vazio = não configurado.
+  ortho_days                    Int[]                  @default([])
   // Onda 17.32.116 — Setores e permissoes (Fase 2)
   /// Setor do usuario: 'recepcao' | 'dentista' | 'acd_asb' | 'crc' | 'financeiro' | 'admin'
   /// Determina home/sidebar default + pacote de permissoes.
