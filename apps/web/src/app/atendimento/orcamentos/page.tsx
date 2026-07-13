@@ -32,6 +32,8 @@ interface Quote {
   patient: { id: string; name: string | null; phone: string | null };
   created_by: { id: string; name: string } | null;
   _count?: { items: number };
+  /** Status "Financeiro" da venda (aba Aprovados): null = a validar. */
+  treatment_plan?: { validated_by_financial_at: string | null } | null;
   /** Onda 14.33 — Marca que o operador apertou "Salvar proposta",
    *  formalizando como a escolhida. Usado pra distinguir "aprovadas" de
    *  "apenas aceitas" no funil. */
@@ -121,7 +123,8 @@ function OrcamentosPageInner() {
   const [statusFilter, setStatusFilter] = useState<string>(urlStatus);
   // Onda 18.x — visão PROPOSTAS ganha 2 abas: 'aguardando' (rascunho+enviado) e
   // 'aprovados' (fechados, por ordem) — pra não perder quem fechou e falta agendar.
-  const [propostaTab, setPropostaTab] = useState<'aguardando' | 'aprovados'>('aguardando');
+  // Aprovados na LINHA DE FRENTE (é o cenário de vendas) — abre nela por padrão.
+  const [propostaTab, setPropostaTab] = useState<'aguardando' | 'aprovados'>('aprovados');
   // Mantem filtro em sincro com o URL (quando operador clica entre Orcamentos
   // e Propostas no sidebar, ou volta/avanca no historico do browser).
   useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
@@ -176,6 +179,14 @@ function OrcamentosPageInner() {
         if (!pid || seen.has(pid)) return false;
         seen.add(pid);
         return true;
+      });
+    }
+    // Aprovados = por ORDEM DE VENDA (accepted_at desc; fallback created_at).
+    if (isPropostas && propostaTab === 'aprovados') {
+      l = [...l].sort((a, b) => {
+        const ta = new Date(a.accepted_at || a.created_at).getTime();
+        const tb = new Date(b.accepted_at || b.created_at).getTime();
+        return tb - ta;
       });
     }
     return l;
@@ -434,8 +445,8 @@ function OrcamentosPageInner() {
           {isPropostas && (
           <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
             {([
-              { key: 'aguardando' as const, label: 'Aguardando negociação' },
               { key: 'aprovados' as const, label: 'Aprovados' },
+              { key: 'aguardando' as const, label: 'Aguardando negociação' },
             ]).map((t) => (
               <button
                 key={t.key}
@@ -580,17 +591,107 @@ function OrcamentosPageInner() {
           </p>
         </div>
       ) : (
-        /* Tabela plana com todos os orçamentos filtrados. */
-        <div className="bg-card border border-border rounded-xl overflow-hidden">
-          <QuoteTable
-            quotes={filteredList}
-            router={router}
-            sendWhatsApp={sendWhatsApp}
-            isPropostas={isPropostas}
-          />
+        /* Aprovados = painel de vendas (estilo pedidos e-commerce); demais = tabela plana. */
+        <div className="bg-card border border-border rounded-xl overflow-x-auto">
+          {isPropostas && propostaTab === 'aprovados' ? (
+            <SalesTable quotes={filteredList} router={router} />
+          ) : (
+            <QuoteTable
+              quotes={filteredList}
+              router={router}
+              sendWhatsApp={sendWhatsApp}
+              isPropostas={isPropostas}
+            />
+          )}
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Painel de VENDAS (aba Aprovados) — estilo lista de pedidos de e-commerce.
+ * Cada venda = 1 linha: #pedido · data · cliente · itens · total · status do
+ * Financeiro (a validar / validado). Ordenada por data da venda (no caller).
+ */
+function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<typeof useRouter> }) {
+  const openFicha = (q: Quote) => router.push(`/atendimento/pacientes/${q.patient.id}?tab=proposals`);
+  const initials = (name: string | null) =>
+    (name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
+  const fmtDate = (iso: string | null) => {
+    if (!iso) return '—';
+    const d = new Date(iso);
+    const dia = d.toLocaleDateString('pt-BR', { day: '2-digit', month: 'short' }).replace('.', '');
+    const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    return `${dia} · ${hora}`;
+  };
+  return (
+    <table className="w-full text-sm min-w-[720px]">
+      <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
+        <tr>
+          <th className="text-left px-4 py-2.5 font-medium">Venda</th>
+          <th className="text-left px-4 py-2.5 font-medium">Data</th>
+          <th className="text-left px-4 py-2.5 font-medium">Cliente</th>
+          <th className="text-left px-4 py-2.5 font-medium">Itens</th>
+          <th className="text-right px-4 py-2.5 font-medium">Total</th>
+          <th className="text-left px-4 py-2.5 font-medium">Financeiro</th>
+          <th className="px-4 py-2.5"></th>
+        </tr>
+      </thead>
+      <tbody className="divide-y divide-border">
+        {quotes.map((q) => {
+          const validated = !!q.treatment_plan?.validated_by_financial_at;
+          return (
+            <tr
+              key={q.id}
+              onClick={() => openFicha(q)}
+              className="hover:bg-muted/30 cursor-pointer"
+            >
+              <td className="px-4 py-3 whitespace-nowrap">
+                <span className="font-mono text-xs text-primary font-semibold">#{q.id.slice(0, 6).toUpperCase()}</span>
+              </td>
+              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                {fmtDate(q.accepted_at || q.created_at)}
+              </td>
+              <td className="px-4 py-3">
+                <div className="flex items-center gap-2.5">
+                  <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
+                    {initials(q.patient.name)}
+                  </span>
+                  <div className="min-w-0">
+                    <div className="font-medium text-foreground truncate">{q.patient.name || 'Sem nome'}</div>
+                    {q.patient.phone && <div className="text-xs text-muted-foreground truncate">{q.patient.phone}</div>}
+                  </div>
+                </div>
+              </td>
+              <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{q._count?.items ?? 0} itens</td>
+              <td className="px-4 py-3 text-right font-bold text-foreground whitespace-nowrap tabular-nums">
+                {formatBRL(q.total_value)}
+              </td>
+              <td className="px-4 py-3">
+                {validated ? (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                    <Check size={11} /> Validado
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                    A validar
+                  </span>
+                )}
+              </td>
+              <td className="px-4 py-3 text-right">
+                <button
+                  onClick={(e) => { e.stopPropagation(); openFicha(q); }}
+                  className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent whitespace-nowrap"
+                >
+                  Ver ficha
+                </button>
+              </td>
+            </tr>
+          );
+        })}
+      </tbody>
+    </table>
   );
 }
 

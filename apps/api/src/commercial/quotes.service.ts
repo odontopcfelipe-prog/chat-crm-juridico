@@ -2033,6 +2033,8 @@ export class QuotesService {
         patient: { select: { id: true, name: true, phone: true } },
         created_by: { select: { id: true, name: true } },
         _count: { select: { items: true } },
+        // status "Financeiro" da venda (aba Aprovados): validado ou a validar
+        treatment_plan: { select: { validated_by_financial_at: true } },
       },
     });
   }
