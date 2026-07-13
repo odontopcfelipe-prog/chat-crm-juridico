@@ -25,6 +25,7 @@ import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 import { ConfirmacaoEditor } from './ConfirmacaoEditor';
 import { MensagemEditor } from './MensagemEditor';
 import { AniversarioEditor } from './AniversarioEditor';
+import { SemAgendamentoEditor } from './SemAgendamentoEditor';
 import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
@@ -315,7 +316,10 @@ export default function CentralDisparosPage() {
             defaultText={(DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[openItem.operacionalKey || ''] || ''}
           />
         )}
-        <TesteEnvio disparo={openItem.id} text={liveText} />
+        {openItem.editor === 'sem_agendamento' && <SemAgendamentoEditor />}
+        {/* Resumo interno tem o próprio "enviar teste" (SemAgendamentoEditor) —
+            pula o TesteEnvio genérico (que testa texto de template ao paciente). */}
+        {openItem.editor !== 'sem_agendamento' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }

@@ -206,6 +206,20 @@ export class CommercialController {
     return this.quotesService.getJourneyBoard(user.tenant_id);
   }
 
+  // Disparo "Equipe → Pacientes sem agendamento": prévia do texto + teste manual.
+  @RequiresPermission('view_marketing')
+  @Get('pacientes-sem-agendamento/preview')
+  semAgendamentoPreview(@Authenticated() user: AuthUser) {
+    return this.quotesService.buildSemAgendamentoDigest(user.tenant_id);
+  }
+
+  @RequiresPermission('view_marketing')
+  @Post('pacientes-sem-agendamento/test')
+  semAgendamentoTest(@Body() body: { phone?: string }, @Authenticated() user: AuthUser) {
+    if (!body?.phone) throw new BadRequestException('Informe um número pra testar');
+    return this.quotesService.sendSemAgendamentoTest(user.tenant_id, body.phone);
+  }
+
   @RequiresPermission('manage_proposals', 'view_proposals')
   @Get('quotes/:id')
   findQuote(@Param('id') id: string, @Authenticated() user: AuthUser) {

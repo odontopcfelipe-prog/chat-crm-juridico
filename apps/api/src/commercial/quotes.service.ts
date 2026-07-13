@@ -2745,10 +2745,69 @@ export class QuotesService {
    * Envia pela instância CLINICA; dedup por dia via DispatchLog. Reusa
    * getJourneyBoard (A_AGENDAR com days_stalled>=30 + STANDBY).
    */
+  /** Monta o resumo "pacientes +30d sem agendar / em stand by" de um tenant.
+   *  Reusado pelo cron diário E pelo preview/teste manual da Central de Disparos. */
+  async buildSemAgendamentoDigest(
+    tenantId: string,
+  ): Promise<{ text: string; semAgendar: number; standby: number }> {
+    const DIAS = 30;
+    const board = await this.getJourneyBoard(tenantId);
+    const semAgendar = (board.by_stage.A_AGENDAR || []).filter(
+      (c: any) => (c.days_stalled ?? 0) >= DIAS,
+    );
+    const standby = board.by_stage.STANDBY || [];
+    const tenant = await this.prisma.tenant
+      .findUnique({ where: { id: tenantId }, select: { name: true } })
+      .catch(() => null);
+    const header = `📋 *Pacientes precisando de atenção*${tenant?.name ? ` — ${tenant.name}` : ''}`;
+    if (semAgendar.length === 0 && standby.length === 0) {
+      return {
+        text: `${header}\n\nNenhum paciente há +${DIAS} dias sem agendar ou em stand by. 🎉`,
+        semAgendar: 0,
+        standby: 0,
+      };
+    }
+    const lines: string[] = [];
+    for (const c of semAgendar.slice(0, 15))
+      lines.push(`• ${c.patient?.name || 'Paciente'} — ${c.days_stalled}d sem agendar`);
+    for (const c of standby.slice(0, 10))
+      lines.push(`• ${c.patient?.name || 'Paciente'} — em stand by`);
+    const extra = semAgendar.length + standby.length - lines.length;
+    const text =
+      `${header}\n\n` +
+      `📅 +${DIAS} dias sem agendar: *${semAgendar.length}*\n` +
+      `⏸️ Em stand by: *${standby.length}*\n\n` +
+      lines.join('\n') +
+      (extra > 0 ? `\n…e mais ${extra}` : '') +
+      `\n\nAbra o Progresso pra agendar.`;
+    return { text, semAgendar: semAgendar.length, standby: standby.length };
+  }
+
+  /** Envia o resumo pra um telefone (teste manual do disparo "Equipe"). */
+  async sendSemAgendamentoTest(
+    tenantId: string,
+    phone: string,
+  ): Promise<{ ok: boolean; text: string }> {
+    if (!this.whatsapp) throw new BadRequestException('WhatsApp não disponível');
+    const { text } = await this.buildSemAgendamentoDigest(tenantId);
+    const inst =
+      (await this.prisma.instance.findFirst({
+        where: { tenant_id: tenantId, purpose: 'CLINICA' },
+        select: { name: true },
+        orderBy: { name: 'asc' },
+      })) ||
+      (await this.prisma.instance.findFirst({
+        where: { tenant_id: tenantId },
+        select: { name: true },
+        orderBy: { name: 'asc' },
+      }));
+    await this.whatsapp.sendText(phone, text, inst?.name || undefined, undefined, tenantId);
+    return { ok: true, text };
+  }
+
   @Cron('0 8 * * *', { timeZone: 'America/Maceio' })
   async cronPacientesSemAgendamento() {
     if (!this.whatsapp) return;
-    const DIAS = 30;
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -2771,12 +2830,8 @@ export class QuotesService {
           .catch(() => null);
         if (toggle?.value !== 'true') continue;
 
-        const board = await this.getJourneyBoard(t.id);
-        const semAgendar = (board.by_stage.A_AGENDAR || []).filter(
-          (c: any) => (c.days_stalled ?? 0) >= DIAS,
-        );
-        const standby = board.by_stage.STANDBY || [];
-        if (semAgendar.length === 0 && standby.length === 0) continue;
+        const digest = await this.buildSemAgendamentoDigest(t.id);
+        if (digest.semAgendar === 0 && digest.standby === 0) continue;
 
         const admins = await this.prisma.user.findMany({
           where: { tenant_id: t.id, roles: { has: 'ADMIN' }, phone: { not: null } },
@@ -2797,22 +2852,7 @@ export class QuotesService {
             orderBy: { name: 'asc' },
           }));
         const instanceName = inst?.name || undefined;
-
-        const lines: string[] = [];
-        for (const c of semAgendar.slice(0, 15)) {
-          lines.push(`• ${c.patient?.name || 'Paciente'} — ${c.days_stalled}d sem agendar`);
-        }
-        for (const c of standby.slice(0, 10)) {
-          lines.push(`• ${c.patient?.name || 'Paciente'} — em stand by`);
-        }
-        const extra = semAgendar.length + standby.length - lines.length;
-        const msg =
-          `📋 *Pacientes precisando de atenção*${t.name ? ` — ${t.name}` : ''}\n\n` +
-          `📅 +${DIAS} dias sem agendar: *${semAgendar.length}*\n` +
-          `⏸️ Em stand by: *${standby.length}*\n\n` +
-          lines.join('\n') +
-          (extra > 0 ? `\n…e mais ${extra}` : '') +
-          `\n\nAbra o Progresso pra agendar.`;
+        const msg = digest.text;
 
         for (const adm of admins) {
           const already = await this.prisma.dispatchLog.findFirst({
@@ -2856,7 +2896,7 @@ export class QuotesService {
           }
         }
         this.logger.log(
-          `[SEM_AGENDAMENTO] tenant ${t.id}: ${semAgendar.length} sem agendar +${DIAS}d, ${standby.length} standby → ${admins.length} adm(s)`,
+          `[SEM_AGENDAMENTO] tenant ${t.id}: ${digest.semAgendar} sem agendar, ${digest.standby} standby → ${admins.length} adm(s)`,
         );
       } catch (err: any) {
         this.logger.warn(`[SEM_AGENDAMENTO] tenant ${t.id} falhou: ${err?.message}`);

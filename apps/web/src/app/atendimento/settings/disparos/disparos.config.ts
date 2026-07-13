@@ -46,7 +46,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'sem_agendamento' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -184,5 +184,5 @@ export const DISPAROS: DisparoItem[] = [
   // ── Equipe (avisos internos) ──
   { id: 'pacientes_sem_agendamento', nome: 'Pacientes sem agendamento', categoria: 'equipe',
     gatilho: '+30 dias sem agendar ou em stand by · resumo diário aos adms', canal: 'WhatsApp', tags: ['Interno'],
-    editor: null, operacionalKey: 'pacientes_sem_agendamento' },
+    editor: 'sem_agendamento', operacionalKey: 'pacientes_sem_agendamento' },
 ];
