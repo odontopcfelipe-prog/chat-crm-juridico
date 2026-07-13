@@ -142,7 +142,7 @@ export class PaymentGatewayService {
       include: {
         treatment_plan: {
           select: {
-            patient: { select: { name: true } },
+            patient: { select: { name: true, lead_id: true } },
             quote: { select: { created_by_user_id: true } },
           },
         },
@@ -174,6 +174,9 @@ export class PaymentGatewayService {
         payment_method: method,
         status: 'PAGO',
         dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
+        // CLIENTE na tela de Entradas: amarra a receita ao paciente (via Lead) — antes
+        // o nome só ia na descrição e a coluna Cliente ficava "—".
+        lead_id: charge.treatment_plan?.patient?.lead_id ?? null,
         reference_id: charge.external_id,
         notes: inClinic
           ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
@@ -209,7 +212,7 @@ export class PaymentGatewayService {
       include: {
         treatment_plan: {
           select: {
-            patient: { select: { name: true } },
+            patient: { select: { name: true, lead_id: true } },
             quote: { select: { created_by_user_id: true } },
           },
         },
@@ -222,6 +225,7 @@ export class PaymentGatewayService {
     const now = new Date();
     const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
     const dentistId = charge.treatment_plan?.quote?.created_by_user_id ?? null;
+    const leadId = charge.treatment_plan?.patient?.lead_id ?? null; // p/ coluna Cliente em Entradas
 
     // As receitas do split precisam entrar no ESCOPO do caixa. A 1ª pegaria isso via
     // vínculo 1:1 com a cobrança (transaction_id); a 2ª NÃO — então amarramos TODAS à
@@ -275,6 +279,7 @@ export class PaymentGatewayService {
           payment_method: p.method,
           status: 'PAGO',
           dentist_id: dentistId,
+          lead_id: leadId,
           reference_id: charge.external_id,
           // Amarra à conta física do cartão → entra no escopo do caixa (senão a 2ª some).
           account_id: cardAccount?.id ?? null,

@@ -149,7 +149,7 @@ interface DashboardData {
 // Fase 5 — "Diárias" entra na lista; a renderização da aba é gateada por
 // manage_financial via useUserPermissions (ver visibleTabs no componente).
 // "Receitas" saiu da barra: a gestão de entradas foi puxada pra dentro da aba "Entradas".
-const TABS = ['Entradas', 'Validar', 'Despesas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
+const TABS = ['Entradas', 'Validar', 'Saídas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -484,7 +484,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
         recurrence_day: isRecurring && recurrenceDay ? parseInt(recurrenceDay) : undefined,
         recurrence_end_date: isRecurring && recurrenceEndDate ? recurrenceEndDate : undefined,
       });
-      showSuccess(`${type === 'RECEITA' ? 'Receita' : 'Despesa'} criada`);
+      showSuccess(`${type === 'RECEITA' ? 'Receita' : 'Saída'} criada`);
       reset();
       setOpen(false);
       onCreated();
@@ -501,7 +501,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
         onClick={() => setOpen(true)}
         className="flex items-center gap-1.5 px-3 py-1.5 bg-primary text-primary-foreground rounded-lg text-xs font-semibold hover:opacity-90 transition-opacity"
       >
-        <Plus size={14} /> Nova {type === 'RECEITA' ? 'Receita' : 'Despesa'}
+        <Plus size={14} /> Nova {type === 'RECEITA' ? 'Receita' : 'Saída'}
       </button>
     );
   }
@@ -510,7 +510,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
     <div className="bg-card border border-border rounded-xl p-4 space-y-3">
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-bold text-foreground">
-          Nova {type === 'RECEITA' ? 'Receita' : 'Despesa'}
+          Nova {type === 'RECEITA' ? 'Receita' : 'Saída'}
         </h3>
         <button onClick={() => { setOpen(false); reset(); }} className="text-muted-foreground hover:text-foreground">
           <X size={16} />
@@ -661,7 +661,7 @@ function QuickAddForm({ type, categories, onCreated, onManageCategories, allDbCa
       {showCatManager && (
         <div className="border border-border rounded-xl p-4 space-y-3 bg-accent/5">
           <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">
-            Categorias de {type === 'DESPESA' ? 'Despesas' : 'Receitas'}
+            Categorias de {type === 'DESPESA' ? 'Saídas' : 'Receitas'}
           </p>
           <div className="space-y-1.5">
             {typeCats.map(c => (
@@ -1071,7 +1071,7 @@ export default function FinanceiroPage() {
   const tabIcons: Record<Tab, any> = {
     Entradas: BarChart3,
     Validar: CheckCircle2,
-    Despesas: TrendingDown,
+    Saídas: TrendingDown,
     Boletos: CreditCard,
     Pacientes: Users,
     Diárias: CalendarClock,
@@ -1124,7 +1124,7 @@ export default function FinanceiroPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-foreground">Financeiro</h1>
-              <p className="text-xs text-muted-foreground">Boletos, receitas e despesas da clinica</p>
+              <p className="text-xs text-muted-foreground">Boletos, entradas e saídas da clínica</p>
             </div>
           </div>
 
@@ -1220,13 +1220,13 @@ export default function FinanceiroPage() {
             <AlertTriangle size={16} className="text-red-400 shrink-0" />
             <div className="flex-1">
               <span className="text-xs font-bold text-red-400">
-                {despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) < new Date()).length} despesa(s) vencida(s)
+                {despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) < new Date()).length} saída(s) vencida(s)
               </span>
               <span className="text-xs text-muted-foreground ml-2">
                 Total: {fmt(despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) < new Date()).reduce((s, d) => s + parseFloat(String(d.amount)), 0))}
               </span>
             </div>
-            <button onClick={() => setTab('Despesas')} className="text-[10px] font-bold text-red-400 hover:underline">Ver despesas</button>
+            <button onClick={() => setTab('Saídas')} className="text-[10px] font-bold text-red-400 hover:underline">Ver saídas</button>
           </div>
         )}
 
@@ -1305,50 +1305,18 @@ export default function FinanceiroPage() {
 
         {/* TAB "Receitas" removida — a gestão de entradas agora vive dentro da aba "Entradas". */}
 
-        {/* ─── TAB: Despesas ─── */}
-        {tab === 'Despesas' && (() => {
-          const now = new Date();
-          const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-          const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
-
-          const vencidas = despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) < todayStart);
-          const venceHoje = despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) >= todayStart && new Date(d.due_date) < tomorrowStart);
-          const aVencer = despesas.filter(d => d.status === 'PENDENTE' && (!d.due_date || new Date(d.due_date) >= tomorrowStart));
-          const pagas = despesas.filter(d => d.status === 'PAGO');
-
-          const sumOf = (items: Transaction[]) => items.reduce((s, t) => s + Number(t.amount || 0), 0);
-
-          return (
-            <div className="space-y-4">
-              <QuickAddForm type="DESPESA" categories={activeDespesaCats} onCreated={fetchData} onManageCategories={refreshCategories} allDbCategories={dbCategories} />
-
-              <DespesaSection
-                icon={AlertTriangle} label="Vencidas" count={vencidas.length} total={sumOf(vencidas)}
-                color="text-red-400" bgColor="bg-red-500/10" borderColor="border-red-500/20"
-                defaultOpen={vencidas.length > 0}
-                rows={vencidas} onRefresh={fetchData} currentUserId={userId || undefined} canManageAll={isAdmin || isFinanceiro}
-              />
-              <DespesaSection
-                icon={Clock} label="Vencem Hoje" count={venceHoje.length} total={sumOf(venceHoje)}
-                color="text-amber-400" bgColor="bg-amber-500/10" borderColor="border-amber-500/20"
-                defaultOpen={venceHoje.length > 0}
-                rows={venceHoje} onRefresh={fetchData} currentUserId={userId || undefined} canManageAll={isAdmin || isFinanceiro}
-              />
-              <DespesaSection
-                icon={TrendingUp} label="A Vencer" count={aVencer.length} total={sumOf(aVencer)}
-                color="text-emerald-400" bgColor="bg-emerald-500/10" borderColor="border-emerald-500/20"
-                defaultOpen={aVencer.length > 0}
-                rows={aVencer} onRefresh={fetchData} currentUserId={userId || undefined} canManageAll={isAdmin || isFinanceiro}
-              />
-              <DespesaSection
-                icon={Check} label="Pagas" count={pagas.length} total={sumOf(pagas)}
-                color="text-muted-foreground" bgColor="bg-muted/30" borderColor="border-border"
-                defaultOpen={false}
-                rows={pagas} onRefresh={fetchData} currentUserId={userId || undefined} canManageAll={isAdmin || isFinanceiro}
-              />
-            </div>
-          );
-        })()}
+        {/* ─── TAB: Saídas (ex-Despesas) — mesmo padrão de "Entradas" ─── */}
+        {tab === 'Saídas' && (
+          <SaidasTab
+            despesas={despesas}
+            onRefresh={fetchData}
+            userId={userId || undefined}
+            canManageAll={isAdmin || isFinanceiro}
+            categories={activeDespesaCats}
+            dbCategories={dbCategories}
+            refreshCategories={refreshCategories}
+          />
+        )}
 
         {/* ─── TAB: Boletos (Onda 16) — todos os PaymentGatewayCharge ─── */}
         {tab === 'Boletos' && <BoletosTab dentistId={effectiveDentistId || undefined} />}
@@ -1817,6 +1785,146 @@ function ClientesSyncTab() {
 const RECEITA_CAT_ICONS: Record<string, string> = {
   HONORARIO: '⚖️', CONSULTA: '📞', ACORDO: '🤝', OUTRO: '📋',
 };
+
+/* ── SAÍDAS (ex-Despesas) — espelha a aba "Entradas": view "Pagas" (saídas validadas,
+   estilo pedidos) por padrão + toggle "A Pagar" (contas a pagar: vencidas / vencem hoje /
+   a vencer, mesma gestão de antes). Só o WEB; a transação continua type=DESPESA. ── */
+function SaidasTab({ despesas, onRefresh, userId, canManageAll, categories, dbCategories, refreshCategories }: {
+  despesas: Transaction[]; onRefresh: () => void; userId?: string; canManageAll: boolean;
+  categories: string[]; dbCategories: any[]; refreshCategories: () => void;
+}) {
+  const [viewMode, setViewMode] = useState<'pagas' | 'a_pagar'>('pagas');
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const now = new Date();
+  const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const tomorrowStart = new Date(todayStart); tomorrowStart.setDate(tomorrowStart.getDate() + 1);
+  const vencidas = despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) < todayStart);
+  const venceHoje = despesas.filter(d => d.status === 'PENDENTE' && d.due_date && new Date(d.due_date) >= todayStart && new Date(d.due_date) < tomorrowStart);
+  const aVencer = despesas.filter(d => d.status === 'PENDENTE' && (!d.due_date || new Date(d.due_date) >= tomorrowStart));
+  const pagas = despesas.filter(d => d.status === 'PAGO');
+  const aPagarCount = vencidas.length + venceHoje.length + aVencer.length;
+  const sumOf = (items: Transaction[]) => items.reduce((s, t) => s + Number(t.amount || 0), 0);
+  const totalPago = sumOf(pagas);
+
+  const del = async (id: string) => {
+    if (!confirm('Excluir esta saída?')) return;
+    setDeletingId(id);
+    try { await api.delete(`/financeiro/transactions/${id}`); showSuccess('Removida'); onRefresh(); }
+    catch { showError('Erro ao excluir'); }
+    finally { setDeletingId(null); }
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Toggle Pagas / A Pagar */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="flex bg-background border border-border rounded-lg overflow-hidden">
+          <button onClick={() => setViewMode('pagas')}
+            className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'pagas' ? 'bg-emerald-500/15 text-emerald-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
+            Pagas ({pagas.length})
+          </button>
+          <button onClick={() => setViewMode('a_pagar')}
+            className={`px-4 py-2 text-xs font-semibold transition-colors ${viewMode === 'a_pagar' ? 'bg-amber-500/15 text-amber-500' : 'text-muted-foreground hover:bg-accent/30'}`}>
+            A Pagar ({aPagarCount})
+          </button>
+        </div>
+      </div>
+
+      {/* Nova Saída */}
+      <QuickAddForm type="DESPESA" categories={categories} onCreated={onRefresh} onManageCategories={refreshCategories} allDbCategories={dbCategories} />
+
+      {/* PAGAS — saídas validadas (o que de fato saiu), estilo pedidos */}
+      {viewMode === 'pagas' && (
+        pagas.length === 0 ? (
+          <div className="bg-card border border-border rounded-xl p-12 text-center">
+            <TrendingDown size={40} className="mx-auto text-muted-foreground/30 mb-3" />
+            <p className="text-sm text-muted-foreground font-medium">Nenhuma saída paga no período</p>
+          </div>
+        ) : (
+          <>
+            <div className="bg-card border border-border rounded-xl overflow-x-auto">
+              <table className="w-full text-sm min-w-[820px]">
+                <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
+                  <tr>
+                    <th className="px-4 py-2.5 text-left font-medium">Saída</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Data</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Categoria</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Descrição</th>
+                    <th className="px-4 py-2.5 text-right font-medium">Valor</th>
+                    <th className="px-4 py-2.5 text-left font-medium">Pagamento</th>
+                    <th className="px-4 py-2.5"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-border">
+                  {pagas.map(d => (
+                    <tr key={d.id} className="hover:bg-accent/10 transition-colors">
+                      <td className="px-4 py-3 whitespace-nowrap"><span className="font-mono text-xs text-primary font-semibold">#{d.id.slice(0, 6).toUpperCase()}</span></td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(d.paid_at || d.date)}</td>
+                      <td className="px-4 py-3">
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-md bg-muted/60 text-xs font-medium text-foreground">{d.category || '—'}</span>
+                      </td>
+                      <td className="px-4 py-3 text-muted-foreground truncate max-w-[240px]" title={d.description}>{d.description}</td>
+                      <td className="px-4 py-3 text-right font-bold text-red-400 whitespace-nowrap tabular-nums">{fmt(d.amount)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={d.status} />
+                          {d.payment_method && <span className="text-xs text-muted-foreground">{methodLabel(d.payment_method)}</span>}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {(canManageAll || d.dentist_id === userId) && (
+                          <button onClick={() => del(d.id)} disabled={deletingId === d.id}
+                            className="px-2 py-1 text-[10px] font-semibold text-red-400 border border-red-400/20 rounded-md hover:bg-red-400/10 disabled:opacity-50 inline-flex items-center gap-1">
+                            {deletingId === d.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="flex items-center justify-between text-xs text-muted-foreground px-1">
+              <span>{pagas.length} saída(s) paga(s)</span>
+              <span className="font-semibold text-red-400">Total pago: {fmt(totalPago)}</span>
+            </div>
+          </>
+        )
+      )}
+
+      {/* A PAGAR — contas a pagar (mantém a gestão que já existia) */}
+      {viewMode === 'a_pagar' && (
+        <div className="space-y-4">
+          <DespesaSection
+            icon={AlertTriangle} label="Vencidas" count={vencidas.length} total={sumOf(vencidas)}
+            color="text-red-400" bgColor="bg-red-500/10" borderColor="border-red-500/20"
+            defaultOpen={vencidas.length > 0}
+            rows={vencidas} onRefresh={onRefresh} currentUserId={userId} canManageAll={canManageAll}
+          />
+          <DespesaSection
+            icon={Clock} label="Vencem Hoje" count={venceHoje.length} total={sumOf(venceHoje)}
+            color="text-amber-400" bgColor="bg-amber-500/10" borderColor="border-amber-500/20"
+            defaultOpen={venceHoje.length > 0}
+            rows={venceHoje} onRefresh={onRefresh} currentUserId={userId} canManageAll={canManageAll}
+          />
+          <DespesaSection
+            icon={TrendingUp} label="A Vencer" count={aVencer.length} total={sumOf(aVencer)}
+            color="text-emerald-400" bgColor="bg-emerald-500/10" borderColor="border-emerald-500/20"
+            defaultOpen={aVencer.length > 0}
+            rows={aVencer} onRefresh={onRefresh} currentUserId={userId} canManageAll={canManageAll}
+          />
+          {aPagarCount === 0 && (
+            <div className="bg-card border border-border rounded-xl p-12 text-center">
+              <Check size={40} className="mx-auto text-muted-foreground/30 mb-3" />
+              <p className="text-sm text-muted-foreground font-medium">Nenhuma conta a pagar 🎉</p>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function ReceitasTab({ receitas, onRefresh, lawyerId, validatedOnly = false }: { receitas: Transaction[]; onRefresh: () => void; lawyerId?: string; validatedOnly?: boolean }) {
   const router = useRouter();
