@@ -17,6 +17,7 @@ interface OrthoCard {
   patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
   dentist: { id: string; name: string } | null;
   status: OrthoStatus;
+  weekday: number | null;
   next_appointment_at: string | null;
   last_visit_at: string | null;
   archived: boolean;
@@ -43,6 +44,18 @@ const FILTERS: Array<{ key: 'todos' | OrthoStatus; label: string }> = [
   { key: 'saiu', label: 'Saíram' },
 ];
 
+// Ortô é fixo no dia da semana; cada dia pode ter um ortodontista diferente.
+const DAYS: Array<{ key: 'todos' | number; label: string }> = [
+  { key: 'todos', label: 'Todos os dias' },
+  { key: 1, label: 'Seg' },
+  { key: 2, label: 'Ter' },
+  { key: 3, label: 'Qua' },
+  { key: 4, label: 'Qui' },
+  { key: 5, label: 'Sex' },
+  { key: 6, label: 'Sáb' },
+];
+const WD_LABEL: Record<number, string> = { 0: 'Dom', 1: 'Seg', 2: 'Ter', 3: 'Qua', 4: 'Qui', 5: 'Sex', 6: 'Sáb' };
+
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
 const fmtDateTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
@@ -54,6 +67,7 @@ export default function OrtodontiaPage() {
   const [board, setBoard] = useState<OrthoBoard | null>(null);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'todos' | OrthoStatus>('todos');
+  const [dayFilter, setDayFilter] = useState<'todos' | number>('todos');
   const [completing, setCompleting] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -72,7 +86,9 @@ export default function OrtodontiaPage() {
   // Colunas = dentistas presentes (+ "Sem dentista" por último). Filtra pelo status escolhido.
   const columns = useMemo(() => {
     if (!board) return [];
-    const cards = filter === 'todos' ? board.patients : board.patients.filter((c) => c.status === filter);
+    let cards = board.patients;
+    if (filter !== 'todos') cards = cards.filter((c) => c.status === filter);
+    if (dayFilter !== 'todos') cards = cards.filter((c) => c.weekday === dayFilter);
     const byDentist = new Map<string, { id: string; name: string; cards: OrthoCard[] }>();
     for (const c of cards) {
       const key = c.dentist?.id || '__none__';
@@ -85,7 +101,7 @@ export default function OrtodontiaPage() {
       if (b.id === '__none__') return -1;
       return a.name.localeCompare(b.name);
     });
-  }, [board, filter]);
+  }, [board, filter, dayFilter]);
 
   const conclude = async (card: OrthoCard) => {
     if (!card.plan_ids.length) { showError('Sem plano de ortodontia pra concluir'); return; }
@@ -135,6 +151,19 @@ export default function OrtodontiaPage() {
               filter === f.key ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-muted-foreground hover:bg-accent/30'
             }`}>
             {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Filtro Dia da Semana — cada dia pode ter um ortodontista diferente */}
+      <div className="flex items-center gap-1.5 flex-wrap">
+        <span className="text-[11px] font-bold uppercase tracking-wide text-muted-foreground mr-1">Dia da semana</span>
+        {DAYS.map((d) => (
+          <button key={String(d.key)} onClick={() => setDayFilter(d.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+              dayFilter === d.key ? 'bg-primary text-primary-foreground' : 'bg-background border border-border text-muted-foreground hover:bg-accent/30'
+            }`}>
+            {d.label}
           </button>
         ))}
       </div>
@@ -201,6 +230,9 @@ function OrthoCardItem({ card, completing, onConclude, onOpen, onSchedule }: {
         <button onClick={onOpen} className="font-semibold text-sm text-foreground hover:text-primary text-left truncate flex-1">
           {card.patient.name || 'Sem nome'}
         </button>
+        {card.weekday != null && (
+          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded shrink-0 bg-primary/10 text-primary" title="Dia de atendimento">{WD_LABEL[card.weekday]}</span>
+        )}
         <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${meta.badge}`}>{meta.label}</span>
       </div>
 

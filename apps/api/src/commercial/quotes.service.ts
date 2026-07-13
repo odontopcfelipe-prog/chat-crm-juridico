@@ -2756,6 +2756,7 @@ export class QuotesService {
     // 4. Dentista responsável (mais frequente nas consultas de ortô) + próxima consulta
     const dentistCount = new Map<string, Map<string, number>>();
     const nextApptByPatient = new Map<string, Date>();
+    const weekdayCount = new Map<string, Map<number, number>>(); // ortô é fixo no dia da semana
     for (const e of orthoEvents) {
       if (!e.patient_id) continue;
       if (e.assigned_user_id) {
@@ -2763,6 +2764,12 @@ export class QuotesService {
         m.set(e.assigned_user_id, (m.get(e.assigned_user_id) || 0) + 1);
         dentistCount.set(e.patient_id, m);
       }
+      // Dia da semana do atendimento — start_at é naive-UTC de Maceió, então getUTCDay
+      // dá o dia LOCAL (0=dom..6=sáb). Ortô costuma cair sempre no mesmo dia.
+      const wd = e.start_at.getUTCDay();
+      const wm = weekdayCount.get(e.patient_id) ?? new Map<number, number>();
+      wm.set(wd, (wm.get(wd) || 0) + 1);
+      weekdayCount.set(e.patient_id, wm);
       if (e.start_at >= nowMaceio && e.status !== 'CANCELADO' && e.status !== 'NO_SHOW') {
         const cur = nextApptByPatient.get(e.patient_id);
         if (!cur || e.start_at < cur) nextApptByPatient.set(e.patient_id, e.start_at);
@@ -2819,10 +2826,16 @@ export class QuotesService {
       else if (archived || inativo) status = 'saiu';
       else status = 'nao_agendado';
 
+      // Dia da semana mais frequente do paciente (0=dom..6=sáb); null se sem consulta.
+      let weekday: number | null = null;
+      const wm = weekdayCount.get(p.id);
+      if (wm && wm.size) weekday = Array.from(wm.entries()).sort((a, b) => b[1] - a[1])[0][0];
+
       return {
         patient: { id: p.id, name: p.name, phone: p.phone, avatar_url: p.avatar_url },
         dentist,
         status,
+        weekday,
         next_appointment_at: nextAppt,
         last_visit_at: p.last_visit_at,
         archived,
