@@ -213,10 +213,9 @@ export default function OrtodontiaPage() {
         <div className="flex gap-4 overflow-x-auto pb-4">
           {columns.map((col) => {
             const isDayView = view === 'dias';
-            // dentist-view: dias que o dentista atende; day-view: dentistas que atendem nesse dia
-            const headerSub = isDayView
-              ? dentists.filter((d) => col.weekday != null && (d.ortho_days || []).includes(col.weekday)).map((d) => d.name).join(' · ')
-              : (dentists.find((d) => d.id === col.id)?.ortho_days || []).slice().sort((a, b) => a - b).map((d) => WD_LABEL[d]).join(' · ');
+            // day-view: ortodontistas que atendem nesse dia (evidenciados na faixa). dentist-view: dias do dentista.
+            const orthoOfDay = isDayView ? dentists.filter((d) => col.weekday != null && (d.ortho_days || []).includes(col.weekday)) : [];
+            const dentistDays = !isDayView ? (dentists.find((d) => d.id === col.id)?.ortho_days || []).slice().sort((a, b) => a - b) : [];
             const HeadIcon = isDayView ? CalendarDays : Stethoscope;
             return (
             <div key={col.id} className="shrink-0 w-[300px] bg-muted/30 rounded-xl border border-border flex flex-col">
@@ -225,12 +224,27 @@ export default function OrtodontiaPage() {
                   <span className="text-sm font-bold text-foreground flex items-center gap-2 truncate">
                     <HeadIcon size={14} className="text-primary shrink-0" /> {col.name}
                   </span>
-                  {headerSub && (
-                    <span className="text-[10px] text-muted-foreground block ml-6 truncate">{headerSub}</span>
+                  {!isDayView && dentistDays.length > 0 && (
+                    <span className="text-[10px] text-muted-foreground block ml-6 truncate">{dentistDays.map((d) => WD_LABEL[d]).join(' · ')}</span>
                   )}
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">{col.cards.length}</span>
               </div>
+              {/* Faixa que EVIDENCIA o ortodontista do dia (modo "Todos os dias") */}
+              {isDayView && (
+                <div className="px-3 py-2 border-b border-border bg-primary/10 flex items-center gap-2 flex-wrap">
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-primary shrink-0">
+                    <Stethoscope size={12} /> Ortodontista
+                  </span>
+                  {orthoOfDay.length ? (
+                    orthoOfDay.map((d) => (
+                      <span key={d.id} className="text-xs font-bold text-foreground">{d.name}</span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-muted-foreground italic">a definir no cadastro</span>
+                  )}
+                </div>
+              )}
               <div className="p-2 space-y-2">
                 {col.cards.length === 0 ? (
                   <div className="text-center text-xs text-muted-foreground py-6">Vazio</div>
