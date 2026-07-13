@@ -2726,7 +2726,13 @@ export class QuotesService {
         status: 'ACCEPTED',
         items: { some: { procedure: { category: 'ORTODONTIA' } } },
       },
-      select: { patient_id: true, treatment_plan: { select: { id: true, status: true } } },
+      select: {
+        patient_id: true,
+        treatment_plan: { select: { id: true, status: true } },
+        // dentista responsável quando ainda não há consulta (ex.: venda rápida de ortô,
+        // paciente recorrente): a venda rápida grava dentist_id nos itens do orçamento.
+        items: { where: { dentist_id: { not: null } }, select: { dentist: { select: { id: true, name: true } } }, take: 1 },
+      },
     });
 
     const patientIds = new Set<string>();
@@ -2780,6 +2786,14 @@ export class QuotesService {
       planByPatient.set(q.patient_id, p);
     }
 
+    // Dentista do orçamento (cobre venda rápida de ortô e vendas sem consulta ainda).
+    const quoteDentistByPatient = new Map<string, { id: string; name: string }>();
+    for (const q of orthoQuotes) {
+      if (!q.patient_id) continue;
+      const d = q.items[0]?.dentist;
+      if (d && !quoteDentistByPatient.has(q.patient_id)) quoteDentistByPatient.set(q.patient_id, { id: d.id, name: d.name });
+    }
+
     // 6. Monta os cards (1 por paciente)
     const cards = patients.map((p) => {
       let dentist: { id: string; name: string } | null = null;
@@ -2787,6 +2801,8 @@ export class QuotesService {
       if (m && m.size) {
         const topId = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0];
         dentist = { id: topId, name: dentistNameById.get(topId) || '—' };
+      } else if (quoteDentistByPatient.get(p.id)) {
+        dentist = quoteDentistByPatient.get(p.id)!; // venda rápida / orçamento de ortô sem consulta ainda
       } else if (p.primary_dentist) {
         dentist = p.primary_dentist;
       }
