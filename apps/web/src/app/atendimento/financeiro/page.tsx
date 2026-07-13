@@ -7,7 +7,7 @@ import {
   Plus, X, Search, Loader2, Phone, MessageSquare,
   ArrowUpDown, ChevronDown, ChevronRight, Trash2, Pencil, Check, Handshake,
   BarChart3, Receipt, CreditCard, Ban, Users, Link2, Unlink, ExternalLink, FileText,
-  CalendarClock, CheckCircle2,
+  CalendarClock,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -16,7 +16,6 @@ import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 16 — abas novas do sistema financeiro completo
 import BoletosTab from './components/BoletosTab';
 import PacientesSummaryTab from './components/PacientesSummaryTab';
-import ValidarTab from './components/ValidarTab';
 // Fase 5 — lançador de diária (DESPESA category='DIARIA')
 import DailyRateTab from './components/DailyRateTab';
 
@@ -149,7 +148,7 @@ interface DashboardData {
 // Fase 5 — "Diárias" entra na lista; a renderização da aba é gateada por
 // manage_financial via useUserPermissions (ver visibleTabs no componente).
 // "Receitas" saiu da barra: a gestão de entradas foi puxada pra dentro da aba "Entradas".
-const TABS = ['Entradas', 'Validar', 'Saídas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
+const TABS = ['Entradas', 'Saídas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -983,8 +982,8 @@ export default function FinanceiroPage() {
   // Fase 5 — só quem tem manage_financial vê a aba "Diárias".
   const { hasPermission } = useUserPermissions();
   const canManageFinancial = hasPermission('manage_financial');
-  // Diárias e Validar (libera tratamento) só pra quem tem manage_financial.
-  const visibleTabs = TABS.filter((t) => (t !== 'Diárias' && t !== 'Validar') || canManageFinancial);
+  // Diárias só pra quem tem manage_financial. (Validar virou item do menu, fora das abas.)
+  const visibleTabs = TABS.filter((t) => t !== 'Diárias' || canManageFinancial);
 
   /* ─── Auth guard + saldo Asaas + dentistas ─── */
   useEffect(() => {
@@ -1070,7 +1069,6 @@ export default function FinanceiroPage() {
   /* ─── Tab icons ─── */
   const tabIcons: Record<Tab, any> = {
     Entradas: BarChart3,
-    Validar: CheckCircle2,
     Saídas: TrendingDown,
     Boletos: CreditCard,
     Pacientes: Users,
@@ -1324,8 +1322,7 @@ export default function FinanceiroPage() {
         {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
         {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveDentistId || undefined} />}
 
-        {/* ─── TAB: Validar — fila de tratamentos aguardando liberação pro dentista ─── */}
-        {tab === 'Validar' && canManageFinancial && <ValidarTab />}
+        {/* TAB "Validar" removida das abas — virou item do menu (grupo FINANCEIRO), rota /atendimento/financeiro/validar */}
 
         {/* ─── TAB: Diárias (Fase 5) — lança diária como DESPESA no caixa ─── */}
         {tab === 'Diárias' && canManageFinancial && <DailyRateTab />}

@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import {
-  LogOut, Users, Briefcase, Settings, Palette, Check,
+  LogOut, Users, Briefcase, Settings, Palette, Check, CheckCircle2,
   MessageSquare, BarChart2, Calendar,
   LayoutDashboard, Wallet, HelpCircle,
   ChevronRight, ChevronDown, Sparkles, HeartPulse,
@@ -753,6 +753,16 @@ export function Sidebar() {
       // Onda 17.32.120
       show: hasPermission('view_financial') && perms.canViewFinanceiro,
     },
+    validar: {
+      // Validar saiu das abas internas do Financeiro e virou item do menu.
+      // Gate Financeiro→Tratamento: fila de tratamentos aceitos aguardando
+      // liberação do Financeiro. Mesma permissão da antiga aba (manage_financial).
+      label: 'Validar',
+      href: '/atendimento/financeiro/validar',
+      icon: <CheckCircle2 size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/financeiro/validar'),
+      show: hasPermission('manage_financial'),
+    },
     analytics: {
       label: 'Analytics',
       href: '/atendimento/marketing/analytics',
@@ -881,6 +891,7 @@ export function Sidebar() {
         // allItems.orcamentos,           // Avaliação (orcamentos)
         allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
+        allItems.validar,              // Validar (gate Financeiro→Tratamento, manage_financial)
         // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
       ].filter(i => i.show),
     },
