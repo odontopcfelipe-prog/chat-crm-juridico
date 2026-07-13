@@ -2425,10 +2425,13 @@ function ReceitasTab({ receitas, onRefresh, lawyerId, validatedOnly = false }: {
                           </div>
                         </td>
                         <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
-                          <button onClick={() => handleDelete(r.id)} disabled={deletingId === r.id}
-                            className="px-2 py-1 text-[10px] font-semibold text-red-400 border border-red-400/20 rounded-md hover:bg-red-400/10 disabled:opacity-50 inline-flex items-center gap-1">
-                            {deletingId === r.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
-                          </button>
+                          {/* Entradas validadas NÃO podem ser apagadas (registro financeiro do que entrou). */}
+                          {!validatedOnly && (
+                            <button onClick={() => handleDelete(r.id)} disabled={deletingId === r.id}
+                              className="px-2 py-1 text-[10px] font-semibold text-red-400 border border-red-400/20 rounded-md hover:bg-red-400/10 disabled:opacity-50 inline-flex items-center gap-1">
+                              {deletingId === r.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
+                            </button>
+                          )}
                         </td>
                       </tr>
                     ))}

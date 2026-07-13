@@ -155,10 +155,46 @@ export class FinanceiroService {
       this.prisma.financialTransaction.count({ where }),
     ]);
 
+    // CLIENTE das entradas: receitas de cobrança/clínica sem lead_id gravado mostram
+    // o paciente resolvendo pela cobrança (reference_id = charge.external_id) →
+    // treatment_plan → patient. Só display; as novas já vêm com lead_id gravado.
+    await this.fillClientFromCharge(data);
+
     // Enriquecer transações PENDENTE/ATRASADO de honorários com juros legais
     const enriched = await this.enrichWithInterest(data);
 
     return { data: enriched, total };
+  }
+
+  /**
+   * CLIENTE das entradas (display): pra receitas sem lead_id (cobranças/clínica
+   * lançadas antes do fix), resolve o nome do paciente pela cobrança vinculada
+   * (reference_id == PaymentGatewayCharge.external_id) → treatment_plan → patient.
+   * NÃO grava nada; só preenche row.lead pro front. Uma query batelada, tenant-safe.
+   */
+  private async fillClientFromCharge(rows: any[]) {
+    const pend = rows.filter((r) => r.type === 'RECEITA' && !r.lead && r.reference_id);
+    if (pend.length === 0) return;
+    const refs = [...new Set(pend.map((r) => r.reference_id).filter(Boolean))];
+    if (refs.length === 0) return;
+    const charges = await this.prisma.paymentGatewayCharge.findMany({
+      where: { external_id: { in: refs } },
+      select: {
+        external_id: true,
+        tenant_id: true,
+        treatment_plan: { select: { patient: { select: { name: true } } } },
+      },
+    });
+    const key = (ref: string | null, tid: string | null) => `${tid ?? ''}::${ref ?? ''}`;
+    const byRef = new Map<string, string>();
+    for (const c of charges) {
+      const name = c.treatment_plan?.patient?.name;
+      if (c.external_id && name) byRef.set(key(c.external_id, c.tenant_id), name);
+    }
+    for (const r of pend) {
+      const name = byRef.get(key(r.reference_id, r.tenant_id));
+      if (name) r.lead = { id: '', name, phone: null };
+    }
   }
 
   /**
