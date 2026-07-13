@@ -2737,6 +2737,133 @@ export class QuotesService {
     // await this.sendExpiryReminders();
   }
 
+  /**
+   * Disparo "Equipe → Pacientes sem agendamento": 1x/dia (8h Maceió) manda um
+   * RESUMO pros ADMs da clínica com os pacientes +30 dias sem agendar OU em
+   * stand by. Opt-in por clínica: só roda se GlobalSetting
+   * PACIENTES_SEM_AGENDAMENTO_<tenant> == 'true' (ligado na Central de Disparos).
+   * Envia pela instância CLINICA; dedup por dia via DispatchLog. Reusa
+   * getJourneyBoard (A_AGENDAR com days_stalled>=30 + STANDBY).
+   */
+  @Cron('0 8 * * *', { timeZone: 'America/Maceio' })
+  async cronPacientesSemAgendamento() {
+    if (!this.whatsapp) return;
+    const DIAS = 30;
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    let tenants: Array<{ id: string; name: string | null }> = [];
+    try {
+      tenants = await this.prisma.tenant.findMany({
+        where: { status: { not: 'DELETED' } },
+        select: { id: true, name: true },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[SEM_AGENDAMENTO] listar tenants falhou: ${e?.message}`);
+      return;
+    }
+
+    for (const t of tenants) {
+      try {
+        // opt-in: só dispara se o toggle da clínica estiver ligado
+        const toggle = await this.prisma.globalSetting
+          .findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_${t.id}` } })
+          .catch(() => null);
+        if (toggle?.value !== 'true') continue;
+
+        const board = await this.getJourneyBoard(t.id);
+        const semAgendar = (board.by_stage.A_AGENDAR || []).filter(
+          (c: any) => (c.days_stalled ?? 0) >= DIAS,
+        );
+        const standby = board.by_stage.STANDBY || [];
+        if (semAgendar.length === 0 && standby.length === 0) continue;
+
+        const admins = await this.prisma.user.findMany({
+          where: { tenant_id: t.id, roles: { has: 'ADMIN' }, phone: { not: null } },
+          select: { id: true, name: true, phone: true },
+        });
+        if (admins.length === 0) continue;
+
+        // instância p/ enviar: chip CLINICA (fallback: qualquer do tenant)
+        const inst =
+          (await this.prisma.instance.findFirst({
+            where: { tenant_id: t.id, purpose: 'CLINICA' },
+            select: { name: true },
+            orderBy: { name: 'asc' },
+          })) ||
+          (await this.prisma.instance.findFirst({
+            where: { tenant_id: t.id },
+            select: { name: true },
+            orderBy: { name: 'asc' },
+          }));
+        const instanceName = inst?.name || undefined;
+
+        const lines: string[] = [];
+        for (const c of semAgendar.slice(0, 15)) {
+          lines.push(`• ${c.patient?.name || 'Paciente'} — ${c.days_stalled}d sem agendar`);
+        }
+        for (const c of standby.slice(0, 10)) {
+          lines.push(`• ${c.patient?.name || 'Paciente'} — em stand by`);
+        }
+        const extra = semAgendar.length + standby.length - lines.length;
+        const msg =
+          `📋 *Pacientes precisando de atenção*${t.name ? ` — ${t.name}` : ''}\n\n` +
+          `📅 +${DIAS} dias sem agendar: *${semAgendar.length}*\n` +
+          `⏸️ Em stand by: *${standby.length}*\n\n` +
+          lines.join('\n') +
+          (extra > 0 ? `\n…e mais ${extra}` : '') +
+          `\n\nAbra o Progresso pra agendar.`;
+
+        for (const adm of admins) {
+          const already = await this.prisma.dispatchLog.findFirst({
+            where: {
+              tenant_id: t.id,
+              type: 'pacientes_sem_agendamento_adm',
+              ref_user_id: adm.id,
+              sent_at: { gte: startOfToday },
+            },
+            select: { id: true },
+          });
+          if (already) continue;
+          try {
+            await this.whatsapp.sendText(adm.phone as string, msg, instanceName, undefined, t.id);
+            await this.prisma.dispatchLog.create({
+              data: {
+                tenant_id: t.id,
+                type: 'pacientes_sem_agendamento_adm',
+                channel: 'WHATSAPP',
+                recipient_name: adm.name,
+                recipient_phone: adm.phone,
+                status: 'SENT',
+                ref_user_id: adm.id,
+              },
+            });
+          } catch (err: any) {
+            await this.prisma.dispatchLog
+              .create({
+                data: {
+                  tenant_id: t.id,
+                  type: 'pacientes_sem_agendamento_adm',
+                  channel: 'WHATSAPP',
+                  recipient_name: adm.name,
+                  recipient_phone: adm.phone,
+                  status: 'FAILED',
+                  error: String(err?.response?.data?.message || err?.message || err).slice(0, 300),
+                  ref_user_id: adm.id,
+                },
+              })
+              .catch(() => {});
+          }
+        }
+        this.logger.log(
+          `[SEM_AGENDAMENTO] tenant ${t.id}: ${semAgendar.length} sem agendar +${DIAS}d, ${standby.length} standby → ${admins.length} adm(s)`,
+        );
+      } catch (err: any) {
+        this.logger.warn(`[SEM_AGENDAMENTO] tenant ${t.id} falhou: ${err?.message}`);
+      }
+    }
+  }
+
   // ─── Onda 1 — Envio via WhatsApp ───────────────────────────────
 
   /**

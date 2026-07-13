@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
-  Briefcase, Wallet,
+  Briefcase, Wallet, Users,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -34,12 +34,14 @@ const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   datas: Cake,
   recuperacao: TrendingUp,
   clinico: Stethoscope,
+  equipe: Users,
 };
 
 const SETOR_ICON: Record<Setor, typeof CalendarClock> = {
   comercial: Briefcase,
   clinica: Stethoscope,
   financeiro: Wallet,
+  equipe: Users,
 };
 
 interface OperacionalData {
@@ -60,6 +62,8 @@ interface OperacionalData {
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
   confirmacao_orto_imediata?: { enabled: boolean };
+  // Onda — Equipe: pacientes +30d sem agendar / em stand by (resumo aos adms)
+  pacientes_sem_agendamento?: { enabled: boolean };
 }
 interface Antecedencia { minutes_before: number; channel: string }
 interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Record<string, string> }

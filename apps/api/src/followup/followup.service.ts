@@ -102,7 +102,7 @@ export class FollowupService {
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
-      confOrtoSetting, ortoRemSetting, ortoImmSetting,
+      confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -125,6 +125,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ORTO_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_REMINDER_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${tenantId}` } }),
+      // Onda — Equipe: pacientes +30d sem agendar / em stand by. Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -261,6 +263,8 @@ export class FollowupService {
       confirmacao_orto: { enabled: confOrtoSetting?.value === 'true' },
       lembrete_orto_1h: { enabled: ortoRemSetting?.value === 'true' },
       confirmacao_orto_imediata: { enabled: ortoImmSetting?.value === 'true' },
+      // Onda — Equipe: pacientes +30d sem agendar / em stand by. Default OFF (opt-in).
+      pacientes_sem_agendamento: { enabled: semAgendSetting?.value === 'true' },
     };
   }
 
@@ -451,6 +455,14 @@ export class FollowupService {
       }
       case 'confirmacao_orto_imediata': {
         const key = `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Onda — Equipe: pacientes +30d sem agendar / em stand by. A key que o cron
+      // (cronPacientesSemAgendamento em quotes.service) lê é exatamente esta.
+      case 'pacientes_sem_agendamento': {
+        const key = `PACIENTES_SEM_AGENDAMENTO_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

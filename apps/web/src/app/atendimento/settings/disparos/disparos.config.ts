@@ -6,7 +6,7 @@
 // verdade: Prisma Disparo/DisparoLog + BullMQ/DLQ + HSM + anti-spam + opt-out).
 
 export type DisparoCategoria =
-  | 'agendamento' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro';
+  | 'agendamento' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
 
 export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[] = [
   { id: 'agendamento',  label: 'Agendamento',            color: '#7C5CF0' },
@@ -15,13 +15,14 @@ export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[
   { id: 'datas',        label: 'Datas e relacionamento', color: '#E8902B' },
   { id: 'recuperacao',  label: 'Recuperação de receita', color: '#F26C1B' },
   { id: 'clinico',      label: 'Clínico e operacional',  color: '#2D7FF9' },
+  { id: 'equipe',       label: 'Avisos da equipe',       color: '#8B5CF6' },
 ];
 
 // Onda 18.19 — organização por SETOR/chip (Comercial · Clínica · Financeiro),
 // espelhando os 3 chips de WhatsApp. Cada categoria mora num setor; a tela
 // agrupa por setor no topo. A Clínica é o chip PRINCIPAL: se o chip do setor
 // (Comercial/Financeiro) não estiver conectado, o envio cai na Clínica.
-export type Setor = 'comercial' | 'clinica' | 'financeiro';
+export type Setor = 'comercial' | 'clinica' | 'financeiro' | 'equipe';
 
 export const SETORES: { id: Setor; label: string; chip: string; color: string; nota: string; principal?: boolean }[] = [
   { id: 'comercial',  label: 'Comercial', chip: 'Comercial', color: '#F26C1B',
@@ -30,6 +31,8 @@ export const SETORES: { id: Setor; label: string; chip: string; color: string; n
     nota: 'Chip principal da clínica — o padrão de tudo que fala com o paciente.' },
   { id: 'financeiro', label: 'Financeiro', chip: 'Financeiro', color: '#10B981',
     nota: 'Sai pelo chip Financeiro. Se ele não estiver conectado, usa o chip principal (Clínica).' },
+  { id: 'equipe', label: 'Equipe', chip: 'Clínica', color: '#8B5CF6',
+    nota: 'Avisos internos para a equipe (não vão pro paciente). Saem pela instância da clínica.' },
 ];
 
 export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
@@ -39,6 +42,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
   clinico:      'clinica',
   recuperacao:  'comercial',
   financeiro:   'financeiro',
+  equipe:       'equipe',
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
@@ -53,7 +57,9 @@ export type OperacionalKey =
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
   | 'confirmacao_pagamento'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
-  | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata';
+  | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
+  // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
+  | 'pacientes_sem_agendamento';
 
 export interface DisparoItem {
   id: string;
@@ -174,4 +180,9 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: 'Quando marcado pronto', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'alerta_noshow', nome: 'Alerta de no-show (recepção)', categoria: 'clinico',
     gatilho: 'Logo após falta · interno', canal: 'Painel', tags: [], editor: null, emBreve: true },
+
+  // ── Equipe (avisos internos) ──
+  { id: 'pacientes_sem_agendamento', nome: 'Pacientes sem agendamento', categoria: 'equipe',
+    gatilho: '+30 dias sem agendar ou em stand by · resumo diário aos adms', canal: 'WhatsApp', tags: ['Interno'],
+    editor: null, operacionalKey: 'pacientes_sem_agendamento' },
 ];
