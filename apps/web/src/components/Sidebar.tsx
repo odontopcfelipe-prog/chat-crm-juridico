@@ -875,8 +875,10 @@ export function Sidebar() {
       defaultExpanded: true,
       icon: <Wallet size={14} strokeWidth={2.5} />,
       items: [
-        allItems.financeiroVisaoGeral, // Onda 17.1 — Visão Geral (KPIs + graficos)
-        allItems.orcamentos,           // Orçamentos
+        // Onda — "Visão Geral" e "Avaliação" saíram do menu (não usados). As rotas
+        // seguem acessíveis por URL; reative descomentando.
+        // allItems.financeiroVisaoGeral, // Visão Geral (KPIs + graficos)
+        // allItems.orcamentos,           // Avaliação (orcamentos)
         allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
         // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
