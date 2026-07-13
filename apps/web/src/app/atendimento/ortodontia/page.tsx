@@ -69,6 +69,8 @@ export default function OrtodontiaPage() {
   const [filter, setFilter] = useState<'todos' | OrthoStatus>('todos');
   const [dayFilter, setDayFilter] = useState<'todos' | number>('todos');
   const [completing, setCompleting] = useState<string | null>(null);
+  const [dentists, setDentists] = useState<{ id: string; name: string }[]>([]);
+  const [migrating, setMigrating] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -82,6 +84,9 @@ export default function OrtodontiaPage() {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    api.get<{ id: string; name: string }[]>('/users/lawyers').then((r) => setDentists(r.data || [])).catch(() => {});
+  }, []);
 
   // Colunas = dentistas presentes (+ "Sem dentista" por último). Filtra pelo status escolhido.
   const columns = useMemo(() => {
@@ -115,6 +120,20 @@ export default function OrtodontiaPage() {
       showError(e?.response?.data?.message || 'Erro ao concluir');
     } finally {
       setCompleting(null);
+    }
+  };
+
+  // Migra o paciente pra outro dentista de ortô (override manual, prioridade máxima).
+  const migrate = async (patientId: string, dentistId: string | null) => {
+    setMigrating(patientId);
+    try {
+      await api.patch(`/patients/${patientId}`, { ortho_dentist_id: dentistId });
+      showSuccess(dentistId ? 'Paciente migrado de dentista' : 'Voltou ao dentista automático');
+      load();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao migrar');
+    } finally {
+      setMigrating(null);
     }
   };
 
@@ -192,10 +211,13 @@ export default function OrtodontiaPage() {
                     <OrthoCardItem
                       key={c.patient.id}
                       card={c}
+                      dentists={dentists}
                       completing={completing === c.patient.id}
+                      migrating={migrating === c.patient.id}
                       onConclude={() => conclude(c)}
                       onOpen={() => router.push(`/atendimento/pacientes/${c.patient.id}`)}
                       onSchedule={() => router.push(`/atendimento/agenda?new=1&patient_id=${c.patient.id}&type=ORTODONTIA`)}
+                      onMigrate={(did) => migrate(c.patient.id, did)}
                     />
                   ))
                 )}
@@ -217,8 +239,9 @@ function Kpi({ label, value, color }: { label: string; value: number; color: str
   );
 }
 
-function OrthoCardItem({ card, completing, onConclude, onOpen, onSchedule }: {
-  card: OrthoCard; completing: boolean; onConclude: () => void; onOpen: () => void; onSchedule: () => void;
+function OrthoCardItem({ card, completing, dentists, migrating, onConclude, onOpen, onSchedule, onMigrate }: {
+  card: OrthoCard; completing: boolean; dentists: { id: string; name: string }[]; migrating: boolean;
+  onConclude: () => void; onOpen: () => void; onSchedule: () => void; onMigrate: (dentistId: string | null) => void;
 }) {
   const meta = STATUS_META[card.status];
   return (
@@ -261,6 +284,20 @@ function OrthoCardItem({ card, completing, onConclude, onOpen, onSchedule }: {
           </button>
         )}
       </div>
+
+      {/* Migrar o paciente pra outro dentista de ortô */}
+      <select
+        value=""
+        disabled={migrating}
+        onChange={(e) => { const v = e.target.value; if (!v) return; onMigrate(v === '__auto__' ? null : v); }}
+        className="w-full text-[11px] px-2 py-1 rounded-md border border-border bg-background text-muted-foreground focus:outline-none disabled:opacity-50"
+      >
+        <option value="">{migrating ? 'Migrando…' : '⇄ Migrar p/ outro dentista…'}</option>
+        {dentists.filter((d) => d.id !== card.dentist?.id).map((d) => (
+          <option key={d.id} value={d.id}>{d.name}</option>
+        ))}
+        <option value="__auto__">↺ Automático (inferir)</option>
+      </select>
     </div>
   );
 }

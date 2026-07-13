@@ -2748,7 +2748,7 @@ export class QuotesService {
       where: { id: { in: ids }, tenant_id: tenantId },
       select: {
         id: true, name: true, phone: true, avatar_url: true, status: true,
-        last_visit_at: true, created_at: true,
+        last_visit_at: true, created_at: true, ortho_dentist_id: true,
         primary_dentist: { select: { id: true, name: true } },
       },
     });
@@ -2778,6 +2778,7 @@ export class QuotesService {
 
     const dentistIds = new Set<string>();
     for (const m of dentistCount.values()) for (const did of m.keys()) dentistIds.add(did);
+    for (const p of patients) if (p.ortho_dentist_id) dentistIds.add(p.ortho_dentist_id); // override de migração
     const dentistUsers = dentistIds.size
       ? await this.prisma.user.findMany({ where: { id: { in: Array.from(dentistIds) } }, select: { id: true, name: true } })
       : [];
@@ -2805,7 +2806,10 @@ export class QuotesService {
     const cards = patients.map((p) => {
       let dentist: { id: string; name: string } | null = null;
       const m = dentistCount.get(p.id);
-      if (m && m.size) {
+      if (p.ortho_dentist_id && dentistNameById.has(p.ortho_dentist_id)) {
+        // Migração manual (override) — prioridade máxima, ganha da inferência.
+        dentist = { id: p.ortho_dentist_id, name: dentistNameById.get(p.ortho_dentist_id)! };
+      } else if (m && m.size) {
         const topId = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0];
         dentist = { id: topId, name: dentistNameById.get(topId) || '—' };
       } else if (quoteDentistByPatient.get(p.id)) {

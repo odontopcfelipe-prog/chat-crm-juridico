@@ -1957,6 +1957,9 @@ model Patient {
 
   // Relacionamento clinico
   primary_dentist_id String?
+  // Override manual do dentista da ORTODONTIA (botão "Migrar" no card do quadro de
+  // Ortodontia). O ortho-board usa ele com prioridade máxima; NÃO afeta o Progresso.
+  ortho_dentist_id   String?
   chief_complaint    String? // queixa principal editavel a partir do overview
   referred_by        String? // legado: texto livre de quem indicou
   referred_by_id     String? // novo: relacao real Patient -> Patient (se indicador for paciente)

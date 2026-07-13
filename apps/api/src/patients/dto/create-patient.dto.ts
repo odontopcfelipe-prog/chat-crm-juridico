@@ -114,6 +114,7 @@ export class UpdatePatientDto {
   @IsOptional() @IsString() emergency_contact_phone?: string;
 
   @IsOptional() @IsUUID('4') primary_dentist_id?: string;
+  @IsOptional() @IsUUID('4') ortho_dentist_id?: string;
   @IsOptional() @IsString() referred_by?: string;
   @IsOptional() @IsUUID('4') referred_by_id?: string;
   @IsOptional() @IsString() @IsIn(VALID_STATUS) status?: string;
