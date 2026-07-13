@@ -14,7 +14,6 @@ import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 16 — abas novas do sistema financeiro completo
-import BoletosTab from './components/BoletosTab';
 import PacientesSummaryTab from './components/PacientesSummaryTab';
 // Fase 5 — lançador de diária (DESPESA category='DIARIA')
 import DailyRateTab from './components/DailyRateTab';
@@ -148,7 +147,7 @@ interface DashboardData {
 // Fase 5 — "Diárias" entra na lista; a renderização da aba é gateada por
 // manage_financial via useUserPermissions (ver visibleTabs no componente).
 // "Receitas" saiu da barra: a gestão de entradas foi puxada pra dentro da aba "Entradas".
-const TABS = ['Entradas', 'Saídas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
+const TABS = ['Entradas', 'Saídas', 'Pacientes', 'Diárias', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -1070,7 +1069,6 @@ export default function FinanceiroPage() {
   const tabIcons: Record<Tab, any> = {
     Entradas: BarChart3,
     Saídas: TrendingDown,
-    Boletos: CreditCard,
     Pacientes: Users,
     Diárias: CalendarClock,
     Log: FileText,
@@ -1316,8 +1314,7 @@ export default function FinanceiroPage() {
           />
         )}
 
-        {/* ─── TAB: Boletos (Onda 16) — todos os PaymentGatewayCharge ─── */}
-        {tab === 'Boletos' && <BoletosTab dentistId={effectiveDentistId || undefined} />}
+        {/* TAB "Boletos" removida das abas — virou item do menu (grupo FINANCEIRO), rota /atendimento/financeiro/boletos */}
 
         {/* ─── TAB: Pacientes (Onda 16) — visao "conta corrente" agregada ─── */}
         {tab === 'Pacientes' && <PacientesSummaryTab dentistId={effectiveDentistId || undefined} />}

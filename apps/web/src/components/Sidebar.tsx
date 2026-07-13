@@ -753,6 +753,15 @@ export function Sidebar() {
       // Onda 17.32.120
       show: hasPermission('view_financial') && perms.canViewFinanceiro,
     },
+    boletos: {
+      // Boletos saiu das abas internas do Financeiro e virou item do menu.
+      // Todas as cobranças (PaymentGatewayCharge) — Asaas + recebido na clínica.
+      label: 'Boletos',
+      href: '/atendimento/financeiro/boletos',
+      icon: <CreditCard size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/financeiro/boletos'),
+      show: hasPermission('view_financial') && perms.canViewFinanceiro,
+    },
     validar: {
       // Validar saiu das abas internas do Financeiro e virou item do menu.
       // Gate Financeiro→Tratamento: fila de tratamentos aceitos aguardando
@@ -891,6 +900,7 @@ export function Sidebar() {
         // allItems.orcamentos,           // Avaliação (orcamentos)
         allItems.propostas,            // Onda 17.32.41 — Propostas (orcamentos SENT)
         allItems.financeiro,           // Financeiro (tabela detalhada)
+        allItems.boletos,              // Boletos (cobranças / PaymentGatewayCharge)
         allItems.validar,              // Validar (gate Financeiro→Tratamento, manage_financial)
         // allItems.parcelas,          // Parcelas — oculto ate o modulo estar maduro
       ].filter(i => i.show),
