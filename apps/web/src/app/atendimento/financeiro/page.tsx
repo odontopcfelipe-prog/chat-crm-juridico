@@ -2016,7 +2016,8 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
   const [showForm, setShowForm] = useState(false);
   const [saving, setSaving] = useState(false);
   const [searchQ, setSearchQ] = useState('');
-  const [viewMode, setViewMode] = useState<'recebidas' | 'a_receber'>('a_receber');
+  // "Recebidas" (todas as entradas, estilo pedidos) como visão padrão.
+  const [viewMode, setViewMode] = useState<'recebidas' | 'a_receber'>('recebidas');
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [selectedReceita, setSelectedReceita] = useState<Transaction | null>(null);
   const [selectedPending, setSelectedPending] = useState<any>(null);
@@ -2458,31 +2459,48 @@ function ReceitasTab({ receitas, onRefresh, lawyerId }: { receitas: Transaction[
             </div>
           ) : (
             <>
-              <div className="bg-card border border-border rounded-xl overflow-hidden">
-                <table className="w-full text-xs">
-                  <thead>
-                    <tr className="border-b border-border bg-card/80">
-                      <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Data</th>
-                      <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Processo / Descricao</th>
-                      <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Cliente</th>
-                      <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Valor</th>
-                      <th className="px-4 py-3 text-left font-semibold text-muted-foreground">Pago em</th>
-                      <th className="px-4 py-3 text-right font-semibold text-muted-foreground">Acoes</th>
+              <div className="bg-card border border-border rounded-xl overflow-x-auto">
+                <table className="w-full text-sm min-w-[880px]">
+                  <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
+                    <tr>
+                      <th className="px-4 py-2.5 text-left font-medium">Entrada</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Data</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Cliente</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Descrição</th>
+                      <th className="px-4 py-2.5 text-right font-medium">Valor</th>
+                      <th className="px-4 py-2.5 text-left font-medium">Pagamento</th>
+                      <th className="px-4 py-2.5"></th>
                     </tr>
                   </thead>
-                  <tbody>
+                  <tbody className="divide-y divide-border">
                     {filtered.map(r => (
                       <tr key={r.id}
                         onClick={() => setSelectedReceita(r)}
-                        className={`border-b border-border/40 hover:bg-accent/10 transition-colors cursor-pointer ${selectedReceita?.id === r.id ? 'bg-primary/5 border-l-2 border-l-primary' : ''}`}>
-                        <td className="px-4 py-3 text-muted-foreground">{fmtDate(r.date)}</td>
-                        <td className="px-4 py-3 max-w-[280px]">
-                          <span className="font-medium text-foreground truncate block">{r.description}</span>
+                        className={`hover:bg-accent/10 transition-colors cursor-pointer ${selectedReceita?.id === r.id ? 'bg-primary/5' : ''}`}>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <span className="font-mono text-xs text-primary font-semibold">#{r.id.slice(0, 6).toUpperCase()}</span>
                         </td>
-                        <td className="px-4 py-3 text-muted-foreground truncate max-w-[120px]">{r.lead?.name || '--'}</td>
-                        <td className="px-4 py-3 text-right font-bold text-emerald-400">{fmt(r.amount)}</td>
-                        <td className="px-4 py-3 text-muted-foreground">{r.paid_at ? fmtDate(r.paid_at) : fmtDate(r.date)}</td>
-                        <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
+                        <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.paid_at || r.date)}</td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-2.5">
+                            <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
+                              {(r.lead?.name || '?').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-medium text-foreground truncate">{r.lead?.name || '—'}</div>
+                              {r.lead?.phone && <div className="text-xs text-muted-foreground truncate">{r.lead.phone}</div>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-muted-foreground truncate max-w-[220px]" title={r.description}>{r.description}</td>
+                        <td className="px-4 py-3 text-right font-bold text-foreground whitespace-nowrap tabular-nums">{fmt(r.amount)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={r.status} />
+                            {r.payment_method && <span className="text-xs text-muted-foreground">{methodLabel(r.payment_method)}</span>}
+                          </div>
+                        </td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap" onClick={e => e.stopPropagation()}>
                           <button onClick={() => handleDelete(r.id)} disabled={deletingId === r.id}
                             className="px-2 py-1 text-[10px] font-semibold text-red-400 border border-red-400/20 rounded-md hover:bg-red-400/10 disabled:opacity-50 inline-flex items-center gap-1">
                             {deletingId === r.id ? <Loader2 size={10} className="animate-spin" /> : <Trash2 size={10} />}
