@@ -66,12 +66,14 @@ const fmtBRL = (v: number) =>
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
 
 const STATUS_GROUPS = [
-  { key: 'all', label: 'Todos', icon: FileText, color: 'text-foreground' },
   { key: 'open', label: 'Em aberto', icon: Clock, color: 'text-blue-400' },
   { key: 'overdue', label: 'Atrasados', icon: AlertTriangle, color: 'text-red-400' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
 ] as const;
+// "Todos" saiu dos chips: a visão SEM filtro já é a agrupada (Em Aberto/Vencidos/Pagos).
+// 'all' segue como estado-base (nenhum chip ativo); clicar no chip ativo volta pra ele.
+type StatusGroup = 'all' | typeof STATUS_GROUPS[number]['key'];
 
 const KIND_LABEL: Record<string, string> = {
   SINAL: 'Sinal',
@@ -105,10 +107,9 @@ export default function BoletosTab({ dentistId }: Props) {
   const [loading, setLoading] = useState(true);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [total, setTotal] = useState(0);
-  // Default 'all' — mostra TODOS os boletos ja gerados (pagos +
-  // em aberto + atrasados + cancelados? -> cancelados filtrados na
-  // query). Quer filtrar? Os chips no topo trocam o grupo.
-  const [statusGroup, setStatusGroup] = useState<typeof STATUS_GROUPS[number]['key']>('all');
+  // Default 'all' = visão agrupada (Em Aberto / Vencidos / Pagos), sem chip ativo.
+  // Clicar num chip filtra; clicar de novo no chip ativo volta pra visão agrupada.
+  const [statusGroup, setStatusGroup] = useState<StatusGroup>('all');
   const [kind, setKind] = useState<string>('');
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -225,7 +226,7 @@ export default function BoletosTab({ dentistId }: Props) {
             return (
               <button
                 key={g.key}
-                onClick={() => setStatusGroup(g.key)}
+                onClick={() => setStatusGroup((prev) => (prev === g.key ? 'all' : g.key))}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
                   statusGroup === g.key
                     ? 'bg-primary text-primary-foreground'
