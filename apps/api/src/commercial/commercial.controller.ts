@@ -206,6 +206,14 @@ export class CommercialController {
     return this.quotesService.getJourneyBoard(user.tenant_id);
   }
 
+  // Ala de Ortodontia (Jornada do paciente) — quadro por dentista responsável.
+  // ⚠️ Também DEVE vir ANTES de @Get('quotes/:id') (senão vira :id).
+  @RequiresPermission('manage_proposals', 'view_proposals')
+  @Get('quotes/ortho-board')
+  quotesOrthoBoard(@Authenticated() user: AuthUser) {
+    return this.quotesService.getOrthoBoard(user.tenant_id);
+  }
+
   // Disparo "Equipe → Pacientes sem agendamento": prévia do texto + teste manual.
   @RequiresPermission('view_marketing')
   @Get('pacientes-sem-agendamento/preview')

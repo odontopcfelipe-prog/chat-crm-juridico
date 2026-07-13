@@ -586,6 +586,15 @@ export function Sidebar() {
       match: (p) => p.startsWith('/atendimento/progresso'),
       show: hasPermission('manage_proposals'),
     },
+    ortodontia: {
+      // Ala de ortodontia: quadro por dentista responsável (agendado / não agendado /
+      // concluído / saiu). Mesma permissão do Progresso.
+      label: 'Ortodontia',
+      href: '/atendimento/ortodontia',
+      icon: <Sparkles size={20} strokeWidth={2} />,
+      match: (p) => p.startsWith('/atendimento/ortodontia'),
+      show: hasPermission('manage_proposals'),
+    },
     novoPaciente: {
       // Onda 5c — antes era subItem de Pacientes; agora item top-level
       label: 'Novo paciente',
@@ -863,6 +872,7 @@ export function Sidebar() {
       items: [
         allItems.pacientes,    // Pacientes (lista)
         allItems.progresso,    // Progresso (pipeline pós-venda por etapa)
+        allItems.ortodontia,   // Ortodontia (quadro por dentista responsável)
         // Onda 15 (etapa 18) — Orcamentos e Financeiro moveram pro
         // grupo "Financeiro" abaixo (operador preferiu agrupar la).
         // Orcamentos continua duplicado no CRM como atalho.

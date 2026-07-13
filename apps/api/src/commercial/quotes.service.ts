@@ -2696,6 +2696,137 @@ export class QuotesService {
     return result;
   }
 
+  /**
+   * Onda — Ala de Ortodontia (Jornada do paciente). Quadro POR DENTISTA responsável,
+   * com o status de cada paciente de ortô: agendado / não agendado / concluído / saiu.
+   *
+   * "Paciente de ortô" = tem consulta type='ORTODONTIA' OU orçamento aceito cujo
+   * procedimento é categoria ORTODONTIA. Dentista responsável = quem mais o atende
+   * nas consultas de ortô (fallback: dentista principal do paciente).
+   *
+   * Status (precedência): concluído (plano COMPLETED / alta) > agendado (tem consulta
+   * de ortô futura) > saiu (arquivado OU inativo 12m) > não agendado (sem próxima).
+   */
+  async getOrthoBoard(tenantId: string) {
+    const nowMaceio = new Date(Date.now() - 3 * 60 * 60 * 1000); // fuso Maceió (start_at é naive-UTC)
+    const inactiveCutoff = new Date();
+    inactiveCutoff.setMonth(inactiveCutoff.getMonth() - 12); // "inativo" = 12m sem consulta
+
+    // 1. Consultas de ortô — fonte operacional (ortô volta ~todo mês)
+    const orthoEvents = await this.prisma.calendarEvent.findMany({
+      where: { tenant_id: tenantId, type: 'ORTODONTIA', patient_id: { not: null } },
+      select: { patient_id: true, assigned_user_id: true, start_at: true, status: true },
+      orderBy: { start_at: 'desc' },
+    });
+
+    // 2. Orçamentos aceitos de ortô — pega quem comprou e ainda não agendou nada
+    const orthoQuotes = await this.prisma.quote.findMany({
+      where: {
+        patient: { tenant_id: tenantId },
+        status: 'ACCEPTED',
+        items: { some: { procedure: { category: 'ORTODONTIA' } } },
+      },
+      select: { patient_id: true, treatment_plan: { select: { id: true, status: true } } },
+    });
+
+    const patientIds = new Set<string>();
+    for (const e of orthoEvents) if (e.patient_id) patientIds.add(e.patient_id);
+    for (const q of orthoQuotes) if (q.patient_id) patientIds.add(q.patient_id);
+
+    const EMPTY = { summary: { total: 0, agendado: 0, nao_agendado: 0, concluido: 0, saiu: 0 }, patients: [] as any[] };
+    if (patientIds.size === 0) return EMPTY;
+    const ids = Array.from(patientIds);
+
+    // 3. Dados dos pacientes
+    const patients = await this.prisma.patient.findMany({
+      where: { id: { in: ids }, tenant_id: tenantId },
+      select: {
+        id: true, name: true, phone: true, avatar_url: true, status: true,
+        last_visit_at: true, created_at: true,
+        primary_dentist: { select: { id: true, name: true } },
+      },
+    });
+
+    // 4. Dentista responsável (mais frequente nas consultas de ortô) + próxima consulta
+    const dentistCount = new Map<string, Map<string, number>>();
+    const nextApptByPatient = new Map<string, Date>();
+    for (const e of orthoEvents) {
+      if (!e.patient_id) continue;
+      if (e.assigned_user_id) {
+        const m = dentistCount.get(e.patient_id) ?? new Map<string, number>();
+        m.set(e.assigned_user_id, (m.get(e.assigned_user_id) || 0) + 1);
+        dentistCount.set(e.patient_id, m);
+      }
+      if (e.start_at >= nowMaceio && e.status !== 'CANCELADO' && e.status !== 'NO_SHOW') {
+        const cur = nextApptByPatient.get(e.patient_id);
+        if (!cur || e.start_at < cur) nextApptByPatient.set(e.patient_id, e.start_at);
+      }
+    }
+
+    const dentistIds = new Set<string>();
+    for (const m of dentistCount.values()) for (const did of m.keys()) dentistIds.add(did);
+    const dentistUsers = dentistIds.size
+      ? await this.prisma.user.findMany({ where: { id: { in: Array.from(dentistIds) } }, select: { id: true, name: true } })
+      : [];
+    const dentistNameById = new Map(dentistUsers.map((u) => [u.id, u.name]));
+
+    // 5. Planos de ortô por paciente (concluído + ids p/ o botão "Concluir ortodontia")
+    const planByPatient = new Map<string, { ids: string[]; completed: boolean }>();
+    for (const q of orthoQuotes) {
+      if (!q.patient_id || !q.treatment_plan) continue;
+      const p = planByPatient.get(q.patient_id) ?? { ids: [], completed: false };
+      p.ids.push(q.treatment_plan.id);
+      if (q.treatment_plan.status === 'COMPLETED') p.completed = true;
+      planByPatient.set(q.patient_id, p);
+    }
+
+    // 6. Monta os cards (1 por paciente)
+    const cards = patients.map((p) => {
+      let dentist: { id: string; name: string } | null = null;
+      const m = dentistCount.get(p.id);
+      if (m && m.size) {
+        const topId = Array.from(m.entries()).sort((a, b) => b[1] - a[1])[0][0];
+        dentist = { id: topId, name: dentistNameById.get(topId) || '—' };
+      } else if (p.primary_dentist) {
+        dentist = p.primary_dentist;
+      }
+
+      const nextAppt = nextApptByPatient.get(p.id) || null;
+      const plan = planByPatient.get(p.id);
+      const archived = p.status === 'ARCHIVED';
+      const ref = p.last_visit_at ?? p.created_at;
+      const inativo = !archived && ref < inactiveCutoff;
+
+      let status: 'concluido' | 'agendado' | 'saiu' | 'nao_agendado';
+      if (plan?.completed) status = 'concluido';
+      else if (nextAppt) status = 'agendado';
+      else if (archived || inativo) status = 'saiu';
+      else status = 'nao_agendado';
+
+      return {
+        patient: { id: p.id, name: p.name, phone: p.phone, avatar_url: p.avatar_url },
+        dentist,
+        status,
+        next_appointment_at: nextAppt,
+        last_visit_at: p.last_visit_at,
+        archived,
+        inativo,
+        plan_ids: plan?.ids ?? [],
+      };
+    });
+
+    const summary = {
+      total: cards.length,
+      agendado: cards.filter((c) => c.status === 'agendado').length,
+      nao_agendado: cards.filter((c) => c.status === 'nao_agendado').length,
+      concluido: cards.filter((c) => c.status === 'concluido').length,
+      saiu: cards.filter((c) => c.status === 'saiu').length,
+    };
+
+    this.logger.log(`[ORTHO_BOARD] OK pacientes=${cards.length} agendado=${summary.agendado} saiu=${summary.saiu}`);
+    return { summary, patients: cards };
+  }
+
   // ─── Onda 1 — Auto-expiracao + lembrete D-3 ────────────────────
 
   /**
