@@ -615,7 +615,9 @@ function OrcamentosPageInner() {
  * Financeiro (a validar / validado). Ordenada por data da venda (no caller).
  */
 function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<typeof useRouter> }) {
-  const openFicha = (q: Quote) => router.push(`/atendimento/pacientes/${q.patient.id}?tab=proposals`);
+  // "Ver venda" → aba Financeiro do paciente: o tratamento fechado com valores,
+  // juros, parcelas (cobranças) e a negociação do fechamento.
+  const openFicha = (q: Quote) => router.push(`/atendimento/pacientes/${q.patient.id}?tab=financial`);
   const initials = (name: string | null) =>
     (name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const fmtDate = (iso: string | null) => {
@@ -683,8 +685,9 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
                 <button
                   onClick={(e) => { e.stopPropagation(); openFicha(q); }}
                   className="text-xs px-2.5 py-1 rounded-lg border border-border text-muted-foreground hover:bg-accent whitespace-nowrap"
+                  title="Ver a venda: valores, juros, parcelas e a negociação"
                 >
-                  Ver ficha
+                  Ver venda
                 </button>
               </td>
             </tr>
