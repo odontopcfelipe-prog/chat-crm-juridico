@@ -148,7 +148,7 @@ interface DashboardData {
 // Clientes, Inadimplencia — substituidas por Boletos + Pacientes.
 // Fase 5 — "Diárias" entra na lista; a renderização da aba é gateada por
 // manage_financial via useUserPermissions (ver visibleTabs no componente).
-const TABS = ['Resumo', 'Validar', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
+const TABS = ['Entradas', 'Validar', 'Receitas', 'Despesas', 'Boletos', 'Pacientes', 'Diárias', 'Log'] as const;
 type Tab = typeof TABS[number];
 
 const PERIODS = [
@@ -963,7 +963,7 @@ function MonthlyChart({ periods }: { periods: { period: string; entries: number;
 export default function FinanceiroPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<Tab>('Resumo');
+  const [tab, setTab] = useState<Tab>('Entradas');
   const [period, setPeriod] = useState('mes');
   const [asaasBalance, setAsaasBalance] = useState<number | null>(null);
 
@@ -1068,7 +1068,7 @@ export default function FinanceiroPage() {
 
   /* ─── Tab icons ─── */
   const tabIcons: Record<Tab, any> = {
-    Resumo: BarChart3,
+    Entradas: BarChart3,
     Validar: CheckCircle2,
     Receitas: TrendingUp,
     Despesas: TrendingDown,
@@ -1230,7 +1230,7 @@ export default function FinanceiroPage() {
           </div>
         )}
 
-        {tab === 'Resumo' && summary && (
+        {tab === 'Entradas' && summary && (
           <div className="space-y-5">
             {/* KPI Grid — Onda 16: 4 KPIs do funil financeiro odontologico.
                 Fonte: GET /financeiro/dashboard (agrega charges + transactions).
@@ -1288,6 +1288,65 @@ export default function FinanceiroPage() {
               <span className="font-semibold">A receber</span>, <span className="font-semibold">Atrasado</span> e{' '}
               <span className="font-semibold">Vencem 7d</span> mostram a posição de hoje.
             </p>
+
+            {/* Entradas — tabela estilo pedidos (as receitas do período, mesma da aba Receitas). */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                  <TrendingUp size={15} className="text-emerald-400" /> Entradas
+                </h3>
+                <button onClick={() => setTab('Receitas')} className="text-[11px] font-bold text-emerald-400 hover:underline">
+                  Ver todas / gerenciar →
+                </button>
+              </div>
+              {receitas.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-8 text-center text-sm text-muted-foreground">
+                  Nenhuma entrada no período.
+                </div>
+              ) : (
+                <div className="bg-card border border-border rounded-xl overflow-x-auto">
+                  <table className="w-full text-sm min-w-[820px]">
+                    <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
+                      <tr>
+                        <th className="px-4 py-2.5 text-left font-medium">Entrada</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Data</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Cliente</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Descrição</th>
+                        <th className="px-4 py-2.5 text-right font-medium">Valor</th>
+                        <th className="px-4 py-2.5 text-left font-medium">Pagamento</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-border">
+                      {receitas.slice(0, 12).map((r) => (
+                        <tr key={r.id} onClick={() => setTab('Receitas')} className="hover:bg-accent/10 transition-colors cursor-pointer">
+                          <td className="px-4 py-3 whitespace-nowrap"><span className="font-mono text-xs text-primary font-semibold">#{r.id.slice(0, 6).toUpperCase()}</span></td>
+                          <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.paid_at || r.date)}</td>
+                          <td className="px-4 py-3">
+                            <div className="flex items-center gap-2.5">
+                              <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
+                                {(r.lead?.name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase()}
+                              </span>
+                              <div className="min-w-0">
+                                <div className="font-medium text-foreground truncate">{r.lead?.name || '—'}</div>
+                                {r.lead?.phone && <div className="text-xs text-muted-foreground truncate">{r.lead.phone}</div>}
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-3 text-muted-foreground truncate max-w-[220px]" title={r.description}>{r.description}</td>
+                          <td className="px-4 py-3 text-right font-bold text-foreground whitespace-nowrap tabular-nums">{fmt(r.amount)}</td>
+                          <td className="px-4 py-3 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <StatusBadge status={r.status} />
+                              {r.payment_method && <span className="text-xs text-muted-foreground">{methodLabel(r.payment_method)}</span>}
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
 
             {/* Onda 18.x — removidos "Taxa de realização", "Inadimplência por faixa"
                 e "Projeção de recebimento" a pedido do dono (tela mais limpa). */}
