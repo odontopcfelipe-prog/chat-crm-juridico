@@ -30,7 +30,8 @@ interface Quote {
   sent_at: string | null;
   accepted_at: string | null;
   patient: { id: string; name: string | null; phone: string | null };
-  created_by: { id: string; name: string } | null; // quem fez a avaliação
+  created_by: { id: string; name: string } | null; // quem criou o orçamento no sistema
+  avaliacao_dentist?: { id: string; name: string } | null; // dentista da avaliação
   closed_by?: { id: string; name: string } | null; // quem fechou a venda (aceitou)
   _count?: { items: number };
   /** Status "Financeiro" da venda (aba Aprovados): null = a validar. */
@@ -629,13 +630,14 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
     return `${dia} · ${hora}`;
   };
   return (
-    <table className="w-full text-sm min-w-[900px]">
+    <table className="w-full text-sm min-w-[1040px]">
       <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
         <tr>
           <th className="text-left px-4 py-2.5 font-medium">Venda</th>
           <th className="text-left px-4 py-2.5 font-medium">Data</th>
           <th className="text-left px-4 py-2.5 font-medium">Cliente</th>
-          <th className="text-left px-4 py-2.5 font-medium">Vendedor</th>
+          <th className="text-left px-4 py-2.5 font-medium">Avaliação</th>
+          <th className="text-left px-4 py-2.5 font-medium">Fechamento</th>
           <th className="text-left px-4 py-2.5 font-medium">Itens</th>
           <th className="text-right px-4 py-2.5 font-medium">Total</th>
           <th className="text-left px-4 py-2.5 font-medium">Financeiro</th>
@@ -669,14 +671,14 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
                 </div>
               </td>
               <td className="px-4 py-3 text-xs whitespace-nowrap">
-                <div className="text-muted-foreground">
-                  Avaliou <span className="text-foreground/80">{q.created_by?.name || '—'}</span>
-                </div>
-                {q.closed_by?.name && (
-                  <div className="text-muted-foreground">
-                    Fechou <span className="text-foreground/80">{q.closed_by.name}</span>
-                  </div>
-                )}
+                {q.avaliacao_dentist?.name
+                  ? <span className="text-foreground/80">{q.avaliacao_dentist.name}</span>
+                  : <span className="text-muted-foreground">—</span>}
+              </td>
+              <td className="px-4 py-3 text-xs whitespace-nowrap">
+                {(q.closed_by?.name || q.created_by?.name)
+                  ? <span className="text-foreground/80">{q.closed_by?.name || q.created_by?.name}</span>
+                  : <span className="text-muted-foreground">—</span>}
               </td>
               <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">{q._count?.items ?? 0} itens</td>
               <td className="px-4 py-3 text-right font-bold text-foreground whitespace-nowrap tabular-nums">

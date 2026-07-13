@@ -2030,8 +2030,19 @@ export class QuotesService {
       orderBy: { created_at: 'desc' },
       take: limit,
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
-        created_by: { select: { id: true, name: true } }, // quem fez a avaliação/orçamento
+        patient: {
+          select: {
+            id: true, name: true, phone: true,
+            primary_dentist: { select: { id: true, name: true } }, // fallback do dentista avaliador
+          },
+        },
+        created_by: { select: { id: true, name: true } }, // quem criou o orçamento no sistema
+        // dentista da AVALIAÇÃO = 1º item com dentist preenchido (avaliação é sempre de dentista)
+        items: {
+          where: { dentist_id: { not: null } },
+          take: 1,
+          select: { dentist: { select: { id: true, name: true } } },
+        },
         _count: { select: { items: true } },
         // status "Financeiro" da venda (aba Aprovados): validado ou a validar
         treatment_plan: { select: { validated_by_financial_at: true } },
@@ -2053,7 +2064,11 @@ export class QuotesService {
       }
     }
 
-    return quotes.map((q) => ({ ...q, closed_by: closerByQuote.get(q.id) ?? null }));
+    return quotes.map((q) => {
+      // avaliação = dentista do item; senão o dentista do paciente
+      const avaliacao_dentist = q.items?.[0]?.dentist ?? q.patient?.primary_dentist ?? null;
+      return { ...q, closed_by: closerByQuote.get(q.id) ?? null, avaliacao_dentist };
+    });
   }
 
   /**
