@@ -73,6 +73,29 @@ export class BoletoDeliveryService {
     }
   }
 
+  /**
+   * TESTE — envia os boletos de uma venda AGORA, pro telefone informado (não pro
+   * paciente), SEM gastar a dedup do fluxo real (força reenvio). Escopo por tenant.
+   */
+  async deliverNow(planId: string, tenantId: string, testPhone: string): Promise<{ ok: boolean; detail: string }> {
+    const phone = (testPhone || '').trim();
+    if (!phone) return { ok: false, detail: 'Informe um telefone de teste.' };
+    // Isolamento: a venda tem boleto DESTE tenant? (não vaza venda de outra clínica)
+    const anyCharge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { treatment_plan_id: planId, tenant_id: tenantId, billing_type: 'BOLETO' },
+      select: { treatment_plan: { select: { patient: { select: { name: true } } } } },
+    });
+    if (!anyCharge) return { ok: false, detail: 'Venda não encontrada (ou sem boletos) nesta clínica.' };
+    const name = anyCharge.treatment_plan?.patient?.name || 'Paciente';
+    const ok = await this.sendBoletos(planId, tenantId, name, phone, { dedup: false });
+    return {
+      ok,
+      detail: ok
+        ? `Boletos de teste enviados para ${phone}.`
+        : 'Falha no envio de teste — veja os logs [BOLETO_DELIVERY] (chip/telefone/Asaas).',
+    };
+  }
+
   /** Entrega os boletos de UMA venda, imediatamente (sem cooldown). */
   private async deliverOne(target: { planId: string; tenantId: string }): Promise<void> {
     try {
@@ -167,7 +190,8 @@ export class BoletoDeliveryService {
    *  Dedup POR PEÇA (retry reenvia só o que falhou, sem duplicar) + checagem do
    *  sucesso REAL (a Evolution não lança — devolve {statusCode,error} em falha).
    *  Retorna true só se TODAS as peças foram entregues (agora ou antes). */
-  private async sendBoletos(planId: string, tenantId: string, name: string, phone: string): Promise<boolean> {
+  private async sendBoletos(planId: string, tenantId: string, name: string, phone: string, opts?: { dedup?: boolean }): Promise<boolean> {
+    const dedup = opts?.dedup !== false; // teste passa dedup:false → força reenvio, sem marcar
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
         treatment_plan_id: planId,
@@ -198,7 +222,7 @@ export class BoletoDeliveryService {
         `Olá, ${firstName}! 📄 Como combinei ontem, aqui estão os seus boletos. ` +
           `Qualquer dúvida, é só me chamar por aqui! 💙`,
         instance,
-      ),
+      ), dedup,
     );
     if (!textOk) allOk = false;
 
@@ -226,7 +250,7 @@ export class BoletoDeliveryService {
         const linhas = parcelas.map((p, i) => (p.boleto_url ? `Parcela ${i + 1}: ${p.boleto_url}` : '')).filter(Boolean);
         if (linhas.length === 0) throw new Error('sem carnê e sem links de parcela');
         return await this.whatsapp.sendText(phone, `Aqui estão os boletos das suas parcelas:\n\n${linhas.join('\n')}`, instance);
-      });
+      }, dedup);
       if (!carneOk) allOk = false;
     }
 
@@ -238,7 +262,7 @@ export class BoletoDeliveryService {
         this.whatsapp.sendMedia(
           phone, 'document', c.boleto_url as string, label, instance,
           `boleto-${(c.kind || 'boleto').toLowerCase()}.pdf`, 'application/pdf',
-        ),
+        ), dedup,
       );
       if (!ok) allOk = false;
     }
@@ -306,8 +330,8 @@ export class BoletoDeliveryService {
 
   /** Envia UMA peça só se ainda não foi (dedup por peça); marca no sucesso REAL.
    *  Retorna true se a peça está entregue (agora ou antes), false se falhou/recusada. */
-  private async sendPiece(pieceId: string, tenantId: string, fn: () => Promise<any>): Promise<boolean> {
-    if (await this.alreadySentPiece(pieceId)) return true;
+  private async sendPiece(pieceId: string, tenantId: string, fn: () => Promise<any>, dedup = true): Promise<boolean> {
+    if (dedup && (await this.alreadySentPiece(pieceId))) return true;
     let res: any;
     try {
       res = await fn();
@@ -319,7 +343,7 @@ export class BoletoDeliveryService {
       this.logger.warn(`[BOLETO_DELIVERY] Evolution recusou o envio (${pieceId}): ${JSON.stringify(res).slice(0, 200)}`);
       return false;
     }
-    await this.markPiece(pieceId, tenantId);
+    if (dedup) await this.markPiece(pieceId, tenantId);
     return true;
   }
 

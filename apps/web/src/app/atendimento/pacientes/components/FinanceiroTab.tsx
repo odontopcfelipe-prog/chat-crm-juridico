@@ -765,6 +765,7 @@ function ProposalFinancialCard({
 
   // Quando expande, carrega quote completo (pra ter plan_id) e sub_installments
   const [planId, setPlanId] = useState<string | null>(null);
+  const [testingDelivery, setTestingDelivery] = useState(false);
   const [loadingQuoteDetail, setLoadingQuoteDetail] = useState(false);
   // Onda 14.51 — quote completo (procedimentos + negociacao aceita) + contrato
   const [quoteDetail, setQuoteDetail] = useState<QuoteFullDetail | null>(null);
@@ -890,6 +891,34 @@ function ProposalFinancialCard({
     const i = 0.015;
     return Math.round((financed * i / (1 - Math.pow(1 + i, -count))) * 100) / 100;
   })();
+
+  // Teste do disparo "Apresentação + boletos": manda os boletos (carnê PDF + entrada)
+  // desta venda AGORA, pro número informado (o SEU, pra testar sem incomodar o paciente
+  // e sem esperar o D+2). Não gasta a dedup do fluxo real.
+  const handleTestDelivery = async () => {
+    if (!planId) {
+      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      return;
+    }
+    const phone = window.prompt(
+      'Enviar os boletos de TESTE para qual WhatsApp?\n(use o SEU número, com DDD — ex.: 82999998888)',
+      '',
+    );
+    if (!phone || !phone.replace(/\D/g, '')) return;
+    setTestingDelivery(true);
+    try {
+      const { data } = await api.post<{ ok: boolean; detail: string }>('/payment-gateway/boleto-delivery/test', {
+        plan_id: planId,
+        phone,
+      });
+      if (data?.ok) showSuccess(data.detail || 'Boletos de teste enviados.');
+      else showError(data?.detail || 'Falha no envio de teste.');
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao enviar os boletos de teste.');
+    } finally {
+      setTestingDelivery(false);
+    }
+  };
 
   const handleGenerateCharges = async () => {
     const down = parseFloat(genDown.replace(',', '.'));
@@ -1395,6 +1424,17 @@ function ProposalFinancialCard({
               title="O financiamento só gerou o sinal — gerar a entrada e as parcelas que faltaram"
             >
               Gerar cobranças pendentes
+            </button>
+          )}
+          {hasInstallments && hasPermission('manage_financial') && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleTestDelivery(); }}
+              disabled={testingDelivery || !planId}
+              className="px-2.5 py-1.5 rounded-md border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-sky-700 dark:text-sky-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50"
+              title="Enviar os boletos (carnê PDF + entrada) desta venda AGORA pro seu WhatsApp, pra testar o disparo sem esperar o dia seguinte"
+            >
+              {testingDelivery ? 'Enviando…' : '🧪 Testar envio dos boletos'}
             </button>
           )}
         </div>

@@ -16,6 +16,7 @@ import type { Response } from 'express';
 import { PaymentGatewayService } from './payment-gateway.service';
 import { CreateChargeDto, CreateBatchChargesDto, CreateInstallmentChargeDto } from './payment-gateway.dto';
 import { AsaasClient } from './asaas/asaas-client';
+import { BoletoDeliveryService } from './boleto-delivery.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators/public.decorator';
 
@@ -27,6 +28,7 @@ export class PaymentGatewayController {
     private service: PaymentGatewayService,
     private asaasClient: AsaasClient,
     private prisma: PrismaService,
+    private boletoDelivery: BoletoDeliveryService,
   ) {}
 
   /**
@@ -294,6 +296,19 @@ export class PaymentGatewayController {
     if (!tenantId) throw new Error('tenant_id ausente no JWT');
     this.logger.log(`[POST /charges/${chargeId}/resend-whatsapp]`);
     return this.service.resendChargeWhatsapp(chargeId, tenantId);
+  }
+
+  /**
+   * TESTE do disparo "Apresentação + boletos": envia os boletos (carnê PDF +
+   * entrada) de uma venda AGORA, pro telefone informado (não pro paciente), sem
+   * esperar o D+2 nem gastar a dedup. Escopo por tenant (não vaza outra clínica).
+   */
+  @Post('boleto-delivery/test')
+  async testBoletoDelivery(@Body() body: { plan_id: string; phone: string }, @Req() req: any) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    this.logger.log(`[POST /boleto-delivery/test] plan=${body?.plan_id} phone=${body?.phone}`);
+    return this.boletoDelivery.deliverNow(body?.plan_id, tenantId, body?.phone);
   }
 
   /**
