@@ -637,6 +637,8 @@ interface QuoteFullDetail {
   accepted_at: string | null;
   chosen_payment_key?: string | null;
   chosen_down_payment?: string | number | null;
+  chosen_entrada_due_date?: string | null;
+  chosen_installments_start_date?: string | null;
   is_chosen_proposal?: boolean;
   // Onda 17.72 — validated_by_financial_at: null = aguardando validação do Financeiro.
   treatment_plan?: {
@@ -774,6 +776,8 @@ function ProposalFinancialCard({
   const [genDown, setGenDown] = useState('');
   const [genCount, setGenCount] = useState('');
   const [genValue, setGenValue] = useState('');
+  const [genEntradaDue, setGenEntradaDue] = useState('');
+  const [genFirstInst, setGenFirstInst] = useState('');
 
   // Onda 14.17 — pré-carrega planId no mount (não só ao expandir) pra
   // calcular a barra de progresso e o agregado no header colapsado.
@@ -903,6 +907,8 @@ function ProposalFinancialCard({
         installment_value: value,
         signal_value: sinalCharge ? Number(sinalCharge.amount) : undefined,
         signal_method: sinalCharge && (sinalCharge.billing_type === 'PIX' || sinalCharge.billing_type === 'BOLETO') ? sinalCharge.billing_type : undefined,
+        entrada_due_date: genEntradaDue || undefined,
+        installments_start_date: genFirstInst || undefined,
       });
       showSuccess('Cobranças pendentes geradas!');
       setShowGen(false);
@@ -1381,6 +1387,8 @@ function ProposalFinancialCard({
                   const i = 0.015;
                   setGenValue(String(Math.round((financed * i / (1 - Math.pow(1 + i, -n))) * 100) / 100));
                 } else setGenValue('');
+                setGenEntradaDue((quoteDetail?.chosen_entrada_due_date || '').slice(0, 10));
+                setGenFirstInst((quoteDetail?.chosen_installments_start_date || '').slice(0, 10));
                 setShowGen(true);
               }}
               className="px-2.5 py-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
@@ -1444,6 +1452,18 @@ function ProposalFinancialCard({
                   Com juros 1,5% a.m. (Price): R$ {suggestedParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — usar este valor
                 </button>
               )}
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Vencimento da entrada</span>
+                  <input type="date" value={genEntradaDue} onChange={(e) => setGenEntradaDue(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">1ª parcela em</span>
+                  <input type="date" value={genFirstInst} onChange={(e) => setGenFirstInst(e.target.value)}
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                </label>
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowGen(false)} className="px-3 py-2 rounded-lg border border-border text-sm">Cancelar</button>

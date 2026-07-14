@@ -214,6 +214,25 @@ export class TreatmentPlanBillingService {
     const hasEntrada = existingByKind.some((c) => isKind('ENTRADA', 'entrada', c));
     const hasInstallments = existingByKind.some((c) => isKind('INSTALLMENT', 'parcelado', c));
 
+    // BLINDAGEM — arredonda e valida TODOS os valores ANTES de criar qualquer cobrança,
+    // pra o financiamento NUNCA gerar só o sinal (falha LIMPA, sem órfão). O Asaas rejeita
+    // valor com >2 casas (400) e valor < R$ 5 (400): entrada (down−sinal) e parcela (total÷n)
+    // geram float sujo/abaixo do mínimo — pega tudo aqui, antes do 1º create.
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const ASAAS_MIN = 5;
+    const _sig = round2(signalValue);
+    const _entrada = round2(options.downPaymentValue - signalValue);
+    const _parcela = round2(options.installmentValue);
+    const _invalid: string[] = [];
+    if (!hasSignal && _sig > 0 && _sig < ASAAS_MIN) _invalid.push(`sinal R$ ${_sig.toFixed(2)}`);
+    if (!hasEntrada && _entrada > 0 && _entrada < ASAAS_MIN) _invalid.push(`entrada R$ ${_entrada.toFixed(2)}`);
+    if (!hasInstallments && _parcela < ASAAS_MIN) _invalid.push(`parcela R$ ${_parcela.toFixed(2)}`);
+    if (_invalid.length > 0) {
+      throw new BadRequestException(
+        `Valor abaixo do mínimo do Asaas (R$ 5,00): ${_invalid.join(', ')}. Ajuste os valores antes de gerar.`,
+      );
+    }
+
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
     const today = new Date();
@@ -231,11 +250,6 @@ export class TreatmentPlanBillingService {
     const installmentsFirstDue = options.installmentsStartDate
       ? parseLocalDate(options.installmentsStartDate)
       : new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
-
-    // Asaas rejeita valor com >2 casas decimais (HTTP 400). Subtração/multiplicação de
-    // valores monetários geram lixo de ponto flutuante (ex.: 700-233.33, 166.67*6), o que
-    // fazia o financiamento estourar DEPOIS de criar o sinal (sinal órfão, resto não sai).
-    const round2 = (v: number) => Math.round(v * 100) / 100;
 
     const created: any[] = [];
 
