@@ -122,10 +122,10 @@ export const DISPAROS: DisparoItem[] = [
   // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
   // Onda 18.31 — Confirmação PRIMEIRO (é por EVENTO: webhook do Asaas quando cai um
   // pagamento). Editável, sai pelo chip Financeiro, só dispara se o toggle estiver ON.
-  // Parte 1 — apresentação do setor Financeiro no dia SEGUINTE ao fechamento da
-  // venda (que gerou boletos): se apresenta e avisa que amanhã manda os boletos.
-  { id: 'boleto_intro', nome: 'Apresentação do Financeiro · após a venda', categoria: 'financeiro',
-    gatilho: 'No dia seguinte ao fechamento da venda · avisa que amanhã manda os boletos', canal: 'WhatsApp', tags: ['Template'],
+  // Apresentação do Financeiro + envio dos boletos após a venda (2 passos, 1 toggle):
+  // D+1 se apresenta e avisa; D+2 manda os boletos (carnê = 1 PDF com todas as parcelas).
+  { id: 'boleto_intro', nome: 'Apresentação + boletos · após a venda', categoria: 'financeiro',
+    gatilho: 'D+1 se apresenta · D+2 manda os boletos em PDF (carnê)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_intro' },
   { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
     gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],

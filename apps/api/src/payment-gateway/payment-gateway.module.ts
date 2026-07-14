@@ -3,6 +3,7 @@ import { PaymentGatewayService } from './payment-gateway.service';
 import { PaymentGatewayController } from './payment-gateway.controller';
 import { PaymentGatewayWebhookController } from './payment-gateway-webhook.controller';
 import { AsaasClient } from './asaas/asaas-client';
+import { BoletoDeliveryService } from './boleto-delivery.service';
 import { SettingsModule } from '../settings/settings.module';
 import { GatewayModule } from '../gateway/gateway.module';
 import { FinanceiroModule } from '../financeiro/financeiro.module';
@@ -16,7 +17,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     forwardRef(() => WhatsappModule),
   ],
   controllers: [PaymentGatewayController, PaymentGatewayWebhookController],
-  providers: [PaymentGatewayService, AsaasClient],
+  providers: [PaymentGatewayService, AsaasClient, BoletoDeliveryService],
   exports: [PaymentGatewayService, AsaasClient],
 })
 export class PaymentGatewayModule {}

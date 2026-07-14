@@ -258,6 +258,32 @@ export class AsaasClient {
     return this.request<any>('DELETE', `/installments/${installmentId}`, undefined, undefined, tenantId);
   }
 
+  /**
+   * CARNÊ (livro de pagamento) do parcelamento — 1 PDF com TODAS as parcelas,
+   * cada uma numa página. GET /installments/{id}/paymentBook devolve o PDF
+   * BINÁRIO (não JSON), por isso não passa pelo request<T>() padrão (que espera
+   * JSON) — faz o próprio axios com responseType arraybuffer. Retorna o Buffer.
+   */
+  async getInstallmentPaymentBook(installmentId: string, tenantId?: string | null): Promise<Buffer> {
+    const config = await this.getConfig(tenantId);
+    if (!config.apiKey) {
+      throw new ServiceUnavailableException(
+        'Cobrança Asaas não está configurada para esta clínica.',
+      );
+    }
+    const res = await axios({
+      method: 'GET',
+      url: `${config.baseUrl}/installments/${installmentId}/paymentBook`,
+      responseType: 'arraybuffer',
+      headers: {
+        access_token: config.apiKey,
+        'User-Agent': 'LexCRM/1.0',
+      },
+      timeout: 30000,
+    });
+    return Buffer.from(res.data as ArrayBuffer);
+  }
+
   async listCharges(params?: any, tenantId?: string | null): Promise<any> {
     return this.request<any>('GET', '/payments', undefined, params, tenantId);
   }
