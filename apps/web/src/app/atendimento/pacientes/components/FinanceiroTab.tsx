@@ -874,6 +874,18 @@ function ProposalFinancialCard({
   const sinalCharge = relatedCharges.find((c) => c.kind === 'SINAL');
   const hasInstallments = relatedCharges.some((c) => c.kind === 'INSTALLMENT');
   const isPartialFinancing = !!sinalCharge && !hasInstallments;
+  const totalTratamento = Number(quote.total_value) || 0;
+  // Parcela com juros (Tabela Price, 1,5% a.m. — mesmo cálculo do orçamento), a partir do
+  // total do tratamento − entrada, no nº de parcelas informado. O operador não precisa
+  // lembrar o valor com juros: preenche entrada + nº parcelas e o valor sai daqui.
+  const suggestedParcela = (() => {
+    const down = parseFloat((genDown || '').replace(',', '.')) || 0;
+    const count = parseInt(genCount, 10) || 0;
+    const financed = totalTratamento - down;
+    if (count <= 0 || financed <= 0) return 0;
+    const i = 0.015;
+    return Math.round((financed * i / (1 - Math.pow(1 + i, -count))) * 100) / 100;
+  })();
 
   const handleGenerateCharges = async () => {
     const down = parseFloat(genDown.replace(',', '.'));
@@ -1355,7 +1367,22 @@ function ProposalFinancialCard({
           {isPartialFinancing && hasPermission('manage_financial') && (
             <button
               type="button"
-              onClick={(e) => { e.stopPropagation(); setGenDown(sinalCharge ? String(Number(sinalCharge.amount)) : ''); setShowGen(true); }}
+              onClick={(e) => {
+                e.stopPropagation();
+                // Pré-preenche do que ficou salvo no orçamento: nº de parcelas (do
+                // chosen_payment_key, ex.: "parcelado-20x"), entrada e a parcela com juros.
+                const key = quoteDetail?.chosen_payment_key || '';
+                const n = parseInt(key.match(/(\d+)x/)?.[1] || '0', 10);
+                const down = Number(quoteDetail?.chosen_down_payment) || (sinalCharge ? Number(sinalCharge.amount) : 0);
+                setGenDown(down ? String(down) : '');
+                setGenCount(n > 0 ? String(n) : '');
+                const financed = (Number(quote.total_value) || 0) - down;
+                if (n > 0 && financed > 0) {
+                  const i = 0.015;
+                  setGenValue(String(Math.round((financed * i / (1 - Math.pow(1 + i, -n))) * 100) / 100));
+                } else setGenValue('');
+                setShowGen(true);
+              }}
               className="px-2.5 py-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
               title="O financiamento só gerou o sinal — gerar a entrada e as parcelas que faltaram"
             >
@@ -1388,6 +1415,11 @@ function ProposalFinancialCard({
                 Sinal já emitido: <span className="font-semibold text-foreground">R$ {Number(sinalCharge.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> ({sinalCharge.billing_type})
               </div>
             )}
+            {totalTratamento > 0 && (
+              <div className="text-xs text-muted-foreground">
+                Total do tratamento: <span className="font-semibold text-foreground">R$ {totalTratamento.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+              </div>
+            )}
             <div className="space-y-2">
               <label className="block">
                 <span className="text-xs font-medium text-muted-foreground">Entrada total (R$) — inclui o sinal</span>
@@ -1406,6 +1438,12 @@ function ProposalFinancialCard({
                     className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
                 </label>
               </div>
+              {suggestedParcela > 0 && (
+                <button type="button" onClick={() => setGenValue(String(suggestedParcela))}
+                  className="text-[11px] text-primary hover:underline text-left">
+                  Com juros 1,5% a.m. (Price): R$ {suggestedParcela.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} — usar este valor
+                </button>
+              )}
             </div>
             <div className="flex justify-end gap-2">
               <button type="button" onClick={() => setShowGen(false)} className="px-3 py-2 rounded-lg border border-border text-sm">Cancelar</button>
