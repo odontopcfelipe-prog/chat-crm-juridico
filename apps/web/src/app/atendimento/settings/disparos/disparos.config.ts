@@ -56,6 +56,8 @@ export type OperacionalKey =
   // Onda 18.28 — confirmação de pagamento (por EVENTO: webhook do Asaas quando cai
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
   | 'confirmacao_pagamento'
+  // Parte 1 — apresentação do Financeiro no dia seguinte ao fechamento da venda.
+  | 'boleto_intro'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
   // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
@@ -120,6 +122,11 @@ export const DISPAROS: DisparoItem[] = [
   // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
   // Onda 18.31 — Confirmação PRIMEIRO (é por EVENTO: webhook do Asaas quando cai um
   // pagamento). Editável, sai pelo chip Financeiro, só dispara se o toggle estiver ON.
+  // Parte 1 — apresentação do setor Financeiro no dia SEGUINTE ao fechamento da
+  // venda (que gerou boletos): se apresenta e avisa que amanhã manda os boletos.
+  { id: 'boleto_intro', nome: 'Apresentação do Financeiro · após a venda', categoria: 'financeiro',
+    gatilho: 'No dia seguinte ao fechamento da venda · avisa que amanhã manda os boletos', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'boleto_intro' },
   { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
     gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'confirmacao_pagamento' },

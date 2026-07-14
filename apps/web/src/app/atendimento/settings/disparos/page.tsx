@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -59,6 +59,8 @@ interface OperacionalData {
   boleto_atraso_15d?: { enabled: boolean };
   boleto_atraso_30d?: { enabled: boolean };
   confirmacao_pagamento?: { enabled: boolean };
+  // Parte 1 — apresentação do Financeiro no dia seguinte à venda (opt-in).
+  boleto_intro?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
@@ -299,7 +301,21 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_CONFIRMACAO_PAGAMENTO}
           />
         )}
-        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'boleto_intro' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro no DIA SEGUINTE ao fechamento da venda: o setor financeiro se apresenta e avisa que amanhã manda todos os boletos em PDF. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            endpoint="/followup/cobranca-template/boleto_intro"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
+            ]}
+            preview={{ nome: 'Felipe', clinica: 'Instituto Odonto Passos' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_BOLETO_INTRO}
+          />
+        )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && (
           <MensagemEditor
             titulo={openItem.nome}
             descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."

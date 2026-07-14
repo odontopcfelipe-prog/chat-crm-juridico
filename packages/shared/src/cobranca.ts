@@ -52,14 +52,26 @@ export const DEFAULT_CONFIRMACAO_PAGAMENTO =
   'Confirmamos o recebimento do pagamento no valor de *{valor}*{descricao}.\n\n' +
   'Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.';
 
-/** Ids de template financeiro editáveis: os 5 boletos + a confirmação. */
+// Parte 1 — APRESENTAÇÃO do setor financeiro no dia SEGUINTE ao fechamento da
+// venda: o Financeiro se apresenta e avisa que amanhã manda todos os boletos (em
+// PDF). NÃO entra em COBRANCA_STAGES (o cron não a agenda por vencimento; dispara
+// por venda fechada ontem). Editável igual aos boletos. Placeholders: {nome} {clinica}.
+export const DEFAULT_BOLETO_INTRO =
+  'Olá, {nome}! 😊\n\n' +
+  'Aqui é o setor financeiro da {clinica}. Seja muito bem-vindo(a)! A partir de agora é por aqui ' +
+  'que a gente cuida de tudo sobre os seus pagamentos.\n\n' +
+  'Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄\n\n' +
+  'Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙';
+
+/** Ids de template financeiro editáveis: os 5 boletos + a confirmação + a apresentação. */
 export function isFinTemplateId(s: string): boolean {
-  return isCobrancaStage(s) || s === 'confirmacao_pagamento';
+  return isCobrancaStage(s) || s === 'confirmacao_pagamento' || s === 'boleto_intro';
 }
 
-/** Texto padrão de um template financeiro editável (boleto ou confirmação). */
+/** Texto padrão de um template financeiro editável (boleto, confirmação ou apresentação). */
 export function defaultFinTemplate(id: string): string {
   if (id === 'confirmacao_pagamento') return DEFAULT_CONFIRMACAO_PAGAMENTO;
+  if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }
 

@@ -5,6 +5,7 @@ import { SettingsService } from '../settings/settings.service';
 import {
   toBrazilWhatsappNumber,
   DEFAULT_COBRANCA_TEMPLATES,
+  DEFAULT_BOLETO_INTRO,
   COBRANCA_STAGES,
   cobrancaTemplateKey,
   type CobrancaStage,
@@ -63,6 +64,14 @@ interface ChargeCandidate {
   link: string;
 }
 
+/** Parte 1 — apresentação do Financeiro, 1 por VENDA (treatment_plan) fechada ontem. */
+interface IntroCandidate {
+  planId: string;
+  tenantId: string;
+  phone: string;
+  name: string;
+}
+
 @Injectable()
 export class PaymentAlertsCronService {
   private readonly logger = new Logger(PaymentAlertsCronService.name);
@@ -70,6 +79,8 @@ export class PaymentAlertsCronService {
   /** Marca-passo: quando saiu a última cobrança + gap sorteado até a próxima. */
   private lastSentAt = 0;
   private nextGapMs = 0;
+  /** Guard de reentrância: 1 envio por vez, mesmo se um tick passar de 60s. */
+  private busy = false;
 
   private static readonly PACE_MIN_MS = 3 * 60_000; // 3 min
   private static readonly PACE_MAX_MS = 7 * 60_000; // 7 min
@@ -93,8 +104,22 @@ export class PaymentAlertsCronService {
    * Chamado a cada minuto; a maioria das chamadas só checa o cooldown e sai.
    */
   async sendOnePacedCharge(): Promise<'sent' | 'failed' | 'cooldown' | 'empty'> {
+    // Guard de reentrância: se um tick anterior ainda está enviando (Evolution/DB
+    // lentos > 60s), não deixa o próximo tick escolher o MESMO alvo e duplicar.
+    if (this.busy) return 'cooldown';
+    this.busy = true;
+    try {
     const nowMs = Date.now();
     if (nowMs - this.lastSentAt < this.nextGapMs) return 'cooldown';
+
+    // Parte 1 (apresentação D+1): no dia SEGUINTE ao fechamento da venda, o
+    // Financeiro se apresenta e avisa que amanhã manda os boletos. Tem prioridade
+    // (é sensível ao dia) e compartilha o MESMO marca-passo das cobranças, pra não
+    // abrir um 2º ritmo no chip (anti-ban). Opt-in por tenant (default OFF).
+    // return AWAIT: mantém o busy=true durante o envio da intro (senão o finally
+    // limparia o guard antes da Promise resolver).
+    const intro = await this.findNextIntro();
+    if (intro) return await this.sendIntro(intro, nowMs);
 
     const pick = await this.findNextCharge();
     if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
@@ -122,7 +147,8 @@ export class PaymentAlertsCronService {
     // effort): o operador vê a cobrança enviada na aba Financeiro, e a resposta
     // do paciente (chegando pelo chip financeiro) cai na MESMA conversa.
     await this.registerInFinanceiroConversation(
-      pick,
+      pick.tenantId,
+      pick.phone,
       message,
       typeof messageId === 'string' ? messageId : null,
       instanceName,
@@ -131,6 +157,9 @@ export class PaymentAlertsCronService {
       `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
     );
     return 'sent';
+    } finally {
+      this.busy = false;
+    }
   }
 
   /**
@@ -139,24 +168,25 @@ export class PaymentAlertsCronService {
    * só loga e segue (o envio já aconteceu).
    */
   private async registerInFinanceiroConversation(
-    pick: ChargeCandidate,
+    tenantId: string,
+    phone: string,
     text: string,
     messageId: string | null,
     instanceName: string,
   ): Promise<void> {
     try {
-      if (!pick.tenantId) return;
+      if (!tenantId) return;
       const finInbox = await this.prisma.inbox.findFirst({
-        where: { tenant_id: pick.tenantId, purpose: 'FINANCEIRO' },
+        where: { tenant_id: tenantId, purpose: 'FINANCEIRO' },
         select: { id: true },
       });
       if (!finInbox) return; // tenant sem inbox financeiro — nada a registrar
 
       // Lead pelo telefone (mesma normalização do envio) — sem lead, não registra.
-      const clean = toBrazilWhatsappNumber(pick.phone).replace(/\D/g, '');
+      const clean = toBrazilWhatsappNumber(phone).replace(/\D/g, '');
       const last11 = clean.slice(-11);
       const lead = await this.prisma.lead.findFirst({
-        where: { tenant_id: pick.tenantId, phone: { endsWith: last11 } },
+        where: { tenant_id: tenantId, phone: { endsWith: last11 } },
         select: { id: true },
       });
       if (!lead) return;
@@ -180,7 +210,7 @@ export class PaymentAlertsCronService {
             external_id: `${clean}@s.whatsapp.net`,
             inbox_id: finInbox.id,
             instance_name: instanceName,
-            tenant_id: pick.tenantId,
+            tenant_id: tenantId,
             last_message_at: new Date(),
           },
           select: { id: true },
@@ -416,6 +446,161 @@ export class PaymentAlertsCronService {
       });
     } catch (e: any) {
       this.logger.warn(`[COBRANCA] Falha ao registrar AuditLog da charge ${chargeId}: ${e.message}`);
+    }
+  }
+
+  // ─── Parte 1 — Apresentação do Financeiro (D+1 da venda) ─────────────────────
+  //   No dia SEGUINTE ao fechamento da venda (que gerou boletos), o setor
+  //   financeiro se apresenta e avisa que amanhã manda os boletos em PDF. Opt-in
+  //   por tenant (BOLETO_INTRO_ENABLED_${tenant}). 1 por VENDA (treatment_plan),
+  //   dedup via AuditLog(entity=BOLETO_INTRO). Compartilha o marca-passo acima.
+
+  /**
+   * Próxima apresentação a enviar: uma venda com BOLETO fechada ONTEM (dia de
+   * Maceió), do tenant que ligou a apresentação, ainda não apresentada. 1 por plano.
+   */
+  private async findNextIntro(): Promise<IntroCandidate | null> {
+    // Vendas fechadas a partir do dia SEGUINTE (nunca no mesmo dia). created_at é
+    // instante UTC real; os limites do dia local de Maceió (UTC-3) viram UTC +3h.
+    // Janela de 5 dias (não só "ontem"): o cron só roda seg-sex, então venda de
+    // sexta/sábado/feriado precisa ser pega no próximo dia útil. O dedup por
+    // AuditLog garante 1 apresentação por venda, então alargar é inofensivo.
+    const LOOKBACK_DAYS = 5;
+    const maceioNow = new Date(Date.now() - 3 * 3_600_000);
+    const todayStartUtcMs =
+      Date.UTC(maceioNow.getUTCFullYear(), maceioNow.getUTCMonth(), maceioNow.getUTCDate()) + 3 * 3_600_000;
+    const yStart = new Date(todayStartUtcMs - LOOKBACK_DAYS * 86_400_000); // início da janela
+    const yEnd = new Date(todayStartUtcMs); // hoje 00:00 Maceió — exclui vendas de HOJE (só D+1+)
+
+    // groupBy = 1 registro por VENDA (plano), NÃO por boleto — assim o volume aqui
+    // é o nº de vendas, e uma venda de 20 boletos não ocupa 20 slots. Mais antiga
+    // primeiro. (findMany+take por charge deixava planos novos invisíveis sob volume.)
+    const sales = await this.prisma.paymentGatewayCharge.groupBy({
+      by: ['treatment_plan_id', 'tenant_id'],
+      where: {
+        billing_type: 'BOLETO',
+        created_at: { gte: yStart, lt: yEnd },
+        treatment_plan_id: { not: null },
+      },
+      orderBy: { _min: { created_at: 'asc' } },
+    });
+    if (sales.length === 0) return null;
+
+    // Só tenants com a apresentação LIGADA (default OFF), 1 lookup por tenant.
+    const enabledCache = new Map<string, boolean>();
+    const eligible: { planId: string; tenantId: string }[] = [];
+    for (const s of sales) {
+      const planId = s.treatment_plan_id;
+      const tenantId = s.tenant_id || '';
+      if (!planId) continue;
+      if (!enabledCache.has(tenantId)) enabledCache.set(tenantId, await this.isIntroEnabled(tenantId));
+      if (enabledCache.get(tenantId)) eligible.push({ planId, tenantId });
+    }
+    if (eligible.length === 0) return null;
+
+    // Anti-repetição: exclui as vendas JÁ apresentadas (AuditLog entity=BOLETO_INTRO)
+    // ANTES de buscar paciente — planos já enviados não ocupam a lista nem bloqueiam.
+    const already = await this.prisma.auditLog.findMany({
+      where: { entity: 'BOLETO_INTRO', entity_id: { in: eligible.map((e) => e.planId) }, action: 'intro' },
+      select: { entity_id: true },
+    });
+    const sent = new Set(already.map((a) => a.entity_id));
+    const unsent = eligible.filter((e) => !sent.has(e.planId));
+    if (unsent.length === 0) return null;
+
+    // Busca os pacientes das vendas ainda-não-apresentadas numa query só e devolve a
+    // 1ª (mais antiga) COM telefone. Sem telefone é PULADA — não bloqueia as outras.
+    const plans = await this.prisma.treatmentPlan.findMany({
+      where: { id: { in: unsent.map((e) => e.planId) } },
+      select: { id: true, patient: { select: { name: true, phone: true } } },
+    });
+    const planById = new Map(plans.map((p) => [p.id, p]));
+    for (const e of unsent) {
+      const p = planById.get(e.planId);
+      const phone = p?.patient?.phone?.trim();
+      if (p?.patient && phone) {
+        return { planId: e.planId, tenantId: e.tenantId, phone, name: p.patient.name };
+      }
+    }
+    return null;
+  }
+
+  /** Envia a apresentação, marca no AuditLog e avança o marca-passo compartilhado. */
+  private async sendIntro(cand: IntroCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
+    const instanceName = await this.resolveFinanceiroInstance(cand.tenantId);
+    const template = await this.resolveIntroTemplate(cand.tenantId);
+    const clinica = await this.resolveClinicName(cand.tenantId);
+    const firstName = cand.name.split(' ')[0];
+    const message = template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica);
+    const messageId = await this.sendWhatsApp(cand.phone, message, instanceName);
+
+    // Evolution não configurado: NÃO gasta o slot, tenta no próximo tick.
+    if (messageId === 'NO_CONFIG') return 'cooldown';
+
+    // Marca na TENTATIVA (sucesso OU falha) pra um número inválido não travar a fila.
+    await this.logIntroSent(cand.planId, cand.tenantId, typeof messageId === 'string' ? messageId : null);
+    this.lastSentAt = nowMs;
+    this.nextGapMs = this.randomGapMs();
+
+    if (messageId === false) {
+      this.logger.warn(`[BOLETO_INTRO] Envio falhou pro plano ${cand.planId} — marcado como tentado.`);
+      return 'failed';
+    }
+    await this.registerInFinanceiroConversation(
+      cand.tenantId,
+      cand.phone,
+      message,
+      typeof messageId === 'string' ? messageId : null,
+      instanceName,
+    );
+    this.logger.log(
+      `[BOLETO_INTRO] Apresentação enviada (plano ${cand.planId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
+    );
+    return 'sent';
+  }
+
+  /** Apresentação LIGADA pro tenant? (GlobalSetting BOLETO_INTRO_ENABLED_${tenant}). */
+  private async isIntroEnabled(tenantId: string): Promise<boolean> {
+    if (!tenantId) return false;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
+      return row?.value === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Texto da apresentação: o que a clínica salvou (mesma chave da API) → default. */
+  private async resolveIntroTemplate(tenantId: string): Promise<string> {
+    const fallback = DEFAULT_BOLETO_INTRO;
+    if (!tenantId) return fallback;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: cobrancaTemplateKey('boleto_intro', tenantId) },
+      });
+      if (row?.value) {
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[BOLETO_INTRO] Falha ao ler template do tenant ${tenantId}: ${e.message}`);
+    }
+    return fallback;
+  }
+
+  /** Registra a apresentação (idempotência exactly-once por venda/plano). */
+  private async logIntroSent(planId: string, tenantId: string, messageId: string | null): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          entity: 'BOLETO_INTRO',
+          entity_id: planId,
+          action: 'intro',
+          meta_json: { tenant_id: tenantId, message_id: messageId, sent_at: new Date().toISOString() },
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[BOLETO_INTRO] Falha ao registrar AuditLog do plano ${planId}: ${e.message}`);
     }
   }
 }

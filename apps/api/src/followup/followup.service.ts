@@ -102,7 +102,7 @@ export class FollowupService {
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
-      confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting,
+      confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -127,6 +127,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_ORTO_IMMEDIATE_ENABLED_${tenantId}` } }),
       // Onda — Equipe: pacientes +30d sem agendar / em stand by. Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `PACIENTES_SEM_AGENDAMENTO_${tenantId}` } }),
+      // Parte 1 — apresentação do Financeiro no dia seguinte à venda. Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -265,6 +267,8 @@ export class FollowupService {
       confirmacao_orto_imediata: { enabled: ortoImmSetting?.value === 'true' },
       // Onda — Equipe: pacientes +30d sem agendar / em stand by. Default OFF (opt-in).
       pacientes_sem_agendamento: { enabled: semAgendSetting?.value === 'true' },
+      // Parte 1 — apresentação do Financeiro (D+1 da venda). Default OFF (opt-in).
+      boleto_intro: { enabled: boletoIntroSetting?.value === 'true' },
     };
   }
 
@@ -463,6 +467,14 @@ export class FollowupService {
       // (cronPacientesSemAgendamento em quotes.service) lê é exatamente esta.
       case 'pacientes_sem_agendamento': {
         const key = `PACIENTES_SEM_AGENDAMENTO_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Parte 1 — apresentação do Financeiro no dia seguinte à venda. O cron do
+      // worker (payment-alerts) lê exatamente esta key antes de apresentar.
+      case 'boleto_intro': {
+        const key = `BOLETO_INTRO_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
