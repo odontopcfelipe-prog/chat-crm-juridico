@@ -768,6 +768,12 @@ function ProposalFinancialCard({
   const [quoteDetail, setQuoteDetail] = useState<QuoteFullDetail | null>(null);
   const [contract, setContract] = useState<ContractInfo | null>(null);
   const [loadingContract, setLoadingContract] = useState(false);
+  // Recuperação: gerar as cobranças que faltaram num financiamento que só criou o sinal.
+  const [showGen, setShowGen] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [genDown, setGenDown] = useState('');
+  const [genCount, setGenCount] = useState('');
+  const [genValue, setGenValue] = useState('');
 
   // Onda 14.17 — pré-carrega planId no mount (não só ao expandir) pra
   // calcular a barra de progresso e o agregado no header colapsado.
@@ -862,6 +868,39 @@ function ProposalFinancialCard({
     }
     return { relatedCharges: Array.from(byKey.values()), dupChargesCount: dups.length };
   }, [relatedChargesRaw]);
+
+  // Financiamento PARCIAL: emitiu o SINAL mas NÃO as parcelas (INSTALLMENT) — recuperável
+  // pelo apply-financing (idempotente por kind: pula o sinal, cria entrada + parcelas).
+  const sinalCharge = relatedCharges.find((c) => c.kind === 'SINAL');
+  const hasInstallments = relatedCharges.some((c) => c.kind === 'INSTALLMENT');
+  const isPartialFinancing = !!sinalCharge && !hasInstallments;
+
+  const handleGenerateCharges = async () => {
+    const down = parseFloat(genDown.replace(',', '.'));
+    const count = parseInt(genCount, 10);
+    const value = parseFloat(genValue.replace(',', '.'));
+    if (isNaN(down) || down <= 0 || isNaN(count) || count < 1 || isNaN(value) || value <= 0) {
+      showError('Preencha entrada, nº de parcelas e valor da parcela.');
+      return;
+    }
+    setGenerating(true);
+    try {
+      await api.post(`/quotes/${quote.id}/apply-financing`, {
+        down_payment_value: down,
+        installment_count: count,
+        installment_value: value,
+        signal_value: sinalCharge ? Number(sinalCharge.amount) : undefined,
+        signal_method: sinalCharge && (sinalCharge.billing_type === 'PIX' || sinalCharge.billing_type === 'BOLETO') ? sinalCharge.billing_type : undefined,
+      });
+      showSuccess('Cobranças pendentes geradas!');
+      setShowGen(false);
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao gerar as cobranças');
+    } finally {
+      setGenerating(false);
+    }
+  };
 
   // Onda 14.17 — pré-carrega sub_installments no mount (não só ao expandir)
   // pra calcular barra de progresso + agregado no header colapsado.
@@ -1313,6 +1352,16 @@ function ProposalFinancialCard({
               )}
             </button>
           ) : null}
+          {isPartialFinancing && hasPermission('manage_financial') && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setGenDown(sinalCharge ? String(Number(sinalCharge.amount)) : ''); setShowGen(true); }}
+              className="px-2.5 py-1.5 rounded-md border border-amber-500/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-700 dark:text-amber-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold"
+              title="O financiamento só gerou o sinal — gerar a entrada e as parcelas que faltaram"
+            >
+              Gerar cobranças pendentes
+            </button>
+          )}
         </div>
       </div>
 
@@ -1322,6 +1371,51 @@ function ProposalFinancialCard({
           parcela={viewerParcela}
           onClose={() => setViewerParcela(null)}
         />
+      )}
+
+      {/* Recuperação — gerar cobranças pendentes de um financiamento que só criou o sinal */}
+      {showGen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={() => setShowGen(false)}>
+          <div className="bg-card border border-border rounded-2xl p-5 w-full max-w-sm space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div>
+              <h3 className="text-base font-bold text-foreground">Gerar cobranças pendentes</h3>
+              <p className="text-xs text-muted-foreground mt-1">
+                O financiamento só emitiu o sinal. Informe os termos pra gerar a entrada + as parcelas que faltaram — o sinal já existente é reaproveitado (não duplica).
+              </p>
+            </div>
+            {sinalCharge && (
+              <div className="text-xs text-muted-foreground">
+                Sinal já emitido: <span className="font-semibold text-foreground">R$ {Number(sinalCharge.amount).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span> ({sinalCharge.billing_type})
+              </div>
+            )}
+            <div className="space-y-2">
+              <label className="block">
+                <span className="text-xs font-medium text-muted-foreground">Entrada total (R$) — inclui o sinal</span>
+                <input value={genDown} onChange={(e) => setGenDown(e.target.value)} placeholder="Ex.: 400"
+                  className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+              </label>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Nº de parcelas</span>
+                  <input value={genCount} onChange={(e) => setGenCount(e.target.value)} placeholder="20"
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                </label>
+                <label className="block">
+                  <span className="text-xs font-medium text-muted-foreground">Valor da parcela (R$)</span>
+                  <input value={genValue} onChange={(e) => setGenValue(e.target.value)} placeholder="Ex.: 555"
+                    className="w-full mt-1 px-3 py-2 rounded-lg border border-border bg-background text-sm outline-none focus:ring-2 focus:ring-primary/30" />
+                </label>
+              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setShowGen(false)} className="px-3 py-2 rounded-lg border border-border text-sm">Cancelar</button>
+              <button type="button" onClick={handleGenerateCharges} disabled={generating}
+                className="px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 disabled:opacity-50">
+                {generating ? <Loader2 size={14} className="animate-spin" /> : null} Gerar
+              </button>
+            </div>
+          </div>
+        </div>
       )}
       {/* Onda 17.32.52 — Modal: PDF do contrato assinado / link ClickSign */}
       {showContract && (
