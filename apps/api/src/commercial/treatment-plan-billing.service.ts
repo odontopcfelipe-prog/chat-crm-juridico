@@ -253,6 +253,15 @@ export class TreatmentPlanBillingService {
 
     const created: any[] = [];
 
+    // ROLLBACK — se QUALQUER create do Asaas falhar no meio (ex.: 5xx/rede na 2ª
+    // ou 3ª cobrança), desfaz o que já foi criado (Asaas + DB) pra NUNCA deixar
+    // financiamento parcial (sinal órfão). Rastreia cada cobrança conforme cria.
+    const rbCharges: { dbId: string; asaasId: string }[] = [];
+    let rbInstallmentId: string | null = null;
+    const rbInstallmentDbIds: string[] = [];
+    let totalInstallments = 0; // usado no return (fora do try)
+    try {
+
     // Onda 14.58 — 1. SINAL (opcional) — pago HOJE via PIX ou Boleto a vista
     // Onda 15 (etapa 16.3) — Pula se ja existe (operador pode ter emitido
     // via emit-down-payment antes de clicar "Aprovar e cobrar").
@@ -298,6 +307,7 @@ export class TreatmentPlanBillingService {
         due_date: today,
         amount: signalValue,
       });
+      rbCharges.push({ dbId: signalCharge.id, asaasId: signalAsaas.id });
     } else if (hasSignal) {
       this.logger.log(`[FINANCING] Sinal pulado: plan ${planId} ja tem charge SINAL.`);
     }
@@ -344,12 +354,13 @@ export class TreatmentPlanBillingService {
         due_date: downPaymentDue,
         amount: entradaBoletoValue,
       });
+      rbCharges.push({ dbId: downCharge.id, asaasId: downAsaas.id });
     }
 
     // 3. PARCELADO — Asaas cria N parcelas automaticamente
     // Onda 15 (etapa 16.3) — Pula se ja existe (operador pode ter rodado
     // emit-installments antes de chamar apply-financing).
-    const totalInstallments = round2(options.installmentValue * options.installmentCount);
+    totalInstallments = round2(options.installmentValue * options.installmentCount);
     if (hasInstallments) {
       this.logger.log(`[FINANCING] Parcelado pulado: plan ${planId} ja tem charge INSTALLMENT.`);
     } else {
@@ -363,6 +374,8 @@ export class TreatmentPlanBillingService {
         installmentCount: options.installmentCount,
         installmentValue: round2(options.installmentValue),
       }, tenantId);
+      // Marca pro rollback: cancela o parcelamento INTEIRO se algo falhar depois.
+      rbInstallmentId = installmentsAsaas.installment || installmentsAsaas.id || null;
       this.logger.log(
         `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} ` +
         `(installment ${installmentsAsaas.installment}) | ` +
@@ -393,7 +406,7 @@ export class TreatmentPlanBillingService {
       if (children.length === options.installmentCount) {
         // Caminho feliz: cria N registros individuais
         for (const child of children) {
-          await this.prisma.paymentGatewayCharge.create({
+          const childRow = await this.prisma.paymentGatewayCharge.create({
             data: {
               tenant_id: tenantId,
               treatment_plan_id: planId,
@@ -413,6 +426,7 @@ export class TreatmentPlanBillingService {
               invoice_url: child.invoiceUrl || null,
             },
           });
+          rbInstallmentDbIds.push(childRow.id);
         }
         this.logger.log(
           `[FINANCING] ${children.length} parcelas individuais salvas no DB pra plan ${planId}.`,
@@ -461,7 +475,15 @@ export class TreatmentPlanBillingService {
           installment_count: options.installmentCount,
           installment_value: options.installmentValue,
         });
+        rbInstallmentDbIds.push(installmentsCharge.id);
       }
+    }
+
+    } catch (err) {
+      // Qualquer falha no meio da criação → desfaz tudo que já saiu, pra não
+      // deixar financiamento parcial. Best-effort: rollbackFinancing nunca lança.
+      await this.rollbackFinancing(rbCharges, rbInstallmentId, rbInstallmentDbIds, tenantId);
+      throw err;
     }
 
     return {
@@ -470,6 +492,53 @@ export class TreatmentPlanBillingService {
       total_financed:
         options.downPaymentValue + totalInstallments,
     };
+  }
+
+  /**
+   * Rollback do financiamento — best-effort. Cancela no Asaas + apaga no DB tudo
+   * que foi criado numa chamada de createFinancingCharges que estourou no meio,
+   * pra NUNCA deixar cobrança parcial (ex.: sinal criado mas parcelas não).
+   * NUNCA lança: loga cada falha e segue, pra não mascarar o erro original.
+   */
+  private async rollbackFinancing(
+    charges: { dbId: string; asaasId: string }[],
+    installmentId: string | null,
+    installmentDbIds: string[],
+    tenantId: string,
+  ): Promise<void> {
+    // 1. Parcelado inteiro — cancela as N parcelas no Asaas numa tacada.
+    if (installmentId) {
+      try {
+        await this.asaas.deleteInstallment(installmentId, tenantId);
+      } catch (e: any) {
+        this.logger.error(
+          `[FINANCING][ROLLBACK] Falha ao cancelar installment ${installmentId} no Asaas: ${e?.message || e}`,
+        );
+      }
+    }
+    for (const dbId of installmentDbIds) {
+      try {
+        await this.prisma.paymentGatewayCharge.delete({ where: { id: dbId } });
+      } catch (e: any) {
+        this.logger.error(`[FINANCING][ROLLBACK] Falha ao apagar parcela DB ${dbId}: ${e?.message || e}`);
+      }
+    }
+    // 2. Sinal + entrada — pagamentos avulsos.
+    for (const c of charges) {
+      try {
+        await this.asaas.deleteCharge(c.asaasId, tenantId);
+      } catch (e: any) {
+        this.logger.error(`[FINANCING][ROLLBACK] Falha ao cancelar charge ${c.asaasId} no Asaas: ${e?.message || e}`);
+      }
+      try {
+        await this.prisma.paymentGatewayCharge.delete({ where: { id: c.dbId } });
+      } catch (e: any) {
+        this.logger.error(`[FINANCING][ROLLBACK] Falha ao apagar charge DB ${c.dbId}: ${e?.message || e}`);
+      }
+    }
+    this.logger.warn(
+      `[FINANCING][ROLLBACK] Concluído: ${charges.length} avulsa(s) + ${installmentId ? '1' : '0'} parcelamento desfeito(s).`,
+    );
   }
 
   /**

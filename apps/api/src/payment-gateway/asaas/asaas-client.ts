@@ -252,6 +252,12 @@ export class AsaasClient {
     return this.request<any>('DELETE', `/payments/${chargeId}`, undefined, undefined, tenantId);
   }
 
+  // Cancela o parcelamento INTEIRO (todas as N parcelas de uma vez). Usado no
+  // rollback do financiamento: DELETE /payments/{filho} só apaga 1 parcela.
+  async deleteInstallment(installmentId: string, tenantId?: string | null): Promise<any> {
+    return this.request<any>('DELETE', `/installments/${installmentId}`, undefined, undefined, tenantId);
+  }
+
   async listCharges(params?: any, tenantId?: string | null): Promise<any> {
     return this.request<any>('GET', '/payments', undefined, params, tenantId);
   }
