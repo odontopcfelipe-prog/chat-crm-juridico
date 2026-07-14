@@ -232,6 +232,11 @@ export class TreatmentPlanBillingService {
       ? parseLocalDate(options.installmentsStartDate)
       : new Date(baseDate.getTime() + 30 * 24 * 60 * 60 * 1000);
 
+    // Asaas rejeita valor com >2 casas decimais (HTTP 400). Subtração/multiplicação de
+    // valores monetários geram lixo de ponto flutuante (ex.: 700-233.33, 166.67*6), o que
+    // fazia o financiamento estourar DEPOIS de criar o sinal (sinal órfão, resto não sai).
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+
     const created: any[] = [];
 
     // Onda 14.58 — 1. SINAL (opcional) — pago HOJE via PIX ou Boleto a vista
@@ -241,7 +246,7 @@ export class TreatmentPlanBillingService {
       const signalAsaas = await this.asaas.createCharge({
         customer: customer.external_id,
         billingType: signalMethod,
-        value: signalValue,
+        value: round2(signalValue),
         dueDate: today.toISOString().slice(0, 10),
         description: `Sinal de fechamento — ${plan.patient.name} [plan:${planId}]`,
         externalReference: planId,
@@ -285,7 +290,7 @@ export class TreatmentPlanBillingService {
 
     // 2. ENTRADA — boleto unico (valor = downPaymentValue - signalValue)
     // Onda 15 (etapa 16.3) — Pula se ja existe.
-    const entradaBoletoValue = options.downPaymentValue - signalValue;
+    const entradaBoletoValue = round2(options.downPaymentValue - signalValue);
     if (entradaBoletoValue > 0 && !hasEntrada) {
       const downAsaas = await this.asaas.createCharge({
         customer: customer.external_id,
@@ -330,7 +335,7 @@ export class TreatmentPlanBillingService {
     // 3. PARCELADO — Asaas cria N parcelas automaticamente
     // Onda 15 (etapa 16.3) — Pula se ja existe (operador pode ter rodado
     // emit-installments antes de chamar apply-financing).
-    const totalInstallments = options.installmentValue * options.installmentCount;
+    const totalInstallments = round2(options.installmentValue * options.installmentCount);
     if (hasInstallments) {
       this.logger.log(`[FINANCING] Parcelado pulado: plan ${planId} ja tem charge INSTALLMENT.`);
     } else {
@@ -342,7 +347,7 @@ export class TreatmentPlanBillingService {
         description: `Parcelado Financiamento Banco PASSOS — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`,
         externalReference: planId,
         installmentCount: options.installmentCount,
-        installmentValue: options.installmentValue,
+        installmentValue: round2(options.installmentValue),
       }, tenantId);
       this.logger.log(
         `[FINANCING] Parcelado Asaas criado para plan ${planId}: ${installmentsAsaas.id} ` +
