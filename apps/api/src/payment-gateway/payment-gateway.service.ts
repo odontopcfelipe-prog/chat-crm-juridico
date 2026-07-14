@@ -600,8 +600,13 @@ export class PaymentGatewayService {
           ? await this.whatsapp.sendMedia(phone, 'document', charge.boleto_url as string, msg, inst.name, 'boleto.pdf', 'application/pdf')
           : await this.whatsapp.sendText(phone, msg, inst.name);
         const httpStatus = result?.statusCode ?? 0;
+        // Evolution responde 200 com "exists":false quando o número NÃO está no
+        // WhatsApp — sem isto, o resend dava "enviado" e nada chegava (falso-sucesso).
+        const existsFalse = (() => {
+          try { return /"exists"\s*:\s*false/.test(JSON.stringify(result)); } catch { return false; }
+        })();
         const isOk =
-          result && (!result.statusCode || result.statusCode < 400) && !result.error;
+          result && (!result.statusCode || result.statusCode < 400) && !result.error && !existsFalse;
         if (isOk) {
           usedInstance = inst.name;
           sendResult = result;

@@ -270,7 +270,9 @@ export class BoletoDeliveryService {
     }
 
     const parcelas = charges.filter((c) => c.kind === 'INSTALLMENT');
-    const avulsos = charges.filter((c) => c.kind === 'ENTRADA' || c.kind === 'SINAL'); // upfront
+    // Tudo que NÃO é parcela (entrada, sinal, boleto avulso 1×, kind legado null) vai
+    // como PDF individual — assim venda de 1 boleto só também é entregue.
+    const avulsos = charges.filter((c) => c.kind !== 'INSTALLMENT');
     const instance = await this.resolveInstance(tenantId);
     const firstName = name.split(' ')[0];
     let allOk = true;
@@ -317,7 +319,7 @@ export class BoletoDeliveryService {
     // 3) Entrada/sinal (boletos avulsos) — PDF direto pela URL pública do Asaas.
     for (const c of avulsos) {
       if (!c.boleto_url) continue;
-      const label = c.kind === 'ENTRADA' ? 'Entrada' : 'Sinal';
+      const label = c.kind === 'ENTRADA' ? 'Entrada' : c.kind === 'SINAL' ? 'Sinal' : 'Boleto';
       const ok = await this.sendPiece(`${planId}:${c.external_id}`, tenantId, () =>
         this.whatsapp.sendMedia(
           phone, 'document', c.boleto_url as string, label, instance,

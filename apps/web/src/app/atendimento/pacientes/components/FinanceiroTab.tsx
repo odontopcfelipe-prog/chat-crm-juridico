@@ -879,6 +879,8 @@ function ProposalFinancialCard({
   // pelo apply-financing (idempotente por kind: pula o sinal, cria entrada + parcelas).
   const sinalCharge = relatedCharges.find((c) => c.kind === 'SINAL');
   const hasInstallments = relatedCharges.some((c) => c.kind === 'INSTALLMENT');
+  // Qualquer venda com boleto (parcelado OU 1×) mostra os botões de envio/teste.
+  const hasBoleto = relatedCharges.some((c) => c.billing_type === 'BOLETO');
   const isPartialFinancing = !!sinalCharge && !hasInstallments;
   const totalTratamento = Number(quote.total_value) || 0;
   // Parcela com juros (Tabela Price, 1,5% a.m. — mesmo cálculo do orçamento), a partir do
@@ -1449,7 +1451,7 @@ function ProposalFinancialCard({
               Gerar cobranças pendentes
             </button>
           )}
-          {hasInstallments && hasPermission('manage_financial') && (
+          {hasBoleto && hasPermission('manage_financial') && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleTestDelivery(); }}
@@ -1460,7 +1462,7 @@ function ProposalFinancialCard({
               {testingDelivery ? 'Enviando…' : '🧪 Testar envio dos boletos'}
             </button>
           )}
-          {hasInstallments && hasPermission('manage_financial') && (
+          {hasBoleto && hasPermission('manage_financial') && (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); handleSendCurrentBoleto(); }}
