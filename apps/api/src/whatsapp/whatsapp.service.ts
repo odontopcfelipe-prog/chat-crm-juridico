@@ -233,9 +233,23 @@ export class WhatsappService {
   ) {
     const targetInstance = instanceName || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
 
+    // 9º dígito BR: resolve a variante (com/sem o 9) que EXISTE no WhatsApp, igual
+    // ao sendText (Onda 17.62). Sem isso, mídia/documento (ex.: boleto em PDF) ia
+    // pro número CRU e falhava/entregava errado onde o cadastro diverge do WhatsApp
+    // real (comum em DDDs do Nordeste, ex.: 82). JID (@) e não-BR passam direto.
+    const primaryNum = toBrazilWhatsappNumber(number);
+    let target = primaryNum;
+    if (!primaryNum.includes('@')) {
+      const alt = toggleBr9thDigit(primaryNum);
+      if (alt && alt !== primaryNum) {
+        const existing = await this.firstExistingNumber([primaryNum, alt], targetInstance);
+        if (existing) target = existing;
+      }
+    }
+
     if (mediaType === 'audio') {
       return this.request('POST', `message/sendWhatsAppAudio/${targetInstance}`, {
-        number: toBrazilWhatsappNumber(number),
+        number: target,
         audio: mediaUrl,
       });
     }
@@ -251,7 +265,7 @@ export class WhatsappService {
     );
 
     return this.request('POST', `message/sendMedia/${targetInstance}`, {
-      number: toBrazilWhatsappNumber(number),
+      number: target,
       mediatype: mediaType,
       media: mediaUrl,
       caption: caption || '',

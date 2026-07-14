@@ -591,9 +591,14 @@ export class PaymentGatewayService {
     const sendErrors: string[] = [];
     let usedInstance: string | null = null;
     let sendResult: any = null;
+    // Boleto com PDF disponível → manda o PDF anexo (texto vira legenda); PIX/
+    // cartão/sem-boleto seguem como texto+link.
+    const asBoletoPdf = charge.billing_type === 'BOLETO' && !!charge.boleto_url;
     for (const inst of instances) {
       try {
-        const result: any = await this.whatsapp.sendText(phone, msg, inst.name);
+        const result: any = asBoletoPdf
+          ? await this.whatsapp.sendMedia(phone, 'document', charge.boleto_url as string, msg, inst.name, 'boleto.pdf', 'application/pdf')
+          : await this.whatsapp.sendText(phone, msg, inst.name);
         const httpStatus = result?.statusCode ?? 0;
         const isOk =
           result && (!result.statusCode || result.statusCode < 400) && !result.error;

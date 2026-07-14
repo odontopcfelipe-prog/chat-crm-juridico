@@ -96,6 +96,66 @@ export class BoletoDeliveryService {
     };
   }
 
+  /**
+   * ON-DEMAND: manda o PRÓXIMO boleto a vencer (o "do mês") de uma venda, em PDF,
+   * pro PACIENTE (número real). Usado pelo botão "Enviar boleto do mês". Escopo
+   * por tenant. boleto_url nulo é enriquecido via Asaas antes de enviar.
+   */
+  async sendCurrentBoleto(planId: string, tenantId: string): Promise<{ ok: boolean; detail: string }> {
+    const charges = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        treatment_plan_id: planId,
+        tenant_id: tenantId,
+        billing_type: 'BOLETO',
+        received_in_cash: false,
+        status: { in: ['PENDING', 'OVERDUE'] },
+      },
+      select: {
+        id: true,
+        external_id: true,
+        boleto_url: true,
+        due_date: true,
+        treatment_plan: { select: { patient: { select: { name: true, phone: true } } } },
+      },
+      orderBy: { due_date: 'asc' }, // o mais próximo a vencer (ou o mais atrasado) primeiro
+    });
+    if (charges.length === 0) return { ok: false, detail: 'Esta venda não tem boleto em aberto.' };
+
+    const next = charges[0];
+    const patient = next.treatment_plan?.patient;
+    const phone = patient?.phone?.trim();
+    if (!patient || !phone) return { ok: false, detail: 'Paciente sem telefone cadastrado.' };
+
+    // boleto_url pode vir null (parcela recém-criada) → enriquece via Asaas.
+    let url = next.boleto_url;
+    if (!url && next.external_id) {
+      try {
+        const d = await this.asaas.getCharge(next.external_id, tenantId);
+        url = d?.bankSlipUrl || null;
+      } catch {
+        /* segue sem url → mensagem de erro abaixo */
+      }
+    }
+    if (!url) return { ok: false, detail: 'O boleto ainda não tem PDF disponível — tente em instantes.' };
+
+    const instance = await this.resolveInstance(tenantId);
+    const firstName = (patient.name || 'Paciente').split(' ')[0];
+    const due = new Date(next.due_date);
+    const dd = String(due.getUTCDate()).padStart(2, '0');
+    const mm = String(due.getUTCMonth() + 1).padStart(2, '0');
+    const caption = `Oi ${firstName}! 👋 Segue o seu boleto (vence ${dd}/${mm}). Qualquer dúvida, é só responder por aqui. 😊`;
+
+    let res: any;
+    try {
+      res = await this.whatsapp.sendMedia(phone, 'document', url, caption, instance, 'boleto.pdf', 'application/pdf');
+    } catch (e: any) {
+      this.logger.warn(`[BOLETO_DELIVERY] send-current falhou (plano ${planId}): ${e?.message || e}`);
+      return { ok: false, detail: 'Falha ao enviar o boleto.' };
+    }
+    const ok = this.wasSent(res);
+    return { ok, detail: ok ? `Boleto enviado ao paciente (${phone}).` : 'A Evolution recusou o envio (número/chip).' };
+  }
+
   /** Entrega os boletos de UMA venda, imediatamente (sem cooldown). */
   private async deliverOne(target: { planId: string; tenantId: string }): Promise<void> {
     try {

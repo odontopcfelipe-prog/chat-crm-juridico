@@ -62,6 +62,8 @@ interface ChargeCandidate {
   amount: number;
   dueDate: Date;
   link: string;
+  /** URL do PDF do boleto (só quando billing_type=BOLETO) — manda como documento. */
+  pdfUrl: string | null;
 }
 
 /** Parte 1 — apresentação do Financeiro, 1 por VENDA (treatment_plan) fechada ontem. */
@@ -128,7 +130,10 @@ export class PaymentAlertsCronService {
     const template = await this.resolveTemplate(pick.tenantId, pick.stage);
     const clinica = await this.resolveClinicName(pick.tenantId);
     const message = this.buildMessage(pick, template, clinica);
-    const messageId = await this.sendWhatsApp(pick.phone, message, instanceName);
+    // Boleto → manda o PDF anexo (a mensagem vira legenda); PIX/sem-boleto seguem texto+link.
+    const messageId = pick.pdfUrl
+      ? await this.sendWhatsAppMedia(pick.phone, pick.pdfUrl, message, instanceName)
+      : await this.sendWhatsApp(pick.phone, message, instanceName);
 
     // Evolution não configurado: NÃO gasta o slot, tenta de novo no próximo tick.
     if (messageId === 'NO_CONFIG') return 'cooldown';
@@ -258,6 +263,7 @@ export class PaymentAlertsCronService {
         due_date: true,
         invoice_url: true,
         boleto_url: true,
+        billing_type: true,
         pix_copy_paste: true,
         treatment_plan: { select: { patient: { select: { name: true, phone: true } } } },
         installment: { select: { patient: { select: { name: true, phone: true } } } },
@@ -297,6 +303,7 @@ export class PaymentAlertsCronService {
         amount: Number(c.amount),
         dueDate: new Date(c.due_date),
         link,
+        pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
       });
     }
     if (candidates.length === 0) return null;
@@ -429,6 +436,43 @@ export class PaymentAlertsCronService {
       return res.data?.key?.id || res.data?.messageId || (true as any);
     } catch (e: any) {
       this.logger.warn(`[COBRANCA] Falha WhatsApp para ${phone}: ${e.message}`);
+      return false;
+    }
+  }
+
+  /**
+   * Envia o boleto como DOCUMENTO PDF (a Evolution baixa a URL pública do Asaas —
+   * sem base64). `caption` é a mensagem do estágio. Mesmo contrato de retorno do
+   * sendWhatsApp (messageId | false | 'NO_CONFIG').
+   */
+  private async sendWhatsAppMedia(
+    phone: string,
+    pdfUrl: string,
+    caption: string,
+    instance: string,
+  ): Promise<string | false | 'NO_CONFIG'> {
+    const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
+    if (!apiUrl) {
+      this.logger.warn('[COBRANCA] Evolution apiUrl não configurada — pulando');
+      return 'NO_CONFIG';
+    }
+    try {
+      const cleanPhone = toBrazilWhatsappNumber(phone);
+      const res = await axios.post(
+        `${apiUrl}/message/sendMedia/${instance}`,
+        {
+          number: cleanPhone,
+          mediatype: 'document',
+          media: pdfUrl,
+          fileName: 'boleto.pdf',
+          mimetype: 'application/pdf',
+          caption,
+        },
+        { headers: { apikey: apiKey }, timeout: 20000 },
+      );
+      return res.data?.key?.id || res.data?.messageId || (true as any);
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] Falha WhatsApp (boleto PDF) para ${phone}: ${e.message}`);
       return false;
     }
   }

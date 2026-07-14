@@ -312,6 +312,18 @@ export class PaymentGatewayController {
   }
 
   /**
+   * On-demand: manda o PRÓXIMO boleto a vencer (o "do mês") de uma venda em PDF
+   * pro PACIENTE (número real). Botão "Enviar boleto do mês". Escopo por tenant.
+   */
+  @Post('boleto-delivery/send-current')
+  async sendCurrentBoleto(@Body() body: { plan_id: string }, @Req() req: any) {
+    const tenantId = req.user?.tenant_id || req.user?.tenantId;
+    if (!tenantId) throw new Error('tenant_id ausente no JWT');
+    this.logger.log(`[POST /boleto-delivery/send-current] plan=${body?.plan_id}`);
+    return this.boletoDelivery.sendCurrentBoleto(body?.plan_id, tenantId);
+  }
+
+  /**
    * Onda 14.13 — Lista parcelas filhas de uma charge parcelada.
    * Usado pelo modal de detalhe da proposta aceita pra mostrar cada parcela
    * (1/12, 2/12, etc) com status atualizado do Asaas.

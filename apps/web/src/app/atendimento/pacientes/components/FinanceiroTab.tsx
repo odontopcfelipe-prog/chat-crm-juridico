@@ -766,6 +766,7 @@ function ProposalFinancialCard({
   // Quando expande, carrega quote completo (pra ter plan_id) e sub_installments
   const [planId, setPlanId] = useState<string | null>(null);
   const [testingDelivery, setTestingDelivery] = useState(false);
+  const [sendingCurrent, setSendingCurrent] = useState(false);
   const [loadingQuoteDetail, setLoadingQuoteDetail] = useState(false);
   // Onda 14.51 — quote completo (procedimentos + negociacao aceita) + contrato
   const [quoteDetail, setQuoteDetail] = useState<QuoteFullDetail | null>(null);
@@ -917,6 +918,28 @@ function ProposalFinancialCard({
       showError(e?.response?.data?.message || 'Erro ao enviar os boletos de teste.');
     } finally {
       setTestingDelivery(false);
+    }
+  };
+
+  // On-demand: manda o próximo boleto a vencer (o "do mês") em PDF pro WhatsApp do
+  // PACIENTE, na hora. Real (vai pro paciente) — por isso confirma antes.
+  const handleSendCurrentBoleto = async () => {
+    if (!planId) {
+      showError('Plano de tratamento ainda não carregado — aguarde um instante.');
+      return;
+    }
+    if (!window.confirm('Enviar o boleto do mês (próximo a vencer) em PDF para o WhatsApp do paciente agora?')) return;
+    setSendingCurrent(true);
+    try {
+      const { data } = await api.post<{ ok: boolean; detail: string }>('/payment-gateway/boleto-delivery/send-current', {
+        plan_id: planId,
+      });
+      if (data?.ok) showSuccess(data.detail || 'Boleto enviado ao paciente.');
+      else showError(data?.detail || 'Falha ao enviar o boleto.');
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao enviar o boleto do mês.');
+    } finally {
+      setSendingCurrent(false);
     }
   };
 
@@ -1435,6 +1458,17 @@ function ProposalFinancialCard({
               title="Enviar os boletos (carnê PDF + entrada) desta venda AGORA pro seu WhatsApp, pra testar o disparo sem esperar o dia seguinte"
             >
               {testingDelivery ? 'Enviando…' : '🧪 Testar envio dos boletos'}
+            </button>
+          )}
+          {hasInstallments && hasPermission('manage_financial') && (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); handleSendCurrentBoleto(); }}
+              disabled={sendingCurrent || !planId}
+              className="px-2.5 py-1.5 rounded-md border border-emerald-500/40 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 transition-colors inline-flex items-center gap-1.5 text-xs font-bold disabled:opacity-50"
+              title="Enviar o boleto do mês (próximo a vencer) em PDF pro WhatsApp do paciente, na hora"
+            >
+              {sendingCurrent ? 'Enviando…' : '📄 Enviar boleto do mês'}
             </button>
           )}
         </div>
