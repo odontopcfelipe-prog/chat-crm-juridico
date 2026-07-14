@@ -19,10 +19,12 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
  * AUTENTICADA ao Asaas (AsaasClient, com o isolamento por tenant correto) e o
  * WhatsappService.sendMedia — ambos vivem aqui.
  *
- * SEM marca-passo: o chip FINANCEIRO é dedicado a essas demandas e de baixo
- * volume, então os boletos saem IMEDIATOS — cada rodada processa TODAS as
- * entregas pendentes de uma vez (no horário comercial Maceió), sem intervalo
- * entre envios. Dedup POR VENDA (AuditLog entity=BOLETO_DELIVERY) + POR PEÇA
+ * Ritmo: dentro de UM cliente os boletos saem IMEDIATOS (texto + carnê + entrada,
+ * back-to-back); ENTRE clientes diferentes há um gap curto (GAP_*_MS) pra não
+ * disparar pra várias pessoas ao mesmo tempo. Não é anti-ban pesado (o chip
+ * FINANCEIRO é dedicado/baixo volume) — é só pra não ser simultâneo. Cada rodada
+ * (horário comercial Maceió) processa as entregas pendentes até o teto por rodada.
+ * Dedup POR VENDA (AuditLog entity=BOLETO_DELIVERY) + POR PEÇA
  * (entity=BOLETO_DELIVERY_PIECE): retry reenvia só a peça que falhou, sem
  * duplicar, e a venda só é marcada entregue quando TODAS as peças saíram de fato.
  */
@@ -35,10 +37,13 @@ export class BoletoDeliveryService {
 
   /** Só entrega boletos de apresentações dos últimos N dias (evita entregar venda velha). */
   private static readonly LOOKBACK_DAYS = 10;
-  /** Teto de segurança por rodada. O chip FINANCEIRO é dedicado/baixo volume, então
-   *  NÃO há marca-passo entre envios (imediato); este cap só evita uma rajada anormal
-   *  (ex.: backlog no 1º deploy) — o excedente escorre pra rodada seguinte. */
+  /** Teto de segurança por rodada (o excedente escorre pra rodada seguinte). */
   private static readonly MAX_PER_RUN = 30;
+  /** Gap ENTRE clientes (não dentro de um cliente): dentro de UM cliente os boletos
+   *  saem imediatos (texto+carnê+entrada); entre clientes DIFERENTES espera um tempo
+   *  pra não disparar pra várias pessoas ao mesmo tempo. Chip dedicado → gap curto. */
+  private static readonly GAP_MIN_MS = 20_000; // 20s
+  private static readonly GAP_MAX_MS = 45_000; // 45s
 
   constructor(
     private prisma: PrismaService,
@@ -54,8 +59,12 @@ export class BoletoDeliveryService {
     this.busy = true;
     try {
       const pending = await this.findPendingDeliveries();
-      for (const target of pending) {
-        await this.deliverOne(target);
+      for (let i = 0; i < pending.length; i++) {
+        // Gap ENTRE clientes (o 1º sai na hora; os seguintes esperam um tempo) — pra
+        // não disparar pra várias pessoas simultaneamente. Dentro de cada cliente o
+        // envio (texto+carnê+entrada) continua imediato.
+        if (i > 0) await this.sleep(this.randomGapMs());
+        await this.deliverOne(pending[i]);
       }
     } catch (e: any) {
       this.logger.error(`[BOLETO_DELIVERY] Erro no tick: ${e?.message || e}`);
@@ -346,5 +355,15 @@ export class BoletoDeliveryService {
     } catch (e: any) {
       this.logger.warn(`[BOLETO_DELIVERY] Falha ao registrar peça ${pieceId}: ${e?.message || e}`);
     }
+  }
+
+  /** Gap sorteado (com leve variação) ENTRE clientes — não robótico, não simultâneo. */
+  private randomGapMs(): number {
+    const { GAP_MIN_MS, GAP_MAX_MS } = BoletoDeliveryService;
+    return Math.floor(GAP_MIN_MS + Math.random() * (GAP_MAX_MS - GAP_MIN_MS));
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
