@@ -63,15 +63,31 @@ export const DEFAULT_BOLETO_INTRO =
   'Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄\n\n' +
   'Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙';
 
-/** Ids de template financeiro editáveis: os 5 boletos + a confirmação + a apresentação. */
+// NEGOCIAÇÃO APROVADA — disparo no FECHAMENTO da venda (D+0): confirma ao paciente
+// as condições que ele fechou (entrada + parcelas + total). Substitui a apresentação
+// (D+1). Placeholders: {nome} {condicoes} {clinica} — e os avulsos {entrada}
+// {parcelas} {valor_parcela} {total} {forma} pra quem quiser montar o texto na mão.
+// {condicoes} vem pronto do backend (bloco com entrada/parcelas/total ou só total).
+export const DEFAULT_NEGOCIACAO_APROVADA =
+  'Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.\n\n' +
+  '{condicoes}\n\n' +
+  'Já já o setor financeiro te envia os boletos por aqui. Qualquer dúvida, é só chamar! 💙';
+
+/** Ids de template financeiro editáveis: os 5 boletos + confirmação + apresentação + negociação. */
 export function isFinTemplateId(s: string): boolean {
-  return isCobrancaStage(s) || s === 'confirmacao_pagamento' || s === 'boleto_intro';
+  return (
+    isCobrancaStage(s) ||
+    s === 'confirmacao_pagamento' ||
+    s === 'boleto_intro' ||
+    s === 'negociacao_aprovada'
+  );
 }
 
-/** Texto padrão de um template financeiro editável (boleto, confirmação ou apresentação). */
+/** Texto padrão de um template financeiro editável. */
 export function defaultFinTemplate(id: string): string {
   if (id === 'confirmacao_pagamento') return DEFAULT_CONFIRMACAO_PAGAMENTO;
   if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
+  if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }
 

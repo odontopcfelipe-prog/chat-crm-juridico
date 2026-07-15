@@ -58,6 +58,8 @@ export type OperacionalKey =
   | 'confirmacao_pagamento'
   // Parte 1 — apresentação do Financeiro no dia seguinte ao fechamento da venda.
   | 'boleto_intro'
+  // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
+  | 'negociacao_aprovada'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
   // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
@@ -122,6 +124,11 @@ export const DISPAROS: DisparoItem[] = [
   // com intervalo de 3-7 min (anti-ban). Cada boleto recebe no máx 1x cada estágio.
   // Onda 18.31 — Confirmação PRIMEIRO (é por EVENTO: webhook do Asaas quando cai um
   // pagamento). Editável, sai pelo chip Financeiro, só dispara se o toggle estiver ON.
+  // Negociação aprovada — no FECHAMENTO da venda, confirma as condições ao paciente
+  // (entrada, parcelas, total). Substitui a apresentação; os boletos saem no dia seguinte.
+  { id: 'negociacao_aprovada', nome: 'Negociação aprovada · no fechamento', categoria: 'financeiro',
+    gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma as condições (entrada · parcelas · total)', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'negociacao_aprovada' },
   // Apresentação do Financeiro + envio dos boletos após a venda (2 passos, 1 toggle):
   // D+1 se apresenta e avisa; D+2 manda os boletos (carnê = 1 PDF com todas as parcelas).
   { id: 'boleto_intro', nome: 'Apresentação + boletos · após a venda', categoria: 'financeiro',

@@ -13,7 +13,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, cobrancaTemplateKey, type Permission, type Sector } from '@crm/shared';
 
 type ItemInput = {
   procedure_id: string;
@@ -877,6 +877,15 @@ export class QuotesService {
         this.logger.warn(`[APPROVE-AND-BILL] comissão de venda falhou: ${e?.message}`);
       }
 
+      // Negociação aprovada (D+0) — confirma as condições ao paciente na hora do
+      // fechamento (opt-in). Best-effort: a cobrança já foi criada, não falha o fluxo.
+      await this.sendNegociacaoAprovada(tenantId, plan.id, quote.patient, {
+        total: Number(data.value) || 0,
+        forma: data.billing_type,
+        parcelas: data.installment_count && data.installment_count > 1 ? data.installment_count : undefined,
+        valorParcela: data.installment_count && data.installment_count > 1 ? (Number(data.value) || 0) / data.installment_count : undefined,
+      });
+
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
       // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
       // hora. Best-effort: a cobranca ja foi criada, nao falha por causa disso.
@@ -1133,6 +1142,101 @@ export class QuotesService {
     this.logger.log(`[APPROVE-AND-BILL] Criou lead fantasma ${newLead.id} pra paciente ${patientId}`);
   }
 
+  /**
+   * Disparo "Negociação aprovada" (D+0) — no FECHAMENTO da venda, confirma ao
+   * paciente as condições que ele fechou (entrada + parcelas + total). Opt-in
+   * (NEGOCIACAO_APROVADA_ENABLED). SUBSTITUI a apresentação e ANCORA os boletos:
+   * grava AuditLog BOLETO_INTRO (só se o fluxo de boletos estiver ligado), o que
+   * faz a apresentação D+1 ser PULADA (dedup) e a entrega de boletos sair no dia
+   * seguinte. Best-effort — nunca lança (a cobrança já foi criada).
+   */
+  private async sendNegociacaoAprovada(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null; phone?: string | null } | null,
+    terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string },
+  ): Promise<void> {
+    try {
+      const ws = this.whatsapp;
+      const phone = patient?.phone?.trim();
+      if (!ws || !phone || !tenantId) return;
+
+      // Opt-in
+      const on = await this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } });
+      if (on?.value !== 'true') return;
+
+      // Dedup por venda — evita 2 mensagens em duplo-clique/retry do fechamento
+      // (approveAndBill é idempotente no resto, mas chegava aqui de novo).
+      const jaEnviou = await this.prisma.auditLog.findFirst({
+        where: { entity: 'NEGOCIACAO_APROVADA', entity_id: planId },
+        select: { id: true },
+      });
+      if (jaEnviou) return;
+
+      // Template salvo (Central de Disparos) → senão o default
+      let template = DEFAULT_NEGOCIACAO_APROVADA;
+      const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('negociacao_aprovada', tenantId) } });
+      if (tplRow?.value) {
+        try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* usa default */ }
+      }
+
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+      const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const firstName = (patient?.name || 'paciente').split(' ')[0];
+      const formaLabel = (f?: string) => (f === 'BOLETO' ? 'boleto' : f === 'PIX' ? 'PIX' : f === 'CREDIT_CARD' ? 'cartão' : (f || ''));
+
+      // Bloco de condições: detalha entrada/parcelas quando há financiamento (entrada
+      // OU +1 parcela — cobre o caso raro de 1 parcela com entrada); senão à vista/1×
+      // mostra só o total.
+      let condicoes: string;
+      if ((terms.entrada && terms.entrada > 0) || (terms.parcelas && terms.parcelas > 1)) {
+        const linhas: string[] = [];
+        if (terms.entrada && terms.entrada > 0) linhas.push(`• Entrada: R$ ${brl(terms.entrada)}`);
+        if (terms.parcelas && terms.valorParcela) linhas.push(`• ${terms.parcelas}x de R$ ${brl(terms.valorParcela)}`);
+        linhas.push(`• Total: R$ ${brl(terms.total)}`);
+        condicoes = linhas.join('\n');
+      } else {
+        condicoes = `• Total: R$ ${brl(terms.total)}${terms.forma ? ` (${formaLabel(terms.forma)})` : ''}`;
+      }
+
+      const msg = template
+        .replace(/\{nome\}/g, firstName)
+        .replace(/\{condicoes\}/g, condicoes)
+        .replace(/\{clinica\}/g, clinica)
+        .replace(/\{entrada\}/g, brl(terms.entrada))
+        .replace(/\{parcelas\}/g, String(terms.parcelas || 1))
+        .replace(/\{valor_parcela\}/g, brl(terms.valorParcela))
+        .replace(/\{total\}/g, brl(terms.total))
+        .replace(/\{forma\}/g, formaLabel(terms.forma));
+
+      // Chip FINANCEIRO → fallback CLINICA
+      const fin = await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO');
+      const instance = fin || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
+      await ws.sendText(phone, msg, instance);
+      this.logger.log(`[NEGOCIACAO_APROVADA] enviada ao paciente do plano ${planId}`);
+
+      // Registra o envio (dedup por venda — o próximo fechamento do mesmo plano pula).
+      await this.prisma.auditLog
+        .create({ data: { entity: 'NEGOCIACAO_APROVADA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } })
+        .catch(() => { /* dedup best-effort */ });
+
+      // Âncora — só quando a venda é BOLETO e o fluxo de boletos está ligado: substitui
+      // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
+      // seguinte). Em PIX/cartão NÃO ancora (a dedup do cron não olha data, então uma
+      // âncora sem boleto poderia suprimir uma apresentação legítima futura do plano).
+      const boletosOn = terms.forma === 'BOLETO'
+        ? await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } })
+        : null;
+      if (boletosOn?.value === 'true') {
+        await this.prisma.auditLog
+          .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'negociacao_aprovada' } } })
+          .catch(() => { /* âncora best-effort */ });
+      }
+    } catch (e: any) {
+      this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort): ${e?.message || e}`);
+    }
+  }
+
   async applyFinancing(
     quoteId: string,
     tenantId: string,
@@ -1285,6 +1389,15 @@ export class QuotesService {
       `${data.signal_value ? `sinal R$ ${data.signal_value} (${data.signal_method || 'BOLETO'}) + ` : ''}` +
       `entrada R$ ${(data.down_payment_value - (data.signal_value || 0))} + ${data.installment_count}x R$ ${data.installment_value}`,
     );
+
+    // Negociação aprovada (D+0) — confirma as condições (entrada + parcelas + total).
+    await this.sendNegociacaoAprovada(tenantId, plan.id, quoteCheck.patient, {
+      entrada: Number(data.down_payment_value) || 0,
+      parcelas: data.installment_count,
+      valorParcela: Number(data.installment_value) || 0,
+      total: Number((result as { total_financed?: number }).total_financed) || 0,
+      forma: 'BOLETO', // financiamento é sempre boleto → habilita a âncora dos boletos
+    });
 
     return {
       quote_id: quoteId,

@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -61,6 +61,8 @@ interface OperacionalData {
   confirmacao_pagamento?: { enabled: boolean };
   // Parte 1 — apresentação do Financeiro no dia seguinte à venda (opt-in).
   boleto_intro?: { enabled: boolean };
+  // Negociação aprovada — disparo no fechamento da venda (opt-in).
+  negociacao_aprovada?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
@@ -315,7 +317,26 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_BOLETO_INTRO}
           />
         )}
-        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma as condições que ele fechou. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            endpoint="/followup/cobranca-template/negociacao_aprovada"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'condicoes', desc: 'Bloco pronto: entrada + parcelas + total (ou só o total, à vista)' },
+              { key: 'entrada', desc: 'Valor da entrada (ex.: 10,00)' },
+              { key: 'parcelas', desc: 'Nº de parcelas (ex.: 8)' },
+              { key: 'valor_parcela', desc: 'Valor de cada parcela (ex.: 5,34)' },
+              { key: 'total', desc: 'Total do tratamento (ex.: 52,74)' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
+            ]}
+            preview={{ nome: 'Felipe', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_NEGOCIACAO_APROVADA}
+          />
+        )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
             descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."
