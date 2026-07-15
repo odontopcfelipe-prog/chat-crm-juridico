@@ -789,9 +789,12 @@ function ProposalFinancialCard({
     if (quoteDetail) return;
     setLoadingQuoteDetail(true);
     setLoadingContract(true);
+    // Timeout: sem ele, se /quotes/:id ou /contract pendurar (ex.: contrato quebrado
+    // "SEM COBRANÇA"), o allSettled nunca resolve → loadingQuoteDetail fica true e o
+    // "Carregando parcelas…" trava pra sempre. 15s → o request estoura e a UI segue.
     Promise.allSettled([
-      api.get<QuoteFullDetail>(`/quotes/${quote.id}`),
-      api.get<ContractInfo | null>(`/quotes/${quote.id}/contract`),
+      api.get<QuoteFullDetail>(`/quotes/${quote.id}`, { timeout: 15000 }),
+      api.get<ContractInfo | null>(`/quotes/${quote.id}/contract`, { timeout: 15000 }),
     ])
       .then(([qResp, cResp]) => {
         if (qResp.status === 'fulfilled') {
