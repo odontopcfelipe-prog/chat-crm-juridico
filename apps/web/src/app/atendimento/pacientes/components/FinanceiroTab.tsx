@@ -991,8 +991,12 @@ function ProposalFinancialCard({
       const entries = await Promise.all(
         missing.map(async (c) => {
           try {
+            // Timeout: cobrança quebrada/parcial (ex.: "SEM COBRANÇA") pode fazer o
+            // sub-installments pendurar no Asaas — sem isto o "Carregando parcelas…"
+            // trava pra sempre. Estoura em 15s → cai no catch e resolve como vazio.
             const { data } = await api.get<{ sub_installments: SubInstallment[] }>(
               `/payment-gateway/charges/${c.id}/sub-installments`,
+              { timeout: 15000 },
             );
             return [c.id, data.sub_installments || []] as const;
           } catch {
