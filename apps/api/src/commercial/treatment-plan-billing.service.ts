@@ -99,6 +99,9 @@ export class TreatmentPlanBillingService {
     const charge = await this.prisma.paymentGatewayCharge.create({
       data: {
         tenant_id: tenantId,
+        // Vincula o plano na COLUNA também (não só na description) — senão a cobrança
+        // fica achável só por description e some de buscas por treatment_plan_id.
+        treatment_plan_id: planId,
         gateway: 'ASAAS',
         external_id: asaasCharge.id,
         customer_external_id: customer.external_id,
@@ -788,6 +791,9 @@ export class TreatmentPlanBillingService {
     const charge = await this.prisma.paymentGatewayCharge.create({
       data: {
         tenant_id: tenantId,
+        // Vincula o plano na COLUNA também (não só na description) — senão a cobrança
+        // fica achável só por description e some de buscas por treatment_plan_id.
+        treatment_plan_id: planId,
         gateway: 'ASAAS',
         external_id: asaasCharge.id,
         customer_external_id: customer.external_id,
