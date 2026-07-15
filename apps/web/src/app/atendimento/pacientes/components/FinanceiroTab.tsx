@@ -2695,6 +2695,24 @@ function ProposalDetailModal({
     }
   }, [subInstallments]);
 
+  // Envia a cobrança pro WhatsApp do PACIENTE pelo chip Financeiro (boleto vai como
+  // PDF anexo). Erro honesto: se o número não está no WhatsApp / chip desconectado.
+  const [sendingChargeId, setSendingChargeId] = useState<string | null>(null);
+  const handleSendChargeWhatsapp = useCallback(async (chargeId: string) => {
+    setSendingChargeId(chargeId);
+    try {
+      await api.post(`/payment-gateway/charges/${chargeId}/resend-whatsapp`, {});
+      showSuccess('Boleto enviado ao paciente pelo WhatsApp.');
+    } catch (e: any) {
+      showError(
+        e?.response?.data?.message ||
+          'Não enviou — o número pode não estar no WhatsApp, ou o chip Financeiro está desconectado.',
+      );
+    } finally {
+      setSendingChargeId(null);
+    }
+  }, []);
+
   return (
     <div
       className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4"
@@ -2845,6 +2863,17 @@ function ProposalDetailModal({
                               >
                                 Abrir boleto PDF ↗
                               </a>
+                            )}
+                            {!isPaid && (
+                              <button
+                                type="button"
+                                onClick={() => handleSendChargeWhatsapp(c.id)}
+                                disabled={sendingChargeId === c.id}
+                                className="text-[11px] font-semibold text-emerald-700 hover:underline disabled:opacity-50 inline-flex items-center gap-1"
+                                title="Enviar este boleto pro WhatsApp do paciente (chip Financeiro)"
+                              >
+                                {sendingChargeId === c.id ? 'Enviando…' : '📤 Enviar pelo WhatsApp'}
+                              </button>
                             )}
                           </div>
 
