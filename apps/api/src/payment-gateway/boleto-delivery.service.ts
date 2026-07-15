@@ -82,7 +82,13 @@ export class BoletoDeliveryService {
     if (!phone) return { ok: false, detail: 'Informe um telefone de teste.' };
     // Isolamento: a venda tem boleto DESTE tenant? (não vaza venda de outra clínica)
     const anyCharge = await this.prisma.paymentGatewayCharge.findFirst({
-      where: { treatment_plan_id: planId, tenant_id: tenantId, billing_type: 'BOLETO' },
+      where: {
+        tenant_id: tenantId,
+        billing_type: 'BOLETO',
+        // As cobranças se ligam ao plano pela DESCRIÇÃO (plan:{id}) — igual ao front;
+        // treatment_plan_id como fallback (financiamento seta a coluna).
+        OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
+      },
       select: { treatment_plan: { select: { patient: { select: { name: true } } } } },
     });
     if (!anyCharge) return { ok: false, detail: 'Venda não encontrada (ou sem boletos) nesta clínica.' };
@@ -104,17 +110,18 @@ export class BoletoDeliveryService {
   async sendCurrentBoleto(planId: string, tenantId: string): Promise<{ ok: boolean; detail: string }> {
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
-        treatment_plan_id: planId,
         tenant_id: tenantId,
         billing_type: 'BOLETO',
         received_in_cash: false,
         status: { in: ['PENDING', 'OVERDUE'] },
+        OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
       },
       select: {
         id: true,
         external_id: true,
         boleto_url: true,
         due_date: true,
+        customer_external_id: true,
         treatment_plan: { select: { patient: { select: { name: true, phone: true } } } },
       },
       orderBy: { due_date: 'asc' }, // o mais próximo a vencer (ou o mais atrasado) primeiro
@@ -122,9 +129,21 @@ export class BoletoDeliveryService {
     if (charges.length === 0) return { ok: false, detail: 'Esta venda não tem boleto em aberto.' };
 
     const next = charges[0];
-    const patient = next.treatment_plan?.patient;
-    const phone = patient?.phone?.trim();
-    if (!patient || !phone) return { ok: false, detail: 'Paciente sem telefone cadastrado.' };
+    // Telefone/nome: pelo treatment_plan.patient; fallback via customer Asaas → lead
+    // (cobrança ligada só pela descrição, sem treatment_plan_id preenchido).
+    let name = next.treatment_plan?.patient?.name || 'Paciente';
+    let phone = (next.treatment_plan?.patient?.phone || '').trim();
+    if (!phone && next.customer_external_id) {
+      const cust = await this.prisma.paymentGatewayCustomer.findFirst({
+        where: { external_id: next.customer_external_id, gateway: 'ASAAS' },
+        select: { lead: { select: { name: true, phone: true } } },
+      });
+      if (cust?.lead) {
+        name = cust.lead.name || name;
+        phone = (cust.lead.phone || '').trim();
+      }
+    }
+    if (!phone) return { ok: false, detail: 'Paciente sem telefone cadastrado.' };
 
     // boleto_url pode vir null (parcela recém-criada) → enriquece via Asaas.
     let url = next.boleto_url;
@@ -139,7 +158,7 @@ export class BoletoDeliveryService {
     if (!url) return { ok: false, detail: 'O boleto ainda não tem PDF disponível — tente em instantes.' };
 
     const instance = await this.resolveInstance(tenantId);
-    const firstName = (patient.name || 'Paciente').split(' ')[0];
+    const firstName = name.split(' ')[0];
     const due = new Date(next.due_date);
     const dd = String(due.getUTCDate()).padStart(2, '0');
     const mm = String(due.getUTCMonth() + 1).padStart(2, '0');
@@ -254,11 +273,11 @@ export class BoletoDeliveryService {
     const dedup = opts?.dedup !== false; // teste passa dedup:false → força reenvio, sem marcar
     const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: {
-        treatment_plan_id: planId,
         tenant_id: tenantId,
         billing_type: 'BOLETO',
         received_in_cash: false,
         status: { in: ['PENDING', 'OVERDUE'] },
+        OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
       },
       select: { kind: true, external_id: true, boleto_url: true, due_date: true },
       orderBy: { due_date: 'asc' },
