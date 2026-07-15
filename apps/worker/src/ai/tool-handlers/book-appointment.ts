@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common';
 import axios from 'axios';
 import type { ToolHandler, ToolContext } from '../tool-executor';
 import { isHolidayMatch } from './check-availability';
+import { isAiAutobookEnabled } from '../auto-book-gate';
 
 /**
  * Agenda uma reunião/consulta para o lead.
@@ -53,6 +54,20 @@ export class BookAppointmentHandler implements ToolHandler {
       return {
         success: false,
         error: 'Nenhum dentista atribuído a esta conversa. Use escalate_to_human antes de agendar.',
+      };
+    }
+
+    // FREIO — agendamento automático pela IA é OPT-IN (default OFF). Sem isso, a IA
+    // NÃO cria evento na agenda sozinha (evita "agendando o pessoal sozinho").
+    if (!(await isAiAutobookEnabled(prisma, convo?.tenant_id))) {
+      this.logger.warn(
+        `[book_appointment] Auto-agendamento DESATIVADO (tenant ${convo?.tenant_id ?? 'null'}) — NÃO criando evento.`,
+      );
+      return {
+        success: false,
+        error:
+          'O agendamento automático pela IA está DESATIVADO nesta clínica. NÃO crie o evento — ' +
+          'diga ao paciente que a RECEPÇÃO vai confirmar o horário e retornar o contato.',
       };
     }
 

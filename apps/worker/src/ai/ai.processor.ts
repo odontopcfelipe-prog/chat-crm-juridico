@@ -15,6 +15,7 @@ import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
+import { isAiAutobookEnabled } from './auto-book-gate';
 
 // Modelos com suporte a visão (imagens)
 const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
@@ -2449,6 +2450,13 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // e loga warning (operador precisa marcar manualmente).
       if (scheduling_action?.action === 'confirm_slot' && scheduling_action.date && scheduling_action.time) {
         try {
+          // FREIO — agendamento automático pela IA é OPT-IN (default OFF). Sem isso,
+          // a IA NÃO cria a "Avaliação" sozinha (evita "agendando o pessoal sozinho").
+          if (!(await isAiAutobookEnabled(this.prisma, (convo as any)?.tenant_id))) {
+            this.logger.warn(
+              `[AI] Auto-agendamento DESATIVADO (tenant ${(convo as any)?.tenant_id ?? 'null'}) — Avaliação NÃO criada; operador confirma manualmente.`,
+            );
+          } else {
           const dentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
 
           if (!dentistId) {
@@ -2475,6 +2483,7 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             this.logger.log(
               `[AI] Avaliação agendada: ${scheduling_action.date} ${scheduling_action.time} — Orçamentista ${dentistId}`,
             );
+          }
           }
         } catch (e: any) {
           this.logger.warn(`[AI] Falha ao agendar avaliação: ${e.message}`);
