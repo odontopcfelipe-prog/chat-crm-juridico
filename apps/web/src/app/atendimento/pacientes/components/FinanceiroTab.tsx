@@ -987,7 +987,6 @@ function ProposalFinancialCard({
     const missing = relatedCharges.filter((c) => subInstallmentsByCharge[c.id] === undefined);
     if (missing.length === 0) { setLoadingSubs(false); return; }
     setLoadingSubs(true);
-    let cancelled = false;
     (async () => {
       // Onda 18.9 — PARALELO (era sequencial: 26 cobranças = 26 requests em
       // fila, ~13s+ -> travava). Promise.all busca todas de uma vez.
@@ -1007,7 +1006,6 @@ function ProposalFinancialCard({
           }
         }),
       );
-      if (cancelled) return;
       setSubInstallmentsByCharge((prev) => {
         const next = { ...prev };
         for (const [id, subs] of entries) next[id] = subs;
@@ -1015,8 +1013,21 @@ function ProposalFinancialCard({
       });
       setLoadingSubs(false);
     })();
-    return () => { cancelled = true; };
+    // Sem cleanup 'cancelled': a busca SEMPRE grava o cache (mesmo se o efeito
+    // re-rodar), pra `missing` esvaziar e a UI NUNCA ficar em loop com loading=true.
   }, [relatedCharges, subInstallmentsByCharge]);
+
+  // SALVAGUARDA anti-travamento: se, por qualquer motivo (backend pendurado num
+  // contrato quebrado etc.), o loading não resolver, força depois de 18s pra a UI
+  // nunca girar pra sempre. Depende só de `expanded` → não re-roda em loop.
+  useEffect(() => {
+    if (!expanded) return;
+    const t = setTimeout(() => {
+      setLoadingSubs(false);
+      setLoadingQuoteDetail(false);
+    }, 18000);
+    return () => clearTimeout(t);
+  }, [expanded]);
 
   // Onda 18.12 — refresh SILENCIOSO das sub-parcelas quando o parent sinaliza
   // (polling 30s / atualizar): reconsulta o status FRESCO do Asaas e atualiza em
