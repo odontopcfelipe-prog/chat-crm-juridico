@@ -92,19 +92,7 @@ export class BoletoDeliveryService {
       select: { treatment_plan: { select: { patient: { select: { name: true } } } } },
     });
     if (!anyCharge) {
-      // DIAGNÓSTICO — mostra POR QUE não achou (e prova se este build novo subiu).
-      const [descTenant, colTenant, boletoTenant, descAnyTenant] = await Promise.all([
-        this.prisma.paymentGatewayCharge.count({ where: { tenant_id: tenantId, description: { contains: `plan:${planId}` } } }),
-        this.prisma.paymentGatewayCharge.count({ where: { tenant_id: tenantId, treatment_plan_id: planId } }),
-        this.prisma.paymentGatewayCharge.count({ where: { tenant_id: tenantId, billing_type: 'BOLETO', description: { contains: `plan:${planId}` } } }),
-        this.prisma.paymentGatewayCharge.count({ where: { description: { contains: `plan:${planId}` } } }),
-      ]);
-      return {
-        ok: false,
-        detail:
-          `Não achei boleto. plano=${(planId || '').slice(0, 8)} tenant=${(tenantId || 'null').slice(0, 8)} · ` +
-          `desc(tenant)=${descTenant} · coluna=${colTenant} · boleto(tenant)=${boletoTenant} · desc(qualquer tenant)=${descAnyTenant}`,
-      };
+      return { ok: false, detail: 'Esta venda não tem boleto em aberto para enviar.' };
     }
     const name = anyCharge.treatment_plan?.patient?.name || 'Paciente';
     const ok = await this.sendBoletos(planId, tenantId, name, phone, { dedup: false });
