@@ -13,7 +13,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, cobrancaTemplateKey, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
 
 type ItemInput = {
   procedure_id: string;
@@ -1223,23 +1223,15 @@ export class QuotesService {
       const firstName = (patient?.name || 'paciente').split(' ')[0];
       const formaLabel = (f?: string) => (f === 'BOLETO' ? 'boleto' : f === 'PIX' ? 'PIX' : f === 'CREDIT_CARD' ? 'cartão' : (f || ''));
 
-      // Bloco de condições: detalha entrada/parcelas quando há financiamento (entrada
-      // OU +1 parcela — cobre o caso raro de 1 parcela com entrada); senão à vista/1×
-      // mostra só o total. {condicoes_sem_total} = o mesmo bloco SEM a linha do total,
-      // pra quem quiser omitir o valor total da mensagem.
-      let condicoes: string;
-      let condicoesSemTotal: string;
-      if ((terms.entrada && terms.entrada > 0) || (terms.parcelas && terms.parcelas > 1)) {
-        const linhas: string[] = [];
-        if (terms.entrada && terms.entrada > 0) linhas.push(`• Entrada: R$ ${brl(terms.entrada)}`);
-        if (terms.parcelas && terms.valorParcela) linhas.push(`• ${terms.parcelas}x de R$ ${brl(terms.valorParcela)}`);
-        condicoesSemTotal = linhas.join('\n');
-        condicoes = [...linhas, `• Total: R$ ${brl(terms.total)}`].join('\n');
-      } else {
-        condicoes = `• Total: R$ ${brl(terms.total)}${terms.forma ? ` (${formaLabel(terms.forma)})` : ''}`;
-        // À vista/1×: sem o total não sobra detalhe de valor — só a forma, quando houver.
-        condicoesSemTotal = terms.forma ? `• Pagamento à vista (${formaLabel(terms.forma)})` : '';
-      }
+      // Bloco de condições (fonte única com a entrega dos boletos — buildCondicoesBlock).
+      // {condicoes} = entrada + parcelas + total; {condicoes_sem_total} = sem a linha do total.
+      const { condicoes, condicoesSemTotal } = buildCondicoesBlock({
+        entrada: terms.entrada,
+        parcelas: terms.parcelas,
+        valorParcela: terms.valorParcela,
+        total: terms.total,
+        formaLabel: formaLabel(terms.forma),
+      });
 
       const msg = template
         .replace(/\{nome\}/g, firstName)

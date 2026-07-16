@@ -93,6 +93,37 @@ export const DEFAULT_NEGOCIACAO_APROVADA =
   '{condicoes}\n\n' +
   'Já já o setor financeiro te envia os boletos por aqui. Qualquer dúvida, é só chamar! 💙';
 
+/**
+ * Monta o bloco de condições ({condicoes} = entrada + parcelas + total; {condicoes_sem_total}
+ * = o mesmo sem a linha do total). Fonte ÚNICA usada pela negociação aprovada (valores do
+ * orçamento fechado) e pela entrega dos boletos (valores derivados das cobranças) — pra os
+ * dois NUNCA divergirem de formato. `formaLabel` só aparece no caso à vista (a entrega não passa).
+ */
+export function buildCondicoesBlock(t: {
+  entrada?: number;
+  parcelas?: number;
+  valorParcela?: number;
+  total: number;
+  formaLabel?: string;
+}): { condicoes: string; condicoesSemTotal: string } {
+  const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  if ((t.entrada && t.entrada > 0) || (t.parcelas && t.parcelas > 1)) {
+    const linhas: string[] = [];
+    if (t.entrada && t.entrada > 0) linhas.push(`• Entrada: R$ ${brl(t.entrada)}`);
+    // Sem `> 1` de propósito: espelha a negociação (entrada + 1 parcela mostra "1x de").
+    // A entrega passa parcelas 0 ou >1 (nunca 1), então não gera "1x de" indevido lá.
+    if (t.parcelas && t.valorParcela) linhas.push(`• ${t.parcelas}x de R$ ${brl(t.valorParcela)}`);
+    return {
+      condicoesSemTotal: linhas.join('\n'),
+      condicoes: [...linhas, `• Total: R$ ${brl(t.total)}`].join('\n'),
+    };
+  }
+  return {
+    condicoes: `• Total: R$ ${brl(t.total)}${t.formaLabel ? ` (${t.formaLabel})` : ''}`,
+    condicoesSemTotal: t.formaLabel ? `• Pagamento à vista (${t.formaLabel})` : '',
+  };
+}
+
 /** Ids de template financeiro editáveis: os 5 boletos + confirmação + apresentação + negociação. */
 export function isFinTemplateId(s: string): boolean {
   return (

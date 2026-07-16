@@ -350,8 +350,10 @@ export default function CentralDisparosPage() {
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
+              { key: 'condicoes', desc: 'Bloco dos boletos: entrada + parcelas + total (derivado do carnê)' },
+              { key: 'condicoes_sem_total', desc: 'O mesmo bloco, mas SEM a linha do total' },
             ]}
-            preview={{ nome: 'Felipe', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', clinica: 'Instituto Odonto Passos', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_BOLETO_DELIVERY}
           />

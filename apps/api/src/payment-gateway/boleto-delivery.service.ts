@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { buildCondicoesBlock } from '@crm/shared';
 import { PrismaService } from '../prisma/prisma.service';
 import { AsaasClient } from './asaas/asaas-client';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
@@ -288,7 +289,7 @@ export class BoletoDeliveryService {
         status: { in: ['PENDING', 'OVERDUE'] },
         OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
       },
-      select: { kind: true, external_id: true, boleto_url: true, due_date: true },
+      select: { kind: true, external_id: true, boleto_url: true, due_date: true, amount: true, description: true },
       orderBy: { due_date: 'asc' },
     });
     if (charges.length === 0) {
@@ -305,10 +306,14 @@ export class BoletoDeliveryService {
     const firstName = name.split(' ')[0];
     let allOk = true;
 
+    // Condições dos boletos ({condicoes}/{condicoes_sem_total}) DERIVADAS das cobranças
+    // que estão indo neste envio (descreve o carnê, não é extrato do contrato).
+    const cond = this.buildDeliveryCondicoes(charges, parcelas);
+
     // 1) Texto de abertura — editável na Central de Disparos (card "Envio dos
     // boletos"); cai no default se a clínica não editou. NÃO cita prazo ("ontem"):
     // a entrega pode sair D+1 ou dias depois (janela larga).
-    const abertura = await this.resolveDeliveryText(tenantId, firstName);
+    const abertura = await this.resolveDeliveryText(tenantId, firstName, cond);
     const textOk = await this.sendPiece(`${planId}:text`, tenantId, () =>
       this.whatsapp.sendText(phone, abertura, instance), dedup,
     );
@@ -405,8 +410,12 @@ export class BoletoDeliveryService {
 
   /** Texto de abertura da entrega — editável na Central de Disparos (mesma infra dos
    *  boletos, cobrancaTemplateKey 'boleto_delivery'); cai no default se não editado.
-   *  Resolve {nome} e {clinica}. */
-  private async resolveDeliveryText(tenantId: string, firstName: string): Promise<string> {
+   *  Resolve {nome}, {clinica} e (opt-in) {condicoes}/{condicoes_sem_total}. */
+  private async resolveDeliveryText(
+    tenantId: string,
+    firstName: string,
+    cond?: { condicoes: string; condicoesSemTotal: string },
+  ): Promise<string> {
     const { cobrancaTemplateKey, DEFAULT_BOLETO_DELIVERY } = await import('@crm/shared');
     let template = DEFAULT_BOLETO_DELIVERY;
     try {
@@ -421,7 +430,50 @@ export class BoletoDeliveryService {
       const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
       if (t?.name) clinica = t.name;
     }
-    return template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica);
+    return template
+      .replace(/\{nome\}/g, firstName)
+      .replace(/\{clinica\}/g, clinica)
+      .replace(/\{condicoes_sem_total\}/g, cond?.condicoesSemTotal ?? '')
+      .replace(/\{condicoes\}/g, cond?.condicoes ?? '')
+      // Colapsa linhas em branco órfãs (ex.: {condicoes_sem_total} vazio no à vista).
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  }
+
+  /** Deriva {condicoes}/{condicoes_sem_total} das cobranças EM ABERTO deste envio.
+   *  Total = soma de TODAS (exato). "Nx de R$ Y" só quando dá pra saber o N com certeza:
+   *  N parcelas-filhas (kind INSTALLMENT com >1 linha), ou 1 guarda-chuva com "(Nx)" na
+   *  descrição. Se não der, OMITE a linha de parcelas (nunca chuta um "Nx" errado).
+   *  SINAL/ENTRADA em PIX/dinheiro não entram (só boletos), então a entrada aqui é a
+   *  parte BOLETO — coerente com "o que acompanha este carnê". */
+  private buildDeliveryCondicoes(
+    charges: { kind: string | null; amount: any; description: string | null }[],
+    parcelas: { kind: string | null; amount: any; description: string | null }[],
+  ): { condicoes: string; condicoesSemTotal: string } {
+    const num = (v: any) => Number(v) || 0;
+    const total = charges.reduce((s, c) => s + num(c.amount), 0);
+    const entrada = charges
+      .filter((c) => c.kind === 'ENTRADA' || c.kind === 'SINAL')
+      .reduce((s, c) => s + num(c.amount), 0);
+
+    let parcelasN = 0;
+    let valorParcela = 0;
+    if (parcelas.length > 1) {
+      // N cobranças-filhas: cada amount = valor de UMA parcela.
+      parcelasN = parcelas.length;
+      valorParcela = num(parcelas[0].amount);
+    } else if (parcelas.length === 1) {
+      // 1 cobrança guarda-chuva: amount = total das parcelas; o N vem da descrição.
+      const m = (parcelas[0].description || '').match(/(\d+)\s*x/i);
+      const n = m ? Number(m[1]) : 0;
+      if (n > 1) {
+        parcelasN = n;
+        valorParcela = num(parcelas[0].amount) / n;
+      }
+      // n<=1 (parcela única ou indecifrável) → não vira "Nx de"; fica no total.
+    }
+
+    return buildCondicoesBlock({ entrada, parcelas: parcelasN, valorParcela, total });
   }
 
   /** Registra a entrega (idempotência exactly-once por venda). Best-effort. */
