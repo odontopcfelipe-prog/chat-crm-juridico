@@ -64,6 +64,9 @@ interface ChargeCandidate {
   link: string;
   /** URL do PDF do boleto (só quando billing_type=BOLETO) — manda como documento. */
   pdfUrl: string | null;
+  /** Disparo ANTECIPADO pra sexta (vencimento cai dom/seg, dias sem cron): o dia da
+   *  semana do vencimento, pra trocar o "amanhã" do template e não mentir. */
+  venceEm?: string;
 }
 
 /** Parte 1 — apresentação do Financeiro, 1 por VENDA (treatment_plan) fechada ontem. */
@@ -246,7 +249,8 @@ export class PaymentAlertsCronService {
    */
   private async findNextCharge(): Promise<ChargeCandidate | null> {
     const todayIdx = this.dayIndexUTC(new Date(Date.now() - 3 * 3_600_000)); // hoje Maceió
-    // Janela: só o que pode bater num estágio (−31d atraso até +2d antes).
+    // Janela: só o que pode bater num estágio (−33d atraso até +3d antes — o +3d
+    // cobre a antecipação de sexta pra vencimento na segunda).
     const lo = new Date(Date.now() - 33 * 86_400_000);
     const hi = new Date(Date.now() + 3 * 86_400_000);
 
@@ -274,10 +278,24 @@ export class PaymentAlertsCronService {
     if (charges.length === 0) return null;
 
     const stageCache = new Map<string, Set<Stage>>(); // tenantId → estágios ligados
+    // Dia da semana de HOJE em Maceió (5 = sexta) — pra antecipação de fim de semana.
+    const todayDow = new Date(Date.now() - 3 * 3_600_000).getUTCDay();
     const candidates: ChargeCandidate[] = [];
     for (const c of charges) {
       const diff = todayIdx - this.dayIndexUTC(new Date(c.due_date));
-      const stage = STAGE_BY_DIFF[diff];
+      let stage = STAGE_BY_DIFF[diff];
+      let venceEm: string | undefined;
+      // O cron só roda seg-sex: o "1 dia antes" de um boleto que vence DOMINGO cai no
+      // sábado, e o de SEGUNDA cai no domingo — dias sem cron. Sem isto, esses boletos
+      // NUNCA recebiam o lembrete (e a janela é exata, não há retry depois). Antecipa
+      // pra SEXTA (último dia útil antes do vencimento); a dedup por charge+stage
+      // garante que não repete. Feriado em dia útil continua descoberto (o cron não
+      // conhece feriado) — limitação documentada.
+      if (!stage && todayDow === 5 && (diff === -2 || diff === -3)) {
+        // Na sexta: diff -1 = sábado (fluxo normal já cobre), -2 = domingo, -3 = segunda.
+        stage = 'boleto_1d_antes';
+        venceEm = diff === -2 ? 'no domingo' : 'na segunda-feira';
+      }
       if (!stage) continue;
 
       const patient = c.treatment_plan?.patient || c.installment?.patient;
@@ -304,6 +322,7 @@ export class PaymentAlertsCronService {
         dueDate: new Date(c.due_date),
         link,
         pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
+        venceEm,
       });
     }
     if (candidates.length === 0) return null;
@@ -361,7 +380,12 @@ export class PaymentAlertsCronService {
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
     const mm = String(c.dueDate.getUTCMonth() + 1).padStart(2, '0');
-    return template
+    let base = template;
+    // Disparo antecipado pra sexta (vencimento dom/seg): o template do 1d_antes diz
+    // "amanhã" — troca pelo dia real pra não mentir. Best-effort: se a clínica editou
+    // o texto sem a palavra "amanhã", a {data} correta continua entre parênteses.
+    if (c.venceEm) base = base.replace(/amanhã/gi, c.venceEm);
+    return base
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
       .replace(/\{data\}/g, `${dd}/${mm}`)
