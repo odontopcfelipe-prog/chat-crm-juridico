@@ -304,11 +304,13 @@ export class BoletoDeliveryService {
     const firstName = name.split(' ')[0];
     let allOk = true;
 
-    // 1) Texto de abertura.
+    // 1) Texto de abertura. NÃO afirma "como combinei ontem": a apresentação daquele
+    // plano pode ter sido pulada (paciente já apresentado por outra venda) ou ter saído
+    // dias antes (janela de entrega é de 10 dias, não só D+1) — aí "ontem" seria mentira.
     const textOk = await this.sendPiece(`${planId}:text`, tenantId, () =>
       this.whatsapp.sendText(
         phone,
-        `Olá, ${firstName}! 📄 Como combinei ontem, aqui estão os seus boletos. ` +
+        `Olá, ${firstName}! 📄 Aqui estão os seus boletos, todos em PDF. ` +
           `Qualquer dúvida, é só me chamar por aqui! 💙`,
         instance,
       ), dedup,
