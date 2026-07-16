@@ -61,6 +61,8 @@ interface OperacionalData {
   confirmacao_pagamento?: { enabled: boolean };
   // Parte 1 — apresentação do Financeiro no dia seguinte à venda (opt-in).
   boleto_intro?: { enabled: boolean };
+  // Parte 2 — envio dos boletos em carnê (D+2). Toggle separado da apresentação.
+  boleto_delivery?: { enabled: boolean };
   // Negociação aprovada — disparo no fechamento da venda (opt-in).
   negociacao_aprovada?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).

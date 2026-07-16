@@ -103,6 +103,7 @@ export class FollowupService {
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
+      boletoDeliverySetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -131,6 +132,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } }),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } }),
+      // Entrega dos boletos (D+2). Toggle próprio; quando ausente, herda a apresentação.
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -271,6 +274,13 @@ export class FollowupService {
       pacientes_sem_agendamento: { enabled: semAgendSetting?.value === 'true' },
       // Parte 1 — apresentação do Financeiro (D+1 da venda). Default OFF (opt-in).
       boleto_intro: { enabled: boletoIntroSetting?.value === 'true' },
+      // Entrega dos boletos (D+2). Toggle próprio; quando nunca setado, HERDA a
+      // apresentação (compat: antes 1 toggle ligava os dois).
+      boleto_delivery: {
+        enabled: boletoDeliverySetting
+          ? boletoDeliverySetting.value === 'true'
+          : boletoIntroSetting?.value === 'true',
+      },
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
     };
@@ -486,6 +496,14 @@ export class FollowupService {
       // Negociação aprovada — disparo no fechamento (quotes.service lê esta key).
       case 'negociacao_aprovada': {
         const key = `NEGOCIACAO_APROVADA_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Entrega dos boletos (D+2). Toggle SEPARADO da apresentação: a boleto-delivery
+      // (API) e o worker leem esta key; ausente = herda a apresentação.
+      case 'boleto_delivery': {
+        const key = `BOLETO_DELIVERY_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

@@ -56,8 +56,10 @@ export type OperacionalKey =
   // Onda 18.28 — confirmação de pagamento (por EVENTO: webhook do Asaas quando cai
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
   | 'confirmacao_pagamento'
-  // Parte 1 — apresentação do Financeiro no dia seguinte ao fechamento da venda.
+  // Parte 1 — apresentação do Financeiro no dia seguinte ao fechamento da venda (D+1).
   | 'boleto_intro'
+  // Parte 2 — envio dos boletos em PDF/carnê (D+2). Toggle separado da apresentação.
+  | 'boleto_delivery'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
@@ -72,7 +74,8 @@ export interface DisparoItem {
   gatilho: string;          // resumo curto exibido na linha
   canal: string;            // "WhatsApp" | "Painel"
   tags: string[];           // ['Template', 'via CRC']
-  editor: DisparoEditor;    // painel de config (reusa componentes do Follow-up)
+  editor?: DisparoEditor;   // painel de config (reusa componentes do Follow-up).
+                            // Ausente = card só-toggle (sem texto editável), ex.: entrega dos boletos.
   operacionalKey?: OperacionalKey; // on/off + métrica via Operacional
   /** Lembrete: o on/off é a PRESENÇA desta antecedência (minutos) na config do
    *  lembrete (/calendar/reminders/config) — cada lembrete liga/desliga sozinho. */
@@ -129,11 +132,16 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'negociacao_aprovada', nome: 'Negociação aprovada · no fechamento', categoria: 'financeiro',
     gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma as condições (entrada · parcelas · total)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'negociacao_aprovada' },
-  // Apresentação do Financeiro + envio dos boletos após a venda (2 passos, 1 toggle):
-  // D+1 se apresenta e avisa; D+2 manda os boletos (carnê = 1 PDF com todas as parcelas).
-  { id: 'boleto_intro', nome: 'Apresentação + boletos · após a venda', categoria: 'financeiro',
-    gatilho: 'D+1 se apresenta · D+2 manda os boletos em PDF (carnê)', canal: 'WhatsApp', tags: ['Template'],
+  // Fluxo pós-venda em 2 passos, cada um com seu toggle:
+  // D+1 (apresentação, texto editável) → D+2 (envio dos boletos em carnê PDF).
+  // A apresentação só sai se a ENTREGA também estiver ligada (senão prometeria boleto
+  // que não vem). A entrega funciona sozinha, sem a apresentação.
+  { id: 'boleto_intro', nome: 'Apresentação · 1 dia após a venda', categoria: 'financeiro',
+    gatilho: 'D+1 · o financeiro se apresenta e avisa que amanhã manda os boletos (precisa da entrega ligada)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_intro' },
+  { id: 'boleto_delivery', nome: 'Envio dos boletos · carnê em PDF', categoria: 'financeiro',
+    gatilho: 'D+2 · manda todos os boletos num carnê (1 PDF) pelo chip Financeiro', canal: 'WhatsApp', tags: [],
+    operacionalKey: 'boleto_delivery' },
   { id: 'confirmacao_pagamento', nome: 'Confirmação de pagamento', categoria: 'financeiro',
     gatilho: 'Quando o pagamento é confirmado (automático)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'confirmacao_pagamento' },

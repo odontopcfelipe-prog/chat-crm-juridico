@@ -7,7 +7,8 @@ import { WhatsappService } from '../whatsapp/whatsapp.service';
 /**
  * Parte 2 — ENVIO DOS BOLETOS no dia seguinte à apresentação (Central de Disparos).
  *
- * Fluxo (opt-in, gate BOLETO_INTRO_ENABLED_${tenant} — o MESMO da apresentação):
+ * Fluxo (opt-in, gate BOLETO_DELIVERY_ENABLED_${tenant} — toggle próprio; sem valor
+ * herda a apresentação BOLETO_INTRO_ENABLED):
  *   venda fechada (D) → apresentação D+1 (worker payment-alerts-cron, entity=BOLETO_INTRO)
  *   → ESTE serviço, no dia SEGUINTE à apresentação, manda os boletos em PDF.
  *
@@ -392,12 +393,15 @@ export class BoletoDeliveryService {
     return undefined;
   }
 
-  /** Disparo LIGADO pro tenant? (MESMA key da apresentação — 1 toggle p/ o fluxo). */
+  /** Entrega (D+2) LIGADA pro tenant? Toggle próprio (BOLETO_DELIVERY_ENABLED); quando
+   *  nunca foi setado, HERDA a apresentação (compat: antes era 1 toggle só). */
   private async isEnabled(tenantId: string): Promise<boolean> {
     if (!tenantId) return false;
     try {
-      const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
-      return row?.value === 'true';
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
+      if (row) return row.value === 'true';
+      const intro = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
+      return intro?.value === 'true';
     } catch {
       return false;
     }

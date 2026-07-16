@@ -536,15 +536,26 @@ export class PaymentAlertsCronService {
     });
     if (sales.length === 0) return null;
 
-    // Só tenants com a apresentação LIGADA (default OFF), 1 lookup por tenant.
-    const enabledCache = new Map<string, boolean>();
+    // Tenants com a APRESENTAÇÃO (D+1) ou a ENTREGA (D+2) ligada — são toggles
+    // separados. Entram na lista os dois casos: a apresentação precisa mandar msg;
+    // a entrega-sem-apresentação precisa só ANCORAR a venda (pra liberar os boletos
+    // amanhã) sem mandar nada. 1 lookup por flag por tenant.
+    const flagCache = new Map<string, { intro: boolean; delivery: boolean }>();
+    const flagsDo = async (t: string) => {
+      let f = flagCache.get(t);
+      if (!f) {
+        f = { intro: await this.isIntroEnabled(t), delivery: await this.isDeliveryEnabled(t) };
+        flagCache.set(t, f);
+      }
+      return f;
+    };
     const eligible: { planId: string; tenantId: string }[] = [];
     for (const s of sales) {
       const planId = s.treatment_plan_id;
       const tenantId = s.tenant_id || '';
       if (!planId) continue;
-      if (!enabledCache.has(tenantId)) enabledCache.set(tenantId, await this.isIntroEnabled(tenantId));
-      if (enabledCache.get(tenantId)) eligible.push({ planId, tenantId });
+      const f = await flagsDo(tenantId);
+      if (f.intro || f.delivery) eligible.push({ planId, tenantId });
     }
     if (eligible.length === 0) return null;
 
@@ -578,18 +589,28 @@ export class PaymentAlertsCronService {
       const p = planById.get(e.planId);
       const phone = p?.patient?.phone?.trim();
       if (!p?.patient || !phone) continue;
-      if (p.patient_id && jaApresentados.has(p.patient_id)) {
-        // Já se apresentou numa venda anterior. Grava a âncora MESMO ASSIM (sem
-        // mandar nada): é ela que libera a entrega dos boletos desta venda no dia
-        // seguinte — pular a âncora deixaria esta venda sem boleto pra sempre.
+      const f = await flagsDo(e.tenantId);
+      const jaApres = !!(p.patient_id && jaApresentados.has(p.patient_id));
+
+      // Manda a apresentação SÓ quando: apresentação (D+1) ligada E entrega (D+2)
+      // ligada — sem a entrega, o "amanhã te mando os boletos" seria mentira — E o
+      // paciente ainda não foi apresentado numa venda anterior.
+      if (f.intro && f.delivery && !jaApres) {
+        return { planId: e.planId, tenantId: e.tenantId, phone, name: p.patient.name };
+      }
+
+      // Não vai apresentar. Se a ENTREGA está ligada, grava a âncora mesmo assim (sem
+      // mandar nada): é ela que libera os boletos amanhã — cobre "entrega ligada mas
+      // apresentação desligada" e "paciente já apresentado". Entrega desligada → nem
+      // ancora (não há o que liberar) e a apresentação sozinha não sai (não promete).
+      if (f.delivery) {
         await this.logIntroSent(e.planId, e.tenantId, null);
         this.logger.log(
-          `[BOLETO_INTRO] Plano ${e.planId}: paciente já foi apresentado numa venda anterior — ` +
-          `não repito a apresentação; boletos seguem liberados pra amanhã.`,
+          `[BOLETO_INTRO] Plano ${e.planId}: ${jaApres ? 'paciente já apresentado' : 'apresentação desligada'} — ` +
+          `só liberando os boletos pra amanhã (sem repetir/mandar a apresentação).`,
         );
-        continue;
       }
-      return { planId: e.planId, tenantId: e.tenantId, phone, name: p.patient.name };
+      continue;
     }
     return null;
   }
@@ -657,12 +678,25 @@ export class PaymentAlertsCronService {
     return 'sent';
   }
 
-  /** Apresentação LIGADA pro tenant? (GlobalSetting BOLETO_INTRO_ENABLED_${tenant}). */
+  /** Apresentação (D+1) LIGADA pro tenant? (GlobalSetting BOLETO_INTRO_ENABLED_${tenant}). */
   private async isIntroEnabled(tenantId: string): Promise<boolean> {
     if (!tenantId) return false;
     try {
       const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
       return row?.value === 'true';
+    } catch {
+      return false;
+    }
+  }
+
+  /** Entrega dos boletos (D+2) LIGADA? Toggle separado da apresentação; quando NUNCA
+   *  foi setado, HERDA a apresentação (compat: antes era 1 toggle só pro fluxo todo). */
+  private async isDeliveryEnabled(tenantId: string): Promise<boolean> {
+    if (!tenantId) return false;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
+      if (row) return row.value === 'true';
+      return this.isIntroEnabled(tenantId);
     } catch {
       return false;
     }

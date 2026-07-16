@@ -1273,20 +1273,29 @@ export class QuotesService {
       // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
       // seguinte). Em PIX/cartão NÃO ancora (a dedup do cron não olha data, então uma
       // âncora sem boleto poderia suprimir uma apresentação legítima futura do plano).
-      const boletosOn = terms.forma === 'BOLETO'
-        ? await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } })
-        : null;
-      if (boletosOn?.value === 'true') {
+      // Gate pela ENTREGA (D+2), não pela apresentação — a âncora serve pra LIBERAR os
+      // boletos. Toggle próprio BOLETO_DELIVERY_ENABLED; se nunca setado, herda a
+      // apresentação (compat).
+      let entregaLigada = false;
+      if (terms.forma === 'BOLETO') {
+        const del = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } });
+        if (del) entregaLigada = del.value === 'true';
+        else {
+          const intro = await this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_INTRO_ENABLED_${tenantId}` } });
+          entregaLigada = intro?.value === 'true';
+        }
+      }
+      if (entregaLigada) {
         await this.prisma.auditLog
           .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'negociacao_aprovada' } } })
           .catch((e: any) => this.logger.warn(`[NEGOCIACAO_APROVADA] âncora não gravou (plano ${planId}): ${e?.message}`));
       } else if (terms.forma === 'BOLETO') {
         // PROMESSA SEM ENTREGA: a mensagem que acabou de sair diz que o financeiro
-        // manda os boletos, mas quem entrega ("Apresentação + boletos") está DESLIGADO.
+        // manda os boletos, mas a ENTREGA ("Envio dos boletos") está DESLIGADA.
         // Os dois disparos são toggles independentes — o paciente ficaria esperando.
         this.logger.warn(
           `[NEGOCIACAO_APROVADA] Plano ${planId}: avisei o paciente que os boletos vêm, mas ` +
-          `"Apresentação + boletos" está DESLIGADO (BOLETO_INTRO_ENABLED_${tenantId}) — ninguém vai entregar. ` +
+          `"Envio dos boletos" está DESLIGADO (BOLETO_DELIVERY_ENABLED_${tenantId}) — ninguém vai entregar. ` +
           `Ligue na Central de Disparos ou use "Enviar boleto do mês".`,
         );
       }
