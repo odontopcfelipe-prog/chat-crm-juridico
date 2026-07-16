@@ -364,13 +364,14 @@ export default function CentralDisparosPage() {
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },
               { key: 'condicoes', desc: 'Bloco pronto: entrada + parcelas + total (ou só o total, à vista)' },
+              { key: 'condicoes_sem_total', desc: 'O mesmo bloco, mas SEM a linha do total (só entrada + parcelas)' },
               { key: 'entrada', desc: 'Valor da entrada (ex.: 10,00)' },
               { key: 'parcelas', desc: 'Nº de parcelas (ex.: 8)' },
               { key: 'valor_parcela', desc: 'Valor de cada parcela (ex.: 5,34)' },
               { key: 'total', desc: 'Total do tratamento (ex.: 52,74)' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_NEGOCIACAO_APROVADA}
           />

@@ -1225,27 +1225,35 @@ export class QuotesService {
 
       // Bloco de condições: detalha entrada/parcelas quando há financiamento (entrada
       // OU +1 parcela — cobre o caso raro de 1 parcela com entrada); senão à vista/1×
-      // mostra só o total.
+      // mostra só o total. {condicoes_sem_total} = o mesmo bloco SEM a linha do total,
+      // pra quem quiser omitir o valor total da mensagem.
       let condicoes: string;
+      let condicoesSemTotal: string;
       if ((terms.entrada && terms.entrada > 0) || (terms.parcelas && terms.parcelas > 1)) {
         const linhas: string[] = [];
         if (terms.entrada && terms.entrada > 0) linhas.push(`• Entrada: R$ ${brl(terms.entrada)}`);
         if (terms.parcelas && terms.valorParcela) linhas.push(`• ${terms.parcelas}x de R$ ${brl(terms.valorParcela)}`);
-        linhas.push(`• Total: R$ ${brl(terms.total)}`);
-        condicoes = linhas.join('\n');
+        condicoesSemTotal = linhas.join('\n');
+        condicoes = [...linhas, `• Total: R$ ${brl(terms.total)}`].join('\n');
       } else {
         condicoes = `• Total: R$ ${brl(terms.total)}${terms.forma ? ` (${formaLabel(terms.forma)})` : ''}`;
+        // À vista/1×: sem o total não sobra detalhe de valor — só a forma, quando houver.
+        condicoesSemTotal = terms.forma ? `• Pagamento à vista (${formaLabel(terms.forma)})` : '';
       }
 
       const msg = template
         .replace(/\{nome\}/g, firstName)
+        .replace(/\{condicoes_sem_total\}/g, condicoesSemTotal)
         .replace(/\{condicoes\}/g, condicoes)
         .replace(/\{clinica\}/g, clinica)
         .replace(/\{entrada\}/g, brl(terms.entrada))
         .replace(/\{parcelas\}/g, String(terms.parcelas || 1))
         .replace(/\{valor_parcela\}/g, brl(terms.valorParcela))
         .replace(/\{total\}/g, brl(terms.total))
-        .replace(/\{forma\}/g, formaLabel(terms.forma));
+        .replace(/\{forma\}/g, formaLabel(terms.forma))
+        // Colapsa linhas em branco extras (ex.: {condicoes_sem_total} vazio no à vista).
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
 
       // Chip FINANCEIRO → fallback CLINICA
       const fin = await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO');

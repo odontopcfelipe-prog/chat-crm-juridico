@@ -1856,6 +1856,10 @@ export class CalendarService {
       clinica: (tenantRow as any)?.name || 'sua clínica', antecedencia: '1 dia', qtd: '1',
       // Onda 18.17 — exemplos das variáveis de cobrança (senão sairiam vazias).
       valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste', descricao: ' (Pix recebido)',
+      // Negociação aprovada — exemplos dos blocos/valores (senão o teste sai sem eles).
+      condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74',
+      condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34',
+      entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', forma: 'boleto',
     };
     const apply = (t: string) =>
       (t || '')
