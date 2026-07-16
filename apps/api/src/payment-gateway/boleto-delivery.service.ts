@@ -81,10 +81,16 @@ export class BoletoDeliveryService {
     const phone = (testPhone || '').trim();
     if (!phone) return { ok: false, detail: 'Informe um telefone de teste.' };
     // Isolamento: a venda tem boleto DESTE tenant? (não vaza venda de outra clínica)
+    // O filtro tem que ser o MESMO do sendBoletos (em aberto, não recebido na clínica):
+    // sem isso o precheck passava numa venda já quitada, o sendBoletos não achava nada,
+    // devolvia true ("nada a reprocessar") e o operador via um toast VERDE de sucesso
+    // sem nenhuma mensagem ter saído.
     const anyCharge = await this.prisma.paymentGatewayCharge.findFirst({
       where: {
         tenant_id: tenantId,
         billing_type: 'BOLETO',
+        received_in_cash: false,
+        status: { in: ['PENDING', 'OVERDUE'] },
         // As cobranças se ligam ao plano pela DESCRIÇÃO (plan:{id}) — igual ao front;
         // treatment_plan_id como fallback (financiamento seta a coluna).
         OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
@@ -92,7 +98,7 @@ export class BoletoDeliveryService {
       select: { treatment_plan: { select: { patient: { select: { name: true } } } } },
     });
     if (!anyCharge) {
-      return { ok: false, detail: 'Esta venda não tem boleto em aberto para enviar.' };
+      return { ok: false, detail: 'Esta venda não tem boleto em aberto para enviar (já quitado ou recebido na clínica).' };
     }
     const name = anyCharge.treatment_plan?.patient?.name || 'Paciente';
     const ok = await this.sendBoletos(planId, tenantId, name, phone, { dedup: false });

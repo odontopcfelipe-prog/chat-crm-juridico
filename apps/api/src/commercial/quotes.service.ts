@@ -1279,7 +1279,16 @@ export class QuotesService {
       if (boletosOn?.value === 'true') {
         await this.prisma.auditLog
           .create({ data: { entity: 'BOLETO_INTRO', entity_id: planId, action: 'intro', meta_json: { tenant_id: tenantId, source: 'negociacao_aprovada' } } })
-          .catch(() => { /* âncora best-effort */ });
+          .catch((e: any) => this.logger.warn(`[NEGOCIACAO_APROVADA] âncora não gravou (plano ${planId}): ${e?.message}`));
+      } else if (terms.forma === 'BOLETO') {
+        // PROMESSA SEM ENTREGA: a mensagem que acabou de sair diz que o financeiro
+        // manda os boletos, mas quem entrega ("Apresentação + boletos") está DESLIGADO.
+        // Os dois disparos são toggles independentes — o paciente ficaria esperando.
+        this.logger.warn(
+          `[NEGOCIACAO_APROVADA] Plano ${planId}: avisei o paciente que os boletos vêm, mas ` +
+          `"Apresentação + boletos" está DESLIGADO (BOLETO_INTRO_ENABLED_${tenantId}) — ninguém vai entregar. ` +
+          `Ligue na Central de Disparos ou use "Enviar boleto do mês".`,
+        );
       }
     } catch (e: any) {
       this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
