@@ -1183,11 +1183,22 @@ export class QuotesService {
     try {
       const ws = this.whatsapp;
       const phone = patient?.phone?.trim();
-      if (!ws || !phone || !tenantId) return;
+      // Logado, não mudo: "fechei a venda e não chegou nada" era indiagnosticável —
+      // o método saía por um destes returns sem deixar UMA linha no log.
+      if (!ws || !phone || !tenantId) {
+        this.logger.warn(
+          `[NEGOCIACAO_APROVADA] pulado no plano ${planId}: ` +
+          `${!ws ? 'WhatsappService indisponível' : !phone ? 'paciente sem telefone' : 'sem tenant'}.`,
+        );
+        return;
+      }
 
-      // Opt-in
+      // Opt-in — desligado por padrão. Liga na Central de Disparos.
       const on = await this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } });
-      if (on?.value !== 'true') return;
+      if (on?.value !== 'true') {
+        this.logger.log(`[NEGOCIACAO_APROVADA] desligado pro tenant ${tenantId} (Central de Disparos) — plano ${planId}.`);
+        return;
+      }
 
       // Dedup por venda — evita 2 mensagens em duplo-clique/retry do fechamento
       // (approveAndBill é idempotente no resto, mas chegava aqui de novo).
@@ -1195,7 +1206,10 @@ export class QuotesService {
         where: { entity: 'NEGOCIACAO_APROVADA', entity_id: planId },
         select: { id: true },
       });
-      if (jaEnviou) return;
+      if (jaEnviou) {
+        this.logger.log(`[NEGOCIACAO_APROVADA] plano ${planId} já recebeu — pulando (dedup).`);
+        return;
+      }
 
       // Template salvo (Central de Disparos) → senão o default
       let template = DEFAULT_NEGOCIACAO_APROVADA;
@@ -1236,13 +1250,24 @@ export class QuotesService {
       // Chip FINANCEIRO → fallback CLINICA
       const fin = await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO');
       const instance = fin || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
-      await ws.sendText(phone, msg, instance);
+      const res = await ws.sendText(phone, msg, instance);
+
+      // A Evolution NÃO lança em erro — devolve {statusCode,error}. Sem conferir, uma
+      // não-entrega era logada como "enviada" E gravava a dedup abaixo: aquele plano
+      // nunca mais tentaria. Só marca no sucesso REAL.
+      if (!this.wasSent(res)) {
+        this.logger.warn(
+          `[NEGOCIACAO_APROVADA] Evolution recusou o envio (plano ${planId}, ${phone}, chip ${instance || 'default'}): ` +
+          `${JSON.stringify(res).slice(0, 200)}. NÃO marquei — o próximo fechamento tenta de novo.`,
+        );
+        return;
+      }
       this.logger.log(`[NEGOCIACAO_APROVADA] enviada ao paciente do plano ${planId}`);
 
       // Registra o envio (dedup por venda — o próximo fechamento do mesmo plano pula).
       await this.prisma.auditLog
         .create({ data: { entity: 'NEGOCIACAO_APROVADA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } })
-        .catch(() => { /* dedup best-effort */ });
+        .catch((e: any) => this.logger.warn(`[NEGOCIACAO_APROVADA] dedup não gravou (plano ${planId}): ${e?.message}`));
 
       // Âncora — só quando a venda é BOLETO e o fluxo de boletos está ligado: substitui
       // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
@@ -1257,8 +1282,19 @@ export class QuotesService {
           .catch(() => { /* âncora best-effort */ });
       }
     } catch (e: any) {
-      this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort): ${e?.message || e}`);
+      this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
     }
+  }
+
+  /** A Evolution NÃO lança em erro: request() devolve {statusCode,error} (ou 408 no
+   *  timeout) em falha, e a resposta com key.id em sucesso. Só é sucesso REAL quando
+   *  veio um id de mensagem e nenhum statusCode de erro. */
+  private wasSent(res: any): boolean {
+    if (!res || typeof res !== 'object') return false;
+    if (typeof res.statusCode === 'number' && res.statusCode >= 400) return false;
+    if (res.error && !res.key) return false;
+    if (res.exists === false) return false; // número não está no WhatsApp
+    return !!(res.key?.id || res.messageId || res.id);
   }
 
   async applyFinancing(
