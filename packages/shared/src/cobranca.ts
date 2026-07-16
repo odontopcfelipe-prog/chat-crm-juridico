@@ -76,6 +76,13 @@ export const DEFAULT_BOLETO_INTRO =
   'Amanhã vou te enviar todos os seus boletos em PDF, certinho pra você se organizar. 📄\n\n' +
   'Qualquer dúvida, é só me chamar por aqui. Estou à disposição! 💙';
 
+// Parte 2 — ENVIO dos boletos (D+2): o texto de abertura que acompanha o carnê (1
+// PDF com todas as parcelas). NÃO promete nada nem cita prazo — pode sair D+1 ou
+// dias depois (a janela de entrega é larga). Placeholders: {nome} {clinica}.
+export const DEFAULT_BOLETO_DELIVERY =
+  'Olá, {nome}! 📄 Aqui estão os seus boletos, todos em PDF. ' +
+  'Qualquer dúvida, é só me chamar por aqui! 💙';
+
 // NEGOCIAÇÃO APROVADA — disparo no FECHAMENTO da venda (D+0): confirma ao paciente
 // as condições que ele fechou (entrada + parcelas + total). Substitui a apresentação
 // (D+1). Placeholders: {nome} {condicoes} {clinica} — e os avulsos {entrada}
@@ -92,6 +99,7 @@ export function isFinTemplateId(s: string): boolean {
     isCobrancaStage(s) ||
     s === 'confirmacao_pagamento' ||
     s === 'boleto_intro' ||
+    s === 'boleto_delivery' ||
     s === 'negociacao_aprovada'
   );
 }
@@ -100,6 +108,7 @@ export function isFinTemplateId(s: string): boolean {
 export function defaultFinTemplate(id: string): string {
   if (id === 'confirmacao_pagamento') return DEFAULT_CONFIRMACAO_PAGAMENTO;
   if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
+  if (id === 'boleto_delivery') return DEFAULT_BOLETO_DELIVERY;
   if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }

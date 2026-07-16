@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -319,6 +319,20 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_BOLETO_INTRO}
           />
         )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'boleto_delivery' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Texto de abertura que acompanha o carnê (1 PDF com todos os boletos), enviado pelo chip Financeiro no dia da entrega. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão. Não cite prazo: a entrega pode sair em dias diferentes."
+            endpoint="/followup/cobranca-template/boleto_delivery"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
+            ]}
+            preview={{ nome: 'Felipe', clinica: 'Instituto Odonto Passos' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_BOLETO_DELIVERY}
+          />
+        )}
         {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
@@ -338,7 +352,7 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_NEGOCIACAO_APROVADA}
           />
         )}
-        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'negociacao_aprovada' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
             descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."

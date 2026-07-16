@@ -305,16 +305,12 @@ export class BoletoDeliveryService {
     const firstName = name.split(' ')[0];
     let allOk = true;
 
-    // 1) Texto de abertura. NÃO afirma "como combinei ontem": a apresentação daquele
-    // plano pode ter sido pulada (paciente já apresentado por outra venda) ou ter saído
-    // dias antes (janela de entrega é de 10 dias, não só D+1) — aí "ontem" seria mentira.
+    // 1) Texto de abertura — editável na Central de Disparos (card "Envio dos
+    // boletos"); cai no default se a clínica não editou. NÃO cita prazo ("ontem"):
+    // a entrega pode sair D+1 ou dias depois (janela larga).
+    const abertura = await this.resolveDeliveryText(tenantId, firstName);
     const textOk = await this.sendPiece(`${planId}:text`, tenantId, () =>
-      this.whatsapp.sendText(
-        phone,
-        `Olá, ${firstName}! 📄 Aqui estão os seus boletos, todos em PDF. ` +
-          `Qualquer dúvida, é só me chamar por aqui! 💙`,
-        instance,
-      ), dedup,
+      this.whatsapp.sendText(phone, abertura, instance), dedup,
     );
     if (!textOk) allOk = false;
 
@@ -405,6 +401,27 @@ export class BoletoDeliveryService {
     } catch {
       return false;
     }
+  }
+
+  /** Texto de abertura da entrega — editável na Central de Disparos (mesma infra dos
+   *  boletos, cobrancaTemplateKey 'boleto_delivery'); cai no default se não editado.
+   *  Resolve {nome} e {clinica}. */
+  private async resolveDeliveryText(tenantId: string, firstName: string): Promise<string> {
+    const { cobrancaTemplateKey, DEFAULT_BOLETO_DELIVERY } = await import('@crm/shared');
+    let template = DEFAULT_BOLETO_DELIVERY;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('boleto_delivery', tenantId) } });
+      if (row?.value) {
+        const parsed = JSON.parse(row.value);
+        if (typeof parsed?.template === 'string' && parsed.template.trim()) template = parsed.template;
+      }
+    } catch { /* valor corrompido / sem template → default */ }
+    let clinica = 'a clínica';
+    if (template.includes('{clinica}')) {
+      const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
+      if (t?.name) clinica = t.name;
+    }
+    return template.replace(/\{nome\}/g, firstName).replace(/\{clinica\}/g, clinica);
   }
 
   /** Registra a entrega (idempotência exactly-once por venda). Best-effort. */
