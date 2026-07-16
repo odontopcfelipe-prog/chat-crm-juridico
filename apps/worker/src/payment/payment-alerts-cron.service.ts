@@ -562,17 +562,65 @@ export class PaymentAlertsCronService {
     // 1ª (mais antiga) COM telefone. Sem telefone é PULADA — não bloqueia as outras.
     const plans = await this.prisma.treatmentPlan.findMany({
       where: { id: { in: unsent.map((e) => e.planId) } },
-      select: { id: true, patient: { select: { name: true, phone: true } } },
+      select: { id: true, patient_id: true, patient: { select: { name: true, phone: true } } },
     });
     const planById = new Map(plans.map((p) => [p.id, p]));
+
+    // Dedup por PACIENTE (a do AuditLog é por VENDA). O texto SE APRESENTA ("seja
+    // muito bem-vindo, a partir de agora é por aqui que a gente cuida dos seus
+    // pagamentos") — quem tinha 2 vendas na janela recebia isso 2x, a 2ª se
+    // apresentando a quem já conhecia o financeiro.
+    const jaApresentados = await this.pacientesJaApresentados(
+      plans.map((p) => p.patient_id).filter((x): x is string => !!x),
+    );
+
     for (const e of unsent) {
       const p = planById.get(e.planId);
       const phone = p?.patient?.phone?.trim();
-      if (p?.patient && phone) {
-        return { planId: e.planId, tenantId: e.tenantId, phone, name: p.patient.name };
+      if (!p?.patient || !phone) continue;
+      if (p.patient_id && jaApresentados.has(p.patient_id)) {
+        // Já se apresentou numa venda anterior. Grava a âncora MESMO ASSIM (sem
+        // mandar nada): é ela que libera a entrega dos boletos desta venda no dia
+        // seguinte — pular a âncora deixaria esta venda sem boleto pra sempre.
+        await this.logIntroSent(e.planId, e.tenantId, null);
+        this.logger.log(
+          `[BOLETO_INTRO] Plano ${e.planId}: paciente já foi apresentado numa venda anterior — ` +
+          `não repito a apresentação; boletos seguem liberados pra amanhã.`,
+        );
+        continue;
       }
+      return { planId: e.planId, tenantId: e.tenantId, phone, name: p.patient.name };
     }
     return null;
+  }
+
+  /** Quais destes pacientes JÁ receberam a apresentação (em qualquer venda). */
+  private async pacientesJaApresentados(patientIds: string[]): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (patientIds.length === 0) return out;
+    try {
+      const todosOsPlanos = await this.prisma.treatmentPlan.findMany({
+        where: { patient_id: { in: patientIds } },
+        select: { id: true, patient_id: true },
+      });
+      if (todosOsPlanos.length === 0) return out;
+      const anchors = await this.prisma.auditLog.findMany({
+        where: {
+          entity: 'BOLETO_INTRO',
+          entity_id: { in: todosOsPlanos.map((p) => p.id) },
+          action: 'intro',
+        },
+        select: { entity_id: true },
+      });
+      const comAncora = new Set(anchors.map((a) => a.entity_id));
+      for (const p of todosOsPlanos) {
+        if (p.patient_id && comAncora.has(p.id)) out.add(p.patient_id);
+      }
+    } catch (e: any) {
+      // Falha aqui não pode travar a fila; no pior caso volta ao comportamento antigo.
+      this.logger.warn(`[BOLETO_INTRO] Falha na dedup por paciente: ${e?.message}`);
+    }
+    return out;
   }
 
   /** Envia a apresentação, marca no AuditLog e avança o marca-passo compartilhado. */

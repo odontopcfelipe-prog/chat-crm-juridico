@@ -222,7 +222,17 @@ export class AsaasClient {
   // ─── Charges (Payments) ────────────────────────────────
 
   async createCharge(data: CreateChargeData, tenantId?: string | null): Promise<any> {
-    return this.request<any>('POST', '/payments', data, undefined, tenantId);
+    // A description carrega a tag interna [plan:{uuid}] pra ligar cobrança↔plano, e o
+    // Asaas RENDERIZA esse texto na fatura e no PDF do boleto/carnê — o paciente lia
+    // "Sinal de fechamento — Fulano [plan:c6f80716-dffe-...]". Limpa aqui, no único
+    // ponto que só fala com o Asaas: a coluna description no banco (que dezenas de
+    // queries usam pra casar o plano, incluindo o anti-duplicata) fica INTACTA.
+    // O vínculo do lado do Asaas continua pelo externalReference = planId.
+    const { stripInternalTags } = await import('@crm/shared');
+    const payload = data.description
+      ? { ...data, description: stripInternalTags(data.description) }
+      : data;
+    return this.request<any>('POST', '/payments', payload, undefined, tenantId);
   }
 
   async getCharge(chargeId: string, tenantId?: string | null): Promise<any> {

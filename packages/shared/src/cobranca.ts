@@ -43,6 +43,19 @@ export function isCobrancaStage(s: string): s is CobrancaStage {
   return (COBRANCA_STAGES as string[]).includes(s);
 }
 
+/**
+ * Tag INTERNA que a descrição da cobrança carrega pra ligar cobrança↔plano
+ * (`... [plan:{uuid}]`). É load-bearing NO BANCO: dezenas de lugares casam por
+ * `description contains plan:{id}`, incluindo o check de idempotência que impede
+ * cobrança duplicada. NUNCA remover da coluna — só do texto que o PACIENTE lê.
+ */
+export const PLAN_TAG_RE = /\s*\[plan:[^\]]+\]/g;
+
+/** Tira as tags internas de um texto que vai pro paciente (o UUID vazava na msg). */
+export function stripInternalTags(s?: string | null): string {
+  return (s || '').replace(PLAN_TAG_RE, '').trim();
+}
+
 // Onda 18.28 — confirmação de pagamento (por EVENTO, webhook do Asaas). NÃO entra
 // em COBRANCA_STAGES (o cron não a agenda), mas é um template EDITÁVEL igual aos
 // boletos. {descricao} já vem com parênteses (ou vazio) pronto do backend.

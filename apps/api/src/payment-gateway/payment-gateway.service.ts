@@ -2000,11 +2000,15 @@ export class PaymentGatewayService {
     const lead = gatewayCustomer.lead;
     const firstName = (lead.name || 'Cliente').split(' ')[0];
     const valor = Number(paymentData.value || charge?.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const descricao = paymentData.description || '';
+    // A descrição vem do Asaas — e é a NOSSA, que carrega a tag interna
+    // [plan:{uuid}] pra ligar cobrança↔plano. Sem limpar, o paciente lia
+    // "(Sinal de fechamento — Fulano [plan:c6f80716-dffe-...])". Limpa só o TEXTO;
+    // a coluna description no banco continua com a tag (é ela que casa o plano).
+    const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO, stripInternalTags } = await import('@crm/shared');
+    const descricao = stripInternalTags(paymentData.description);
 
     // Onda 18.28 — usa o texto EDITÁVEL da Central de Disparos (mesma infra dos
     // boletos); cai no default se não editado. {descricao} já vem com parênteses.
-    const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO } = await import('@crm/shared');
     let tpl = DEFAULT_CONFIRMACAO_PAGAMENTO;
     if (tenantId) {
       const row = await this.prisma.globalSetting.findUnique({
@@ -2090,7 +2094,9 @@ export class PaymentGatewayService {
     const lead = gatewayCustomer.lead;
     const firstName = (lead.name || 'Cliente').split(' ')[0];
     const valor = Number(paymentData.value || charge.amount || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
-    const descricao = paymentData.description || '';
+    // Mesma limpeza da confirmação: a tag [plan:{uuid}] é interna, não vai pro paciente.
+    const { stripInternalTags } = await import('@crm/shared');
+    const descricao = stripInternalTags(paymentData.description);
     const isEstorno = status === 'REFUNDED';
 
     const msg = isEstorno

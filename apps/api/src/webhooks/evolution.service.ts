@@ -53,25 +53,35 @@ function summarizePayload(payload: EvolutionWebhookPayload): string {
 /**
  * Extrai o melhor número de telefone de dois JIDs do Evolution API.
  *
- * O WhatsApp Multi-Device pode enviar LIDs (Linked Device Identifiers)
- * como JID primário em alguns eventos. LIDs são números com 14+ dígitos
- * (ex: "237791032135755") e NÃO são números de telefone reais.
- * Números de telefone reais têm ≤13 dígitos (ex: "558291420467" = 55+DDD+número).
+ * O WhatsApp Multi-Device pode enviar LIDs (Linked Device Identifiers) como JID
+ * primário. LID NÃO é telefone — vira contato fantasma duplicado se virar `phone`.
  *
- * Esta função sempre prefere o JID que parece um número de telefone real.
+ * O tipo vem EXPLÍCITO no sufixo do JID (`@lid` vs `@s.whatsapp.net`), e é isso que
+ * mandamos aqui. A heurística antiga chutava pelo COMPRIMENTO ("LID tem 14+ dígitos")
+ * e era estruturalmente incapaz de acertar: LID de 13 dígitos (ex.: 4703006019620) é
+ * indistinguível de um BR real (55+DDD+9 dígitos) e passava batido, duplicando o
+ * paciente. O comprimento ficou só como desempate de JID sem sufixo conhecido.
  */
+export function isLidJid(jid?: string): boolean {
+  return (jid || '').endsWith('@lid');
+}
+
 function extractPhone(remoteJid: string, remoteJidAlt?: string): string {
   const p1 = (remoteJid || '').split('@')[0];
   const p2 = (remoteJidAlt || '').split('@')[0];
 
-  // Heurística: telefones reais têm no máximo 13 dígitos (DDI+DDD+número)
-  // LIDs do WhatsApp geralmente têm 14+ dígitos
-  const looksLikePhone = (p: string) => p.length > 0 && p.length <= 13;
+  // 1) Sufixo manda: o que NÃO é @lid é o telefone de verdade.
+  const jid1EhLid = isLidJid(remoteJid);
+  const jid2EhLid = isLidJid(remoteJidAlt);
+  if (p1 && !jid1EhLid && jid2EhLid) return p1;
+  if (p2 && !jid2EhLid && jid1EhLid) return p2;
 
+  // 2) Sem sufixo conclusivo: cai na heurística antiga (telefone tem ≤13 dígitos).
+  const looksLikePhone = (p: string) => p.length > 0 && p.length <= 13;
   if (!p2) return p1;
-  if (looksLikePhone(p2) && !looksLikePhone(p1)) return p2; // p1 é LID, p2 é telefone
-  if (!looksLikePhone(p2) && looksLikePhone(p1)) return p1; // p2 é LID, p1 é telefone
-  return p2 || p1; // Ambos parecem telefone (ou ambos LID) → mantém comportamento original
+  if (looksLikePhone(p2) && !looksLikePhone(p1)) return p2;
+  if (!looksLikePhone(p2) && looksLikePhone(p1)) return p1;
+  return p2 || p1;
 }
 
 @Injectable()
@@ -169,13 +179,17 @@ export class EvolutionService implements OnApplicationBootstrap {
 
       const phone = extractPhone(remoteJid, remoteJidAlt);
 
-      // LIDs (Linked Device Identifiers) são números internos do WhatsApp Multi-Device
-      // com 14+ dígitos — NÃO são telefones reais. Quando a Evolution API envia o webhook
-      // @lid sem remoteJidAlt, extractPhone retorna o LID como "telefone", criando leads
-      // fantasma. A versão com telefone real (@s.whatsapp.net) sempre chega separadamente.
+      // LID (Linked Device Identifier) é identificador interno do WhatsApp, NÃO
+      // telefone. Se virar `phone`, nasce um contato FANTASMA duplicado do mesmo
+      // paciente (foi o caso do "VICTOR CAR" com 4703006019620 — 13 dígitos, que a
+      // checagem só-por-comprimento aprovava). A versão com o telefone real
+      // (@s.whatsapp.net) sempre chega num evento separado, então descartar é seguro.
+      const veioDeLid = isLidJid(remoteJid) && isLidJid(remoteJidAlt || remoteJid);
       const looksLikeRealPhone = phone.length > 0 && phone.length <= 13;
-      if (!looksLikeRealPhone) {
-        this.logger.debug(`[WEBHOOK] Ignorando LID ${phone} (${phone.length} dígitos) — não é telefone real`);
+      if (veioDeLid || !looksLikeRealPhone) {
+        this.logger.debug(
+          `[WEBHOOK] Ignorando LID ${phone} (${veioDeLid ? 'JID @lid' : `${phone.length} dígitos`}) — não é telefone real`,
+        );
         continue;
       }
 
@@ -367,11 +381,13 @@ export class EvolutionService implements OnApplicationBootstrap {
       // Leads/Clientes segue o chip (is_client) no bloco 1a, independente do setor.
 
       // ── Auto-merge de conversa LID ─────────────────────────────────────────
-      // Se o remoteJid era um LID (14+ dígitos) e conseguimos o telefone real via
-      // remoteJidAlt, verifica se existe uma conversa "gêmea" do LID e mescla
-      // todas as mensagens na conversa do telefone real, encerrando a do LID.
+      // Se o remoteJid era um LID e conseguimos o telefone real via remoteJidAlt,
+      // mescla a conversa "gêmea" do LID na do telefone real e encerra a do LID.
+      // É ESTE bloco que cura os contatos fantasma já criados — e ele estava inerte
+      // pela mesma heurística de comprimento do bug (LID de 13 dígitos nunca casava
+      // em `> 13`). Agora vai pelo sufixo do JID, igual ao resto do arquivo.
       const rawLidPhone = remoteJid.split('@')[0];
-      if (rawLidPhone.length > 13 && phone !== rawLidPhone) {
+      if (isLidJid(remoteJid) && phone !== rawLidPhone) {
         // Onda 17.36 — merge LID restrito ao mesmo tenant do lead resolvido
         const lidLead = await this.prisma.lead.findFirst({
           where: { phone: rawLidPhone, tenant_id: lead.tenant_id },
@@ -1228,6 +1244,13 @@ export class EvolutionService implements OnApplicationBootstrap {
         if (!remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast') || remoteJid.includes('status@')) continue;
 
         const phone = extractPhone(chat.remoteJid as string, chat.remoteJidAlt as string);
+        // Mesmo descarte de LID do messages.upsert — e aqui é CRÍTICO: este resync
+        // CRIA lead/conversa e roda de 15 em 15min, então sem isto o contato fantasma
+        // do @lid renasce sozinho (e reabre a conversa) mesmo depois de apagado.
+        const chatVeioDeLid =
+          isLidJid(chat.remoteJid as string) &&
+          isLidJid((chat.remoteJidAlt as string) || (chat.remoteJid as string));
+        if (chatVeioDeLid) continue;
         if (!phone || phone.length > 13 || phone.length < 10) continue;
 
         // Verificar se tem mensagem recente (dentro da janela de cutoff)
