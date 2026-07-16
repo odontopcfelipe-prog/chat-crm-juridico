@@ -34,8 +34,13 @@ export class TreatmentPlanContractService {
     if (plan.contract_signature_id) {
       throw new BadRequestException('Plano ja tem assinatura digital iniciada');
     }
-    if (plan.status !== 'PENDING_SIGNATURE') {
-      throw new BadRequestException(`Plano esta em status ${plan.status} — so PENDING_SIGNATURE pode iniciar assinatura`);
+    // PENDING_SIGNATURE (assina antes de ativar) ou ACTIVE (fechamento ja cobrou e
+    // ativou o plano — o contrato sai DEPOIS da cobranca existir). Nos dois casos o
+    // paciente ainda precisa assinar o TCLE. Terminais (PAUSED/COMPLETED/CANCELLED)
+    // seguem bloqueados. O webhook do Clicksign so ativa quem esta PENDING_SIGNATURE,
+    // entao assinar um plano ja ACTIVE e inofensivo.
+    if (plan.status !== 'PENDING_SIGNATURE' && plan.status !== 'ACTIVE') {
+      throw new BadRequestException(`Plano esta em status ${plan.status} — so PENDING_SIGNATURE ou ACTIVE podem iniciar assinatura`);
     }
 
     // Paciente precisa estar vinculado a um Lead (ContractSignature exige lead_id)

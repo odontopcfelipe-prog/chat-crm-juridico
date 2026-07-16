@@ -818,10 +818,15 @@ export class QuotesService {
         }
       }
 
-      // 1. Aceita SO se ainda DRAFT/SENT (idempotente)
-      if (quote.status === 'DRAFT' || quote.status === 'SENT') {
-        await this.accept(quoteId, tenantId, userId);
-        this.logger.log(`[APPROVE-AND-BILL] [step:accept] Quote aceito`);
+      // 1. Aceita SO se ainda DRAFT/SENT (idempotente). deferContract: o contrato só
+      // vai pro paciente DEPOIS que a cobrança existir (passo 3) — e, se a cobrança
+      // falhar, o aceite é DESFEITO (rollback). Ou fecha completo, ou não fecha nada.
+      const priorStatus = quote.status;
+      const priorSentAt = (quote as any).sent_at ?? null;
+      const aceitouAqui = quote.status === 'DRAFT' || quote.status === 'SENT';
+      if (aceitouAqui) {
+        await this.accept(quoteId, tenantId, userId, { deferContract: true });
+        this.logger.log(`[APPROVE-AND-BILL] [step:accept] Quote aceito (contrato adiado até a cobrança)`);
       } else {
         this.logger.log(`[APPROVE-AND-BILL] [step:accept-skip] Quote ja ${quote.status}`);
       }
@@ -845,24 +850,43 @@ export class QuotesService {
         this.logger.log(`[APPROVE-AND-BILL] [step:plan-activated]`);
       }
 
-      // 3. Cria cobranca (ou registra recebimento manual no caixa, sem Asaas)
+      // 3. Cria cobranca (ou registra recebimento manual no caixa, sem Asaas).
+      // Se estourar DEPOIS do aceite, DESFAZ o aceite — senão sobrava um contrato
+      // ACEITO e SEM COBRANÇA no Financeiro (e o operador via só um erro na tela).
       let result;
-      if (data.manual_payment_method) {
-        this.logger.log(`[APPROVE-AND-BILL] [step:manual-receipt] method=${data.manual_payment_method} value=${data.value}`);
-        result = await this.billingService.createManualReceipt(plan.id, tenantId, {
-          value: data.value,
-          paymentMethod: data.manual_payment_method,
-          userId,
-        });
-      } else {
-        this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
-        result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
-          billingType: data.billing_type,
-          value: data.value,
-          installmentCount: data.installment_count,
-          receivedInClinic: data.received_in_clinic,
-        });
+      try {
+        if (data.manual_payment_method) {
+          this.logger.log(`[APPROVE-AND-BILL] [step:manual-receipt] method=${data.manual_payment_method} value=${data.value}`);
+          result = await this.billingService.createManualReceipt(plan.id, tenantId, {
+            value: data.value,
+            paymentMethod: data.manual_payment_method,
+            userId,
+          });
+        } else {
+          this.logger.log(`[APPROVE-AND-BILL] [step:charge-start] type=${data.billing_type} value=${data.value} installments=${data.installment_count ?? 1}`);
+          result = await this.billingService.createSimpleCharge(plan.id, tenantId, {
+            billingType: data.billing_type,
+            value: data.value,
+            installmentCount: data.installment_count,
+            receivedInClinic: data.received_in_clinic,
+          });
+        }
+      } catch (e) {
+        if (aceitouAqui) {
+          await this.rollbackAceite({
+            quoteId,
+            tenantId,
+            priorStatus,
+            priorSentAt,
+            reverterQuote: true,
+            planId: plan.id, // criado pelo accept() logo acima — some junto
+          });
+        }
+        throw e;
       }
+
+      // Cobrança OK → AGORA sim o contrato vai pro paciente assinar.
+      if (aceitouAqui) this.fireContractForPlan(plan.id, tenantId);
 
       this.logger.log(
         `[APPROVE-AND-BILL] [step:done] Quote ${quoteId}: ${data.billing_type} ` +
@@ -1269,7 +1293,14 @@ export class QuotesService {
     // criado como TENTATIVO pelo emit-down-payment da Opcao B), o accept()
     // legado tentaria criar OUTRO plano e o Prisma rejeita por @@unique.
     // Nesse caso, fazemos um "aceite leve": atualiza so o status da quote.
+    // Rollback-safety: guarda o estado anterior pra DESFAZER o aceite se a cobrança
+    // falhar — senão sobra contrato ACEITO e SEM COBRANÇA (e o operador só vê o erro).
+    const priorStatus = quoteCheck.status;
+    const priorSentAt = (quoteCheck as any).sent_at ?? null;
+    let aceitouAqui = false;
+    let planoCriadoAqui = false;
     if (quoteCheck.status === 'DRAFT' || quoteCheck.status === 'SENT') {
+      aceitouAqui = true;
       const existingPlan = await this.prisma.treatmentPlan.findFirst({
         where: { quote_id: quoteId },
         select: { id: true },
@@ -1297,8 +1328,10 @@ export class QuotesService {
           tenantId,
         );
       } else {
-        // Caminho legado: aceita normalmente (cria quote + plan + snapshot + ClickSign)
-        await this.accept(quoteId, tenantId, userId);
+        // Caminho legado: aceita normalmente (cria quote + plan + snapshot).
+        // deferContract: o contrato só vai pro paciente DEPOIS que os boletos existirem.
+        planoCriadoAqui = true;
+        await this.accept(quoteId, tenantId, userId, { deferContract: true });
       }
     }
 
@@ -1337,6 +1370,15 @@ export class QuotesService {
       );
     }
 
+    // Estado ANTES da ativação — o rollback usa pra devolver o plano tentativo ao que
+    // era (só faz sentido pro plano que NÃO foi criado aqui; o criado aqui é apagado).
+    const planoAntes = {
+      id: plan.id,
+      status: plan.status,
+      start_date: plan.start_date,
+      notes: plan.notes,
+    };
+
     await this.prisma.treatmentPlan.update({
       where: { id: plan.id },
       data: {
@@ -1349,15 +1391,40 @@ export class QuotesService {
     // 3. Gera os boletos.
     // Onda 14.58 — passa sinal + datas customizadas pra billingService gerar
     // boletos separados (sinal hoje + entrada na data + parcelas a partir da data).
-    const result = await this.billingService.createFinancingCharges(plan.id, tenantId, {
-      downPaymentValue: data.down_payment_value,
-      installmentCount: data.installment_count,
-      installmentValue: data.installment_value,
-      signalValue: data.signal_value,
-      signalMethod: data.signal_method,
-      firstDueDate: data.entrada_due_date,
-      installmentsStartDate: data.installments_start_date,
-    });
+    // Se os boletos falharem DEPOIS do aceite (mínimo R$5, erro do Asaas, timeout),
+    // DESFAZ o aceite — senão sobrava contrato ACEITO e SEM COBRANÇA no Financeiro.
+    let result;
+    try {
+      result = await this.billingService.createFinancingCharges(plan.id, tenantId, {
+        downPaymentValue: data.down_payment_value,
+        installmentCount: data.installment_count,
+        installmentValue: data.installment_value,
+        signalValue: data.signal_value,
+        signalMethod: data.signal_method,
+        firstDueDate: data.entrada_due_date,
+        installmentsStartDate: data.installments_start_date,
+      });
+    } catch (e) {
+      // Roda SEMPRE (não só quando aceitamos aqui): mesmo numa quote já aceita, fomos
+      // nós que ativamos o plano e carimbamos "Aprovado pelo Banco PASSOS" nas notes —
+      // sem boleto nenhum, isso é mentira e precisa sair.
+      await this.rollbackAceite({
+        quoteId,
+        tenantId,
+        priorStatus,
+        priorSentAt,
+        reverterQuote: aceitouAqui,
+        // Plano criado aqui pelo accept() → apaga. Plano tentativo (Opção B) → só
+        // desativa de volta; ele é do fluxo de sinal e não nasceu deste fechamento.
+        planId: planoCriadoAqui ? plan.id : null,
+        planRestore: planoCriadoAqui ? null : planoAntes,
+      });
+      throw e;
+    }
+
+    // Boletos OK → AGORA sim o contrato vai pro paciente assinar. Só no caminho do
+    // accept(): o aceite leve (Opção B) nunca disparou contrato daqui e continua assim.
+    if (planoCriadoAqui) this.fireContractForPlan(plan.id, tenantId);
 
     // Onda 14.58 — Persiste a configuracao escolhida no Quote pra audit + UI futura
     // (PDF/WhatsApp + visualizacao do plano executado na aba Financeiro).
@@ -1426,7 +1493,163 @@ export class QuotesService {
     return updated;
   }
 
-  async accept(id: string, tenantId: string, userId?: string) {
+  /**
+   * Dispara o contrato (ClickSign/TCLE) pro paciente assinar — background, nunca lança.
+   * Extraído do HOOK 3 pra o fechamento poder ADIAR o envio até a cobrança existir.
+   */
+  fireContractForPlan(planId: string, tenantId: string): void {
+    if (!this.contractService) return;
+    this.contractService.sendForSignature(planId, tenantId)
+      .then((r: any) => {
+        this.logger.log(`[ACCEPT→CLICKSIGN] Plano ${planId} enviado pra assinatura — ${String(r?.signingUrl || '').slice(0, 60)}...`);
+      })
+      .catch((err: any) => {
+        this.logger.warn(`[ACCEPT→CLICKSIGN] Falha ao disparar assinatura do plano ${planId}: ${err?.message}. Operador pode reenviar manualmente.`);
+      });
+  }
+
+  /**
+   * ROLLBACK DO ACEITE — a cobrança falhou depois do aceite. Desfaz o aceite pra não
+   * sobrar um "contrato órfão" ACEITO e SEM COBRANÇA no Financeiro (o operador via só
+   * um erro na tela e o paciente já tinha recebido o contrato).
+   *
+   * REGRA DE OURO: nunca apagar registro de dinheiro. Se o plano a APAGAR já tem
+   * cobrança, aborta o rollback — o delete deixaria a cobrança órfã (a FK é
+   * onDelete: SetNull, então passa e só zera o vínculo) e, se ela já virou receita no
+   * caixa, viraria dinheiro fantasma. Aí o operador vê o erro e resolve na mão.
+   * A trava NÃO vale pro planRestore (Opção B): lá o plano tentativo já nasce com a
+   * cobrança do sinal e nada é apagado — só desativado de volta.
+   *
+   * Best-effort: nunca lança (o erro original é o que importa); loga se falhar.
+   */
+  private async rollbackAceite(opts: {
+    quoteId: string;
+    tenantId: string;
+    priorStatus: string;
+    priorSentAt: Date | null;
+    /** Só desfaz o aceite se foi ESTE fechamento que aceitou. Se a quote já estava
+     *  ACCEPTED (ex.: auto-aceite pelo sinal pago), o aceite não é nosso pra desfazer
+     *  — mas a ativação do plano que fizemos aqui ainda é, e volta atrás. */
+    reverterQuote: boolean;
+    /** Plano criado NESTE fechamento — some junto com o aceite. */
+    planId?: string | null;
+    /** Plano tentativo pré-existente (Opção B) — não some, volta ao estado anterior. */
+    planRestore?: { id: string; status: string; start_date: Date | null; notes: string | null } | null;
+  }): Promise<void> {
+    const { quoteId, tenantId, priorStatus, priorSentAt, reverterQuote, planId, planRestore } = opts;
+    try {
+      // Trava de segurança — só no caminho que APAGA o plano.
+      if (planId) {
+        const jaTemCobranca = await this.prisma.paymentGatewayCharge.count({
+          where: {
+            // 1x liga o plano só pela description ([plan:{id}]) — buscar por coluna perde.
+            OR: [{ treatment_plan_id: planId }, { description: { contains: `plan:${planId}` } }],
+            status: { notIn: ['DELETED', 'CANCELLED'] },
+          },
+        });
+        if (jaTemCobranca > 0) {
+          this.logger.error(
+            `[ROLLBACK-ACEITE] ABORTADO no quote ${quoteId}: plano ${planId} já tem ${jaTemCobranca} cobrança(s). ` +
+            `A venda materializou parcialmente — não apago registro de dinheiro. Conferir manualmente.`,
+          );
+          return;
+        }
+      }
+
+      await this.prisma.$transaction(async (tx) => {
+        if (planId) {
+          await tx.treatmentPlanItem.deleteMany({ where: { treatment_plan_id: planId } });
+          await tx.treatmentPlan.delete({ where: { id: planId } });
+        }
+        if (planRestore) {
+          // O fechamento ativou o plano tentativo ANTES de cobrar (createFinancingCharges
+          // exige ACTIVE). Sem isto sobrava plano ATIVO de venda não fechada — dentista
+          // podia executar e comissionar um tratamento que não existe.
+          await tx.treatmentPlan.update({
+            where: { id: planRestore.id },
+            data: {
+              status: planRestore.status,
+              start_date: planRestore.start_date,
+              notes: planRestore.notes,
+            },
+          });
+        }
+        if (reverterQuote) {
+          await tx.quote.update({
+            where: { id: quoteId },
+            // sent_at volta junto: o aceite grava sent_at=now num DRAFT nunca enviado —
+            // deixá-lo marcaria como "enviado ao paciente" um orçamento que não saiu.
+            data: { status: priorStatus as any, accepted_at: null, sent_at: priorSentAt },
+          });
+        }
+      });
+
+      this.logger.warn(
+        `[ROLLBACK-ACEITE] Cobrança falhou → ` +
+        `${reverterQuote ? `quote ${quoteId} voltou pra ${priorStatus}` : `quote ${quoteId} segue aceita (o aceite não foi deste fechamento)`}` +
+        `${planId ? ` e plano ${planId} removido` : ''}` +
+        `${planRestore ? ` e plano ${planRestore.id} voltou pra ${planRestore.status}` : ''}. Nada de contrato órfão.`,
+      );
+
+      // O aceite credita a comissão do afiliado como "creditado" = SALDO SACÁVEL.
+      // Aceite desfeito → o crédito tem que sumir, senão o afiliado saca de uma venda
+      // que não existe. Só quando o aceite foi NOSSO: se a quote já estava aceita, o
+      // crédito é de um aceite anterior, válido, e não nos cabe estornar.
+      if (reverterQuote) {
+        this.reverseAffiliateReferral(quoteId, tenantId, `aceite desfeito: cobrança falhou`);
+      }
+    } catch (e: any) {
+      this.logger.error(
+        `[ROLLBACK-ACEITE] FALHOU pro quote ${quoteId}: ${e?.message}. Pode ter sobrado contrato SEM COBRANÇA — verificar manualmente.`,
+      );
+    }
+  }
+
+  /**
+   * Estorna a comissão do afiliado de um aceite desfeito (espelha recordAffiliateReferral).
+   * Roda duas vezes de propósito: recordAffiliateReferral é fire-and-forget, então o
+   * crédito pode aterrissar DEPOIS do rollback — a segunda passada pega essa corrida.
+   *
+   * A 2ª passada RECONFERE a quote antes de estornar: se nesses 15s o operador refez a
+   * venda e ela fechou (ACCEPTED), o crédito agora é de uma venda REAL — estorná-lo
+   * roubaria a comissão do afiliado por uma falha que já foi corrigida.
+   */
+  private reverseAffiliateReferral(quoteId: string, tenantId: string, reason: string): void {
+    const reverter = () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const { AffiliateService } = require('../patients/affiliate.service');
+        const affiliateService = this.moduleRef.get(AffiliateService, { strict: false });
+        if (affiliateService) {
+          affiliateService
+            .reverseReferralForQuote(quoteId, tenantId, reason)
+            .catch((err: any) =>
+              this.logger.warn(`[ROLLBACK→AFFILIATE] Falha ao estornar (quote ${quoteId}): ${err?.message}`),
+            );
+        }
+      } catch (e: any) {
+        this.logger.warn(`[ROLLBACK→AFFILIATE] AffiliateService indisponivel: ${e?.message}`);
+      }
+    };
+    reverter();
+    const segundaPassada = setTimeout(() => {
+      this.prisma.quote
+        .findUnique({ where: { id: quoteId }, select: { status: true } })
+        .then((q) => {
+          if (q?.status === 'ACCEPTED') {
+            this.logger.log(
+              `[ROLLBACK→AFFILIATE] Quote ${quoteId} fechou de novo — mantém o crédito do afiliado.`,
+            );
+            return;
+          }
+          reverter();
+        })
+        .catch(() => undefined);
+    }, 15_000);
+    segundaPassada.unref?.();
+  }
+
+  async accept(id: string, tenantId: string, userId?: string, opts?: { deferContract?: boolean }) {
     const quote = await this.findOne(id, tenantId);
     // Onda 3.7 — DRAFT tambem pode ser aceito (operador confirma direto sem
     // passar pelo portal — caso comum: paciente fechou na recepcao). Auto-seta
@@ -1491,14 +1714,12 @@ export class QuotesService {
     //   - Patient com lead_id (auto-criado pelo Hook 1 se veio do funil)
     //   - Patient.phone preenchido
     // Se faltar, sendForSignature lança BadRequest e a operação é silenciada.
-    if (this.contractService) {
-      this.contractService.sendForSignature(result.treatment_plan.id, tenantId)
-        .then(({ signingUrl }) => {
-          this.logger.log(`[ACCEPT→CLICKSIGN] Plano ${result.treatment_plan.id} enviado pra assinatura — ${signingUrl.slice(0, 60)}...`);
-        })
-        .catch((err: any) => {
-          this.logger.warn(`[ACCEPT→CLICKSIGN] Falha ao disparar assinatura do plano ${result.treatment_plan.id}: ${err?.message}. Operador pode reenviar manualmente.`);
-        });
+    // Onda — deferContract: no FECHAMENTO (approve-and-bill / apply-financing) o
+    // contrato NÃO sai aqui — só depois que a COBRANÇA for criada com sucesso. Assim
+    // uma cobrança que falha nunca deixa o paciente com um contrato pra assinar de
+    // uma venda que não existe. Os outros caminhos de accept() seguem disparando já.
+    if (!opts?.deferContract) {
+      this.fireContractForPlan(result.treatment_plan.id, tenantId);
     }
 
     // ─── HOOK 5 (Onda 5e v34): Programa de Afiliado ─────────────────────

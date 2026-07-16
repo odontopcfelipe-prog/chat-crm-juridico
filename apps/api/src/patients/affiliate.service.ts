@@ -700,9 +700,12 @@ export class AffiliateService {
     tenantId: string;
   }): Promise<void> {
     try {
-      // Ja existe referral pra essa Quote? (idempotente)
+      // Ja existe referral VIVO pra essa Quote? (idempotente)
+      // 'cancelado' NAO bloqueia: se o aceite foi desfeito (cobranca falhou) e o
+      // operador refez a venda, a comissao tem que nascer de novo — senao o afiliado
+      // perdia a comissao pra sempre por causa de uma falha transitoria do Asaas.
       const existing = await this.prisma.affiliateReferral.findFirst({
-        where: { quote_id: params.quoteId },
+        where: { quote_id: params.quoteId, status: { not: 'cancelado' } },
       });
       if (existing) {
         this.logger.log(
@@ -816,22 +819,27 @@ export class AffiliateService {
     reason: string,
   ): Promise<void> {
     try {
-      const referral = await this.prisma.affiliateReferral.findFirst({
+      // findMany, nao findFirst: se uma corrida creditou a mesma quote duas vezes,
+      // cancelar so um deixaria o outro sacavel — o estorno tem que zerar TODOS.
+      const referrals = await this.prisma.affiliateReferral.findMany({
         where: { tenant_id: tenantId, quote_id: quoteId, status: 'creditado' },
       });
-      if (!referral) return; // nada a reverter (ou já cancelado)
+      if (referrals.length === 0) return; // nada a reverter (ou já cancelado)
 
-      await this.prisma.affiliateReferral.update({
-        where: { id: referral.id },
-        data: {
-          status: 'cancelado',
-          notes: [referral.notes, `Revertido: ${reason}`].filter(Boolean).join(' | '),
-        },
-      });
-      this.logger.log(
-        `[AFFILIATE] Referral ${referral.id} REVERTIDO (quote ${quoteId}): ${reason} — ` +
-        `R$${Number(referral.commission_value)} saiu do saldo do afiliado ${referral.referrer_id}`,
-      );
+      for (const referral of referrals) {
+        await this.prisma.affiliateReferral.update({
+          where: { id: referral.id },
+          data: {
+            status: 'cancelado',
+            notes: [referral.notes, `Revertido: ${reason}`].filter(Boolean).join(' | '),
+          },
+        });
+        this.logger.log(
+          `[AFFILIATE] Referral ${referral.id} REVERTIDO (quote ${quoteId}): ${reason} — ` +
+          `R$${Number(referral.commission_value)} saiu do saldo do afiliado ${referral.referrer_id}`,
+        );
+      }
+      const referral = referrals[0];
 
       // Não silenciar saldo negativo: se já sacou/pediu além do que restou.
       const dash = await this.getDashboard(referral.referrer_id, tenantId).catch(() => null);
