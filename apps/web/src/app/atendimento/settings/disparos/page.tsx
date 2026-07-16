@@ -6,7 +6,7 @@
 // /followup/operacional; os 3 lembretes (1 dia/1h/15 min) são SEPARADOS e cada
 // um liga/desliga a própria antecedência via /calendar/reminders/config. Os
 // demais aparecem do catálogo como "Em breve". Clicar abre o editor existente.
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
   ArrowLeft, Loader2, ChevronRight, CalendarClock, Heart, Cake, TrendingUp, Stethoscope, Bot, Wrench, Receipt,
   Briefcase, Wallet, Users,
@@ -78,6 +78,18 @@ interface ReminderConfig { default_antecedencias: Antecedencia[]; templates: Rec
 interface BirthdayCfg { enabled?: boolean; message2_enabled?: boolean; message3_enabled?: boolean }
 const BIRTHDAY_FIELD: Record<1 | 2 | 3, keyof BirthdayCfg> = { 1: 'enabled', 2: 'message2_enabled', 3: 'message3_enabled' };
 
+/** Acha o ancestral que realmente ROLA (o <main> do layout de settings tem
+ *  overflow-auto) — a página em si não tem scroll próprio. */
+function getScrollParent(el: HTMLElement | null): HTMLElement | null {
+  let node = el?.parentElement || null;
+  while (node) {
+    const oy = getComputedStyle(node).overflowY;
+    if ((oy === 'auto' || oy === 'scroll') && node.scrollHeight > node.clientHeight) return node;
+    node = node.parentElement;
+  }
+  return null;
+}
+
 export default function CentralDisparosPage() {
   const { isAdmin } = useRole();
   const [op, setOp] = useState<OperacionalData | null>(null);
@@ -92,6 +104,17 @@ export default function CentralDisparosPage() {
   const [liveText, setLiveText] = useState<string | undefined>(undefined);
   // Some o texto vivo ao trocar de disparo (evita vazar o texto de um editor pro outro).
   useEffect(() => { setLiveText(undefined); }, [openId]);
+
+  // Preserva a posição de rolagem: abrir um card e voltar não pode jogar a lista pro
+  // topo (some das vistas o card que a pessoa estava mexendo). Guarda o scroll do
+  // container ao abrir e restaura ao voltar pra lista.
+  const listRootRef = useRef<HTMLDivElement>(null);
+  const scrollPosRef = useRef(0);
+  useLayoutEffect(() => {
+    if (openId) return; // só restaura quando está mostrando a LISTA
+    const sp = getScrollParent(listRootRef.current);
+    if (sp && scrollPosRef.current > 0) sp.scrollTop = scrollPosRef.current;
+  }, [openId]);
 
   const load = useCallback(async () => {
     const [opRes, cfgRes, bdRes] = await Promise.allSettled([
@@ -381,7 +404,7 @@ export default function CentralDisparosPage() {
   const ativos = configuraveis.filter((d) => enabledOf(d)).length;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto space-y-5">
+    <div ref={listRootRef} className="p-6 max-w-3xl mx-auto space-y-5">
       {/* Cabeçalho */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div>
@@ -477,7 +500,12 @@ export default function CentralDisparosPage() {
                         className={`flex items-center gap-3 px-4 py-3 transition-colors ${
                           clickable ? 'hover:bg-accent/40 cursor-pointer' : ''
                         } ${d.emBreve ? 'opacity-60' : ''}`}
-                        onClick={clickable ? () => setOpenId(d.id) : undefined}
+                        onClick={clickable ? () => {
+                          // guarda onde a lista estava, pra restaurar ao voltar
+                          const sp = getScrollParent(listRootRef.current);
+                          scrollPosRef.current = sp ? sp.scrollTop : 0;
+                          setOpenId(d.id);
+                        } : undefined}
                       >
                         <span
                           className="w-9 h-9 rounded-full flex items-center justify-center shrink-0"
