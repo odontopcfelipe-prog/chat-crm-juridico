@@ -525,6 +525,12 @@ export class PaymentAlertsCronService {
         billing_type: 'BOLETO',
         created_at: { gte: yStart, lt: yEnd },
         treatment_plan_id: { not: null },
+        // Só venda com boleto EM ABERTO. Sem isto, venda cancelada/estornada ou já
+        // paga (inclusive em espécie na clínica) recebia "amanhã te envio todos os
+        // seus boletos" — e no dia seguinte não ia boleto nenhum, porque a entrega
+        // (findPendingDeliveries→sendBoletos) filtra o que aqui passava batido.
+        status: { in: ['PENDING', 'OVERDUE'] },
+        received_in_cash: false,
       },
       orderBy: { _min: { created_at: 'asc' } },
     });

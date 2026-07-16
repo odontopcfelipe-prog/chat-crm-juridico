@@ -117,14 +117,42 @@ export class AppointmentConfirmationDispatcherService {
         const allowed = isOrtho ? (orthoEnabled || confEnabled) : confEnabled;
         if (!allowed) { skipped++; continue; }
 
-        // Resolve instance do tenant
+        // Resolve instance do tenant. Mensagem de AGENDA é pro PACIENTE ⇒ chip
+        // CLINICA. Antes pegava a primeira instance por nome (name asc), SEM olhar
+        // purpose: como os nomes são t{hash}-N, isso era "o primeiro chip que a
+        // clínica conectou na vida" — se fosse o do FINANCEIRO, TODA confirmação de
+        // consulta saía pelo número do financeiro, de forma determinística.
         let instance = instanceByTenant.get(tenantId);
         if (instance === undefined) {
-          const inst = await this.prisma.instance.findFirst({
+          const clinica = await this.prisma.instance.findFirst({
+            where: { tenant_id: tenantId, purpose: 'CLINICA' },
+            select: { name: true },
+            orderBy: { name: 'asc' },
+          });
+          // Sem chip CLINICA: qualquer um MENOS o financeiro (cobre o tenant 1-chip
+          // e os chips legados com purpose null).
+          const naoFin = clinica || await this.prisma.instance.findFirst({
+            where: { tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+            select: { name: true },
+            orderBy: { name: 'asc' },
+          });
+          if (!clinica && naoFin) {
+            this.logger.warn(
+              `[CONF-DISPATCH] Tenant ${tenantId} sem chip CLINICA — confirmação saindo por "${naoFin.name}".`,
+            );
+          }
+          // Último recurso: só existe o financeiro. Manda (melhor que a pessoa não
+          // ser confirmada) mas avisa alto — é o chip errado pra falar de agenda.
+          const inst = naoFin || await this.prisma.instance.findFirst({
             where: { tenant_id: tenantId },
             select: { name: true },
             orderBy: { name: 'asc' },
           });
+          if (!naoFin && inst) {
+            this.logger.warn(
+              `[CONF-DISPATCH] Tenant ${tenantId} só tem chip FINANCEIRO — confirmação de consulta vai sair por ele. Conecte um chip CLINICA.`,
+            );
+          }
           instance = inst?.name || null;
           instanceByTenant.set(tenantId, instance);
         }

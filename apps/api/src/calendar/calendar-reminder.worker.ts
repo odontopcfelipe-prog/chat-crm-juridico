@@ -628,9 +628,18 @@ export class CalendarReminderWorker extends WorkerHost {
         }
       }
 
-      // Busca a conversa ativa para salvar a mensagem
+      // Busca a conversa ativa para salvar a mensagem.
+      // NUNCA a do FINANCEIRO: ele é mundo isolado (conversa própria) e, como toda
+      // cobrança dá bump no last_message_at dele, ele vencia este orderBy e o texto
+      // de AGENDA era arquivado dentro da thread do financeiro — o dono via "o
+      // financeiro mandando disparo de agendamento" (e o ai_mode/reminder_context
+      // abaixo ainda eram setados na conversa errada).
       const lastConvo = await this.prisma.conversation.findFirst({
-        where: { lead_id: event.lead.id, status: { not: 'ENCERRADO' } },
+        where: {
+          lead_id: event.lead.id,
+          status: { not: 'ENCERRADO' },
+          NOT: { inbox: { purpose: 'FINANCEIRO' } },
+        },
         orderBy: { last_message_at: 'desc' },
         select: { id: true, instance_name: true },
       }).catch(() => null);
@@ -662,6 +671,16 @@ export class CalendarReminderWorker extends WorkerHost {
         this.logger.warn(`[REMINDER] Erro ao enviar para cliente ${clientPhone}: ${e.message}`);
         // Não salva mensagem se envio falhou
         reminderSendResult = undefined;
+      }
+
+      // Sem conversa não-financeira: a mensagem SAIU, mas não há onde arquivar nem
+      // onde armar o awaiting_confirmation — o "confirmo" do paciente não vai ser
+      // processado. Logado pra não ser mais uma falha muda.
+      if (!lastConvo && reminderSendResult !== undefined) {
+        this.logger.warn(
+          `[REMINDER] Lembrete enviado ao lead ${event.lead.id}, mas ele não tem conversa fora do FINANCEIRO — ` +
+          `não arquivei e não armei a confirmação (a resposta dele não será processada).`,
+        );
       }
 
       // ── Salva mensagem e contexto na conversa (visível para operador) ──
@@ -1129,18 +1148,43 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       }).catch(() => null);
       if (byPurpose?.name) return byPurpose.name;
     }
+    // Fallback: a conversa mais recente do TENANT. Excluir o financeiro é essencial —
+    // ele não é do mundo da agenda e, como toda cobrança dá bump no last_message_at,
+    // ele virava "a mais recente" e SEQUESTRAVA o chip do próximo lembrete de consulta.
     const convo = await this.prisma.conversation.findFirst({
-      where: { instance_name: { not: null }, tenant_id: tenantId },
+      where: {
+        instance_name: { not: null },
+        tenant_id: tenantId,
+        NOT: { inbox: { purpose: 'FINANCEIRO' } },
+      },
       orderBy: { last_message_at: 'desc' },
       select: { instance_name: true },
     }).catch(() => null);
     if (convo?.instance_name) return convo.instance_name;
     const inst = await this.prisma.instance.findFirst({
+      where: { type: 'whatsapp', tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    }).catch(() => null);
+    if (inst?.name) return inst.name;
+
+    // Último recurso: o tenant só tem chip FINANCEIRO. Manda por ele mesmo assim —
+    // devolver null aqui NÃO cai num fallback útil: o sendText resolve pelo
+    // EVOLUTION_INSTANCE_NAME (TenantSetting legado), que num tenant moderno não
+    // existe e vira o literal 'whatsapp' → 404 → o paciente não recebe o lembrete.
+    // Chip errado é ruim; paciente perder o lembrete da consulta é pior.
+    const soFin = await this.prisma.instance.findFirst({
       where: { type: 'whatsapp', tenant_id: tenantId },
       orderBy: { created_at: 'asc' },
       select: { name: true },
     }).catch(() => null);
-    return inst?.name ?? null;
+    if (soFin?.name) {
+      this.logger.warn(
+        `[REMINDER] Tenant ${tenantId} só tem chip FINANCEIRO — lembrete de agenda vai sair por ele. Conecte um chip CLINICA.`,
+      );
+      return soFin.name;
+    }
+    return null;
   }
 
   // ─── Email reminder (portado do worker em 2026-04-20 — Divida 3) ────────
