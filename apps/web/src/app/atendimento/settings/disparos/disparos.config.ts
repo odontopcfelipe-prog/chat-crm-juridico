@@ -50,7 +50,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'sem_agendamento' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -68,6 +68,9 @@ export type OperacionalKey =
   // chip Comercial. Ids = os próprios nomes dos disparos (@crm/shared).
   | 'comercial_confirmacao' | 'comercial_confirmacao_48h' | 'comercial_lembrete_1dia'
   | 'comercial_lembrete_1h' | 'comercial_lembrete_15min' | 'comercial_reagendamento'
+  // Fase 3 — recall de revisão (motor maintenance-recall) e alertas de tarefa
+  // à equipe (task-alerts-cron). Defaults LIGADOS (os motores já rodavam).
+  | 'recall_preventivo' | 'task_alerts'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
@@ -202,8 +205,11 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: '2h depois', canal: 'WhatsApp', tags: [], editor: 'pos', operacionalKey: 'pos' },
   { id: 'cuidados_pos', nome: 'Cuidados pós-procedimento', categoria: 'pos_consulta',
     gatilho: 'Logo após · cirurgia/extração', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
+  // Faxina Fase 4: isto JÁ EXISTE dentro do Pós-atendimento — a resposta positiva
+  // ao NPS recebe o agradecimento com o convite ao Google (thanks_text). O card
+  // fica como ponteiro informativo, não como "Em breve" enganoso.
   { id: 'avaliacao_google', nome: 'Pedir avaliação no Google', categoria: 'pos_consulta',
-    gatilho: '1 dia depois · se NPS alto', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
+    gatilho: 'Já incluído no Pós-atendimento: NPS positivo recebe o convite ao Google', canal: 'WhatsApp', tags: ['Incluso no NPS'], editor: null, emBreve: true },
 
   // ── Datas e relacionamento ──
   { id: 'aniversario_classica', nome: 'Aniversário · mensagem clássica', categoria: 'datas',
@@ -221,8 +227,13 @@ export const DISPAROS: DisparoItem[] = [
   // ── Recuperação de receita (via CRC) ──
   { id: 'orcamento_parado', nome: 'Orçamento parado', categoria: 'recuperacao',
     gatilho: '3 dias sem fechar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
-  { id: 'recall_preventivo', nome: 'Recall preventivo', categoria: 'recuperacao',
-    gatilho: '6 meses sem retornar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
+  // Recall de revisão — o MOTOR JÁ RODA (maintenance-recall-cron, paced 3-7min):
+  // quando a revisão do procedimento (default_revisit_months) está a até 7 dias,
+  // convida o paciente a agendar. Antes o card dizia "Em breve" — mentira útil zero.
+  // Default LIGADO (o motor sempre rodou); o toggle permite desligar.
+  { id: 'recall_preventivo', nome: 'Recall de revisão (limpeza etc.)', categoria: 'clinico',
+    gatilho: 'Revisão do procedimento chegando (até 7 dias) · convida a agendar', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'recall', operacionalKey: 'recall_preventivo' },
 
   // ── Clínico e operacional ──
   { id: 'resumo_dentista', nome: 'Resumo diário do dentista', categoria: 'clinico',
@@ -239,4 +250,10 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'pacientes_sem_agendamento', nome: 'Pacientes sem agendamento', categoria: 'equipe',
     gatilho: '+30 dias sem agendar ou em stand by · resumo diário aos adms', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'sem_agendamento', operacionalKey: 'pacientes_sem_agendamento' },
+  // Fase 3 — o motor JÁ RODAVA invisível: avisa o RESPONSÁVEL (WhatsApp do usuário)
+  // de tarefa vencendo em 30min (individual, a cada 10min) e das vencidas (resumo
+  // 8h/14h). Default LIGADO; o toggle permite desligar. Sem editor (texto interno).
+  { id: 'task_alerts', nome: 'Alertas de tarefa à equipe', categoria: 'equipe',
+    gatilho: 'Tarefa vencendo em 30min · vencidas às 8h/14h · pro responsável', canal: 'WhatsApp', tags: ['Interno'],
+    operacionalKey: 'task_alerts' },
 ];

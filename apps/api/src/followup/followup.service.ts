@@ -103,7 +103,7 @@ export class FollowupService {
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
-      boletoDeliverySetting, comercialAgendaSettings,
+      boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -138,6 +138,10 @@ export class FollowupService {
       this.prisma.globalSetting.findMany({
         where: { key: { in: COMERCIAL_AGENDA_IDS.map((id) => comercialAgendaEnabledKey(id, tenantId)) } },
       }),
+      // Recall de revisão (motor já rodava — default LIGADO, só 'false' desliga).
+      this.prisma.globalSetting.findUnique({ where: { key: `RECALL_PREVENTIVO_ENABLED_${tenantId}` } }),
+      // Alertas de tarefa à equipe (interno — default LIGADO, só 'false' desliga).
+      this.prisma.globalSetting.findUnique({ where: { key: `TASK_ALERTS_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -313,6 +317,10 @@ export class FollowupService {
           ? boletoDeliverySetting.value === 'true'
           : boletoIntroSetting?.value === 'true',
       },
+      // Fase 3 — recall de revisão e alertas de tarefa (defaults LIGADOS: os
+      // motores já rodavam pra todo mundo; o card permite desligar).
+      recall_preventivo: { enabled: ((recallSetting as any)?.value ?? 'true') !== 'false' },
+      task_alerts: { enabled: ((taskAlertsSetting as any)?.value ?? 'true') !== 'false' },
       // Agenda do Comercial — 6 toggles (default OFF): versão dos disparos de
       // agendamento pro LEAD não-cliente, pelo chip COMERCIAL.
       ...Object.fromEntries(
@@ -490,6 +498,8 @@ export class FollowupService {
       resumo_dentista: ['resumo_dentista'],
       lembrete_orto_1h: ['orto_reminder'],
       pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm'],
+      recall_preventivo: ['recall_preventivo'],
+      task_alerts: ['task_alert'],
     };
 
     // Lembretes clínicos → faixa de antecedência no EventReminder.
@@ -588,6 +598,38 @@ export class FollowupService {
       },
       envios,
     };
+  }
+
+  /**
+   * Fase 3 — texto do RECALL de revisão. O worker lê TenantSetting
+   * RECALL_MESSAGE_TEMPLATE (texto CRU, per-tenant) → GlobalSetting global →
+   * default do shared. Aqui gravamos exatamente a key que o cron já lê.
+   * Vazio = volta ao padrão (o cron ignora valor em branco).
+   */
+  async getRecallTemplate(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const { DEFAULT_RECALL_TEMPLATE } = await import('@crm/shared');
+    try {
+      const ts = await (this.prisma as any).tenantSetting.findUnique({
+        where: { tenant_id_key: { tenant_id: tenantId, key: 'RECALL_MESSAGE_TEMPLATE' } },
+      });
+      if (ts?.value?.trim()) return { template: ts.value };
+    } catch { /* tabela/linha ausente → default */ }
+    return { template: DEFAULT_RECALL_TEMPLATE };
+  }
+
+  async setRecallTemplate(tenantId: string, template?: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (template !== undefined && typeof template !== 'string') throw new BadRequestException('template deve ser string');
+    if ((template || '').length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    const value = template ?? '';
+    await (this.prisma as any).tenantSetting.upsert({
+      where: { tenant_id_key: { tenant_id: tenantId, key: 'RECALL_MESSAGE_TEMPLATE' } },
+      create: { tenant_id: tenantId, key: 'RECALL_MESSAGE_TEMPLATE', value },
+      update: { value },
+    });
+    this.logger.log(`[RECALL_TEMPLATE] salvo (tenant ${tenantId})`);
+    return this.getRecallTemplate(tenantId);
   }
 
   /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le). */
@@ -692,6 +734,20 @@ export class FollowupService {
       // (API) e o worker leem esta key; ausente = herda a apresentação.
       case 'boleto_delivery': {
         const key = `BOLETO_DELIVERY_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Fase 3 — recall de revisão (motor maintenance-recall; default ON no cron).
+      case 'recall_preventivo': {
+        const key = `RECALL_PREVENTIVO_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Fase 3 — alertas de tarefa à equipe (task-alerts-cron; default ON no cron).
+      case 'task_alerts': {
+        const key = `TASK_ALERTS_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, defaultComercialAgendaTemplate } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -65,6 +65,9 @@ interface OperacionalData {
   boleto_intro?: { enabled: boolean };
   // Parte 2 — envio dos boletos em carnê (D+2). Toggle separado da apresentação.
   boleto_delivery?: { enabled: boolean };
+  // Fase 3 — recall de revisão e alertas de tarefa (defaults LIGADOS).
+  recall_preventivo?: { enabled: boolean };
+  task_alerts?: { enabled: boolean };
   // Central 2.0 — métricas por type do DispatchLog (disparos instrumentados).
   dispatch?: { porTipo: Record<string, { hoje: number; mes: number }>; falhasHoje: number };
   // Agenda do Comercial — disparos de agendamento pro LEAD (não-cliente), chip Comercial.
@@ -185,6 +188,8 @@ export default function CentralDisparosPage() {
     confirmacao_pagamento: 'confirmacao_pagamento',
     lembrete_orto_1h: 'orto_reminder',
     pacientes_sem_agendamento: 'pacientes_sem_agendamento_adm',
+    recall_preventivo: 'recall_preventivo',
+    task_alerts: 'task_alert',
   };
   const metricOf = (d: DisparoItem): { hoje: number; mes: number } | null => {
     if (!op) return null;
@@ -271,7 +276,8 @@ export default function CentralDisparosPage() {
 
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
-  if (openItem && openItem.editor) {
+  // Card abre com editor OU só com resumo (toggle-only, ex.: alertas de tarefa).
+  if (openItem && (openItem.editor || openItem.operacionalKey) && !openItem.emBreve) {
     // lembrete individual: edita só o texto da sua faixa (1 dia→24h, 1h→1h, 15min→<1h)
     const tplKey: 'consulta_confirmacao' | 'consulta_24h' | 'consulta_1h' | 'consulta_15min' | undefined =
       openItem.antecedenciaMin == null ? undefined
@@ -363,6 +369,21 @@ export default function CentralDisparosPage() {
             ]}
             preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '22/06', hora: '15:00' }}
             onCurrentTextChange={setLiveText}
+          />
+        )}
+        {openItem.editor === 'recall' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip da Clínica quando a REVISÃO do procedimento está chegando (até 7 dias do vencimento) — convida a agendar. Aqui é o lugar do upsell (ex.: aproveitar pra avaliar um clareamento). Edite e Salve; deixe em branco pra voltar ao padrão."
+            endpoint="/followup/recall-template"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'procedimento', desc: 'Procedimento da revisão (ex.: Limpeza)' },
+              { key: 'data', desc: 'Data da revisão (ex.: 24 de julho)' },
+            ]}
+            preview={{ nome: 'Felipe', procedimento: 'Limpeza', data: '24 de julho' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_RECALL_TEMPLATE}
           />
         )}
         {openItem.editor === 'comercial_agenda' && (
@@ -472,7 +493,7 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'sem_agendamento' && <SemAgendamentoEditor />}
         {/* Resumo interno tem o próprio "enviar teste" (SemAgendamentoEditor) —
             pula o TesteEnvio genérico (que testa texto de template ao paciente). */}
-        {openItem.editor !== 'sem_agendamento' && <TesteEnvio disparo={openItem.id} text={liveText} />}
+        {openItem.editor && openItem.editor !== 'sem_agendamento' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }
@@ -629,7 +650,8 @@ export default function CentralDisparosPage() {
                 )}
                 <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
                   {itens.map((d) => {
-                    const clickable = !!d.editor && !d.emBreve;
+                    // Clicável com editor OU só toggle+resumo (Central 2.0).
+                    const clickable = (!!d.editor || !!d.operacionalKey) && !d.emBreve;
                     const hasToggle = (!!d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null) && !d.emBreve;
                     const on = enabledOf(d);
                     const savingThis = saving === d.operacionalKey || saving === `ant_${d.antecedenciaMin}` || saving === `bd_${d.birthdayMsg}`;

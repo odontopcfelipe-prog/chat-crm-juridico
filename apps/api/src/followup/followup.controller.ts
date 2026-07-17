@@ -35,6 +35,21 @@ export class FollowupController {
     });
   }
 
+  // ─── Fase 3 — texto do recall de revisão (worker lê a mesma key) ──────────
+  @Get('recall-template')
+  getRecallTemplate(@Request() req: any) {
+    return this.svc.getRecallTemplate(req.user?.tenant_id);
+  }
+
+  @Put('recall-template')
+  setRecallTemplate(@Body() body: { template?: string }, @Request() req: any) {
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode editar a mensagem do recall');
+    }
+    return this.svc.setRecallTemplate(req.user?.tenant_id, body?.template);
+  }
+
   // ─── Central 2.0 — resumo de UM disparo (pra quem mandou, quando, status) ──
   @Get('disparo-detail')
   getDisparoDetail(@Request() req: any, @Query('id') id?: string, @Query('days') days?: string) {

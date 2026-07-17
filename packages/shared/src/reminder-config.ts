@@ -133,6 +133,17 @@ export const DEFAULT_ORTO_IMMEDIATE =
   'Qualquer dúvida, é só chamar por aqui!';
 
 /**
+ * RECALL DE MANUTENÇÃO (revisão/limpeza) — mensagem paced enviada quando a
+ * MaintenanceTask está a até 7 dias do vencimento. Editável por clínica
+ * (TenantSetting RECALL_MESSAGE_TEMPLATE, texto CRU — o worker lê direto).
+ * Placeholders: {nome} {procedimento} {data}.
+ */
+export const DEFAULT_RECALL_TEMPLATE =
+  'Olá, {nome}! 👋\n\n' +
+  'Aqui é da clínica — está chegando a data da sua revisão de *{procedimento}*: {data}.\n\n' +
+  'Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊';
+
+/**
  * Aplica substituicao de variaveis num template.
  * {chave} eh substituido pelo valor de vars[chave]; ausentes ficam vazios.
  *

@@ -51,18 +51,24 @@ export class TaskAlertsCronService {
         },
       });
 
-      // Unificar em lista comum
-      const dueSoon: Array<{ id: string; title: string; dueAt: Date; user: any; lead: any; legalCase: any }> = [
-        ...tasksDueSoon.map(t => ({ id: t.id, title: t.title, dueAt: t.due_at!, user: t.assigned_user, lead: t.lead, legalCase: null })),
-        ...eventsDueSoon.map(e => ({ id: e.id, title: e.title, dueAt: e.start_at, user: e.assigned_user, lead: e.lead, legalCase: null })),
+      // Unificar em lista comum (tenant_id vem nos escalares — include, não select)
+      const dueSoon: Array<{ id: string; title: string; dueAt: Date; user: any; lead: any; legalCase: any; tenantId: string | null }> = [
+        ...tasksDueSoon.map(t => ({ id: t.id, title: t.title, dueAt: t.due_at!, user: t.assigned_user, lead: t.lead, legalCase: null, tenantId: (t as any).tenant_id ?? null })),
+        ...eventsDueSoon.map(e => ({ id: e.id, title: e.title, dueAt: e.start_at, user: e.assigned_user, lead: e.lead, legalCase: null, tenantId: (e as any).tenant_id ?? null })),
       ];
 
       if (dueSoon.length === 0) return;
 
       this.logger.log(`[TASK-ALERTS] ${dueSoon.length} tarefa(s)/evento(s) vencendo em 30 min`);
 
+      const enabledCache = new Map<string, boolean>();
       for (const task of dueSoon) {
         if (!task.user?.phone) continue;
+
+        // Toggle da Central (card "Alertas de tarefa" · Equipe). Default LIGADO.
+        const tid = task.tenantId || '';
+        if (!enabledCache.has(tid)) enabledCache.set(tid, await this.isEnabled(tid));
+        if (!enabledCache.get(tid)) continue;
 
         const alreadySent = await this.wasAlertSentRecently(task.id, 'TASK_DUE_SOON', 2);
         if (alreadySent) continue;
@@ -78,10 +84,10 @@ export class TaskAlertsCronService {
           (task.lead?.name ? `👤 Cliente: ${task.lead.name}\n` : '') +
           (task.legalCase?.case_number ? `📁 Processo: ${task.legalCase.case_number}\n` : '') +
           `\nAcesse o sistema para atualizar o status.\n\n` +
-          `_Alerta automático do CRM Jurídico_`;
+          `_Alerta automático do CRM_`;
 
         await this.sendWhatsApp(task.user.phone, msg);
-        await this.logAlert(task.id, 'TASK_DUE_SOON', task.user.id);
+        await this.logAlert(task.id, 'TASK_DUE_SOON', task.user.id, task.tenantId, task.user.name, task.user.phone);
         this.logger.log(`[TASK-ALERTS] Lembrete enviado para ${task.user.name} — tarefa: ${task.title}`);
       }
     } catch (e: any) {
@@ -125,10 +131,10 @@ export class TaskAlertsCronService {
         take: 30,
       });
 
-      // Unificar
-      const overdue: Array<{ id: string; title: string; dueAt: Date; user: any }> = [
-        ...overdueTasks.map(t => ({ id: t.id, title: t.title, dueAt: t.due_at!, user: t.assigned_user })),
-        ...overdueEvents.map(e => ({ id: e.id, title: e.title, dueAt: e.start_at, user: e.assigned_user })),
+      // Unificar (tenant_id vem nos escalares — include, não select)
+      const overdue: Array<{ id: string; title: string; dueAt: Date; user: any; tenantId: string | null }> = [
+        ...overdueTasks.map(t => ({ id: t.id, title: t.title, dueAt: t.due_at!, user: t.assigned_user, tenantId: (t as any).tenant_id ?? null })),
+        ...overdueEvents.map(e => ({ id: e.id, title: e.title, dueAt: e.start_at, user: e.assigned_user, tenantId: (e as any).tenant_id ?? null })),
       ];
 
       if (overdue.length === 0) return;
@@ -136,15 +142,21 @@ export class TaskAlertsCronService {
       this.logger.log(`[TASK-ALERTS] ${overdue.length} tarefa(s)/evento(s) vencida(s)`);
 
       // Agrupar por usuário
-      const byUser = new Map<string, { user: any; items: typeof overdue }>();
+      const byUser = new Map<string, { user: any; tenantId: string | null; items: typeof overdue }>();
       for (const item of overdue) {
         const userId = item.user?.id;
         if (!userId || !item.user?.phone) continue;
-        if (!byUser.has(userId)) byUser.set(userId, { user: item.user, items: [] });
+        if (!byUser.has(userId)) byUser.set(userId, { user: item.user, tenantId: item.tenantId, items: [] });
         byUser.get(userId)!.items.push(item);
       }
 
+      const enabledCache = new Map<string, boolean>();
       for (const [userId, group] of byUser.entries()) {
+        // Toggle da Central (card "Alertas de tarefa" · Equipe). Default LIGADO.
+        const tid = group.tenantId || '';
+        if (!enabledCache.has(tid)) enabledCache.set(tid, await this.isEnabled(tid));
+        if (!enabledCache.get(tid)) continue;
+
         const alreadySent = await this.wasAlertSentRecently(userId, 'TASK_OVERDUE_BATCH', 6);
         if (alreadySent) continue;
 
@@ -164,10 +176,10 @@ export class TaskAlertsCronService {
           `${taskList}` +
           (count > 5 ? `\n... e mais ${count - 5} tarefa(s)` : '') +
           `\n\nAcesse o sistema para atualizar.\n\n` +
-          `_Alerta automático do CRM Jurídico_`;
+          `_Alerta automático do CRM_`;
 
         await this.sendWhatsApp(user.phone, msg);
-        await this.logAlert(userId, 'TASK_OVERDUE_BATCH', userId);
+        await this.logAlert(userId, 'TASK_OVERDUE_BATCH', userId, group.tenantId, user.name, user.phone);
         this.logger.log(`[TASK-ALERTS] Alerta overdue enviado para ${user.name} (${count} tarefas)`);
       }
     } catch (e: any) {
@@ -201,11 +213,49 @@ export class TaskAlertsCronService {
     return !!existing;
   }
 
-  private async logAlert(referenceId: string, type: string, userId: string): Promise<void> {
+  /** Toggle da Central: TASK_ALERTS_ENABLED_<tenant>. Default LIGADO (o motor
+   *  sempre rodou; é aviso interno à equipe) — só 'false' desliga. */
+  private async isEnabled(tenantId: string): Promise<boolean> {
+    if (!tenantId) return true;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: `TASK_ALERTS_ENABLED_${tenantId}` },
+      });
+      return (row?.value ?? 'true') !== 'false';
+    } catch {
+      return true;
+    }
+  }
+
+  private async logAlert(
+    referenceId: string,
+    type: string,
+    userId: string,
+    tenantId?: string | null,
+    recipientName?: string | null,
+    recipientPhone?: string | null,
+  ): Promise<void> {
     try {
       await this.prisma.auditLog.create({
         data: { entity: 'TASK_ALERT', entity_id: referenceId, action: type, meta_json: { user_id: userId, sent_at: new Date().toISOString() } },
       });
     } catch {}
+    // Central 2.0 — registro unificado (métrica + resumo do card "Alertas de tarefa").
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: tenantId || '',
+          type: 'task_alert',
+          channel: 'WHATSAPP',
+          recipient_name: recipientName || null,
+          recipient_phone: recipientPhone || null,
+          status: 'SENT',
+          ref_user_id: userId,
+          sent_at: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[DISPATCH-LOG] task_alert não registrou: ${e?.message}`);
+    }
   }
 }

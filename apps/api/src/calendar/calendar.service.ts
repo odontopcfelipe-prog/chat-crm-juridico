@@ -1930,6 +1930,8 @@ export class CalendarService {
       condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74',
       condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34',
       entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', forma: 'boleto',
+      // Recall de revisão — exemplo do procedimento (senão sairia vazio no teste).
+      procedimento: 'Limpeza',
     };
     const apply = (t: string) =>
       (t || '')
@@ -1990,6 +1992,26 @@ export class CalendarService {
         msg = `Oi Felipe! Como foi sua consulta hoje com ${dentistName}? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)`;
         break;
       default:
+        // Recall de revisão: sem texto da tela, testa o texto SALVO (mesma
+        // resolução do worker: TenantSetting → GlobalSetting global → default).
+        if (disparo === 'recall_preventivo') {
+          const { DEFAULT_RECALL_TEMPLATE } = await import('@crm/shared');
+          let tpl = DEFAULT_RECALL_TEMPLATE;
+          try {
+            const ts = tenant_id
+              ? await (this.prisma as any).tenantSetting.findUnique({
+                  where: { tenant_id_key: { tenant_id, key: 'RECALL_MESSAGE_TEMPLATE' } },
+                })
+              : null;
+            if (ts?.value?.trim()) tpl = ts.value;
+            else {
+              const gs = await this.prisma.globalSetting.findUnique({ where: { key: 'RECALL_MESSAGE_TEMPLATE' } });
+              if (gs?.value?.trim()) tpl = gs.value;
+            }
+          } catch { /* default */ }
+          msg = apply(tpl);
+          break;
+        }
         // Agenda do Comercial: sem texto da tela, testa o texto SALVO (ou default).
         if (isComercialAgendaId(disparo)) {
           msg = apply((await this.getComercialAgendaTemplate(tenant_id, disparo)).template);

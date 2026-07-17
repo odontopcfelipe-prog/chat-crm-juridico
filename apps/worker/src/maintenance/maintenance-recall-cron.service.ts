@@ -2,19 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
-import { toBrazilWhatsappNumber } from '@crm/shared';
+import { toBrazilWhatsappNumber, DEFAULT_RECALL_TEMPLATE } from '@crm/shared';
 import axios from 'axios';
-
-/**
- * Mensagem padrao do recall. A clinica pode sobrescrever setando a chave
- * RECALL_MESSAGE_TEMPLATE (TenantSetting por clinica, ou GlobalSetting).
- * Placeholders: {nome} {procedimento} {data}. Aqui e o lugar de adicionar
- * o upsell (ex: "aproveite pra avaliar um clareamento") — sem mexer no codigo.
- */
-const DEFAULT_RECALL_TEMPLATE =
-  'Olá, {nome}! 👋\n\n' +
-  'Aqui é da clínica — está chegando a data da sua revisão de *{procedimento}*: {data}.\n\n' +
-  'Quer que eu agende para você? É só responder esta mensagem com o melhor dia/horário e a gente confirma. 😊';
 
 /**
  * Worker cron de recall de manutencao — PACED / marca-passo (Onda 18).
@@ -78,12 +67,28 @@ export class MaintenanceRecallCronService {
     const in7days = new Date();
     in7days.setDate(in7days.getDate() + 7);
 
+    // Toggle da Central (card "Recall de revisão"): default LIGADO — o motor já
+    // rodava pra todo mundo; o card permite DESLIGAR (só 'false' desliga). Excluímos
+    // as clínicas OFF DIRETO no banco (não no take): a fila é CROSS-tenant e ordenada
+    // por vencimento — sem isso, uma clínica OFF com muitas tasks na frente
+    // ENTUPIRIA a fila e zeraria o recall de TODAS as outras (starvation).
+    const offRows = await this.prisma.globalSetting.findMany({
+      where: { key: { startsWith: 'RECALL_PREVENTIVO_ENABLED_' }, value: 'false' },
+      select: { key: true },
+    }).catch(() => [] as { key: string }[]);
+    const offTenants = offRows
+      .map((r) => r.key.slice('RECALL_PREVENTIVO_ENABLED_'.length))
+      .filter(Boolean);
+
     const task = await (this.prisma as any).maintenanceTask.findFirst({
       where: {
         status: { in: ['PENDING', 'SCHEDULED'] },
         due_date: { gte: now, lte: in7days },
         reminder_sent_at: null,
-        patient: { phone: { not: null } },
+        patient: {
+          phone: { not: null },
+          ...(offTenants.length ? { tenant_id: { notIn: offTenants } } : {}),
+        },
       },
       include: {
         patient: { select: { id: true, name: true, phone: true, tenant_id: true } },
@@ -91,8 +96,12 @@ export class MaintenanceRecallCronService {
       },
       orderBy: { due_date: 'asc' }, // o mais proximo de vencer primeiro
     });
-
     if (!task) return 'empty'; // nada pra mandar — NAO mexe no cooldown
+
+    // Defesa em profundidade: se o toggle foi desligado ENTRE as duas queries (ou a
+    // lista de OFF falhou), reconfere a task escolhida. OFF → pula o tick (sem marcar;
+    // o próximo tick já exclui no banco). Cobre a corrida sem reabrir o starvation.
+    if (!(await this.isRecallEnabled(task.patient?.tenant_id || ''))) return 'empty';
 
     // Telefone vazio (passou pelo not:null como string vazia) — marca e sai
     // pra nao travar a fila numa task sem telefone.
@@ -112,7 +121,7 @@ export class MaintenanceRecallCronService {
       .replace(/\{procedimento\}/g, procName)
       .replace(/\{data\}/g, dueDateStr);
 
-    const messageId = await this.sendWhatsApp(task.patient.phone, msg);
+    const messageId = await this.sendWhatsApp(task.patient.phone, msg, task.patient.tenant_id);
 
     // Config do Evolution ausente: NAO gasta o slot, tenta de novo no proximo tick.
     if (messageId === 'NO_CONFIG') return 'cooldown';
@@ -120,6 +129,8 @@ export class MaintenanceRecallCronService {
     // Marca na TENTATIVA (sucesso OU falha) e avanca o marca-passo — assim um
     // numero invalido nao trava os proximos recalls.
     await this.markAttempted(task.id, typeof messageId === 'string' ? messageId : null);
+    // Central 2.0 — registro unificado (métrica + resumo "pra quem mandou").
+    await this.logDispatchUnificado(task.patient.tenant_id, task.patient.name, task.patient.phone, messageId);
     this.lastRecallSentAt = nowMs;
     this.nextGapMs = this.randomGapMs();
 
@@ -131,6 +142,46 @@ export class MaintenanceRecallCronService {
       `[RECALL] Recall enviado (task ${task.id}); proximo em ~${Math.round(this.nextGapMs / 60000)}min`,
     );
     return 'sent';
+  }
+
+  /** Toggle da Central: RECALL_PREVENTIVO_ENABLED_<tenant>. Default LIGADO (o motor
+   *  sempre rodou pra todo mundo) — só o valor 'false' desliga. */
+  private async isRecallEnabled(tenantId: string): Promise<boolean> {
+    if (!tenantId) return true;
+    try {
+      const row = await this.prisma.globalSetting.findUnique({
+        where: { key: `RECALL_PREVENTIVO_ENABLED_${tenantId}` },
+      });
+      return (row?.value ?? 'true') !== 'false';
+    } catch {
+      return true;
+    }
+  }
+
+  /** Central 2.0 — registro unificado no DispatchLog (best-effort, nunca lança). */
+  private async logDispatchUnificado(
+    tenantId: string,
+    name: string,
+    phone: string,
+    sendResult: string | boolean | 'NO_CONFIG',
+  ): Promise<void> {
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: tenantId || '',
+          type: 'recall_preventivo',
+          channel: 'WHATSAPP',
+          recipient_name: name,
+          recipient_phone: phone,
+          status: sendResult === false ? 'FAILED' : 'SENT',
+          error: sendResult === false ? 'Evolution recusou o envio (número/chip)' : null,
+          external_message_id: typeof sendResult === 'string' ? sendResult : null,
+          sent_at: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[DISPATCH-LOG] recall_preventivo não registrou: ${e?.message}`);
+    }
   }
 
   /** Marca o recall como tratado (evita reenvio na proxima varredura). */
@@ -201,14 +252,17 @@ export class MaintenanceRecallCronService {
    * Retorna: messageId (string) em sucesso, false em falha de envio, ou
    * 'NO_CONFIG' se o Evolution nao esta configurado (pra nao gastar o slot).
    */
-  private async sendWhatsApp(phone: string, text: string): Promise<string | false | 'NO_CONFIG'> {
+  private async sendWhatsApp(phone: string, text: string, tenantId?: string): Promise<string | false | 'NO_CONFIG'> {
     const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
     if (!apiUrl) {
       this.logger.warn('[RECALL] Evolution apiUrl nao configurada — pulando');
       return 'NO_CONFIG';
     }
     try {
-      const instance = process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
+      // Recall é mensagem CLÍNICA: sai pelo chip CLINICA do tenant (fallback:
+      // qualquer chip que não seja o FINANCEIRO → env). Antes usava a instância
+      // única do env — errada em tenant com chips separados por função.
+      const instance = (await this.resolveClinicaInstance(tenantId)) || process.env.EVOLUTION_INSTANCE_NAME || 'whatsapp';
       const cleanPhone = toBrazilWhatsappNumber(phone);
       const res = await axios.post(
         `${apiUrl}/message/sendText/${instance}`,
@@ -219,6 +273,27 @@ export class MaintenanceRecallCronService {
     } catch (e: any) {
       this.logger.warn(`[RECALL] Falha WhatsApp para ${phone}: ${e.message}`);
       return false;
+    }
+  }
+
+  /** Chip CLINICA do tenant → qualquer chip NÃO-financeiro → null (cai no env). */
+  private async resolveClinicaInstance(tenantId?: string): Promise<string | null> {
+    if (!tenantId) return null;
+    try {
+      const clinica = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id: tenantId, purpose: 'CLINICA' },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+      if (clinica?.name) return clinica.name;
+      const naoFin = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+      return naoFin?.name ?? null;
+    } catch {
+      return null;
     }
   }
 }

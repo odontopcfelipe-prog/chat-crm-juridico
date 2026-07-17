@@ -29,7 +29,18 @@ export class CollectionEngineService {
     private settings: SettingsService,
   ) {}
 
-  @Cron('0 9 * * *', { timeZone: 'America/Maceio' })
+  // ── APOSENTADO (Central de Disparos 2.0) ────────────────────────────────
+  // Este engine era um SEGUNDO trilho de cobrança rodando em PARALELO ao motor
+  // oficial da Central (payment-alerts-cron, toggles boleto_* por tenant): sem
+  // liga/desliga, sem registro no DispatchLog (invisível pro operador) e com
+  // caminho REAL de mensagem DUPLICADA — a charge com installment_id é vista
+  // pelos DOIS motores, e os dias D0/D+1/D+15/D+30 colidem (mesmo débito, dois
+  // chips no mesmo dia). O fluxo odonto atual não cria Installment pela UI, mas
+  // linhas legadas/da API disparariam. O @Cron foi removido de propósito — o
+  // service e a UI de leitura (CollectionAttempt/Parcelas) ficam intactos; pra
+  // reativar um dia, devolver o decorator ATRÁS de um card default OFF na
+  // Central (nunca sem gate).
+  // @Cron('0 9 * * *', { timeZone: 'America/Maceio' })
   async run() {
     try {
       const now = new Date();
