@@ -360,6 +360,24 @@ export class BoletoDeliveryService {
       if (!ok) allOk = false;
     }
 
+    // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
+    // Só o fluxo REAL (dedup=true): o botão de teste manda pro número do operador
+    // e não deve inflar a métrica de pacientes.
+    if (dedup) {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: tenantId,
+          type: 'boleto_delivery',
+          channel: 'WHATSAPP',
+          recipient_name: name,
+          recipient_phone: phone,
+          status: allOk ? 'SENT' : 'FAILED',
+          error: allOk ? null : 'Uma ou mais peças falharam (texto/carnê/entrada) — retry na próxima rodada',
+          sent_at: new Date(),
+        },
+      }).catch((e: any) => this.logger.warn(`[DISPATCH-LOG] boleto_delivery não registrou: ${e?.message}`));
+    }
+
     return allOk;
   }
 

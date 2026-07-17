@@ -1992,7 +1992,9 @@ export class PaymentGatewayService {
 
     const gatewayCustomer = await this.prisma.paymentGatewayCustomer.findFirst({
       where: { external_id: customerId, gateway: 'ASAAS' },
-      include: { lead: { select: { id: true, name: true, phone: true } } },
+      // tenant_id: o DispatchLog da confirmação precisa dele quando o webhook chega
+      // sem charge local (senão a linha nasce órfã e some das métricas do tenant).
+      include: { lead: { select: { id: true, name: true, phone: true, tenant_id: true } } },
     });
 
     if (!gatewayCustomer?.lead?.phone) return;
@@ -2067,6 +2069,25 @@ export class PaymentGatewayService {
         });
         await this.prisma.conversation.update({ where: { id: lastConvo.id }, data: { last_message_at: new Date() } });
       }
+
+      // Central de Disparos 2.0 — este disparo não deixava NENHUM rastro estruturado
+      // (só a Message no chat). Agora registra no DispatchLog (métrica + resumo).
+      const falhou = !sendResult || (sendResult as any)?.statusCode >= 400 || (sendResult as any)?.error;
+      await this.prisma.dispatchLog
+        .create({
+          data: {
+            tenant_id: (charge as any)?.tenant_id || (gatewayCustomer.lead as any)?.tenant_id || '',
+            type: 'confirmacao_pagamento',
+            channel: 'WHATSAPP',
+            recipient_name: lead.name || null,
+            recipient_phone: clientPhone,
+            status: falhou ? 'FAILED' : 'SENT',
+            error: falhou ? 'Evolution recusou o envio (número/chip)' : null,
+            external_message_id: (sendResult as any)?.data?.key?.id || (sendResult as any)?.key?.id || null,
+            sent_at: new Date(),
+          },
+        })
+        .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] confirmacao_pagamento não registrou: ${e?.message}`));
     } catch (e: any) {
       this.logger.warn(`[WEBHOOK] Falha ao enviar confirmação para ${clientPhone}: ${e.message}`);
     }

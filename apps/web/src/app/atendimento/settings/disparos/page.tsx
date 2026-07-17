@@ -24,6 +24,7 @@ import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
 import { ConfirmacaoEditor } from './ConfirmacaoEditor';
 import { MensagemEditor } from './MensagemEditor';
+import { DisparoResumo } from './DisparoResumo';
 import { AniversarioEditor } from './AniversarioEditor';
 import { SemAgendamentoEditor } from './SemAgendamentoEditor';
 import { TesteEnvio } from './TesteEnvio';
@@ -64,6 +65,8 @@ interface OperacionalData {
   boleto_intro?: { enabled: boolean };
   // Parte 2 — envio dos boletos em carnê (D+2). Toggle separado da apresentação.
   boleto_delivery?: { enabled: boolean };
+  // Central 2.0 — métricas por type do DispatchLog (disparos instrumentados).
+  dispatch?: { porTipo: Record<string, { hoje: number; mes: number }>; falhasHoje: number };
   // Agenda do Comercial — disparos de agendamento pro LEAD (não-cliente), chip Comercial.
   comercial_confirmacao?: { enabled: boolean };
   comercial_confirmacao_48h?: { enabled: boolean };
@@ -124,15 +127,22 @@ export default function CentralDisparosPage() {
     if (sp && scrollPosRef.current > 0) sp.scrollTop = scrollPosRef.current;
   }, [openId]);
 
+  // Central 2.0 — semáforo dos chips (purpose + status ao vivo da Evolution).
+  const [chips, setChips] = useState<{ purpose: string | null; status: string; displayName: string }[] | null>(null);
+
   const load = useCallback(async () => {
-    const [opRes, cfgRes, bdRes] = await Promise.allSettled([
+    const [opRes, cfgRes, bdRes, chipsRes] = await Promise.allSettled([
       api.get<OperacionalData>('/followup/operacional'),
       api.get<ReminderConfig>('/calendar/reminders/config'),
       api.get<BirthdayCfg>('/calendar/birthday-greeting/config'),
+      api.get<any[]>('/whatsapp/my-numbers', { timeout: 12000 }),
     ]);
     if (opRes.status === 'fulfilled') setOp(opRes.value.data);
     if (cfgRes.status === 'fulfilled') setCfg(cfgRes.value.data);
     if (bdRes.status === 'fulfilled') setBirthday(bdRes.value.data);
+    if (chipsRes.status === 'fulfilled' && Array.isArray(chipsRes.value.data)) {
+      setChips(chipsRes.value.data.map((c: any) => ({ purpose: c.purpose ?? null, status: c.status || 'unknown', displayName: c.displayName || c.instanceName })));
+    }
     if (opRes.status === 'rejected' && cfgRes.status === 'rejected') {
       showError('Falha ao carregar os disparos');
     }
@@ -150,6 +160,42 @@ export default function CentralDisparosPage() {
       return !!birthday?.[BIRTHDAY_FIELD[d.birthdayMsg]];
     }
     return d.operacionalKey && op ? !!(op as any)[d.operacionalKey]?.enabled : false;
+  };
+
+  // Central 2.0 — métrica inline (hoje · mês) por card, quando a fonte existe.
+  // Legados vêm dos blocos do operacional; instrumentados vêm do DispatchLog
+  // (dispatch.porTipo). Lembretes clínicos são agregados → sem número por faixa
+  // na LINHA (o resumo dentro do card mostra a lista da faixa).
+  const DISPATCH_METRIC_TYPE: Record<string, string> = {
+    reagendamento: 'agendamento_remarcado',
+    comercial_confirmacao: 'agendamento_criado_comercial',
+    comercial_reagendamento: 'agendamento_remarcado_comercial',
+    comercial_confirmacao_48h: 'comercial_confirmacao_48h',
+    comercial_lembrete_1dia: 'comercial_lembrete_1dia',
+    comercial_lembrete_1h: 'comercial_lembrete_1h',
+    comercial_lembrete_15min: 'comercial_lembrete_15min',
+    negociacao_aprovada: 'negociacao_aprovada',
+    boleto_intro: 'boleto_intro',
+    boleto_delivery: 'boleto_delivery',
+    boleto_1d_antes: 'boleto_1d_antes',
+    boleto_no_dia: 'boleto_no_dia',
+    boleto_atraso_1d: 'boleto_atraso_1d',
+    boleto_atraso_15d: 'boleto_atraso_15d',
+    boleto_atraso_30d: 'boleto_atraso_30d',
+    confirmacao_pagamento: 'confirmacao_pagamento',
+    lembrete_orto_1h: 'orto_reminder',
+    pacientes_sem_agendamento: 'pacientes_sem_agendamento_adm',
+  };
+  const metricOf = (d: DisparoItem): { hoje: number; mes: number } | null => {
+    if (!op) return null;
+    const o = op as any;
+    if (d.operacionalKey === 'confirmacao') return { hoje: o.confirmacao?.enviadosHoje ?? 0, mes: o.confirmacao?.enviadosMes ?? 0 };
+    if (d.operacionalKey === 'pos') return { hoje: o.pos?.enviadosHoje ?? 0, mes: o.pos?.enviadosMes ?? 0 };
+    if (d.operacionalKey === 'dentista') return { hoje: o.dentista?.enviadosHoje ?? 0, mes: o.dentista?.enviadosMes ?? 0 };
+    if (d.birthdayMsg != null) return { hoje: o.aniversario?.enviadosHoje ?? 0, mes: o.aniversario?.enviadosMes ?? 0 };
+    const t = DISPATCH_METRIC_TYPE[d.id];
+    if (t) { const m = op.dispatch?.porTipo?.[t]; return { hoje: m?.hoje ?? 0, mes: m?.mes ?? 0 }; }
+    return null;
   };
 
   const toggleOperacional = async (k: OperacionalKey, enabled: boolean) => {
@@ -242,6 +288,8 @@ export default function CentralDisparosPage() {
         >
           <ArrowLeft size={16} /> Voltar aos disparos
         </button>
+        {/* Central 2.0 — resumo do disparo (pra quem mandou, quando, status, erro) */}
+        <DisparoResumo disparoId={openItem.id} />
         {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} onCurrentTextChange={setLiveText} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'orto_immediate' && (
@@ -432,6 +480,32 @@ export default function CentralDisparosPage() {
   const configuraveis = DISPAROS.filter((d) => !d.emBreve && (d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null));
   const ativos = configuraveis.filter((d) => enabledOf(d)).length;
 
+  // Central 2.0 — KPIs do dia: legados (tabelas próprias) + instrumentados
+  // (DispatchLog por type). dentista/aniversario JÁ são DispatchLog → só no porTipo
+  // (somá-los de novo pelos blocos legados dobraria a conta).
+  const porTipo = op?.dispatch?.porTipo || {};
+  const kpiHoje =
+    ((op as any)?.confirmacao?.enviadosHoje ?? 0) +
+    ((op as any)?.lembrete?.enviadosHoje ?? 0) +
+    ((op as any)?.pos?.enviadosHoje ?? 0) +
+    Object.values(porTipo).reduce((s, v: any) => s + (v?.hoje || 0), 0);
+  const kpiAEnviar =
+    ((op as any)?.confirmacao?.aEnviar ?? 0) +
+    ((op as any)?.lembrete?.aEnviar ?? 0) +
+    ((op as any)?.pos?.aEnviar ?? 0) +
+    ((op as any)?.dentista?.aEnviar ?? 0) +
+    ((op as any)?.aniversario?.aEnviar ?? 0);
+  const kpiFalhas = op?.dispatch?.falhasHoje ?? 0;
+
+  // Semáforo: status do chip de cada setor (purpose ↔ setor). null = sem chip próprio.
+  const chipStatusOf = (setorId: Setor): 'open' | 'down' | 'unknown' | null => {
+    if (!chips) return null;
+    const purpose = setorId === 'comercial' ? 'COMERCIAL' : setorId === 'financeiro' ? 'FINANCEIRO' : 'CLINICA';
+    const c = chips.find((x) => x.purpose === purpose);
+    if (!c) return null;
+    return c.status === 'open' ? 'open' : c.status === 'unknown' ? 'unknown' : 'down';
+  };
+
   return (
     <div ref={listRootRef} className="p-6 max-w-3xl mx-auto space-y-5">
       {/* Cabeçalho */}
@@ -459,6 +533,28 @@ export default function CentralDisparosPage() {
           {ativos} de {configuraveis.length} ativos
         </span>
       </div>
+
+      {/* Central 2.0 — KPIs do dia (todos os disparos, não só os 5 legados) */}
+      {!loading && op && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+          <div className="bg-card border border-border rounded-xl px-4 py-3">
+            <div className="text-xl font-extrabold tabular-nums">{kpiHoje}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">enviados hoje</div>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4 py-3">
+            <div className="text-xl font-extrabold tabular-nums">{kpiAEnviar}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">a enviar</div>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4 py-3">
+            <div className={`text-xl font-extrabold tabular-nums ${kpiFalhas > 0 ? 'text-red-500' : ''}`}>{kpiFalhas}</div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">falhas hoje</div>
+          </div>
+          <div className="bg-card border border-border rounded-xl px-4 py-3">
+            <div className="text-xl font-extrabold tabular-nums">{ativos}<span className="text-sm text-muted-foreground">/{configuraveis.length}</span></div>
+            <div className="text-[10px] uppercase tracking-wide text-muted-foreground">disparos ligados</div>
+          </div>
+        </div>
+      )}
 
       {loading ? (
         <div className="py-12 flex items-center justify-center text-muted-foreground">
@@ -502,6 +598,20 @@ export default function CentralDisparosPage() {
                           principal
                         </span>
                       )}
+                      {/* Central 2.0 — semáforo: o chip deste setor está conectado? */}
+                      {(() => {
+                        const st = chipStatusOf(setor.id);
+                        if (st === 'open') return (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">● conectado</span>
+                        );
+                        if (st === 'down') return (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-500" title="Reconecte em Configurações › WhatsApp — enquanto isso os disparos saem pelo chip principal">● desconectado</span>
+                        );
+                        if (st === null && chips && setor.id !== 'clinica' && setor.id !== 'equipe') return (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground" title="Sem chip próprio desta função — os disparos saem pelo chip principal (Clínica)">sem chip próprio</span>
+                        );
+                        return null; // unknown/sem dado: não afirma nada
+                      })()}
                     </div>
                     <p className="text-[11px] text-muted-foreground mt-0.5">{setor.nota}</p>
                   </div>
@@ -560,6 +670,16 @@ export default function CentralDisparosPage() {
                             {d.gatilho} · {d.canal}
                           </div>
                         </div>
+                        {/* Central 2.0 — métrica inline (hoje · mês) quando a fonte existe */}
+                        {(() => {
+                          const m = metricOf(d);
+                          return m && !d.emBreve ? (
+                            <span className="hidden sm:flex flex-col items-end shrink-0 mr-1 tabular-nums leading-tight">
+                              <span className="text-[12px] font-bold">{m.hoje}<span className="text-muted-foreground font-medium"> hoje</span></span>
+                              <span className="text-[10px] text-muted-foreground">{m.mes} no mês</span>
+                            </span>
+                          ) : null;
+                        })()}
                         {hasToggle && (
                           // Onda 18.29 — botão (não checkbox sr-only). A checkbox
                           // escondida fazia o navegador FOCAR o input invisível e

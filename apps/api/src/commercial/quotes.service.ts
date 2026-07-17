@@ -1269,6 +1269,22 @@ export class QuotesService {
         .create({ data: { entity: 'NEGOCIACAO_APROVADA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } })
         .catch((e: any) => this.logger.warn(`[NEGOCIACAO_APROVADA] dedup não gravou (plano ${planId}): ${e?.message}`));
 
+      // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
+      await this.prisma.dispatchLog
+        .create({
+          data: {
+            tenant_id: tenantId,
+            type: 'negociacao_aprovada',
+            channel: 'WHATSAPP',
+            recipient_name: patient?.name || null,
+            recipient_phone: phone,
+            status: 'SENT',
+            external_message_id: (res as any)?.key?.id || null,
+            sent_at: new Date(),
+          },
+        })
+        .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] negociacao_aprovada não registrou: ${e?.message}`));
+
       // Âncora — só quando a venda é BOLETO e o fluxo de boletos está ligado: substitui
       // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
       // seguinte). Em PIX/cartão NÃO ancora (a dedup do cron não olha data, então uma

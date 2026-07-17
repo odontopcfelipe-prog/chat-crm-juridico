@@ -255,7 +255,35 @@ export class FollowupService {
       return bd.getUTCMonth() + 1 === mesHoje && bd.getUTCDate() === diaHoje;
     }).length;
 
+    // ── Central 2.0: métricas por TYPE do DispatchLog (uma query por janela) ──
+    // Cobre os disparos instrumentados (financeiro, negociação, boletos, agenda
+    // comercial, confirmação de pagamento, orto etc.). A UI casa card→type.
+    const okStatus = ['SENT', 'DELIVERED', 'READ'];
+    const [dHoje, dMes, dFalhasHoje] = await Promise.all([
+      this.prisma.dispatchLog.groupBy({
+        by: ['type'],
+        where: { tenant_id: tenantId, status: { in: okStatus }, sent_at: { gte: dayStart, lt: dayEnd } },
+        _count: { _all: true },
+      }).catch(() => [] as any[]),
+      this.prisma.dispatchLog.groupBy({
+        by: ['type'],
+        where: { tenant_id: tenantId, status: { in: okStatus }, sent_at: { gte: monthStart } },
+        _count: { _all: true },
+      }).catch(() => [] as any[]),
+      this.prisma.dispatchLog.count({
+        where: { tenant_id: tenantId, status: 'FAILED', sent_at: { gte: dayStart, lt: dayEnd } },
+      }).catch(() => 0),
+    ]);
+    const porTipo: Record<string, { hoje: number; mes: number }> = {};
+    for (const r of dMes as any[]) porTipo[r.type] = { hoje: 0, mes: r._count._all };
+    for (const r of dHoje as any[]) {
+      porTipo[r.type] = porTipo[r.type] || { hoje: 0, mes: 0 };
+      porTipo[r.type].hoje = r._count._all;
+    }
+
     return {
+      // Central 2.0 — métricas dos disparos instrumentados via DispatchLog.
+      dispatch: { porTipo, falhasHoje: dFalhasHoje },
       confirmacao: { enabled: confEnabled, enviadasHoje, confirmadasHoje, pct: confPct, enviadosHoje: enviadasHoje, aEnviar: confAEnviar, enviadosMes: confMes },
       lembrete: { enabled: reminderEnabled, enviadosHoje: lembretesHoje, antecedenciaLabel, aEnviar: lembreteAEnviar, enviadosMes: lembreteMes },
       pos: { enabled: posEnabled, nps, respostasHoje: posRespHoje, media30d, responded, enviadosHoje: posEnviadosHoje, aEnviar: posAEnviar, enviadosMes: posMes },
@@ -417,6 +445,149 @@ export class FollowupService {
     };
 
     return { period: { days, since: since.toISOString() }, summary, items: filtered.slice(0, limit) };
+  }
+
+  /**
+   * Central 2.0 — RESUMO de UM disparo: métricas + lista de envios (pra quem,
+   * quando, status de entrega, erro). Fonte varia por disparo: DispatchLog
+   * (instrumentados), EventReminder (lembretes clínicos), AppointmentConfirmation
+   * (confirmação 24h), PostCareSurvey (NPS). Disparo sem fonte → fonte:null
+   * (a UI explica que os envios passam a ser registrados daqui pra frente).
+   */
+  async getDisparoDetail(tenantId: string, disparoId: string, days = 30) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const janelaDias = Math.min(Math.max(Number(days) || 30, 1), 90);
+    const since = new Date(Date.now() - janelaDias * 86400000);
+    const { start: dayStart, end: dayEnd } = this.dayWindowMaceio();
+    const LIMIT = 100;
+
+    type Envio = { quando: Date | null; nome: string | null; telefone: string | null; status: string; erro: string | null; extra?: string | null };
+    let envios: Envio[] = [];
+    let fonte: string | null = null;
+
+    // Card → type(s) do DispatchLog. Aniversário: as 3 msgs compartilham o type.
+    const DISPATCH_TYPES: Record<string, string[]> = {
+      reagendamento: ['agendamento_remarcado'],
+      comercial_confirmacao: ['agendamento_criado_comercial'],
+      comercial_reagendamento: ['agendamento_remarcado_comercial'],
+      comercial_confirmacao_48h: ['comercial_confirmacao_48h'],
+      comercial_lembrete_1dia: ['comercial_lembrete_1dia'],
+      comercial_lembrete_1h: ['comercial_lembrete_1h'],
+      comercial_lembrete_15min: ['comercial_lembrete_15min'],
+      negociacao_aprovada: ['negociacao_aprovada'],
+      boleto_intro: ['boleto_intro'],
+      boleto_delivery: ['boleto_delivery'],
+      boleto_1d_antes: ['boleto_1d_antes'],
+      boleto_no_dia: ['boleto_no_dia'],
+      boleto_atraso_1d: ['boleto_atraso_1d'],
+      boleto_atraso_15d: ['boleto_atraso_15d'],
+      boleto_atraso_30d: ['boleto_atraso_30d'],
+      confirmacao_pagamento: ['confirmacao_pagamento'],
+      aniversario: ['aniversario'],
+      aniversario_classica: ['aniversario'],
+      aniversario_desejo: ['aniversario'],
+      aniversario_presente: ['aniversario'],
+      resumo_dentista: ['resumo_dentista'],
+      lembrete_orto_1h: ['orto_reminder'],
+      pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm'],
+    };
+
+    // Lembretes clínicos → faixa de antecedência no EventReminder.
+    const REMINDER_BAND: Record<string, { gte: number; lt?: number }> = {
+      confirmacao_48h: { gte: 2880 },
+      lembrete_1dia: { gte: 1440, lt: 2880 },
+      lembrete_1h: { gte: 60, lt: 1440 },
+      lembrete_15min: { gte: 1, lt: 60 },
+    };
+
+    if (DISPATCH_TYPES[disparoId]) {
+      fonte = 'dispatch';
+      const rows = await this.prisma.dispatchLog.findMany({
+        where: { tenant_id: tenantId, type: { in: DISPATCH_TYPES[disparoId] }, sent_at: { gte: since } },
+        orderBy: { sent_at: 'desc' },
+        take: LIMIT,
+        select: { sent_at: true, recipient_name: true, recipient_phone: true, status: true, error: true },
+      });
+      envios = rows.map((r) => ({ quando: r.sent_at, nome: r.recipient_name, telefone: r.recipient_phone, status: r.status, erro: r.error }));
+    } else if (REMINDER_BAND[disparoId]) {
+      fonte = 'reminder';
+      const band = REMINDER_BAND[disparoId];
+      const rows = await this.prisma.eventReminder.findMany({
+        where: {
+          // Exclui o evento do LEAD comercial (sem paciente + lead não-cliente):
+          // ele aparece no card comercial_* (via DispatchLog) — aqui contaria 2x.
+          event: { tenant_id: tenantId, NOT: { patient_id: null, lead: { is_client: false } } },
+          channel: 'WHATSAPP',
+          minutes_before: { gte: band.gte, ...(band.lt ? { lt: band.lt } : {}) },
+          OR: [{ sent_at: { gte: since } }, { sent_at: null, event: { start_at: { gte: new Date() }, tenant_id: tenantId } }],
+        },
+        orderBy: [{ sent_at: 'desc' }],
+        take: LIMIT,
+        select: {
+          sent_at: true, last_error: true, delivered_at: true, read_at: true,
+          event: { select: { start_at: true, lead: { select: { name: true, phone: true } }, patient: { select: { name: true, phone: true } } } },
+        },
+      });
+      envios = rows.map((r) => ({
+        quando: r.sent_at,
+        nome: r.event?.patient?.name || r.event?.lead?.name || null,
+        telefone: r.event?.patient?.phone || r.event?.lead?.phone || null,
+        status: r.last_error ? 'FAILED' : r.read_at ? 'READ' : r.delivered_at ? 'DELIVERED' : r.sent_at ? 'SENT' : 'A_ENVIAR',
+        erro: r.last_error,
+      }));
+    } else if (disparoId === 'confirmacao') {
+      fonte = 'confirmacao';
+      const rows = await this.prisma.appointmentConfirmation.findMany({
+        where: { appointment: { tenant_id: tenantId }, OR: [{ sent_at: { gte: since } }, { sent_at: null }] },
+        orderBy: [{ sent_at: 'desc' }],
+        take: LIMIT,
+        select: {
+          sent_at: true, delivery_status: true, response_status: true,
+          appointment: { select: { start_at: true, patient: { select: { name: true, phone: true } } } },
+        },
+      });
+      envios = rows.map((r) => ({
+        quando: r.sent_at,
+        nome: r.appointment?.patient?.name || null,
+        telefone: r.appointment?.patient?.phone || null,
+        status: r.delivery_status === 'FAILED' ? 'FAILED' : r.sent_at ? 'SENT' : 'A_ENVIAR',
+        erro: null,
+        extra: r.response_status || null,
+      }));
+    } else if (disparoId === 'pos' || disparoId === 'nps') {
+      fonte = 'nps';
+      const rows = await this.prisma.postCareSurvey.findMany({
+        where: { tenant_id: tenantId, OR: [{ sent_at: { gte: since } }, { status: 'PENDING' }] },
+        orderBy: [{ sent_at: 'desc' }],
+        take: LIMIT,
+        select: { sent_at: true, responded_at: true, score: true, patient: { select: { name: true, phone: true } } },
+      });
+      envios = rows.map((r) => ({
+        quando: r.sent_at,
+        nome: r.patient?.name || null,
+        telefone: r.patient?.phone || null,
+        status: r.sent_at ? 'SENT' : 'A_ENVIAR',
+        erro: null,
+        extra: r.responded_at ? `respondeu${r.score != null ? ` (nota ${r.score})` : ''}` : null,
+      }));
+    }
+
+    const enviados = envios.filter((e) => e.quando);
+    const hoje = enviados.filter((e) => (e.quando as Date) >= dayStart && (e.quando as Date) < dayEnd).length;
+    const falhas = envios.filter((e) => e.status === 'FAILED').length;
+    return {
+      id: disparoId,
+      fonte,
+      resumo: {
+        hoje,
+        aEnviar: envios.filter((e) => !e.quando).length,
+        falhasJanela: falhas,
+        ultimoEnvio: enviados.length ? enviados[0].quando : null,
+        janelaDias,
+        total: envios.length,
+      },
+      envios,
+    };
   }
 
   /** Liga/desliga uma das 4 automacoes (persiste na mesma key que o cron le). */

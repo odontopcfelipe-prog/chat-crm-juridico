@@ -35,6 +35,12 @@ export class FollowupController {
     });
   }
 
+  // ─── Central 2.0 — resumo de UM disparo (pra quem mandou, quando, status) ──
+  @Get('disparo-detail')
+  getDisparoDetail(@Request() req: any, @Query('id') id?: string, @Query('days') days?: string) {
+    return this.svc.getDisparoDetail(req.user?.tenant_id, id || '', days ? parseInt(days, 10) : 30);
+  }
+
   @Patch('operacional/toggle')
   setOperacionalToggle(@Body() body: { which: string; enabled: boolean }, @Request() req: any) {
     // Ler as metricas e liberado pra view_marketing (crc+admin), mas LIGAR/DESLIGAR

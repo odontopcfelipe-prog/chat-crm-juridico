@@ -618,6 +618,7 @@ export class CalendarReminderWorker extends WorkerHost {
       const leadComercial =
         !(event as any).patient && !!event.lead && (event.lead as any).is_client === false;
       let usaComercial = false;
+      let comercialCid: string | null = null;
       if (leadComercial && isClinical && event.type !== 'ORTODONTIA' && event.tenant_id) {
         try {
           const { comercialAgendaEnabledKey, comercialLembreteIdFor } = await import('@crm/shared');
@@ -632,6 +633,7 @@ export class CalendarReminderWorker extends WorkerHost {
       if (usaComercial) {
         const { comercialAgendaTemplateKey, defaultComercialAgendaTemplate, comercialLembreteIdFor, applyTemplate } = await import('@crm/shared');
         const cid = comercialLembreteIdFor(minutesBefore);
+        comercialCid = cid;
         let tpl = defaultComercialAgendaTemplate(cid);
         try {
           const row = await this.prisma.globalSetting.findUnique({
@@ -721,6 +723,25 @@ export class CalendarReminderWorker extends WorkerHost {
         this.logger.warn(`[REMINDER] Erro ao enviar para cliente ${clientPhone}: ${e.message}`);
         // Não salva mensagem se envio falhou
         reminderSendResult = undefined;
+      }
+
+      // Central de Disparos 2.0 — o lembrete COMERCIAL ganha registro próprio no
+      // DispatchLog (o EventReminder não distingue lead de paciente).
+      if (comercialCid && event.tenant_id) {
+        await this.prisma.dispatchLog.create({
+          data: {
+            tenant_id: event.tenant_id,
+            type: comercialCid,
+            channel: 'WHATSAPP',
+            recipient_name: event.lead?.name || null,
+            recipient_phone: clientPhone,
+            status: reminderSendResult !== undefined ? 'SENT' : 'FAILED',
+            error: reminderSendResult !== undefined ? null : 'Evolution recusou o envio (número/chip)',
+            external_message_id: reminderSendResult?.data?.key?.id || null,
+            ref_event_id: event.id,
+            sent_at: new Date(),
+          },
+        }).catch((e: any) => this.logger.warn(`[DISPATCH-LOG] ${comercialCid} não registrou: ${e?.message}`));
       }
 
       // Sem conversa não-financeira: a mensagem SAIU, mas não há onde arquivar nem

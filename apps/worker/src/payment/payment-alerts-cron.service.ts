@@ -144,6 +144,8 @@ export class PaymentAlertsCronService {
     // Marca na TENTATIVA (sucesso OU falha) e avança o marca-passo — assim um
     // número inválido não trava as próximas cobranças.
     await this.logSent(pick.chargeId, pick.stage, pick.tenantId, typeof messageId === 'string' ? messageId : null);
+    // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
+    await this.logDispatchUnificado(pick.tenantId, pick.stage, pick.name, pick.phone, messageId, pick.chargeId);
     this.lastSentAt = nowMs;
     this.nextGapMs = this.randomGapMs();
 
@@ -682,6 +684,8 @@ export class PaymentAlertsCronService {
 
     // Marca na TENTATIVA (sucesso OU falha) pra um número inválido não travar a fila.
     await this.logIntroSent(cand.planId, cand.tenantId, typeof messageId === 'string' ? messageId : null);
+    // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
+    await this.logDispatchUnificado(cand.tenantId, 'boleto_intro', cand.name, cand.phone, messageId, cand.planId);
     this.lastSentAt = nowMs;
     this.nextGapMs = this.randomGapMs();
 
@@ -757,6 +761,37 @@ export class PaymentAlertsCronService {
       });
     } catch (e: any) {
       this.logger.warn(`[BOLETO_INTRO] Falha ao registrar AuditLog do plano ${planId}: ${e.message}`);
+    }
+  }
+
+  /** Central de Disparos 2.0 — registro UNIFICADO no DispatchLog (tenant na coluna,
+   *  não em meta_json): é daqui que a Central tira "enviados hoje/mês" e o resumo
+   *  "pra quem mandou" de cada disparo financeiro. Best-effort, nunca lança. */
+  private async logDispatchUnificado(
+    tenantId: string,
+    type: string,
+    name: string,
+    phone: string,
+    sendResult: string | boolean | 'NO_CONFIG',
+    refId?: string,
+  ): Promise<void> {
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: tenantId,
+          type,
+          channel: 'WHATSAPP',
+          recipient_name: name,
+          recipient_phone: phone,
+          status: sendResult === false ? 'FAILED' : 'SENT',
+          error: sendResult === false ? 'Evolution recusou o envio (número/chip)' : null,
+          external_message_id: typeof sendResult === 'string' ? sendResult : null,
+          ref_patient_id: null,
+          sent_at: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[DISPATCH-LOG] Falha ao registrar ${type}: ${e?.message}`);
     }
   }
 }

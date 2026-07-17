@@ -3636,7 +3636,11 @@ export class CalendarService {
       // sendText retorna OBJETO DE ERRO em vez de lançar em falhas HTTP da Evolution
       // (ex.: instância offline, número sem WhatsApp). Checa pra reportar a verdade.
       const sendResult: any = await this.whatsapp.sendText(phone, msg, instanceName, undefined, tenantId);
-      const dispatchType = kind === 'rescheduled' ? 'agendamento_remarcado' : 'agendamento_criado';
+      // Central de Disparos 2.0 — a versão COMERCIAL (lead) ganha type próprio pra
+      // métrica/resumo contarem separado da versão clínica.
+      const dispatchType = kind === 'rescheduled'
+        ? (comercial ? 'agendamento_remarcado_comercial' : 'agendamento_remarcado')
+        : (comercial ? 'agendamento_criado_comercial' : 'agendamento_criado');
       if (!sendResult || sendResult?.statusCode >= 400 || sendResult?.error) {
         const reason = `Evolution recusou o envio${sendResult?.statusCode ? ` (HTTP ${sendResult.statusCode})` : ''}${sendResult?.error ? `: ${sendResult.error}` : ' — instância pode estar offline'}`;
         this.logger.warn(`[AUTO-WPP] agendamento_${kind} falhou no envio (evento ${event.id}): ${reason}`);
