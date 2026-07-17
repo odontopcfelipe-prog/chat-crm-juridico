@@ -6,10 +6,13 @@
 // verdade: Prisma Disparo/DisparoLog + BullMQ/DLQ + HSM + anti-spam + opt-out).
 
 export type DisparoCategoria =
-  | 'agendamento' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
+  | 'agendamento' | 'agendamento_comercial' | 'pos_consulta' | 'datas' | 'recuperacao' | 'clinico' | 'financeiro' | 'equipe';
 
 export const CATEGORIAS: { id: DisparoCategoria; label: string; color: string }[] = [
   { id: 'agendamento',  label: 'Agendamento',            color: '#7C5CF0' },
+  // Agenda do COMERCIAL — versão dos disparos de agendamento pro LEAD (contato que
+  // ainda não é cliente): sai pelo chip Comercial, com texto próprio. Opt-in.
+  { id: 'agendamento_comercial', label: 'Agendamento do lead', color: '#F26C1B' },
   { id: 'financeiro',   label: 'Financeiro (cobrança)',  color: '#10B981' },
   { id: 'pos_consulta', label: 'Pós-consulta',           color: '#14A38B' },
   { id: 'datas',        label: 'Datas e relacionamento', color: '#E8902B' },
@@ -37,6 +40,7 @@ export const SETORES: { id: Setor; label: string; chip: string; color: string; n
 
 export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
   agendamento:  'clinica',
+  agendamento_comercial: 'comercial',
   pos_consulta: 'clinica',
   datas:        'clinica',
   clinico:      'clinica',
@@ -46,7 +50,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'sem_agendamento' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'sem_agendamento' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -60,6 +64,10 @@ export type OperacionalKey =
   | 'boleto_intro'
   // Parte 2 — envio dos boletos em PDF/carnê (D+2). Toggle separado da apresentação.
   | 'boleto_delivery'
+  // Agenda do COMERCIAL — 6 disparos de agendamento pro LEAD (não-cliente), pelo
+  // chip Comercial. Ids = os próprios nomes dos disparos (@crm/shared).
+  | 'comercial_confirmacao' | 'comercial_confirmacao_48h' | 'comercial_lembrete_1dia'
+  | 'comercial_lembrete_1h' | 'comercial_lembrete_15min' | 'comercial_reagendamento'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
@@ -119,6 +127,30 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'reagendamento', nome: 'Aviso de re-agendamento', categoria: 'agendamento',
     gatilho: 'Quando o horário muda', canal: 'WhatsApp', tags: ['Template'],
     editor: 'reagendamento', operacionalKey: 'reagendamento' },
+
+  // ── Agendamento do LEAD (chip Comercial) ──
+  // Espelho dos disparos de agenda pro contato que AINDA NÃO É CLIENTE: quando o
+  // agendamento é de um lead (sem paciente), a mensagem sai pelo chip COMERCIAL com
+  // estes textos — no lugar da versão clínica, nunca as duas. Cada um é opt-in
+  // (default OFF); desligado, o lead segue recebendo a versão clínica de hoje.
+  { id: 'comercial_confirmacao', nome: 'Confirmação de agendamento · lead', categoria: 'agendamento_comercial',
+    gatilho: 'Assim que marca o horário · só lead (não-cliente) · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_confirmacao' },
+  { id: 'comercial_confirmacao_48h', nome: 'Confirmação de presença · 48h antes · lead', categoria: 'agendamento_comercial',
+    gatilho: '48h antes · pede pra confirmar · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template', 'Confirma'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_confirmacao_48h' },
+  { id: 'comercial_lembrete_1dia', nome: 'Lembrete · 1 dia antes · lead', categoria: 'agendamento_comercial',
+    gatilho: '1 dia antes · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_lembrete_1dia' },
+  { id: 'comercial_lembrete_1h', nome: 'Lembrete · 1 hora antes · lead', categoria: 'agendamento_comercial',
+    gatilho: '1 hora antes · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_lembrete_1h' },
+  { id: 'comercial_lembrete_15min', nome: 'Lembrete · 15 minutos antes · lead', categoria: 'agendamento_comercial',
+    gatilho: '15 minutos antes · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_lembrete_15min' },
+  { id: 'comercial_reagendamento', nome: 'Aviso de re-agendamento · lead', categoria: 'agendamento_comercial',
+    gatilho: 'Quando o horário muda · só lead · chip Comercial', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'comercial_agenda', operacionalKey: 'comercial_reagendamento' },
 
   // ── Financeiro (cobrança) — Onda 18.16 ──
   // Envia pelo chip FINANCEIRO. O cron varre as cobranças em aberto, vê em que

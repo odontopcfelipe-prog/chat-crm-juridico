@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE } from '@crm/shared';
+import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, defaultComercialAgendaTemplate } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -30,6 +30,7 @@ import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
   agendamento: CalendarClock,
+  agendamento_comercial: Briefcase,
   financeiro: Receipt,
   pos_consulta: Heart,
   datas: Cake,
@@ -63,6 +64,13 @@ interface OperacionalData {
   boleto_intro?: { enabled: boolean };
   // Parte 2 — envio dos boletos em carnê (D+2). Toggle separado da apresentação.
   boleto_delivery?: { enabled: boolean };
+  // Agenda do Comercial — disparos de agendamento pro LEAD (não-cliente), chip Comercial.
+  comercial_confirmacao?: { enabled: boolean };
+  comercial_confirmacao_48h?: { enabled: boolean };
+  comercial_lembrete_1dia?: { enabled: boolean };
+  comercial_lembrete_1h?: { enabled: boolean };
+  comercial_lembrete_15min?: { enabled: boolean };
+  comercial_reagendamento?: { enabled: boolean };
   // Negociação aprovada — disparo no fechamento da venda (opt-in).
   negociacao_aprovada?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
@@ -307,6 +315,24 @@ export default function CentralDisparosPage() {
             ]}
             preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '22/06', hora: '15:00' }}
             onCurrentTextChange={setLiveText}
+          />
+        )}
+        {openItem.editor === 'comercial_agenda' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Versão pro LEAD (contato que ainda não é cliente): quando o agendamento é de lead, esta mensagem sai pelo chip COMERCIAL no lugar da versão clínica — nunca as duas. O horário do disparo é o mesmo da agenda (o lembrete correspondente precisa estar ativo). Edite e Salve; deixe em branco pra voltar ao padrão."
+            endpoint={`/calendar/comercial-agenda-template/${openItem.id}`}
+            usaLocal
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do lead' },
+              { key: 'dentista', desc: 'Profissional' },
+              { key: 'data', desc: 'Data (DD/MM)' },
+              { key: 'hora', desc: 'Horário' },
+              { key: 'local', desc: 'Endereço da clínica' },
+            ]}
+            preview={{ nome: 'Felipe', dentista: 'Dra. Suellen', data: '22/06', hora: '15:00' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={defaultComercialAgendaTemplate(openItem.id)}
           />
         )}
         {openItem.editor === 'aniversario' && (

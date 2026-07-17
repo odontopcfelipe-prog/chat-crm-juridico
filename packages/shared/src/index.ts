@@ -16,3 +16,5 @@ export * from './phone.util';
 export * from './address.util';
 // Onda 18.17 — templates de cobranca (fonte unica: api edita, worker le)
 export * from './cobranca';
+// Agenda do Comercial — disparos de agendamento pro LEAD (chip COMERCIAL)
+export * from './comercial-agenda';

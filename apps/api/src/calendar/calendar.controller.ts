@@ -447,6 +447,18 @@ export class CalendarController {
     return this.calendarService.setAppointmentConfirmationConfig(req.user?.tenant_id, body);
   }
 
+  // ─── Agenda do COMERCIAL — texto editável dos 6 disparos (1 rota) ─────
+  @Get('comercial-agenda-template/:id')
+  getComercialAgendaTemplate(@Param('id') id: string, @Request() req: any) {
+    return this.calendarService.getComercialAgendaTemplate(req.user?.tenant_id, id);
+  }
+
+  @Put('comercial-agenda-template/:id')
+  @Roles('ADMIN')
+  setComercialAgendaTemplate(@Param('id') id: string, @Body() body: any, @Request() req: any) {
+    return this.calendarService.setComercialAgendaTemplate(req.user?.tenant_id, id, body);
+  }
+
   // ─── Confirmação de ORTODONTIA (Onda 18.x) — por ordem de chegada ─────
   @Get('appointment-confirmation-orto/config')
   getAppointmentConfirmationOrtoConfig(@Request() req: any) {

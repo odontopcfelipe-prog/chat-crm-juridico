@@ -349,7 +349,7 @@ export class CalendarReminderWorker extends WorkerHost {
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, is_client: true } },
         // v31: patient como fallback quando evento foi criado direto via ficha
         // (sem lead vinculado). Worker mescla lead || patient ao processar.
         patient: { select: { id: true, name: true, phone: true } },
@@ -609,7 +609,56 @@ export class CalendarReminderWorker extends WorkerHost {
       const isConfirmation = isClinical && minutesBefore >= 2880;
       let clientMsg: string;
 
-      if (isClinical) {
+      // AGENDA DO COMERCIAL — lead não-cliente + toggle da faixa LIGADO → texto
+      // próprio e chip COMERCIAL, NO LUGAR da versão clínica (nunca os dois).
+      // Toggle OFF (default) → comportamento atual. Ortodontia fica fora.
+      // Detecção segura mesmo após o merge lead||patient do process(): o paciente
+      // "disfarçado" de lead não carrega is_client (undefined ≠ false), e evento
+      // com paciente de verdade tem event.patient preenchido.
+      const leadComercial =
+        !(event as any).patient && !!event.lead && (event.lead as any).is_client === false;
+      let usaComercial = false;
+      if (leadComercial && isClinical && event.type !== 'ORTODONTIA' && event.tenant_id) {
+        try {
+          const { comercialAgendaEnabledKey, comercialLembreteIdFor } = await import('@crm/shared');
+          const cid = comercialLembreteIdFor(minutesBefore);
+          const cs = await this.prisma.globalSetting.findUnique({
+            where: { key: comercialAgendaEnabledKey(cid, event.tenant_id) },
+          });
+          usaComercial = cs?.value === 'true';
+        } catch { /* falha na leitura = segue o fluxo clínico */ }
+      }
+
+      if (usaComercial) {
+        const { comercialAgendaTemplateKey, defaultComercialAgendaTemplate, comercialLembreteIdFor, applyTemplate } = await import('@crm/shared');
+        const cid = comercialLembreteIdFor(minutesBefore);
+        let tpl = defaultComercialAgendaTemplate(cid);
+        try {
+          const row = await this.prisma.globalSetting.findUnique({
+            where: { key: comercialAgendaTemplateKey(cid, event.tenant_id!) },
+          });
+          if (row?.value) {
+            const parsed = JSON.parse(row.value);
+            if (typeof parsed?.template === 'string' && parsed.template.trim()) tpl = parsed.template;
+          }
+        } catch { /* template corrompido → default */ }
+        const tenantAddr = await this.loadTenantAddress(event.tenant_id!);
+        const startAt = new Date(event.start_at);
+        const dataStr = `${String(startAt.getUTCDate()).padStart(2, '0')}/${String(startAt.getUTCMonth() + 1).padStart(2, '0')}`;
+        const horaStr = `${String(startAt.getUTCHours()).padStart(2, '0')}:${String(startAt.getUTCMinutes()).padStart(2, '0')}`;
+        const dentistaFull = event.assigned_user?.name || '';
+        const dParts = dentistaFull.split(' ');
+        clientMsg = applyTemplate(tpl, {
+          nome: (event.lead.name || 'você').split(' ')[0],
+          nome_completo: event.lead.name || 'você',
+          dentista: dParts.length >= 3 ? `${dParts[0]} ${dParts[1]}` : (dentistaFull || 'a clínica'),
+          dentista_completo: dentistaFull || 'a clínica',
+          data: dataStr,
+          hora: horaStr,
+          local: event.location || tenantAddr || '',
+        });
+        this.logger.log(`[REMINDER] Template COMERCIAL (${cid}) gerado pro lead ${clientPhone} (${minutesBefore}min antes)`);
+      } else if (isClinical) {
         // CONSULTA/PROCEDIMENTO/RETORNO: usa o template natural odonto (sem IA pra ser
         // consistente). A confirmação (48h) usa o template consulta_confirmacao.
         // v27: carrega config do tenant pra usar templates customizaveis.
@@ -649,8 +698,9 @@ export class CalendarReminderWorker extends WorkerHost {
       // caminho antigo (instância por lead, sem tenantId) fazia o lembrete de
       // consulta falhar calado, porque o sendText resolve a config da Evolution
       // pelo tenant. Audiência/perícia mantêm o caminho legado por lead.
+      // Agenda do Comercial: lead não-cliente sai pelo chip COMERCIAL.
       const reminderInstanceName = isClinical && event.tenant_id
-        ? await this.resolveTenantInstance(event.tenant_id, 'CLINICA')
+        ? await this.resolveTenantInstance(event.tenant_id, usaComercial ? 'COMERCIAL' : 'CLINICA')
         : await this.resolveInstanceName(event.lead.id);
 
       let reminderSendResult: any;
@@ -788,7 +838,7 @@ export class CalendarReminderWorker extends WorkerHost {
       where: { id: eventId },
       include: {
         assigned_user: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, is_client: true } },
         // v31: patient como fallback quando evento foi criado direto via ficha
         // (sem lead vinculado). Worker mescla lead || patient ao processar.
         patient: { select: { id: true, name: true, phone: true } },

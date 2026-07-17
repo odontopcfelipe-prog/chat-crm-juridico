@@ -306,7 +306,8 @@ export class CalendarService {
       },
       include: {
         assigned_user: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        // is_client: a Agenda do Comercial roteia lead-não-cliente pro chip COMERCIAL
+        lead: { select: { id: true, name: true, phone: true, is_client: true } },
         reminders: true,
       },
     });
@@ -365,6 +366,17 @@ export class CalendarService {
           // Onda 17.59 — notificação imediata por WhatsApp "consulta agendada"
           // (espelha o e-mail; o WhatsApp imediato antes só existia pra audiência/perícia).
           void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+        } else if (!resolvedPatientId && resolvedLeadId && (event as any).lead?.is_client === false) {
+          // Confirmação CLÍNICA desligada, mas o agendamento é de LEAD não-cliente:
+          // a versão COMERCIAL tem toggle próprio. Só chama com o toggle comercial
+          // LIGADO (lá dentro o ramo comercial assume — a versão clínica não vaza).
+          const { comercialAgendaEnabledKey } = await import('@crm/shared');
+          const cc = await this.prisma.globalSetting
+            .findUnique({ where: { key: comercialAgendaEnabledKey('comercial_confirmacao', data.tenant_id) } })
+            .catch(() => null);
+          if (cc?.value === 'true') {
+            void this.sendAppointmentEventWhatsapp(event, resolvedPatientId, resolvedLeadId, data.tenant_id, 'created');
+          }
         }
       }
     }
@@ -572,7 +584,8 @@ export class CalendarService {
       data: updateData,
       include: {
         assigned_user: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        // is_client: a Agenda do Comercial roteia lead-não-cliente pro chip COMERCIAL
+        lead: { select: { id: true, name: true, phone: true, is_client: true } },
         reminders: true,
       },
     });
@@ -1610,18 +1623,39 @@ export class CalendarService {
       });
       if (byPurpose?.name) return byPurpose.name;
     }
+    // Fallback pra AGENDA/COMERCIAL exclui o FINANCEIRO (mundo isolado): a conversa
+    // de cobrança dá bump em last_message_at e sequestrava o chip — mesmo padrão do
+    // resolveTenantInstance do reminder worker. Quando o purpose PEDIDO é FINANCEIRO,
+    // o fallback antigo se mantém (quem cobra decide o próprio fallback).
+    const excluiFin = purpose !== 'FINANCEIRO';
     const convo = await this.prisma.conversation.findFirst({
-      where: { instance_name: { not: null }, ...(tenant_id ? { tenant_id } : {}) },
+      where: {
+        instance_name: { not: null },
+        ...(tenant_id ? { tenant_id } : {}),
+        ...(excluiFin ? { NOT: { inbox: { purpose: 'FINANCEIRO' } } } : {}),
+      },
       orderBy: { last_message_at: 'desc' },
       select: { instance_name: true },
     });
     if (convo?.instance_name) return convo.instance_name;
     const inst = await this.prisma.instance.findFirst({
+      where: {
+        type: 'whatsapp',
+        ...(tenant_id ? { tenant_id } : {}),
+        ...(excluiFin ? { NOT: { purpose: 'FINANCEIRO' } } : {}),
+      },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    });
+    if (inst?.name) return inst.name;
+    // Só sobrou o chip financeiro (tenant 1-chip marcado FINANCEIRO): usa ele mesmo
+    // assim — melhor a mensagem sair pelo chip errado do que o paciente não receber.
+    const qualquer = await this.prisma.instance.findFirst({
       where: { type: 'whatsapp', ...(tenant_id ? { tenant_id } : {}) },
       orderBy: { created_at: 'asc' },
       select: { name: true },
     });
-    return inst?.name ?? null;
+    return qualquer?.name ?? null;
   }
 
   // ─── Confirmação de agendamento (Onda 17.56) — mensagem editável ─────
@@ -1793,6 +1827,41 @@ export class CalendarService {
     return this.getAppointmentRescheduledConfig(tenant_id);
   }
 
+  // ─── Agenda do COMERCIAL — textos editáveis (6 disparos, 1 endpoint) ──────
+  // Versão dos disparos de agendamento pro LEAD (não-cliente), enviada pelo chip
+  // COMERCIAL. Texto em COMERCIAL_AGENDA_TEMPLATE_<id>_<tenant> (JSON {template});
+  // o liga/desliga vive no painel Operacional (COMERCIAL_AGENDA_ENABLED_<id>_<t>).
+  async getComercialAgendaTemplate(tenant_id: string | undefined, id: string) {
+    const { isComercialAgendaId, defaultComercialAgendaTemplate, comercialAgendaTemplateKey } = await import('@crm/shared');
+    if (!isComercialAgendaId(id)) throw new BadRequestException(`disparo comercial inválido: ${id}`);
+    if (!tenant_id) throw new BadRequestException('tenant_id ausente');
+    const fallback = defaultComercialAgendaTemplate(id);
+    try {
+      const row = await this.prisma.globalSetting.findUnique({ where: { key: comercialAgendaTemplateKey(id, tenant_id) } });
+      if (!row?.value) return { template: fallback };
+      const parsed = JSON.parse(row.value);
+      const tpl = typeof parsed.template === 'string' && parsed.template.trim() ? parsed.template : fallback;
+      return { template: tpl };
+    } catch {
+      return { template: fallback };
+    }
+  }
+
+  async setComercialAgendaTemplate(tenant_id: string | undefined, id: string, config: { template?: string }) {
+    const { isComercialAgendaId, comercialAgendaTemplateKey } = await import('@crm/shared');
+    if (!isComercialAgendaId(id)) throw new BadRequestException(`disparo comercial inválido: ${id}`);
+    if (!tenant_id) throw new BadRequestException('tenant_id ausente');
+    if (config.template !== undefined) {
+      if (typeof config.template !== 'string') throw new BadRequestException('template deve ser string');
+      if (config.template.length > 1500) throw new BadRequestException('template ultrapassa 1500 caracteres');
+    }
+    const key = comercialAgendaTemplateKey(id, tenant_id);
+    const value = JSON.stringify({ template: config.template ?? '' });
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+    this.logger.log(`[COMERCIAL_AGENDA_TEMPLATE] ${id} salvo (tenant ${tenant_id})`);
+    return this.getComercialAgendaTemplate(tenant_id, id);
+  }
+
   /** Onda 17.56 — teste GENÉRICO: envia a mensagem de QUALQUER disparo (com dados
    *  de exemplo) pra um número, pra ver na hora se o WhatsApp da clínica entrega. */
   async sendTestDisparo(tenant_id: string | undefined, disparo: string, phone: string, text?: string) {
@@ -1803,11 +1872,12 @@ export class CalendarService {
     // Adiciona o código do Brasil (55) quando vem só DDD + número (10–11 dígitos).
     if (num.length === 10 || num.length === 11) num = `55${num}`;
 
-    // Onda 18.17 — disparo de cobrança sai (e testa) pelo chip FINANCEIRO, pra o
-    // teste vir do mesmo número que vai cobrar de verdade. Fallback interno pra
-    // outro chip do tenant se ainda não separou o Financeiro.
-    const { isFinTemplateId, defaultFinTemplate } = await import('@crm/shared');
-    const testPurpose: 'CLINICA' | 'FINANCEIRO' = isFinTemplateId(disparo) ? 'FINANCEIRO' : 'CLINICA';
+    // Onda 18.17 — o teste sai pelo MESMO chip que vai disparar de verdade:
+    // cobrança pelo FINANCEIRO, agenda do comercial pelo COMERCIAL, resto CLINICA.
+    // Fallback interno pra outro chip do tenant se a função ainda não foi separada.
+    const { isFinTemplateId, defaultFinTemplate, isComercialAgendaId } = await import('@crm/shared');
+    const testPurpose: 'CLINICA' | 'FINANCEIRO' | 'COMERCIAL' =
+      isFinTemplateId(disparo) ? 'FINANCEIRO' : isComercialAgendaId(disparo) ? 'COMERCIAL' : 'CLINICA';
     const instanceName = await this.resolveTenantWhatsappInstance(tenant_id, testPurpose);
     if (!instanceName) {
       throw new BadRequestException(
@@ -1920,6 +1990,11 @@ export class CalendarService {
         msg = `Oi Felipe! Como foi sua consulta hoje com ${dentistName}? De 0 a 10, o quanto você indicaria a gente? 😊 (mensagem de teste)`;
         break;
       default:
+        // Agenda do Comercial: sem texto da tela, testa o texto SALVO (ou default).
+        if (isComercialAgendaId(disparo)) {
+          msg = apply((await this.getComercialAgendaTemplate(tenant_id, disparo)).template);
+          break;
+        }
         // Onda 18.17 — cobrança: sem texto da tela, testa o default do estágio.
         if (isFinTemplateId(disparo)) {
           msg = apply(defaultFinTemplate(disparo));
@@ -3420,10 +3495,29 @@ export class CalendarService {
     kind: 'created' | 'rescheduled',
   ): Promise<{ sent: boolean; reason?: string }> {
     try {
+      // ── AGENDA DO COMERCIAL ────────────────────────────────────────────────
+      // Evento de LEAD (sem paciente, lead ainda não-cliente) com o toggle
+      // comercial da faixa LIGADO → sai a versão COMERCIAL (texto próprio, chip
+      // COMERCIAL) NO LUGAR da clínica — nunca os dois. Toggle OFF (default) →
+      // fluxo clínico atual, intocado. Ortodontia fica sempre no fluxo clínico.
+      let comercial = false;
+      if (event?.type !== 'ORTODONTIA' && !patientId && leadId) {
+        const l = event?.lead && typeof event.lead.is_client === 'boolean'
+          ? event.lead
+          : await this.prisma.lead.findUnique({ where: { id: leadId }, select: { is_client: true } }).catch(() => null);
+        if (l && l.is_client === false) {
+          const { comercialAgendaEnabledKey } = await import('@crm/shared');
+          const cid = kind === 'rescheduled' ? 'comercial_reagendamento' : 'comercial_confirmacao';
+          const cs = await this.prisma.globalSetting.findUnique({ where: { key: comercialAgendaEnabledKey(cid, tenantId) } });
+          comercial = cs?.value === 'true';
+        }
+      }
+
       // O re-agendamento ("remarcada") respeita o toggle da Central
       // (APPOINTMENT_RESCHEDULED_ENABLED, default LIGADO). O "agendada" sai sempre
-      // pra evento clínico (igual o e-mail), sem toggle.
-      if (kind === 'rescheduled') {
+      // pra evento clínico (igual o e-mail), sem toggle. A versão COMERCIAL tem
+      // toggle PRÓPRIO (já avaliado acima) — não passa por este.
+      if (kind === 'rescheduled' && !comercial) {
         const s = await this.prisma.globalSetting.findUnique({
           where: { key: `APPOINTMENT_RESCHEDULED_ENABLED_${tenantId}` },
         });
@@ -3457,7 +3551,9 @@ export class CalendarService {
         return { sent: false, reason: 'Paciente sem telefone cadastrado' };
       }
 
-      const instanceName = await this.resolveTenantWhatsappInstance(tenantId, 'CLINICA');
+      // Versão comercial sai pelo chip COMERCIAL (fallback interno do resolve cobre
+      // tenant sem chip comercial — cai no principal, nunca no financeiro).
+      const instanceName = await this.resolveTenantWhatsappInstance(tenantId, comercial ? 'COMERCIAL' : 'CLINICA');
       if (!instanceName) {
         this.logger.warn(`[AUTO-WPP] agendamento_${kind}: sem instância WhatsApp pro tenant ${tenantId}`);
         return { sent: false, reason: 'Sem instância WhatsApp conectada pra esta clínica' };
@@ -3485,7 +3581,21 @@ export class CalendarService {
       const localLine = local ? `📍 ${local}\n` : '';
 
       let msg: string;
-      if (kind === 'rescheduled') {
+      if (comercial) {
+        // AGENDA DO COMERCIAL: texto próprio editável (Central › seção Comercial).
+        const cid = kind === 'rescheduled' ? 'comercial_reagendamento' : 'comercial_confirmacao';
+        const tpl = (await this.getComercialAgendaTemplate(tenantId, cid)).template;
+        msg = tpl
+          .replace(/\{local_line\}/g, localLine)
+          .replace(/\{nome_completo\}/g, name || 'você')
+          .replace(/\{nome\}/g, nome)
+          .replace(/\{dentista\}/g, dentista || 'a clínica')
+          .replace(/\{data\}/g, dateStr)
+          .replace(/\{hora\}/g, horaStr)
+          .replace(/\{local\}/g, local || '')
+          .replace(/\n{3,}/g, '\n\n')
+          .trim();
+      } else if (kind === 'rescheduled') {
         // Texto editável na Central (APPOINTMENT_RESCHEDULED_TEMPLATE).
         const tpl = (await this.getAppointmentRescheduledConfig(tenantId)).template;
         msg = tpl

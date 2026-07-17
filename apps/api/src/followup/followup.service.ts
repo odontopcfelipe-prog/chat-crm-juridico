@@ -2,7 +2,7 @@ import { Injectable, Logger, NotFoundException, BadRequestException } from '@nes
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
-import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate } from '@crm/shared';
+import { cobrancaTemplateKey, isFinTemplateId, defaultFinTemplate, isComercialAgendaId, comercialAgendaEnabledKey, COMERCIAL_AGENDA_IDS } from '@crm/shared';
 import OpenAI from 'openai';
 
 // ─── Tipos internos ───────────────────────────────────────────────────────────
@@ -103,7 +103,7 @@ export class FollowupService {
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
-      boletoDeliverySetting,
+      boletoDeliverySetting, comercialAgendaSettings,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -134,6 +134,10 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } }),
       // Entrega dos boletos (D+2). Toggle próprio; quando ausente, herda a apresentação.
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_DELIVERY_ENABLED_${tenantId}` } }),
+      // Agenda do Comercial — os 6 toggles numa query só (default OFF).
+      this.prisma.globalSetting.findMany({
+        where: { key: { in: COMERCIAL_AGENDA_IDS.map((id) => comercialAgendaEnabledKey(id, tenantId)) } },
+      }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -281,6 +285,19 @@ export class FollowupService {
           ? boletoDeliverySetting.value === 'true'
           : boletoIntroSetting?.value === 'true',
       },
+      // Agenda do Comercial — 6 toggles (default OFF): versão dos disparos de
+      // agendamento pro LEAD não-cliente, pelo chip COMERCIAL.
+      ...Object.fromEntries(
+        COMERCIAL_AGENDA_IDS.map((id) => [
+          id,
+          {
+            enabled:
+              (comercialAgendaSettings as { key: string; value: string }[]).find(
+                (r) => r.key === comercialAgendaEnabledKey(id, tenantId),
+              )?.value === 'true',
+          },
+        ]),
+      ),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
     };
@@ -508,8 +525,16 @@ export class FollowupService {
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
       }
-      default:
+      default: {
+        // Agenda do Comercial — 6 toggles (ids = próprios nomes dos disparos).
+        if (isComercialAgendaId(which)) {
+          const key = comercialAgendaEnabledKey(which, tenantId);
+          const value = String(enabled);
+          await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+          break;
+        }
         throw new BadRequestException(`toggle invalido: ${which}`);
+      }
     }
     this.logger.log(`[OPERACIONAL] ${which} -> ${enabled ? 'ON' : 'OFF'} (tenant ${tenantId})`);
     return { ok: true, which, enabled };
