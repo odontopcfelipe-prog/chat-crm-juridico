@@ -704,9 +704,24 @@ function AsaasBadge({ className = '' }: { className?: string }) {
     <span
       className={`inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-extrabold leading-none tracking-[0.12em] text-white ${className}`}
       style={{ background: '#1A2BF0' }}
-      title="Cobrança gerada via Asaas"
+      title="Cobrança ONLINE gerada no Asaas — o paciente paga pelo link/QR"
     >
       ASAAS
+    </span>
+  );
+}
+
+/** Par do AsaasBadge: recebimento PRESENCIAL (caixa, sem Asaas). Existe pra o
+ *  operador NÃO confundir "cobrança online Asaas" com "recebido na clínica" na
+ *  hora de escolher a forma — a marca é simétrica nos dois lados. */
+function ClinicaBadge({ className = '' }: { className?: string }) {
+  return (
+    <span
+      className={`inline-flex items-center rounded px-1.5 py-[2px] text-[9px] font-extrabold leading-none tracking-[0.1em] text-white ${className}`}
+      style={{ background: '#059669' }}
+      title="Recebido na clínica — entra direto no caixa, sem cobrança no Asaas"
+    >
+      NA CLÍNICA
     </span>
   );
 }
@@ -6196,9 +6211,9 @@ function PixCobrancaUnificadaModal({
                 {/* 3 botoes: PIX / Especie / Misto */}
                 <div className="grid grid-cols-3 gap-2 mb-3">
                   {([
-                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR, em conta ou maquineta', asaas: false, asaasLogoTop: false },
-                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false, asaasLogoTop: false },
-                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true, asaasLogoTop: false },
+                    { key: 'PIX' as const, label: 'PIX', emoji: '📱', desc: 'QR (Asaas) ou na clínica', asaas: false, clinica: false, asaasLogoTop: false },
+                    { key: 'CASH' as const, label: 'Espécie', emoji: '💵', desc: 'Em mãos · sem QR', asaas: false, clinica: true, asaasLogoTop: false },
+                    { key: 'MIXED' as const, label: 'Misto', emoji: '🔀', desc: 'Divide PIX + espécie', asaas: true, clinica: false, asaasLogoTop: false },
                   ]).map((m) => {
                     const isActive = mode === m.key;
                     return (
@@ -6220,6 +6235,7 @@ function PixCobrancaUnificadaModal({
                         </span>
                         <span className="text-[10px] text-muted-foreground">{m.desc}</span>
                         {m.asaas && <AsaasBadge className="mt-1" />}
+                        {m.clinica && <ClinicaBadge className="mt-1" />}
                       </button>
                     );
                   })}
@@ -6292,9 +6308,9 @@ function PixCobrancaUnificadaModal({
                   </div>
                   <div className="grid grid-cols-3 gap-2">
                     {([
-                      { k: 'ASAAS' as const, label: 'Banco Asaas', sub: 'QR Code', logo: true, icon: '' },
-                      { k: 'CONTA' as const, label: 'Em conta', sub: 'sem QR', logo: false, icon: '🏦' },
-                      { k: 'MAQUINETA' as const, label: 'Maquineta', sub: 'sem QR', logo: false, icon: '📱' },
+                      { k: 'ASAAS' as const, label: 'Banco Asaas', sub: 'QR · online', logo: true, clinica: false, icon: '' },
+                      { k: 'CONTA' as const, label: 'Em conta', sub: 'recebido na clínica', logo: false, clinica: true, icon: '🏦' },
+                      { k: 'MAQUINETA' as const, label: 'Maquineta', sub: 'recebido na clínica', logo: false, clinica: true, icon: '📱' },
                     ]).map((s) => {
                       const active = pixKind === s.k;
                       return (
@@ -6307,6 +6323,7 @@ function PixCobrancaUnificadaModal({
                           {s.logo ? <AsaasBadge /> : <span className="text-base leading-none">{s.icon}</span>}
                           <span className={`text-xs font-bold ${active ? 'text-emerald-700 dark:text-emerald-400' : 'text-foreground'}`}>{s.label}</span>
                           <span className="text-[10px] text-muted-foreground">{s.sub}</span>
+                          {s.clinica && <ClinicaBadge className="mt-0.5" />}
                         </button>
                       );
                     })}
