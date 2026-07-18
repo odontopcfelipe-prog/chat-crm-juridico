@@ -58,9 +58,10 @@ export function ResumoDiarioEditor() {
           <BarChart3 size={18} className="text-emerald-500" /> Resumo diário do dia
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
-          Todo dia, no horário abaixo, um resumo do dia é enviado ao número configurado (pelo chip do Financeiro,
-          com fallback pra Clínica): <b>entradas</b>, <b>saídas</b>, <b>saldo</b>,{' '}
-          <b>vendas em boleto (com valores)</b> e <b>negociações fechadas</b>. Ligue o disparo no botão do card pra começar.
+          Todo dia, no horário abaixo, um resumo do último dia FECHADO é enviado ao número configurado (pelo chip do
+          Financeiro, com fallback pra Clínica): <b>entradas</b> e <b>saídas discriminadas por forma</b>, <b>saldo</b>,{' '}
+          <b>vendas em boleto (com valores)</b>, <b>boletos compensados</b>, <b>boletos em atraso</b> e{' '}
+          <b>negociações fechadas</b>. Ligue o disparo no botão do card pra começar.
         </p>
       </div>
 
@@ -85,7 +86,8 @@ export function ResumoDiarioEditor() {
             className="mt-1 block w-40 px-3 py-2 rounded-lg border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
           <p className="text-[11px] text-muted-foreground mt-1">
-            Padrão <b>00:00</b> — à meia-noite resume o dia que acabou de fechar. Em outro horário, resume o dia corrente até ali.
+            Padrão <b>00:00</b>. O resumo é sempre do <b>último dia fechado</b> — pode rodar de madrugada ou de manhã cedo
+            que ainda pega o dia anterior completo.
           </p>
         </div>
 
