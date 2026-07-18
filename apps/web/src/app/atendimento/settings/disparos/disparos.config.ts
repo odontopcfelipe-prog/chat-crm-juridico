@@ -73,6 +73,8 @@ export type OperacionalKey =
   | 'recall_preventivo' | 'task_alerts'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
+  // Envio do PIX (D+0) — card dedicado: manda o copia-e-cola ao fechar venda PIX.
+  | 'pix_delivery'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
   // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
@@ -169,8 +171,11 @@ export const DISPAROS: DisparoItem[] = [
   // Negociação aprovada — no FECHAMENTO da venda, confirma as condições ao paciente
   // (entrada, parcelas, total). Substitui a apresentação; os boletos saem no dia seguinte.
   { id: 'negociacao_aprovada', nome: 'Negociação aprovada · no fechamento', categoria: 'financeiro',
-    gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma as condições (entrada · parcelas · total)', canal: 'WhatsApp', tags: ['Template'],
+    gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma o que foi vendido + as condições', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'negociacao_aprovada' },
+  { id: 'pix_delivery', nome: 'Envio do PIX · código na hora', categoria: 'financeiro',
+    gatilho: 'Ao fechar uma venda em PIX (conta Asaas conectada) · manda o copia-e-cola pra pagar na hora', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'pix_delivery' },
   // Fluxo pós-venda em 2 passos, cada um com seu toggle:
   // D+1 (apresentação, texto editável) → D+2 (envio dos boletos em carnê PDF).
   // A apresentação só sai se a ENTREGA também estiver ligada (senão prometeria boleto

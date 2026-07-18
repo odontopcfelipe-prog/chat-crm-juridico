@@ -13,7 +13,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 type ItemInput = {
@@ -909,11 +909,12 @@ export class QuotesService {
         forma: data.billing_type,
         parcelas: data.installment_count && data.installment_count > 1 ? data.installment_count : undefined,
         valorParcela: data.installment_count && data.installment_count > 1 ? (Number(data.value) || 0) / data.installment_count : undefined,
-      }, {
-        // PIX à vista com conta Asaas conectada → manda o copia-e-cola na confirmação.
-        // Vem null em boleto/cartão/recebido-na-clínica (aí o {codigo_pix} fica vazio).
-        codigoPix: (result as any)?.pix?.copyPaste ?? null,
       });
+
+      // Envio do PIX (D+0) — card dedicado: PIX à vista com a conta Asaas conectada
+      // (result.pix.copyPaste) manda o copia-e-cola pro paciente pagar na hora.
+      // Opt-in (PIX_DELIVERY_ENABLED). Best-effort.
+      await this.sendPixDelivery(tenantId, plan.id, quote.patient, (result as any)?.pix?.copyPaste ?? null);
 
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
       // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
@@ -1200,7 +1201,6 @@ export class QuotesService {
     planId: string,
     patient: { name?: string | null; phone?: string | null } | null,
     terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string },
-    extras?: { codigoPix?: string | null },
   ): Promise<void> {
     try {
       const ws = this.whatsapp;
@@ -1270,15 +1270,12 @@ export class QuotesService {
         this.logger.warn(`[NEGOCIACAO_APROVADA] falha ao listar itens do plano ${planId}: ${e?.message}`);
       }
 
-      // {codigo_pix} — bloco do PIX copia-e-cola, SÓ quando a venda é PIX e a conta
-      // Asaas está conectada (aí a cobrança gera o código). Vazio nos outros tipos.
-      const codigoPix = extras?.codigoPix?.trim();
-      const codigoPixBlock = codigoPix ? `\n\n💠 *Pague agora no PIX (copia e cola):*\n${codigoPix}` : '';
-
       const msg = template
         .replace(/\{nome\}/g, firstName)
         .replace(/\{itens\}/g, itensStr)
-        .replace(/\{codigo_pix\}/g, codigoPixBlock)
+        // {codigo_pix} saiu daqui pro card "Envio do PIX"; limpa qualquer resíduo
+        // em template customizado pra não aparecer literal.
+        .replace(/\{codigo_pix\}/g, '')
         .replace(/\{condicoes_sem_total\}/g, condicoesSemTotal)
         .replace(/\{condicoes\}/g, condicoes)
         .replace(/\{clinica\}/g, clinica)
@@ -1361,6 +1358,94 @@ export class QuotesService {
       }
     } catch (e: any) {
       this.logger.warn(`[NEGOCIACAO_APROVADA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /**
+   * Envio do PIX (D+0) — card dedicado, par do "Envio dos boletos": no fechamento
+   * de uma venda em PIX (com a conta Asaas conectada, aí a cobrança gera o código),
+   * manda o copia-e-cola pro paciente pagar na hora. Opt-in (PIX_DELIVERY_ENABLED).
+   * Best-effort — nunca lança (a cobrança já existe).
+   */
+  private async sendPixDelivery(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null; phone?: string | null } | null,
+    codigoPix: string | null,
+  ): Promise<void> {
+    try {
+      const codigo = codigoPix?.trim();
+      // Sem código (venda boleto/cartão/recebido-na-clínica, ou Asaas não conectado)
+      // → não é entrega de PIX. Sai calado.
+      if (!codigo) return;
+      const ws = this.whatsapp;
+      const phone = patient?.phone?.trim();
+      if (!ws || !phone || !tenantId) {
+        this.logger.warn(`[PIX_DELIVERY] pulado no plano ${planId}: ${!ws ? 'WhatsApp indisponível' : !phone ? 'sem telefone' : 'sem tenant'}.`);
+        return;
+      }
+
+      // Opt-in — desligado por padrão. Liga na Central de Disparos.
+      const on = await this.prisma.globalSetting.findUnique({ where: { key: `PIX_DELIVERY_ENABLED_${tenantId}` } });
+      if (on?.value !== 'true') {
+        this.logger.log(`[PIX_DELIVERY] desligado pro tenant ${tenantId} — plano ${planId}.`);
+        return;
+      }
+
+      // Dedup por venda (evita 2 envios em duplo-clique/retry do fechamento).
+      const jaEnviou = await this.prisma.auditLog.findFirst({
+        where: { entity: 'PIX_DELIVERY', entity_id: planId },
+        select: { id: true },
+      });
+      if (jaEnviou) {
+        this.logger.log(`[PIX_DELIVERY] plano ${planId} já recebeu — pulando (dedup).`);
+        return;
+      }
+
+      // Template salvo (Central) → default. {codigo_pix} = copia-e-cola cru.
+      let template = DEFAULT_PIX_DELIVERY;
+      const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('pix_delivery', tenantId) } });
+      if (tplRow?.value) {
+        try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* default */ }
+      }
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+      const firstName = (patient?.name || 'paciente').split(' ')[0];
+      const msg = template
+        .replace(/\{nome\}/g, firstName)
+        .replace(/\{codigo_pix\}/g, codigo)
+        .replace(/\{clinica\}/g, clinica)
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      const fin = await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO');
+      const instance = fin || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
+      const res = await ws.sendText(phone, msg, instance);
+      if (!this.wasSent(res)) {
+        this.logger.warn(`[PIX_DELIVERY] Evolution recusou o envio (plano ${planId}, ${phone}) — não marquei; o próximo fechamento tenta.`);
+        return;
+      }
+      this.logger.log(`[PIX_DELIVERY] código PIX enviado ao paciente do plano ${planId}`);
+
+      await this.prisma.auditLog
+        .create({ data: { entity: 'PIX_DELIVERY', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } })
+        .catch((e: any) => this.logger.warn(`[PIX_DELIVERY] dedup não gravou (plano ${planId}): ${e?.message}`));
+
+      await this.prisma.dispatchLog
+        .create({
+          data: {
+            tenant_id: tenantId,
+            type: 'pix_delivery',
+            channel: 'WHATSAPP',
+            recipient_name: patient?.name || null,
+            recipient_phone: phone,
+            status: 'SENT',
+            external_message_id: (res as any)?.key?.id || null,
+            sent_at: new Date(),
+          },
+        })
+        .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] pix_delivery não registrou: ${e?.message}`));
+    } catch (e: any) {
+      this.logger.warn(`[PIX_DELIVERY] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
     }
   }
 

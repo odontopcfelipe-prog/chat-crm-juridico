@@ -2012,8 +2012,10 @@ export class PaymentGatewayService {
     // [plan:{uuid}] pra ligar cobrança↔plano. Sem limpar, o paciente lia
     // "(Sinal de fechamento — Fulano [plan:c6f80716-dffe-...])". Limpa só o TEXTO;
     // a coluna description no banco continua com a tag (é ela que casa o plano).
-    const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO, stripInternalTags } = await import('@crm/shared');
+    const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO, stripInternalTags, confirmacaoMetodoLabel } = await import('@crm/shared');
     const descricao = stripInternalTags(paymentData.description);
+    // {metodo} = " via PIX" / " via boleto" / " via cartão" (do billing_type da cobrança).
+    const metodoLabel = confirmacaoMetodoLabel(paymentData.billingType || (charge as any)?.billing_type);
 
     // Onda 18.28 — usa o texto EDITÁVEL da Central de Disparos (mesma infra dos
     // boletos); cai no default se não editado. {descricao} já vem com parênteses.
@@ -2038,6 +2040,7 @@ export class PaymentGatewayService {
     const msg = tpl
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
+      .replace(/\{metodo\}/g, metodoLabel)
       .replace(/\{descricao\}/g, descricao ? ` (${descricao})` : '')
       .replace(/\{clinica\}/g, clinicaNome);
 

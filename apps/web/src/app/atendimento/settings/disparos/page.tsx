@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
+import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -79,6 +79,8 @@ interface OperacionalData {
   comercial_reagendamento?: { enabled: boolean };
   // Negociação aprovada — disparo no fechamento da venda (opt-in).
   negociacao_aprovada?: { enabled: boolean };
+  // Envio do PIX (D+0) — card dedicado (opt-in).
+  pix_delivery?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
@@ -442,10 +444,11 @@ export default function CentralDisparosPage() {
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },
               { key: 'valor', desc: 'Valor pago (ex.: R$ 350,00)' },
+              { key: 'metodo', desc: 'Meio do pagamento (ex.: " via PIX", " via boleto", " via cartão") — vazio se desconhecido' },
               { key: 'descricao', desc: 'Descrição do pagamento (já vem com parênteses, ou vazio)' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', valor: 'R$ 350,00', descricao: ' (Pix recebido)', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', metodo: ' via PIX', descricao: ' (Pix recebido)', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_CONFIRMACAO_PAGAMENTO}
           />
@@ -483,12 +486,11 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
-            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma O QUE foi vendido + as condições e, quando é PIX (com a conta Asaas conectada), já manda o código PIX pra pagar na hora. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma O QUE foi vendido + as condições. (O código PIX agora sai num card próprio, 'Envio do PIX'.) Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
             endpoint="/followup/cobranca-template/negociacao_aprovada"
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },
               { key: 'itens', desc: 'Lista do que foi vendido (procedimentos do plano)' },
-              { key: 'codigo_pix', desc: 'Bloco do PIX copia-e-cola — aparece SÓ se a venda for PIX (vazio no boleto/cartão)' },
               { key: 'condicoes', desc: 'Bloco pronto: entrada + parcelas + total (ou só o total, à vista)' },
               { key: 'condicoes_sem_total', desc: 'O mesmo bloco, mas SEM a linha do total (só entrada + parcelas)' },
               { key: 'entrada', desc: 'Valor da entrada (ex.: 10,00)' },
@@ -497,12 +499,27 @@ export default function CentralDisparosPage() {
               { key: 'total', desc: 'Total do tratamento (ex.: 52,74)' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', itens: '• Clareamento dental\n• Limpeza (2x)', codigo_pix: '\n\n💠 *Pague agora no PIX (copia e cola):*\n00020126...EXEMPLO...5204000053039865802BR', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', itens: '• Clareamento dental\n• Limpeza (2x)', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_NEGOCIACAO_APROVADA}
           />
         )}
-        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'pix_delivery' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro ao FECHAR uma venda em PIX (com a conta Asaas conectada): manda o código PIX copia-e-cola pra pagar na hora. Sai só quando é PIX. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            endpoint="/followup/cobranca-template/pix_delivery"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'codigo_pix', desc: 'O código PIX copia-e-cola (gerado pelo Asaas na venda)' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
+            ]}
+            preview={{ nome: 'Felipe', codigo_pix: '00020126...EXEMPLO...5204000053039865802BR', clinica: 'Instituto Odonto Passos' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_PIX_DELIVERY}
+          />
+        )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && openItem.operacionalKey !== 'pix_delivery' && (
           <div className="space-y-3">
             {/* Abas por TIPO de pagamento: cada uma tem seu texto. PIX à vista não é
                 "parcela"/"boleto"; boleto 1× não é "parcela". O robô escolhe pelo

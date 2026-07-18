@@ -116,11 +116,30 @@ export function stripInternalTags(s?: string | null): string {
 // Onda 18.28 — confirmação de pagamento (por EVENTO, webhook do Asaas). NÃO entra
 // em COBRANCA_STAGES (o cron não a agenda), mas é um template EDITÁVEL igual aos
 // boletos. {descricao} já vem com parênteses (ou vazio) pronto do backend.
+// {metodo} = " via PIX" / " via boleto" / " via cartão" (com espaço), ou vazio.
 export const DEFAULT_CONFIRMACAO_PAGAMENTO =
   '✅ *Pagamento Confirmado!*\n\n' +
   'Olá, {nome}!\n\n' +
-  'Confirmamos o recebimento do pagamento no valor de *{valor}*{descricao}.\n\n' +
+  'Confirmamos o recebimento do seu pagamento{metodo} no valor de *{valor}*{descricao}.\n\n' +
   'Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.';
+
+/** Rótulo do método pra confirmação de pagamento (com espaço à esquerda, colável
+ *  no texto). "" quando desconhecido. */
+export function confirmacaoMetodoLabel(billingType?: string | null): string {
+  if (billingType === 'PIX') return ' via PIX';
+  if (billingType === 'BOLETO') return ' via boleto';
+  if (billingType === 'CREDIT_CARD') return ' via cartão';
+  return '';
+}
+
+// ENVIO DO PIX (D+0) — card dedicado: no fechamento da venda em PIX (com a conta
+// Asaas conectada), manda o código copia-e-cola pro paciente pagar na hora. É o
+// par do "Envio dos boletos". Placeholders: {nome} {clinica} {codigo_pix} (o
+// copia-e-cola cru, pronto do backend).
+export const DEFAULT_PIX_DELIVERY =
+  'Olá, {nome}! 💠 Seu PIX está pronto — é só copiar o código abaixo e pagar no app do seu banco:\n\n' +
+  '{codigo_pix}\n\n' +
+  'Assim que cair, a gente confirma por aqui. Qualquer dúvida, é só chamar! 💙';
 
 // Parte 1 — APRESENTAÇÃO do setor financeiro no dia SEGUINTE ao fechamento da
 // venda: o Financeiro se apresenta e avisa que amanhã manda todos os boletos (em
@@ -141,18 +160,16 @@ export const DEFAULT_BOLETO_DELIVERY =
   'Qualquer dúvida, é só me chamar por aqui! 💙';
 
 // NEGOCIAÇÃO APROVADA — disparo no FECHAMENTO da venda (D+0): confirma ao paciente
-// O QUE foi vendido + as condições, e — quando é PIX — já manda o código PIX pra
-// pagar na hora. Substitui a apresentação (D+1). Placeholders:
+// O QUE foi vendido + as condições. (O código PIX saiu daqui pro card dedicado
+// "Envio do PIX" — DEFAULT_PIX_DELIVERY.) Substitui a apresentação (D+1). Placeholders:
 //   {nome} {clinica} — básicos
 //   {itens} — lista do que foi vendido (procedimentos), pronta do backend
 //   {condicoes} — bloco entrada/parcelas/total (ou só total); {condicoes_sem_total} sem o total
-//   {codigo_pix} — bloco "Pague no PIX (copia e cola)" — SÓ quando a venda é PIX e a
-//                  conta Asaas está conectada; vazio nos outros tipos (boleto/cartão)
 //   avulsos: {entrada} {parcelas} {valor_parcela} {total} {forma}
 export const DEFAULT_NEGOCIACAO_APROVADA =
   'Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.\n\n' +
   '{itens}\n\n' +
-  '{condicoes}{codigo_pix}\n\n' +
+  '{condicoes}\n\n' +
   'Qualquer dúvida, é só chamar por aqui! 💙';
 
 /**
@@ -186,14 +203,16 @@ export function buildCondicoesBlock(t: {
   };
 }
 
-/** Ids de template financeiro editáveis: os 5 boletos + confirmação + apresentação + negociação. */
+/** Ids de template financeiro editáveis: os 5 boletos + confirmação + apresentação
+ *  + negociação + entrega do PIX. */
 export function isFinTemplateId(s: string): boolean {
   return (
     isCobrancaStage(s) ||
     s === 'confirmacao_pagamento' ||
     s === 'boleto_intro' ||
     s === 'boleto_delivery' ||
-    s === 'negociacao_aprovada'
+    s === 'negociacao_aprovada' ||
+    s === 'pix_delivery'
   );
 }
 
@@ -204,6 +223,7 @@ export function defaultFinTemplate(id: string, tipo?: CobrancaTipo): string {
   if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
   if (id === 'boleto_delivery') return DEFAULT_BOLETO_DELIVERY;
   if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
+  if (id === 'pix_delivery') return DEFAULT_PIX_DELIVERY;
   if (isCobrancaStage(id)) return defaultCobrancaTemplate(id, tipo ?? 'parcelado');
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }

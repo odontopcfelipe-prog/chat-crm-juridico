@@ -104,6 +104,7 @@ export class FollowupService {
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
+      pixDeliverySetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -142,6 +143,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `RECALL_PREVENTIVO_ENABLED_${tenantId}` } }),
       // Alertas de tarefa à equipe (interno — default LIGADO, só 'false' desliga).
       this.prisma.globalSetting.findUnique({ where: { key: `TASK_ALERTS_ENABLED_${tenantId}` } }),
+      // Envio do PIX (D+0) — card dedicado. Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `PIX_DELIVERY_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -336,6 +339,8 @@ export class FollowupService {
       ),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
+      // Envio do PIX (D+0) — card dedicado (par do envio dos boletos). Default OFF.
+      pix_delivery: { enabled: (pixDeliverySetting as any)?.value === 'true' },
     };
   }
 
@@ -483,6 +488,7 @@ export class FollowupService {
       comercial_lembrete_1h: ['comercial_lembrete_1h'],
       comercial_lembrete_15min: ['comercial_lembrete_15min'],
       negociacao_aprovada: ['negociacao_aprovada'],
+      pix_delivery: ['pix_delivery'],
       boleto_intro: ['boleto_intro'],
       boleto_delivery: ['boleto_delivery'],
       boleto_1d_antes: ['boleto_1d_antes'],
@@ -735,6 +741,13 @@ export class FollowupService {
       // (API) e o worker leem esta key; ausente = herda a apresentação.
       case 'boleto_delivery': {
         const key = `BOLETO_DELIVERY_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Envio do PIX (D+0) — card dedicado (quotes.service lê esta key no fechamento).
+      case 'pix_delivery': {
+        const key = `PIX_DELIVERY_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
