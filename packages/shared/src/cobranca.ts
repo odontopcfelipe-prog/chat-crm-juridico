@@ -43,6 +43,63 @@ export function isCobrancaStage(s: string): s is CobrancaStage {
   return (COBRANCA_STAGES as string[]).includes(s);
 }
 
+// ─── Texto do lembrete POR TIPO DE PAGAMENTO ────────────────────────────────
+// O mesmo estágio fala diferente conforme a cobrança: PIX à vista NÃO é "parcela"
+// nem "boleto"; boleto 1× não é "parcela". A clínica edita cada tipo separado na
+// Central; a cron escolhe pela cobrança real (billing_type + se é parcela).
+
+export type CobrancaTipo = 'pix' | 'boleto' | 'parcelado';
+export const COBRANCA_TIPOS: CobrancaTipo[] = ['pix', 'boleto', 'parcelado'];
+export function isCobrancaTipo(s: string): s is CobrancaTipo {
+  return (COBRANCA_TIPOS as string[]).includes(s);
+}
+
+/** Rótulo do tipo pra UI. */
+export const COBRANCA_TIPO_LABEL: Record<CobrancaTipo, string> = {
+  pix: 'PIX à vista',
+  boleto: 'Boleto à vista',
+  parcelado: 'Parcelado',
+};
+
+/** Palavras que trocam por tipo: {item} = o que vence; {meio} = como pagar.
+ *  'parcelado' agrupa boleto E pix parcelados (Asaas parcela nos dois), então o
+ *  {meio} fica NEUTRO ("o link de pagamento") pra não chamar um PIX de "boleto". */
+const COBRANCA_TIPO_WORDS: Record<CobrancaTipo, { item: string; meio: string }> = {
+  pix: { item: 'seu pagamento', meio: 'o PIX' },
+  boleto: { item: 'seu boleto', meio: 'o boleto' },
+  parcelado: { item: 'sua parcela', meio: 'o link de pagamento' },
+};
+
+/** Base ÚNICA de cada estágio com {item}/{meio} — os 3 defaults por tipo saem
+ *  daqui preenchendo as palavras (DRY). {item} nunca abre frase (evita maiúscula). */
+const COBRANCA_STAGE_BASE: Record<CobrancaStage, string> = {
+  boleto_1d_antes:
+    'Oi {nome}! 😊 Passando pra lembrar que {item} de *{valor}* vence *amanhã ({data})*.\n\n' +
+    'Segue {meio} pra facilitar: {link}\n\nQualquer dúvida, é só chamar aqui!',
+  boleto_no_dia:
+    'Oi {nome}! 📅 Hoje ({data}) vence {item} de *{valor}*.\n\n' +
+    'Pra não perder o prazo, segue {meio}: {link}\n\nSe já pagou, pode desconsiderar 🙏',
+  boleto_atraso_1d:
+    'Oi {nome}, tudo bem? Notamos que {item} de *{valor}* venceu ontem ({data}) e ainda consta em aberto — ' +
+    'deve ser só um esquecimento 😉\n\nSegue {meio} atualizado: {link}\n\nSe já pagou, é só desconsiderar!',
+  boleto_atraso_15d:
+    'Oi {nome}, {item} de *{valor}* está em aberto há *15 dias* (venceu em {data}).\n\n' +
+    'Pra regularizar e evitar juros maiores, segue {meio} atualizado: {link}\n\n' +
+    'Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.',
+  boleto_atraso_30d:
+    'Oi {nome}, {item} de *{valor}* está com *30 dias* de atraso (venceu em {data}).\n\n' +
+    'Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}\n\n' +
+    'Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
+};
+
+/** Texto padrão do estágio PARA UM TIPO (preenche {item}/{meio} da base). */
+export function defaultCobrancaTemplate(stage: string, tipo: CobrancaTipo): string {
+  const base = COBRANCA_STAGE_BASE[stage as CobrancaStage];
+  if (!base) return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[stage] || '';
+  const w = COBRANCA_TIPO_WORDS[tipo] ?? COBRANCA_TIPO_WORDS.parcelado;
+  return base.replace(/\{item\}/g, w.item).replace(/\{meio\}/g, w.meio);
+}
+
 /**
  * Tag INTERNA que a descrição da cobrança carrega pra ligar cobrança↔plano
  * (`... [plan:{uuid}]`). É load-bearing NO BANCO: dezenas de lugares casam por
@@ -135,17 +192,21 @@ export function isFinTemplateId(s: string): boolean {
   );
 }
 
-/** Texto padrão de um template financeiro editável. */
-export function defaultFinTemplate(id: string): string {
+/** Texto padrão de um template financeiro editável. Pros 5 estágios de cobrança
+ *  o default é POR TIPO (pix/boleto/parcelado); sem tipo, cai no 'parcelado'. */
+export function defaultFinTemplate(id: string, tipo?: CobrancaTipo): string {
   if (id === 'confirmacao_pagamento') return DEFAULT_CONFIRMACAO_PAGAMENTO;
   if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
   if (id === 'boleto_delivery') return DEFAULT_BOLETO_DELIVERY;
   if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
+  if (isCobrancaStage(id)) return defaultCobrancaTemplate(id, tipo ?? 'parcelado');
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }
 
-/** Chave da GlobalSetting do template daquele estágio (api grava, worker lê). */
-export function cobrancaTemplateKey(stage: string, tenantId?: string | null): string {
-  const base = `COBRANCA_TEMPLATE_${stage.toUpperCase()}`;
+/** Chave da GlobalSetting do template (api grava, worker lê). `tipo` (só pros 5
+ *  estágios) grava uma variante separada por tipo de pagamento; sem tipo é a chave
+ *  LEGADA (texto único) — mantida pra não quebrar quem já editou antes do split. */
+export function cobrancaTemplateKey(stage: string, tenantId?: string | null, tipo?: CobrancaTipo): string {
+  const base = `COBRANCA_TEMPLATE_${stage.toUpperCase()}${tipo ? `_${tipo.toUpperCase()}` : ''}`;
   return tenantId ? `${base}_${tenantId}` : base;
 }

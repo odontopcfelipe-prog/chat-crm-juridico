@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_COBRANCA_TEMPLATES, DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate } from '@crm/shared';
+import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -116,6 +116,8 @@ export default function CentralDisparosPage() {
   // Onda 17.59 — texto ATUAL do editor aberto (reportado por RemindersConfigModal/
   // MensagemEditor) pro "Enviar teste" testar o que está na tela, sem precisar salvar.
   const [liveText, setLiveText] = useState<string | undefined>(undefined);
+  // Aba de tipo de pagamento do editor de cobrança (PIX/Boleto/Parcelado).
+  const [cobrancaTipo, setCobrancaTipo] = useState<CobrancaTipo>('parcelado');
   // Some o texto vivo ao trocar de disparo (evita vazar o texto de um editor pro outro).
   useEffect(() => { setLiveText(undefined); }, [openId]);
 
@@ -499,21 +501,44 @@ export default function CentralDisparosPage() {
           />
         )}
         {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && (
-          <MensagemEditor
-            titulo={openItem.nome}
-            descricao="Enviada ao paciente pelo chip Financeiro quando a cobrança chega neste estágio. Edite o texto e clique em Salvar — o robô passa a usar exatamente esta mensagem. Deixe em branco pra voltar ao texto padrão."
-            endpoint={`/followup/cobranca-template/${openItem.operacionalKey}`}
-            variaveis={[
-              { key: 'nome', desc: 'Primeiro nome do paciente' },
-              { key: 'valor', desc: 'Valor da parcela (ex.: R$ 350,00)' },
-              { key: 'data', desc: 'Vencimento (DD/MM)' },
-              { key: 'link', desc: 'Link do boleto/pix pra pagar' },
-              { key: 'clinica', desc: 'Nome da sua clínica' },
-            ]}
-            preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/boleto', clinica: 'Instituto Odonto Passos' }}
-            onCurrentTextChange={setLiveText}
-            defaultText={(DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[openItem.operacionalKey || ''] || ''}
-          />
+          <div className="space-y-3">
+            {/* Abas por TIPO de pagamento: cada uma tem seu texto. PIX à vista não é
+                "parcela"/"boleto"; boleto 1× não é "parcela". O robô escolhe pelo
+                tipo real da cobrança na hora de disparar. */}
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-semibold text-muted-foreground mr-1">Tipo de pagamento:</span>
+              {COBRANCA_TIPOS.map((tp) => (
+                <button
+                  key={tp}
+                  type="button"
+                  onClick={() => setCobrancaTipo(tp)}
+                  className={`px-3 py-1 text-[11px] font-semibold rounded-full border transition-colors ${
+                    cobrancaTipo === tp
+                      ? 'bg-primary text-primary-foreground border-primary'
+                      : 'bg-background text-muted-foreground border-border hover:text-foreground'
+                  }`}
+                >
+                  {COBRANCA_TIPO_LABEL[tp]}
+                </button>
+              ))}
+            </div>
+            <MensagemEditor
+              key={cobrancaTipo}
+              titulo={`${openItem.nome} — ${COBRANCA_TIPO_LABEL[cobrancaTipo]}`}
+              descricao="Enviada ao paciente pelo chip Financeiro quando uma cobrança DESTE tipo chega neste estágio. O robô escolhe o texto pelo tipo real da cobrança. Edite e Salve; deixe em branco pra voltar ao padrão."
+              endpoint={`/followup/cobranca-template/${openItem.operacionalKey}?tipo=${cobrancaTipo}`}
+              variaveis={[
+                { key: 'nome', desc: 'Primeiro nome do paciente' },
+                { key: 'valor', desc: 'Valor da cobrança (ex.: R$ 350,00)' },
+                { key: 'data', desc: 'Vencimento (DD/MM)' },
+                { key: 'link', desc: 'Link do boleto/pix pra pagar' },
+                { key: 'clinica', desc: 'Nome da sua clínica' },
+              ]}
+              preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/pagar', clinica: 'Instituto Odonto Passos' }}
+              onCurrentTextChange={setLiveText}
+              defaultText={defaultCobrancaTemplate(openItem.operacionalKey || '', cobrancaTipo)}
+            />
+          </div>
         )}
         {openItem.editor === 'sem_agendamento' && <SemAgendamentoEditor />}
         {/* Resumo interno tem o próprio "enviar teste" (SemAgendamentoEditor) —

@@ -69,18 +69,23 @@ export class FollowupController {
 
   // ─── Templates de cobrança (Onda 18.17) — ver/editar o texto de cada estágio ─
   @Get('cobranca-template/:stage')
-  getCobrancaTemplate(@Param('stage') stage: string, @Request() req: any) {
-    return this.svc.getCobrancaTemplate(req.user?.tenant_id, stage);
+  getCobrancaTemplate(@Param('stage') stage: string, @Query('tipo') tipo: string | undefined, @Request() req: any) {
+    return this.svc.getCobrancaTemplate(req.user?.tenant_id, stage, tipo);
   }
 
   @Put('cobranca-template/:stage')
-  setCobrancaTemplate(@Param('stage') stage: string, @Body() body: { template?: string }, @Request() req: any) {
+  setCobrancaTemplate(
+    @Param('stage') stage: string,
+    @Query('tipo') tipo: string | undefined,
+    @Body() body: { template?: string },
+    @Request() req: any,
+  ) {
     // Editar o texto que o paciente recebe = ato administrativo -> so ADMIN.
     const roles: string[] = req.user?.roles || [];
     if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
       throw new ForbiddenException('Apenas ADMIN pode editar as mensagens de cobrança');
     }
-    return this.svc.setCobrancaTemplate(req.user?.tenant_id, stage, body?.template ?? '');
+    return this.svc.setCobrancaTemplate(req.user?.tenant_id, stage, body?.template ?? '', tipo);
   }
 
   // ─── Sequências ──────────────────────────────────────────────────────────

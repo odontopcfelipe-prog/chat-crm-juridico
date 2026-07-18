@@ -4,11 +4,12 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   toBrazilWhatsappNumber,
-  DEFAULT_COBRANCA_TEMPLATES,
+  defaultCobrancaTemplate,
   DEFAULT_BOLETO_INTRO,
   COBRANCA_STAGES,
   cobrancaTemplateKey,
   type CobrancaStage,
+  type CobrancaTipo,
 } from '@crm/shared';
 import axios from 'axios';
 
@@ -67,6 +68,9 @@ interface ChargeCandidate {
   /** Disparo ANTECIPADO pra sexta (vencimento cai dom/seg, dias sem cron): o dia da
    *  semana do vencimento, pra trocar o "amanhã" do template e não mentir. */
   venceEm?: string;
+  /** Tipo de pagamento da cobrança → escolhe a variante do texto (PIX não é
+   *  "parcela"/"boleto", boleto 1× não é "parcela"). */
+  tipo: CobrancaTipo;
 }
 
 /** Parte 1 — apresentação do Financeiro, 1 por VENDA (treatment_plan) fechada ontem. */
@@ -130,7 +134,7 @@ export class PaymentAlertsCronService {
     if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
 
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
-    const template = await this.resolveTemplate(pick.tenantId, pick.stage);
+    const template = await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo);
     const clinica = await this.resolveClinicName(pick.tenantId);
     const message = this.buildMessage(pick, template, clinica);
     // Boleto → manda o PDF anexo (a mensagem vira legenda); PIX/sem-boleto seguem texto+link.
@@ -314,6 +318,14 @@ export class PaymentAlertsCronService {
       if (!stageCache.has(tid)) stageCache.set(tid, await this.loadEnabledStages(tid));
       if (!stageCache.get(tid)!.has(stage)) continue; // estágio desligado pro tenant
 
+      // Tipo de pagamento: parcela (tem installment) → 'parcelado'; senão PIX →
+      // 'pix'; boleto/cartão → 'boleto'. Escolhe a variante do texto no disparo.
+      const tipo: CobrancaTipo = c.installment
+        ? 'parcelado'
+        : c.billing_type === 'PIX'
+          ? 'pix'
+          : 'boleto';
+
       candidates.push({
         chargeId: c.id,
         tenantId: tid,
@@ -325,6 +337,7 @@ export class PaymentAlertsCronService {
         link,
         pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
         venceEm,
+        tipo,
       });
     }
     if (candidates.length === 0) return null;
@@ -411,19 +424,21 @@ export class PaymentAlertsCronService {
    * (GlobalSetting via cobrancaTemplateKey) → senão o default aprovado. Mesma
    * chave que a API grava, então editar na tela muda o que sai daqui.
    */
-  private async resolveTemplate(tenantId: string, stage: Stage): Promise<string> {
-    const fallback = DEFAULT_COBRANCA_TEMPLATES[stage];
+  private async resolveTemplate(tenantId: string, stage: Stage, tipo: CobrancaTipo): Promise<string> {
+    const fallback = defaultCobrancaTemplate(stage, tipo);
     if (!tenantId) return fallback;
-    try {
-      const row = await this.prisma.globalSetting.findUnique({
-        where: { key: cobrancaTemplateKey(stage, tenantId) },
-      });
-      if (row?.value) {
-        const parsed = JSON.parse(row.value);
-        if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+    // Mesma resolução do editor (followup.service): 1) variante do TIPO editada →
+    // 2) texto ÚNICO legado (pré-split, editado antes) → 3) default type-aware.
+    for (const key of [cobrancaTemplateKey(stage, tenantId, tipo), cobrancaTemplateKey(stage, tenantId)]) {
+      try {
+        const row = await this.prisma.globalSetting.findUnique({ where: { key } });
+        if (row?.value) {
+          const parsed = JSON.parse(row.value);
+          if (typeof parsed?.template === 'string' && parsed.template.trim()) return parsed.template;
+        }
+      } catch (e: any) {
+        this.logger.warn(`[COBRANCA] Falha ao ler template ${stage}/${tipo} do tenant ${tenantId}: ${e.message}`);
       }
-    } catch (e: any) {
-      this.logger.warn(`[COBRANCA] Falha ao ler template ${stage} do tenant ${tenantId}: ${e.message}`);
     }
     return fallback;
   }
