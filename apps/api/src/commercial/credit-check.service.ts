@@ -36,6 +36,9 @@ export type CreditDecision = 'approved' | 'pending' | 'denied';
 
 export interface CreditCheckRequest {
   cpf: string;
+  /** Tenant da clínica que roda a consulta — isola a leitura do histórico Asaas
+   *  (senão lê o histórico da conta do dono/matriz de OUTRA clínica). */
+  tenantId?: string;
   nome: string;
   data_nascimento: string;
   renda_mensal: number;
@@ -110,13 +113,13 @@ export class CreditCheckService {
    * Funciona apenas pra pacientes que JA pagaram alguma coisa pela clinica
    * via Asaas (PIX, boleto, cartao). Paciente novo retorna isCustomer=false.
    */
-  private async lookupAsaasHistory(cpf: string): Promise<AsaasHistorico> {
+  private async lookupAsaasHistory(cpf: string, tenantId?: string): Promise<AsaasHistorico> {
     try {
-      // 1. Busca o customer no Asaas pelo CPF
+      // 1. Busca o customer no Asaas pelo CPF (na conta DA CLÍNICA, não do dono)
       const customersResp = await this.asaas.listCustomers({
         cpfCnpj: cpf,
         limit: 1,
-      });
+      }, tenantId);
       const customer = customersResp?.data?.[0];
       if (!customer) {
         return { isCustomer: false };
@@ -126,7 +129,7 @@ export class CreditCheckService {
       const chargesResp = await this.asaas.listCharges({
         customer: customer.id,
         limit: 100,
-      });
+      }, tenantId);
       const charges: any[] = chargesResp?.data ?? [];
 
       if (charges.length === 0) {
@@ -221,7 +224,7 @@ export class CreditCheckService {
     }
 
     // Onda 12.1 — lookup historico Asaas (silencioso se nao for cliente)
-    const asaasHist = await this.lookupAsaasHistory(req.cpf);
+    const asaasHist = await this.lookupAsaasHistory(req.cpf, req.tenantId);
 
     // Latencia artificial pra UX (Serasa real demora ~2s mesmo)
     await new Promise((r) => setTimeout(r, asaasHist.isCustomer ? 800 : 1500));

@@ -116,7 +116,7 @@ export class PaymentGatewayController {
 
   @Get('settings')
   async getSettings(@Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     return this.service.getSettings(tenantId);
   }
 
@@ -437,7 +437,7 @@ export class PaymentGatewayController {
     @Param('honorarioPaymentId') honorarioPaymentId: string,
     @Req() req: any,
   ) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     return this.service.getChargeDetails(honorarioPaymentId, tenantId);
   }
 
@@ -445,7 +445,7 @@ export class PaymentGatewayController {
 
   @Post('charges')
   async createCharge(@Body() dto: CreateChargeDto, @Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     // Suporta tanto HonorarioPayment (caso) quanto LeadHonorarioPayment (lead)
     if (dto.leadHonorarioPaymentId) {
       this.logger.log(`[POST /charges] billingType=${dto.billingType} leadPaymentId=${dto.leadHonorarioPaymentId}`);
@@ -465,14 +465,14 @@ export class PaymentGatewayController {
 
   @Post('charges/batch')
   async createBatchCharges(@Body() dto: CreateBatchChargesDto, @Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     this.logger.log(`[POST /charges/batch] honorarioId=${dto.honorarioId} billingType=${dto.billingType}`);
     return this.service.createBatchCharges(dto.honorarioId, dto.billingType, tenantId);
   }
 
   @Post('charges/installment')
   async createInstallmentCharge(@Body() dto: CreateInstallmentChargeDto, @Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     this.logger.log(`[POST /charges/installment] leadHonorarioId=${dto.leadHonorarioId} billingType=${dto.billingType}`);
     return this.service.createInstallmentCharge(
       dto.leadHonorarioId,
@@ -537,14 +537,14 @@ export class PaymentGatewayController {
   /** Sync individual */
   @Post('customers/sync/:leadId')
   async ensureCustomer(@Param('leadId') leadId: string, @Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     this.logger.log(`[POST /customers/sync] leadId=${leadId}`);
     return this.service.ensureCustomer(leadId, tenantId);
   }
 
   @Post('reconcile')
   async reconcile(@Req() req: any) {
-    const tenantId = req.user?.tenantId;
+    const tenantId = req.user?.tenant_id;
     this.logger.log('[POST /reconcile] Iniciando reconciliacao');
     return this.service.reconcile(tenantId);
   }

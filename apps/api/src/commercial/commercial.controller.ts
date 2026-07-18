@@ -363,9 +363,10 @@ export class CommercialController {
    */
   @RequiresPermission('manage_proposals')
   @Post('credit-check/simulate')
-  simulateCreditCheck(@Body() dto: CreditCheckSimulateDto) {
+  simulateCreditCheck(@Body() dto: CreditCheckSimulateDto, @Authenticated() user: AuthUser) {
     return this.creditCheckService.simulate({
       cpf: dto.cpf,
+      tenantId: user.tenant_id,
       nome: dto.nome,
       data_nascimento: dto.data_nascimento,
       renda_mensal: Number(dto.renda_mensal),
@@ -508,6 +509,7 @@ export class CommercialController {
           result.charge.external_id,
           today,
           Number(dto.payment.value),
+          user.tenant_id,
         );
       } catch (e: any) {
         // nao quebra — charge ja foi criada; operador pode marcar

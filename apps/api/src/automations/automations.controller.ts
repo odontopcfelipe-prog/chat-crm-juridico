@@ -9,13 +9,13 @@ export class AutomationsController {
   @Get()
   @Roles('ADMIN')
   findAll(@Request() req: any) {
-    return this.automationsService.findAll(req.user.tenantId);
+    return this.automationsService.findAll(req.user.tenant_id);
   }
 
   @Post()
   @Roles('ADMIN')
   create(@Request() req: any, @Body() body: { name: string; trigger: string; action: string; action_value: string }) {
-    return this.automationsService.create({ ...body, tenant_id: req.user.tenantId });
+    return this.automationsService.create({ ...body, tenant_id: req.user.tenant_id });
   }
 
   @Patch(':id')

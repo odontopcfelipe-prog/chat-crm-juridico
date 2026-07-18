@@ -396,7 +396,7 @@ export class TreatmentPlanBillingService {
           const listResp = await this.asaas.listCharges({
             installment: installmentsAsaas.installment,
             limit: 100,
-          });
+          }, tenantId);
           children = listResp?.data ?? [];
         } catch (err: any) {
           this.logger.warn(
