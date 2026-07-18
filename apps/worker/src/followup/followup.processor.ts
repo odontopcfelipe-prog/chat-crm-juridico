@@ -276,10 +276,33 @@ export class FollowupProcessor extends WorkerHost {
 
       await this.prisma.lead.update({ where: { id: leadId }, data: { last_followup_at: new Date() } });
       this.logger.log(`[FOLLOWUP] Enviado para ${lead.phone}`);
+      await this.logFollowupDispatch(lead, 'SENT');
       await this.advanceEnrollment(msgId);
     } catch (e: any) {
       this.logger.error(`[FOLLOWUP] Falha ao enviar: ${e.message}`);
       await this.prisma.followupMessage.update({ where: { id: msgId }, data: { status: 'FALHOU' } });
+      await this.logFollowupDispatch(lead, 'FAILED');
+    }
+  }
+
+  /** Central 2.0 — registro unificado da nutrição de leads (métrica + resumo do
+   *  card "Follow-up de leads"). Best-effort, nunca lança. */
+  private async logFollowupDispatch(lead: any, status: 'SENT' | 'FAILED'): Promise<void> {
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: lead?.tenant_id || '',
+          type: 'followup_lead',
+          channel: 'WHATSAPP',
+          recipient_name: lead?.name || null,
+          recipient_phone: lead?.phone || null,
+          status,
+          error: status === 'FAILED' ? 'Falha no envio do follow-up' : null,
+          sent_at: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[DISPATCH-LOG] followup_lead não registrou: ${e?.message}`);
     }
   }
 

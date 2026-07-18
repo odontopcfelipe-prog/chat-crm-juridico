@@ -94,6 +94,10 @@ export interface DisparoItem {
   /** Aniversário: qual das 3 mensagens (1 clássica, 2 desejo, 3 presente). O on/off
    *  liga/desliga o campo enabled/message2_enabled/message3_enabled da config. */
   birthdayMsg?: 1 | 2 | 3;
+  /** Só-métrica (Central 2.0): card clicável que abre o resumo (pra quem/quando/
+   *  status) SEM toggle nem editor — o liga/desliga vive em outro lugar (ex.:
+   *  nutrição de leads = por sequência). A métrica vem do DispatchLog pelo id. */
+  soMetrica?: boolean;
   emBreve?: boolean;        // ainda sem backend (catálogo)
 }
 
@@ -225,6 +229,13 @@ export const DISPAROS: DisparoItem[] = [
     gatilho: 'Data fixa da campanha', canal: 'WhatsApp', tags: ['Template'], editor: null, emBreve: true },
 
   // ── Recuperação de receita (via CRC) ──
+  // Follow-up de leads parados — o MOTOR JÁ RODA (nutrição por sequência,
+  // followup.processor + cron legado). Card SÓ-MÉTRICA: mostra quantos foram e
+  // pra quem, mas o liga/desliga vive nas SEQUÊNCIAS (cada uma tem seu .active),
+  // não num toggle único — por isso sem on/off aqui (seria enganoso).
+  { id: 'followup_lead', nome: 'Follow-up de leads parados', categoria: 'recuperacao',
+    gatilho: 'Nutrição automática de leads que esfriaram · controle por sequência', canal: 'WhatsApp', tags: ['Métrica'],
+    soMetrica: true },
   { id: 'orcamento_parado', nome: 'Orçamento parado', categoria: 'recuperacao',
     gatilho: '3 dias sem fechar', canal: 'WhatsApp', tags: ['via CRC'], editor: null, emBreve: true },
   // Recall de revisão — o MOTOR JÁ RODA (maintenance-recall-cron, paced 3-7min):

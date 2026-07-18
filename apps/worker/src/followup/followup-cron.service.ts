@@ -102,12 +102,38 @@ export class FollowupCronService {
     if (!apiUrl) return;
     const instanceName = convo.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
     const msg = template.replace(/\{\{name\}\}/g, lead.name || 'cliente');
-    await axios.post(`${apiUrl}/message/sendText/${instanceName}`, { number: lead.phone, text: `*Sophia:* ${msg}` }, { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 });
+    try {
+      await axios.post(`${apiUrl}/message/sendText/${instanceName}`, { number: lead.phone, text: `*Sophia:* ${msg}` }, { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 15000 });
+    } catch (e: any) {
+      // Registra a falha no DispatchLog (paridade com o motor de sequência) e
+      // repropaga pro chamador NÃO contar como enviado.
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: lead?.tenant_id || '', type: 'followup_lead', channel: 'WHATSAPP',
+          recipient_name: lead?.name || null, recipient_phone: lead?.phone || null,
+          status: 'FAILED', error: 'Falha no envio do follow-up (legacy)', sent_at: new Date(),
+        },
+      }).catch(() => undefined);
+      throw e;
+    }
     await this.prisma.message.create({ data: { conversation_id: convo.id, direction: 'out', type: 'text', text: msg, external_message_id: `sys_followup_legacy_${Date.now()}`, status: 'enviado' } });
     await Promise.all([
       this.prisma.conversation.update({ where: { id: convo.id }, data: { last_message_at: new Date() } }),
       this.prisma.lead.update({ where: { id: lead.id }, data: { last_followup_at: new Date() } }),
     ]);
+    // Central 2.0 — o caminho legado só criava Message (invisível pra métrica).
+    // Registra no DispatchLog (mesmo type do card "Follow-up de leads"). Best-effort.
+    await this.prisma.dispatchLog.create({
+      data: {
+        tenant_id: lead?.tenant_id || '',
+        type: 'followup_lead',
+        channel: 'WHATSAPP',
+        recipient_name: lead?.name || null,
+        recipient_phone: lead?.phone || null,
+        status: 'SENT',
+        sent_at: new Date(),
+      },
+    }).catch((e: any) => this.logger.warn(`[DISPATCH-LOG] followup_lead (legacy) não registrou: ${e?.message}`));
     this.logger.log(`[FOLLOWUP-LEGACY] Enviado para ${lead.phone}`);
   }
 }

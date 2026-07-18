@@ -500,6 +500,7 @@ export class FollowupService {
       pacientes_sem_agendamento: ['pacientes_sem_agendamento_adm'],
       recall_preventivo: ['recall_preventivo'],
       task_alerts: ['task_alert'],
+      followup_lead: ['followup_lead'],
     };
 
     // Lembretes clínicos → faixa de antecedência no EventReminder.

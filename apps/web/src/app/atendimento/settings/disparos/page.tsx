@@ -190,6 +190,7 @@ export default function CentralDisparosPage() {
     pacientes_sem_agendamento: 'pacientes_sem_agendamento_adm',
     recall_preventivo: 'recall_preventivo',
     task_alerts: 'task_alert',
+    followup_lead: 'followup_lead',
   };
   const metricOf = (d: DisparoItem): { hoje: number; mes: number } | null => {
     if (!op) return null;
@@ -276,8 +277,9 @@ export default function CentralDisparosPage() {
 
   // ── Editor (clicou num disparo configurável) — reusa os painéis do Follow-up ──
   const openItem = DISPAROS.find((d) => d.id === openId) || null;
-  // Card abre com editor OU só com resumo (toggle-only, ex.: alertas de tarefa).
-  if (openItem && (openItem.editor || openItem.operacionalKey) && !openItem.emBreve) {
+  // Card abre com editor OU só com resumo (toggle-only, ex.: alertas de tarefa;
+  // ou só-métrica, ex.: follow-up de leads).
+  if (openItem && (openItem.editor || openItem.operacionalKey || openItem.soMetrica) && !openItem.emBreve) {
     // lembrete individual: edita só o texto da sua faixa (1 dia→24h, 1h→1h, 15min→<1h)
     const tplKey: 'consulta_confirmacao' | 'consulta_24h' | 'consulta_1h' | 'consulta_15min' | undefined =
       openItem.antecedenciaMin == null ? undefined
@@ -296,6 +298,13 @@ export default function CentralDisparosPage() {
         </button>
         {/* Central 2.0 — resumo do disparo (pra quem mandou, quando, status, erro) */}
         <DisparoResumo disparoId={openItem.id} />
+        {openItem.soMetrica && (
+          <div className="bg-card border border-border rounded-2xl p-4 text-[12px] text-muted-foreground">
+            ℹ️ Este disparo não tem um liga/desliga aqui: a nutrição de leads é controlada
+            por <b>sequência</b> (cada uma tem seu próprio ativo/inativo). Este card é só o
+            acompanhamento — quem foi contatado e quando.
+          </div>
+        )}
         {openItem.editor === 'reminders' && <RemindersConfigModal open embedded onClose={() => {}} onlyTemplate={tplKey} itemLabel={openItem.nome} onCurrentTextChange={setLiveText} />}
         {openItem.editor === 'confirmacao' && <ConfirmacaoEditor />}
         {openItem.editor === 'orto_immediate' && (
@@ -650,8 +659,8 @@ export default function CentralDisparosPage() {
                 )}
                 <div className="rounded-xl border border-border divide-y divide-border overflow-hidden bg-card">
                   {itens.map((d) => {
-                    // Clicável com editor OU só toggle+resumo (Central 2.0).
-                    const clickable = (!!d.editor || !!d.operacionalKey) && !d.emBreve;
+                    // Clicável com editor OU toggle OU só-métrica (Central 2.0).
+                    const clickable = (!!d.editor || !!d.operacionalKey || !!d.soMetrica) && !d.emBreve;
                     const hasToggle = (!!d.operacionalKey || d.antecedenciaMin != null || d.birthdayMsg != null) && !d.emBreve;
                     const on = enabledOf(d);
                     const savingThis = saving === d.operacionalKey || saving === `ant_${d.antecedenciaMin}` || saving === `bd_${d.birthdayMsg}`;
