@@ -161,6 +161,10 @@ export class PortalService {
         paid_at: true,
         payment_method: true,
         status: true,
+        // Onda X — a parcela é gerada pelo Asaas? (tem cobrança de gateway ligada).
+        // Serve pra marcar "via Asaas + método" na área do paciente. Só marca quando
+        // há cobrança Asaas real (gateway_charge_id setado); local/caixa fica sem.
+        payment_charge: { select: { gateway: true, billing_type: true } },
       },
     });
 
@@ -177,7 +181,15 @@ export class PortalService {
       { paid: 0, open: 0, overdue: 0 },
     );
 
-    return { installments, totals };
+    // Achata o payment_charge em via_asaas + metodo (o método real da cobrança,
+    // ou o payment_method da parcela como fallback).
+    const mapped = installments.map(({ payment_charge, ...i }) => ({
+      ...i,
+      via_asaas: payment_charge?.gateway === 'ASAAS',
+      metodo: payment_charge?.billing_type || i.payment_method || null,
+    }));
+
+    return { installments: mapped, totals };
   }
 
   /**

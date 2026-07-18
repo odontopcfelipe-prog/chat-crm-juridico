@@ -14,8 +14,17 @@ interface Installment {
   paid_at: string | null;
   payment_method: string | null;
   status: string;
+  /** Cobrança gerada pelo Asaas? (tem cobrança de gateway ligada) → mostra o selo. */
+  via_asaas?: boolean;
+  /** Método real da cobrança (PIX/BOLETO/CREDIT_CARD) ou o payment_method da parcela. */
+  metodo?: string | null;
 }
 interface Totals { paid: number; open: number; overdue: number }
+
+const METODO_LABEL: Record<string, string> = {
+  PIX: 'PIX', BOLETO: 'Boleto', CREDIT_CARD: 'Cartão', CARTAO: 'Cartão',
+  DINHEIRO: 'Dinheiro', MAQUININHA: 'Maquininha', TRANSFERENCIA: 'Transferência',
+};
 
 const fmtBRL = (v: number | string) =>
   new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(v));
@@ -97,6 +106,15 @@ export default function AreaPacienteParcelasPage() {
                         Pago em {new Date(i.paid_at).toLocaleDateString('pt-BR')}
                         {i.payment_method && ` via ${i.payment_method}`}
                       </p>
+                    )}
+                    {/* Selo do provedor: só nas cobranças geradas pelo Asaas (gateway).
+                        A "logo" aqui é a wordmark textual — trocar pelo PNG/SVG oficial
+                        do Asaas quando o arquivo estiver disponível. */}
+                    {i.via_asaas && (
+                      <span className="mt-1 inline-flex items-center gap-1 text-[10px] font-semibold rounded-full px-2 py-0.5 bg-blue-500/10 text-blue-700 dark:text-blue-400 border border-blue-500/20">
+                        <span className="font-extrabold lowercase tracking-tighter">asaas</span>
+                        {i.metodo && <span className="font-medium opacity-80">· {METODO_LABEL[i.metodo] || i.metodo}</span>}
+                      </span>
                     )}
                   </div>
                   <div className="text-right">
