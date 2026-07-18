@@ -8,19 +8,18 @@ import { FollowupService } from '../followup/followup.service';
 import { GoogleDriveService } from '../google-drive/google-drive.service';
 import { PatientsService } from '../patients/patients.service';
 import { effectiveRole, normalizeRoles } from '../common/utils/permissions.util';
+import { brazilPhoneMatchVariants, normalizeBrazilianPhone } from '../common/utils/phone';
 import OpenAI from 'openai';
 
 /**
- * Remove o nono digito de celulares brasileiros.
- * 13 digitos (55+DD+9+8dig) -> 12 digitos (55+DD+8dig)
- * Ex: 5582999130127 -> 558299130127
+ * Forma canônica ÚNICA do telefone (55 + DDD + 8 díg). Delegado ao helper
+ * compartilhado normalizeBrazilianPhone — que, além de tirar o nono dígito de
+ * celular, ADICIONA o DDI 55 em número local (10/11 díg). Antes o to12Digits só
+ * tirava o 9, então um número sem 55 era gravado sem 55 e não casava com o
+ * canônico — divergência que reabria o contato duplicado.
  */
 function to12Digits(phone: string): string {
-  const d = phone.replace(/\D/g, '');
-  if (d.length === 13 && d.startsWith('55') && d[4] === '9') {
-    return d.slice(0, 4) + d.slice(5); // remove o 5o caractere (o 9)
-  }
-  return d;
+  return normalizeBrazilianPhone(phone);
 }
 
 @Injectable()
@@ -37,7 +36,23 @@ export class LeadsService {
 
   async create(data: Prisma.LeadCreateInput, inboxId?: string | null): Promise<Lead> {
     if (data.phone) data = { ...data, phone: to12Digits(data.phone) };
-    const lead = await this.prisma.lead.create({ data });
+    let lead: Lead;
+    try {
+      lead = await this.prisma.lead.create({ data });
+    } catch (e: any) {
+      // Já existe contato com esse telefone neste tenant (@@unique[tenant_id,
+      // phone]). Ex.: "Novo Contato" digitando um número que já chegou por
+      // WhatsApp. ADOTA o existente em vez de estourar P2002 — não duplica nem
+      // crasha. Sem phone/tenant pra reresolver, repropaga.
+      if (e?.code !== 'P2002' || !data.phone) throw e;
+      const tid = (data as any).tenant_id ?? (data as any).tenant?.connect?.id ?? null;
+      const existing = await this.prisma.lead.findFirst({
+        where: { phone: data.phone as string, tenant_id: tid },
+      });
+      if (!existing) throw e;
+      this.logger.log(`[CREATE] Telefone ${data.phone} já existe (tenant ${tid ?? 'null'}) — adotou lead ${existing.id} em vez de duplicar`);
+      return existing;
+    }
     // Fire automation hooks asynchronously (don't block the response)
     this.automationsService.onNewLead(lead.id, lead.tenant_id ?? undefined).catch(err =>
       this.logger.warn(`onNewLead automation error for lead ${lead.id}: ${err}`),
@@ -468,12 +483,17 @@ export class LeadsService {
     // chegando pela instância da clínica B grudava no lead da clínica A se o
     // telefone já existisse lá (vazamento de conversa entre clínicas).
 
-    // Backfill defensivo: lead órfão (tenant_id null, pré-multi-tenant) com
-    // este phone é adotado pelo tenant da instância que recebeu a mensagem.
-    // Roda ANTES da resolução pra que o lead adotado seja encontrado abaixo.
+    // Todas as variantes de dígitos do número (com/sem 9, com/sem 55) — pra casar
+    // registros em formato legado sem criar gêmeo. Usadas na adoção de órfão e no
+    // fallback anti-duplicata abaixo.
+    const variants = brazilPhoneMatchVariants(data.phone);
+
+    // Backfill defensivo: lead órfão (tenant_id null, pré-multi-tenant) com este
+    // phone (em QUALQUER formato) é adotado pelo tenant da instância que recebeu a
+    // mensagem. Roda ANTES da resolução pra que o adotado seja encontrado abaixo.
     if (incomingTenantId) {
       const adopted = await this.prisma.lead.updateMany({
-        where: { phone, tenant_id: null },
+        where: { phone: { in: variants }, tenant_id: null },
         data: { tenant_id: incomingTenantId },
       });
       if (adopted.count > 0) {
@@ -504,6 +524,44 @@ export class LeadsService {
 
     // Detecta se é criação (lead novo) para disparar notificação ao atendente
     let existing = await this.prisma.lead.findFirst({ where: scope, select: { id: true } });
+
+    // ANTI-DUPLICATA por formato de telefone. O `scope` casa só o canônico exato
+    // (12 díg); mas o MESMO número pode já existir gravado em formato legado — 13
+    // díg com o 9 (cadastro manual de paciente), string formatada "+55 (82) 9…"
+    // (backfill antigo) ou sem o 55. Sem isto, a mensagem de entrada não achava o
+    // lead e nascia um contato GÊMEO. Procura por TODAS as variantes de dígitos e
+    // ADOTA o legado (curando o formato pro canônico), em vez de duplicar. As
+    // variantes só trocam 55/9 do mesmo assinante → nunca fundem pessoas diferentes.
+    if (!existing) {
+      const legacy = await this.prisma.lead.findFirst({
+        where: { tenant_id: incomingTenantId, phone: { in: variants } },
+        select: { id: true, phone: true },
+      });
+      if (legacy) {
+        existing = { id: legacy.id };
+        if (legacy.phone !== phone) {
+          // Converge o formato pro canônico. Se numa corrida surgiu um gêmeo
+          // canônico (@@unique → P2002), adota ESSE gêmeo em vez do legado — senão
+          // a mensagem grudaria no legado e o canônico ficaria órfão duplicado.
+          try {
+            await this.prisma.lead.update({ where: { id: legacy.id }, data: { phone } });
+          } catch (e: any) {
+            if (e?.code !== 'P2002') throw e;
+            const canonical = await this.prisma.lead.findFirst({ where: scope, select: { id: true } });
+            if (canonical) existing = canonical;
+          }
+        }
+        // O preenchimento de nome acima roda no phone canônico exato; um lead
+        // adotado por variante (formato legado) não foi coberto — preenche aqui.
+        if (existing && incomingName) {
+          await this.prisma.lead.updateMany({
+            where: { id: existing.id, name: null },
+            data: { name: incomingName },
+          });
+        }
+        this.logger.log(`[UPSERT] Lead ${existing?.id} casado por variante (${legacy.phone} → ${phone}) — evitou contato duplicado`);
+      }
+    }
 
     let lead: Lead;
     if (existing) {

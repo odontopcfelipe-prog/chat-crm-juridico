@@ -263,11 +263,27 @@ export default function CentralDisparosPage() {
 
   // Adiciona o +55 nos telefones já salvos sem código de país (pacientes antigos).
   const fixPhones = async () => {
+    if (!window.confirm(
+      'Padronizar os telefones e UNIFICAR contatos duplicados desta clínica?\n\n' +
+      'Contatos repetidos do mesmo número viram um só (as conversas são preservadas). ' +
+      'Duplicatas com cadastro/histórico dos dois lados ficam para revisão manual. ' +
+      'Esta ação não pode ser desfeita.'
+    )) return;
     setFixingPhones(true);
     try {
-      const r = await api.post('/patients/backfill-phone-ddi');
-      const { patients = 0, leads = 0 } = r.data || {};
-      showSuccess(`Telefones corrigidos: ${patients} paciente(s) e ${leads} contato(s) ganharam o +55. Agora os disparos entregam pra eles.`);
+      const r = await api.post('/leads/cleanup/deduplicate');
+      const { mergedLeads = 0, updatedPhones = 0, updatedPatients = 0, skipped = 0 } = r.data || {};
+      const padronizados = updatedPhones + updatedPatients;
+      if (mergedLeads === 0 && padronizados === 0 && skipped === 0) {
+        showSuccess('Tudo certo — nenhum contato duplicado e nenhum telefone fora do padrão.');
+      } else {
+        const partes: string[] = [];
+        if (mergedLeads > 0) partes.push(`${mergedLeads} contato(s) duplicado(s) unificado(s)`);
+        if (padronizados > 0) partes.push(`${padronizados} telefone(s) padronizado(s)`);
+        let msg = partes.length ? `Pronto: ${partes.join(' e ')}.` : 'Verificação concluída.';
+        if (skipped > 0) msg += ` ${skipped} duplicata(s) precisam de revisão manual (têm cadastro/histórico dos dois lados).`;
+        showSuccess(msg);
+      }
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Falha ao corrigir os telefones');
     } finally {
@@ -553,10 +569,10 @@ export default function CentralDisparosPage() {
             onClick={fixPhones}
             disabled={fixingPhones}
             className="mt-2 inline-flex items-center gap-1.5 text-[11px] font-semibold text-muted-foreground hover:text-foreground disabled:opacity-50"
-            title="Adiciona o +55 nos telefones de pacientes antigos que estão sem código de país, pra os disparos entregarem."
+            title="Padroniza os telefones (adiciona +55, remove o nono dígito duplicado) e UNIFICA num só os contatos repetidos do mesmo paciente. Duplicatas com paciente dos dois lados ficam para revisão manual."
           >
             {fixingPhones ? <Loader2 size={12} className="animate-spin" /> : <Wrench size={12} />}
-            Corrigir telefones antigos (adicionar +55)
+            Corrigir telefones e unificar contatos duplicados
           </button>
         </div>
         <span className="text-xs font-semibold text-muted-foreground bg-muted/50 border border-border rounded-full px-3 py-1.5 whitespace-nowrap">

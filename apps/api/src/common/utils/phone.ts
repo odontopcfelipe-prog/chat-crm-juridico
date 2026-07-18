@@ -57,3 +57,30 @@ export function denormalizeBrazilianPhone(normalizedPhone: string): string {
   }
   return cleaned;
 }
+
+/**
+ * Todas as variantes de DÍGITOS por onde o MESMO telefone brasileiro pode estar
+ * gravado no banco (com/sem o nono dígito de operadora, com/sem o DDI 55). Serve
+ * pra CASAR um registro legado — vindo do cadastro manual de paciente (13 díg
+ * cru), do backfill antigo (string formatada "+55 (82) 9…") ou do webhook (12 díg)
+ * — sem criar um contato GÊMEO.
+ *
+ * SEGURO contra falso-merge: as variantes só adicionam/removem o 55 e o 9 do
+ * MESMO assinante, nunca tocam nos 8 dígitos finais. Dois números de pessoas
+ * diferentes jamais compartilham uma variante. Fixo (8 díg começando 2-5) só
+ * gera a variante-com-9 teórica, que não existe pra fixo → não casa nada.
+ */
+export function brazilPhoneMatchVariants(raw: string | null | undefined): string[] {
+  const digits = (raw || '').replace(/\D/g, '');
+  if (!digits) return [];
+  const canon = normalizeBrazilianPhone(digits); // 55 + DDD + 8 (forma canônica)
+  const set = new Set<string>([digits, canon]);
+  if (canon.length === 12 && canon.startsWith('55')) {
+    const ddd = canon.slice(2, 4);
+    const num8 = canon.slice(4);
+    set.add(`${ddd}${num8}`); // DDD + 8 (local, sem 55)
+    set.add(`55${ddd}9${num8}`); // 55 + DDD + 9 + 8 (com nono dígito)
+    set.add(`${ddd}9${num8}`); // DDD + 9 + 8 (com nono, sem 55)
+  }
+  return [...set];
+}

@@ -4,6 +4,7 @@ import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { Prisma } from '@crm/shared';
+import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 // SaaS Fase 4 (Onda 17.32.79) — limites por plano. Import ESTATICO (resolucao
 // nodenext, extensao .js): se o modulo sumir o build/boot quebra alto, em vez
 // de a checagem de quota ser pulada silenciosamente em runtime — que era o que
@@ -105,47 +106,10 @@ export class PatientsService {
     }
   }
 
-  /** Onda 17.56 — adiciona o DDI 55 nos telefones (paciente + lead) que estão SEM
-   *  código de país (10-11 dígitos). Idempotente — quem já tem DDI não muda. */
-  private addDdiBr(phone: string | null | undefined): string | null {
-    if (!phone) return null;
-    const d = phone.replace(/\D/g, '');
-    if (d.length !== 10 && d.length !== 11) return null;
-    const ddd = d.slice(0, 2);
-    const rest = d.slice(2);
-    const num = rest.length === 9
-      ? `${rest.slice(0, 5)}-${rest.slice(5)}`
-      : `${rest.slice(0, 4)}-${rest.slice(4)}`;
-    return `+55 (${ddd}) ${num}`;
-  }
-
-  async backfillPhoneDdi(tenantId: string) {
-    let patients = 0;
-    const pats = await this.prisma.patient.findMany({
-      where: { tenant_id: tenantId, phone: { not: null } },
-      select: { id: true, phone: true },
-    });
-    for (const p of pats) {
-      const fixed = this.addDdiBr(p.phone);
-      if (fixed && fixed !== p.phone) {
-        await this.prisma.patient.update({ where: { id: p.id }, data: { phone: fixed } });
-        patients++;
-      }
-    }
-    let leads = 0;
-    const lds = await this.prisma.lead.findMany({
-      where: { tenant_id: tenantId },
-      select: { id: true, phone: true },
-    });
-    for (const l of lds) {
-      const fixed = this.addDdiBr(l.phone);
-      if (fixed && fixed !== l.phone) {
-        await this.prisma.lead.update({ where: { id: l.id }, data: { phone: fixed } });
-        leads++;
-      }
-    }
-    return { patients, leads };
-  }
+  // (Removido) backfillPhoneDdi/addDdiBr: gravavam telefone FORMATADO "+55 (82) 9…"
+  // com o nono dígito, o que quebrava o casamento por telefone e ERA fonte do
+  // contato duplicado. A padronização + unificação segura agora vive no
+  // LeadsCleanupService.deduplicatePhones (botão "Corrigir telefones" em Disparos).
 
   /** Cria novo paciente. Valida CPF unico por tenant quando preenchido. */
   async create(
@@ -291,15 +255,33 @@ export class PatientsService {
     name: string | null,
     tenantId: string,
   ): Promise<void> {
-    // Normaliza phone (so digitos)
-    const normalizedPhone = phone.replace(/\D/g, '');
-    if (!normalizedPhone) return;
+    // Canoniza pro MESMO formato do webhook (55 + DDD + 8 díg, SEM o nono dígito)
+    // — assim o lead do paciente cadastrado à mão e o lead que nasce da mensagem
+    // de WhatsApp CONVERGEM num contato só, em vez de duplicar (era a raiz do "2
+    // contatos do mesmo paciente").
+    const digits = phone.replace(/\D/g, '');
+    if (!digits) return;
+    const normalizedPhone = normalizeBrazilianPhone(phone);
 
-    // 1. Procura Lead pelo phone (mesmo tenant)
+    // 1. Procura Lead por TODAS as variantes do número (com/sem 9, com/sem 55,
+    //    formatado) no mesmo tenant — pra ADOTAR um lead já existente do webhook.
     let lead = await this.prisma.lead.findFirst({
-      where: { phone: normalizedPhone, tenant_id: tenantId },
+      where: { tenant_id: tenantId, phone: { in: brazilPhoneMatchVariants(phone) } },
       select: { id: true, name: true },
     });
+
+    // Lead já pertence a OUTRO paciente (família divide o número): NÃO dá pra
+    // linkar (Patient.lead_id é @unique) NEM criar um lead novo com o mesmo número
+    // (Lead tem @@unique[tenant_id, phone] → P2002). Sai limpo, sem vincular: o
+    // paciente fica sem conversa própria (o WhatsApp mora no lead do 1º), o que é
+    // o comportamento aceitável pra número compartilhado — melhor que crashar.
+    if (lead) {
+      const claimedByOther = await this.prisma.patient.findFirst({
+        where: { lead_id: lead.id, id: { not: patientId } },
+        select: { id: true },
+      });
+      if (claimedByOther) return;
+    }
 
     // 2. Cria Lead se nao tem
     if (!lead) {

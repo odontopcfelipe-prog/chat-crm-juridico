@@ -14,6 +14,7 @@ import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
 import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 type ItemInput = {
   procedure_id: string;
@@ -1130,10 +1131,26 @@ export class QuotesService {
     // (Onda 17.36: phone deixou de ser unico global; vincular lead de outra
     // clinica aqui geraria cobranca/Asaas no tenant errado)
     if (patient.phone) {
+      // Casa por TODAS as variantes do número (com/sem 9, com/sem 55, formatado)
+      // — senão o billing cria um "lead fantasma" duplicado quando já existe um
+      // lead do webhook em formato diferente. Mesma defesa do webhook/cadastro.
       const existingLead = await this.prisma.lead.findFirst({
-        where: { phone: patient.phone, tenant_id: tenantId },
+        where: { phone: { in: brazilPhoneMatchVariants(patient.phone) }, tenant_id: tenantId },
       });
       if (existingLead) {
+        // Lead já é de OUTRO paciente (família divide o número): não dá pra linkar
+        // (Patient.lead_id @unique) nem criar um lead novo com o mesmo telefone
+        // (Lead @@unique[tenant_id, phone] → P2002). Erro CLARO e acionável em vez
+        // de "Erro de banco: P2002" ou crash.
+        const claimedByOther = await this.prisma.patient.findFirst({
+          where: { lead_id: existingLead.id, id: { not: patientId } },
+          select: { id: true },
+        });
+        if (claimedByOther) {
+          throw new BadRequestException(
+            'Este telefone já pertence a outro contato/paciente. Dois pacientes não podem dividir o mesmo número na cobrança — ajuste o telefone deste paciente antes de gerar a cobrança.',
+          );
+        }
         await this.prisma.patient.update({
           where: { id: patientId },
           data: { lead_id: existingLead.id },
@@ -1153,7 +1170,7 @@ export class QuotesService {
       data: {
         tenant_id: tenantId,
         name: patient.name,
-        phone: patient.phone,
+        phone: normalizeBrazilianPhone(patient.phone),
         origin: 'AUTO_CREATED_FROM_PATIENT',
         is_client: true,
         became_client_at: new Date(),

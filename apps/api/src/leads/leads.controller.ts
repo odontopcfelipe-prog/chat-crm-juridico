@@ -176,7 +176,15 @@ export class LeadsController {
 
   @Post('cleanup/deduplicate')
   @Roles('ADMIN')
-  deduplicatePhones() {
-    return this.leadsCleanupService.deduplicatePhones();
+  deduplicatePhones(@Request() req: any) {
+    // Scoped ao tenant do admin (unifica só os contatos da própria clínica +
+    // normaliza os telefones dos pacientes dela). Merge nunca cruza tenant.
+    // HARD-FAIL sem tenant: um SUPER_ADMIN com tenant_id nulo cairia no modo
+    // GLOBAL do serviço e mesclaria/deletaria leads de TODAS as clínicas.
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) {
+      throw new BadRequestException('Ação disponível apenas no contexto de uma clínica.');
+    }
+    return this.leadsCleanupService.deduplicatePhones(tenantId);
   }
 }
