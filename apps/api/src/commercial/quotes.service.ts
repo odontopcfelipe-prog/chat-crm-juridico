@@ -916,6 +916,14 @@ export class QuotesService {
       // Opt-in (PIX_DELIVERY_ENABLED). Best-effort.
       await this.sendPixDelivery(tenantId, plan.id, quote.patient, (result as any)?.pix?.copyPaste ?? null);
 
+      // Notificação interna de VENDA FEITA (a um número configurado) — cobre venda
+      // rápida e aprovar-e-cobrar (ambos passam por aqui).
+      await this.sendVendaFeita(tenantId, plan.id, quote.patient, {
+        valor: Number(data.value) || 0,
+        forma: data.manual_payment_method || data.billing_type,
+        vendedorId: userId,
+      });
+
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
       // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
       // hora. Best-effort: a cobranca ja foi criada, nao falha por causa disso.
@@ -1449,6 +1457,74 @@ export class QuotesService {
     }
   }
 
+  /**
+   * Notificação interna de VENDA FEITA — a cada venda (venda rápida, aprovar-e-
+   * cobrar, financiamento), avisa um número CONFIGURADO (VENDA_FEITA_PHONE) que
+   * uma venda foi realizada: paciente, valor, forma, itens e vendedor. Opt-in
+   * (VENDA_FEITA_ENABLED). Best-effort, dedup por venda (AuditLog VENDA_FEITA).
+   */
+  private async sendVendaFeita(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null } | null,
+    info: { valor: number; forma?: string | null; vendedorId?: string | null },
+  ): Promise<void> {
+    try {
+      const ws = this.whatsapp;
+      if (!ws || !tenantId) return;
+
+      const on = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } });
+      if (on?.value !== 'true') return;
+      const phoneRow = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } });
+      const phone = (phoneRow?.value || '').replace(/\D/g, '');
+      if (!phone) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número — pulando`); return; }
+
+      // Dedup por venda (approve-and-bill é idempotente; não notifica 2x).
+      const ja = await this.prisma.auditLog.findFirst({ where: { entity: 'VENDA_FEITA', entity_id: planId }, select: { id: true } });
+      if (ja) return;
+
+      const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const formaLabel =
+        info.forma === 'BOLETO' ? 'Boleto' : info.forma === 'PIX' ? 'PIX'
+        : info.forma === 'CREDIT_CARD' ? 'Cartão' : info.forma === 'CASH' ? 'Espécie'
+        : info.forma === 'PIX_MAQUININHA' ? 'PIX (maquineta)' : (info.forma || '—');
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+
+      let itensStr = '';
+      try {
+        const items = await this.prisma.treatmentPlanItem.findMany({ where: { treatment_plan_id: planId }, select: { quantity: true, procedure: { select: { name: true } } } });
+        itensStr = items.map((i) => `${i.procedure?.name || 'Procedimento'}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`).join(', ');
+      } catch { /* best-effort */ }
+
+      let vendedor = '';
+      if (info.vendedorId) {
+        const u = await this.prisma.user.findFirst({ where: { id: info.vendedorId, tenant_id: tenantId }, select: { name: true } }).catch(() => null);
+        vendedor = u?.name || '';
+      }
+
+      const msg =
+        `🎉 *Venda realizada!*\n_${clinica}_\n\n` +
+        `👤 ${patient?.name || 'Paciente'}\n` +
+        `💰 R$ ${brl(info.valor)} · ${formaLabel}\n` +
+        (itensStr ? `🦷 ${itensStr}\n` : '') +
+        (vendedor ? `🧑‍⚕️ Vendedor(a): ${vendedor}\n` : '');
+
+      const inst =
+        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId, purpose: 'FINANCEIRO' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
+        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId, purpose: 'CLINICA' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
+        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId }, select: { name: true }, orderBy: { name: 'asc' } }));
+      const instanceName = inst?.name || undefined;
+      const res = await ws.sendText(phone, msg.trim(), instanceName, undefined, tenantId);
+      if (!this.wasSent(res)) { this.logger.warn(`[VENDA_FEITA] Evolution recusou (plano ${planId}, ${phone}) — não marquei.`); return; }
+
+      await this.prisma.auditLog.create({ data: { entity: 'VENDA_FEITA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } }).catch(() => {});
+      await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (res as any)?.key?.id || null } }).catch(() => {});
+      this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone}`);
+    } catch (e: any) {
+      this.logger.warn(`[VENDA_FEITA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
   /** A Evolution NÃO lança em erro: request() devolve {statusCode,error} (ou 408 no
    *  timeout) em falha, e a resposta com key.id em sucesso. Só é sucesso REAL quando
    *  veio um id de mensagem e nenhum statusCode de erro. */
@@ -1663,6 +1739,13 @@ export class QuotesService {
       valorParcela: Number(data.installment_value) || 0,
       total: Number((result as { total_financed?: number }).total_financed) || 0,
       forma: 'BOLETO', // financiamento é sempre boleto → habilita a âncora dos boletos
+    });
+
+    // Notificação interna de VENDA FEITA (financiamento).
+    await this.sendVendaFeita(tenantId, plan.id, quoteCheck.patient, {
+      valor: Number((result as { total_financed?: number }).total_financed) || 0,
+      forma: 'BOLETO',
+      vendedorId: userId,
     });
 
     return {

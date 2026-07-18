@@ -50,7 +50,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'resumo_diario' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'resumo_diario' | 'venda_feita' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -80,7 +80,9 @@ export type OperacionalKey =
   // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
   | 'pacientes_sem_agendamento'
   // Resumo diário do dia (entradas/saídas/vendas/negociações) a um número configurado
-  | 'daily_summary';
+  | 'daily_summary'
+  // Notificação de venda feita (a cada venda) a um número configurado
+  | 'venda_feita';
 
 export interface DisparoItem {
   id: string;
@@ -277,4 +279,7 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'resumo_diario', nome: 'Resumo diário do dia', categoria: 'equipe',
     gatilho: 'Todo dia no horário configurado · entradas, saídas, vendas de boleto e negociações · a um número', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'resumo_diario', operacionalKey: 'daily_summary' },
+  { id: 'venda_feita', nome: 'Venda feita · notificação', categoria: 'equipe',
+    gatilho: 'A cada venda (venda rápida ou aprovar-e-cobrar) · paciente, valor, forma, itens · a um número', canal: 'WhatsApp', tags: ['Interno'],
+    editor: 'venda_feita', operacionalKey: 'venda_feita' },
 ];

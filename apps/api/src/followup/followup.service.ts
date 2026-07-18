@@ -104,7 +104,7 @@ export class FollowupService {
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
-      pixDeliverySetting, dailySummarySetting,
+      pixDeliverySetting, dailySummarySetting, vendaFeitaSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -147,6 +147,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `PIX_DELIVERY_ENABLED_${tenantId}` } }),
       // Resumo diário do dia (a um número configurado). Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tenantId}` } }),
+      // Notificação de venda feita (a um número configurado). Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -345,6 +347,8 @@ export class FollowupService {
       pix_delivery: { enabled: (pixDeliverySetting as any)?.value === 'true' },
       // Resumo diário do dia (número configurado). Default OFF (opt-in).
       daily_summary: { enabled: (dailySummarySetting as any)?.value === 'true' },
+      // Notificação de venda feita (número configurado). Default OFF (opt-in).
+      venda_feita: { enabled: (vendaFeitaSetting as any)?.value === 'true' },
     };
   }
 
@@ -494,6 +498,7 @@ export class FollowupService {
       negociacao_aprovada: ['negociacao_aprovada'],
       pix_delivery: ['pix_delivery'],
       daily_summary: ['daily_summary'],
+      venda_feita: ['venda_feita'],
       boleto_intro: ['boleto_intro'],
       boleto_delivery: ['boleto_delivery'],
       boleto_1d_antes: ['boleto_1d_antes'],
@@ -764,6 +769,13 @@ export class FollowupService {
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
       }
+      // Notificação de venda feita (sendVendaFeita no quotes.service lê esta key).
+      case 'venda_feita': {
+        const key = `VENDA_FEITA_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
       // Fase 3 — recall de revisão (motor maintenance-recall; default ON no cron).
       case 'recall_preventivo': {
         const key = `RECALL_PREVENTIVO_ENABLED_${tenantId}`;
@@ -878,6 +890,25 @@ export class FollowupService {
     await this.prisma.globalSetting.upsert({ where: { key: tKey }, create: { key: tKey, value: t }, update: { value: t } });
     this.logger.log(`[DAILY_SUMMARY] config salva (tenant ${tenantId}): ${cleanPhone || '(sem número)'} às ${t}`);
     return { phone: cleanPhone, time: t };
+  }
+
+  /** Número que recebe a notificação de venda feita (sendVendaFeita lê esta key). */
+  async getVendaFeitaConfig(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const row = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } });
+    return { phone: row?.value || '' };
+  }
+
+  async setVendaFeitaConfig(tenantId: string, phone: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const cleanPhone = (phone || '').replace(/\D/g, '');
+    if (cleanPhone && cleanPhone.length < 10) {
+      throw new BadRequestException('Número inválido — use DDD + número (com o 55, ex.: 5582999998888).');
+    }
+    const key = `VENDA_FEITA_PHONE_${tenantId}`;
+    await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value: cleanPhone }, update: { value: cleanPhone } });
+    this.logger.log(`[VENDA_FEITA] config salva (tenant ${tenantId}): ${cleanPhone || '(sem número)'}`);
+    return { phone: cleanPhone };
   }
 
   // ─── CRUD Sequências ─────────────────────────────────────────────────────

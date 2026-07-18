@@ -65,6 +65,21 @@ export class FollowupController {
     return this.svc.setDailySummaryConfig(req.user?.tenant_id, body?.phone ?? '', body?.time ?? '00:00');
   }
 
+  // Notificação de venda feita — número que recebe.
+  @Get('venda-feita-config')
+  getVendaFeitaConfig(@Request() req: any) {
+    return this.svc.getVendaFeitaConfig(req.user?.tenant_id);
+  }
+
+  @Put('venda-feita-config')
+  setVendaFeitaConfig(@Body() body: { phone?: string }, @Request() req: any) {
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode configurar a notificação de venda');
+    }
+    return this.svc.setVendaFeitaConfig(req.user?.tenant_id, body?.phone ?? '');
+  }
+
   // ─── Central 2.0 — resumo de UM disparo (pra quem mandou, quando, status) ──
   @Get('disparo-detail')
   getDisparoDetail(@Request() req: any, @Query('id') id?: string, @Query('days') days?: string) {
