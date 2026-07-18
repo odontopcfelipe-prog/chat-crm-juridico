@@ -104,7 +104,7 @@ export class FollowupService {
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
-      pixDeliverySetting,
+      pixDeliverySetting, dailySummarySetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -145,6 +145,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `TASK_ALERTS_ENABLED_${tenantId}` } }),
       // Envio do PIX (D+0) — card dedicado. Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `PIX_DELIVERY_ENABLED_${tenantId}` } }),
+      // Resumo diário do dia (a um número configurado). Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -341,6 +343,8 @@ export class FollowupService {
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
       // Envio do PIX (D+0) — card dedicado (par do envio dos boletos). Default OFF.
       pix_delivery: { enabled: (pixDeliverySetting as any)?.value === 'true' },
+      // Resumo diário do dia (número configurado). Default OFF (opt-in).
+      daily_summary: { enabled: (dailySummarySetting as any)?.value === 'true' },
     };
   }
 
@@ -489,6 +493,7 @@ export class FollowupService {
       comercial_lembrete_15min: ['comercial_lembrete_15min'],
       negociacao_aprovada: ['negociacao_aprovada'],
       pix_delivery: ['pix_delivery'],
+      daily_summary: ['daily_summary'],
       boleto_intro: ['boleto_intro'],
       boleto_delivery: ['boleto_delivery'],
       boleto_1d_antes: ['boleto_1d_antes'],
@@ -752,6 +757,13 @@ export class FollowupService {
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;
       }
+      // Resumo diário do dia (cronDailySummary no quotes.service lê esta key).
+      case 'daily_summary': {
+        const key = `DAILY_SUMMARY_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
       // Fase 3 — recall de revisão (motor maintenance-recall; default ON no cron).
       case 'recall_preventivo': {
         const key = `RECALL_PREVENTIVO_ENABLED_${tenantId}`;
@@ -835,6 +847,37 @@ export class FollowupService {
     await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
     this.logger.log(`[COBRANCA_TEMPLATE] ${stage}${t ? `/${t}` : ''} salvo (tenant ${tenantId})`);
     return this.getCobrancaTemplate(tenantId, stage, tipo);
+  }
+
+  // ─── Resumo diário: config do número que recebe + horário ─────────────────
+
+  /** Número que recebe o resumo + horário (HH:MM, default 00:00). O cron
+   *  cronDailySummary (quotes.service) lê estas keys. */
+  async getDailySummaryConfig(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const [phoneRow, timeRow] = await Promise.all([
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_TIME_${tenantId}` } }),
+    ]);
+    return { phone: phoneRow?.value || '', time: timeRow?.value || '00:00' };
+  }
+
+  async setDailySummaryConfig(tenantId: string, phone: string, time: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const cleanPhone = (phone || '').replace(/\D/g, '');
+    if (cleanPhone && cleanPhone.length < 10) {
+      throw new BadRequestException('Número inválido — use DDD + número (com o 55, ex.: 5582999998888).');
+    }
+    const t = (time || '00:00').trim();
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(t)) {
+      throw new BadRequestException('Horário inválido — use HH:MM (ex.: 00:00).');
+    }
+    const pKey = `DAILY_SUMMARY_PHONE_${tenantId}`;
+    const tKey = `DAILY_SUMMARY_TIME_${tenantId}`;
+    await this.prisma.globalSetting.upsert({ where: { key: pKey }, create: { key: pKey, value: cleanPhone }, update: { value: cleanPhone } });
+    await this.prisma.globalSetting.upsert({ where: { key: tKey }, create: { key: tKey, value: t }, update: { value: t } });
+    this.logger.log(`[DAILY_SUMMARY] config salva (tenant ${tenantId}): ${cleanPhone || '(sem número)'} às ${t}`);
+    return { phone: cleanPhone, time: t };
   }
 
   // ─── CRUD Sequências ─────────────────────────────────────────────────────

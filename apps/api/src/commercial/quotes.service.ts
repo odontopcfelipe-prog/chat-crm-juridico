@@ -3653,6 +3653,127 @@ export class QuotesService {
     }
   }
 
+  // ─── Resumo diário do dia (a um número configurado, horário configurável) ──
+  // Roda a cada minuto (fuso Maceió) mas SÓ trabalha quando bate o horário
+  // configurado da clínica — leitura barata dos horários primeiro, early-return
+  // se nada bate. Opt-in (DAILY_SUMMARY_ENABLED_<tenant>), número em
+  // DAILY_SUMMARY_PHONE_<tenant>, horário em DAILY_SUMMARY_TIME_<tenant>
+  // (default "00:00"). Dedup 1x/dia via DispatchLog type 'daily_summary'.
+  @Cron('* * * * *', { timeZone: 'America/Maceio' })
+  async cronDailySummary() {
+    if (!this.whatsapp) return;
+    const maceioNow = new Date(Date.now() - 3 * 3_600_000);
+    const hhmm = maceioNow.toISOString().slice(11, 16); // "HH:MM" Maceió
+
+    let timeRows: { key: string; value: string }[] = [];
+    try {
+      timeRows = await this.prisma.globalSetting.findMany({ where: { key: { startsWith: 'DAILY_SUMMARY_TIME_' } } });
+    } catch { return; }
+    const tenantIds = new Set<string>();
+    for (const r of timeRows) if ((r.value || '00:00') === hhmm) tenantIds.add(r.key.slice('DAILY_SUMMARY_TIME_'.length));
+    // Default 00:00 — clínicas LIGADAS sem horário setado disparam à meia-noite.
+    if (hhmm === '00:00') {
+      const enabledRows = await this.prisma.globalSetting
+        .findMany({ where: { key: { startsWith: 'DAILY_SUMMARY_ENABLED_' }, value: 'true' } })
+        .catch(() => [] as { key: string }[]);
+      for (const e of enabledRows) {
+        const tid = e.key.slice('DAILY_SUMMARY_ENABLED_'.length);
+        if (!timeRows.some((r) => r.key === `DAILY_SUMMARY_TIME_${tid}`)) tenantIds.add(tid);
+      }
+    }
+    if (tenantIds.size === 0) return;
+
+    // Janela do dia que FECHA: à meia-noite é o dia ANTERIOR (completo); em outro
+    // horário é o dia corrente até agora. (-1min faz 00:00 cair no dia anterior.)
+    const ref = new Date(maceioNow.getTime() - 60_000);
+    const ymd = ref.toISOString().slice(0, 10);
+    const startUTC = new Date(new Date(ymd + 'T00:00:00.000Z').getTime() + 3 * 3_600_000);
+    const endUTC = new Date(startUTC.getTime() + 24 * 3_600_000);
+    const dataLabel = `${ymd.slice(8, 10)}/${ymd.slice(5, 7)}/${ymd.slice(0, 4)}`;
+    const startOfToday = new Date(); startOfToday.setHours(0, 0, 0, 0);
+
+    for (const tid of tenantIds) {
+      try {
+        const enabled = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tid}` } }).catch(() => null);
+        if (enabled?.value !== 'true') continue;
+        const phoneRow = await this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tid}` } }).catch(() => null);
+        const phone = (phoneRow?.value || '').replace(/\D/g, '');
+        if (!phone) { this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} ligado mas SEM número configurado — pulando`); continue; }
+
+        const already = await this.prisma.dispatchLog.findFirst({
+          where: { tenant_id: tid, type: 'daily_summary', sent_at: { gte: startOfToday } },
+          select: { id: true },
+        });
+        if (already) continue;
+
+        const msg = await this.buildDailySummary(tid, startUTC, endUTC, dataLabel);
+        const inst =
+          (await this.prisma.instance.findFirst({ where: { tenant_id: tid, purpose: 'FINANCEIRO' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
+          (await this.prisma.instance.findFirst({ where: { tenant_id: tid, purpose: 'CLINICA' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
+          (await this.prisma.instance.findFirst({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }));
+        const instanceName = inst?.name || undefined;
+        try {
+          await this.whatsapp.sendText(phone, msg, instanceName, undefined, tid);
+          await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } });
+          this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone}`);
+        } catch (err: any) {
+          await this.prisma.dispatchLog
+            .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: String(err?.response?.data?.message || err?.message || err).slice(0, 300) } })
+            .catch(() => {});
+        }
+      } catch (err: any) {
+        this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} falhou: ${err?.message}`);
+      }
+    }
+  }
+
+  /** Monta o texto do resumo do dia: entradas, saídas, saldo, vendas de boleto
+   *  (com valores) e negociações fechadas. Janela em UTC (dia Maceió). */
+  private async buildDailySummary(tenantId: string, startUTC: Date, endUTC: Date, dataLabel: string): Promise<string> {
+    const brl = (v: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const win = { gte: startUTC, lt: endUTC };
+
+    // Entradas / Saídas — regime de caixa (RECEITA/DESPESA PAGO por data).
+    const [entradasAgg, saidasAgg, boletos, negoc] = await Promise.all([
+      this.prisma.financialTransaction.aggregate({ where: { tenant_id: tenantId, type: 'RECEITA', status: 'PAGO', date: win }, _sum: { amount: true } }),
+      this.prisma.financialTransaction.aggregate({ where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', date: win }, _sum: { amount: true } }),
+      // Vendas de boleto do dia (a cobrança É a venda; created_at no dia).
+      this.prisma.paymentGatewayCharge.findMany({
+        where: { tenant_id: tenantId, billing_type: 'BOLETO', created_at: win, status: { notIn: ['REFUNDED', 'DELETED', 'CANCELLED'] } },
+        select: { amount: true, treatment_plan: { select: { patient: { select: { name: true } } } } },
+        orderBy: { created_at: 'asc' },
+        take: 100,
+      }),
+      // Negociações FECHADAS no dia (Quote aceito por accepted_at; sem tenant_id → via paciente).
+      this.prisma.quote.aggregate({
+        where: { status: 'ACCEPTED', accepted_at: win, deleted_at: null, patient: { tenant_id: tenantId } },
+        _sum: { total_value: true }, _count: { _all: true },
+      }),
+    ]);
+    const entradas = Number(entradasAgg._sum.amount || 0);
+    const saidas = Number(saidasAgg._sum.amount || 0);
+    const totalBoletos = boletos.reduce((s, b) => s + Number(b.amount || 0), 0);
+    const negocTotal = Number(negoc._sum.total_value || 0);
+    const negocQtd = negoc._count._all;
+
+    const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+    const listaBoletos = boletos.slice(0, 15)
+      .map((b) => `  • ${(b.treatment_plan?.patient?.name || 'Paciente').split(' ')[0]}: R$ ${brl(Number(b.amount))}`)
+      .join('\n');
+    const maisBoletos = boletos.length > 15 ? `\n  …e mais ${boletos.length - 15}` : '';
+
+    return (
+      `📊 *Resumo do dia — ${dataLabel}*\n_${clinica}_\n\n` +
+      `💰 *Entradas:* R$ ${brl(entradas)}\n` +
+      `💸 *Saídas:* R$ ${brl(saidas)}\n` +
+      `📈 *Saldo do dia:* R$ ${brl(entradas - saidas)}\n\n` +
+      `📄 *Vendas em boleto:* ${boletos.length} — R$ ${brl(totalBoletos)}` +
+      (boletos.length ? `\n${listaBoletos}${maisBoletos}` : '') +
+      `\n\n🤝 *Negociações fechadas:* ${negocQtd} — R$ ${brl(negocTotal)}\n\n` +
+      `_Resumo automático do fechamento do dia._`
+    );
+  }
+
   // ─── Onda 1 — Envio via WhatsApp ───────────────────────────────
 
   /**

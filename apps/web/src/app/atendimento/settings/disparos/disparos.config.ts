@@ -50,7 +50,7 @@ export const CATEGORIA_SETOR: Record<DisparoCategoria, Setor> = {
 };
 
 /** Editor que abre ao clicar (reusa os painéis existentes). null = sem editor. */
-export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | null;
+export type DisparoEditor = 'reminders' | 'pos' | 'dentista' | 'confirmacao' | 'confirmacao_orto' | 'orto_immediate' | 'orto_reminder' | 'reagendamento' | 'aniversario' | 'cobranca' | 'comercial_agenda' | 'recall' | 'sem_agendamento' | 'resumo_diario' | null;
 /** Chave do GET /followup/operacional → on/off + métrica do disparo. */
 export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
@@ -78,7 +78,9 @@ export type OperacionalKey =
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
   | 'confirmacao_orto' | 'lembrete_orto_1h' | 'confirmacao_orto_imediata'
   // Onda — Equipe: resumo diário aos adms de pacientes +30d sem agendar / em stand by
-  | 'pacientes_sem_agendamento';
+  | 'pacientes_sem_agendamento'
+  // Resumo diário do dia (entradas/saídas/vendas/negociações) a um número configurado
+  | 'daily_summary';
 
 export interface DisparoItem {
   id: string;
@@ -272,4 +274,7 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'task_alerts', nome: 'Alertas de tarefa à equipe', categoria: 'equipe',
     gatilho: 'Tarefa vencendo em 30min · vencidas às 8h/14h · pro responsável', canal: 'WhatsApp', tags: ['Interno'],
     operacionalKey: 'task_alerts' },
+  { id: 'resumo_diario', nome: 'Resumo diário do dia', categoria: 'equipe',
+    gatilho: 'Todo dia no horário configurado · entradas, saídas, vendas de boleto e negociações · a um número', canal: 'WhatsApp', tags: ['Interno'],
+    editor: 'resumo_diario', operacionalKey: 'daily_summary' },
 ];

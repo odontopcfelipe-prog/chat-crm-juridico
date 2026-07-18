@@ -26,6 +26,7 @@ import { ConfirmacaoEditor } from './ConfirmacaoEditor';
 import { MensagemEditor } from './MensagemEditor';
 import { AniversarioEditor } from './AniversarioEditor';
 import { SemAgendamentoEditor } from './SemAgendamentoEditor';
+import { ResumoDiarioEditor } from './ResumoDiarioEditor';
 import { TesteEnvio } from './TesteEnvio';
 
 const CAT_ICON: Record<DisparoCategoria, typeof CalendarClock> = {
@@ -80,6 +81,8 @@ interface OperacionalData {
   negociacao_aprovada?: { enabled: boolean };
   // Envio do PIX (D+0) — card dedicado (opt-in).
   pix_delivery?: { enabled: boolean };
+  // Resumo diário do dia (opt-in) — a um número configurado.
+  daily_summary?: { enabled: boolean };
   // Onda 18.x — ortodontia por ordem de chegada (OPT-IN).
   confirmacao_orto?: { enabled: boolean };
   lembrete_orto_1h?: { enabled: boolean };
@@ -511,9 +514,10 @@ export default function CentralDisparosPage() {
           </div>
         )}
         {openItem.editor === 'sem_agendamento' && <SemAgendamentoEditor />}
-        {/* Resumo interno tem o próprio "enviar teste" (SemAgendamentoEditor) —
-            pula o TesteEnvio genérico (que testa texto de template ao paciente). */}
-        {openItem.editor && openItem.editor !== 'sem_agendamento' && <TesteEnvio disparo={openItem.id} text={liveText} />}
+        {openItem.editor === 'resumo_diario' && <ResumoDiarioEditor />}
+        {/* Resumo interno / config (sem_agendamento, resumo_diario) têm sua própria
+            UI — pula o TesteEnvio genérico (que testa texto de template ao paciente). */}
+        {openItem.editor && openItem.editor !== 'sem_agendamento' && openItem.editor !== 'resumo_diario' && <TesteEnvio disparo={openItem.id} text={liveText} />}
       </div>
     );
   }

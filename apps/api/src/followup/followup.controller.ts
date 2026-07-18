@@ -50,6 +50,21 @@ export class FollowupController {
     return this.svc.setRecallTemplate(req.user?.tenant_id, body?.template);
   }
 
+  // Resumo diário — número que recebe + horário.
+  @Get('daily-summary-config')
+  getDailySummaryConfig(@Request() req: any) {
+    return this.svc.getDailySummaryConfig(req.user?.tenant_id);
+  }
+
+  @Put('daily-summary-config')
+  setDailySummaryConfig(@Body() body: { phone?: string; time?: string }, @Request() req: any) {
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode configurar o resumo diário');
+    }
+    return this.svc.setDailySummaryConfig(req.user?.tenant_id, body?.phone ?? '', body?.time ?? '00:00');
+  }
+
   // ─── Central 2.0 — resumo de UM disparo (pra quem mandou, quando, status) ──
   @Get('disparo-detail')
   getDisparoDetail(@Request() req: any, @Query('id') id?: string, @Query('days') days?: string) {
