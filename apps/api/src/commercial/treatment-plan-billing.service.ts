@@ -73,6 +73,13 @@ export class TreatmentPlanBillingService {
 
     const description = `Plano de tratamento odontológico — ${plan.patient.name} (${options.installmentCount}x) [plan:${planId}]`;
 
+    // Asaas NÃO parcela PIX (installmentCount + billingType PIX degrada pra carnê
+    // de boleto). O tipo já exclui PIX aqui; guard defensivo (as string) caso um
+    // call-site force via cast.
+    if ((options.billingType as string) === 'PIX') {
+      throw new BadRequestException('PIX não permite parcelamento no Asaas. Parcele no Boleto/Cartão, ou gere um PIX à vista.');
+    }
+
     const asaasCharge = await this.asaas.createCharge({
       customer: customer.external_id,
       billingType: options.billingType,
@@ -717,7 +724,11 @@ export class TreatmentPlanBillingService {
       ? new Date(options.firstDueDate)
       : new Date(Date.now() + 3 * 24 * 60 * 60 * 1000);
 
-    const installmentCount = options.installmentCount && options.installmentCount > 1
+    // installmentCount SÓ vale pra CREDIT_CARD aqui (PIX/Boleto são à vista; o
+    // parcelamento de boleto vai pelo fluxo de financiamento). Sem esta trava, um
+    // PIX com installmentCount iria pro Asaas e degradaria pra carnê de boleto.
+    const installmentCount = options.billingType === 'CREDIT_CARD'
+      && options.installmentCount && options.installmentCount > 1
       ? options.installmentCount
       : undefined;
     const installmentValue = installmentCount

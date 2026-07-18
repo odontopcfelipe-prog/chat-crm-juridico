@@ -1245,6 +1245,12 @@ export class PaymentGatewayService {
     const typeLabels: Record<string, string> = { CONTRATUAL: 'Contratuais', ENTRADA: 'Entrada', ACORDO: 'Acordo' };
     const description = `Honorário ${typeLabels[honorario.type] || honorario.type} - ${honorario.lead.name || 'Lead'} (${installmentCount}x)`.trim();
 
+    // Asaas NÃO parcela PIX (installmentCount + PIX degrada pra carnê de boleto).
+    // Tipo já exclui PIX; guard defensivo (as string) caso um call-site force via cast.
+    if ((billingType as string) === 'PIX') {
+      throw new BadRequestException('PIX não permite parcelamento no Asaas. Parcele no Boleto/Cartão.');
+    }
+
     // Criar cobrança parcelada no Asaas
     const effectiveTenantId2 = tenantId || honorario.tenant_id || null;
     const asaasCharge = await this.asaas.createCharge({

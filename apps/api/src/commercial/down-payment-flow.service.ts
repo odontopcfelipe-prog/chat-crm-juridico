@@ -305,6 +305,17 @@ export class DownPaymentFlowService {
       });
     }
 
+    // Blindagem: o body deste fluxo (emit-down-payment) NÃO passa por
+    // class-validator, então `method` pode chegar vazio/inválido em runtime.
+    // billingType vazio no Asaas gera a fatura com TODOS os meios (boleto+PIX+
+    // cartão) — a "função errada" que o dono viu. Nunca deixa passar.
+    const m = args.method as string;
+    if (m !== 'PIX' && m !== 'BOLETO') {
+      throw new BadRequestException(
+        `Forma de pagamento inválida para o ${kindLabel.toLowerCase()}: "${m || '(vazia)'}". Use PIX ou Boleto.`,
+      );
+    }
+
     // PIX/BOLETO: cria no Asaas (precisa do patient_id do plan)
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: args.planId },
