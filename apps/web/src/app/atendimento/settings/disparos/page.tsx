@@ -483,10 +483,12 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
-            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma as condições que ele fechou. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma O QUE foi vendido + as condições e, quando é PIX (com a conta Asaas conectada), já manda o código PIX pra pagar na hora. Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
             endpoint="/followup/cobranca-template/negociacao_aprovada"
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'itens', desc: 'Lista do que foi vendido (procedimentos do plano)' },
+              { key: 'codigo_pix', desc: 'Bloco do PIX copia-e-cola — aparece SÓ se a venda for PIX (vazio no boleto/cartão)' },
               { key: 'condicoes', desc: 'Bloco pronto: entrada + parcelas + total (ou só o total, à vista)' },
               { key: 'condicoes_sem_total', desc: 'O mesmo bloco, mas SEM a linha do total (só entrada + parcelas)' },
               { key: 'entrada', desc: 'Valor da entrada (ex.: 10,00)' },
@@ -495,7 +497,7 @@ export default function CentralDisparosPage() {
               { key: 'total', desc: 'Total do tratamento (ex.: 52,74)' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', itens: '• Clareamento dental\n• Limpeza (2x)', codigo_pix: '\n\n💠 *Pague agora no PIX (copia e cola):*\n00020126...EXEMPLO...5204000053039865802BR', condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74', condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34', entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_NEGOCIACAO_APROVADA}
           />

@@ -1929,6 +1929,9 @@ export class CalendarService {
       // Negociação aprovada — exemplos dos blocos/valores (senão o teste sai sem eles).
       condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74',
       condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34',
+      // Negociação aprovada — exemplos de itens vendidos e do bloco do PIX.
+      itens: '• Clareamento dental\n• Limpeza (2x)',
+      codigo_pix: '\n\n💠 *Pague agora no PIX (copia e cola):*\n00020126...EXEMPLO...5204000053039865802BR',
       entrada: '10,00', parcelas: '8', valor_parcela: '5,34', total: '52,74', forma: 'boleto',
       // Recall de revisão — exemplo do procedimento (senão sairia vazio no teste).
       procedimento: 'Limpeza',

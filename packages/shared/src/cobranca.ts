@@ -141,14 +141,19 @@ export const DEFAULT_BOLETO_DELIVERY =
   'Qualquer dúvida, é só me chamar por aqui! 💙';
 
 // NEGOCIAÇÃO APROVADA — disparo no FECHAMENTO da venda (D+0): confirma ao paciente
-// as condições que ele fechou (entrada + parcelas + total). Substitui a apresentação
-// (D+1). Placeholders: {nome} {condicoes} {clinica} — e os avulsos {entrada}
-// {parcelas} {valor_parcela} {total} {forma} pra quem quiser montar o texto na mão.
-// {condicoes} vem pronto do backend (bloco com entrada/parcelas/total ou só total).
+// O QUE foi vendido + as condições, e — quando é PIX — já manda o código PIX pra
+// pagar na hora. Substitui a apresentação (D+1). Placeholders:
+//   {nome} {clinica} — básicos
+//   {itens} — lista do que foi vendido (procedimentos), pronta do backend
+//   {condicoes} — bloco entrada/parcelas/total (ou só total); {condicoes_sem_total} sem o total
+//   {codigo_pix} — bloco "Pague no PIX (copia e cola)" — SÓ quando a venda é PIX e a
+//                  conta Asaas está conectada; vazio nos outros tipos (boleto/cartão)
+//   avulsos: {entrada} {parcelas} {valor_parcela} {total} {forma}
 export const DEFAULT_NEGOCIACAO_APROVADA =
   'Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.\n\n' +
-  '{condicoes}\n\n' +
-  'Já já o setor financeiro te envia os boletos por aqui. Qualquer dúvida, é só chamar! 💙';
+  '{itens}\n\n' +
+  '{condicoes}{codigo_pix}\n\n' +
+  'Qualquer dúvida, é só chamar por aqui! 💙';
 
 /**
  * Monta o bloco de condições ({condicoes} = entrada + parcelas + total; {condicoes_sem_total}

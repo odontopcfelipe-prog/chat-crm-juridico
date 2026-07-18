@@ -909,6 +909,10 @@ export class QuotesService {
         forma: data.billing_type,
         parcelas: data.installment_count && data.installment_count > 1 ? data.installment_count : undefined,
         valorParcela: data.installment_count && data.installment_count > 1 ? (Number(data.value) || 0) / data.installment_count : undefined,
+      }, {
+        // PIX à vista com conta Asaas conectada → manda o copia-e-cola na confirmação.
+        // Vem null em boleto/cartão/recebido-na-clínica (aí o {codigo_pix} fica vazio).
+        codigoPix: (result as any)?.pix?.copyPaste ?? null,
       });
 
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
@@ -1196,6 +1200,7 @@ export class QuotesService {
     planId: string,
     patient: { name?: string | null; phone?: string | null } | null,
     terms: { entrada?: number; parcelas?: number; valorParcela?: number; total: number; forma?: string },
+    extras?: { codigoPix?: string | null },
   ): Promise<void> {
     try {
       const ws = this.whatsapp;
@@ -1250,8 +1255,30 @@ export class QuotesService {
         formaLabel: formaLabel(terms.forma),
       });
 
+      // {itens} — o QUE foi vendido (procedimentos do plano). Best-effort: sem itens,
+      // fica vazio (o \n{3,} colapsa a linha).
+      let itensStr = '';
+      try {
+        const items = await this.prisma.treatmentPlanItem.findMany({
+          where: { treatment_plan_id: planId },
+          select: { quantity: true, procedure: { select: { name: true } } },
+        });
+        itensStr = items
+          .map((i) => `• ${i.procedure?.name || 'Procedimento'}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`)
+          .join('\n');
+      } catch (e: any) {
+        this.logger.warn(`[NEGOCIACAO_APROVADA] falha ao listar itens do plano ${planId}: ${e?.message}`);
+      }
+
+      // {codigo_pix} — bloco do PIX copia-e-cola, SÓ quando a venda é PIX e a conta
+      // Asaas está conectada (aí a cobrança gera o código). Vazio nos outros tipos.
+      const codigoPix = extras?.codigoPix?.trim();
+      const codigoPixBlock = codigoPix ? `\n\n💠 *Pague agora no PIX (copia e cola):*\n${codigoPix}` : '';
+
       const msg = template
         .replace(/\{nome\}/g, firstName)
+        .replace(/\{itens\}/g, itensStr)
+        .replace(/\{codigo_pix\}/g, codigoPixBlock)
         .replace(/\{condicoes_sem_total\}/g, condicoesSemTotal)
         .replace(/\{condicoes\}/g, condicoes)
         .replace(/\{clinica\}/g, clinica)
