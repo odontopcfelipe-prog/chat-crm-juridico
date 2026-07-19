@@ -3958,69 +3958,110 @@ export class QuotesService {
     const win = { gte: startUTC, lt: endUTC };
     const METODO: Record<string, string> = { PIX: 'PIX', DINHEIRO: 'Dinheiro', CARTAO: 'Cartão', BOLETO: 'Boleto', TRANSFERENCIA: 'Transferência' };
 
-    const [entradasRows, saidasRows, boletos, compensados, atrasados, negoc] = await Promise.all([
-      // Entradas / Saídas DISCRIMINADAS por forma (RECEITA/DESPESA PAGO por data).
-      this.prisma.financialTransaction.groupBy({ by: ['payment_method'], where: { tenant_id: tenantId, type: 'RECEITA', status: 'PAGO', date: win }, _sum: { amount: true } }),
-      this.prisma.financialTransaction.groupBy({ by: ['payment_method'], where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', date: win }, _sum: { amount: true } }),
-      // Vendas de boleto do dia (a cobrança É a venda; created_at no dia).
+    const firstName = (n?: string | null) => (n || 'Paciente').split(' ')[0];
+    const metodoLabel = (m?: string | null) => (m ? METODO[m] || m : '');
+    const boletoSel = { amount: true, customer_external_id: true, treatment_plan: { select: { patient: { select: { name: true } } } } } as const;
+
+    const [entradasTx, saidasTx, boletos, compensados, atrasoAgg, atrasoRows, negoc] = await Promise.all([
+      // Entradas do dia (RECEITA PAGO) — com QUEM pagou (lead) e a forma.
+      this.prisma.financialTransaction.findMany({
+        where: { tenant_id: tenantId, type: 'RECEITA', status: 'PAGO', date: win },
+        select: { amount: true, payment_method: true, description: true, lead: { select: { name: true } } },
+        orderBy: { amount: 'desc' }, take: 100,
+      }),
+      // Saídas do dia (DESPESA PAGO) — com a descrição/categoria e a forma.
+      this.prisma.financialTransaction.findMany({
+        where: { tenant_id: tenantId, type: 'DESPESA', status: 'PAGO', date: win },
+        select: { amount: true, payment_method: true, description: true, category: true },
+        orderBy: { amount: 'desc' }, take: 100,
+      }),
+      // Vendas de boleto do dia (a cobrança É a venda; created_at no dia) — com o paciente.
       this.prisma.paymentGatewayCharge.findMany({
         where: { tenant_id: tenantId, billing_type: 'BOLETO', created_at: win, status: { notIn: ['REFUNDED', 'DELETED', 'CANCELLED'] } },
-        select: { amount: true, treatment_plan: { select: { patient: { select: { name: true } } } } },
-        orderBy: { created_at: 'asc' },
-        take: 100,
+        select: boletoSel, orderBy: { created_at: 'asc' }, take: 100,
       }),
-      // Boletos COMPENSADOS (pagos) no dia: RECEIVED/CONFIRMED, pago no dia.
-      this.prisma.paymentGatewayCharge.aggregate({
+      // Boletos COMPENSADOS (pagos) no dia — com o paciente.
+      this.prisma.paymentGatewayCharge.findMany({
         where: { tenant_id: tenantId, billing_type: 'BOLETO', status: { in: ['RECEIVED', 'CONFIRMED'] }, OR: [{ paid_at: win }, { payment_date: win }] },
-        _sum: { amount: true }, _count: { _all: true },
+        select: boletoSel, orderBy: { amount: 'desc' }, take: 100,
       }),
-      // Boletos EM ATRASO (backlog até o fim do dia): em aberto e já vencidos.
+      // Boletos EM ATRASO (backlog) — total+contagem EXATOS (o backlog pode passar de 100).
       this.prisma.paymentGatewayCharge.aggregate({
         where: { tenant_id: tenantId, billing_type: 'BOLETO', received_in_cash: false, status: { in: ['PENDING', 'OVERDUE'] }, due_date: { lt: endUTC } },
         _sum: { amount: true }, _count: { _all: true },
       }),
+      // Boletos EM ATRASO — os 15 mais antigos, com QUEM está devendo + vencimento.
+      this.prisma.paymentGatewayCharge.findMany({
+        where: { tenant_id: tenantId, billing_type: 'BOLETO', received_in_cash: false, status: { in: ['PENDING', 'OVERDUE'] }, due_date: { lt: endUTC } },
+        select: { ...boletoSel, due_date: true }, orderBy: { due_date: 'asc' }, take: 15,
+      }),
       // Negociações FECHADAS no dia (Quote aceito por accepted_at; sem tenant_id → via paciente).
-      this.prisma.quote.aggregate({
+      this.prisma.quote.findMany({
         where: { status: 'ACCEPTED', accepted_at: win, deleted_at: null, patient: { tenant_id: tenantId } },
-        _sum: { total_value: true }, _count: { _all: true },
+        select: { total_value: true, patient: { select: { name: true } } },
+        orderBy: { total_value: 'desc' }, take: 100,
       }),
     ]);
 
-    // Linhas discriminadas por forma (maior primeiro; ignora zeros; null = "Outros").
-    const discrimina = (rows: { payment_method: string | null; _sum: { amount: unknown } }[]) =>
-      rows
-        .map((r) => ({ label: METODO[r.payment_method || ''] || 'Outros', v: Number(r._sum.amount || 0) }))
-        .filter((r) => r.v > 0)
-        .sort((a, b) => b.v - a.v)
-        .map((r) => `  • ${r.label}: R$ ${brl(r.v)}`)
-        .join('\n');
-    const totalRows = (rows: { _sum: { amount: unknown } }[]) => rows.reduce((s, r) => s + Number(r._sum.amount || 0), 0);
+    // Nome do boleto: paciente do plano → senão o Lead do cliente Asaas (batch) → "Paciente".
+    const todosBoletos = [...boletos, ...compensados, ...atrasoRows];
+    const semNome = [...new Set(todosBoletos.filter((b) => !b.treatment_plan?.patient?.name && b.customer_external_id).map((b) => b.customer_external_id as string))];
+    const custMap = new Map<string, string>();
+    if (semNome.length) {
+      const custs = await this.prisma.paymentGatewayCustomer.findMany({
+        where: { gateway: 'ASAAS', external_id: { in: semNome } },
+        select: { external_id: true, lead: { select: { name: true } } },
+      });
+      for (const c of custs) if (c.lead?.name) custMap.set(c.external_id, c.lead.name);
+    }
+    const boletoNome = (b: { customer_external_id?: string | null; treatment_plan?: { patient?: { name?: string | null } | null } | null }) =>
+      firstName(b.treatment_plan?.patient?.name || (b.customer_external_id ? custMap.get(b.customer_external_id) : null) || 'Paciente');
 
-    const entradas = totalRows(entradasRows);
-    const saidas = totalRows(saidasRows);
-    const entradasLinhas = discrimina(entradasRows);
-    const saidasLinhas = discrimina(saidasRows);
-    const totalBoletos = boletos.reduce((s, b) => s + Number(b.amount || 0), 0);
-    const compTotal = Number(compensados._sum.amount || 0);
-    const atrasoTotal = Number(atrasados._sum.amount || 0);
-    const negocTotal = Number(negoc._sum.total_value || 0);
+    const somaAmount = (rows: { amount: unknown }[]) => rows.reduce((s, r) => s + Number(r.amount || 0), 0);
+    // Lista genérica de boletos "• Nome: R$ x" com corte em 15.
+    const listaBoleto = (rows: typeof boletos) => {
+      const l = rows.slice(0, 15).map((b) => `  • ${boletoNome(b)}: R$ ${brl(Number(b.amount))}`).join('\n');
+      return l + (rows.length > 15 ? `\n  …e mais ${rows.length - 15}` : '');
+    };
+
+    const entradas = somaAmount(entradasTx);
+    const saidas = somaAmount(saidasTx);
+    const listaEntradas = entradasTx.slice(0, 15).map((t) => {
+      const quem = t.lead?.name ? firstName(t.lead.name) : (t.description?.trim().slice(0, 40) || 'Entrada');
+      const m = metodoLabel(t.payment_method);
+      return `  • ${quem} — R$ ${brl(Number(t.amount))}${m ? ` · ${m}` : ''}`;
+    }).join('\n') + (entradasTx.length > 15 ? `\n  …e mais ${entradasTx.length - 15}` : '');
+    const listaSaidas = saidasTx.slice(0, 15).map((t) => {
+      const desc = (t.description?.trim() || t.category || 'Saída').slice(0, 40);
+      const m = metodoLabel(t.payment_method);
+      return `  • ${desc} — R$ ${brl(Number(t.amount))}${m ? ` · ${m}` : ''}`;
+    }).join('\n') + (saidasTx.length > 15 ? `\n  …e mais ${saidasTx.length - 15}` : '');
+
+    const totalBoletos = somaAmount(boletos);
+    const compTotal = somaAmount(compensados);
+    const atrasoTotal = Number(atrasoAgg._sum.amount || 0);
+    const atrasoCount = atrasoAgg._count._all;
+    const negocTotal = negoc.reduce((s, q) => s + Number(q.total_value || 0), 0);
+
+    // Atraso: nome + dias em atraso (endUTC = fim do dia resumido).
+    const listaAtraso = atrasoRows.map((b) => {
+      const dias = b.due_date ? Math.max(0, Math.floor((endUTC.getTime() - new Date(b.due_date).getTime()) / 86_400_000)) : 0;
+      return `  • ${boletoNome(b)}: R$ ${brl(Number(b.amount))}${dias ? ` · ${dias}d` : ''}`;
+    }).join('\n') + (atrasoCount > atrasoRows.length ? `\n  …e mais ${atrasoCount - atrasoRows.length}` : '');
+    const listaNegoc = negoc.slice(0, 15).map((q) => `  • ${firstName(q.patient?.name)}: R$ ${brl(Number(q.total_value))}`).join('\n')
+      + (negoc.length > 15 ? `\n  …e mais ${negoc.length - 15}` : '');
 
     const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
-    const listaBoletos = boletos.slice(0, 15)
-      .map((b) => `  • ${(b.treatment_plan?.patient?.name || 'Paciente').split(' ')[0]}: R$ ${brl(Number(b.amount))}`)
-      .join('\n');
-    const maisBoletos = boletos.length > 15 ? `\n  …e mais ${boletos.length - 15}` : '';
 
     return (
       `📊 *Resumo do dia — ${dataLabel}*\n_${clinica}_\n\n` +
-      `💰 *Entradas:* R$ ${brl(entradas)}` + (entradasLinhas ? `\n${entradasLinhas}` : '') + `\n\n` +
-      `💸 *Saídas:* R$ ${brl(saidas)}` + (saidasLinhas ? `\n${saidasLinhas}` : '') + `\n\n` +
+      `💰 *Entradas:* R$ ${brl(entradas)}` + (entradasTx.length ? `\n${listaEntradas}` : '') + `\n\n` +
+      `💸 *Saídas:* R$ ${brl(saidas)}` + (saidasTx.length ? `\n${listaSaidas}` : '') + `\n\n` +
       `📈 *Saldo do dia:* R$ ${brl(entradas - saidas)}\n\n` +
-      `📄 *Vendas em boleto:* ${boletos.length} — R$ ${brl(totalBoletos)}` +
-      (boletos.length ? `\n${listaBoletos}${maisBoletos}` : '') + `\n` +
-      `✅ *Boletos compensados:* ${compensados._count._all} — R$ ${brl(compTotal)}\n` +
-      `⚠️ *Boletos em atraso:* ${atrasados._count._all} — R$ ${brl(atrasoTotal)}\n\n` +
-      `🤝 *Negociações fechadas:* ${negoc._count._all} — R$ ${brl(negocTotal)}\n\n` +
+      `📄 *Vendas em boleto:* ${boletos.length} — R$ ${brl(totalBoletos)}` + (boletos.length ? `\n${listaBoleto(boletos)}` : '') + `\n\n` +
+      `✅ *Boletos compensados:* ${compensados.length} — R$ ${brl(compTotal)}` + (compensados.length ? `\n${listaBoleto(compensados)}` : '') + `\n\n` +
+      `⚠️ *Boletos em atraso:* ${atrasoCount} — R$ ${brl(atrasoTotal)}` + (atrasoRows.length ? `\n${listaAtraso}` : '') + `\n\n` +
+      `🤝 *Negociações fechadas:* ${negoc.length} — R$ ${brl(negocTotal)}` + (negoc.length ? `\n${listaNegoc}` : '') + `\n\n` +
       `_Resumo automático do fechamento do dia._`
     );
   }

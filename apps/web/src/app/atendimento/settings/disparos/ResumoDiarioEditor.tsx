@@ -61,9 +61,9 @@ export function ResumoDiarioEditor() {
         </h2>
         <p className="text-sm text-muted-foreground mt-1">
           Todo dia, no horário abaixo, um resumo do último dia FECHADO é enviado ao número configurado (pelo chip do
-          Financeiro, com fallback pra Clínica): <b>entradas</b> e <b>saídas discriminadas por forma</b>, <b>saldo</b>,{' '}
-          <b>vendas em boleto (com valores)</b>, <b>boletos compensados</b>, <b>boletos em atraso</b> e{' '}
-          <b>negociações fechadas</b>. Ligue o disparo no botão do card pra começar.
+          Financeiro, com fallback pra Clínica): <b>entradas</b> (quem pagou e a forma), <b>saídas</b> (descrição),{' '}
+          <b>saldo</b> e — <b>com o nome de cada pessoa</b> — <b>vendas em boleto</b>, <b>boletos compensados</b>,{' '}
+          <b>boletos em atraso</b> (com os dias de atraso) e <b>negociações fechadas</b>. Ligue o disparo no botão do card pra começar.
         </p>
       </div>
 
