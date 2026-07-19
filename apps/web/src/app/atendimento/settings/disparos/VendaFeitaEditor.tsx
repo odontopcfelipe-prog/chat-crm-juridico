@@ -7,15 +7,17 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, PartyPopper, Check } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { Phone55Input } from './Phone55Input';
+import { stripCountry55, join55, hasLocalNumber } from './phone55';
 
 export function VendaFeitaEditor() {
-  const [phone, setPhone] = useState('');
+  const [local, setLocal] = useState(''); // só DDD + número; o 55 é prefixo fixo
   const [inheritedPhone, setInheritedPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
   // Está seguindo o número do Resumo Diário? (sem número próprio, mas o resumo tem)
-  const inherited = !phone.trim() && !!inheritedPhone;
+  const inherited = !hasLocalNumber(local) && !!inheritedPhone;
 
   useEffect(() => {
     let cancelled = false;
@@ -24,7 +26,7 @@ export function VendaFeitaEditor() {
       .get<{ phone: string; inheritedPhone?: string }>('/followup/venda-feita-config')
       .then((r) => {
         if (cancelled) return;
-        setPhone(r.data?.phone || '');
+        setLocal(stripCountry55(r.data?.phone));
         setInheritedPhone(r.data?.inheritedPhone || '');
       })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a configuração'); })
@@ -35,8 +37,8 @@ export function VendaFeitaEditor() {
   const save = async () => {
     setSaving(true);
     try {
-      const r = await api.put('/followup/venda-feita-config', { phone: phone.trim() });
-      setPhone(r.data?.phone || '');
+      const r = await api.put('/followup/venda-feita-config', { phone: join55(local) });
+      setLocal(stripCountry55(r.data?.phone));
       showSuccess('Configuração salva.');
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Não foi possível salvar');
@@ -69,12 +71,7 @@ export function VendaFeitaEditor() {
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div>
           <label className="text-sm font-medium text-foreground">Número que recebe o aviso</label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder={inheritedPhone ? `${inheritedPhone} (herdado do Resumo Diário)` : '5582999998888 (com o 55)'}
-            className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/30"
-          />
+          <Phone55Input local={local} onLocal={setLocal} />
           {inherited ? (
             <p className="text-[12px] text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-start gap-1.5">
               <Check size={14} className="mt-0.5 shrink-0" />
@@ -83,13 +80,13 @@ export function VendaFeitaEditor() {
                 em branco que o aviso segue esse contato. Só coloque um número aqui se quiser um <b>diferente</b>.
               </span>
             </p>
-          ) : !phone.trim() && !inheritedPhone ? (
+          ) : !hasLocalNumber(local) && !inheritedPhone ? (
             <p className="text-[12px] text-amber-600 dark:text-amber-400 mt-1.5">
               Nenhum número configurado — defina um aqui, ou configure o Resumo Diário que este aviso passa a usar o
               mesmo contato automaticamente.
             </p>
           ) : (
-            <p className="text-[11px] text-muted-foreground mt-1">DDD + número, com o código do país (55). Ex.: 5582999998888.</p>
+            <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888).</p>
           )}
         </div>
 

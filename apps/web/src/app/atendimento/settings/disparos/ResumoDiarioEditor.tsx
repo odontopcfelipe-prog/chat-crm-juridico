@@ -7,9 +7,11 @@ import { useEffect, useState } from 'react';
 import { Loader2, Save, BarChart3 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { Phone55Input } from './Phone55Input';
+import { stripCountry55, join55 } from './phone55';
 
 export function ResumoDiarioEditor() {
-  const [phone, setPhone] = useState('');
+  const [local, setLocal] = useState(''); // só DDD + número; o 55 é prefixo fixo
   const [time, setTime] = useState('00:00');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -21,7 +23,7 @@ export function ResumoDiarioEditor() {
       .get<{ phone: string; time: string }>('/followup/daily-summary-config')
       .then((r) => {
         if (cancelled) return;
-        setPhone(r.data?.phone || '');
+        setLocal(stripCountry55(r.data?.phone));
         setTime(r.data?.time || '00:00');
       })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a configuração'); })
@@ -32,8 +34,8 @@ export function ResumoDiarioEditor() {
   const save = async () => {
     setSaving(true);
     try {
-      const r = await api.put('/followup/daily-summary-config', { phone: phone.trim(), time: time.trim() });
-      setPhone(r.data?.phone || '');
+      const r = await api.put('/followup/daily-summary-config', { phone: join55(local), time: time.trim() });
+      setLocal(stripCountry55(r.data?.phone));
       setTime(r.data?.time || '00:00');
       showSuccess('Configuração salva.');
     } catch (e: any) {
@@ -68,13 +70,8 @@ export function ResumoDiarioEditor() {
       <div className="rounded-xl border border-border p-4 space-y-4">
         <div>
           <label className="text-sm font-medium text-foreground">Número que recebe o resumo</label>
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="5582999998888 (com o 55)"
-            className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/30"
-          />
-          <p className="text-[11px] text-muted-foreground mt-1">DDD + número, com o código do país (55). Ex.: 5582999998888.</p>
+          <Phone55Input local={local} onLocal={setLocal} />
+          <p className="text-[11px] text-muted-foreground mt-1">O <b>55</b> já vem fixo — digite só o <b>DDD + número</b> (ex.: 82999998888). Deixe vazio pra desligar.</p>
         </div>
 
         <div>
