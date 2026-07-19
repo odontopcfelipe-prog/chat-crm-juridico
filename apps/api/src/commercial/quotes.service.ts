@@ -1516,17 +1516,14 @@ export class QuotesService {
         (itensStr ? `🦷 ${itensStr}\n` : '') +
         (vendedor ? `🧑‍⚕️ Vendedor(a): ${vendedor}\n` : '');
 
-      const inst =
-        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId, purpose: 'FINANCEIRO' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
-        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId, purpose: 'CLINICA' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
-        (await this.prisma.instance.findFirst({ where: { tenant_id: tenantId }, select: { name: true }, orderBy: { name: 'asc' } }));
-      const instanceName = inst?.name || undefined;
-      const res = await ws.sendText(phone, msg.trim(), instanceName, undefined, tenantId);
-      if (!this.wasSent(res)) { this.logger.warn(`[VENDA_FEITA] Evolution recusou (plano ${planId}, ${phone}) — não marquei.`); return; }
+      // Aviso interno: tenta os chips do tenant e para no primeiro que entregou.
+      // Se o FINANCEIRO estiver caído, sai pelo CLINICA/COMERCIAL — não silencia.
+      const sent = await this.sendInternalAlert(tenantId, phone, msg.trim());
+      if (!sent.ok) { this.logger.warn(`[VENDA_FEITA] nenhum chip conectado entregou (plano ${planId}, ${phone}).`); return; }
 
       await this.prisma.auditLog.create({ data: { entity: 'VENDA_FEITA', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } }).catch(() => {});
-      await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (res as any)?.key?.id || null } }).catch(() => {});
-      this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone}`);
+      await this.prisma.dispatchLog.create({ data: { tenant_id: tenantId, type: 'venda_feita', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT', external_message_id: (sent.res as any)?.key?.id || null } }).catch(() => {});
+      this.logger.log(`[VENDA_FEITA] tenant ${tenantId}: venda do plano ${planId} notificada pra ${phone} (chip ${sent.instance}).`);
     } catch (e: any) {
       this.logger.warn(`[VENDA_FEITA] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
     }
@@ -1541,6 +1538,33 @@ export class QuotesService {
     if (res.error && !res.key) return false;
     if (res.exists === false) return false; // número não está no WhatsApp
     return !!(res.key?.id || res.messageId || res.id);
+  }
+
+  /** Envia um aviso INTERNO (número fixo do time — venda feita, resumo diário)
+   *  tentando os chips do tenant na ordem FINANCEIRO → CLINICA → resto e PARANDO
+   *  no primeiro que REALMENTE entregou (wasSent). Resiliente a chip caído: se o
+   *  FINANCEIRO estiver offline (Evolution 428 "Connection Closed"), cai pro chip
+   *  seguinte conectado em vez de silenciar o aviso. Como não há coluna de estado
+   *  no banco, a "prova" de conexão é o próprio envio dar certo. */
+  private async sendInternalAlert(
+    tenantId: string,
+    phone: string,
+    text: string,
+  ): Promise<{ ok: boolean; instance?: string; res?: any }> {
+    const ws = this.whatsapp;
+    if (!ws || !tenantId) return { ok: false };
+    const chips = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId },
+      select: { name: true, purpose: true },
+    });
+    const rank = (p?: string | null) => (p === 'FINANCEIRO' ? 0 : p === 'CLINICA' ? 1 : 2);
+    const ordered = chips.sort((a, b) => rank(a.purpose) - rank(b.purpose) || a.name.localeCompare(b.name));
+    let res: any = null;
+    for (const c of ordered) {
+      res = await ws.sendText(phone, text, c.name, undefined, tenantId).catch(() => null);
+      if (this.wasSent(res)) return { ok: true, instance: c.name, res };
+    }
+    return { ok: false, res };
   }
 
   async applyFinancing(
@@ -3798,19 +3822,18 @@ export class QuotesService {
         if (already) continue;
 
         const msg = await this.buildDailySummary(tid, startUTC, endUTC, dataLabel);
-        const inst =
-          (await this.prisma.instance.findFirst({ where: { tenant_id: tid, purpose: 'FINANCEIRO' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
-          (await this.prisma.instance.findFirst({ where: { tenant_id: tid, purpose: 'CLINICA' }, select: { name: true }, orderBy: { name: 'asc' } })) ||
-          (await this.prisma.instance.findFirst({ where: { tenant_id: tid }, select: { name: true }, orderBy: { name: 'asc' } }));
-        const instanceName = inst?.name || undefined;
-        try {
-          await this.whatsapp.sendText(phone, msg, instanceName, undefined, tid);
-          await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } });
-          this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone}`);
-        } catch (err: any) {
+        // Mesmo helper resiliente do venda_feita: tenta os chips e só marca SENT
+        // se algum REALMENTE entregou (antes marcava SENT mesmo com o chip caído,
+        // porque a Evolution não lança — devolve erro).
+        const sent = await this.sendInternalAlert(tid, phone, msg);
+        if (sent.ok) {
+          await this.prisma.dispatchLog.create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'SENT' } }).catch(() => {});
+          this.logger.log(`[DAILY_SUMMARY] tenant ${tid}: resumo de ${dataLabel} enviado pra ${phone} (chip ${sent.instance}).`);
+        } else {
           await this.prisma.dispatchLog
-            .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: String(err?.response?.data?.message || err?.message || err).slice(0, 300) } })
+            .create({ data: { tenant_id: tid, type: 'daily_summary', channel: 'WHATSAPP', recipient_phone: phone, status: 'FAILED', error: 'nenhum chip conectado entregou' } })
             .catch(() => {});
+          this.logger.warn(`[DAILY_SUMMARY] tenant ${tid}: nenhum chip entregou o resumo pra ${phone}.`);
         }
       } catch (err: any) {
         this.logger.warn(`[DAILY_SUMMARY] tenant ${tid} falhou: ${err?.message}`);
