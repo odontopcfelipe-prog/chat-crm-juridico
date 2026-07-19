@@ -118,6 +118,10 @@ export class ApproveAndBillDto {
   // Onda 18.x — venda rápida "recebido na clínica": numa clínica SEM conta Asaas,
   // cria cobrança LOCAL (cai só no caixa via receive-in-cash) em vez de falhar 503.
   @IsOptional() @IsBoolean() received_in_clinic?: boolean;
+  // Forma REAL recebida na clínica (só p/ EXIBIÇÃO no comprovante/aviso — NÃO
+  // roteia a cobrança, diferente de manual_payment_method). O front colapsa as 4
+  // formas em billing_type='PIX', então sem isto a mensagem diria "PIX" pra tudo.
+  @IsOptional() @IsString() @IsIn(['DINHEIRO', 'PIX', 'PIX_MAQUININHA', 'CARTAO']) received_method?: string;
 }
 
 // Onda 18.6 — Admin edita o preco (total) de um item da proposta.

@@ -104,7 +104,7 @@ export class FollowupService {
       bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
-      pixDeliverySetting, dailySummarySetting, vendaFeitaSetting,
+      pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -149,6 +149,9 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_ENABLED_${tenantId}` } }),
       // Notificação de venda feita (a um número configurado). Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } }),
+      // Comprovante de pagamento (venda paga na clínica). Toggle próprio; ausente
+      // HERDA a negociação aprovada (continuidade — quem já usava não fica mudo).
+      this.prisma.globalSetting.findUnique({ where: { key: `COMPROVANTE_PAGAMENTO_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -349,6 +352,11 @@ export class FollowupService {
       daily_summary: { enabled: (dailySummarySetting as any)?.value === 'true' },
       // Notificação de venda feita (número configurado). Default OFF (opt-in).
       venda_feita: { enabled: (vendaFeitaSetting as any)?.value === 'true' },
+      // Comprovante de pagamento (venda paga na clínica). Toggle próprio; ausente
+      // reflete a negociação aprovada (é o que o envio de fato usa como fallback).
+      comprovante_pagamento: {
+        enabled: comprovanteSetting ? (comprovanteSetting as any).value === 'true' : negocSetting?.value === 'true',
+      },
     };
   }
 
@@ -496,6 +504,7 @@ export class FollowupService {
       comercial_lembrete_1h: ['comercial_lembrete_1h'],
       comercial_lembrete_15min: ['comercial_lembrete_15min'],
       negociacao_aprovada: ['negociacao_aprovada'],
+      comprovante_pagamento: ['comprovante_pagamento'],
       pix_delivery: ['pix_delivery'],
       daily_summary: ['daily_summary'],
       venda_feita: ['venda_feita'],
@@ -743,6 +752,13 @@ export class FollowupService {
       // Negociação aprovada — disparo no fechamento (quotes.service lê esta key).
       case 'negociacao_aprovada': {
         const key = `NEGOCIACAO_APROVADA_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Comprovante de pagamento — venda paga na clínica (quotes.service lê esta key).
+      case 'comprovante_pagamento': {
+        const key = `COMPROVANTE_PAGAMENTO_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

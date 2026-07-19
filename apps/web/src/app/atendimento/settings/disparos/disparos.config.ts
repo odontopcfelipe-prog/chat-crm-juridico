@@ -73,6 +73,8 @@ export type OperacionalKey =
   | 'recall_preventivo' | 'task_alerts'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
+  // Comprovante de pagamento — venda paga na clínica (espécie/cartão/PIX), sem boleto.
+  | 'comprovante_pagamento'
   // Envio do PIX (D+0) — card dedicado: manda o copia-e-cola ao fechar venda PIX.
   | 'pix_delivery'
   // Onda 18.x — ortodontia por ordem de chegada (só vale pra eventos ORTODONTIA).
@@ -177,6 +179,9 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'negociacao_aprovada', nome: 'Negociação aprovada · no fechamento', categoria: 'financeiro',
     gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma o que foi vendido + as condições', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'negociacao_aprovada' },
+  { id: 'comprovante_pagamento', nome: 'Comprovante de pagamento · venda paga na hora', categoria: 'financeiro',
+    gatilho: 'Ao fechar uma venda PAGA na clínica (espécie/cartão/PIX) · comprovante com compra, valor pago e forma (sem boleto)', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'comprovante_pagamento' },
   { id: 'pix_delivery', nome: 'Envio do PIX · código na hora', categoria: 'financeiro',
     gatilho: 'Ao fechar uma venda em PIX (conta Asaas conectada) · manda o copia-e-cola pra pagar na hora', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'pix_delivery' },

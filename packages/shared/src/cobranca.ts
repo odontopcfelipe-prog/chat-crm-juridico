@@ -172,6 +172,41 @@ export const DEFAULT_NEGOCIACAO_APROVADA =
   '{condicoes}\n\n' +
   'Qualquer dúvida, é só chamar por aqui! 💙';
 
+// COMPROVANTE DE PAGAMENTO — venda PAGA na clínica na hora (espécie/cartão/PIX).
+// Substitui a "negociação aprovada" (que fala em boletos) nesses casos: aqui NÃO
+// há boleto — o paciente já pagou. Confirma a compra, o valor pago e a forma.
+// Placeholders: {nome} {clinica} {itens} (procedimentos) {total} (valor pago)
+//   {forma} (dinheiro/cartão/PIX/PIX na maquineta).
+export const DEFAULT_COMPROVANTE_PAGAMENTO =
+  '🧾 *Comprovante de pagamento*\n_{clinica}_\n\n' +
+  'Olá, {nome}! Pagamento *confirmado*. ✅\n\n' +
+  '{itens}\n\n' +
+  '💰 Valor pago: R$ {total}\n' +
+  '💳 Forma: {forma}\n\n' +
+  'Obrigado pela confiança! Qualquer dúvida, é só chamar por aqui. 💙';
+
+/** Rótulo humano da forma de pagamento RECEBIDA na clínica (venda paga na hora).
+ *  Aceita tanto os métodos do caixa (DINHEIRO/CARTAO/PIX_MAQUININHA) quanto os
+ *  billing_type (CASH/CREDIT_CARD/PIX/BOLETO). */
+export function receivedMethodLabel(m?: string | null): string {
+  switch (m) {
+    case 'DINHEIRO':
+    case 'CASH':
+      return 'dinheiro';
+    case 'CARTAO':
+    case 'CREDIT_CARD':
+      return 'cartão';
+    case 'PIX_MAQUININHA':
+      return 'PIX na maquineta';
+    case 'PIX':
+      return 'PIX';
+    case 'BOLETO':
+      return 'boleto';
+    default:
+      return m || '';
+  }
+}
+
 /**
  * Monta o bloco de condições ({condicoes} = entrada + parcelas + total; {condicoes_sem_total}
  * = o mesmo sem a linha do total). Fonte ÚNICA usada pela negociação aprovada (valores do
@@ -212,7 +247,8 @@ export function isFinTemplateId(s: string): boolean {
     s === 'boleto_intro' ||
     s === 'boleto_delivery' ||
     s === 'negociacao_aprovada' ||
-    s === 'pix_delivery'
+    s === 'pix_delivery' ||
+    s === 'comprovante_pagamento'
   );
 }
 
@@ -224,6 +260,7 @@ export function defaultFinTemplate(id: string, tipo?: CobrancaTipo): string {
   if (id === 'boleto_delivery') return DEFAULT_BOLETO_DELIVERY;
   if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
   if (id === 'pix_delivery') return DEFAULT_PIX_DELIVERY;
+  if (id === 'comprovante_pagamento') return DEFAULT_COMPROVANTE_PAGAMENTO;
   if (isCobrancaStage(id)) return defaultCobrancaTemplate(id, tipo ?? 'parcelado');
   return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[id] || '';
 }

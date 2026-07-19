@@ -13,7 +13,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 type ItemInput = {
@@ -787,6 +787,9 @@ export class QuotesService {
       manual_payment_method?: string;
       // Onda 18.x — clínica sem Asaas: cobrança LOCAL p/ recebido na clínica.
       received_in_clinic?: boolean;
+      // Forma REAL recebida na clínica (DINHEIRO/CARTAO/PIX/PIX_MAQUININHA), só p/
+      // EXIBIÇÃO no comprovante e no aviso interno — não roteia a cobrança.
+      received_method?: string;
     },
   ) {
     if (!this.billingService) {
@@ -902,25 +905,37 @@ export class QuotesService {
         this.logger.warn(`[APPROVE-AND-BILL] comissão de venda falhou: ${e?.message}`);
       }
 
-      // Negociação aprovada (D+0) — confirma as condições ao paciente na hora do
-      // fechamento (opt-in). Best-effort: a cobrança já foi criada, não falha o fluxo.
-      await this.sendNegociacaoAprovada(tenantId, plan.id, quote.patient, {
-        total: Number(data.value) || 0,
-        forma: data.billing_type,
-        parcelas: data.installment_count && data.installment_count > 1 ? data.installment_count : undefined,
-        valorParcela: data.installment_count && data.installment_count > 1 ? (Number(data.value) || 0) / data.installment_count : undefined,
-      });
+      if (data.received_in_clinic || data.manual_payment_method) {
+        // Venda PAGA na clínica na hora (espécie/cartão/PIX — venda rápida OU recibo
+        // manual da aba Propostas): NÃO há boleto — manda um COMPROVANTE (compra +
+        // valor pago + forma), não a negociação-com-boletos. A forma sai do
+        // received_method (venda rápida) ou do manual_payment_method (Propostas).
+        // Opt-in (COMPROVANTE_PAGAMENTO_ENABLED, herda NEGOCIACAO se ausente).
+        await this.sendComprovantePagamento(tenantId, plan.id, quote.patient, {
+          total: Number(data.value) || 0,
+          forma: data.received_method || data.manual_payment_method || data.billing_type,
+        });
+      } else {
+        // Venda a receber (boleto/financiamento/PIX Asaas): confirma as condições ao
+        // paciente (opt-in). Best-effort: a cobrança já foi criada, não falha o fluxo.
+        await this.sendNegociacaoAprovada(tenantId, plan.id, quote.patient, {
+          total: Number(data.value) || 0,
+          forma: data.billing_type,
+          parcelas: data.installment_count && data.installment_count > 1 ? data.installment_count : undefined,
+          valorParcela: data.installment_count && data.installment_count > 1 ? (Number(data.value) || 0) / data.installment_count : undefined,
+        });
 
-      // Envio do PIX (D+0) — card dedicado: PIX à vista com a conta Asaas conectada
-      // (result.pix.copyPaste) manda o copia-e-cola pro paciente pagar na hora.
-      // Opt-in (PIX_DELIVERY_ENABLED). Best-effort.
-      await this.sendPixDelivery(tenantId, plan.id, quote.patient, (result as any)?.pix?.copyPaste ?? null);
+        // Envio do PIX (D+0) — card dedicado: PIX à vista com a conta Asaas conectada
+        // (result.pix.copyPaste) manda o copia-e-cola pro paciente pagar na hora.
+        // Opt-in (PIX_DELIVERY_ENABLED). Best-effort. (Venda já paga não gera PIX.)
+        await this.sendPixDelivery(tenantId, plan.id, quote.patient, (result as any)?.pix?.copyPaste ?? null);
+      }
 
       // Notificação interna de VENDA FEITA (a um número configurado) — cobre venda
-      // rápida e aprovar-e-cobrar (ambos passam por aqui).
+      // rápida e aprovar-e-cobrar (ambos passam por aqui). Usa a forma REAL recebida.
       await this.sendVendaFeita(tenantId, plan.id, quote.patient, {
         valor: Number(data.value) || 0,
-        forma: data.manual_payment_method || data.billing_type,
+        forma: data.received_method || data.manual_payment_method || data.billing_type,
         vendedorId: userId,
       });
 
@@ -1370,6 +1385,99 @@ export class QuotesService {
   }
 
   /**
+   * COMPROVANTE DE PAGAMENTO (D+0) — venda PAGA na clínica na hora (espécie/cartão/
+   * PIX da clínica). Substitui a "negociação aprovada" nesses casos: aqui NÃO há
+   * boleto (o paciente já pagou), então manda um comprovante — compra + valor pago
+   * + forma. Opt-in COMPROVANTE_PAGAMENTO_ENABLED; se nunca setado, HERDA o toggle
+   * da negociação aprovada (pra não silenciar quem já usava). Best-effort.
+   */
+  private async sendComprovantePagamento(
+    tenantId: string,
+    planId: string,
+    patient: { name?: string | null; phone?: string | null } | null,
+    info: { total: number; forma?: string | null },
+  ): Promise<void> {
+    try {
+      const ws = this.whatsapp;
+      const phone = patient?.phone?.trim();
+      if (!ws || !phone || !tenantId) {
+        this.logger.warn(
+          `[COMPROVANTE_PAGAMENTO] pulado no plano ${planId}: ` +
+          `${!ws ? 'WhatsappService indisponível' : !phone ? 'paciente sem telefone' : 'sem tenant'}.`,
+        );
+        return;
+      }
+
+      // Opt-in — toggle próprio; ausente HERDA a negociação aprovada (continuidade).
+      const [cRow, nRow] = await Promise.all([
+        this.prisma.globalSetting.findUnique({ where: { key: `COMPROVANTE_PAGAMENTO_ENABLED_${tenantId}` } }),
+        this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } }),
+      ]);
+      const on = cRow ? cRow.value === 'true' : nRow?.value === 'true';
+      if (!on) {
+        this.logger.log(`[COMPROVANTE_PAGAMENTO] desligado pro tenant ${tenantId} — plano ${planId}.`);
+        return;
+      }
+
+      // Dedup por venda.
+      const ja = await this.prisma.auditLog.findFirst({ where: { entity: 'COMPROVANTE_PAGAMENTO', entity_id: planId }, select: { id: true } });
+      if (ja) { this.logger.log(`[COMPROVANTE_PAGAMENTO] plano ${planId} já recebeu — pulando (dedup).`); return; }
+
+      // Template salvo (Central) → senão o default.
+      let template = DEFAULT_COMPROVANTE_PAGAMENTO;
+      const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('comprovante_pagamento', tenantId) } });
+      if (tplRow?.value) {
+        try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* usa default */ }
+      }
+
+      const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
+      const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      const firstName = (patient?.name || 'paciente').split(' ')[0];
+
+      let itensStr = '';
+      try {
+        const items = await this.prisma.treatmentPlanItem.findMany({
+          where: { treatment_plan_id: planId },
+          select: { quantity: true, procedure: { select: { name: true } } },
+        });
+        itensStr = items
+          .map((i) => `🦷 ${i.procedure?.name || 'Procedimento'}${(i.quantity ?? 1) > 1 ? ` (${i.quantity}x)` : ''}`)
+          .join('\n');
+      } catch (e: any) {
+        this.logger.warn(`[COMPROVANTE_PAGAMENTO] falha ao listar itens do plano ${planId}: ${e?.message}`);
+      }
+
+      const msg = template
+        .replace(/\{nome\}/g, firstName)
+        .replace(/\{itens\}/g, itensStr)
+        .replace(/\{clinica\}/g, clinica)
+        .replace(/\{total\}/g, brl(info.total))
+        .replace(/\{forma\}/g, receivedMethodLabel(info.forma) || 'pagamento à vista')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+
+      // Chip FINANCEIRO → fallback CLINICA (igual à negociação).
+      const fin = await ws.getInstanceForPurpose(tenantId, 'FINANCEIRO');
+      const instance = fin || (await ws.getInstanceForPurpose(tenantId, 'CLINICA')) || undefined;
+      const res = await ws.sendText(phone, msg, instance);
+      if (!this.wasSent(res)) {
+        this.logger.warn(`[COMPROVANTE_PAGAMENTO] Evolution recusou (plano ${planId}, ${phone}, chip ${instance || 'default'}) — NÃO marquei.`);
+        return;
+      }
+      this.logger.log(`[COMPROVANTE_PAGAMENTO] enviado ao paciente do plano ${planId} (forma ${info.forma || '—'}).`);
+
+      await this.prisma.auditLog
+        .create({ data: { entity: 'COMPROVANTE_PAGAMENTO', entity_id: planId, action: 'sent', meta_json: { tenant_id: tenantId } } })
+        .catch(() => {});
+      await this.prisma.dispatchLog
+        .create({ data: { tenant_id: tenantId, type: 'comprovante_pagamento', channel: 'WHATSAPP', recipient_name: patient?.name || null, recipient_phone: phone, status: 'SENT', external_message_id: (res as any)?.key?.id || null, sent_at: new Date() } })
+        .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] comprovante_pagamento não registrou: ${e?.message}`));
+    } catch (e: any) {
+      this.logger.warn(`[COMPROVANTE_PAGAMENTO] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /**
    * Envio do PIX (D+0) — card dedicado, par do "Envio dos boletos": no fechamento
    * de uma venda em PIX (com a conta Asaas conectada, aí a cobrança gera o código),
    * manda o copia-e-cola pro paciente pagar na hora. Opt-in (PIX_DELIVERY_ENABLED).
@@ -1493,7 +1601,8 @@ export class QuotesService {
       const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       const formaLabel =
         info.forma === 'BOLETO' ? 'Boleto' : info.forma === 'PIX' ? 'PIX'
-        : info.forma === 'CREDIT_CARD' ? 'Cartão' : info.forma === 'CASH' ? 'Espécie'
+        : (info.forma === 'CREDIT_CARD' || info.forma === 'CARTAO') ? 'Cartão'
+        : (info.forma === 'CASH' || info.forma === 'DINHEIRO') ? 'Espécie'
         : info.forma === 'PIX_MAQUININHA' ? 'PIX (maquineta)' : (info.forma || '—');
       const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
 

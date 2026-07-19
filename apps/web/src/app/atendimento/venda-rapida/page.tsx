@@ -97,6 +97,15 @@ const CLINIC_METHOD_LABEL: Record<string, string> = {
   CLINIC_PIX: 'PIX da clínica',
   CLINIC_PIX_MAQ: 'PIX (Maquineta)',
 };
+// Forma REAL -> token do caixa/comprovante (approve-and-bill.received_method). Sem
+// isto o backend só veria billing_type='PIX' (colapsado) e o comprovante ao paciente
+// diria "PIX" pra tudo, mesmo na venda em dinheiro.
+const CLINIC_RECEIVED_METHOD: Record<string, string> = {
+  CASH: 'DINHEIRO',
+  CLINIC_CARD: 'CARTAO',
+  CLINIC_PIX: 'PIX',
+  CLINIC_PIX_MAQ: 'PIX_MAQUININHA',
+};
 const isClinicReceived = (t: BillingType) =>
   t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX' || t === 'CLINIC_PIX_MAQ';
 
@@ -434,6 +443,9 @@ export default function VendaRapidaPage() {
           // Onda 18.x — clínica sem Asaas: aprova+cobra como LOCAL (cai só no caixa),
           // não falha. Online (não-clínica) segue exigindo Asaas.
           received_in_clinic: clinicReceived,
+          // Forma REAL (dinheiro/cartão/PIX/PIX-maquineta) — o comprovante ao paciente
+          // e o aviso interno usam isto; sem ele diriam "PIX" pra tudo.
+          received_method: clinicReceived ? CLINIC_RECEIVED_METHOD[billingType] : undefined,
           // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida
           // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
           // com 15 casas -> 400 "value must be a number...").
