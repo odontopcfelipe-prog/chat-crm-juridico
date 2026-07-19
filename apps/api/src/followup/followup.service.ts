@@ -892,11 +892,23 @@ export class FollowupService {
     return { phone: cleanPhone, time: t };
   }
 
-  /** Número que recebe a notificação de venda feita (sendVendaFeita lê esta key). */
+  /** Número que recebe a notificação de venda feita (sendVendaFeita lê esta key).
+   *  Se não houver número próprio, HERDA o do Resumo Diário — assim o aviso vai
+   *  pro mesmo contato dos demais disparos internos sem recadastrar. */
   async getVendaFeitaConfig(tenantId: string) {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const row = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } });
-    return { phone: row?.value || '' };
+    const [ownRow, inheritRow] = await Promise.all([
+      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
+    ]);
+    const own = ownRow?.value || '';
+    const inheritedPhone = inheritRow?.value || '';
+    return {
+      phone: own,                              // número próprio (pode ser vazio)
+      inheritedPhone,                          // o do Resumo Diário (pra exibir)
+      effective: own || inheritedPhone,        // pra onde o aviso realmente vai
+      inherited: !own && !!inheritedPhone,     // está seguindo o resumo?
+    };
   }
 
   async setVendaFeitaConfig(tenantId: string, phone: string) {

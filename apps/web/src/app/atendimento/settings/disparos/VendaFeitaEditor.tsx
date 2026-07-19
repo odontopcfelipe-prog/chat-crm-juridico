@@ -4,21 +4,29 @@
 // aviso automático montado da venda), então aqui configura-se só QUEM recebe.
 // Ligar/desligar fica no toggle do card.
 import { useEffect, useState } from 'react';
-import { Loader2, Save, PartyPopper } from 'lucide-react';
+import { Loader2, Save, PartyPopper, Check } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
 export function VendaFeitaEditor() {
   const [phone, setPhone] = useState('');
+  const [inheritedPhone, setInheritedPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  // Está seguindo o número do Resumo Diário? (sem número próprio, mas o resumo tem)
+  const inherited = !phone.trim() && !!inheritedPhone;
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     api
-      .get<{ phone: string }>('/followup/venda-feita-config')
-      .then((r) => { if (!cancelled) setPhone(r.data?.phone || ''); })
+      .get<{ phone: string; inheritedPhone?: string }>('/followup/venda-feita-config')
+      .then((r) => {
+        if (cancelled) return;
+        setPhone(r.data?.phone || '');
+        setInheritedPhone(r.data?.inheritedPhone || '');
+      })
       .catch((e: any) => { if (!cancelled) showError(e?.response?.data?.message || 'Erro ao carregar a configuração'); })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
@@ -64,10 +72,25 @@ export function VendaFeitaEditor() {
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="5582999998888 (com o 55)"
+            placeholder={inheritedPhone ? `${inheritedPhone} (herdado do Resumo Diário)` : '5582999998888 (com o 55)'}
             className="mt-1 w-full px-3 py-2 rounded-lg border border-border bg-card text-sm outline-none focus:ring-2 focus:ring-primary/30"
           />
-          <p className="text-[11px] text-muted-foreground mt-1">DDD + número, com o código do país (55). Ex.: 5582999998888.</p>
+          {inherited ? (
+            <p className="text-[12px] text-emerald-600 dark:text-emerald-400 mt-1.5 flex items-start gap-1.5">
+              <Check size={14} className="mt-0.5 shrink-0" />
+              <span>
+                Já está usando o <b>mesmo número do Resumo Diário</b> ({inheritedPhone}). Não precisa preencher — deixe
+                em branco que o aviso segue esse contato. Só coloque um número aqui se quiser um <b>diferente</b>.
+              </span>
+            </p>
+          ) : !phone.trim() && !inheritedPhone ? (
+            <p className="text-[12px] text-amber-600 dark:text-amber-400 mt-1.5">
+              Nenhum número configurado — defina um aqui, ou configure o Resumo Diário que este aviso passa a usar o
+              mesmo contato automaticamente.
+            </p>
+          ) : (
+            <p className="text-[11px] text-muted-foreground mt-1">DDD + número, com o código do país (55). Ex.: 5582999998888.</p>
+          )}
         </div>
 
         <div className="flex justify-end">

@@ -1475,9 +1475,16 @@ export class QuotesService {
 
       const on = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_ENABLED_${tenantId}` } });
       if (on?.value !== 'true') return;
-      const phoneRow = await this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } });
-      const phone = (phoneRow?.value || '').replace(/\D/g, '');
-      if (!phone) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número — pulando`); return; }
+      // Número: usa o PRÓPRIO (VENDA_FEITA_PHONE) e, se vazio, HERDA o mesmo
+      // contato do Resumo Diário (DAILY_SUMMARY_PHONE) — assim o aviso vai pro
+      // mesmo número dos demais disparos internos sem recadastrar (evita erro
+      // de digitar o número duas vezes).
+      const [ownRow, inheritRow] = await Promise.all([
+        this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
+        this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
+      ]);
+      const phone = ((ownRow?.value || inheritRow?.value) || '').replace(/\D/g, '');
+      if (!phone) { this.logger.warn(`[VENDA_FEITA] tenant ${tenantId} ligado mas SEM número (nem próprio nem herdado do resumo) — pulando`); return; }
 
       // Dedup por venda (approve-and-bill é idempotente; não notifica 2x).
       const ja = await this.prisma.auditLog.findFirst({ where: { entity: 'VENDA_FEITA', entity_id: planId }, select: { id: true } });
