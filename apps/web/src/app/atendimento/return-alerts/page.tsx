@@ -19,6 +19,12 @@ interface ReturnAlert {
   source_appointment: { id: string; title: string; start_at: string } | null;
 }
 
+interface CleaningRow {
+  patient: { id: string; name: string | null; phone: string | null };
+  last_cleaning_at: string;
+  procedure: string;
+}
+
 const STATUS_CFG: Record<string, { label: string; cls: string }> = {
   PENDENTE:  { label: 'Pendente',  cls: 'bg-amber-500/10 text-amber-700 border-amber-500/20' },
   CONTATADO: { label: 'Contatado', cls: 'bg-blue-500/10 text-blue-700 border-blue-500/20' },
@@ -31,23 +37,25 @@ export default function ReturnAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [alerts, setAlerts] = useState<ReturnAlert[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('PENDENTE');
-  const [view, setView] = useState<'now' | 'all'>('now');
+  const [view, setView] = useState<'now' | 'all' | 'cleanings'>('now');
+  const [cleanings, setCleanings] = useState<CleaningRow[]>([]);
   const [openAlertId, setOpenAlertId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      let data: ReturnAlert[] = [];
-      if (view === 'now') {
+      if (view === 'cleanings') {
+        const r = await api.get<CleaningRow[]>('/return-alerts/cleanings');
+        setCleanings(r.data || []);
+      } else if (view === 'now') {
         const r = await api.get<ReturnAlert[]>('/return-alerts/pending-now');
-        data = r.data || [];
+        setAlerts(r.data || []);
       } else {
         const params = new URLSearchParams({ limit: '100' });
         if (statusFilter) params.set('status', statusFilter);
         const r = await api.get<{ data: ReturnAlert[] }>(`/return-alerts?${params}`);
-        data = r.data?.data || [];
+        setAlerts(r.data?.data || []);
       }
-      setAlerts(data);
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao carregar retornos');
     } finally {
@@ -96,6 +104,16 @@ export default function ReturnAlertsPage() {
           >
             Todos
           </button>
+          <button
+            onClick={() => setView('cleanings')}
+            className={`px-3 py-1.5 rounded text-sm font-medium ${
+              view === 'cleanings'
+                ? 'bg-primary text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            Limpeza
+          </button>
         </div>
 
         {view === 'all' && (
@@ -117,6 +135,46 @@ export default function ReturnAlertsPage() {
         <div className="p-12 flex items-center justify-center text-muted-foreground">
           <Loader2 size={20} className="animate-spin mr-2" /> Carregando...
         </div>
+      ) : view === 'cleanings' ? (
+        cleanings.length === 0 ? (
+          <div className="p-12 text-center text-sm text-muted-foreground">
+            <Bell size={28} className="mx-auto mb-2 opacity-50" />
+            Ninguém fez limpeza ainda. Quando uma limpeza/profilaxia for marcada como feita no plano, o paciente entra aqui.
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {cleanings.map((c) => {
+              const last = new Date(c.last_cleaning_at);
+              const monthsSince = Math.max(0, Math.floor((Date.now() - last.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
+              const overdue = monthsSince >= 6;
+              return (
+                <div key={c.patient.id} className="bg-card border border-border rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="font-semibold text-foreground">{c.patient.name || 'Sem nome'}</span>
+                    {overdue ? (
+                      <span className="text-xs px-2 py-0.5 rounded bg-destructive/10 text-destructive flex items-center gap-1">
+                        <AlertTriangle size={11} /> {monthsSince} meses sem limpeza
+                      </span>
+                    ) : (
+                      <span className="text-xs px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-700 border border-emerald-500/20">
+                        há {monthsSince} {monthsSince === 1 ? 'mês' : 'meses'}
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-xs text-muted-foreground flex items-center gap-3 flex-wrap">
+                    <span className="flex items-center gap-1">
+                      <Calendar size={11} /> Última limpeza: {last.toLocaleDateString('pt-BR')}
+                    </span>
+                    {c.patient.phone && (
+                      <span className="flex items-center gap-1"><Phone size={11} /> {c.patient.phone}</span>
+                    )}
+                    <span className="italic">{c.procedure}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )
       ) : alerts.length === 0 ? (
         <div className="p-12 text-center text-sm text-muted-foreground">
           <Bell size={28} className="mx-auto mb-2 opacity-50" />

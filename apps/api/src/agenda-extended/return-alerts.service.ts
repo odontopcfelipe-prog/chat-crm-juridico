@@ -106,6 +106,49 @@ export class ReturnAlertsService {
     });
   }
 
+  /**
+   * Recall de LIMPEZA — pacientes que já fizeram uma limpeza/profilaxia, com a data
+   * da ÚLTIMA, pra a recepção chamar de volta. Calculado dos ITENS executados (não do
+   * ReturnAlert), então pega toda limpeza feita. Ordenado da mais antiga (mais atrasada
+   * pra voltar) pra mais recente. Identifica limpeza pelo NOME do procedimento.
+   */
+  async findCleaningRecalls(tenantId: string) {
+    const items = await this.prisma.treatmentPlanItem.findMany({
+      where: {
+        status: 'DONE',
+        executed_at: { not: null },
+        treatment_plan: { patient: { tenant_id: tenantId } },
+        procedure: {
+          OR: [
+            { name: { contains: 'limpeza', mode: 'insensitive' } },
+            { name: { contains: 'profilaxia', mode: 'insensitive' } },
+            { name: { contains: 'raspagem', mode: 'insensitive' } },
+          ],
+        },
+      },
+      select: {
+        executed_at: true,
+        procedure: { select: { name: true } },
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+      },
+      orderBy: { executed_at: 'desc' },
+      take: 3000,
+    });
+    // 1 linha por paciente = a limpeza mais recente (executed_at desc → 1º é a última).
+    const byPatient = new Map<string, { patient: { id: string; name: string | null; phone: string | null }; last_cleaning_at: Date; procedure: string }>();
+    for (const it of items) {
+      const p = it.treatment_plan?.patient;
+      if (!p?.id || !it.executed_at) continue;
+      if (!byPatient.has(p.id)) {
+        byPatient.set(p.id, { patient: p, last_cleaning_at: it.executed_at, procedure: it.procedure?.name || 'Limpeza' });
+      }
+    }
+    // Mais ANTIGA primeiro (mais atrasada pra voltar).
+    return Array.from(byPatient.values()).sort(
+      (a, b) => new Date(a.last_cleaning_at).getTime() - new Date(b.last_cleaning_at).getTime(),
+    );
+  }
+
   async findOne(tenantId: string, id: string) {
     const alert = await this.prisma.returnAlert.findFirst({
       where: { id, tenant_id: tenantId },
