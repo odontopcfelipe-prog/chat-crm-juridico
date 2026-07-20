@@ -102,14 +102,11 @@ export class MaintenanceService {
         created_by_user_id: params.createdByUserId || null,
       },
     });
-    // Onda 18 — espelha o recall na tela "Retornos pendentes" da recepcao.
-    await this.createReturnAlertForRecall({
-      tenantId: params.tenantId,
-      patientId: params.patientId,
-      scheduledFor: dueDate,
-      reason: title,
-      professionalUserId: params.createdByUserId,
-    });
+    // NÃO espelha ReturnAlert aqui: este recall é POR PROCEDIMENTO (ex.: fez uma
+    // limpeza no meio do tratamento) — colocava paciente AINDA EM TRATAMENTO na
+    // fila "Retornos pendentes" da recepção. A recepção só quer quem CONCLUIU o
+    // tratamento (isso é o createFromPlanCompletion). A MaintenanceTask continua,
+    // então o motor de recall (WhatsApp da revisão) segue funcionando.
     return task;
   }
 
