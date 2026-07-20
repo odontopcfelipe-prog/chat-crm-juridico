@@ -3183,21 +3183,10 @@ export class QuotesService {
   async getJourneyBoard(tenantId: string) {
     this.logger.log(`[JOURNEY_BOARD] start tenantId=${tenantId}`);
 
-    const quotes = await this.prisma.quote.findMany({
-      // Venda rápida (balcão, serviço feito na hora) NÃO entra no Progresso — não tem
-      // pipeline de agendamento→conclusão. Não há flag no schema, então identifica pelo
-      // texto que o fluxo SEMPRE grava: title "Venda rápida…" / notes "Venda rapida…".
-      // Fica no WHERE (não pós-filtro) pra manter contagens e queries em lote coerentes,
-      // e de quebra tira o balcão dos disparos "sem agendamento" que reusam esta função.
+    const rawQuotes = await this.prisma.quote.findMany({
       where: {
         patient: { tenant_id: tenantId },
         status: 'ACCEPTED',
-        NOT: {
-          OR: [
-            { title: { startsWith: 'Venda rápida', mode: 'insensitive' } },
-            { notes: { startsWith: 'Venda rapida', mode: 'insensitive' } },
-          ],
-        },
       },
       include: {
         patient: {
@@ -3219,6 +3208,19 @@ export class QuotesService {
       orderBy: [{ accepted_at: { sort: 'desc', nulls: 'last' } }],
       take: 500,
     });
+
+    // Venda rápida (balcão, feito na hora) NÃO entra no Progresso — não tem pipeline
+    // de agendamento→conclusão; identifica pelo texto que o fluxo grava (title "Venda
+    // rápida…" / notes "Venda rapida…"). Exclui em JS, NÃO no WHERE: o `NOT { OR:
+    // [title startsWith, notes startsWith] }` no SQL é NULL-UNSAFE — quando `notes` é
+    // NULL (a MAIORIA das propostas reais), `... OR (notes LIKE ...)` vira NULL,
+    // `NOT NULL` = NULL, e o Postgres DESCARTA a linha. Efeito real (desde 13/jul):
+    // quase todo paciente fechado sumia do board, só sobrava quem tinha notes
+    // preenchido (ex.: bônus). O filtro JS trata NULL como "não é venda rápida".
+    const isVendaRapida = (q: { title?: string | null; notes?: string | null }) =>
+      (q.title || '').toLowerCase().startsWith('venda rápida') ||
+      (q.notes || '').toLowerCase().startsWith('venda rapida');
+    const quotes = rawQuotes.filter((q) => !isVendaRapida(q));
 
     // Consulta clínica FUTURA por paciente — 1 query batch (evita N+1).
     // start_at é naive-UTC (hora local de Maceió gravada no campo UTC), então
