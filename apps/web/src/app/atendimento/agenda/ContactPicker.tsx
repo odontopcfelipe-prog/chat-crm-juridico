@@ -20,9 +20,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, X, User, ChevronDown, Loader2, UserPlus } from 'lucide-react';
+import { Search, X, User, ChevronDown, Loader2 } from 'lucide-react';
 import api from '@/lib/api';
-import { maskPhoneInput } from '@/lib/utils';
 
 interface PatientOption {
   id: string;
@@ -77,13 +76,6 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
   // Onda 17.61 — popover em PORTAL (position:fixed) pra escapar do overflow do modal
   // (que cortava a lista). pos = ancoragem calculada a partir do trigger.
   const [pos, setPos] = useState<{ top: number; left: number; width: number; listMaxHeight: number } | null>(null);
-
-  // Cadastro RÁPIDO de paciente direto no picker — agendar + cadastrar de uma vez
-  // (recepção com paciente novo na cadeira não precisa ir em Pacientes antes).
-  const [creating, setCreating] = useState(false);
-  const [np, setNp] = useState({ name: '', phone: '', cpf: '' });
-  const [saving, setSaving] = useState(false);
-  const [createErr, setCreateErr] = useState<string | null>(null);
 
   // v31: carrega pacientes + leads na primeira abertura (lazy).
   // Bug resolvido: filtro status=ACTIVE excluia pacientes recem-cadastrados
@@ -380,45 +372,6 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
     setSearch('');
   };
 
-  // Abre o form de cadastro rápido já com o nome que a pessoa digitou na busca.
-  const startCreate = () => {
-    setNp({ name: search.trim(), phone: '', cpf: '' });
-    setCreateErr(null);
-    setCreating(true);
-  };
-
-  // Cria o paciente (só nome é obrigatório) e JÁ seleciona no evento.
-  const saveNew = async () => {
-    const name = np.name.trim();
-    if (!name) { setCreateErr('Digite o nome do paciente.'); return; }
-    setSaving(true);
-    setCreateErr(null);
-    try {
-      const payload: Record<string, string> = { name };
-      // Grava com o +55 na frente (igual ao cadastro completo) pra o WhatsApp entregar.
-      if (np.phone.trim()) payload.phone = `+55 ${np.phone.trim()}`;
-      if (np.cpf.trim()) payload.cpf = np.cpf.trim();
-      const { data: p } = await api.post('/patients', payload);
-      if (p?.id) {
-        setPatients((prev) => (prev.some((x) => x.id === p.id) ? prev : [{ id: p.id, name: p.name, phone: p.phone, cpf: p.cpf, lead_id: p.lead_id, status: p.status }, ...prev]));
-        onChange({ patient_id: p.id, lead_id: null });
-        setNp({ name: '', phone: '', cpf: '' });
-        setCreating(false);
-        setSearch('');
-        setOpen(false);
-      }
-    } catch (e: any) {
-      setCreateErr(e?.response?.data?.message || 'Não foi possível cadastrar. Confira os dados.');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  // Fechou o popover → sai do modo cadastro (não reabre no form da próxima vez).
-  useEffect(() => {
-    if (!open) { setCreating(false); setCreateErr(null); }
-  }, [open]);
-
   return (
     <div ref={containerRef} className="relative">
       {/* Trigger */}
@@ -467,54 +420,6 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
           style={{ position: 'fixed', top: pos.top, left: pos.left, width: pos.width, zIndex: 9999 }}
           className="bg-card border border-border rounded-lg shadow-2xl overflow-hidden"
         >
-          {creating ? (
-            <div className="p-3 space-y-2.5">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-foreground flex items-center gap-1.5">
-                  <UserPlus size={15} className="text-emerald-600" /> Novo paciente
-                </span>
-                <button type="button" onClick={() => { setCreating(false); setCreateErr(null); }} className="p-1 rounded hover:bg-accent" title="Voltar à busca">
-                  <X size={14} />
-                </button>
-              </div>
-              <input
-                autoFocus
-                value={np.name}
-                onChange={(e) => setNp((s) => ({ ...s, name: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveNew(); } }}
-                placeholder="Nome completo *"
-                className="w-full px-2.5 py-1.5 rounded bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              <div className="flex items-stretch rounded border border-border bg-background overflow-hidden focus-within:ring-2 focus-within:ring-primary/30">
-                <span className="flex items-center px-2 text-xs font-medium text-muted-foreground bg-muted/40 border-r border-border select-none">🇧🇷&nbsp;+55</span>
-                <input
-                  value={np.phone}
-                  onChange={(e) => setNp((s) => ({ ...s, phone: maskPhoneInput(e.target.value) }))}
-                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveNew(); } }}
-                  placeholder="(82) 99999-9999"
-                  inputMode="numeric"
-                  className="flex-1 min-w-0 px-2.5 py-1.5 bg-transparent text-sm outline-none"
-                />
-              </div>
-              <input
-                value={np.cpf}
-                onChange={(e) => setNp((s) => ({ ...s, cpf: e.target.value }))}
-                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); saveNew(); } }}
-                placeholder="CPF (opcional)"
-                className="w-full px-2.5 py-1.5 rounded bg-background border border-border text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
-              />
-              {createErr && <p className="text-[11px] text-red-600 dark:text-red-400">{createErr}</p>}
-              <div className="flex justify-end gap-2 pt-0.5">
-                <button type="button" onClick={() => { setCreating(false); setCreateErr(null); }} className="px-3 py-1.5 rounded text-sm text-muted-foreground hover:bg-accent">
-                  Cancelar
-                </button>
-                <button type="button" onClick={saveNew} disabled={saving} className="px-3 py-1.5 rounded bg-primary text-primary-foreground text-sm font-bold inline-flex items-center gap-1.5 disabled:opacity-50">
-                  {saving ? <Loader2 size={13} className="animate-spin" /> : <UserPlus size={13} />} Cadastrar e selecionar
-                </button>
-              </div>
-              <p className="text-[10px] text-muted-foreground">Cria o paciente e já preenche no agendamento. A ficha completa você termina depois em Pacientes.</p>
-            </div>
-          ) : (<>
           <div className="p-2 border-b border-border">
             <div className="relative">
               <Search size={14} className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -543,10 +448,10 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
             ) : options.length === 0 ? (
               <div className="p-4 text-center text-xs text-muted-foreground">
                 {search.trim()
-                  ? `Nenhum paciente ou lead corresponde a "${search}" — cadastre abaixo.`
+                  ? `Nenhum paciente ou lead corresponde a "${search}".`
                   : (loadError
                     ? 'Não foi possível carregar a lista (veja erro acima).'
-                    : 'Nenhum contato ainda — cadastre um novo paciente abaixo.')
+                    : `Nenhum contato disponível. ${patients.length === 0 && leads.length === 0 ? 'Cadastre pacientes em Pacientes → Novo paciente.' : ''}`)
                 }
               </div>
             ) : (
@@ -592,15 +497,6 @@ export default function ContactPicker({ value, onChange, patients: patientsProp,
               Mostrando {options.length} resultado(s){search.trim() ? '' : ' — digite pra filtrar'}
             </div>
           )}
-          <button
-            type="button"
-            onClick={startCreate}
-            className="w-full px-3 py-2.5 border-t border-border text-sm font-medium text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/5 flex items-center gap-2"
-          >
-            <UserPlus size={15} className="shrink-0" />
-            {search.trim() ? `Cadastrar "${search.trim()}" como paciente` : 'Cadastrar novo paciente'}
-          </button>
-          </>)}
         </div>,
         document.body
       )}
