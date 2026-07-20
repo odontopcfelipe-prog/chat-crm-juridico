@@ -134,6 +134,15 @@ export class ReturnAlertsService {
         executed_at: { not: null },
         treatment_plan: { patient: { tenant_id: tenantId } },
         procedure: { default_revisit_months: { gt: 0 } },
+        // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção). Mesma
+        // definição de "profissional clínico" do findLawyers: DENTIST OU ADMIN com
+        // especialidade. Item sem executor (null) não casa o filtro → fica de fora.
+        executed_by: {
+          OR: [
+            { roles: { has: 'DENTIST' } },
+            { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
+          ],
+        },
       },
       select: {
         executed_at: true,
