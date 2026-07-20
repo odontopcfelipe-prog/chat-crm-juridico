@@ -114,6 +114,55 @@ export class MaintenanceService {
   }
 
   /**
+   * Retorno PÓS-TRATAMENTO: quando o plano é concluído (último procedimento feito
+   * OU botão "Concluir tratamento"), cria UM recall de N meses (default 6) — aparece
+   * na tela "Retornos pendentes" da recepção (via ReturnAlert espelho) E entra no
+   * motor de recall (WhatsApp perto da data). IDEMPOTENTE por plano: marca o plano no
+   * `notes` (`[plan:{id}]`) e não duplica se o gatilho rodar 2x (item + botão).
+   */
+  async createFromPlanCompletion(params: {
+    tenantId: string;
+    patientId: string;
+    treatmentPlanId: string;
+    months?: number;
+    completedAt?: Date;
+    createdByUserId?: string;
+  }) {
+    const months = params.months && params.months > 0 ? params.months : 6;
+    const marker = `[plan:${params.treatmentPlanId}]`;
+    const existing = await this.prisma.maintenanceTask.findFirst({
+      where: { tenant_id: params.tenantId, notes: { contains: marker } },
+    });
+    if (existing) return existing; // já há retorno pós-tratamento pra este plano
+
+    const dueDate = new Date(params.completedAt || new Date());
+    dueDate.setMonth(dueDate.getMonth() + months);
+
+    // Título curto: aparece no "Motivo" da recepção E no {procedimento} da mensagem
+    // de recall ("sua revisão de {título}"). A data (6 meses à frente) já é mostrada
+    // nos dois lugares, então não repito "(6 meses)" no texto.
+    const title = 'Retorno pós-tratamento';
+    const task = await this.prisma.maintenanceTask.create({
+      data: {
+        tenant_id: params.tenantId,
+        patient_id: params.patientId,
+        due_date: dueDate,
+        title,
+        notes: marker,
+        created_by_user_id: params.createdByUserId || null,
+      },
+    });
+    await this.createReturnAlertForRecall({
+      tenantId: params.tenantId,
+      patientId: params.patientId,
+      scheduledFor: dueDate,
+      reason: title,
+      professionalUserId: params.createdByUserId,
+    });
+    return task;
+  }
+
+  /**
    * Onda 18 — espelha um recall como ReturnAlert pra ele aparecer na tela
    * "Retornos pendentes" da recepcao (a lista que ja existe). scheduled_for =
    * data do recall: entra em "Agora" quando vence e fica em "Todos" desde ja.

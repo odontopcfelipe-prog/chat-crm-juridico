@@ -327,10 +327,24 @@ export class TreatmentPlansService {
     if (pending.length > 0) {
       throw new BadRequestException(`Plano tem ${pending.length} item(ns) ainda pendente(s)`);
     }
-    return this.prisma.treatmentPlan.update({
+    const updated = await this.prisma.treatmentPlan.update({
       where: { id },
       data: { status: 'COMPLETED', end_date: new Date() },
     });
+    // Retorno pós-tratamento de 6 meses (idempotente por plano). Só se houve tratamento
+    // de fato (≥1 item DONE) — plano 100% cancelado não gera retorno.
+    if (this.maintenance && plan.items.some((i) => i.status === 'DONE')) {
+      await this.maintenance
+        .createFromPlanCompletion({
+          tenantId,
+          patientId: plan.patient_id,
+          treatmentPlanId: id,
+          months: 6,
+          completedAt: updated.end_date || new Date(),
+        })
+        .catch((e: any) => this.logger.warn(`[RETORNO-6M] complete() falha (plano ${id}): ${e?.message}`));
+    }
+    return updated;
   }
 
   // ─── TreatmentPlanItem ────────────────────────────────────────
@@ -412,6 +426,31 @@ export class TreatmentPlansService {
         }
       } catch (e: any) {
         this.logger.warn(`[MAINTENANCE] Falha ao criar task auto pro item ${item.id}: ${e?.message}`);
+      }
+    }
+
+    // Onda — Retorno PÓS-TRATAMENTO de 6 meses: se ESTE item foi o ÚLTIMO (todos os
+    // itens do plano agora DONE/CANCELLED), o tratamento acabou → cria UM retorno de
+    // 6 meses (aparece na recepção + WhatsApp perto da data). Idempotente por plano,
+    // então o botão "Concluir tratamento" depois não duplica. Só entra aqui com ≥1
+    // item DONE (este acabou de virar), então nunca é plano 100% cancelado.
+    if (this.maintenance) {
+      try {
+        const planId = updated.treatment_plan.id;
+        const remaining = await this.prisma.treatmentPlanItem.count({
+          where: { treatment_plan_id: planId, status: { notIn: ['DONE', 'CANCELLED'] } },
+        });
+        if (remaining === 0) {
+          await this.maintenance.createFromPlanCompletion({
+            tenantId,
+            patientId: updated.treatment_plan.patient_id,
+            treatmentPlanId: planId,
+            months: 6,
+            createdByUserId: userId,
+          });
+        }
+      } catch (e: any) {
+        this.logger.warn(`[RETORNO-6M] executeItem falha (plano ${updated.treatment_plan.id}): ${e?.message}`);
       }
     }
 
