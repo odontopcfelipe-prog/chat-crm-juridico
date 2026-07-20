@@ -2,11 +2,10 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import {
-  Bell, Calendar, Loader2, MessageCircle, Phone, RotateCcw, X, AlertTriangle, Wand2,
+  Bell, Calendar, Loader2, MessageCircle, Phone, RotateCcw, X, AlertTriangle,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
-import { useRole } from '@/lib/useRole';
 
 interface ReturnAlert {
   id: string;
@@ -34,8 +33,6 @@ export default function ReturnAlertsPage() {
   const [statusFilter, setStatusFilter] = useState<string>('PENDENTE');
   const [view, setView] = useState<'now' | 'all'>('now');
   const [openAlertId, setOpenAlertId] = useState<string | null>(null);
-  const [backfilling, setBackfilling] = useState(false);
-  const { isAdmin, isSuperAdmin } = useRole();
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -61,22 +58,6 @@ export default function ReturnAlertsPage() {
   useEffect(() => {
     load();
   }, [load]);
-
-  // Backfill 1x (admin): cria o retorno de 6 meses pros pacientes que JÁ concluíram
-  // o tratamento (planos concluídos antes do recurso existir). Idempotente.
-  const runBackfill = async () => {
-    if (!window.confirm('Gerar o retorno de 6 meses pra TODOS os pacientes que já concluíram o tratamento? Não duplica quem já tem.')) return;
-    setBackfilling(true);
-    try {
-      const r = await api.post<{ scanned: number; created: number }>('/treatment-plans/backfill-post-treatment-returns');
-      showSuccess(`${r.data?.created ?? 0} retorno(s) criado(s) — ${r.data?.scanned ?? 0} plano(s) varrido(s).`);
-      load();
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Não foi possível gerar os retornos');
-    } finally {
-      setBackfilling(false);
-    }
-  };
 
   const openAlert = alerts.find((a) => a.id === openAlertId);
 
@@ -128,19 +109,6 @@ export default function ReturnAlertsPage() {
               <option key={v} value={v}>{c.label}</option>
             ))}
           </select>
-        )}
-
-        {(isAdmin || isSuperAdmin) && (
-          <button
-            type="button"
-            onClick={runBackfill}
-            disabled={backfilling}
-            title="Cria o retorno de 6 meses pros pacientes que já concluíram o tratamento antes deste recurso existir. Roda uma vez; não duplica."
-            className="sm:ml-auto px-3 py-2 rounded-lg border border-border bg-card text-sm font-medium text-foreground hover:bg-accent inline-flex items-center gap-1.5 disabled:opacity-50"
-          >
-            {backfilling ? <Loader2 size={14} className="animate-spin" /> : <Wand2 size={14} />}
-            Gerar retornos dos já concluídos
-          </button>
         )}
       </div>
 

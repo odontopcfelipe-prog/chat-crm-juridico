@@ -1,4 +1,5 @@
-import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef, Optional, OnModuleInit } from '@nestjs/common';
+import { Cron, CronExpression } from '@nestjs/schedule';
 import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
@@ -10,7 +11,7 @@ function monthKey(d: Date): string {
 }
 
 @Injectable()
-export class TreatmentPlansService {
+export class TreatmentPlansService implements OnModuleInit {
   private readonly logger = new Logger(TreatmentPlansService.name);
   constructor(
     private prisma: PrismaService,
@@ -401,6 +402,39 @@ export class TreatmentPlansService {
     }
     this.logger.log(`[RETORNO-BACKFILL] tenant ${tenantId}: ${created} retornos criados (${plans.length} planos varridos)`);
     return { scanned: plans.length, created };
+  }
+
+  /** Roda o backfill em TODOS os tenants (usado no boot e no cron diário). */
+  private async ensurePostTreatmentReturnsAllTenants(): Promise<void> {
+    if (!this.maintenance) return;
+    const tenants = await this.prisma.tenant.findMany({ select: { id: true } }).catch(() => []);
+    let total = 0;
+    for (const t of tenants) {
+      try {
+        const r = await this.backfillPostTreatmentReturns(t.id);
+        total += r.created;
+      } catch (e: any) {
+        this.logger.warn(`[RETORNO-BACKFILL] tenant ${t.id} falhou: ${e?.message}`);
+      }
+    }
+    if (total > 0) this.logger.log(`[RETORNO-BACKFILL] ${total} retornos criados em ${tenants.length} tenants`);
+  }
+
+  /** No BOOT: garante os retornos dos já-concluídos logo após subir (fire-and-forget,
+   *  não bloqueia o startup) — assim aparecem já no próximo deploy, sem esperar o cron. */
+  onModuleInit() {
+    setTimeout(() => {
+      this.ensurePostTreatmentReturnsAllTenants().catch((e) =>
+        this.logger.warn(`[RETORNO-BACKFILL boot] ${e?.message}`),
+      );
+    }, 15000);
+  }
+
+  /** Rede de segurança diária: qualquer plano concluído que ainda não tenha o retorno
+   *  de 6 meses (ex.: o gancho da conclusão falhou) ganha o seu. Idempotente. */
+  @Cron(CronExpression.EVERY_DAY_AT_4AM)
+  async cronEnsurePostTreatmentReturns() {
+    await this.ensurePostTreatmentReturnsAllTenants();
   }
 
   // ─── TreatmentPlanItem ────────────────────────────────────────
