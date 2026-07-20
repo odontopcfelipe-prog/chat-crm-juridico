@@ -107,46 +107,73 @@ export class ReturnAlertsService {
   }
 
   /**
-   * Recall de LIMPEZA — pacientes que já fizeram uma limpeza/profilaxia, com a data
-   * da ÚLTIMA, pra a recepção chamar de volta. Calculado dos ITENS executados (não do
-   * ReturnAlert), então pega toda limpeza feita. Ordenado da mais antiga (mais atrasada
-   * pra voltar) pra mais recente. Identifica limpeza pelo NOME do procedimento.
+   * QUADRO DE MANUTENÇÃO — retorno de manutenção do sorriso POR ETAPA. Cada
+   * procedimento executado que tem intervalo de revisão (Procedure.default_revisit_months)
+   * conta a partir da execução — MESMO no meio do tratamento. Também traz o retorno de
+   * "Tratamento Concluído" (pós-tratamento). Calculado ao vivo dos itens executados +
+   * das tasks de conclusão, então não precisa backfill. O front agrupa em ABAS por tipo
+   * (nome do procedimento + "Tratamento Concluído" + "RETORNO ATRASADO") e por mês.
+   *
+   * Retorna lista achatada: 1 recall por (paciente, tipo) = a ocorrência mais RECENTE.
    */
-  async findCleaningRecalls(tenantId: string) {
+  async getMaintenanceBoard(tenantId: string) {
+    type Recall = {
+      kind: 'procedure' | 'completion';
+      type: string;
+      patient: { id: string; name: string | null; phone: string | null };
+      last_date: Date | null;
+      return_date: Date;
+      months: number;
+    };
+    const recalls: Recall[] = [];
+
+    // 1) Por PROCEDIMENTO — itens executados de procedimentos com intervalo de revisão.
     const items = await this.prisma.treatmentPlanItem.findMany({
       where: {
         status: 'DONE',
         executed_at: { not: null },
         treatment_plan: { patient: { tenant_id: tenantId } },
-        procedure: {
-          OR: [
-            { name: { contains: 'limpeza', mode: 'insensitive' } },
-            { name: { contains: 'profilaxia', mode: 'insensitive' } },
-            { name: { contains: 'raspagem', mode: 'insensitive' } },
-          ],
-        },
+        procedure: { default_revisit_months: { gt: 0 } },
       },
       select: {
         executed_at: true,
-        procedure: { select: { name: true } },
+        procedure: { select: { name: true, default_revisit_months: true } },
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
       },
       orderBy: { executed_at: 'desc' },
-      take: 3000,
+      take: 5000,
     });
-    // 1 linha por paciente = a limpeza mais recente (executed_at desc → 1º é a última).
-    const byPatient = new Map<string, { patient: { id: string; name: string | null; phone: string | null }; last_cleaning_at: Date; procedure: string }>();
+    const seen = new Set<string>(); // 1 por (paciente, procedimento) = execução mais recente
     for (const it of items) {
       const p = it.treatment_plan?.patient;
-      if (!p?.id || !it.executed_at) continue;
-      if (!byPatient.has(p.id)) {
-        byPatient.set(p.id, { patient: p, last_cleaning_at: it.executed_at, procedure: it.procedure?.name || 'Limpeza' });
-      }
+      const proc = it.procedure;
+      const months = proc?.default_revisit_months || 0;
+      if (!p?.id || !proc?.name || !it.executed_at || months <= 0) continue;
+      const key = `${p.id}|${proc.name}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      const ret = new Date(it.executed_at);
+      ret.setMonth(ret.getMonth() + months);
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months });
     }
-    // Mais ANTIGA primeiro (mais atrasada pra voltar).
-    return Array.from(byPatient.values()).sort(
-      (a, b) => new Date(a.last_cleaning_at).getTime() - new Date(b.last_cleaning_at).getTime(),
-    );
+
+    // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
+    const completions = await this.prisma.maintenanceTask.findMany({
+      where: { tenant_id: tenantId, notes: { startsWith: '[plan:' } },
+      select: { due_date: true, patient: { select: { id: true, name: true, phone: true } } },
+      orderBy: { due_date: 'asc' },
+      take: 5000,
+    });
+    const seenComp = new Set<string>();
+    for (const t of completions) {
+      if (!t.patient?.id || seenComp.has(t.patient.id)) continue;
+      seenComp.add(t.patient.id);
+      recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: 6 });
+    }
+
+    // Mais próximo/atrasado primeiro (return_date asc).
+    recalls.sort((a, b) => a.return_date.getTime() - b.return_date.getTime());
+    return recalls;
   }
 
   async findOne(tenantId: string, id: string) {

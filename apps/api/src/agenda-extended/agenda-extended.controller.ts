@@ -218,13 +218,13 @@ export class AgendaExtendedController {
     return this.returnAlerts.findPendingNow(tenantId);
   }
 
-  /** Recall de LIMPEZA: pacientes que ja fizeram limpeza, ordenados pela data da
-   *  ultima limpeza (mais antiga = mais atrasada pra voltar). DEVE vir antes de :id. */
-  @Get('return-alerts/cleanings')
-  cleaningRecalls(@Request() req: any) {
+  /** Quadro de MANUTENÇÃO: recalls por procedimento (intervalo de revisão) + tratamento
+   *  concluído. O front agrupa em abas + por mês. DEVE vir antes de :id. */
+  @Get('return-alerts/maintenance-board')
+  maintenanceBoard(@Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    return this.returnAlerts.findCleaningRecalls(tenantId);
+    return this.returnAlerts.getMaintenanceBoard(tenantId);
   }
 
   @Get('return-alerts/:id')
