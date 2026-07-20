@@ -3220,7 +3220,10 @@ export class QuotesService {
     const isVendaRapida = (q: { title?: string | null; notes?: string | null }) =>
       (q.title || '').toLowerCase().startsWith('venda rápida') ||
       (q.notes || '').toLowerCase().startsWith('venda rapida');
-    const quotes = rawQuotes.filter((q) => !isVendaRapida(q));
+    // Venda rápida VOLTA ao Progresso (entra no tratamento, precisa de acompanhamento),
+    // mas MARCADA: cada card ganha is_venda_rapida (selo no front) e o disparo
+    // "pacientes sem agendamento" pula os marcados (não cobra agendamento de balcão).
+    const quotes = rawQuotes;
 
     // Consulta clínica FUTURA por paciente — 1 query batch (evita N+1).
     // start_at é naive-UTC (hora local de Maceió gravada no campo UTC), então
@@ -3392,6 +3395,11 @@ export class QuotesService {
         if (d) { dentist = d; break; }
       }
 
+      // Card é "venda rápida" só se TODOS os contratos do paciente forem balcão
+      // (paciente com QUALQUER proposta real = pipeline normal, não marca — e segue
+      // recebendo o nudge de "sem agendamento").
+      const isVendaRapidaCard = pQuotes.every(isVendaRapida);
+
       byStage[stage].push({
         patient: primary.patient,
         plan_ids: planIds,
@@ -3399,6 +3407,7 @@ export class QuotesService {
         accepted_at: primary.accepted_at,
         dentist,
         standby,
+        is_venda_rapida: isVendaRapidaCard,
         primary_dentist: primary.patient?.primary_dentist ?? null, // atendendo
         created_by: primary.created_by ?? null, // quem orçou
         closed_by: closerByQuote.get(primary.id) ?? null, // quem fechou
@@ -3722,10 +3731,12 @@ export class QuotesService {
   ): Promise<{ text: string; semAgendar: number; standby: number }> {
     const DIAS = 30;
     const board = await this.getJourneyBoard(tenantId);
+    // Pula venda rápida (balcão feito na hora): agora ela aparece no board (marcada),
+    // mas NÃO deve entrar no nudge de "você não agendou" — não tem pipeline de agenda.
     const semAgendar = (board.by_stage.A_AGENDAR || []).filter(
-      (c: any) => (c.days_stalled ?? 0) >= DIAS,
+      (c: any) => (c.days_stalled ?? 0) >= DIAS && !c.is_venda_rapida,
     );
-    const standby = board.by_stage.STANDBY || [];
+    const standby = (board.by_stage.STANDBY || []).filter((c: any) => !c.is_venda_rapida);
     const tenant = await this.prisma.tenant
       .findUnique({ where: { id: tenantId }, select: { name: true } })
       .catch(() => null);

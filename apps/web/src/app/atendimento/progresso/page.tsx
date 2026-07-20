@@ -24,7 +24,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, AlertTriangle, CalendarPlus, CalendarClock, Activity,
-  CircleCheck, Clock, Layers, Check, BookOpen, PauseCircle, Pause, Play, X,
+  CircleCheck, Clock, Layers, Check, BookOpen, PauseCircle, Pause, Play, X, Zap,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
@@ -52,6 +52,7 @@ interface JourneyCard {
   next_appointment_at: string | null;
   has_future_appt: boolean;
   standby: boolean; // tratamento pausado (PAUSED) por adm/dentista
+  is_venda_rapida?: boolean; // todos os contratos do paciente são balcão (venda rápida)
   days_stalled: number | null;
   items_done: number;
   items_total: number;
@@ -633,6 +634,14 @@ function JourneyCardItem({
             {c.patient.name || 'Sem nome'}
           </span>
         </button>
+        {c.is_venda_rapida && (
+          <span
+            className="shrink-0 inline-flex items-center gap-0.5 text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-500/15 dark:text-orange-300 dark:border-orange-500/30"
+            title="Venda rápida (balcão) — feita na hora"
+          >
+            <Zap size={10} /> Venda rápida
+          </span>
+        )}
         {isToSchedule && daysWaiting != null && (
           <span
             className="shrink-0 inline-flex items-center text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-red-100 text-red-700 border border-red-200"
