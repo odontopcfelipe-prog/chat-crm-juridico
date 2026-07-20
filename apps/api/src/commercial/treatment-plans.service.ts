@@ -347,6 +347,62 @@ export class TreatmentPlansService {
     return updated;
   }
 
+  /**
+   * Backfill 1x: cria o "Retorno pós-tratamento" de 6 meses pros planos JÁ concluídos
+   * (status COMPLETED OU todos os itens DONE/CANCELLED com ≥1 DONE) que ainda não têm.
+   * Idempotente (createFromPlanCompletion não duplica). due_date = data de conclusão +
+   * 6 meses — plano concluído há mais de 6m já entra vencido em "Agora".
+   */
+  async backfillPostTreatmentReturns(tenantId: string): Promise<{ scanned: number; created: number }> {
+    if (!this.maintenance || !tenantId) return { scanned: 0, created: 0 };
+    const plans = await this.prisma.treatmentPlan.findMany({
+      where: { patient: { tenant_id: tenantId } },
+      select: {
+        id: true,
+        patient_id: true,
+        status: true,
+        end_date: true,
+        items: { select: { status: true, executed_at: true } },
+      },
+    });
+    let created = 0;
+    for (const p of plans) {
+      const hasItems = p.items.length > 0;
+      const hasDone = p.items.some((i) => i.status === 'DONE');
+      const allSettled = hasItems && p.items.every((i) => ['DONE', 'CANCELLED'].includes(i.status));
+      const concluido = p.status === 'COMPLETED' || (allSettled && hasDone);
+      if (!concluido || !hasDone) continue; // só planos concluídos com tratamento de fato
+      const marker = `[plan:${p.id}]`;
+      const existing = await this.prisma.maintenanceTask.findFirst({
+        where: { tenant_id: tenantId, notes: { contains: marker } },
+        select: { id: true },
+      });
+      if (existing) continue; // já tem retorno pós-tratamento
+      const doneTimes = p.items
+        .filter((i) => i.status === 'DONE' && i.executed_at)
+        .map((i) => new Date(i.executed_at as Date).getTime());
+      const completedAt = p.end_date
+        ? new Date(p.end_date)
+        : doneTimes.length
+          ? new Date(Math.max(...doneTimes))
+          : new Date();
+      try {
+        await this.maintenance.createFromPlanCompletion({
+          tenantId,
+          patientId: p.patient_id,
+          treatmentPlanId: p.id,
+          months: 6,
+          completedAt,
+        });
+        created++;
+      } catch (e: any) {
+        this.logger.warn(`[RETORNO-BACKFILL] plano ${p.id} falhou: ${e?.message}`);
+      }
+    }
+    this.logger.log(`[RETORNO-BACKFILL] tenant ${tenantId}: ${created} retornos criados (${plans.length} planos varridos)`);
+    return { scanned: plans.length, created };
+  }
+
   // ─── TreatmentPlanItem ────────────────────────────────────────
 
   async updateItem(

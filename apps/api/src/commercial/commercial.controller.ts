@@ -1248,6 +1248,18 @@ export class CommercialController {
     return this.plansService.complete(id, tenantId);
   }
 
+  // Backfill 1x — cria o retorno de 6 meses pros planos JÁ concluídos (só ADMIN).
+  @Post('treatment-plans/backfill-post-treatment-returns')
+  backfillPostTreatmentReturns(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const roles: string[] = req.user?.roles || [];
+    if (!roles.includes('ADMIN') && !roles.includes('SUPER_ADMIN')) {
+      throw new ForbiddenException('Apenas ADMIN pode gerar os retornos dos já concluídos');
+    }
+    return this.plansService.backfillPostTreatmentReturns(tenantId);
+  }
+
   // ─── TreatmentPlanItems ───────────────────────────────────────
 
   @Patch('treatment-plan-items/:id')
