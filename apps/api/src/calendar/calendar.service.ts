@@ -453,7 +453,17 @@ export class CalendarService {
       const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
       const realStartMs = startAt.getTime() + MACEIO_OFFSET_MS;
       const triggerAt = realStartMs - r.minutes_before * 60 * 1000;
-      const delay = Math.max(triggerAt - Date.now(), 1000); // min 1s
+      const delay = triggerAt - Date.now();
+      // Agendamento RETROATIVO / no mesmo dia com o horário do lembrete já vencido:
+      // NÃO enfileira. Antes o `Math.max(..., 1000)` forçava o lembrete a disparar NA
+      // HORA (1s) pra um evento passado — ex.: agendamento lançado hoje pro dia 17 (pra
+      // constar a visita) mandava "sua consulta é em ~1 hora" 3 dias DEPOIS. Também
+      // cobre "agendado pro mesmo dia a menos de 1h": o lembrete de 1h não dá tempo,
+      // então é pulado. Só enfileira lembrete cujo horário ainda está por vir (>1 min).
+      if (delay < 60_000) {
+        this.logger.log(`Lembrete ${r.id} PULADO (evento ${eventId}): horário já passou ou muito próximo (delay=${Math.round(delay / 1000)}s).`);
+        continue;
+      }
       const jobId = `reminder-${r.id}`;
       try {
         // Remove job anterior (se existir) antes de enfileirar — garante idempotência em re-agendamentos
@@ -3521,6 +3531,17 @@ export class CalendarService {
     kind: 'created' | 'rescheduled',
   ): Promise<{ sent: boolean; reason?: string }> {
     try {
+      // Evento no PASSADO não notifica o paciente. Caso real: agendamento RETROATIVO /
+      // no mesmo dia lançado DEPOIS do horário, só pra CONSTAR que a visita aconteceu —
+      // não faz sentido mandar "sua consulta foi agendada para [dia que já passou]".
+      // start_at é naive-UTC de Maceió (+3h = instante real).
+      const MACEIO_OFFSET_MS = 3 * 60 * 60 * 1000;
+      const realStartMs = new Date(event?.start_at).getTime() + MACEIO_OFFSET_MS;
+      if (Number.isFinite(realStartMs) && realStartMs < Date.now()) {
+        this.logger.log(`[AUTO-WPP] evento ${event?.id} no passado — não notifica (${kind}).`);
+        return { sent: false, reason: 'evento_passado' };
+      }
+
       // ── AGENDA DO COMERCIAL ────────────────────────────────────────────────
       // Evento de LEAD (sem paciente, lead ainda não-cliente) com o toggle
       // comercial da faixa LIGADO → sai a versão COMERCIAL (texto próprio, chip
