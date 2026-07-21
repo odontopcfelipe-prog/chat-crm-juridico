@@ -109,6 +109,18 @@ const CLINIC_RECEIVED_METHOD: Record<string, string> = {
 const isClinicReceived = (t: BillingType) =>
   t === 'CASH' || t === 'CLINIC_CARD' || t === 'CLINIC_PIX' || t === 'CLINIC_PIX_MAQ';
 
+// Onda 18.x — DIVIDIR EM VÁRIAS FORMAS: quando o paciente paga misturando (ex.: PIX +
+// espécie), cada linha vira uma RECEITA na conta certa do caixa. Formas oferecidas no
+// split usam os MESMOS tokens do caixa que o backend registra (receive-in-cash.payments).
+const SPLIT_FORMS: Array<{ method: string; label: string }> = [
+  { method: 'DINHEIRO', label: 'Espécie' },
+  { method: 'PIX', label: 'PIX da clínica' },
+  { method: 'PIX_MAQUININHA', label: 'PIX (Maquineta)' },
+  { method: 'CARTAO', label: 'Cartão (débito/crédito)' },
+];
+const SPLIT_METHOD_LABEL: Record<string, string> =
+  Object.fromEntries(SPLIT_FORMS.map((f) => [f.method, f.label]));
+
 // Mapeia categoria do Procedure -> grupo de tab (UI). Tabs reduzem a
 // fadiga de escolha do operador (4-6 botoes em vez de 20+ categorias).
 const CATEGORY_TO_TAB: Record<string, string> = {
@@ -209,6 +221,13 @@ export default function VendaRapidaPage() {
   // Onda 18.x — 2º cartão OPCIONAL na maquineta: começa com 1 cartão (valor cheio);
   // o botão "adicionar 2º cartão" liga o split (card1 vira editável + card2 = restante).
   const [split2, setSplit2] = useState(false);
+  // Onda 18.x — DIVIDIR EM VÁRIAS FORMAS: quando ligado, ignora `billingType` e usa
+  // estas linhas (forma + valor). Cada linha vira uma receita na conta certa do caixa.
+  const [mixMode, setMixMode] = useState(false);
+  const [mixLines, setMixLines] = useState<Array<{ method: string; value: number }>>([
+    { method: 'PIX', value: 0 },
+    { method: 'DINHEIRO', value: 0 },
+  ]);
   const [finishing, setFinishing] = useState(false);
   // Onda 17.32.70 — Dialog de sucesso com QR PIX ou link de cartao
   const [successDialog, setSuccessDialog] = useState<{
@@ -220,6 +239,7 @@ export default function VendaRapidaPage() {
     pixCopyPaste?: string | null;  // payload Pix
     invoiceUrl?: string | null;    // url Asaas (cartao)
     boletoUrl?: string | null;     // pdf boleto (nao usado mas mantido pra extensao)
+    mixLabel?: string | null;      // split "várias formas": PIX R$ x + Espécie R$ y
   } | null>(null);
 
   // Carrega procedimentos
@@ -361,6 +381,13 @@ export default function VendaRapidaPage() {
   // Só valida o split quando é Maquineta COM 2º cartão ativo.
   const isSplit = billingType === 'CLINIC_CARD' && split2;
   const splitOk = !isSplit || (card1.value > 0 && card1.value < total);
+  // Dividir em várias formas: soma das linhas tem que bater com o total (2+ linhas, valores > 0).
+  const mixSum = Math.round(mixLines.reduce((s, l) => s + (Number(l.value) || 0), 0) * 100) / 100;
+  const mixOk =
+    !mixMode ||
+    (mixLines.length >= 2 &&
+      mixLines.every((l) => Number(l.value) > 0) &&
+      Math.abs(mixSum - total) < 0.01);
 
   // Finaliza venda
   const handleFinish = async () => {
@@ -380,6 +407,10 @@ export default function VendaRapidaPage() {
       showError('Pagamento em 2 cartões: o valor do Cartão 1 deve ser maior que zero e menor que o total.');
       return;
     }
+    if (mixMode && !mixOk) {
+      showError(`Dividir em várias formas: a soma das formas (R$ ${mixSum.toFixed(2)}) tem que ser igual ao total (R$ ${total.toFixed(2)}).`);
+      return;
+    }
     setFinishing(true);
     try {
       // Onda 17.32.72 — Em vez de POST /commercial/venda-rapida (rota
@@ -395,11 +426,19 @@ export default function VendaRapidaPage() {
       // 1. Cria Quote (com items)
       // Onda 17.41 — sem desconto por forma de pagamento (preço cheio).
       const discountPercent = 0;
-      const clinicReceived = isClinicReceived(billingType);
+      // Dividir em várias formas também é "recebido na clínica" (cai só no caixa).
+      const clinicReceived = mixMode || isClinicReceived(billingType);
+      // Rótulo do "como foi pago" (título/notas do orçamento). No split, "Várias formas".
+      const receivedLabel = mixMode ? 'Várias formas' : CLINIC_METHOD_LABEL[billingType];
+      // No split, o comprovante/aviso usam a forma DOMINANTE (maior valor) — received_method
+      // é enum único; o detalhe forma-a-forma vai pro caixa via payments[].
+      const mixDominantMethod = mixMode
+        ? [...mixLines].sort((a, b) => (Number(b.value) || 0) - (Number(a.value) || 0))[0]?.method
+        : undefined;
       // Método recebido na clínica vai no título → aparece no Financeiro do
       // paciente (prestação de contas: "como" foi pago).
       const title = clinicReceived
-        ? `Venda rápida · ${CLINIC_METHOD_LABEL[billingType]}`
+        ? `Venda rápida · ${receivedLabel}`
         : 'Venda rápida';
       const { data: quoteData } = await api.post<any>(
         `/patients/${patient.id}/quotes`,
@@ -425,9 +464,11 @@ export default function VendaRapidaPage() {
               : [{ procedure_id: it.procedure.id, quantity: it.quantity, ...priceOverride, ...dentistRef }];
           }),
           discount_percent: discountPercent,
-          notes: clinicReceived
-            ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
-            : 'Venda rapida (balcao sem avaliacao)',
+          notes: mixMode
+            ? `Venda rapida — recebido na clinica (varias formas): ${mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')}`
+            : clinicReceived
+              ? `Venda rapida — recebido na clinica: ${CLINIC_METHOD_LABEL[billingType]}`
+              : 'Venda rapida (balcao sem avaliacao)',
         },
       );
       const quoteId = quoteData?.id || quoteData?.quote?.id;
@@ -445,7 +486,11 @@ export default function VendaRapidaPage() {
           received_in_clinic: clinicReceived,
           // Forma REAL (dinheiro/cartão/PIX/PIX-maquineta) — o comprovante ao paciente
           // e o aviso interno usam isto; sem ele diriam "PIX" pra tudo.
-          received_method: clinicReceived ? CLINIC_RECEIVED_METHOD[billingType] : undefined,
+          received_method: mixMode
+            ? mixDominantMethod
+            : clinicReceived
+              ? CLINIC_RECEIVED_METHOD[billingType]
+              : undefined,
           // Onda 18.3 — arredonda pra 2 casas (ApproveAndBillDto valida
           // @IsNumber({ maxDecimalPlaces: 2 }); desconto/juros podem gerar float
           // com 15 casas -> 400 "value must be a number...").
@@ -468,7 +513,15 @@ export default function VendaRapidaPage() {
       let caixaOk = true;
       if (clinicReceived && asaasId) {
         try {
-          if (billingType === 'CLINIC_CARD') {
+          if (mixMode) {
+            // Dividir em várias formas — cada linha vira UMA receita na conta certa do
+            // caixa (DINHEIRO→CAIXA, PIX→BANCO, CARTAO→CARTAO). O backend roteia por método.
+            const payments = mixLines.map((l) => ({
+              method: l.method,
+              value: Math.round((Number(l.value) || 0) * 100) / 100,
+            }));
+            await api.post(`/payment-gateway/charges/asaas/${asaasId}/receive-in-cash`, { payments });
+          } else if (billingType === 'CLINIC_CARD') {
             // Maquineta: 1 cartão (valor cheio) ou 2 cartões (split2). Cada cartão vira
             // uma receita no caixa. method='CARTAO' pros dois (o caixa tem 1 balde
             // "Maquininha/cartão" p/ débito E crédito → concilia certo); `debit` só
@@ -518,6 +571,9 @@ export default function VendaRapidaPage() {
         pixCopyPaste: billData?.pix?.copyPaste || null,
         invoiceUrl: billData?.invoice_url || null,
         boletoUrl: billData?.boleto?.url || null,
+        mixLabel: mixMode
+          ? mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
+          : null,
       });
       setCart([]);
       if (caixaOk) showSuccess('Venda finalizada!');
@@ -894,9 +950,24 @@ export default function VendaRapidaPage() {
 
           {/* Forma de pagamento */}
           <div className="mb-4">
-            <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-2">
-              Forma de pagamento
-            </p>
+            <div className="flex items-center justify-between mb-2 gap-2">
+              <p className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground">
+                Forma de pagamento
+              </p>
+              <button
+                type="button"
+                onClick={() => setMixMode((v) => !v)}
+                className={`text-[10px] font-bold px-2 py-1 rounded-md border transition-colors shrink-0 ${
+                  mixMode
+                    ? 'border-emerald-500 bg-emerald-500/10 text-emerald-700'
+                    : 'border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+                }`}
+              >
+                {mixMode ? '✕ Uma forma só' : '➗ Dividir em várias formas'}
+              </button>
+            </div>
+            {!mixMode ? (
+            <>
             <div className="space-y-1.5">
               {([
                 // Onda 17.42 — Venda Rápida só recebe NA CLÍNICA (cobrança online
@@ -1022,6 +1093,64 @@ export default function VendaRapidaPage() {
                 <p className="text-[10px] text-muted-foreground">Parcelas são só info pra bater com o extrato da maquininha. O valor entra no caixa de hoje.</p>
               </div>
             )}
+            </>
+            ) : (
+            /* Dividir em várias formas — lista de linhas (forma + valor). Cada linha vira
+               uma receita na conta certa do caixa. Soma tem que bater com o total. */
+            <div className="space-y-2">
+              <p className="text-[11px] text-muted-foreground">
+                Pagou misturando formas (ex.: PIX + espécie)? Some cada uma até bater o total. Cada forma entra na conta certa do caixa.
+              </p>
+              {mixLines.map((line, i) => (
+                <div key={i} className="flex items-center gap-2 rounded-lg border border-border p-2">
+                  <select
+                    value={line.method}
+                    onChange={(e) => setMixLines((ls) => ls.map((l, j) => (j === i ? { ...l, method: e.target.value } : l)))}
+                    className="flex-1 min-w-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  >
+                    {SPLIT_FORMS.map((f) => <option key={f.method} value={f.method}>{f.label}</option>)}
+                  </select>
+                  <span className="text-[11px] text-muted-foreground shrink-0">R$</span>
+                  <input
+                    type="number" min={0} step="0.01"
+                    value={line.value || ''}
+                    onChange={(e) => setMixLines((ls) => ls.map((l, j) => (j === i ? { ...l, value: Math.round(Math.max(0, Number(e.target.value) || 0) * 100) / 100 } : l)))}
+                    placeholder="0,00"
+                    className="w-24 shrink-0 px-2 py-1.5 text-sm border border-border rounded-md bg-card text-foreground text-right focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
+                  />
+                  {mixLines.length > 2 ? (
+                    <button type="button" onClick={() => setMixLines((ls) => ls.filter((_, j) => j !== i))} title="Remover forma"
+                      className="shrink-0 px-1.5 py-0.5 rounded text-[13px] font-bold text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30">✕</button>
+                  ) : (
+                    <span className="w-6 shrink-0" />
+                  )}
+                </div>
+              ))}
+              <div className="flex items-center gap-2">
+                <button type="button" onClick={() => setMixLines((ls) => [...ls, { method: 'DINHEIRO', value: 0 }])}
+                  className="flex-1 py-1.5 rounded-lg border border-dashed border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
+                  + Adicionar forma
+                </button>
+                {Math.abs(mixSum - total) >= 0.01 && total > 0 && (
+                  <button type="button"
+                    onClick={() => setMixLines((ls) => {
+                      const others = ls.slice(0, -1).reduce((s, l) => s + (Number(l.value) || 0), 0);
+                      const rest = Math.round((total - others) * 100) / 100;
+                      return ls.map((l, j) => (j === ls.length - 1 ? { ...l, value: Math.max(0, rest) } : l));
+                    })}
+                    className="shrink-0 px-2 py-1.5 rounded-lg border border-border text-[11px] font-semibold text-muted-foreground hover:bg-accent/40 hover:text-foreground transition-colors">
+                    Completar resto
+                  </button>
+                )}
+              </div>
+              <div className={`flex items-center justify-between text-[11px] px-1 ${mixOk ? 'text-emerald-600' : 'text-red-600'}`}>
+                <span className="font-semibold">
+                  {mixOk ? '✓ Soma confere' : mixSum > total ? `Passou R$ ${fmtBRL(mixSum - total)}` : `Faltam R$ ${fmtBRL(total - mixSum)}`}
+                </span>
+                <span className="font-bold tabular-nums">R$ {fmtBRL(mixSum)} / {fmtBRL(total)}</span>
+              </div>
+            </div>
+            )}
           </div>
 
           {/* Total + CTA fixos no rodapé do painel — sempre visíveis. Antes ficavam no
@@ -1043,7 +1172,7 @@ export default function VendaRapidaPage() {
           <button
             type="button"
             onClick={handleFinish}
-            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk}
+            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk || !mixOk}
             className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
           >
             {finishing ? (
@@ -1130,6 +1259,7 @@ function SuccessDialog({
     pixQrCode?: string | null;
     pixCopyPaste?: string | null;
     invoiceUrl?: string | null;
+    mixLabel?: string | null;
   };
   onClose: () => void;
   onGoToPatient: () => void;
@@ -1183,8 +1313,11 @@ function SuccessDialog({
                 <CheckCircle2 size={48} strokeWidth={2} />
               </div>
               <p className="text-lg font-extrabold text-foreground mb-1">
-                Recebido na clínica · {CLINIC_METHOD_LABEL[data.billingType]}
+                Recebido na clínica · {data.mixLabel ? 'Várias formas' : CLINIC_METHOD_LABEL[data.billingType]}
               </p>
+              {data.mixLabel && (
+                <p className="text-xs text-emerald-700 font-semibold mb-1">{data.mixLabel}</p>
+              )}
               <p className="text-sm text-muted-foreground max-w-sm mx-auto">
                 Pagamento registrado e lançado no financeiro do paciente. Os
                 procedimentos entram no tratamento como <strong>pendentes</strong> —

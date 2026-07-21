@@ -227,13 +227,12 @@ export class PaymentGatewayService {
     const dentistId = charge.treatment_plan?.quote?.created_by_user_id ?? null;
     const leadId = charge.treatment_plan?.patient?.lead_id ?? null; // p/ coluna Cliente em Entradas
 
-    // As receitas do split precisam entrar no ESCOPO do caixa. A 1ª pegaria isso via
-    // vínculo 1:1 com a cobrança (transaction_id); a 2ª NÃO — então amarramos TODAS à
-    // conta física do CARTÃO (kind CARTAO). Sem isso o 2º cartão sumiria do fechamento
-    // (caixaWhere exige account_id | cash_closing_id | gateway_charge).
-    // Garante que as contas padrão do caixa existem (idempotente) — senão, num tenant
-    // que ainda não abriu o caixa (contas são lazy), a 2ª receita do split ficaria fora
-    // do fechamento por falta da conta CARTAO. Resolve o CaixaService via moduleRef.
+    // As receitas do split precisam entrar no ESCOPO do caixa (caixaWhere exige
+    // account_id | cash_closing_id | gateway_charge). CADA forma vai pra SUA conta:
+    // espécie → Caixa (dinheiro), cartão → Maquininha, PIX → Banco. Antes forçava TUDO
+    // pra conta do CARTÃO (só servia pro split de 2 cartões da maquineta); agora um
+    // split MISTO (ex.: PIX + espécie) cai certo no fechamento. Garante as contas
+    // padrão (lazy) antes — senão a receita ficaria fora do fechamento por falta da conta.
     if (charge.tenant_id) {
       try {
         const caixa = this.moduleRef.get(CaixaService, { strict: false });
@@ -242,16 +241,26 @@ export class PaymentGatewayService {
         this.logger.warn(`[caixa] ensureDefaultAccounts falhou: ${e?.message}`);
       }
     }
-    const cardAccount = charge.tenant_id
-      ? await this.prisma.cashAccount.findFirst({
-          where: { tenant_id: charge.tenant_id, kind: 'CARTAO' },
-          select: { id: true },
+    const accounts = charge.tenant_id
+      ? await this.prisma.cashAccount.findMany({
+          where: { tenant_id: charge.tenant_id, kind: { in: ['CAIXA', 'CARTAO', 'BANCO'] } },
+          select: { id: true, kind: true },
           orderBy: { active: 'desc' },
         })
-      : null;
-    if (!cardAccount) {
-      this.logger.warn(`[caixa] sem conta CARTAO p/ tenant ${charge.tenant_id} — split pode não aparecer no fechamento`);
-    }
+      : [];
+    const accByKind = (k: string) => accounts.find((a) => a.kind === k)?.id ?? null;
+    // Forma → conta do caixa. PIX (inclusive na maquininha) cai no Banco; espécie no
+    // Caixa (dinheiro); cartão na Maquininha. Fallback: Caixa.
+    const accountForMethod = (method: string): string | null => {
+      switch (method) {
+        case 'DINHEIRO': return accByKind('CAIXA');
+        case 'CARTAO':
+        case 'CARTAO_DEBITO': return accByKind('CARTAO');
+        case 'PIX':
+        case 'PIX_MAQUININHA': return accByKind('BANCO');
+        default: return accByKind('CAIXA');
+      }
+    };
 
     // Sanidade: a soma das formas deveria bater com o total da cobrança. Não
     // BLOQUEIA (registra o que realmente aconteceu na maquineta), mas loga o
@@ -281,9 +290,9 @@ export class PaymentGatewayService {
           dentist_id: dentistId,
           lead_id: leadId,
           reference_id: charge.external_id,
-          // Amarra à conta física do cartão → entra no escopo do caixa (senão a 2ª some).
-          account_id: cardAccount?.id ?? null,
-          notes: 'Venda recebida na clínica — 2 cartões na maquineta (fechamento de caixa)',
+          // Cada forma na SUA conta → entra no escopo do caixa (senão sumiria do fechamento).
+          account_id: accountForMethod(p.method),
+          notes: 'Venda recebida na clínica — pagamento dividido em várias formas (fechamento de caixa)',
         },
       });
       createdIds.push(tx.id);
