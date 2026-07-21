@@ -127,6 +127,16 @@ export class ReturnAlertsService {
     };
     const recalls: Recall[] = [];
 
+    // ABAS: todos os procedimentos que têm intervalo de revisão configurado
+    // (default_revisit_months) — viram aba MESMO sem paciente ainda. Assim a recepção
+    // vê Faceta, Lente, Clareamento, etc. desde que o procedimento esteja configurado.
+    const procs = await this.prisma.procedure.findMany({
+      where: { tenant_id: tenantId, default_revisit_months: { gt: 0 } },
+      select: { name: true },
+      orderBy: { name: 'asc' },
+    });
+    const procedureTabs = Array.from(new Set(procs.map((p) => p.name).filter((n): n is string => !!n)));
+
     // 1) Por PROCEDIMENTO — itens executados de procedimentos com intervalo de revisão.
     const items = await this.prisma.treatmentPlanItem.findMany({
       where: {
@@ -182,7 +192,7 @@ export class ReturnAlertsService {
 
     // Mais próximo/atrasado primeiro (return_date asc).
     recalls.sort((a, b) => a.return_date.getTime() - b.return_date.getTime());
-    return recalls;
+    return { procedures: procedureTabs, recalls };
   }
 
   async findOne(tenantId: string, id: string) {

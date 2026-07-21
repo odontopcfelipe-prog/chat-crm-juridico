@@ -34,13 +34,15 @@ function waLink(phone?: string | null, name?: string | null): string | null {
 export default function ReturnAlertsPage() {
   const [loading, setLoading] = useState(true);
   const [recalls, setRecalls] = useState<Recall[]>([]);
+  const [procedures, setProcedures] = useState<string[]>([]);
   const [tab, setTab] = useState<string>(CONCLUIDO);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get<Recall[]>('/return-alerts/maintenance-board');
-      setRecalls(r.data || []);
+      const r = await api.get<{ procedures: string[]; recalls: Recall[] }>('/return-alerts/maintenance-board');
+      setProcedures(r.data?.procedures || []);
+      setRecalls(r.data?.recalls || []);
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao carregar retornos');
     } finally {
@@ -52,12 +54,13 @@ export default function ReturnAlertsPage() {
   const now = Date.now();
   const isOverdue = (r: Recall) => new Date(r.return_date).getTime() < now;
 
-  // Abas: Tratamento Concluído + tipos de procedimento (dinâmicos) + RETORNO ATRASADO.
+  // Abas: Tratamento Concluído + procedimentos com "meses de revisão" configurado
+  // (aparecem MESMO vazios) + os que já têm recall (por garantia) + RETORNO ATRASADO.
   const procTypes = useMemo(() => {
-    const s = new Set<string>();
+    const s = new Set<string>(procedures);
     recalls.forEach((r) => { if (r.kind === 'procedure') s.add(r.type); });
     return Array.from(s).sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [recalls]);
+  }, [procedures, recalls]);
   const tabs = useMemo(() => [CONCLUIDO, ...procTypes, ATRASADO], [procTypes]);
 
   const counts = useMemo(() => {
