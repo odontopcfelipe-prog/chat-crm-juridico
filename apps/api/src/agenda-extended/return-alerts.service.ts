@@ -107,14 +107,14 @@ export class ReturnAlertsService {
   }
 
   /**
-   * QUADRO DE MANUTENÇÃO — retorno de manutenção do sorriso POR ETAPA. Cada
-   * procedimento executado que tem intervalo de revisão (Procedure.default_revisit_months)
-   * conta a partir da execução — MESMO no meio do tratamento. Também traz o retorno de
-   * "Tratamento Concluído" (pós-tratamento). Calculado ao vivo dos itens executados +
-   * das tasks de conclusão, então não precisa backfill. O front agrupa em ABAS por tipo
-   * (nome do procedimento + "Tratamento Concluído" + "RETORNO ATRASADO") e por mês.
+   * QUADRO DE MANUTENÇÃO — retorno de manutenção do sorriso POR ETAPA. Retorno =
+   * 6 MESES FIXO após a execução do procedimento (ou a conclusão do tratamento). Todo
+   * procedimento feito (validado por um dentista) conta a partir da execução, MESMO no
+   * meio do tratamento. Também traz o retorno de "Tratamento Concluído". Calculado ao
+   * vivo dos itens executados + tasks de conclusão (sem backfill). O front agrupa em
+   * ABAS por tipo (nome do procedimento + "Tratamento Concluído" + "RETORNO ATRASADO").
    *
-   * Retorna lista achatada: 1 recall por (paciente, tipo) = a ocorrência mais RECENTE.
+   * Retorna { procedures, recalls }; 1 recall por (paciente, tipo) = execução mais RECENTE.
    */
   async getMaintenanceBoard(tenantId: string) {
     type Recall = {
@@ -126,24 +126,16 @@ export class ReturnAlertsService {
       months: number;
     };
     const recalls: Recall[] = [];
+    const RECALL_MONTHS = 6; // retorno = 6 meses após o procedimento / a conclusão (fixo)
 
-    // ABAS: todos os procedimentos que têm intervalo de revisão configurado
-    // (default_revisit_months) — viram aba MESMO sem paciente ainda. Assim a recepção
-    // vê Faceta, Lente, Clareamento, etc. desde que o procedimento esteja configurado.
-    const procs = await this.prisma.procedure.findMany({
-      where: { tenant_id: tenantId, default_revisit_months: { gt: 0 } },
-      select: { name: true },
-      orderBy: { name: 'asc' },
-    });
-    const procedureTabs = Array.from(new Set(procs.map((p) => p.name).filter((n): n is string => !!n)));
-
-    // 1) Por PROCEDIMENTO — itens executados de procedimentos com intervalo de revisão.
+    // 1) Por PROCEDIMENTO — TODO procedimento executado gera retorno em 6 meses (não
+    // depende de configurar intervalo por procedimento). Conta a partir da execução,
+    // mesmo no meio do tratamento.
     const items = await this.prisma.treatmentPlanItem.findMany({
       where: {
         status: 'DONE',
         executed_at: { not: null },
         treatment_plan: { patient: { tenant_id: tenantId } },
-        procedure: { default_revisit_months: { gt: 0 } },
         // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção). Mesma
         // definição de "profissional clínico" do findLawyers: DENTIST OU ADMIN com
         // especialidade. Item sem executor (null) não casa o filtro → fica de fora.
@@ -156,7 +148,7 @@ export class ReturnAlertsService {
       },
       select: {
         executed_at: true,
-        procedure: { select: { name: true, default_revisit_months: true } },
+        procedure: { select: { name: true } },
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
       },
       orderBy: { executed_at: 'desc' },
@@ -166,14 +158,13 @@ export class ReturnAlertsService {
     for (const it of items) {
       const p = it.treatment_plan?.patient;
       const proc = it.procedure;
-      const months = proc?.default_revisit_months || 0;
-      if (!p?.id || !proc?.name || !it.executed_at || months <= 0) continue;
+      if (!p?.id || !proc?.name || !it.executed_at) continue;
       const key = `${p.id}|${proc.name}`;
       if (seen.has(key)) continue;
       seen.add(key);
       const ret = new Date(it.executed_at);
-      ret.setMonth(ret.getMonth() + months);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months });
+      ret.setMonth(ret.getMonth() + RECALL_MONTHS);
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: RECALL_MONTHS });
     }
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
@@ -189,6 +180,12 @@ export class ReturnAlertsService {
       seenComp.add(t.patient.id);
       recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: 6 });
     }
+
+    // Abas = tipos de procedimento presentes nos recalls (data-driven; aparecem
+    // conforme os procedimentos vão sendo feitos e validados por dentista).
+    const procedureTabs = Array.from(
+      new Set(recalls.filter((r) => r.kind === 'procedure').map((r) => r.type)),
+    ).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
     // Mais próximo/atrasado primeiro (return_date asc).
     recalls.sort((a, b) => a.return_date.getTime() - b.return_date.getTime());
