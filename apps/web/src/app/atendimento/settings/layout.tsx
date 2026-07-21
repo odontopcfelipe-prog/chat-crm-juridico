@@ -5,7 +5,7 @@ import {
   UserCog, Bot, Shield, ChevronLeft, MessageSquare, Layout,
   Bell, DollarSign, Calendar, FileSignature, Plug, Kanban, Zap, GitBranch,
   CreditCard, FileText, Building2, Users, Wallet, Cpu, Link2, HardDrive,
-  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send,
+  Brain, DoorOpen, Tag, Percent, Network, Trash2, Lightbulb, Mail, Send, RotateCcw,
 } from 'lucide-react';
 import { useRole } from '@/lib/useRole';
 import { RouteGuard } from '@/components/RouteGuard';
@@ -40,6 +40,7 @@ const settingsSections: MenuSection[] = [
       // Onda 17.32.103 — Identidade da clinica (nome, logo, cor, contatos)
       { label: 'Identidade da clínica', href: '/atendimento/settings/identidade', icon: Building2 },
       { label: 'Agenda & Horários', href: '/atendimento/settings/office', icon: Calendar },
+      { label: 'Retornos', href: '/atendimento/settings/retornos', icon: RotateCcw },
       { label: 'Salas & Cadeiras', href: '/atendimento/settings/rooms', icon: DoorOpen },
       { label: 'Marcadores de Agenda', href: '/atendimento/settings/appointment-markers', icon: Tag },
       { label: 'Tags de Pacientes', href: '/atendimento/settings/patient-tags', icon: Tag },

@@ -12,6 +12,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { Roles } from '../auth/decorators/roles.decorator';
 import { RoomsService } from './rooms.service';
 import { MarkersService } from './markers.service';
 import { ConfirmationsService } from './confirmations.service';
@@ -225,6 +226,23 @@ export class AgendaExtendedController {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     return this.returnAlerts.getMaintenanceBoard(tenantId);
+  }
+
+  /** Config dos Retornos (padrão da clínica + intervalo por procedimento). DEVE vir antes de :id. */
+  @Get('return-alerts/config')
+  getRecallConfig(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.returnAlerts.getRecallConfig(tenantId);
+  }
+
+  /** Ajusta o padrão da clínica (meses). Só ADMIN. DEVE vir antes de :id. */
+  @Roles('ADMIN')
+  @Patch('return-alerts/config')
+  setRecallConfig(@Body() body: { default_months: number }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.returnAlerts.setRecallConfig(tenantId, Number(body?.default_months));
   }
 
   @Get('return-alerts/:id')

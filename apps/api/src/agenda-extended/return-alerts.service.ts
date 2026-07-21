@@ -6,6 +6,7 @@ import {
   UpdateReturnAlertDto,
   ContactReturnAlertDto,
 } from './dto/return-alert.dto';
+import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 
 @Injectable()
 export class ReturnAlertsService {
@@ -126,7 +127,11 @@ export class ReturnAlertsService {
       months: number;
     };
     const recalls: Recall[] = [];
-    const RECALL_MONTHS = 6; // retorno = 6 meses após o procedimento / a conclusão (fixo)
+    // Intervalo CONFIGURÁVEL: cada procedimento pode ter o SEU tempo (default_revisit_months);
+    // sem tempo próprio herda o PADRÃO da clínica (RECALL_DEFAULT_MONTHS, default 6). É lido
+    // AO VIVO aqui, então mudar a config em Configurações → Retornos reorganiza o quadro no
+    // próximo carregamento (sem backfill). default_revisit_months = 0 → "Nunca" (sem retorno).
+    const defaultMonths = await this.getDefaultRecallMonths(tenantId);
 
     // 1) Por PROCEDIMENTO — TODO procedimento executado gera retorno em 6 meses (não
     // depende de configurar intervalo por procedimento). Conta a partir da execução,
@@ -148,7 +153,7 @@ export class ReturnAlertsService {
       },
       select: {
         executed_at: true,
-        procedure: { select: { name: true } },
+        procedure: { select: { name: true, default_revisit_months: true } },
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
       },
       orderBy: { executed_at: 'desc' },
@@ -161,10 +166,14 @@ export class ReturnAlertsService {
       if (!p?.id || !proc?.name || !it.executed_at) continue;
       const key = `${p.id}|${proc.name}`;
       if (seen.has(key)) continue;
+      // Intervalo deste procedimento: null = herda o padrão da clínica; 0 = "Nunca".
+      const cfg = proc.default_revisit_months;
+      const months = cfg == null ? defaultMonths : cfg;
+      if (months <= 0) { seen.add(key); continue; } // "Nunca" — trava a key p/ ignorar execuções antigas
       seen.add(key);
       const ret = new Date(it.executed_at);
-      ret.setMonth(ret.getMonth() + RECALL_MONTHS);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: RECALL_MONTHS });
+      ret.setMonth(ret.getMonth() + months);
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months });
     }
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
@@ -178,7 +187,7 @@ export class ReturnAlertsService {
     for (const t of completions) {
       if (!t.patient?.id || seenComp.has(t.patient.id)) continue;
       seenComp.add(t.patient.id);
-      recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: 6 });
+      recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: defaultMonths });
     }
 
     // Abas = tipos de procedimento presentes nos recalls (data-driven; aparecem
@@ -190,6 +199,46 @@ export class ReturnAlertsService {
     // Mais próximo/atrasado primeiro (return_date asc).
     recalls.sort((a, b) => a.return_date.getTime() - b.return_date.getTime());
     return { procedures: procedureTabs, recalls };
+  }
+
+  // ─── Config dos Retornos (Configurações → Retornos) ────────────────────────
+
+  /** Padrão da clínica em MESES — fallback quando o procedimento não tem intervalo próprio. */
+  private async getDefaultRecallMonths(tenantId: string): Promise<number> {
+    const raw = await getTenantSetting(this.prisma, 'RECALL_DEFAULT_MONTHS', tenantId, undefined);
+    const n = raw != null ? parseInt(raw, 10) : 6;
+    return Number.isFinite(n) && n > 0 ? n : 6;
+  }
+
+  /**
+   * Config da tela de Retornos: o padrão da clínica + o catálogo de procedimentos ativos
+   * com o intervalo de cada um. O front edita o intervalo por procedimento (PATCH /procedures/:id)
+   * e o padrão (PATCH /return-alerts/config); o quadro reorganiza sozinho no próximo load.
+   */
+  async getRecallConfig(tenantId: string) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const [defaultMonths, procedures] = await Promise.all([
+      this.getDefaultRecallMonths(tenantId),
+      this.prisma.procedure.findMany({
+        where: { tenant_id: tenantId, active: true },
+        select: {
+          id: true,
+          name: true,
+          default_revisit_months: true,
+          specialty: { select: { id: true, name: true } },
+        },
+        orderBy: [{ specialty_id: 'asc' }, { name: 'asc' }],
+      }),
+    ]);
+    return { default_months: defaultMonths, procedures };
+  }
+
+  /** Ajusta o padrão da clínica (meses). 0/ inválido cai em 6; teto 120 meses. */
+  async setRecallConfig(tenantId: string, months: number) {
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    const clean = Number.isFinite(months) && months > 0 ? Math.min(120, Math.floor(months)) : 6;
+    await setTenantSetting(this.prisma, tenantId, 'RECALL_DEFAULT_MONTHS', String(clean));
+    return { default_months: clean };
   }
 
   async findOne(tenantId: string, id: string) {

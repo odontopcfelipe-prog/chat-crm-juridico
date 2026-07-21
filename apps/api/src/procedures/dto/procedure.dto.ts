@@ -25,7 +25,7 @@ export class CreateProcedureDto {
   // Fase 6 — Estetica facial / agendamento de revisita
   @IsOptional() @IsString() category?: string | null;
   @IsOptional() @IsBoolean() is_facial_application?: boolean;
-  @IsOptional() @IsInt() @Min(1) default_revisit_months?: number | null;
+  @IsOptional() @IsInt() @Min(0) default_revisit_months?: number | null; // 0 = "Nunca" (sem retorno); null = herda o padrão da clínica
   @IsOptional() @IsString() post_procedure_instructions?: string | null;
 }
 
@@ -46,6 +46,6 @@ export class UpdateProcedureDto {
   // Fase 6 — Estetica facial / agendamento de revisita
   @IsOptional() @IsString() category?: string | null;
   @IsOptional() @IsBoolean() is_facial_application?: boolean;
-  @IsOptional() @IsInt() @Min(1) default_revisit_months?: number | null;
+  @IsOptional() @IsInt() @Min(0) default_revisit_months?: number | null; // 0 = "Nunca" (sem retorno); null = herda o padrão da clínica
   @IsOptional() @IsString() post_procedure_instructions?: string | null;
 }

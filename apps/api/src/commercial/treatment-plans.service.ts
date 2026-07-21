@@ -4,6 +4,7 @@ import { ModuleRef } from '@nestjs/core';
 import { PrismaService } from '../prisma/prisma.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { MaintenanceService } from '../maintenance/maintenance.service';
+import { getTenantSetting } from '../tenants/tenant-settings.helper';
 import { Prisma } from '@crm/shared';
 
 function monthKey(d: Date): string {
@@ -321,6 +322,16 @@ export class TreatmentPlansService implements OnModuleInit {
     return updated;
   }
 
+  /**
+   * Padrão da clínica p/ o retorno PÓS-TRATAMENTO (Tratamento Concluído), em meses.
+   * Configurável em Configurações → Retornos (TenantSetting RECALL_DEFAULT_MONTHS); default 6.
+   */
+  private async getPostTreatmentMonths(tenantId: string): Promise<number> {
+    const raw = await getTenantSetting(this.prisma, 'RECALL_DEFAULT_MONTHS', tenantId, undefined);
+    const n = raw != null ? parseInt(raw, 10) : 6;
+    return Number.isFinite(n) && n > 0 ? n : 6;
+  }
+
   /** Marca plano como completo quando todos os items estao DONE ou CANCELLED. */
   async complete(id: string, tenantId: string) {
     const plan = await this.findOne(id, tenantId);
@@ -340,7 +351,7 @@ export class TreatmentPlansService implements OnModuleInit {
           tenantId,
           patientId: plan.patient_id,
           treatmentPlanId: id,
-          months: 6,
+          months: await this.getPostTreatmentMonths(tenantId),
           completedAt: updated.end_date || new Date(),
         })
         .catch((e: any) => this.logger.warn(`[RETORNO-6M] complete() falha (plano ${id}): ${e?.message}`));
@@ -392,7 +403,7 @@ export class TreatmentPlansService implements OnModuleInit {
           tenantId,
           patientId: p.patient_id,
           treatmentPlanId: p.id,
-          months: 6,
+          months: await this.getPostTreatmentMonths(tenantId),
           completedAt,
         });
         created++;
@@ -535,7 +546,7 @@ export class TreatmentPlansService implements OnModuleInit {
             tenantId,
             patientId: updated.treatment_plan.patient_id,
             treatmentPlanId: planId,
-            months: 6,
+            months: await this.getPostTreatmentMonths(tenantId),
             createdByUserId: userId,
           });
         }
