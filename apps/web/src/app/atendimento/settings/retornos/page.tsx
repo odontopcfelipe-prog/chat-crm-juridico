@@ -3,20 +3,20 @@
 /**
  * Configurações → Retornos.
  *
- * Onde o admin define, POR PROCEDIMENTO, em quantos meses um atendimento gera um
- * retorno de manutenção do sorriso — e o PADRÃO da clínica pros procedimentos que
- * não têm tempo próprio (e pro retorno de "Tratamento Concluído").
+ * OPT-IN: o admin LIGA o retorno de manutenção só nos procedimentos que precisam
+ * (limpeza, profilaxia, controles), e define em quantos meses. Os demais (biópsia,
+ * exodontia, raio-x, avaliação...) NÃO geram retorno. Também define o PADRÃO da clínica —
+ * o tempo sugerido ao ligar um procedimento, e usado no retorno de "Tratamento Concluído".
  *
- * Ao salvar, o quadro "Retornos (Manutenção)" reorganiza SOZINHO no próximo acesso:
- * o retorno por procedimento é calculado ao vivo a partir daqui (sem backfill).
+ * Ao salvar, o quadro "Retornos (Manutenção)" reorganiza SOZINHO no próximo acesso: o
+ * retorno por procedimento é calculado ao vivo a partir daqui (sem backfill).
  *
- * Semântica do tempo por procedimento:
- *   - vazio  → herda o padrão da clínica
- *   - número → intervalo próprio (meses)
- *   - Nunca  → o procedimento não gera retorno
+ * Semântica de Procedure.default_revisit_months:
+ *   - null / 0 → NÃO gera retorno (desligado)
+ *   - >= 1     → gera retorno N meses após o atendimento (ligado)
  */
 import { useEffect, useMemo, useState } from 'react';
-import { RotateCcw, Loader2, Search, Save, Ban } from 'lucide-react';
+import { RotateCcw, Loader2, Search, Save } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 
@@ -30,35 +30,42 @@ interface ProcCfg {
 const clampMonths = (n: number, min: number) =>
   Math.max(min, Math.min(120, Math.floor(Number.isFinite(n) ? n : min)));
 
-function MonthsControl({
+/** Liga/desliga o retorno do procedimento; quando ligado, edita os meses. */
+function RecallControl({
   value,
-  defaultMonths,
+  suggested,
   onChange,
 }: {
   value: number | null;
-  defaultMonths: number;
+  suggested: number;
   onChange: (v: number | null) => void;
 }) {
-  const never = value === 0;
+  const on = (value ?? 0) >= 1;
+  // Texto local do input: desacopla a digitação do valor salvo pra o campo não SUMIR
+  // quando o usuário apaga pra redigitar (ex.: limpar "6" antes de digitar "12").
+  const [text, setText] = useState(on ? String(value) : '');
+  useEffect(() => {
+    setText(on ? String(value) : '');
+  }, [on, value]);
+
   return (
-    <div className="flex items-center gap-2 shrink-0">
-      {never ? (
-        <span className="text-xs px-2.5 py-1.5 rounded-md bg-muted text-muted-foreground font-semibold">
-          Sem retorno
-        </span>
-      ) : (
+    <div className="flex items-center gap-2.5 shrink-0">
+      {on && (
         <div className="flex items-center gap-1.5">
           <input
             type="number"
             min={1}
             max={120}
-            value={value ?? ''}
+            value={text}
             onChange={(e) => {
+              setText(e.target.value);
               const s = e.target.value.trim();
-              if (s === '') return onChange(null);
+              if (s === '') return; // vazio durante a edição não desliga — espera um número
               onChange(clampMonths(Number(s), 1));
             }}
-            placeholder={String(defaultMonths)}
+            onBlur={() => {
+              if (text.trim() === '') setText(String(value ?? suggested));
+            }}
             className="w-16 px-2 py-1.5 text-sm text-right border border-border rounded-md bg-card text-foreground focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
           <span className="text-xs text-muted-foreground w-9">meses</span>
@@ -66,15 +73,19 @@ function MonthsControl({
       )}
       <button
         type="button"
-        onClick={() => onChange(never ? null : 0)}
-        title={never ? 'Voltar a gerar retorno' : 'Este procedimento NÃO gera retorno'}
-        className={`p-1.5 rounded-md border transition-colors ${
-          never
-            ? 'border-primary/40 bg-primary/10 text-primary'
-            : 'border-border text-muted-foreground hover:bg-accent/40 hover:text-foreground'
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(on ? null : suggested)}
+        title={on ? 'Desligar retorno deste procedimento' : 'Ligar retorno deste procedimento'}
+        className={`relative w-10 h-6 rounded-full transition-colors shrink-0 ${
+          on ? 'bg-primary' : 'bg-muted'
         }`}
       >
-        <Ban size={13} />
+        <span
+          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-transform ${
+            on ? 'translate-x-4' : ''
+          }`}
+        />
       </button>
     </div>
   );
@@ -119,8 +130,19 @@ export default function RetornosSettingsPage() {
     return m;
   }, [procs]);
 
+  // "ligado" = valor >= 1. Trata null e 0 como desligado (ambos = sem retorno no board).
+  const isOn = (v: number | null | undefined) => (v ?? 0) >= 1;
   const dirtyIds = useMemo(
-    () => procs.filter((p) => (drafts[p.id] ?? null) !== (orig[p.id] ?? null)).map((p) => p.id),
+    () =>
+      procs
+        .filter((p) => {
+          const a = drafts[p.id] ?? null;
+          const b = orig[p.id] ?? null;
+          // null e 0 são equivalentes (desligado): não marca dirty entre eles.
+          if (!isOn(a) && !isOn(b)) return false;
+          return a !== b;
+        })
+        .map((p) => p.id),
     [procs, drafts, orig],
   );
   const defaultDirty = defaultMonths !== origDefault;
@@ -143,8 +165,8 @@ export default function RetornosSettingsPage() {
       .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
   }, [procs, search]);
 
-  const configuredCount = useMemo(
-    () => procs.filter((p) => (drafts[p.id] ?? null) != null && (drafts[p.id] ?? 0) > 0).length,
+  const activeCount = useMemo(
+    () => procs.filter((p) => isOn(drafts[p.id])).length,
     [procs, drafts],
   );
 
@@ -164,7 +186,8 @@ export default function RetornosSettingsPage() {
       }
       const results = await Promise.allSettled(
         dirtyIds.map((id) =>
-          api.patch(`/procedures/${id}`, { default_revisit_months: drafts[id] }),
+          // desligado → null (sem retorno); ligado → N meses
+          api.patch(`/procedures/${id}`, { default_revisit_months: isOn(drafts[id]) ? drafts[id] : null }),
         ),
       );
       for (const r of results) r.status === 'fulfilled' ? ok++ : fail++;
@@ -188,8 +211,8 @@ export default function RetornosSettingsPage() {
           <div>
             <h1 className="text-2xl font-bold text-foreground">Retornos</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              Defina em quanto tempo cada procedimento gera um retorno de manutenção. Ao salvar, o
-              quadro <strong>Retornos (Manutenção)</strong> se reorganiza sozinho.
+              Ligue o retorno de manutenção só nos procedimentos que precisam e defina o tempo. Ao
+              salvar, o quadro <strong>Retornos (Manutenção)</strong> se reorganiza sozinho.
             </p>
           </div>
         </div>
@@ -203,14 +226,14 @@ export default function RetornosSettingsPage() {
             {/* Padrão da clínica */}
             <div className="bg-card border border-border rounded-2xl p-5 mb-5">
               <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                Padrão da clínica
+                Retorno padrão
               </h2>
               <p className="text-xs text-muted-foreground mt-1">
-                Usado quando o procedimento não tem um tempo próprio — e no retorno de{' '}
+                Tempo sugerido ao <strong>ligar</strong> um procedimento — e usado no retorno de{' '}
                 <strong>Tratamento Concluído</strong>.
               </p>
               <div className="flex items-center flex-wrap gap-2 mt-3">
-                <span className="text-sm text-muted-foreground">Retorno padrão em</span>
+                <span className="text-sm text-muted-foreground">Retorno em</span>
                 <input
                   type="number"
                   min={1}
@@ -223,20 +246,19 @@ export default function RetornosSettingsPage() {
               </div>
             </div>
 
-            {/* Tempo por procedimento */}
+            {/* Procedimentos com retorno */}
             <div className="bg-card border border-border rounded-2xl p-5">
               <div className="flex items-center justify-between gap-3 mb-1">
                 <h2 className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
-                  Tempo por procedimento
+                  Procedimentos com retorno
                 </h2>
                 <span className="text-[11px] text-muted-foreground">
-                  {configuredCount} com tempo próprio
+                  {activeCount} {activeCount === 1 ? 'ligado' : 'ligados'}
                 </span>
               </div>
               <p className="text-xs text-muted-foreground mb-3">
-                Deixe <strong>vazio</strong> para herdar o padrão, defina um número em meses, ou use{' '}
-                <Ban size={11} className="inline -mt-0.5" /> para o procedimento{' '}
-                <strong>não gerar retorno</strong>.
+                Ligue o retorno só nos que precisam — limpeza, profilaxia, controles ortodônticos. Os
+                demais não geram retorno.
               </p>
 
               {/* Busca */}
@@ -267,24 +289,27 @@ export default function RetornosSettingsPage() {
                       <div className="rounded-xl border border-border/60 divide-y divide-border/50">
                         {g.items.map((p) => {
                           const v = drafts[p.id] ?? null;
+                          const on = isOn(v);
                           return (
                             <div
                               key={p.id}
                               className="flex items-center justify-between gap-3 px-3 py-2.5"
                             >
                               <div className="min-w-0">
-                                <p className="text-sm text-foreground truncate">{p.name}</p>
+                                <p
+                                  className={`text-sm truncate ${on ? 'text-foreground font-medium' : 'text-foreground'}`}
+                                >
+                                  {p.name}
+                                </p>
                                 <p className="text-[11px] text-muted-foreground">
-                                  {v == null
-                                    ? `herda o padrão (${defaultMonths} ${defaultMonths === 1 ? 'mês' : 'meses'})`
-                                    : v === 0
-                                      ? 'não gera retorno'
-                                      : `retorno ${v} ${v === 1 ? 'mês' : 'meses'} após o atendimento`}
+                                  {on
+                                    ? `retorno ${v} ${v === 1 ? 'mês' : 'meses'} após o atendimento`
+                                    : 'sem retorno'}
                                 </p>
                               </div>
-                              <MonthsControl
+                              <RecallControl
                                 value={v}
-                                defaultMonths={defaultMonths}
+                                suggested={defaultMonths}
                                 onChange={(nv) => setDraft(p.id, nv)}
                               />
                             </div>

@@ -108,12 +108,13 @@ export class ReturnAlertsService {
   }
 
   /**
-   * QUADRO DE MANUTENÇÃO — retorno de manutenção do sorriso POR ETAPA. Retorno =
-   * 6 MESES FIXO após a execução do procedimento (ou a conclusão do tratamento). Todo
-   * procedimento feito (validado por um dentista) conta a partir da execução, MESMO no
-   * meio do tratamento. Também traz o retorno de "Tratamento Concluído". Calculado ao
-   * vivo dos itens executados + tasks de conclusão (sem backfill). O front agrupa em
-   * ABAS por tipo (nome do procedimento + "Tratamento Concluído" + "RETORNO ATRASADO").
+   * QUADRO DE MANUTENÇÃO — retorno de manutenção do sorriso POR ETAPA. OPT-IN: só geram
+   * retorno os procedimentos ATIVADOS em Configurações → Retornos (default_revisit_months
+   * >= 1); o retorno cai N meses após a execução (validada por um dentista), contando MESMO
+   * no meio do tratamento. Também traz o retorno de "Tratamento Concluído". Calculado ao
+   * vivo dos itens executados + tasks de conclusão (sem backfill) — ligar/desligar/mudar o
+   * tempo reorganiza sozinho. O front agrupa em ABAS por tipo (nome do procedimento +
+   * "Tratamento Concluído" + "RETORNO ATRASADO").
    *
    * Retorna { procedures, recalls }; 1 recall por (paciente, tipo) = execução mais RECENTE.
    */
@@ -127,15 +128,15 @@ export class ReturnAlertsService {
       months: number;
     };
     const recalls: Recall[] = [];
-    // Intervalo CONFIGURÁVEL: cada procedimento pode ter o SEU tempo (default_revisit_months);
-    // sem tempo próprio herda o PADRÃO da clínica (RECALL_DEFAULT_MONTHS, default 6). É lido
-    // AO VIVO aqui, então mudar a config em Configurações → Retornos reorganiza o quadro no
-    // próximo carregamento (sem backfill). default_revisit_months = 0 → "Nunca" (sem retorno).
+    // OPT-IN: só geram retorno os procedimentos que o admin ATIVOU em Configurações →
+    // Retornos (default_revisit_months >= 1). Procedimento sem intervalo (null/0) NÃO gera
+    // retorno — a maioria (biópsia, exodontia, raio-x, avaliação...) não precisa. Lido AO
+    // VIVO, então ativar/desativar/mudar o tempo reorganiza o quadro no próximo load (sem
+    // backfill). defaultMonths abaixo é só o rótulo do retorno pós-tratamento (Concluído).
     const defaultMonths = await this.getDefaultRecallMonths(tenantId);
 
-    // 1) Por PROCEDIMENTO — TODO procedimento executado gera retorno em 6 meses (não
-    // depende de configurar intervalo por procedimento). Conta a partir da execução,
-    // mesmo no meio do tratamento.
+    // 1) Por PROCEDIMENTO — só os ATIVADOS (default_revisit_months >= 1) geram retorno,
+    // N meses após a execução; conta a partir da execução, mesmo no meio do tratamento.
     const items = await this.prisma.treatmentPlanItem.findMany({
       where: {
         status: 'DONE',
@@ -164,16 +165,16 @@ export class ReturnAlertsService {
       const p = it.treatment_plan?.patient;
       const proc = it.procedure;
       if (!p?.id || !proc?.name || !it.executed_at) continue;
+      // Opt-in: só gera retorno o procedimento com intervalo ATIVADO (>=1). Sem intervalo
+      // (null/0) → não gera retorno (o admin escolhe quais precisam em Configurações → Retornos).
+      const cfg = proc.default_revisit_months;
+      if (cfg == null || cfg <= 0) continue;
       const key = `${p.id}|${proc.name}`;
       if (seen.has(key)) continue;
-      // Intervalo deste procedimento: null = herda o padrão da clínica; 0 = "Nunca".
-      const cfg = proc.default_revisit_months;
-      const months = cfg == null ? defaultMonths : cfg;
-      if (months <= 0) { seen.add(key); continue; } // "Nunca" — trava a key p/ ignorar execuções antigas
       seen.add(key);
       const ret = new Date(it.executed_at);
-      ret.setMonth(ret.getMonth() + months);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months });
+      ret.setMonth(ret.getMonth() + cfg);
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg });
     }
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
