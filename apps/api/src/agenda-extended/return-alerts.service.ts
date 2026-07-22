@@ -142,6 +142,10 @@ export class ReturnAlertsService {
         status: 'DONE',
         executed_at: { not: null },
         treatment_plan: { patient: { tenant_id: tenantId } },
+        // Só procedimento ATIVO gera retorno (consistente com a config, que lista só
+        // ativos). Procedimento arquivado NÃO vira aba órfã no quadro — mesmo tendo
+        // execuções antigas com retorno ligado.
+        procedure: { active: true },
         // Só conta se quem CONCLUIU o item foi um DENTISTA (não recepção). Mesma
         // definição de "profissional clínico" do findLawyers: DENTIST OU ADMIN com
         // especialidade. Item sem executor (null) não casa o filtro → fica de fora.
