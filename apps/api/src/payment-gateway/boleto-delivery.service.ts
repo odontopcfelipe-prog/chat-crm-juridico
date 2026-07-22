@@ -41,6 +41,11 @@ export class BoletoDeliveryService {
   private static readonly LOOKBACK_DAYS = 10;
   /** Teto de segurança por rodada (o excedente escorre pra rodada seguinte). */
   private static readonly MAX_PER_RUN = 30;
+  /** Desiste de reentregar após N tentativas falhas — evita loop reenviando a cada
+   *  minuto por dias pra número que não existe no WhatsApp (exists:false). Após o teto,
+   *  marca a venda como abandonada (sai da fila); a recepção corrige o telefone e
+   *  reenvia manualmente ("enviar boleto"). A falha fica visível no DispatchLog. */
+  private static readonly MAX_ATTEMPTS = 8;
   /** Gap ENTRE clientes (não dentro de um cliente): dentro de UM cliente os boletos
    *  saem imediatos (texto+carnê+entrada); entre clientes DIFERENTES espera um tempo
    *  pra não disparar pra várias pessoas ao mesmo tempo. Chip dedicado → gap curto. */
@@ -205,10 +210,24 @@ export class BoletoDeliveryService {
         await this.logDelivered(target.planId, target.tenantId, 'sent');
         this.logger.log(`[BOLETO_DELIVERY] Boletos enviados (plano ${target.planId}).`);
       } else {
-        // Entrega INCOMPLETA (Evolution recusou/caiu) — NÃO marca a venda entregue,
-        // pra o próximo tick reenviar SÓ as peças que faltaram (dedup por peça). A
-        // janela LOOKBACK_DAYS é o backstop: falha persistente sai da fila em N dias.
-        this.logger.warn(`[BOLETO_DELIVERY] Entrega incompleta do plano ${target.planId} — retry no próximo tick.`);
+        // Entrega INCOMPLETA (Evolution recusou/caiu). Conta a tentativa; após o TETO,
+        // DESISTE (marca 'abandoned' → sai da fila) pra não reenviar a cada minuto por
+        // dias a um número que não existe no WhatsApp (exists:false). Antes do teto, retry
+        // no próximo tick reenviando SÓ as peças que faltaram (dedup por peça). A falha já
+        // fica visível no DispatchLog; a recepção corrige o telefone e reenvia manualmente.
+        await this.logAttempt(target.planId, target.tenantId);
+        const attempts = await this.countAttempts(target.planId);
+        if (attempts >= BoletoDeliveryService.MAX_ATTEMPTS) {
+          await this.logDelivered(target.planId, target.tenantId, 'abandoned');
+          this.logger.warn(
+            `[BOLETO_DELIVERY] Plano ${target.planId} ABANDONADO após ${attempts} tentativas — ` +
+            `número provavelmente sem WhatsApp. Corrija o telefone e reenvie manualmente.`,
+          );
+        } else {
+          this.logger.warn(
+            `[BOLETO_DELIVERY] Entrega incompleta do plano ${target.planId} — retry no próximo tick (${attempts}/${BoletoDeliveryService.MAX_ATTEMPTS}).`,
+          );
+        }
       }
     } catch (e: any) {
       // Falha transiente (Asaas/Evolution/DB) → NÃO marca entregue: tenta de novo
@@ -507,6 +526,33 @@ export class BoletoDeliveryService {
       });
     } catch (e: any) {
       this.logger.warn(`[BOLETO_DELIVERY] Falha ao registrar AuditLog do plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /** Quantas tentativas FALHAS de entrega esta venda já teve (backstop do loop de retry). */
+  private async countAttempts(planId: string): Promise<number> {
+    try {
+      return await this.prisma.auditLog.count({
+        where: { entity: 'BOLETO_DELIVERY_ATTEMPT', entity_id: planId, action: 'attempt' },
+      });
+    } catch {
+      return 0;
+    }
+  }
+
+  /** Registra UMA tentativa falha de entrega (pra contar e desistir após o teto). */
+  private async logAttempt(planId: string, tenantId: string): Promise<void> {
+    try {
+      await this.prisma.auditLog.create({
+        data: {
+          entity: 'BOLETO_DELIVERY_ATTEMPT',
+          entity_id: planId,
+          action: 'attempt',
+          meta_json: { tenant_id: tenantId, at: new Date().toISOString() },
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[BOLETO_DELIVERY] Falha ao registrar tentativa do plano ${planId}: ${e?.message || e}`);
     }
   }
 
