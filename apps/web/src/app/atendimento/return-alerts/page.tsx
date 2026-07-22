@@ -107,7 +107,7 @@ export default function ReturnAlertsPage() {
           <span className="text-lg font-normal text-muted-foreground">( Manutenção )</span>
         </h1>
         <p className="text-sm text-muted-foreground mt-1">
-          Retorno de manutenção do sorriso por etapa — cada procedimento feito começa a contar sua própria revisão.
+          Retorno de manutenção do sorriso por etapa — as abas são os procedimentos com retorno ligado em Configurações → Retornos.
         </p>
       </div>
 

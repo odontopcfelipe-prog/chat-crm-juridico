@@ -191,10 +191,19 @@ export class ReturnAlertsService {
       recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: defaultMonths });
     }
 
-    // Abas = tipos de procedimento presentes nos recalls (data-driven; aparecem
-    // conforme os procedimentos vão sendo feitos e validados por dentista).
+    // Abas = os procedimentos SELECIONADOS (retorno ligado em Configurações → Retornos),
+    // MESMO sem paciente ainda — o quadro EXPÕE o que foi configurado (associa a config às
+    // abas). Une com os tipos que já têm recall (garantia). Uma aba de selecionado sem
+    // paciente aparece vazia ("ninguém fez esse procedimento ainda").
+    const selectedProcs = await this.prisma.procedure.findMany({
+      where: { tenant_id: tenantId, active: true, default_revisit_months: { gte: 1 } },
+      select: { name: true },
+    });
     const procedureTabs = Array.from(
-      new Set(recalls.filter((r) => r.kind === 'procedure').map((r) => r.type)),
+      new Set<string>([
+        ...selectedProcs.map((s) => s.name),
+        ...recalls.filter((r) => r.kind === 'procedure').map((r) => r.type),
+      ]),
     ).sort((a, b) => a.localeCompare(b, 'pt-BR'));
 
     // Mais próximo/atrasado primeiro (return_date asc).
