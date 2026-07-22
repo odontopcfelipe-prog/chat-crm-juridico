@@ -1819,7 +1819,7 @@ export class QuotesService {
         firstDueDate: data.entrada_due_date,
         installmentsStartDate: data.installments_start_date,
       });
-    } catch (e) {
+    } catch (e: any) {
       // Roda SEMPRE (não só quando aceitamos aqui): mesmo numa quote já aceita, fomos
       // nós que ativamos o plano e carimbamos "Aprovado pelo Banco PASSOS" nas notes —
       // sem boleto nenhum, isso é mentira e precisa sair.
@@ -1834,6 +1834,25 @@ export class QuotesService {
         planId: planoCriadoAqui ? plan.id : null,
         planRestore: planoCriadoAqui ? null : planoAntes,
       });
+      // Traduz o erro pra mensagem ACIONÁVEL (espelha o approveAndBill). SEM isto, um 4xx
+      // do Asaas na criação dos boletos parcelados (ou uma data inválida) propaga cru e
+      // vira "Erro interno do servidor" (500) opaco, escondendo a recusa real.
+      this.logger.error(
+        `[APPLY-FINANCING] [FAILED] Quote ${quoteId} | err.name=${e?.name} | err.message=${e?.message}`,
+        e?.stack,
+      );
+      if (e?.name === 'BadRequestException' || e?.status === 400) throw e;
+      if (typeof e?.message === 'string' && e.message.includes('[Asaas')) {
+        throw new BadRequestException(`Erro Asaas: ${e.message}`);
+      }
+      if (e?.name === 'RangeError' || /invalid time value/i.test(e?.message || '')) {
+        throw new BadRequestException(
+          'Data de vencimento inválida — confira a data de entrada e a data de início das parcelas.',
+        );
+      }
+      if (typeof e?.code === 'string' && e.code.startsWith('P')) {
+        throw new BadRequestException(`Erro de banco: ${e.code} — ${e.meta?.cause || e.message}`);
+      }
       throw e;
     }
 
