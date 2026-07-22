@@ -5,7 +5,7 @@
 // no meio do tratamento. Abas: "Tratamento Concluído" + um por tipo de procedimento +
 // "RETORNO ATRASADO". Agrupado por mês do retorno. Dados: GET /return-alerts/maintenance-board.
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Bell, Loader2, Phone, MessageCircle, AlertTriangle } from 'lucide-react';
+import { Bell, Loader2, Phone, MessageCircle, AlertTriangle, Stethoscope } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
 
@@ -16,6 +16,7 @@ interface Recall {
   last_date: string | null;
   return_date: string;
   months: number;
+  executed_by_name: string | null;
 }
 
 const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
@@ -175,6 +176,11 @@ export default function ReturnAlertsPage() {
                           )}
                           <span className="italic">{r.type}</span>
                           {r.last_date && <span>Feito em {new Date(r.last_date).toLocaleDateString('pt-BR')}</span>}
+                          {r.executed_by_name && (
+                            <span className="flex items-center gap-1">
+                              <Stethoscope size={11} /> Concluído por {r.executed_by_name}
+                            </span>
+                          )}
                         </div>
                       </div>
                       <div className="flex flex-col items-end gap-2 shrink-0">

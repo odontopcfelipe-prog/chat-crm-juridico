@@ -126,6 +126,7 @@ export class ReturnAlertsService {
       last_date: Date | null;
       return_date: Date;
       months: number;
+      executed_by_name: string | null; // dentista que concluiu o procedimento (execução mais recente)
     };
     const recalls: Recall[] = [];
     // OPT-IN: só geram retorno os procedimentos que o admin ATIVOU em Configurações →
@@ -159,6 +160,7 @@ export class ReturnAlertsService {
       select: {
         executed_at: true,
         procedure: { select: { name: true, default_revisit_months: true } },
+        executed_by: { select: { name: true } },
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
       },
       orderBy: { executed_at: 'desc' },
@@ -178,7 +180,7 @@ export class ReturnAlertsService {
       seen.add(key);
       const ret = new Date(it.executed_at);
       ret.setMonth(ret.getMonth() + cfg);
-      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg });
+      recalls.push({ kind: 'procedure', type: proc.name, patient: p, last_date: it.executed_at, return_date: ret, months: cfg, executed_by_name: it.executed_by?.name ?? null });
     }
 
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
@@ -192,7 +194,7 @@ export class ReturnAlertsService {
     for (const t of completions) {
       if (!t.patient?.id || seenComp.has(t.patient.id)) continue;
       seenComp.add(t.patient.id);
-      recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: defaultMonths });
+      recalls.push({ kind: 'completion', type: 'Tratamento Concluído', patient: t.patient, last_date: null, return_date: t.due_date, months: defaultMonths, executed_by_name: null });
     }
 
     // Abas = os procedimentos SELECIONADOS (retorno ligado em Configurações → Retornos),
