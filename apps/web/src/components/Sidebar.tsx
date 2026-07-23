@@ -873,6 +873,7 @@ export function Sidebar() {
         allItems.pacientes,    // Pacientes (lista)
         allItems.progresso,    // Progresso (pipeline pós-venda por etapa)
         allItems.ortodontia,   // Ortodontia (quadro por dentista responsável)
+        allItems.returnAlerts, // Retornos (manutenção do sorriso) — movido do CRC
         // Onda 15 (etapa 18) — Orcamentos e Financeiro moveram pro
         // grupo "Financeiro" abaixo (operador preferiu agrupar la).
         // Orcamentos continua duplicado no CRM como atalho.
@@ -890,7 +891,6 @@ export function Sidebar() {
         // confusao. Pra restaurar: descomenta a linha abaixo.
         // allItems.orcamentos,   // Orcamentos
         allItems.fechamentos,  // Fechamentos (kanban SENT por procedimento)
-        allItems.returnAlerts, // Retornos
         allItems.followup,     // Follow-up IA (admin)
       ].filter(i => i.show),
     },
