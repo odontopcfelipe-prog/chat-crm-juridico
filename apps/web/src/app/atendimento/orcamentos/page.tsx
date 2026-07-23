@@ -658,8 +658,8 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
           return (
             <Fragment key={q.id}>
               {showMonth && (
-                <tr className="bg-muted/40">
-                  <td colSpan={9} className="px-4 py-1.5 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-y border-border">
+                <tr>
+                  <td colSpan={9} className="px-4 py-2.5 text-xs font-extrabold uppercase tracking-wider text-foreground bg-muted/70 border-t-2 border-border">
                     {monthLabelOf(dateStr)}
                   </td>
                 </tr>
