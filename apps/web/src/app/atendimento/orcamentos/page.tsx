@@ -11,7 +11,7 @@
  *
  * Métrica de sucesso: clínica aumentar a conversão Quote→TreatmentPlan.
  */
-import { Suspense, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, Suspense, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import {
   DollarSign, Loader2, Search, Send, Check, X, MessageCircle,
@@ -629,6 +629,11 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
     const hora = d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
     return `${dia} · ${hora}`;
   };
+  // Agrupamento por MÊS da venda — um cabeçalho de mês separa os blocos (a lista já
+  // vem ordenada por data desc no caller, então os meses saem em ordem).
+  const MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+  const monthKeyOf = (iso: string) => { const d = new Date(iso); return `${d.getFullYear()}-${d.getMonth()}`; };
+  const monthLabelOf = (iso: string) => { const d = new Date(iso); return `${MESES[d.getMonth()]} de ${d.getFullYear()}`; };
   return (
     <table className="w-full text-sm min-w-[1040px]">
       <thead className="bg-muted/50 text-muted-foreground text-[11px] uppercase tracking-wide">
@@ -645,14 +650,24 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
         </tr>
       </thead>
       <tbody className="divide-y divide-border">
-        {quotes.map((q) => {
+        {quotes.map((q, i) => {
           const validated = !!q.treatment_plan?.validated_by_financial_at;
+          const dateStr = q.accepted_at || q.created_at;
+          const prevStr = i > 0 ? (quotes[i - 1].accepted_at || quotes[i - 1].created_at) : null;
+          const showMonth = !prevStr || monthKeyOf(dateStr) !== monthKeyOf(prevStr);
           return (
-            <tr
-              key={q.id}
-              onClick={() => openFicha(q)}
-              className="hover:bg-muted/30 cursor-pointer"
-            >
+            <Fragment key={q.id}>
+              {showMonth && (
+                <tr className="bg-muted/40">
+                  <td colSpan={9} className="px-4 py-2 text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+                    {monthLabelOf(dateStr)}
+                  </td>
+                </tr>
+              )}
+              <tr
+                onClick={() => openFicha(q)}
+                className="hover:bg-muted/30 cursor-pointer"
+              >
               <td className="px-4 py-3 whitespace-nowrap">
                 <span className="font-mono text-xs text-primary font-semibold">#{q.id.slice(0, 6).toUpperCase()}</span>
               </td>
@@ -704,7 +719,8 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
                   Ver venda
                 </button>
               </td>
-            </tr>
+              </tr>
+            </Fragment>
           );
         })}
       </tbody>
