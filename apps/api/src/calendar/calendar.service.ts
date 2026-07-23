@@ -2436,6 +2436,10 @@ export class CalendarService {
     const template = (which === 3 ? config.message3_template : which === 2 ? config.message2_template : config.template) || config.template;
 
     const patients = await this.birthdayPatientsToday(tenant_id);
+    // Chip CLINICA do tenant (paciente-facing). Sem resolver, o sendText caía no instance
+    // DEFAULT do Evolution (resolveEvolutionConfig) — num tenant multi-chip pode ser outro
+    // chip / offline, e o parabéns não entregava.
+    const instance = (await this.resolveTenantWhatsappInstance(tenant_id, 'CLINICA').catch(() => null)) ?? undefined;
     const results: { patient_id: string; name: string; sent: boolean; reason?: string }[] = [];
 
     for (const p of patients) {
@@ -2451,14 +2455,29 @@ export class CalendarService {
         .replace(/\n{3,}/g, '\n\n')
         .trim();
       const phone = p.phone.replace(/\D/g, '');
+      let res: any = null;
       try {
-        // Passa tenant_id pra sair da instancia Evolution DA CLINICA (multi-tenant).
-        await this.whatsapp.sendText(phone, msg, undefined, undefined, tenant_id);
+        // Chip CLINICA do tenant (resolvido acima) + tenant_id pra a config da Evolution.
+        res = await this.whatsapp.sendText(phone, msg, instance, undefined, tenant_id);
+      } catch (e: any) {
+        results.push({ patient_id: p.id, name: p.name, sent: false, reason: `whatsapp erro: ${e?.message}` });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'FAILED', error: e?.message, refPatientId: p.id });
+        continue;
+      }
+      // sendText NÃO lança em falha HTTP (Evolution devolve {statusCode,error}/exists:false).
+      // Sem conferir o retorno, um envio RECUSADO era marcado "SENT" mentiroso.
+      const ok = !!res && typeof res === 'object'
+        && !(typeof res.statusCode === 'number' && res.statusCode >= 400)
+        && !(res.error && !res.key)
+        && res.exists !== false
+        && !!(res.key?.id || res.messageId || res.id);
+      if (ok) {
         results.push({ patient_id: p.id, name: p.name, sent: true });
         void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'SENT', refPatientId: p.id });
-      } catch (e: any) {
-        results.push({ patient_id: p.id, name: p.name, sent: false, reason: `whatsapp falhou: ${e.message}` });
-        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'FAILED', error: e?.message, refPatientId: p.id });
+      } else {
+        const reason = res?.exists === false ? 'número não está no WhatsApp' : `Evolution recusou (${JSON.stringify(res).slice(0, 120)})`;
+        results.push({ patient_id: p.id, name: p.name, sent: false, reason });
+        void this.logDispatch({ tenantId: tenant_id, type: 'aniversario', recipientName: p.name, recipientPhone: phone, status: 'FAILED', error: reason, refPatientId: p.id });
       }
     }
 
