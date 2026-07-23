@@ -2136,49 +2136,32 @@ function ProceduresListModal({
 }) {
   const total = quoteDetail?.items.reduce((s, it) => s + Number(it.total_price), 0) || 0;
 
-  // Imprime os procedimentos do plano numa janela nova (documento limpo), COM ou SEM
-  // valores. Sem valores = lista pro paciente/prontuário; com valores = orçamento.
-  const printProcedures = (withValues: boolean) => {
-    const items = quoteDetail?.items || [];
-    if (!items.length) return;
-    const esc = (s: string) =>
-      s.replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]));
-    const today = new Date().toLocaleDateString('pt-BR');
-    const rows = items
-      .map((it, i) => {
-        const det = [
-          it.tooth_fdi ? `Dente ${it.tooth_fdi}` : '',
-          it.quantity > 1 ? `${it.quantity}x` : '',
-          it.dentist?.name || '',
-        ].filter(Boolean).join(' · ');
-        return `<tr><td class="n">${i + 1}</td><td><b>${esc(it.procedure.name)}</b>${det ? `<div class="d">${esc(det)}</div>` : ''}</td>${withValues ? `<td class="v">R$ ${fmtBRL(Number(it.total_price))}</td>` : ''}</tr>`;
-      })
-      .join('');
-    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Procedimentos${patientName ? ' — ' + esc(patientName) : ''}</title><style>
-      *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:32px;font-size:13px}
-      h1{font-size:18px;margin:0 0 4px} .sub{color:#666;font-size:12px;margin-bottom:16px}
-      .meta{margin:0 0 18px;font-size:12.5px;line-height:1.6}
-      table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #ddd;vertical-align:top}
-      th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;border-bottom:2px solid #999}
-      td.n,th.n{width:28px;color:#999;text-align:right;padding-right:10px} .d{color:#777;font-size:11px;margin-top:2px}
-      td.v,th.v{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums} tfoot td{border-top:2px solid #999;border-bottom:none;font-weight:800;font-size:14px;padding-top:10px}
-      .sign{margin-top:48px} .sign .line{margin-top:36px;border-top:1px solid #999;width:280px;padding-top:4px;color:#444;font-size:12px}
-      @media print{body{margin:16px}}
-    </style></head><body>
-      <h1>Plano de tratamento — procedimentos</h1>
-      <div class="sub">${withValues ? 'Orçamento (com valores)' : 'Lista de procedimentos'}</div>
-      <div class="meta">${patientName ? `<b>Paciente:</b> ${esc(patientName)}<br>` : ''}<b>Orçamento:</b> ${esc(quoteName || '—')} · ${items.length} ${items.length === 1 ? 'procedimento' : 'procedimentos'}<br><b>Data:</b> ${today}</div>
-      <table><thead><tr><th class="n">#</th><th>Procedimento</th>${withValues ? '<th class="v">Valor</th>' : ''}</tr></thead>
-      <tbody>${rows}</tbody>
-      ${withValues ? `<tfoot><tr><td></td><td>Total</td><td class="v">R$ ${fmtBRL(total)}</td></tr></tfoot>` : ''}</table>
-      <div class="sign"><div class="line">Assinatura do paciente</div></div>
-    </body></html>`;
-    const w = window.open('', '_blank', 'width=820,height=920');
-    if (!w) { showError('Permita pop-ups para imprimir.'); return; }
-    w.document.write(html);
-    w.document.close();
-    w.focus();
-    setTimeout(() => { try { w.print(); } catch { /* usuário imprime manualmente */ } }, 350);
+  // Abre o PDF PROFISSIONAL do orçamento (backend/pdfkit — logo da clínica, dados do
+  // paciente, tabela de procedimentos, assinatura), COM valores (orçamento completo) ou
+  // SEM (só a lista de procedimentos). Busca como blob autenticado (o endpoint exige JWT)
+  // e abre numa aba nova — dá pra visualizar, salvar e imprimir como PDF de verdade.
+  const [pdfLoading, setPdfLoading] = useState<'com' | 'sem' | null>(null);
+  const openPdf = async (withValues: boolean) => {
+    if (!quoteDetail?.id) return;
+    // Abre a aba JÁ no clique (gesto do usuário) pra o navegador não bloquear o popup;
+    // depois do fetch aponta a aba pro PDF. Se falhar, fecha a aba.
+    const win = window.open('', '_blank');
+    setPdfLoading(withValues ? 'com' : 'sem');
+    try {
+      const res = await api.get(`/commercial/quotes/${quoteDetail.id}/pdf`, {
+        params: withValues ? undefined : { values: 'false' },
+        responseType: 'blob',
+      });
+      const url = URL.createObjectURL(res.data as Blob);
+      if (win) win.location.href = url;
+      else window.open(url, '_blank');
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      win?.close();
+      showError('Erro ao gerar o PDF. Tente novamente.');
+    } finally {
+      setPdfLoading(null);
+    }
   };
 
   return (
@@ -2259,19 +2242,21 @@ function ProceduresListModal({
             <div className="flex items-center gap-1.5 flex-wrap">
               <button
                 type="button"
-                onClick={() => printProcedures(true)}
-                title="Imprimir os procedimentos COM os valores (orçamento)"
-                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+                onClick={() => openPdf(true)}
+                disabled={!!pdfLoading}
+                title="Baixar o PDF do orçamento COM os valores"
+                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-60"
               >
-                <Printer size={13} /> Imprimir c/ valores
+                {pdfLoading === 'com' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF com valores
               </button>
               <button
                 type="button"
-                onClick={() => printProcedures(false)}
-                title="Imprimir só a lista de procedimentos, SEM valores"
-                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+                onClick={() => openPdf(false)}
+                disabled={!!pdfLoading}
+                title="Baixar o PDF só com a lista de procedimentos (sem valores)"
+                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors disabled:opacity-60"
               >
-                <Printer size={13} /> Imprimir s/ valores
+                {pdfLoading === 'sem' ? <Loader2 size={13} className="animate-spin" /> : <Printer size={13} />} PDF sem valores
               </button>
             </div>
             <div className="flex items-center gap-2">

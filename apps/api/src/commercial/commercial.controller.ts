@@ -702,14 +702,17 @@ export class CommercialController {
     @Param('id') id: string,
     @Request() req: any,
     @Res() res: Response,
+    @Query('values') values?: string,
   ) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
-    const buffer = await this.pdfService.generatePdf(id, tenantId);
+    // ?values=false → PDF só com os procedimentos (sem valores/total/condições).
+    const withValues = values !== 'false';
+    const buffer = await this.pdfService.generatePdf(id, tenantId, withValues);
     res.set('Content-Type', 'application/pdf');
     res.set(
       'Content-Disposition',
-      `inline; filename="orcamento-${id.slice(0, 8)}.pdf"`,
+      `inline; filename="${withValues ? 'orcamento' : 'procedimentos'}-${id.slice(0, 8)}.pdf"`,
     );
     res.set('Content-Length', String(buffer.length));
     res.end(buffer);

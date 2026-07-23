@@ -23,7 +23,7 @@ export class QuotePdfService {
 
   constructor(private prisma: PrismaService) {}
 
-  async generatePdf(quoteId: string, tenantId: string): Promise<Buffer> {
+  async generatePdf(quoteId: string, tenantId: string, withValues = true): Promise<Buffer> {
     const quote = await this.prisma.quote.findUnique({
       where: { id: quoteId },
       include: {
@@ -54,10 +54,10 @@ export class QuotePdfService {
       throw new NotFoundException('Orcamento nao pertence ao tenant');
     }
 
-    return this.renderPdf(quote);
+    return this.renderPdf(quote, withValues);
   }
 
-  private renderPdf(quote: any): Promise<Buffer> {
+  private renderPdf(quote: any, withValues = true): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       const doc = new PDFDocument({
         size: 'A4',
@@ -124,15 +124,19 @@ export class QuotePdfService {
       doc.font('Helvetica-Bold').fontSize(11).text('PROCEDIMENTOS');
       doc.moveDown(0.5);
 
-      const colW = { proc: W * 0.50, dente: W * 0.10, qty: W * 0.07, unit: W * 0.16, total: W * 0.17 };
+      const colW = withValues
+        ? { proc: W * 0.50, dente: W * 0.10, qty: W * 0.07, unit: W * 0.16, total: W * 0.17 }
+        : { proc: W * 0.72, dente: W * 0.13, qty: W * 0.15, unit: 0, total: 0 };
       let cursorY = doc.y;
       const drawHeaderRow = () => {
         doc.font('Helvetica-Bold').fontSize(9);
         doc.text('Procedimento', doc.page.margins.left, cursorY, { width: colW.proc });
         doc.text('Dente', doc.page.margins.left + colW.proc, cursorY, { width: colW.dente, align: 'center' });
         doc.text('Qtd', doc.page.margins.left + colW.proc + colW.dente, cursorY, { width: colW.qty, align: 'right' });
-        doc.text('Unitário', doc.page.margins.left + colW.proc + colW.dente + colW.qty, cursorY, { width: colW.unit, align: 'right' });
-        doc.text('Total', doc.page.margins.left + colW.proc + colW.dente + colW.qty + colW.unit, cursorY, { width: colW.total, align: 'right' });
+        if (withValues) {
+          doc.text('Unitário', doc.page.margins.left + colW.proc + colW.dente + colW.qty, cursorY, { width: colW.unit, align: 'right' });
+          doc.text('Total', doc.page.margins.left + colW.proc + colW.dente + colW.qty + colW.unit, cursorY, { width: colW.total, align: 'right' });
+        }
         doc.moveDown(0.4);
         doc.moveTo(doc.page.margins.left, doc.y).lineTo(doc.page.margins.left + W, doc.y).stroke();
         doc.moveDown(0.3);
@@ -159,8 +163,10 @@ export class QuotePdfService {
         doc.text(procFull, doc.page.margins.left, cursorY, { width: colW.proc });
         doc.text(item.tooth_fdi || '-', doc.page.margins.left + colW.proc, cursorY, { width: colW.dente, align: 'center' });
         doc.text(String(item.quantity), doc.page.margins.left + colW.proc + colW.dente, cursorY, { width: colW.qty, align: 'right' });
-        doc.text(formatBRL(item.unit_price), doc.page.margins.left + colW.proc + colW.dente + colW.qty, cursorY, { width: colW.unit, align: 'right' });
-        doc.text(formatBRL(item.total_price), doc.page.margins.left + colW.proc + colW.dente + colW.qty + colW.unit, cursorY, { width: colW.total, align: 'right' });
+        if (withValues) {
+          doc.text(formatBRL(item.unit_price), doc.page.margins.left + colW.proc + colW.dente + colW.qty, cursorY, { width: colW.unit, align: 'right' });
+          doc.text(formatBRL(item.total_price), doc.page.margins.left + colW.proc + colW.dente + colW.qty + colW.unit, cursorY, { width: colW.total, align: 'right' });
+        }
         if (item.notes) {
           doc.moveDown(0.2);
           doc.font('Helvetica-Oblique').fontSize(8).fillColor('#666')
@@ -180,27 +186,30 @@ export class QuotePdfService {
       const discountPercent = Number(quote.discount_percent);
       const total = Number(quote.total_value);
 
-      const totalsX = doc.page.margins.left + W * 0.55;
-      const totalsW = W * 0.45;
-      doc.font('Helvetica').fontSize(10);
-      doc.text('Subtotal:', totalsX, doc.y, { width: totalsW * 0.6, align: 'right' });
-      doc.text(formatBRL(subtotal), totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
-      doc.moveDown(0.3);
-      if (discountValue > 0) {
-        doc.text(
-          `Desconto${discountPercent > 0 ? ` (${discountPercent}%)` : ''}:`,
-          totalsX, doc.y, { width: totalsW * 0.6, align: 'right' },
-        );
-        doc.text(`- ${formatBRL(discountValue)}`, totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
+      // Sem valores: pula subtotal/desconto/total (só a lista de procedimentos).
+      if (withValues) {
+        const totalsX = doc.page.margins.left + W * 0.55;
+        const totalsW = W * 0.45;
+        doc.font('Helvetica').fontSize(10);
+        doc.text('Subtotal:', totalsX, doc.y, { width: totalsW * 0.6, align: 'right' });
+        doc.text(formatBRL(subtotal), totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
         doc.moveDown(0.3);
+        if (discountValue > 0) {
+          doc.text(
+            `Desconto${discountPercent > 0 ? ` (${discountPercent}%)` : ''}:`,
+            totalsX, doc.y, { width: totalsW * 0.6, align: 'right' },
+          );
+          doc.text(`- ${formatBRL(discountValue)}`, totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
+          doc.moveDown(0.3);
+        }
+        doc.font('Helvetica-Bold').fontSize(12);
+        doc.text('TOTAL:', totalsX, doc.y, { width: totalsW * 0.6, align: 'right' });
+        doc.text(formatBRL(total), totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
+        doc.moveDown(1.5);
       }
-      doc.font('Helvetica-Bold').fontSize(12);
-      doc.text('TOTAL:', totalsX, doc.y, { width: totalsW * 0.6, align: 'right' });
-      doc.text(formatBRL(total), totalsX + totalsW * 0.6, doc.y - doc.currentLineHeight(), { width: totalsW * 0.4, align: 'right' });
-      doc.moveDown(1.5);
 
-      // ── Condicoes de pagamento
-      if (quote.payment_terms) {
+      // ── Condicoes de pagamento (só com valores)
+      if (quote.payment_terms && withValues) {
         doc.font('Helvetica-Bold').fontSize(10).text('CONDIÇÕES DE PAGAMENTO');
         doc.moveDown(0.3);
         doc.font('Helvetica').fontSize(10).text(quote.payment_terms);
@@ -211,7 +220,7 @@ export class QuotePdfService {
       // Quando o operador salva uma proposta (is_chosen_proposal=true) e
       // configura forma de pagamento (chosen_payment_key) + entrada opcional
       // (chosen_down_payment), o PDF mostra essa oferta em destaque.
-      if (quote.chosen_payment_key) {
+      if (quote.chosen_payment_key && withValues) {
         // Onda 18 — desconto à vista opcional: só aplica se o operador ligou o
         // toggle na proposta (avista_discount_enabled), com o % congelado.
         const avistaPct = quote.avista_discount_enabled
