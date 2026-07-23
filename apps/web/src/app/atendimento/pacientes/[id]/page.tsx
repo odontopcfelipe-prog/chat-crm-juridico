@@ -854,7 +854,7 @@ function PacienteFichaInner() {
           }}
         />
       )}
-      {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} />}
+      {tab === 'financial' && canFinancial && <FinanceiroTab patientId={patient.id} patientName={patient.name} />}
       {tab === 'treatment' && <TratamentoTab patientId={patient.id} />}
       {tab === 'maintenance' && <ManutencoesTab patientId={patient.id} />}
       {tab === 'affiliate' && patient.is_affiliate && (

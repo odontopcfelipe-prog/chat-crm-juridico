@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList, CheckCircle2,
+  ClipboardList, CheckCircle2, Printer,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -27,6 +27,7 @@ import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
 interface Props {
   patientId: string;
+  patientName?: string;
 }
 
 /** Onda 14.12 — proposta aceita do paciente (Quote.status=ACCEPTED) */
@@ -137,7 +138,7 @@ const fmtDiaHeader = (iso: string | null) => {
   }
 };
 
-export default function FinanceiroTab({ patientId }: Props) {
+export default function FinanceiroTab({ patientId, patientName }: Props) {
   const [installments, setInstallments] = useState<Installment[]>([]);
   // Onda 14.9 — cobrancas Asaas geradas pelo approveAndBill
   const [charges, setCharges] = useState<Charge[]>([]);
@@ -407,6 +408,7 @@ export default function FinanceiroTab({ patientId }: Props) {
         acceptedQuotes={acceptedQuotes}
         charges={charges}
         patientId={patientId}
+        patientName={patientName}
         onOpenDetail={(id) => setDetailQuoteId(id)}
         onReload={load}
         refreshNonce={refreshNonce}
@@ -679,6 +681,7 @@ function ProposalFinancialCard({
   quote,
   allCharges,
   patientId,
+  patientName,
   onOpenDetail,
   onReload,
   refreshNonce,
@@ -687,6 +690,7 @@ function ProposalFinancialCard({
   quote: AcceptedQuote;
   allCharges: Charge[];
   patientId: string;
+  patientName?: string;
   onOpenDetail: () => void;
   onReload?: () => void;
   refreshNonce?: number;
@@ -1583,6 +1587,7 @@ function ProposalFinancialCard({
           quoteDetail={quoteDetail}
           loading={loadingQuoteDetail}
           quoteName={priorityLabel}
+          patientName={patientName}
           onClose={() => setShowProcedures(false)}
         />
       )}
@@ -2120,14 +2125,62 @@ function ProceduresListModal({
   quoteDetail,
   loading,
   quoteName,
+  patientName,
   onClose,
 }: {
   quoteDetail: QuoteFullDetail | null;
   loading: boolean;
   quoteName: string;
+  patientName?: string;
   onClose: () => void;
 }) {
   const total = quoteDetail?.items.reduce((s, it) => s + Number(it.total_price), 0) || 0;
+
+  // Imprime os procedimentos do plano numa janela nova (documento limpo), COM ou SEM
+  // valores. Sem valores = lista pro paciente/prontuário; com valores = orçamento.
+  const printProcedures = (withValues: boolean) => {
+    const items = quoteDetail?.items || [];
+    if (!items.length) return;
+    const esc = (s: string) =>
+      s.replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' } as Record<string, string>)[c]));
+    const today = new Date().toLocaleDateString('pt-BR');
+    const rows = items
+      .map((it, i) => {
+        const det = [
+          it.tooth_fdi ? `Dente ${it.tooth_fdi}` : '',
+          it.quantity > 1 ? `${it.quantity}x` : '',
+          it.dentist?.name || '',
+        ].filter(Boolean).join(' · ');
+        return `<tr><td class="n">${i + 1}</td><td><b>${esc(it.procedure.name)}</b>${det ? `<div class="d">${esc(det)}</div>` : ''}</td>${withValues ? `<td class="v">R$ ${fmtBRL(Number(it.total_price))}</td>` : ''}</tr>`;
+      })
+      .join('');
+    const html = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Procedimentos${patientName ? ' — ' + esc(patientName) : ''}</title><style>
+      *{box-sizing:border-box} body{font-family:-apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;margin:32px;font-size:13px}
+      h1{font-size:18px;margin:0 0 4px} .sub{color:#666;font-size:12px;margin-bottom:16px}
+      .meta{margin:0 0 18px;font-size:12.5px;line-height:1.6}
+      table{width:100%;border-collapse:collapse} th,td{text-align:left;padding:8px 6px;border-bottom:1px solid #ddd;vertical-align:top}
+      th{font-size:10px;text-transform:uppercase;letter-spacing:.5px;color:#666;border-bottom:2px solid #999}
+      td.n,th.n{width:28px;color:#999;text-align:right;padding-right:10px} .d{color:#777;font-size:11px;margin-top:2px}
+      td.v,th.v{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums} tfoot td{border-top:2px solid #999;border-bottom:none;font-weight:800;font-size:14px;padding-top:10px}
+      .sign{margin-top:48px} .sign .line{margin-top:36px;border-top:1px solid #999;width:280px;padding-top:4px;color:#444;font-size:12px}
+      @media print{body{margin:16px}}
+    </style></head><body>
+      <h1>Plano de tratamento — procedimentos</h1>
+      <div class="sub">${withValues ? 'Orçamento (com valores)' : 'Lista de procedimentos'}</div>
+      <div class="meta">${patientName ? `<b>Paciente:</b> ${esc(patientName)}<br>` : ''}<b>Orçamento:</b> ${esc(quoteName || '—')} · ${items.length} ${items.length === 1 ? 'procedimento' : 'procedimentos'}<br><b>Data:</b> ${today}</div>
+      <table><thead><tr><th class="n">#</th><th>Procedimento</th>${withValues ? '<th class="v">Valor</th>' : ''}</tr></thead>
+      <tbody>${rows}</tbody>
+      ${withValues ? `<tfoot><tr><td></td><td>Total</td><td class="v">R$ ${fmtBRL(total)}</td></tr></tfoot>` : ''}</table>
+      <div class="sign"><div class="line">Assinatura do paciente</div></div>
+    </body></html>`;
+    const w = window.open('', '_blank', 'width=820,height=920');
+    if (!w) { showError('Permita pop-ups para imprimir.'); return; }
+    w.document.write(html);
+    w.document.close();
+    w.focus();
+    setTimeout(() => { try { w.print(); } catch { /* usuário imprime manualmente */ } }, 350);
+  };
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
@@ -2200,11 +2253,31 @@ function ProceduresListModal({
             </ul>
           )}
         </div>
-        {/* Footer com total */}
+        {/* Footer: imprimir (com/sem valores) + total */}
         {quoteDetail?.items?.length ? (
-          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0">
-            <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total solicitado</span>
-            <span className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(total)}</span>
+          <div className="flex items-center justify-between gap-2 px-4 py-3 border-t border-border bg-muted/30 shrink-0 flex-wrap">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                type="button"
+                onClick={() => printProcedures(true)}
+                title="Imprimir os procedimentos COM os valores (orçamento)"
+                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+              >
+                <Printer size={13} /> Imprimir c/ valores
+              </button>
+              <button
+                type="button"
+                onClick={() => printProcedures(false)}
+                title="Imprimir só a lista de procedimentos, SEM valores"
+                className="text-xs font-semibold inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card hover:bg-accent/40 text-foreground transition-colors"
+              >
+                <Printer size={13} /> Imprimir s/ valores
+              </button>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] uppercase tracking-wider font-bold text-muted-foreground">Total</span>
+              <span className="text-lg font-extrabold tabular-nums text-foreground">{fmtBRL(total)}</span>
+            </div>
           </div>
         ) : null}
       </div>
@@ -2418,6 +2491,7 @@ function ContratosTratamentosBloco({
   acceptedQuotes,
   charges,
   patientId,
+  patientName,
   onOpenDetail,
   onReload,
   refreshNonce,
@@ -2425,6 +2499,7 @@ function ContratosTratamentosBloco({
   acceptedQuotes: AcceptedQuote[];
   charges: Charge[];
   patientId: string;
+  patientName?: string;
   onOpenDetail: (id: string) => void;
   onReload?: () => void;
   refreshNonce?: number;
@@ -2518,6 +2593,7 @@ function ContratosTratamentosBloco({
                     quote={q}
                     allCharges={charges}
                     patientId={patientId}
+                    patientName={patientName}
                     onOpenDetail={() => onOpenDetail(q.id)}
                     onReload={onReload}
                     refreshNonce={refreshNonce}
