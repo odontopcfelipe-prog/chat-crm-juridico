@@ -2148,7 +2148,7 @@ function ProceduresListModal({
     const win = window.open('', '_blank');
     setPdfLoading(withValues ? 'com' : 'sem');
     try {
-      const res = await api.get(`/commercial/quotes/${quoteDetail.id}/pdf`, {
+      const res = await api.get(`/quotes/${quoteDetail.id}/pdf`, {
         params: withValues ? undefined : { values: 'false' },
         responseType: 'blob',
       });
