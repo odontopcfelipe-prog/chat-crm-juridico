@@ -281,6 +281,16 @@ export class PatientsService {
         select: { id: true },
       });
       if (claimedByOther) return;
+
+      // Lead já existe (nasceu de uma mensagem WhatsApp com o pushName/apelido do
+      // paciente): ADOTA o nome do CADASTRO (autoritativo) — senão a conversa segue
+      // mostrando o pushName em vez do nome cadastrado. Só sobrescreve com um nome REAL
+      // (ignora vazio e o placeholder "Paciente sem nome").
+      const cadastroName = (name || '').trim();
+      if (cadastroName && cadastroName !== 'Paciente sem nome' && lead.name !== cadastroName) {
+        await this.prisma.lead.update({ where: { id: lead.id }, data: { name: cadastroName } });
+        this.logger.log(`[PATIENT] Lead ${lead.id} renomeado pro cadastro: "${cadastroName}" (era "${lead.name || ''}")`);
+      }
     }
 
     // 2. Cria Lead se nao tem
@@ -569,7 +579,16 @@ export class PatientsService {
       }
     }
 
-    return this.prisma.patient.update({ where: { id }, data });
+    const updated = await this.prisma.patient.update({ where: { id }, data });
+
+    // Nome do cadastro é a fonte da verdade do contato: quando o nome muda, sincroniza o
+    // Lead (contato WhatsApp) — senão a conversa continuaria com o nome antigo/pushName.
+    if (typeof data.name === 'string' && data.name.trim() && updated.lead_id) {
+      await this.prisma.lead
+        .update({ where: { id: updated.lead_id }, data: { name: data.name.trim() } })
+        .catch((e: any) => this.logger.warn(`[PATIENT UPDATE] falha ao sincronizar nome do lead ${updated.lead_id}: ${e?.message}`));
+    }
+    return updated;
   }
 
   /** Soft delete — marca como ARCHIVED. Use para preservar historico clinico. */

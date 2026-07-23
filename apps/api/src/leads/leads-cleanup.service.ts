@@ -7,6 +7,8 @@ export interface CleanupResult {
   mergedLeads: number;
   updatedPhones: number;
   updatedPatients: number;
+  /** Leads (contatos WhatsApp) renomeados pro nome do CADASTRO do paciente. */
+  renamedLeads: number;
   /** Duplicatas que NÃO foram mescladas por segurança (ambos os lados têm
    *  paciente) — precisam de decisão manual. */
   skipped: number;
@@ -38,6 +40,7 @@ export class LeadsCleanupService {
       mergedLeads: 0,
       updatedPhones: 0,
       updatedPatients: 0,
+      renamedLeads: 0,
       skipped: 0,
       errors: [],
     };
@@ -180,6 +183,22 @@ export class LeadsCleanupService {
             .then(() => { result.updatedPatients++; })
             .catch(() => undefined);
         }
+      }
+
+      // Sincroniza o nome do LEAD (contato WhatsApp) com o CADASTRO do paciente — o nome
+      // do cadastro é a fonte da verdade. Corrige contatos que ficaram com o pushName/
+      // apelido antigo do WhatsApp em vez do nome cadastrado.
+      const patsWithLead = await this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, lead_id: { not: null } },
+        select: { name: true, lead: { select: { id: true, name: true } } },
+      });
+      for (const p of patsWithLead) {
+        const nome = (p.name || '').trim();
+        if (!nome || nome === 'Paciente sem nome' || !p.lead || p.lead.name === nome) continue;
+        await this.prisma.lead
+          .update({ where: { id: p.lead.id }, data: { name: nome } })
+          .then(() => { result.renamedLeads++; })
+          .catch(() => undefined);
       }
     }
 
