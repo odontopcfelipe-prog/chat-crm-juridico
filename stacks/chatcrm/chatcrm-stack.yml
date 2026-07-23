@@ -91,6 +91,14 @@ services:
       - S3_BUCKET=${S3_BUCKET:-chat-crm-media}
       - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-https://sistema.institutoodontopassos.com.br}
       - WEBHOOK_HMAC_REQUIRED=${WEBHOOK_HMAC_REQUIRED:-false}
+      - MEDIA_STORAGE_PATH=/var/lib/crm-media
+    # Mídia (áudio/imagem do WhatsApp) é baixada E servida pela própria API
+    # (fluxo síncrono do MediaDownloadService). SEM este volume nomeado, os
+    # arquivos ficam num diretório efêmero DENTRO do container e SOMEM a cada
+    # redeploy (docker service update cria container novo) — as imagens do
+    # chat quebram (caem no fallback da URL da Evolution, que expira em dias).
+    volumes:
+      - crm_media:/var/lib/crm-media
     # NAO configurar `dns:` customizado aqui! Faz o container consultar
     # os servidores direto via UDP (que a VPS bloqueia) em vez do DNS
     # embutido do Docker (127.0.0.11, encaminhado pelo host) — quebra
@@ -196,3 +204,4 @@ volumes:
   pgdata:
   redisdata:
   minio_data:
+  crm_media:
