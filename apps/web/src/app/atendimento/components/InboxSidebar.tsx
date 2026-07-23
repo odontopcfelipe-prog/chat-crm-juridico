@@ -379,30 +379,8 @@ export function InboxSidebar({
           )}
         </div>
 
-        {/* Desktop notification permission banner */}
-        {showNotifBanner && (
-          <div className="p-2.5 bg-primary/5 border border-primary/20 rounded-xl flex items-center gap-2.5">
-            <Bell size={14} className="text-primary shrink-0" />
-            <p className="text-[11px] text-foreground flex-1">Ativar notificacoes do navegador?</p>
-            <button
-              onClick={async () => {
-                const result = await requestNotificationPermission();
-                onSetShowNotifBanner(false);
-                if (result === 'granted') showSuccess('Notificacoes ativadas!');
-              }}
-              className="text-[10px] font-bold text-primary px-2 py-0.5 rounded-lg hover:bg-primary/10 transition-colors"
-            >
-              Ativar
-            </button>
-            <button
-              onClick={() => { dismissBanner(); onSetShowNotifBanner(false); }}
-              className="text-muted-foreground hover:text-foreground transition-colors"
-              aria-label="Dispensar"
-            >
-              <X size={12} />
-            </button>
-          </div>
-        )}
+        {/* Banner "Ativar notificações do navegador" removido pra dar mais espaço na
+            lista (a permissão de notificação segue disponível em Config → Notificações). */}
 
         {/* WhatsApp disconnection banner */}
         {hasDisconnectedInstance && (
