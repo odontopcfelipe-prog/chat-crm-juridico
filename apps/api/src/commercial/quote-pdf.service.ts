@@ -292,20 +292,24 @@ export class QuotePdfService {
         doc.moveDown(1);
       }
 
-      // ── Espaco pra assinatura
-      doc.moveDown(2);
-      const sigY = Math.min(doc.y, doc.page.height - 130);
-      doc.moveTo(doc.page.margins.left + 60, sigY).lineTo(doc.page.margins.left + W - 60, sigY).stroke();
-      doc.font('Helvetica').fontSize(9).text(
-        `Assinatura: ${quote.patient.name}`,
-        doc.page.margins.left + 60, sigY + 5,
-        { width: W - 120, align: 'center' },
+      // ── Assinatura — QUADRO perto do rodapé (espaço maior pra assinar).
+      const sigBoxW = 320;
+      const sigBoxH = 60;
+      const sigBoxX = doc.page.margins.left + (W - sigBoxW) / 2; // centralizado
+      const sigBoxTop = doc.page.height - 155; // ancorado embaixo, acima do nome/rodapé
+      // Não deixa o quadro colidir com a lista: se o conteúdo já chegou perto, nova página.
+      if (doc.y > sigBoxTop - 26) doc.addPage();
+      doc.font('Helvetica').fontSize(8).fillColor('#666').text(
+        'Assinatura do paciente', sigBoxX, sigBoxTop - 14, { width: sigBoxW, align: 'center' },
       );
-      doc.moveDown(0.3);
-      doc.fontSize(8).fillColor('#666').text(
-        `Ao assinar, declaro estar ciente dos procedimentos, valores e condições descritos neste orçamento.`,
-        doc.page.margins.left, doc.y,
-        { width: W, align: 'center' },
+      doc.lineWidth(0.8).strokeColor('#333').roundedRect(sigBoxX, sigBoxTop, sigBoxW, sigBoxH, 6).stroke();
+      doc.strokeColor('#000');
+      doc.font('Helvetica').fontSize(9).fillColor('#000').text(
+        quote.patient.name, sigBoxX, sigBoxTop + sigBoxH + 6, { width: sigBoxW, align: 'center' },
+      );
+      doc.fontSize(7.5).fillColor('#666').text(
+        `Ao assinar, declaro estar ciente dos procedimentos${withValues ? ', valores e condições' : ''} descritos neste documento.`,
+        doc.page.margins.left, sigBoxTop + sigBoxH + 20, { width: W, align: 'center' },
       );
       doc.fillColor('#000');
 
