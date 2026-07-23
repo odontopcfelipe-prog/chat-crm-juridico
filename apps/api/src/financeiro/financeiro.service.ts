@@ -143,7 +143,8 @@ export class FinanceiroService {
         where,
         include: {
           lead: {
-            select: { id: true, name: true, phone: true },
+            // patient = nome do CADASTRO (fonte da verdade do CLIENTE, não o pushName do lead).
+            select: { id: true, name: true, phone: true, patient: { select: { name: true } } },
           },
           dentist: {
             select: { id: true, name: true, email: true },
@@ -155,6 +156,14 @@ export class FinanceiroService {
       }),
       this.prisma.financialTransaction.count({ where }),
     ]);
+
+    // CLIENTE = nome do CADASTRO do paciente (fonte da verdade): quando o lead tem paciente
+    // vinculado, mostra o nome do cadastro em vez do lead.name (que pode ser o pushName/
+    // apelido do WhatsApp). Remove o sub-objeto patient da resposta (só serviu pra isto).
+    for (const r of data as any[]) {
+      if (r.lead?.patient?.name) r.lead.name = r.lead.patient.name;
+      if (r.lead) delete r.lead.patient;
+    }
 
     // CLIENTE das entradas: receitas de cobrança/clínica sem lead_id gravado mostram
     // o paciente resolvendo pela cobrança (reference_id = charge.external_id) →
