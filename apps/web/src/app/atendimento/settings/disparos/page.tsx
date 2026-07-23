@@ -444,7 +444,7 @@ export default function CentralDisparosPage() {
         {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada' && (
           <MensagemEditor
             titulo={openItem.nome}
-            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma O QUE foi vendido + as condições. (O código PIX agora sai num card próprio, 'Envio do PIX'.) Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
+            descricao="Enviada ao paciente pelo chip Financeiro no FECHAMENTO da venda: confirma O QUE foi vendido + as condições, e ANEXA o PDF dos procedimentos (sem valores). (O código PIX agora sai num card próprio, 'Envio do PIX'.) Edite e Salve — o robô passa a usar este texto. Deixe em branco pra voltar ao padrão."
             endpoint="/followup/cobranca-template/negociacao_aprovada"
             variaveis={[
               { key: 'nome', desc: 'Primeiro nome do paciente' },

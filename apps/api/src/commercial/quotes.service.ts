@@ -1349,6 +1349,36 @@ export class QuotesService {
         })
         .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] negociacao_aprovada não registrou: ${e?.message}`));
 
+      // Anexa o PDF dos procedimentos SEM valores (o paciente vê O QUE foi aprovado, sem
+      // preços). Best-effort — não bloqueia o fluxo nem afeta a dedup do texto acima.
+      if (this.pdfService) {
+        try {
+          const plan = await this.prisma.treatmentPlan.findUnique({
+            where: { id: planId },
+            select: { quote_id: true },
+          });
+          if (plan?.quote_id) {
+            const pdf = await this.pdfService.generatePdf(plan.quote_id, tenantId, false); // false = sem valores
+            const pdfRes = await ws.sendMedia(
+              phone,
+              'document',
+              pdf.toString('base64'),
+              `Aqui estão os procedimentos do seu tratamento, ${firstName}. 😊`,
+              instance,
+              `procedimentos-${firstName}.pdf`,
+              'application/pdf',
+            );
+            if (this.wasSent(pdfRes)) {
+              this.logger.log(`[NEGOCIACAO_APROVADA] PDF de procedimentos (sem valores) enviado — plano ${planId}`);
+            } else {
+              this.logger.warn(`[NEGOCIACAO_APROVADA] Evolution recusou o PDF (plano ${planId}): ${JSON.stringify(pdfRes).slice(0, 150)}`);
+            }
+          }
+        } catch (e: any) {
+          this.logger.warn(`[NEGOCIACAO_APROVADA] falha ao enviar PDF de procedimentos (plano ${planId}): ${e?.message}`);
+        }
+      }
+
       // Âncora — só quando a venda é BOLETO e o fluxo de boletos está ligado: substitui
       // a apresentação D+1 (dedup por AuditLog BOLETO_INTRO) e ancora a entrega (dia
       // seguinte). Em PIX/cartão NÃO ancora (a dedup do cron não olha data, então uma
