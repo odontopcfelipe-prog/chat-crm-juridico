@@ -1322,17 +1322,17 @@ function ProposalFinancialCard({
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       {/* Header colapsavel — Onda 17.32.43 visual da referencia */}
-      <div className="grid grid-cols-[auto_1fr_minmax(140px,200px)_auto_auto] gap-3 items-center px-4 py-3 hover:bg-accent/30 transition-colors">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 hover:bg-accent/30 transition-colors">
         <button
           type="button"
           onClick={() => setExpanded((v) => !v)}
-          className="text-muted-foreground hover:text-foreground p-1 -ml-1 rounded transition-colors"
+          className="text-muted-foreground hover:text-foreground p-1 -ml-1 rounded transition-colors shrink-0"
           aria-label={expanded ? 'Recolher' : 'Expandir'}
         >
           {expanded ? <ChevronDown size={18} /> : <ChevronRight size={18} />}
         </button>
 
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1 basis-[200px]">
           <div className="flex items-baseline gap-2 flex-wrap">
             <span className="text-sm font-bold text-foreground">Contrato</span>
             <span className="text-[11px] font-mono font-semibold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
@@ -1364,7 +1364,7 @@ function ProposalFinancialCard({
           </p>
         </div>
 
-        <div>
+        <div className="w-[150px] shrink-0">
           <div className="flex items-baseline justify-between gap-2 mb-1">
             <span className="text-[10px] text-muted-foreground">pago</span>
             <span className={`text-[11px] font-bold tabular-nums ${agg.pct >= 100 ? 'text-emerald-700' : agg.pct > 0 ? 'text-emerald-700' : 'text-muted-foreground'}`}>
@@ -1393,7 +1393,7 @@ function ProposalFinancialCard({
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
+        <div className="flex items-center gap-1 shrink-0 flex-wrap justify-end ml-auto">
           {/* Onda 17.32.52 — Contrato assinado (PDF / link ClickSign) */}
           <button
             type="button"
