@@ -1699,6 +1699,25 @@ export class QuotesService {
       );
     }
 
+    // Guarda contra data de vencimento no PASSADO (ex.: ano digitado errado tipo "0206" →
+    // Asaas recusa "invalid_dueDate: não é permitido data inferior a hoje"). Rejeita LOCAL,
+    // antes de aceitar o quote / criar plano / chamar o Asaas — mensagem clara, sem round-trip.
+    {
+      const todayStr = new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10); // hoje em Maceió
+      const checks: Array<[string, string | undefined]> = [
+        ['entrada', data.entrada_due_date],
+        ['1ª parcela', data.installments_start_date],
+      ];
+      for (const [label, d] of checks) {
+        const day = d ? String(d).slice(0, 10) : '';
+        if (day && day < todayStr) {
+          throw new BadRequestException(
+            `Data de vencimento da ${label} (${day}) é anterior a hoje — confira o ANO da data.`,
+          );
+        }
+      }
+    }
+
     // Onda 14.6 — Valida pre-condicoes ANTES de aceitar
     const quoteCheck = await this.findOne(quoteId, tenantId);
     await this.ensurePatientReadyForBilling(quoteCheck.patient_id, tenantId);

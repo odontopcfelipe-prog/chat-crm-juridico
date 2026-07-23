@@ -5536,6 +5536,8 @@ function BoletoCobrancaUnificadaModal({
                           value={customInstallmentsStartDate}
                           onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
                           required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
                           className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
                             customInstallmentsStartDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
                           }`}
@@ -5602,6 +5604,8 @@ function BoletoCobrancaUnificadaModal({
                         value={customSinalDueDate}
                         onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
                         required
+                        min={new Date().toISOString().slice(0, 10)}
+                        max="2099-12-31"
                         className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
                           customSinalDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
                         }`}
@@ -5656,6 +5660,8 @@ function BoletoCobrancaUnificadaModal({
                           value={customEntradaDueDate}
                           onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
                           required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
                           className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
                             customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
                           }`}
@@ -6887,6 +6893,8 @@ function CartaoCobrancaUnificadaModal({
                           value={customEntradaDueDate}
                           onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
                           required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
                           className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
                             customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
                           }`}
