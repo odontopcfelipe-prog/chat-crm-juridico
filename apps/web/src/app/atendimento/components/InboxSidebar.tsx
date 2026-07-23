@@ -462,7 +462,8 @@ export function InboxSidebar({
               ...(isAdmin ? [{ value: '', label: 'Tudo', count: conversations.filter(c => normalizeStage(c.leadStage) !== 'PERDIDO').length }] : []),
               { value: 'MINE', label: 'Minhas', count: conversations.filter(c => c.assignedAgentId === currentUserId && !c.aiMode && c.status !== 'CLOSED' && normalizeStage(c.leadStage) !== 'PERDIDO').length },
               { value: 'WAITING', label: 'Espera', count: conversations.filter(c => c.status === 'WAITING' && normalizeStage(c.leadStage) !== 'PERDIDO').length },
-              { value: 'BOT', label: 'SophIA', count: conversations.filter(c => c.aiMode && c.assignedAgentId === currentUserId && normalizeStage(c.leadStage) !== 'PERDIDO').length },
+              // Aba "SophIA" (filtro BOT) removida pra dar mais espaço na barra — as
+              // conversas em modo IA seguem visíveis em "Tudo"/"Minhas".
               { value: 'ADIADO', label: 'Adiados', count: adiadoConversations.filter(c => normalizeStage(c.leadStage) !== 'PERDIDO').length },
             ].map((tab) => (
               <button
