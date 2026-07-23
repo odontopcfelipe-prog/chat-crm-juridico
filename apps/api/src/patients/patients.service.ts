@@ -445,6 +445,8 @@ export class PatientsService {
     const include = {
       primary_dentist: { select: { id: true, name: true, email: true } },
       tags: { include: { tag: true } },
+      // Foto do WhatsApp do lead vinculado — fallback do avatar até o paciente salvar a própria.
+      lead: { select: { profile_picture_url: true } },
       _count: { select: { anamneses: true, treatment_plans: true, appointments: true } },
     } satisfies Prisma.PatientInclude;
 

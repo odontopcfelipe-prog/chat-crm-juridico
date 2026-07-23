@@ -19,6 +19,8 @@ interface Patient {
   phone: string | null;
   email: string | null;
   avatar_url: string | null;
+  /** Foto do WhatsApp do lead vinculado — fallback do avatar até salvar a própria. */
+  lead?: { profile_picture_url: string | null } | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   // Onda 17.47 — status de atividade CALCULADO pela API (Inativo = +12 meses
   // sem atendimento). O selo usa este; `status` continua sendo o salvo (ARCHIVED).
@@ -380,6 +382,7 @@ function PacientesPageInner() {
                     patientId={p.id}
                     patientName={p.name}
                     avatarUrl={p.avatar_url}
+                    fallbackPhotoUrl={p.lead?.profile_picture_url}
                     size={56}
                   />
                   <div className="flex-1 min-w-0">
