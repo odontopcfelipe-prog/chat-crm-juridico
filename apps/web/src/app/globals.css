@@ -843,14 +843,14 @@
  * cyber / .dark); temas claros (violet/glacier/coral) trocam pro bege.
  * ═══════════════════════════════════════════════════════════════════ */
 .chat-wallpaper {
-  background-color: #0b141a;
-  background-image: url('/chat-doodle-dark.svg');
+  background-color: #e6ddd4;
+  background-image: url('/chat-doodle-light.svg');
   background-repeat: repeat;
   background-size: 360px 360px;
 }
-[data-theme="violet"] .chat-wallpaper,
-[data-theme="glacier"] .chat-wallpaper,
-[data-theme="coral"] .chat-wallpaper {
-  background-color: #e6ddd4;
-  background-image: url('/chat-doodle-light.svg');
+.dark .chat-wallpaper,
+[data-theme="noturno"] .chat-wallpaper,
+[data-theme="cyber"] .chat-wallpaper {
+  background-color: #0b141a;
+  background-image: url('/chat-doodle-dark.svg');
 }
