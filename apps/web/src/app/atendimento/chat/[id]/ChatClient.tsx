@@ -766,7 +766,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
         })()}
 
         {/* Messages — click em área vazia foca o textarea (UX WhatsApp Web) */}
-        <div className="flex-1 p-8 overflow-y-auto custom-scrollbar" ref={scrollRef} onClick={handleChatAreaClick}>
+        <div className="flex-1 p-8 overflow-y-auto custom-scrollbar chat-wallpaper" ref={scrollRef} onClick={handleChatAreaClick}>
           <div className="flex flex-col gap-4 max-w-4xl mx-auto pb-4">
             {renderItems.length === 0 ? (
               <div className="text-center text-muted-foreground py-20">Nenhuma mensagem nesta conversa.</div>

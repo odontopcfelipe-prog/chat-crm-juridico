@@ -294,7 +294,7 @@ export default function ChatPane({ leadId, compact = false }: Props) {
       )}
 
       {/* ─── MENSAGENS ─── */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1.5">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto p-3 space-y-1.5 chat-wallpaper">
         {renderItems.length === 0 ? (
           <div className="h-full flex items-center justify-center text-xs text-muted-foreground">
             Sem mensagens ainda.
