@@ -499,6 +499,11 @@ function fmtBRL(n: number): string {
   return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+// Hoje em Maceió (UTC-3) como YYYY-MM-DD. Data de vencimento não pode ser no passado —
+// o Asaas recusa (invalid_dueDate). Erro comum: ano digitado errado (ex.: 0206 em vez de 2026).
+const maceioTodayStr = () => new Date(Date.now() - 3 * 3_600_000).toISOString().slice(0, 10);
+const isDueDatePast = (d?: string | null): boolean => !!d && d.slice(0, 10) < maceioTodayStr();
+
 /**
  * Onda 15 (etapa 10) — Renderiza o modal direto no <body> via portal.
  *
@@ -5531,17 +5536,26 @@ function BoletoCobrancaUnificadaModal({
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
                       {!isAVista ? (
-                        <input
-                          type="date"
-                          value={customInstallmentsStartDate}
-                          onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
-                          required
-                          min={new Date().toISOString().slice(0, 10)}
-                          max="2099-12-31"
-                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                            customInstallmentsStartDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
-                          }`}
-                        />
+                        <div className="flex flex-col gap-0.5">
+                          <input
+                            type="date"
+                            value={customInstallmentsStartDate}
+                            onChange={(e) => onChangeCustomInstallmentsStartDate(e.target.value)}
+                            required
+                            min={new Date().toISOString().slice(0, 10)}
+                            max="2099-12-31"
+                            className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                              customInstallmentsStartDate && !isDueDatePast(customInstallmentsStartDate)
+                                ? 'border-border'
+                                : 'border-red-500 ring-1 ring-red-500/30'
+                            }`}
+                          />
+                          {isDueDatePast(customInstallmentsStartDate) && (
+                            <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                              ⚠ Data no passado — confira o ano
+                            </span>
+                          )}
+                        </div>
                       ) : (
                         <span className="w-[120px]" />
                       )}
@@ -5599,17 +5613,26 @@ function BoletoCobrancaUnificadaModal({
                       </div>
                     </div>
                     <div className="shrink-0 flex items-center gap-2">
-                      <input
-                        type="date"
-                        value={customSinalDueDate}
-                        onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
-                        required
-                        min={new Date().toISOString().slice(0, 10)}
-                        max="2099-12-31"
-                        className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                          customSinalDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
-                        }`}
-                      />
+                      <div className="flex flex-col gap-0.5">
+                        <input
+                          type="date"
+                          value={customSinalDueDate}
+                          onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
+                          required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customSinalDueDate && !isDueDatePast(customSinalDueDate)
+                              ? 'border-border'
+                              : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
+                        />
+                        {isDueDatePast(customSinalDueDate) && (
+                          <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                            ⚠ Data no passado — confira o ano
+                          </span>
+                        )}
+                      </div>
                       <input
                         type="text"
                         value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
@@ -5655,17 +5678,26 @@ function BoletoCobrancaUnificadaModal({
                         </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={customEntradaDueDate}
-                          onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                          required
-                          min={new Date().toISOString().slice(0, 10)}
-                          max="2099-12-31"
-                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                            customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
-                          }`}
-                        />
+                        <div className="flex flex-col gap-0.5">
+                          <input
+                            type="date"
+                            value={customEntradaDueDate}
+                            onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                            required
+                            min={new Date().toISOString().slice(0, 10)}
+                            max="2099-12-31"
+                            className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                              customEntradaDueDate && !isDueDatePast(customEntradaDueDate)
+                                ? 'border-border'
+                                : 'border-red-500 ring-1 ring-red-500/30'
+                            }`}
+                          />
+                          {isDueDatePast(customEntradaDueDate) && (
+                            <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                              ⚠ Data no passado — confira o ano
+                            </span>
+                          )}
+                        </div>
                         <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
                           R$ {fmtBRL(entradaBoletoValor)}
                         </p>
@@ -6888,17 +6920,26 @@ function CartaoCobrancaUnificadaModal({
                         </div>
                       </div>
                       <div className="shrink-0 flex items-center gap-2">
-                        <input
-                          type="date"
-                          value={customEntradaDueDate}
-                          onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                          required
-                          min={new Date().toISOString().slice(0, 10)}
-                          max="2099-12-31"
-                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                            customEntradaDueDate ? 'border-border' : 'border-red-500 ring-1 ring-red-500/30'
-                          }`}
-                        />
+                        <div className="flex flex-col gap-0.5">
+                          <input
+                            type="date"
+                            value={customEntradaDueDate}
+                            onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                            required
+                            min={new Date().toISOString().slice(0, 10)}
+                            max="2099-12-31"
+                            className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                              customEntradaDueDate && !isDueDatePast(customEntradaDueDate)
+                                ? 'border-border'
+                                : 'border-red-500 ring-1 ring-red-500/30'
+                            }`}
+                          />
+                          {isDueDatePast(customEntradaDueDate) && (
+                            <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                              ⚠ Data no passado — confira o ano
+                            </span>
+                          )}
+                        </div>
                         <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
                           R$ {fmtBRL(entradaRestoValor)}
                         </p>
