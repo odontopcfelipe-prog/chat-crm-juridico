@@ -2663,7 +2663,7 @@ export default function Dashboard() {
                 </div>
               </div>
             )}
-            <div className={`absolute inset-0 px-1 sm:px-6 md:px-8 py-3 sm:py-5 md:py-8 overflow-y-auto custom-scrollbar ${openQuestions.length > 0 ? 'pt-12' : ''}`} ref={scrollRef} onClick={handleChatAreaClick}>
+            <div className={`absolute inset-0 px-1 sm:px-6 md:px-8 py-3 sm:py-5 md:py-8 overflow-y-auto custom-scrollbar chat-wallpaper ${openQuestions.length > 0 ? 'pt-12' : ''}`} ref={scrollRef} onClick={handleChatAreaClick}>
               <div className="flex flex-col gap-3 md:gap-4 max-w-4xl mx-auto pb-4 relative z-10">
                 {/* Skeleton de carregamento de mensagens */}
                 {loadingMessages && (
