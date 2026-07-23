@@ -904,7 +904,7 @@ export default function ChatPage({ params }: { params: Promise<{ id: string }> }
                             <img
                               src={`/api/media/${msg.id}`}
                               alt="Imagem"
-                              className="max-w-[220px] max-h-[220px] object-cover rounded-lg cursor-pointer"
+                              className="max-w-[330px] max-h-[440px] object-contain rounded-lg cursor-pointer"
                               onClick={() => setLightbox(`/api/media/${msg.id}`)}
                             />
                             <button

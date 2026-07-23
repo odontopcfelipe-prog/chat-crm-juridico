@@ -291,7 +291,7 @@ function MessageBubbleInner({
               <img
                 src={`/api/media/${msg.id}`}
                 alt="Imagem"
-                className="max-w-[220px] max-h-[220px] object-cover rounded-lg cursor-pointer"
+                className="max-w-[330px] max-h-[440px] object-contain rounded-lg cursor-pointer"
                 loading="lazy"
                 onClick={() => onLightbox(`/api/media/${msg.id}`)}
               />
