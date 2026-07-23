@@ -426,7 +426,6 @@ export class QuotePdfService {
       lines.push(`${n}x de ${formatBRL(installmentValue)} no boleto (Banco PASSOS · 1,5% a.m.)`);
       lines.push(`Total das parcelas: ${formatBRL(installmentValue * n)} (juros somam ${formatBRL(extraInterest)})`);
       lines.push(`Valor final: ${formatBRL(finalValue)}`);
-      lines.push('Exige consulta de crédito (Serasa Crediscore).');
       return {
         headline: `Boleto · ${n}x de ${formatBRL(installmentValue)}/mês`,
         lines,
