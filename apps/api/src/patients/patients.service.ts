@@ -4,7 +4,7 @@ import { FileStorageService } from '../media/filesystem.service';
 import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
-import { Prisma } from '@crm/shared';
+import { Prisma, toBrazilWhatsappNumber } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 // SaaS Fase 4 (Onda 17.32.79) — limites por plano. Import ESTATICO (resolucao
 // nodenext, extensao .js): se o modulo sumir o build/boot quebra alto, em vez
@@ -1393,10 +1393,20 @@ export class PatientsService {
     let skipped = 0;
     for (const p of patients) {
       if (p.avatar_url) { skipped++; continue; } // já tem foto (salva/manual)
-      const phone = p.phone || p.lead?.phone;
-      if (!phone) { skipped++; continue; }
+      const rawPhone = p.phone || p.lead?.phone;
+      if (!rawPhone) { skipped++; continue; }
+      // fetchProfilePicture NÃO adiciona o 55 (diferente do envio) — normaliza aqui,
+      // senão o número do CADASTRO (sem DDI) não resolve o perfil e volta sem foto.
+      // Tenta também a variante do 9º dígito (perfil pode estar no outro formato).
+      // Máx 2 tentativas por paciente.
+      const with55 = brazilPhoneMatchVariants(rawPhone).filter((v) => v.startsWith('55'));
+      const candidates = [...new Set([toBrazilWhatsappNumber(rawPhone), ...with55])].slice(0, 2);
       try {
-        const freshUrl: string | null = await this.whatsapp.fetchProfilePicture(chip.name, phone);
+        let freshUrl: string | null = null;
+        for (const cand of candidates) {
+          freshUrl = await this.whatsapp.fetchProfilePicture(chip.name, cand);
+          if (freshUrl) break;
+        }
         if (!freshUrl) {
           noPhoto++;
         } else {
