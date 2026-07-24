@@ -9,13 +9,13 @@ import { TrialBanner } from '@/components/TrialBanner';
 import { TrialWelcomeModal } from '@/components/TrialWelcomeModal';
 // Onda 17.32.124 — Wizard fullscreen de onboarding (estilo Windows OOBE)
 import { OnboardingWizardLoader } from '@/components/OnboardingWizardLoader';
-import { PatientSearch } from '@/components/PatientSearch';
+import { PatientLocatorModal } from './components/PatientLocatorModal';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
   MessageSquare, Briefcase, Users, Check, FileEdit, BookOpen,
   Megaphone, Settings, Palette, LogOut, MoreHorizontal, X, Calendar,
-  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home,
+  LayoutDashboard, FileText, Gavel, Sparkles, Square, CircleDashed, Home, Search,
 } from 'lucide-react';
 import { useTheme } from 'next-themes';
 import { useRole } from '@/lib/useRole';
@@ -57,6 +57,8 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const { theme, setTheme } = useTheme();
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const { open: cmdOpen, setOpen: setCmdOpen } = useGlobalCommandPalette();
+  // Onda 18.x — "Localizar um paciente" (atendimentos do dia + busca + ficha).
+  const [locatorOpen, setLocatorOpen] = useState(false);
   const perms = useRole();
 
   // Mobile states
@@ -220,6 +222,21 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
     setMobileChatOpen(false);
   }, [pathname]);
 
+  // Onda 18.x — atalho "/" abre o "Localizar um paciente" (não dispara enquanto
+  // se digita num input/textarea, ex.: campo do chat).
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== '/') return;
+      const el = document.activeElement as HTMLElement | null;
+      const tag = el?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || el?.isContentEditable) return;
+      e.preventDefault();
+      setLocatorOpen(true);
+    };
+    document.addEventListener('keydown', h);
+    return () => document.removeEventListener('keydown', h);
+  }, []);
+
   const isLoginPage = pathname === '/atendimento/login';
 
   if (isLoginPage) {
@@ -322,9 +339,16 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                   flex-1 max-w-xl: crescia só até 576px e a sobra de largura ia
                   pra DEPOIS dos ícones, agrupando-os junto da busca (à esquerda). */}
               {!hideSearch && (
-                <div className="w-[min(26rem,45vw)]">
-                  <PatientSearch />
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setLocatorOpen(true)}
+                  title="Localizar paciente (atalho: / )"
+                  className="w-[min(26rem,45vw)] flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg bg-card border border-border text-sm text-muted-foreground hover:border-primary/40 transition-colors"
+                >
+                  <Search size={14} className="shrink-0" />
+                  <span className="flex-1 text-left truncate">Localizar paciente</span>
+                  <kbd className="shrink-0 text-[10px] font-mono text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">/</kbd>
+                </button>
               )}
               <div className="flex-1" />
               {/* Onda 15.8 — Notificacoes + Aparencia fixos no canto direito */}
@@ -363,6 +387,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
 
       {/* ─── Global Command Palette (Ctrl+K) ────────────────── */}
       <GlobalCommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
+
+      {/* ─── Localizar um paciente (atendimentos do dia + busca + ficha) ──── */}
+      <PatientLocatorModal open={locatorOpen} onClose={() => setLocatorOpen(false)} />
 
       {/* ─── Mobile Bottom Nav (fixed) ──────────────────────── */}
       {showBottomNav && (
