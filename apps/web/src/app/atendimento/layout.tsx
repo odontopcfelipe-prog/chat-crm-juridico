@@ -27,6 +27,8 @@ import { ThemeMenuButton } from '@/components/ThemeMenuButton';
 // Onda 17.50 — Menu de conta (avatar + Sair) no header, pra quando a barra
 // lateral some pros papeis simples e o logout precisa ter outro lugar.
 import { AccountMenu } from '@/app/atendimento/components/AccountMenu';
+// Onda 18.x — Aviso global de chip WhatsApp desconectado (recepção/comercial/adm).
+import { WhatsappDisconnectedBanner } from '@/app/atendimento/components/WhatsappDisconnectedBanner';
 
 import { THEMES } from '@/components/ThemeSwitcher';
 
@@ -327,6 +329,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
         {/* Onda 17.32.86 — Banner de trial/inadimplencia (sticky no topo
             do main, abaixo do header global). So aparece se relevante. */}
         <TrialBanner />
+        <WhatsappDisconnectedBanner />
         <main className="flex-1 overflow-hidden">
           {children}
         </main>
