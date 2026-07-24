@@ -113,6 +113,15 @@
   background-color: color-mix(in srgb, var(--accent-primary) 12%, transparent) !important;
 }
 
+/* Onda 18.x — COLUNA inteira de HOJE destacada (estilo Dental Office, que pinta
+   o dia de azul). O schedule-x NÃO marca a coluna de hoje (só o header do dia),
+   então taggeamos a coluna via JS com .ag-today-col (ver page.tsx, casa o índice
+   do header --is-today com a coluna de mesma posição). Tom bem sutil (nosso roxo)
+   pra destacar sem competir com os cards de status. */
+.sx-react-calendar-wrapper .sx__time-grid-day.ag-today-col {
+  background-color: color-mix(in srgb, var(--accent-primary) 7%, transparent) !important;
+}
+
 /* Cabeçalho dos dias (SEG, TER, etc) */
 .sx-react-calendar-wrapper .sx__date-grid-day-name,
 .sx-react-calendar-wrapper .sx__week-grid__day-name {

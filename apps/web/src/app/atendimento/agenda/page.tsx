@@ -1516,6 +1516,30 @@ export default function AgendaPage() {
     }
   }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled, avatarBlobs]);
 
+  // Onda 18.x — DESTAQUE da COLUNA de HOJE (estilo Dental Office, que pinta o dia).
+  // O schedule-x só marca o HEADER do dia (`sx__week-grid__date--is-today`), não a
+  // coluna. Então casamos o índice do header de hoje com a coluna de mesma posição
+  // e taggeamos com `.ag-today-col` (CSS em agenda-theme.css). Some ao navegar pra
+  // outra semana (sem header de hoje → idx -1 → limpa). Re-aplica quando eventos/
+  // densidade/view mudam — a navegação de semana re-busca eventos, disparando isto.
+  useEffect(() => {
+    const t = setTimeout(() => {
+      const root = document.querySelector('.sx-react-calendar-wrapper');
+      if (!root) return;
+      root.querySelectorAll('.ag-today-col').forEach((el) => el.classList.remove('ag-today-col'));
+      const heads = Array.from(root.querySelectorAll('.sx__week-grid__date'));
+      const idx = heads.findIndex(
+        (h) =>
+          h.classList.contains('sx__week-grid__date--is-today') ||
+          !!h.querySelector('.sx__week-grid__date--is-today, .sx__is-today'),
+      );
+      if (idx < 0) return;
+      const cols = Array.from(root.querySelectorAll('.sx__time-grid-day'));
+      cols[idx]?.classList.add('ag-today-col');
+    }, 80);
+    return () => clearTimeout(t);
+  }, [calendar, events, agendaDensity, isMobile, kanbanView, calendarMode]);
+
   // Carga inicial: schedule-x v4 não chama onRangeUpdate no mount.
   // Buscamos um range largo (semana atual ± 4 semanas = ~2 meses) para garantir
   // que eventos próximos já apareçam no sidebar e no calendário sem precisar navegar.
