@@ -7,12 +7,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Bell, Loader2, Phone, MessageCircle, AlertTriangle, Stethoscope } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError } from '@/lib/toast';
 
 interface Recall {
   kind: 'procedure' | 'completion';
   type: string;
-  patient: { id: string; name: string | null; phone: string | null };
+  patient: { id: string; name: string | null; phone: string | null; avatar_url?: string | null };
   last_date: string | null;
   return_date: string;
   months: number;
@@ -159,6 +160,13 @@ export default function ReturnAlertsPage() {
                   const wa = waLink(r.patient.phone, r.patient.name);
                   return (
                     <div key={`${r.patient.id}-${r.type}-${i}`} className="bg-card border border-border rounded-xl p-4 flex items-start justify-between gap-4">
+                      <PatientAvatar
+                        patientId={r.patient.id}
+                        patientName={r.patient.name || 'Sem nome'}
+                        avatarUrl={r.patient.avatar_url}
+                        size={40}
+                        shape="circle"
+                      />
                       <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 mb-1 flex-wrap">
                           <span className="font-semibold text-foreground">{r.patient.name || 'Sem nome'}</span>

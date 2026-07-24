@@ -122,7 +122,7 @@ export class ReturnAlertsService {
     type Recall = {
       kind: 'procedure' | 'completion';
       type: string;
-      patient: { id: string; name: string | null; phone: string | null };
+      patient: { id: string; name: string | null; phone: string | null; avatar_url: string | null };
       last_date: Date | null;
       return_date: Date;
       months: number;
@@ -161,7 +161,7 @@ export class ReturnAlertsService {
         executed_at: true,
         procedure: { select: { name: true, default_revisit_months: true } },
         executed_by: { select: { name: true } },
-        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true, avatar_url: true } } } },
       },
       orderBy: { executed_at: 'desc' },
       take: 5000,
@@ -186,7 +186,7 @@ export class ReturnAlertsService {
     // 2) TRATAMENTO CONCLUÍDO — tasks de conclusão (marcador [plan:] no notes).
     const completions = await this.prisma.maintenanceTask.findMany({
       where: { tenant_id: tenantId, notes: { startsWith: '[plan:' } },
-      select: { due_date: true, patient: { select: { id: true, name: true, phone: true } } },
+      select: { due_date: true, patient: { select: { id: true, name: true, phone: true, avatar_url: true } } },
       orderBy: { due_date: 'asc' },
       take: 5000,
     });
