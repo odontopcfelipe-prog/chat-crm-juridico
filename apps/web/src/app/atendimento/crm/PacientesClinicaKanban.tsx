@@ -30,6 +30,7 @@ import {
   Users, Clock, Stethoscope, Calendar, Loader2, RefreshCw, DollarSign,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface ProcedureInfo {
   id: string;
@@ -41,6 +42,8 @@ interface PatientClinica {
   id: string;
   name: string | null;
   phone: string | null;
+  avatar_url?: string | null;
+  lead?: { profile_picture_url: string | null } | null;
   status: 'ACTIVE' | 'INACTIVE' | 'ARCHIVED';
   last_visit_at: string | null;
   primary_dentist: { id: string; name: string } | null;
@@ -325,7 +328,15 @@ function KanbanColumn({ col, patients, onCardClick, emptyText }: KanbanColumnPro
             onClick={() => onCardClick(p)}
             className="group p-2.5 rounded-lg border border-border bg-background hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer"
           >
-            <div className="flex items-start gap-1.5 mb-1.5">
+            <div className="flex items-center gap-1.5 mb-1.5">
+              <PatientAvatar
+                patientId={p.id}
+                patientName={p.name || 'Sem nome'}
+                avatarUrl={p.avatar_url}
+                fallbackPhotoUrl={p.lead?.profile_picture_url}
+                size={28}
+                shape="circle"
+              />
               <span className="text-sm font-bold text-foreground truncate flex-1">
                 {p.name || p.phone || 'Sem nome'}
               </span>

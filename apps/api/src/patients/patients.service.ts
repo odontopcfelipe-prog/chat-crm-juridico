@@ -1145,6 +1145,8 @@ export class PatientsService {
         phone: true,
         status: true,
         last_visit_at: true,
+        avatar_url: true,
+        lead: { select: { profile_picture_url: true } },
         primary_dentist: { select: { id: true, name: true } },
         treatment_plans: {
           where: { status: { in: ['ACTIVE', 'PENDING_SIGNATURE'] } },

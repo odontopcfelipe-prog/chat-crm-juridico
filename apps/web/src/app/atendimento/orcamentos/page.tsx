@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface Quote {
   id: string;
@@ -29,7 +30,7 @@ interface Quote {
   valid_until: string | null;
   sent_at: string | null;
   accepted_at: string | null;
-  patient: { id: string; name: string | null; phone: string | null };
+  patient: { id: string; name: string | null; phone: string | null; avatar_url?: string | null };
   created_by: { id: string; name: string } | null; // quem criou o orçamento no sistema
   avaliacao_dentist?: { id: string; name: string } | null; // dentista da avaliação
   closed_by?: { id: string; name: string } | null; // quem fechou a venda (aceitou)
@@ -620,8 +621,6 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
   // "Ver venda" → aba Financeiro do paciente: o tratamento fechado com valores,
   // juros, parcelas (cobranças) e a negociação do fechamento.
   const openFicha = (q: Quote) => router.push(`/atendimento/pacientes/${q.patient.id}?tab=financial`);
-  const initials = (name: string | null) =>
-    (name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
   const fmtDate = (iso: string | null) => {
     if (!iso) return '—';
     const d = new Date(iso);
@@ -676,9 +675,13 @@ function SalesTable({ quotes, router }: { quotes: Quote[]; router: ReturnType<ty
               </td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-2.5">
-                  <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
-                    {initials(q.patient.name)}
-                  </span>
+                  <PatientAvatar
+                    patientId={q.patient.id}
+                    patientName={q.patient.name || 'Sem nome'}
+                    avatarUrl={q.patient.avatar_url}
+                    size={32}
+                    shape="circle"
+                  />
                   <div className="min-w-0">
                     <div className="font-medium text-foreground truncate">{q.patient.name || 'Sem nome'}</div>
                     {q.patient.phone && <div className="text-xs text-muted-foreground truncate">{q.patient.phone}</div>}
@@ -771,13 +774,22 @@ function QuoteTable({
                   onClick={() => router.push(
                     `/atendimento/pacientes/${q.patient.id}?tab=${isPropostas ? 'proposals' : 'odontogram'}`,
                   )}
-                  className="text-left hover:text-primary"
+                  className="text-left hover:text-primary flex items-center gap-2.5"
                   title={isPropostas ? 'Abrir as propostas pra aprovar' : 'Abrir a avaliação do paciente'}
                 >
-                  <div className="font-medium">{q.patient.name || 'Sem nome'}</div>
-                  {q.patient.phone && (
-                    <div className="text-xs text-muted-foreground">{q.patient.phone}</div>
-                  )}
+                  <PatientAvatar
+                    patientId={q.patient.id}
+                    patientName={q.patient.name || 'Sem nome'}
+                    avatarUrl={q.patient.avatar_url}
+                    size={32}
+                    shape="circle"
+                  />
+                  <div className="min-w-0">
+                    <div className="font-medium truncate">{q.patient.name || 'Sem nome'}</div>
+                    {q.patient.phone && (
+                      <div className="text-xs text-muted-foreground">{q.patient.phone}</div>
+                    )}
+                  </div>
                 </button>
               </td>
               <td className="px-4 py-3">

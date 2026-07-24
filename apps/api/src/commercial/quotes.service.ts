@@ -599,7 +599,7 @@ export class QuotesService {
       },
       orderBy: { archived_at: 'desc' },
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         archived_by: { select: { id: true, name: true } },
         _count: { select: { items: true } },
       },
@@ -2856,7 +2856,7 @@ export class QuotesService {
       include: {
         patient: {
           select: {
-            id: true, name: true, phone: true,
+            id: true, name: true, phone: true, avatar_url: true,
             primary_dentist: { select: { id: true, name: true } }, // fallback do dentista avaliador
           },
         },
