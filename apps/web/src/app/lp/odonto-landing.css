@@ -12,9 +12,11 @@
 /* Onda 17.32.98 — Paleta unificada com /atendimento/login e /cadastrar:
    acento emerald + glow violet, mantendo background dark pra impacto. */
 .odlp {
-  --bg: #0A0A0A;
-  --bg-2: #111111;
-  --bg-3: #161616;
+  /* Onda 18.x — fundo LILÁS (nosso roxo) em vez de preto: base violeta escura
+     + glows, mantendo texto branco legível e o efeito moderno. */
+  --bg: #0d0619;
+  --bg-2: #16092a;
+  --bg-3: #1e1038;
   --bg-card: rgba(255, 255, 255, 0.025);
   --fg: #FAFAFA;
   --fg-2: #A1A1AA;
@@ -38,7 +40,11 @@
   --shadow-lime: 0 8px 32px rgba(200, 255, 61, 0.25);
   --max: 1200px;
 
-  background: var(--bg);
+  background:
+    radial-gradient(ellipse 120% 70% at 50% -10%, rgba(139, 92, 246, 0.38), transparent 60%),
+    radial-gradient(ellipse 70% 60% at 100% 100%, rgba(167, 139, 250, 0.16), transparent 55%),
+    linear-gradient(165deg, #1a0d33 0%, #120826 45%, #0b0518 100%);
+  background-attachment: fixed;
   color: var(--fg);
   min-height: 100vh;
   font-family: var(--font-jakarta), system-ui, -apple-system, sans-serif;
@@ -106,11 +112,12 @@
   position: fixed;
   inset: 0;
   background:
-    radial-gradient(ellipse 60% 50% at 50% 0%, var(--violet-glow), transparent 60%),
-    radial-gradient(ellipse 40% 30% at 80% 80%, rgba(52, 211, 153, 0.12), transparent 60%);
+    radial-gradient(ellipse 75% 55% at 50% -2%, rgba(139, 92, 246, 0.5), transparent 60%),
+    radial-gradient(ellipse 55% 45% at 12% 25%, rgba(167, 139, 250, 0.2), transparent 60%),
+    radial-gradient(ellipse 50% 40% at 88% 82%, rgba(124, 58, 237, 0.22), transparent 60%);
   pointer-events: none;
   z-index: 0;
-  opacity: 0.55;
+  opacity: 0.8;
 }
 
 /* ─── Container ─── */
@@ -127,7 +134,7 @@
   position: sticky;
   top: 0;
   z-index: 100;
-  background: rgba(10, 10, 10, 0.7);
+  background: rgba(18, 10, 34, 0.72);
   backdrop-filter: saturate(180%) blur(14px);
   -webkit-backdrop-filter: saturate(180%) blur(14px);
   border-bottom: 1px solid var(--border);
