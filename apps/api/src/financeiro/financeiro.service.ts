@@ -144,7 +144,7 @@ export class FinanceiroService {
         include: {
           lead: {
             // patient = nome do CADASTRO (fonte da verdade do CLIENTE, não o pushName do lead).
-            select: { id: true, name: true, phone: true, patient: { select: { name: true } } },
+            select: { id: true, name: true, phone: true, profile_picture_url: true, patient: { select: { id: true, name: true, avatar_url: true } } },
           },
           dentist: {
             select: { id: true, name: true, email: true },
@@ -162,6 +162,11 @@ export class FinanceiroService {
     // apelido do WhatsApp). Remove o sub-objeto patient da resposta (só serviu pra isto).
     for (const r of data as any[]) {
       if (r.lead?.patient?.name) r.lead.name = r.lead.patient.name;
+      // Preserva a foto SALVA do paciente + o id (pro avatar) antes de descartar o sub-objeto.
+      if (r.lead?.patient) {
+        r.lead.patient_id = r.lead.patient.id ?? null;
+        r.lead.patient_avatar_url = r.lead.patient.avatar_url ?? null;
+      }
       if (r.lead) delete r.lead.patient;
     }
 

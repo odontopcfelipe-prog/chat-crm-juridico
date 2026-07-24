@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { useRole } from '@/lib/useRole';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 // Onda 16 — abas novas do sistema financeiro completo
@@ -54,7 +55,7 @@ interface Transaction {
   paid_at: string | null;
   payment_method: string | null;
   status: 'PAGO' | 'PENDENTE' | 'CANCELADO';
-  lead: { id: string; name: string; phone: string } | null;
+  lead: { id: string; name: string; phone: string; profile_picture_url?: string | null; patient_id?: string | null; patient_avatar_url?: string | null } | null;
   dentist: { id: string; name: string } | null;
   dentist_id?: string | null;
   honorario_payment_id?: string | null;
@@ -2404,9 +2405,14 @@ function ReceitasTab({ receitas, onRefresh, lawyerId, validatedOnly = false }: {
                         <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">{fmtDate(r.paid_at || r.date)}</td>
                         <td className="px-4 py-3">
                           <div className="flex items-center gap-2.5">
-                            <span className="w-8 h-8 rounded-full bg-primary/10 text-primary text-[11px] font-bold flex items-center justify-center shrink-0">
-                              {(r.lead?.name || '?').split(' ').filter(Boolean).slice(0, 2).map(w => w[0]).join('').toUpperCase()}
-                            </span>
+                            <PatientAvatar
+                              patientId={r.lead?.patient_id ?? r.lead?.id ?? ''}
+                              patientName={r.lead?.name || 'Cliente'}
+                              avatarUrl={r.lead?.patient_avatar_url}
+                              fallbackPhotoUrl={r.lead?.profile_picture_url}
+                              size={32}
+                              shape="circle"
+                            />
                             <div className="min-w-0">
                               <div className="font-medium text-foreground truncate">{r.lead?.name || '—'}</div>
                               {r.lead?.phone && <div className="text-xs text-muted-foreground truncate">{r.lead.phone}</div>}
@@ -2976,9 +2982,14 @@ function ReceitaDetailPanel({
           <div className="border border-border rounded-xl p-3.5 space-y-2">
             <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wider">Cliente</p>
             <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-full bg-primary/15 flex items-center justify-center text-primary text-[10px] font-bold">
-                {r.lead.name?.[0]?.toUpperCase() || '?'}
-              </div>
+              <PatientAvatar
+                patientId={r.lead.patient_id ?? r.lead.id}
+                patientName={r.lead.name || 'Cliente'}
+                avatarUrl={r.lead.patient_avatar_url}
+                fallbackPhotoUrl={r.lead.profile_picture_url}
+                size={28}
+                shape="circle"
+              />
               <div>
                 <p className="text-xs font-medium text-foreground">{r.lead.name}</p>
                 <p className="text-[10px] text-muted-foreground">{r.lead.phone}</p>
