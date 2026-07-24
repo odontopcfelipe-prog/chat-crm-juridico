@@ -128,10 +128,10 @@ export function AudioRecorder({ conversationId, onSent, disabled, onRecordingSta
     <button
       onClick={startRecording}
       disabled={disabled}
-      className="p-4 rounded-xl bg-muted text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
+      className="p-1.5 rounded-lg text-muted-foreground hover:bg-accent hover:text-foreground disabled:opacity-50 transition-colors"
       title="Gravar áudio"
     >
-      <Mic size={20} />
+      <Mic size={18} />
     </button>
   );
 }
