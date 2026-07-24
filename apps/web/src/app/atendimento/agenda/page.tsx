@@ -1013,9 +1013,17 @@ export default function AgendaPage() {
   // Onda 17.61 — preferências de exibição (persistidas). Lidas num effect (não no
   // initializer) pra evitar mismatch de hidratação. Default: esconde a madrugada.
   const [hideMadrugada, setHideMadrugada] = useState(true);
-  // Densidade fixa em "amplo" — o seletor Compacto/Confortável/Amplo foi removido
-  // da UI (a pedido). A agenda abre sempre na altura "amplo".
-  const agendaDensity: AgendaDensity = 'amplo';
+  // Densidade RESPONSIVA por largura de tela ("cada aparelho com sua proporção"):
+  // monitor grande (>=1600px) mantém "amplo" (fica perfeito, como o dono validou);
+  // telas menores usam "confortavel" (linhas ~30% mais baixas → cabe mais do dia sem
+  // rolar tanto, mais perto do Dental Office) sem apertar o avatar. Reavalia no resize.
+  const [agendaDensity, setAgendaDensity] = useState<AgendaDensity>('amplo');
+  useEffect(() => {
+    const pick = () => setAgendaDensity(window.innerWidth >= 1600 ? 'amplo' : 'confortavel');
+    pick();
+    window.addEventListener('resize', pick);
+    return () => window.removeEventListener('resize', pick);
+  }, []);
   useEffect(() => {
     try {
       setHideMadrugada(localStorage.getItem('agenda:hideMadrugada') !== 'false');
