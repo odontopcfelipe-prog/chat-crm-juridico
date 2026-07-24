@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface Charge {
   id: string;
@@ -50,7 +51,7 @@ interface Charge {
   treatment_plan_id: string | null;
   installment_id: string | null;
   installment_label: string | null;
-  patient: { id: string; name: string | null; phone: string | null; cpf: string | null } | null;
+  patient: { id: string; name: string | null; phone: string | null; cpf: string | null; avatar_url?: string | null } | null;
   dentist: { id: string; name: string } | null;
   quote_number: number | null;
   created_at: string;
@@ -395,16 +396,27 @@ export default function BoletosTab({ dentistId }: Props) {
                   return (
                     <tr key={c.id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
                       <td className="px-3 py-2.5">
-                        <div className="flex flex-col">
-                          <button
-                            onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
-                            className="text-sm font-semibold text-foreground hover:text-primary text-left"
-                          >
-                            {c.patient?.name || 'Sem nome'}
-                          </button>
-                          {c.dentist?.name && (
-                            <span className="text-[10px] text-muted-foreground">{c.dentist.name}</span>
+                        <div className="flex items-center gap-2.5">
+                          {c.patient && (
+                            <PatientAvatar
+                              patientId={c.patient.id}
+                              patientName={c.patient.name || 'Sem nome'}
+                              avatarUrl={c.patient.avatar_url}
+                              size={28}
+                              shape="circle"
+                            />
                           )}
+                          <div className="flex flex-col min-w-0">
+                            <button
+                              onClick={() => c.patient?.id && router.push(`/atendimento/pacientes/${c.patient.id}`)}
+                              className="text-sm font-semibold text-foreground hover:text-primary text-left truncate"
+                            >
+                              {c.patient?.name || 'Sem nome'}
+                            </button>
+                            {c.dentist?.name && (
+                              <span className="text-[10px] text-muted-foreground">{c.dentist.name}</span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="px-3 py-2.5">

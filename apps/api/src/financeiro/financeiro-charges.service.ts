@@ -442,7 +442,7 @@ export class FinanceiroChargesService {
               proposal_status: true,
               status: true,
               total_value: true,
-              patient: { select: { id: true, name: true, phone: true, cpf: true } },
+              patient: { select: { id: true, name: true, phone: true, cpf: true, avatar_url: true } },
               quote: {
                 select: {
                   id: true,
@@ -497,7 +497,7 @@ export class FinanceiroChargesService {
         id: true,
         patient_id: true,
         total_value: true,
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         charges: {
           select: {
             amount: true,
@@ -515,6 +515,7 @@ export class FinanceiroChargesService {
         patient_id: string;
         patient_name: string | null;
         patient_phone: string | null;
+        patient_avatar_url: string | null;
         total_contratado: number;
         recebido: number;
         em_aberto: number;
@@ -532,6 +533,7 @@ export class FinanceiroChargesService {
           patient_id: id,
           patient_name: p.patient.name,
           patient_phone: p.patient.phone,
+          patient_avatar_url: p.patient.avatar_url,
           total_contratado: 0,
           recebido: 0,
           em_aberto: 0,

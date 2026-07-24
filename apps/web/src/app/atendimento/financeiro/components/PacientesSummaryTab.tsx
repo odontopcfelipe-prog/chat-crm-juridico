@@ -15,11 +15,13 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2, Search, ExternalLink, AlertTriangle, Users, ArrowUpDown } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError } from '@/lib/toast';
 
 interface PatientRow {
   patient_id: string;
   patient_name: string | null;
+  patient_avatar_url?: string | null;
   patient_phone: string | null;
   total_contratado: number;
   recebido: number;
@@ -161,14 +163,23 @@ export default function PacientesSummaryTab({ dentistId }: Props) {
                   return (
                     <tr key={p.patient_id} className="border-b border-border/50 hover:bg-accent/10 transition-colors">
                       <td className="px-3 py-2.5">
-                        <div className="flex flex-col">
-                          <span className="text-sm font-semibold text-foreground">
-                            {p.patient_name || 'Sem nome'}
-                          </span>
-                          <span className="text-[10px] text-muted-foreground">
-                            {p.plans_count} plano(s)
-                            {p.patient_phone && ` · ${p.patient_phone}`}
-                          </span>
+                        <div className="flex items-center gap-2.5">
+                          <PatientAvatar
+                            patientId={p.patient_id}
+                            patientName={p.patient_name || 'Sem nome'}
+                            avatarUrl={p.patient_avatar_url}
+                            size={28}
+                            shape="circle"
+                          />
+                          <div className="flex flex-col min-w-0">
+                            <span className="text-sm font-semibold text-foreground truncate">
+                              {p.patient_name || 'Sem nome'}
+                            </span>
+                            <span className="text-[10px] text-muted-foreground">
+                              {p.plans_count} plano(s)
+                              {p.patient_phone && ` · ${p.patient_phone}`}
+                            </span>
+                          </div>
                         </div>
                       </td>
                       <td className="px-3 py-2.5 text-right">
