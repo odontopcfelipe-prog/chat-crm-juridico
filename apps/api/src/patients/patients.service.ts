@@ -1379,45 +1379,92 @@ export class PatientsService {
       throw new BadRequestException('Nenhum chip WhatsApp da clínica conectado pra buscar as fotos.');
     }
 
+    // TODOS os pacientes (não só os com lead vinculado): cadastro com telefone de
+    // 13 dígitos e lead do webhook com 12 (sem o 9º) nunca se vincularam → sem
+    // vínculo o nome não sincroniza e a foto não vem. Este backfill VINCULA por
+    // variante de telefone, RENOMEIA o contato pro nome do cadastro e aí puxa a foto.
     const patients = await this.prisma.patient.findMany({
-      where: { tenant_id: tenantId, lead_id: { not: null } },
+      where: { tenant_id: tenantId },
       orderBy: { created_at: 'asc' },
       skip: offset > 0 ? offset : undefined,
       take,
-      select: { id: true, phone: true, avatar_url: true, lead_id: true, lead: { select: { phone: true } } },
+      select: {
+        id: true, name: true, phone: true, avatar_url: true, lead_id: true,
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
+      },
     });
 
     let updated = 0;
     let noPhoto = 0;
     let failed = 0;
     let skipped = 0;
+    let linkedLeads = 0;
+    let renamedLeads = 0;
     for (const p of patients) {
-      // Pula só se a foto REALMENTE existe no storage. Fotos antigas (manuais ou já
-      // baixadas) foram apagadas nos redeploys quando o volume ainda era efêmero →
-      // avatar_url aponta pra arquivo que sumiu; nesse caso re-busca do WhatsApp em
-      // vez de deixar o paciente preso na inicial (a foto original não tem como voltar).
+      // (a) VINCULA por telefone quem não tem lead — mesma busca por variantes do
+      // ensureLeadAndConversation (com/sem 9º dígito, com/sem 55). Não cria nada:
+      // só adota lead existente e livre (número de família compartilhado fica como está).
+      let leadRow = p.lead;
+      if (!leadRow && p.phone) {
+        const cand = await this.prisma.lead.findFirst({
+          where: { tenant_id: tenantId, phone: { in: brazilPhoneMatchVariants(p.phone) } },
+          select: { id: true, name: true, phone: true, profile_picture_url: true },
+        });
+        if (cand) {
+          const claimedByOther = await this.prisma.patient.findFirst({
+            where: { lead_id: cand.id, id: { not: p.id } },
+            select: { id: true },
+          });
+          if (!claimedByOther) {
+            await this.prisma.patient.update({ where: { id: p.id }, data: { lead_id: cand.id } });
+            leadRow = cand;
+            linkedLeads++;
+          }
+        }
+      }
+
+      // (b) Nome do contato = nome do CADASTRO (não o pushName do WhatsApp). Mesmos
+      // guards do ensureLeadAndConversation: só sobrescreve com nome real.
+      const cadastroName = (p.name || '').trim();
+      if (leadRow && cadastroName && cadastroName !== 'Paciente sem nome' && leadRow.name !== cadastroName) {
+        await this.prisma.lead
+          .update({ where: { id: leadRow.id }, data: { name: cadastroName } })
+          .catch(() => {});
+        renamedLeads++;
+      }
+
+      // (c) Foto: pula só se a foto REALMENTE existe no storage. Fotos antigas
+      // (manuais ou já baixadas) foram apagadas nos redeploys quando o volume ainda
+      // era efêmero → avatar_url aponta pra arquivo que sumiu; re-busca do WhatsApp.
       if (p.avatar_url && (await this.fileStorage.exists(p.avatar_url))) { skipped++; continue; }
-      const rawPhone = p.phone || p.lead?.phone;
+      const rawPhone = p.phone || leadRow?.phone;
       if (!rawPhone) { skipped++; continue; }
       // fetchProfilePicture NÃO adiciona o 55 (diferente do envio) — normaliza aqui,
       // senão o número do CADASTRO (sem DDI) não resolve o perfil e volta sem foto.
       // Tenta também a variante do 9º dígito (perfil pode estar no outro formato).
-      // Máx 2 tentativas por paciente.
+      // Máx 2 tentativas por paciente + o número do LEAD (formato que o WhatsApp usa).
       const with55 = brazilPhoneMatchVariants(rawPhone).filter((v) => v.startsWith('55'));
-      const candidates = [...new Set([toBrazilWhatsappNumber(rawPhone), ...with55])].slice(0, 2);
+      const candidates = [...new Set([
+        toBrazilWhatsappNumber(rawPhone),
+        ...with55,
+        ...(leadRow?.phone ? [toBrazilWhatsappNumber(leadRow.phone)] : []),
+      ])].slice(0, 3);
       try {
         let freshUrl: string | null = null;
         for (const cand of candidates) {
           freshUrl = await this.whatsapp.fetchProfilePicture(chip.name, cand);
           if (freshUrl) break;
         }
+        // Fallback: a URL já registrada no lead (o inbox a exibe — pode ainda estar
+        // válida). Se também tiver expirado, o copy falha e cai no catch.
+        if (!freshUrl && leadRow?.profile_picture_url) freshUrl = leadRow.profile_picture_url;
         if (!freshUrl) {
           noPhoto++;
         } else {
           await this.copyWhatsappAvatarToPatient(p.id, tenantId, freshUrl);
-          if (p.lead_id) {
+          if (leadRow?.id) {
             await this.prisma.lead
-              .update({ where: { id: p.lead_id }, data: { profile_picture_url: freshUrl } })
+              .update({ where: { id: leadRow.id }, data: { profile_picture_url: freshUrl } })
               .catch(() => {});
           }
           updated++;
@@ -1436,6 +1483,8 @@ export class PatientsService {
       noPhoto,
       failed,
       skipped,
+      linkedLeads,
+      renamedLeads,
       nextOffset: offset + patients.length,
       done: patients.length < take,
     };

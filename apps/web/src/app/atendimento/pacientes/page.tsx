@@ -147,16 +147,18 @@ function PacientesPageInner() {
     setBackfillRunning(true);
     setBackfillMsg('Puxando fotos... 0');
     let offset = 0;
-    let totalUpdated = 0, totalNoPhoto = 0, totalFailed = 0;
+    let totalUpdated = 0, totalNoPhoto = 0, totalFailed = 0, totalLinked = 0, totalRenamed = 0;
     try {
       for (let i = 0; i < 500; i++) {
-        const { data } = await api.post<{ updated: number; noPhoto: number; failed: number; nextOffset: number; done: boolean }>(
+        const { data } = await api.post<{ updated: number; noPhoto: number; failed: number; linkedLeads?: number; renamedLeads?: number; nextOffset: number; done: boolean }>(
           '/patients/backfill-whatsapp-avatars',
           { offset, limit: 10 },
         );
         totalUpdated += data.updated || 0;
         totalNoPhoto += data.noPhoto || 0;
         totalFailed += data.failed || 0;
+        totalLinked += data.linkedLeads || 0;
+        totalRenamed += data.renamedLeads || 0;
         offset = data.nextOffset;
         setBackfillMsg(`Puxando fotos... ${totalUpdated}`);
         if (data.done) break;
@@ -164,6 +166,8 @@ function PacientesPageInner() {
       }
       showSuccess(
         `Fotos atualizadas: ${totalUpdated}.` +
+        (totalLinked ? ` Contatos vinculados: ${totalLinked}.` : '') +
+        (totalRenamed ? ` Nomes corrigidos p/ cadastro: ${totalRenamed}.` : '') +
         (totalNoPhoto ? ` Sem foto no WhatsApp: ${totalNoPhoto}.` : '') +
         (totalFailed ? ` Falhas: ${totalFailed}.` : '')
       );
