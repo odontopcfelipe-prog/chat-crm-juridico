@@ -364,9 +364,15 @@
     border-color: var(--color-border);
   }
 
-  html {
-    font-size: 17px;
-  }
+  /* Base de fonte RESPONSIVA. O app inteiro usa rem (Tailwind), então a base do
+     <html> escala a UI TODA na mesma proporção. Monitor grande mantém 17px (fica
+     perfeito, não muda nada); telas menores reduzem em degraus pra não estourar,
+     sobrepor nem exigir scroll excessivo — "cada aparelho com a proporção certa". */
+  html { font-size: 17px; }
+  @media (max-width: 1600px) { html { font-size: 16px; } }
+  @media (max-width: 1440px) { html { font-size: 15px; } }
+  @media (max-width: 1280px) { html { font-size: 14px; } }
+  @media (max-width: 1080px) { html { font-size: 13.5px; } }
 
   body {
     background: var(--gradient-bg);
