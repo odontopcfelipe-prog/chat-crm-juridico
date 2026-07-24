@@ -17,6 +17,7 @@ import {
   UploadedFile,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { createHash } from 'crypto';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { PatientsService } from './patients.service';
 import { LeadsService } from '../leads/leads.service';
@@ -506,8 +507,19 @@ export class PatientsController {
     if (!tenantId) throw new BadRequestException('tenant_id ausente');
     const result = await this.patientsService.getAvatarBuffer(id, tenantId);
     if (!result) throw new NotFoundException('Foto nao encontrada.');
+    // Onda 18.x — ETag do CONTEÚDO + revalidação. Antes era max-age=86400 (1 dia):
+    // ao trocar a foto, a URL é a MESMA, então outros logins/telas continuavam vendo
+    // a antiga do cache por até um dia ("troquei e no dela permaneceu"). Agora o
+    // navegador revalida a cada uso: se a foto mudou, o etag muda → baixa a nova na
+    // hora; se não mudou, o servidor responde 304 (sem reenviar os bytes).
+    const etag = `"${createHash('sha1').update(result.buffer).digest('hex')}"`;
+    res.set('ETag', etag);
+    res.set('Cache-Control', 'private, max-age=0, must-revalidate');
+    if (req.headers['if-none-match'] === etag) {
+      res.status(304).end();
+      return;
+    }
     res.set('Content-Type', result.mimeType);
-    res.set('Cache-Control', 'private, max-age=86400');
     res.end(result.buffer);
   }
 
