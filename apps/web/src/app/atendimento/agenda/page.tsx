@@ -176,6 +176,15 @@ function agendaDentistColor(id?: string | null): string {
 function agendaEsc(s: unknown): string {
   return String(s ?? '').replace(/[&<>"']/g, (c) => (({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }) as Record<string, string>)[c]);
 }
+// Cor de fundo determinística das INICIAIS do avatar (mesma paleta saturada do
+// <PatientAvatar>): iniciais brancas sempre legíveis — a cor pálida do dentista
+// deixava as iniciais invisíveis no card da grade.
+const AGENDA_AV_PALETTE = ['#6366f1', '#8b5cf6', '#ec4899', '#f43f5e', '#f97316', '#f59e0b', '#10b981', '#14b8a6', '#0ea5e9', '#3b82f6'];
+function agendaAvatarColor(seed: string): string {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (seed.charCodeAt(i) + ((h << 5) - h)) >>> 0;
+  return AGENDA_AV_PALETTE[h % AGENDA_AV_PALETTE.length];
+}
 // Tipos que recebem o card de paciente (os demais — Bloqueio/Tarefa/Outro — mantêm
 // o render padrão do schedule-x). É o MESMO conjunto de PATIENT_APPT_TYPES: todo
 // atendimento de paciente ganha card customizado E cor por status. Aliás direto pra
@@ -1413,7 +1422,7 @@ export default function AgendaPage() {
               ? `<span class="ag-av"><img src="${agendaEsc(_blob)}" alt=""/></span>`
               : _waPhoto
                 ? `<span class="ag-av"><img src="${agendaEsc(_waPhoto)}" alt=""/></span>`
-                : `<span class="ag-av ag-av-i" style="background:${dtColor}">${agendaEsc(_avInit)}</span>`;
+                : `<span class="ag-av ag-av-i" style="background:${agendaAvatarColor(clientName || nm || _pid || 'x')}">${agendaEsc(_avInit)}</span>`;
             cardHtml =
               '<div class="ag-card">' +
                 `<span class="ag-bar" style="background:${dtColor}"></span>` +
