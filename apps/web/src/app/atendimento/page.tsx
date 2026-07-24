@@ -3420,7 +3420,7 @@ export default function Dashboard() {
                       }}
                       placeholder={isRealConvo ? "Digite sua mensagem..." : "Selecione uma conversa..."}
                       disabled={!isRealConvo || sending}
-                      className={`w-full border rounded-2xl py-2 md:py-2.5 focus:outline-none focus:ring-2 shadow-sm disabled:opacity-50 text-sm md:text-base resize-none leading-normal overflow-hidden pl-4 ${
+                      className={`w-full border rounded-2xl py-2.5 md:py-3 focus:outline-none focus:ring-2 shadow-sm disabled:opacity-50 text-sm md:text-base resize-none leading-normal overflow-hidden pl-4 ${
                         isRealConvo ? (isMobile ? 'pr-[7rem]' : 'pr-24') : 'pr-4'
                       } bg-card border-border focus:ring-primary text-foreground`}
                     />
@@ -3494,7 +3494,7 @@ export default function Dashboard() {
                     onClick={handleSend}
                     disabled={!isRealConvo || !text.trim() || sending || text.length > 5000}
                     aria-label="Enviar mensagem"
-                    className="bg-gradient-to-r from-primary to-ring p-3 md:p-4 rounded-xl shadow-lg disabled:opacity-50 hover:-translate-y-1 transition-transform shrink-0 mb-0.5"
+                    className="bg-gradient-to-r from-primary to-ring p-2 md:p-2.5 rounded-xl shadow-lg disabled:opacity-50 hover:-translate-y-1 transition-transform shrink-0 mb-0.5"
                   >
                     <Send size={18} className="text-primary-foreground md:w-5 md:h-5" />
                   </button>
