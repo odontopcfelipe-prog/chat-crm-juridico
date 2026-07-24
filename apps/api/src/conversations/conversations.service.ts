@@ -124,37 +124,37 @@ export class ConversationsService {
       }
     }
 
-    const [conversations, total] = await Promise.all([
-      this.prisma.conversation.findMany({
-        where,
-        orderBy: { last_message_at: 'desc' },
-        include: {
-          lead: {
-            select: {
-              id: true, name: true, phone: true, email: true,
-              stage: true, stage_entered_at: true,
-              profile_picture_url: true, tags: true,
-              is_client: true, became_client_at: true,
-              // CRM dinâmico (Fase 4 — pipelines)
-              pipeline: { select: { id: true, name: true, slug: true, color: true } },
-              current_stage: { select: { id: true, name: true, slug: true, color: true, emoji: true, is_won: true, is_lost: true } },
-            },
-          },
-          messages: { orderBy: { created_at: 'desc' }, take: 1, include: { media: true } },
-          assigned_user: { select: { id: true, name: true } },
-          // Onda 18.33 — purpose do inbox (pra UI esconder ações que não se
-          // aplicam à conversa de cobrança: Mover setor, Funil, Etapa).
-          inbox: { select: { purpose: true } },
-          tasks: {
-            where: { status: 'A_FAZER' },
-            orderBy: { created_at: 'desc' },
-            take: 1,
-            select: { id: true, title: true, due_at: true, status: true, assigned_user_id: true },
+    // Onda 18.xx — removido o prisma.conversation.count({ where }) que rodava em paralelo:
+    // ele re-executava o MESMO WHERE relacional pesado (EXISTS em lead/inbox) só pra um
+    // `total` que o front nunca lê. Cortar poupa ~metade do custo de filtro por chamada.
+    const conversations = await this.prisma.conversation.findMany({
+      where,
+      orderBy: { last_message_at: 'desc' },
+      include: {
+        lead: {
+          select: {
+            id: true, name: true, phone: true, email: true,
+            stage: true, stage_entered_at: true,
+            profile_picture_url: true, tags: true,
+            is_client: true, became_client_at: true,
+            // CRM dinâmico (Fase 4 — pipelines)
+            pipeline: { select: { id: true, name: true, slug: true, color: true } },
+            current_stage: { select: { id: true, name: true, slug: true, color: true, emoji: true, is_won: true, is_lost: true } },
           },
         },
-      }),
-      this.prisma.conversation.count({ where }),
-    ]);
+        messages: { orderBy: { created_at: 'desc' }, take: 1, include: { media: true } },
+        assigned_user: { select: { id: true, name: true } },
+        // Onda 18.33 — purpose do inbox (pra UI esconder ações que não se
+        // aplicam à conversa de cobrança: Mover setor, Funil, Etapa).
+        inbox: { select: { purpose: true } },
+        tasks: {
+          where: { status: 'A_FAZER' },
+          orderBy: { created_at: 'desc' },
+          take: 1,
+          select: { id: true, title: true, due_at: true, status: true, assigned_user_id: true },
+        },
+      },
+    });
 
     // Enrich with dentist and origin-attendant names in a single query
     const dentistIds = [...new Set(conversations.map((c: any) => c.assigned_dentist_id).filter(Boolean))] as string[];
@@ -239,7 +239,7 @@ export class ConversationsService {
       hasNotes: !!noteCountMap[c.id],
     }));
 
-    return { data, total };
+    return { data, total: data.length };
   }
 
   async findOne(id: string, tenantId?: string) {

@@ -305,6 +305,11 @@ export default function Dashboard() {
   // Debounce de sync por conversa: guarda timestamp do último sync (ms) por conversation_id
   const lastSyncRef = useRef<Map<string, number>>(new Map());
 
+  // Cache client-side da lista de conversas por aba (viewMode: leads|clients|financial).
+  // Ao trocar de setor, mostra a lista cacheada NA HORA e revalida em background
+  // (stale-while-revalidate) — troca instantânea em vez de esperar o round-trip do fetch.
+  const listCacheRef = useRef<Record<string, ConversationSummary[]>>({});
+
   // Keep refs in sync
   useEffect(() => { selectedInboxIdRef.current = selectedInboxId; }, [selectedInboxId]);
   useEffect(() => { clientModeRef.current = clientMode; }, [clientMode]);
@@ -637,6 +642,7 @@ export default function Dashboard() {
       // Suporta resposta paginada { data, total, ... } ou array legado
       const items = Array.isArray(res.data) ? res.data : (res.data?.data || []);
       setConversations(items);
+      listCacheRef.current[viewMode] = items; // atualiza o cache da aba p/ trocas instantâneas
     } catch (e: any) {
       if (e.response?.status === 401 && !silent) {
         // Deixa o interceptor global (api.ts) tratar via evento auth:logout
@@ -1034,14 +1040,32 @@ export default function Dashboard() {
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Initial data load + refetch on inbox filter change or clientMode change
+  // Carga ÚNICA no mount — não depende do setor: inboxes, transferências, especialistas.
+  // Antes rodavam no MESMO effect da troca de aba, disparando 3 requisições inúteis por
+  // clique que competiam pelo pool de conexões com o /conversations que importa. Split:
+  // troca de setor cai de 5 → 2 requisições (transferências já têm polling de 30s).
   useEffect(() => {
     fetchInboxes(true);
-    fetchConversations(selectedInboxId, true);
-    fetchAdiadoConversations(selectedInboxId);
     fetchPendingTransfers(true);
     fetchSpecialists(true);
-  }, [fetchConversations, fetchAdiadoConversations, fetchPendingTransfers, selectedInboxId, clientMode, financialMode]);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Lista de conversas por setor/inbox — com FEEDBACK IMEDIATO + cache por aba.
+  // Ao trocar: se há cache da aba destino, exibe na hora (troca instantânea); senão limpa
+  // a lista e mostra "carregando" (em vez de deixar a lista do setor ANTERIOR congelada na
+  // tela durante todo o fetch — era a causa nº1 do "delay/travou"). Revalida sempre.
+  useEffect(() => {
+    const viewMode = financialMode ? 'financial' : clientMode ? 'clients' : 'leads';
+    const cached = listCacheRef.current[viewMode];
+    if (cached) {
+      setConversations(cached);
+    } else {
+      setConversations([]);
+      setLoading(true);
+    }
+    fetchConversations(selectedInboxId, true);
+    fetchAdiadoConversations(selectedInboxId);
+  }, [fetchConversations, fetchAdiadoConversations, selectedInboxId, clientMode, financialMode]);
 
   // Polling de transferências pendentes (30s) — resiliência caso o socket perca o evento
   // Pula quando offline para nao gerar cascata de Network Error no console
