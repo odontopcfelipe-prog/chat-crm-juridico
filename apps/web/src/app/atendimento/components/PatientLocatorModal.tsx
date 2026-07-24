@@ -118,7 +118,7 @@ function waLink(raw?: string | null): string | null {
 }
 
 // ─── Componente ─────────────────────────────────────────────────────────────
-export function PatientLocatorModal({ open, onClose }: { open: boolean; onClose: () => void }) {
+export function PatientLocatorModal({ open, onClose, financialMode = false }: { open: boolean; onClose: () => void; financialMode?: boolean }) {
   const router = useRouter();
   const [mounted, setMounted] = useState(false);
   const [query, setQuery] = useState('');
@@ -389,10 +389,10 @@ export function PatientLocatorModal({ open, onClose }: { open: boolean; onClose:
                 {/* Ações */}
                 <div className="mt-6 flex items-center gap-2">
                   <button
-                    onClick={() => { router.push(`/atendimento/pacientes/${detail.id}`); onClose(); }}
+                    onClick={() => { router.push(`/atendimento/pacientes/${detail.id}${financialMode ? '?tab=financial' : ''}`); onClose(); }}
                     className="flex-1 inline-flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:bg-primary/90 transition-colors"
                   >
-                    Abrir ficha <ArrowUpRight size={15} />
+                    {financialMode ? 'Abrir financeiro' : 'Abrir ficha'} <ArrowUpRight size={15} />
                   </button>
                   {waLink(detail.phone) && (
                     <a

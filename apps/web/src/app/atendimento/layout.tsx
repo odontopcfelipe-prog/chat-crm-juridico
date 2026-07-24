@@ -10,6 +10,7 @@ import { TrialWelcomeModal } from '@/components/TrialWelcomeModal';
 // Onda 17.32.124 — Wizard fullscreen de onboarding (estilo Windows OOBE)
 import { OnboardingWizardLoader } from '@/components/OnboardingWizardLoader';
 import { PatientLocatorModal } from './components/PatientLocatorModal';
+import { ContextualSearchModal } from './components/ContextualSearchModal';
 import { GlobalCommandPalette, useGlobalCommandPalette } from './components/GlobalCommandPalette';
 import { TaskAlertPopup } from './components/TaskAlertPopup';
 import {
@@ -37,6 +38,17 @@ import { THEMES } from '@/components/ThemeSwitcher';
 // montagem com deps []), isto recalcula quando o token muda — cobre o
 // login -> dashboard no layout persistente; senao o admin logava e caia SEM
 // barra ate dar reload manual (regressao pega na revisao pre-deploy).
+// Onda 18.x — Busca CONTEXTUAL do header: o "Localizar" muda o que busca conforme
+// a seção. Pacientes/padrão e Financeiro usam o PatientLocatorModal (rico); Agenda e
+// Contatos usam o ContextualSearchModal (busca própria + navegação própria).
+type SearchCtxKind = 'patient' | 'financial' | 'agenda' | 'contact';
+function resolveSearchContext(pathname: string): { kind: SearchCtxKind; label: string } {
+  if (pathname.startsWith('/atendimento/financeiro')) return { kind: 'financial', label: 'Localizar no financeiro' };
+  if (pathname.startsWith('/atendimento/agenda')) return { kind: 'agenda', label: 'Localizar na agenda' };
+  if (pathname.startsWith('/atendimento/contacts')) return { kind: 'contact', label: 'Localizar contato' };
+  return { kind: 'patient', label: 'Localizar paciente' };
+}
+
 function rolesFromToken(token: string | null): string[] {
   if (!token) return [];
   try {
@@ -57,8 +69,9 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
   const { theme, setTheme } = useTheme();
   const { mode: fxMode, setMode: setFxMode } = useVisualMode();
   const { open: cmdOpen, setOpen: setCmdOpen } = useGlobalCommandPalette();
-  // Onda 18.x — "Localizar um paciente" (atendimentos do dia + busca + ficha).
+  // Onda 18.x — "Localizar" contextual (muda o alvo da busca conforme a seção).
   const [locatorOpen, setLocatorOpen] = useState(false);
+  const searchCtx = useMemo(() => resolveSearchContext(pathname), [pathname]);
   const perms = useRole();
 
   // Mobile states
@@ -342,11 +355,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                 <button
                   type="button"
                   onClick={() => setLocatorOpen(true)}
-                  title="Localizar paciente (atalho: / )"
+                  title={`${searchCtx.label} (atalho: / )`}
                   className="w-[min(26rem,45vw)] flex items-center gap-2 pl-3 pr-2 py-2 rounded-lg bg-card border border-border text-sm text-muted-foreground hover:border-primary/40 transition-colors"
                 >
                   <Search size={14} className="shrink-0" />
-                  <span className="flex-1 text-left truncate">Localizar paciente</span>
+                  <span className="flex-1 text-left truncate">{searchCtx.label}</span>
                   <kbd className="shrink-0 text-[10px] font-mono text-muted-foreground bg-background border border-border rounded px-1.5 py-0.5">/</kbd>
                 </button>
               )}
@@ -388,8 +401,13 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
       {/* ─── Global Command Palette (Ctrl+K) ────────────────── */}
       <GlobalCommandPalette open={cmdOpen} onClose={() => setCmdOpen(false)} />
 
-      {/* ─── Localizar um paciente (atendimentos do dia + busca + ficha) ──── */}
-      <PatientLocatorModal open={locatorOpen} onClose={() => setLocatorOpen(false)} />
+      {/* ─── Localizar contextual: agenda/contatos usam o modal de busca próprio;
+          pacientes/financeiro usam o localizador rico (financeiro abre ?tab=financial). */}
+      {searchCtx.kind === 'agenda' || searchCtx.kind === 'contact' ? (
+        <ContextualSearchModal open={locatorOpen} onClose={() => setLocatorOpen(false)} kind={searchCtx.kind} />
+      ) : (
+        <PatientLocatorModal open={locatorOpen} onClose={() => setLocatorOpen(false)} financialMode={searchCtx.kind === 'financial'} />
+      )}
 
       {/* ─── Mobile Bottom Nav (fixed) ──────────────────────── */}
       {showBottomNav && (

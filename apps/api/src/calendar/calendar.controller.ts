@@ -690,7 +690,14 @@ export class CalendarController {
 
   @Get('search')
   search(@Query('q') q: string, @Request() req: any) {
-    return this.calendarService.search(q || '', req.user?.tenant_id);
+    // Mesmo escopo de role da lista: quem não pode ver toda a agenda (DENTIST etc)
+    // só acha os próprios eventos na busca do header.
+    const canViewAll = canViewAllAgenda(req.user?.roles);
+    return this.calendarService.search(
+      q || '',
+      req.user?.tenant_id,
+      canViewAll ? undefined : req.user?.id,
+    );
   }
 
   // ─── ICS Export ───────────────────────────────────────

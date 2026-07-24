@@ -3026,18 +3026,27 @@ export class CalendarService {
 
   // ─── Search ───────────────────────────────────────────
 
-  async search(query: string, tenantId?: string) {
+  async search(query: string, tenantId?: string, assignedUserId?: string) {
     return this.prisma.calendarEvent.findMany({
       where: {
         ...(tenantId ? { tenant_id: tenantId } : {}),
+        // DENTIST/role sem "ver toda agenda" só acha os PRÓPRios eventos (igual findAll).
+        ...(assignedUserId ? { assigned_user_id: assignedUserId } : {}),
         OR: [
           { title: { contains: query, mode: 'insensitive' } },
           { description: { contains: query, mode: 'insensitive' } },
+          // Onda 18.x — busca contextual do header: casar também pelo NOME do
+          // paciente/lead do evento (relation filter). Sem isto, "buscar Fulano"
+          // na agenda não achava nada (só título/descrição).
+          { patient: { name: { contains: query, mode: 'insensitive' } } },
+          { lead: { name: { contains: query, mode: 'insensitive' } } },
         ],
       },
       include: {
         assigned_user: { select: { id: true, name: true } },
         lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
+        appointment_type: { select: { name: true } },
       },
       orderBy: { start_at: 'desc' },
       take: 20,
