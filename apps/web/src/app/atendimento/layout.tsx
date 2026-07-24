@@ -319,7 +319,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // que os icones de Notificacoes + Aparencia no canto direito fiquem
           // SEMPRE visiveis. Antes o header inteiro sumia em algumas paginas.
           return (
-            <header className="hidden md:flex items-center gap-3 px-6 py-2 border-b border-border bg-card shrink-0">
+            <header className="hidden md:flex items-center gap-3 px-6 py-1.5 border-b border-border bg-card shrink-0">
               {/* Onda 17.50 — Botao "Inicio" aparece quando a barra lateral
                   esta escondida (papeis simples): e a unica volta pros baloes
                   da home. Admin nao precisa — ja tem o logo/Inicio na barra. */}
@@ -327,7 +327,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
                 <button
                   type="button"
                   onClick={() => router.push('/atendimento/dashboard')}
-                  className="inline-flex items-center gap-1.5 h-10 px-3 rounded-xl text-sm font-medium text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all shrink-0"
+                  className="inline-flex items-center gap-1.5 h-9 px-3 rounded-xl text-sm font-medium text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all shrink-0"
                   title="Voltar ao início"
                 >
                   <Home size={18} /> Início
@@ -353,7 +353,7 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
               <div className="flex-1" />
               {/* Onda 15.8 — Notificacoes + Aparencia fixos no canto direito */}
               <div className="flex items-center gap-1 shrink-0">
-                <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
+                <div className="inline-flex items-center justify-center w-9 h-9 rounded-xl text-foreground hover:bg-[var(--glass-bg)] hover:backdrop-blur-md transition-all">
                   <NotificationCenter />
                 </div>
                 <ThemeMenuButton variant="header" align="right" />

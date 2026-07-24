@@ -3232,7 +3232,7 @@ export default function Dashboard() {
               </div>
             )}
 
-            <footer className="px-3 md:px-6 pt-2 pb-3 md:pt-3 md:pb-6 bg-background shrink-0">
+            <footer className="px-3 md:px-6 pt-2 pb-2 md:pt-2 md:pb-3 bg-background shrink-0">
               {/* Reply bar */}
               {replyingTo && !isClosed && (
                 <div className="max-w-4xl mx-auto mb-2 flex items-center gap-2 px-4 py-2 bg-card border border-border rounded-xl">
@@ -3287,7 +3287,7 @@ export default function Dashboard() {
                       disabled={!isRealConvo || uploadingFile}
                       title="Enviar arquivo"
                       aria-label="Anexar arquivo"
-                      className="p-2.5 md:p-3 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shrink-0 mb-0.5"
+                      className="p-2 md:p-2.5 rounded-xl bg-card border border-border text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors disabled:opacity-50 shrink-0 mb-0.5"
                     >
                       {uploadingFile
                         ? <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
@@ -3299,7 +3299,7 @@ export default function Dashboard() {
                     <button
                       onClick={() => setNotesPanelOpen(true)}
                       title="Notas da conversa — visíveis para a equipe"
-                      className={`relative p-2.5 md:p-3 rounded-xl border transition-colors shrink-0 mb-0.5 ${selected?.hasNotes ? 'bg-sky-500/20 border-sky-500/40 text-sky-400' : 'bg-card border-border text-muted-foreground hover:text-sky-400 hover:border-sky-500/30 hover:bg-sky-500/10'}`}
+                      className={`relative p-2 md:p-2.5 rounded-xl border transition-colors shrink-0 mb-0.5 ${selected?.hasNotes ? 'bg-sky-500/20 border-sky-500/40 text-sky-400' : 'bg-card border-border text-muted-foreground hover:text-sky-400 hover:border-sky-500/30 hover:bg-sky-500/10'}`}
                     >
                       <StickyNote size={20} />
                       {selected?.hasNotes && (
@@ -3420,7 +3420,7 @@ export default function Dashboard() {
                       }}
                       placeholder={isRealConvo ? "Digite sua mensagem..." : "Selecione uma conversa..."}
                       disabled={!isRealConvo || sending}
-                      className={`w-full border rounded-2xl py-3 md:py-4 focus:outline-none focus:ring-2 shadow-sm disabled:opacity-50 text-sm md:text-base resize-none leading-normal overflow-hidden pl-4 ${
+                      className={`w-full border rounded-2xl py-2 md:py-2.5 focus:outline-none focus:ring-2 shadow-sm disabled:opacity-50 text-sm md:text-base resize-none leading-normal overflow-hidden pl-4 ${
                         isRealConvo ? (isMobile ? 'pr-[7rem]' : 'pr-24') : 'pr-4'
                       } bg-card border-border focus:ring-primary text-foreground`}
                     />

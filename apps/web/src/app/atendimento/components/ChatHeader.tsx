@@ -38,7 +38,7 @@ function MoveSectorButton({ conversationId }: { conversationId?: string }) {
         onClick={() => setOpen((o) => !o)}
         disabled={moving}
         title="Mover esta conversa pro setor Comercial ou Clínica (o disparo passa a sair pelo número do setor)"
-        className="px-3 py-2 text-sm font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
+        className="px-2.5 py-1 text-xs font-semibold text-violet-400 bg-violet-500/10 border border-violet-500/20 rounded-xl hover:bg-violet-500/20 transition-colors flex items-center gap-2 disabled:opacity-50"
       >
         <Inbox size={16} /> Mover setor <ChevronDown size={14} />
       </button>
@@ -227,7 +227,7 @@ export function ChatHeader({
 
   return (
     <div className="shrink-0 relative z-40">
-    <header className="min-h-[60px] md:min-h-[80px] py-2 md:py-3 px-3 md:px-8 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between">
+    <header className="min-h-[52px] md:min-h-[56px] py-1.5 md:py-2 px-3 md:px-6 border-b border-border bg-card/50 backdrop-blur-md flex items-center justify-between">
       <div className="flex items-center gap-2 md:gap-4 min-w-0 flex-1">
         {/* Botão Voltar - mobile only */}
         {isMobile && (
@@ -256,7 +256,7 @@ export function ChatHeader({
           }}
         >
           <div className="flex items-center gap-1">
-            <h3 className="font-bold text-base md:text-lg leading-tight truncate">{selected.contactName || selected.contactPhone}</h3>
+            <h3 className="font-bold text-sm md:text-base leading-tight truncate">{selected.contactName || selected.contactPhone}</h3>
             <ChevronRight size={14} className="text-muted-foreground shrink-0" />
           </div>
           <div className="flex items-center gap-1 mt-0.5 md:mt-1">
@@ -338,7 +338,7 @@ export function ChatHeader({
           </div>
         </div>
       </div>
-      <div className="flex flex-col items-end gap-2 shrink-0">
+      <div className="flex flex-col items-end gap-1.5 shrink-0">
         {/* Badges informativos inline — mobile */}
         {isMobile && (
           <div className="flex items-center gap-1.5">
@@ -391,7 +391,7 @@ export function ChatHeader({
             <button
               onClick={onToggleAiMode}
               title={aiMode ? 'Desativar IA' : 'Ativar IA'}
-              className={`px-4 py-2 text-sm font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
+              className={`px-3 py-1 text-xs font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
                 aiMode
                   ? 'text-primary bg-primary/10 border-primary/20 hover:bg-primary/20'
                   : 'text-muted-foreground bg-muted/30 border-border hover:bg-muted/60'
@@ -404,7 +404,7 @@ export function ChatHeader({
           {selected.status === 'WAITING' && isRealConvo && (
             <button
               onClick={onAccept}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary to-ring text-primary-foreground font-bold text-sm shadow-[0_0_15px_rgba(var(--primary),0.3)] hover:shadow-[0_0_20px_rgba(var(--primary),0.4)] hover:-translate-y-0.5 transition-all"
+              className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-primary to-ring text-primary-foreground font-bold text-xs shadow-[0_0_15px_rgba(var(--primary),0.3)] hover:shadow-[0_0_20px_rgba(var(--primary),0.4)] hover:-translate-y-0.5 transition-all"
             >
               Aceitar Atendimento
             </button>
@@ -414,7 +414,7 @@ export function ChatHeader({
               onClick={onOpenTransferModal}
               disabled={hasPendingTransfer}
               title={hasPendingTransfer ? 'Transferência pendente — aguardando resposta' : 'Transferir conversa para outro operador'}
-              className={`px-3 py-2 text-sm font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
+              className={`px-2.5 py-1 text-xs font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
                 hasPendingTransfer
                   ? 'text-muted-foreground bg-muted/30 border-border cursor-not-allowed opacity-50'
                   : 'text-sky-400 bg-sky-500/10 border-sky-500/20 hover:bg-sky-500/20'
@@ -430,7 +430,7 @@ export function ChatHeader({
               <button
                 onClick={() => onOpenReasonPopup('return', selected?.originAssignedUserName || 'atendente de origem')}
                 title="Devolver conversa ao atendente de origem"
-                className="px-3 py-2 text-sm font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl hover:bg-sky-500/20 transition-colors flex items-center gap-2"
+                className="px-2.5 py-1 text-xs font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl hover:bg-sky-500/20 transition-colors flex items-center gap-2"
               >
                 <CornerDownLeft size={16} />
                 Devolver
@@ -438,7 +438,7 @@ export function ChatHeader({
               <button
                 onClick={onKeepInInbox}
                 title="Manter conversa no meu inbox"
-                className="px-3 py-2 text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors flex items-center gap-2"
+                className="px-2.5 py-1 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors flex items-center gap-2"
               >
                 <Inbox size={16} />
                 Manter Aqui
@@ -449,7 +449,7 @@ export function ChatHeader({
             <button
               onClick={onCreateTask}
               title="Criar tarefa"
-              className="px-3 py-2 text-sm font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl hover:bg-sky-500/20 transition-colors flex items-center gap-2"
+              className="px-2.5 py-1 text-xs font-semibold text-sky-300 bg-sky-500/10 border border-sky-500/20 rounded-xl hover:bg-sky-500/20 transition-colors flex items-center gap-2"
             >
               <ClipboardList size={16} />
               Tarefa
@@ -467,7 +467,7 @@ export function ChatHeader({
               <button
                 onClick={onCadastrarContato}
                 title={noName ? 'Cadastrar contato (preencher nome, email, origem)' : 'Editar dados do contato'}
-                className={`px-3 py-2 text-sm font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
+                className={`px-2.5 py-1 text-xs font-semibold border rounded-xl transition-colors flex items-center gap-2 ${
                   noName
                     ? 'text-orange-400 bg-orange-500/10 border-orange-500/30 hover:bg-orange-500/20 animate-pulse'
                     : 'text-muted-foreground bg-muted/30 border-border hover:bg-muted/60'
@@ -487,7 +487,7 @@ export function ChatHeader({
             <button
               onClick={onDemoteToLead}
               title="Voltar pra Lead (reverter promocao a cliente)"
-              className="px-3 py-2 text-sm font-semibold text-muted-foreground bg-muted/30 border border-border rounded-xl hover:bg-muted/60 transition-colors flex items-center gap-2"
+              className="px-2.5 py-1 text-xs font-semibold text-muted-foreground bg-muted/30 border border-border rounded-xl hover:bg-muted/60 transition-colors flex items-center gap-2"
             >
               <UserMinus size={16} />
               → Lead
@@ -499,7 +499,7 @@ export function ChatHeader({
             <button
               onClick={onCreateAppointment}
               title="Agendar atendimento (abre painel sem sair da conversa)"
-              className="px-3 py-2 text-sm font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors flex items-center gap-2"
+              className="px-2.5 py-1 text-xs font-semibold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 rounded-xl hover:bg-emerald-500/20 transition-colors flex items-center gap-2"
             >
               <Calendar size={16} />
               Agendar
