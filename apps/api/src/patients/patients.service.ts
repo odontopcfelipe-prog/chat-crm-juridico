@@ -524,7 +524,7 @@ export class PatientsService {
       where: { id },
       include: {
         primary_dentist: { select: { id: true, name: true, email: true } },
-        lead: { select: { id: true, phone: true, stage: true } },
+        lead: { select: { id: true, phone: true, stage: true, profile_picture_url: true } },
         // Indicador (paciente que indicou esse) — mostra nome no overview
         referred_by_patient: { select: { id: true, name: true, phone: true } },
         // Tags / segmentacao (Fase 20)

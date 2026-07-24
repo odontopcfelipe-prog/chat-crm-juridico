@@ -57,6 +57,7 @@ interface Patient {
   gender: string | null;
   marital_status: string | null;
   avatar_url: string | null;
+  lead?: { profile_picture_url: string | null } | null;
   phone: string | null;
   email: string | null;
   address: string | null;
@@ -386,6 +387,7 @@ function PacienteFichaInner() {
           <AvatarUploader
             patientId={patient.id}
             avatarUrl={avatarUrl}
+            fallbackPhotoUrl={patient.lead?.profile_picture_url}
             patientName={patient.name}
             onUploaded={() => { setAvatarBust(Date.now()); load(); }}
             readOnly={!role.canEditPatientPersonalData}
@@ -894,10 +896,11 @@ function PacienteFichaInner() {
 // ─── Avatar com upload ───────────────────────────────────────
 
 function AvatarUploader({
-  patientId, avatarUrl, patientName, onUploaded, readOnly = false,
+  patientId, avatarUrl, fallbackPhotoUrl, patientName, onUploaded, readOnly = false,
 }: {
   patientId: string;
   avatarUrl: string | null;
+  fallbackPhotoUrl?: string | null;
   patientName: string;
   onUploaded: () => void;
   readOnly?: boolean;
@@ -908,6 +911,10 @@ function AvatarUploader({
   // Tag <img> não envia Authorization header → endpoint protegido retorna 401
   // e mostra alt text. Hook faz fetch via axios (com token) e gera blob URL.
   const { src: authedSrc, loading: imgLoading } = useAuthedImage(avatarUrl);
+  // Foto do WhatsApp (lead.profile_picture_url) como fallback — igual à lista —
+  // SÓ quando o paciente não tem foto própria salva. Some pras iniciais se falhar.
+  const [waError, setWaError] = useState(false);
+  const waPhoto = !avatarUrl && !waError ? (fallbackPhotoUrl || null) : null;
 
   const handleFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
@@ -964,6 +971,10 @@ function AvatarUploader({
         {authedSrc ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={authedSrc} alt={patientName} className="w-full h-full object-cover" />
+        ) : waPhoto ? (
+          // Foto do WhatsApp (URL direta). Se falhar/expirar, cai pras iniciais.
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={waPhoto} alt={patientName} className="w-full h-full object-cover" onError={() => setWaError(true)} />
         ) : imgLoading ? (
           <Loader2 size={18} className="text-primary/60 animate-spin" />
         ) : (
