@@ -142,7 +142,7 @@ export class CommissionsService {
         take: limit,
         include: {
           professional: { select: { id: true, name: true } },
-          patient: { select: { id: true, name: true } },
+          patient: { select: { id: true, name: true, avatar_url: true } },
           procedure: { select: { id: true, name: true, category: true } },
         },
       }),
@@ -157,7 +157,7 @@ export class CommissionsService {
       where: { id, tenant_id: tenantId },
       include: {
         professional: { select: { id: true, name: true, email: true } },
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         procedure: true,
         quote: { select: { id: true, total_value: true, status: true } },
         treatment_plan_item: { select: { id: true, executed_at: true, executed_by_user_id: true } },

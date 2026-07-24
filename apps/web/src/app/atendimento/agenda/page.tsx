@@ -2468,7 +2468,17 @@ export default function AgendaPage() {
           className="bg-card border border-border rounded-xl shadow-2xl p-3 pointer-events-none animate-in fade-in-0 zoom-in-95 duration-150"
         >
           <div className="flex items-center gap-2 mb-1.5">
-            <span className="text-base">{EVENT_TYPES.find(t => t.id === hoverTooltip.event.type)?.emoji}</span>
+            {hoverTooltip.event.patient ? (
+              <PatientAvatar
+                patientId={hoverTooltip.event.patient.id}
+                patientName={hoverTooltip.event.patient.name || 'Paciente'}
+                avatarUrl={hoverTooltip.event.patient.avatar_url}
+                size={22}
+                shape="circle"
+              />
+            ) : (
+              <span className="text-base">{EVENT_TYPES.find(t => t.id === hoverTooltip.event.type)?.emoji}</span>
+            )}
             <span className="text-xs font-bold text-foreground truncate">{hoverTooltip.event.title}</span>
           </div>
           <div className="space-y-0.5 text-[11px] text-muted-foreground">

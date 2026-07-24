@@ -15,6 +15,7 @@
 import { useEffect, useState } from 'react';
 import { Wallet, CheckCircle, Clock, Loader2, Banknote } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 // ─── Tipos (espelham o summary/payable do backend, só os campos usados) ──────
 interface SummaryRow {
@@ -30,7 +31,7 @@ interface PayableCommission {
   amount: string | number;
   reference_month?: string | null;
   notes?: string | null;
-  patient?: { id: string; name: string } | null;
+  patient?: { id: string; name: string; avatar_url?: string | null } | null;
   kind?: string;
 }
 
@@ -217,7 +218,16 @@ export default function MinhaComissaoPage() {
               <div className="bg-card border border-border rounded-xl divide-y divide-border">
                 {payableItems.map((c) => (
                   <div key={c.id} className="flex items-center justify-between gap-3 p-3">
-                    <div className="min-w-0">
+                    {c.patient && (
+                      <PatientAvatar
+                        patientId={c.patient.id}
+                        patientName={c.patient.name}
+                        avatarUrl={c.patient.avatar_url}
+                        size={32}
+                        shape="circle"
+                      />
+                    )}
+                    <div className="min-w-0 flex-1">
                       <div className="text-sm text-foreground truncate flex items-center gap-1.5">
                         <KindBadge kind={c.kind} />
                         <span className="truncate">

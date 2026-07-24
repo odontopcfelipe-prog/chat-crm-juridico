@@ -8,6 +8,7 @@ import {
   ChevronLeft, Settings2, CircleDollarSign,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 
@@ -59,7 +60,7 @@ interface Movement {
   payment_method: string | null; reference_id: string | null;
   gateway_charge?: { received_in_cash: boolean } | null;
   account: { id: string; name: string; kind: string } | null;
-  lead: { id: string; name: string } | null;
+  lead: { id: string; name: string; profile_picture_url?: string | null } | null;
 }
 interface Closing {
   id: string; cash_date: string; status: string;
@@ -231,7 +232,17 @@ function DiaView() {
           <ul className="divide-y divide-slate-50">
             {data.movements.map((m) => (
               <li key={m.id} className="flex items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0">
+                {m.lead && (
+                  <PatientAvatar
+                    patientId={m.lead.id}
+                    patientName={m.lead.name}
+                    avatarUrl={null}
+                    fallbackPhotoUrl={m.lead.profile_picture_url}
+                    size={28}
+                    shape="circle"
+                  />
+                )}
+                <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded ${m.type === 'DESPESA' ? 'bg-rose-100 text-rose-600' : 'bg-emerald-100 text-emerald-700'}`}>{m.type === 'DESPESA' ? 'Saída' : 'Entrada'}</span>
                     {m.gateway_charge && (m.gateway_charge.received_in_cash

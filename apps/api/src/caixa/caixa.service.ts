@@ -171,7 +171,7 @@ export class CaixaService {
 
   private movementInclude = {
     account: { select: { id: true, name: true, kind: true } },
-    lead: { select: { id: true, name: true } },
+    lead: { select: { id: true, name: true, profile_picture_url: true } },
     gateway_charge: { select: { received_in_cash: true } },
   };
 
