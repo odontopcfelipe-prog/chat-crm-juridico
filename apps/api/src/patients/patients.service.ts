@@ -6,6 +6,7 @@ import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { Prisma, toBrazilWhatsappNumber } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
+import { createHash } from 'crypto';
 // SaaS Fase 4 (Onda 17.32.79) — limites por plano. Import ESTATICO (resolucao
 // nodenext, extensao .js): se o modulo sumir o build/boot quebra alto, em vez
 // de a checagem de quota ser pulada silenciosamente em runtime — que era o que
@@ -1400,8 +1401,32 @@ export class PatientsService {
     let skipped = 0;
     let linkedLeads = 0;
     let renamedLeads = 0;
+    let sharedSkipped = 0;
+    let cleanedDuplicates = 0;
+    const cleanedNumbers = new Set<string>();
     for (const p of patients) {
       const rawPhone = p.phone || p.lead?.phone;
+
+      // NÚMERO COMPARTILHADO por 2+ pacientes (família divide o WhatsApp — permitido:
+      // anti-fraude só bloqueia CPF igual). A foto e o nome do contato são de UMA
+      // pessoa; não dá pra atribuir sem errar. NÃO copia foto, não renomeia, não
+      // vincula — e ainda LIMPA as fotos que o auto-backfill já duplicou errado
+      // (mesma foto em 2+ do mesmo número → volta pra inicial; cada um sobe a sua).
+      if (rawPhone) {
+        const variants = brazilPhoneMatchVariants(rawPhone);
+        const sameNumberPatients = await this.prisma.patient.count({
+          where: { tenant_id: tenantId, phone: { in: variants } },
+        });
+        if (sameNumberPatients > 1) {
+          sharedSkipped++;
+          const key = [...variants].sort().join(',');
+          if (!cleanedNumbers.has(key)) {
+            cleanedNumbers.add(key);
+            cleanedDuplicates += await this.cleanupSharedNumberAvatars(tenantId, variants);
+          }
+          continue;
+        }
+      }
 
       // Acha os leads que casam com o número (variantes com/sem 9º dígito, com/sem 55).
       // O contato do WhatsApp (com foto + conversa) pode ser um lead DIFERENTE do
@@ -1497,9 +1522,47 @@ export class PatientsService {
       skipped,
       linkedLeads,
       renamedLeads,
+      sharedSkipped,
+      cleanedDuplicates,
       nextOffset: offset + patients.length,
       done: patients.length < take,
     };
+  }
+
+  /**
+   * Onda 18.x — Números compartilhados (família): o auto-backfill copiou a MESMA foto
+   * (do dono do WhatsApp) pra vários pacientes do mesmo número → cara de um no outro.
+   * Aqui limpo as fotos DUPLICADAS: leio os avatares dos pacientes do número, comparo
+   * o conteúdo (sha1) e, quando a MESMA imagem aparece em 2+ pessoas, zero o avatar
+   * de todas (volta pra inicial). Foto ÚNICA (upload manual da pessoa certa) fica
+   * intacta. Retorna quantos avatares foram limpos.
+   */
+  private async cleanupSharedNumberAvatars(tenantId: string, phones: string[]): Promise<number> {
+    const same = await this.prisma.patient.findMany({
+      where: { tenant_id: tenantId, phone: { in: phones }, avatar_url: { not: null } },
+      select: { id: true, avatar_url: true },
+    });
+    if (same.length < 2) return 0;
+    const rows: { id: string; url: string; hash: string }[] = [];
+    for (const s of same) {
+      if (!s.avatar_url) continue;
+      try {
+        const buf = await this.fileStorage.read(s.avatar_url);
+        rows.push({ id: s.id, url: s.avatar_url, hash: createHash('sha1').update(buf).digest('hex') });
+      } catch { /* arquivo sumiu — ignora */ }
+    }
+    const counts = new Map<string, number>();
+    for (const r of rows) counts.set(r.hash, (counts.get(r.hash) || 0) + 1);
+    let cleaned = 0;
+    for (const r of rows) {
+      if ((counts.get(r.hash) || 0) >= 2) {
+        await this.fileStorage.delete(r.url).catch(() => {});
+        await this.prisma.patient.update({ where: { id: r.id }, data: { avatar_url: null } }).catch(() => {});
+        cleaned++;
+      }
+    }
+    if (cleaned) this.logger.log(`[AVATAR-BACKFILL] ${cleaned} foto(s) duplicada(s) limpas em número compartilhado`);
+    return cleaned;
   }
 
   /** Retorna buffer + mimeType da foto pra servir via HTTP. */
