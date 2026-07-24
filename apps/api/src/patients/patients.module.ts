@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { PatientsService } from './patients.service';
 import { PatientsController } from './patients.controller';
 import { AffiliateService } from './affiliate.service';
+import { PatientAvatarBackfillCron } from './patient-avatar-backfill.cron';
 import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { LeadsModule } from '../leads/leads.module';
@@ -20,7 +21,7 @@ import { WhatsappModule } from '../whatsapp/whatsapp.module';
     forwardRef(() => WhatsappModule),
   ],
   controllers: [PatientsController],
-  providers: [PatientsService, FileStorageService, AffiliateService],
+  providers: [PatientsService, FileStorageService, AffiliateService, PatientAvatarBackfillCron],
   exports: [PatientsService, AffiliateService],
 })
 export class PatientsModule {}
