@@ -37,6 +37,27 @@ if [ -z "$SERVICES" ]; then
   exit 1
 fi
 
+# ── SHA curto → completo ────────────────────────────────────────────────────
+# O CI publica as imagens com o SHA de 40 chars (e :latest). Rodar este script
+# com um SHA CURTO (7-12 chars) dava "not found" no pull — só o hook, que usa
+# :latest, funcionava. Se o TAG não for 'latest' e tiver menos de 40 chars,
+# resolve o SHA completo consultando o Docker Hub (a tag que COMEÇA com o curto).
+# Falha graciosa: se não resolver (sem python3/rede), segue com o TAG original.
+if [ "$TAG" != "latest" ] && [ "${#TAG}" -lt 40 ]; then
+  echo "▶ Resolvendo SHA curto '$TAG' → completo (Docker Hub)..."
+  RESOLVED=$(curl -fsSL "https://hub.docker.com/v2/repositories/${REPO}-api/tags/?page_size=100&ordering=last_updated" 2>/dev/null \
+    | python3 -c "import sys,json
+tags=[t.get('name','') for t in json.load(sys.stdin).get('results',[])]
+m=[t for t in tags if t.startswith('$TAG')]
+print(m[0] if m else '')" 2>/dev/null || true)
+  if [ -n "$RESOLVED" ]; then
+    echo "  → $RESOLVED"
+    TAG="$RESOLVED"
+  else
+    echo "  ⚠ Não resolvi (sem python3/rede ou tag ausente) — tento com '$TAG' mesmo."
+  fi
+fi
+
 for SVC in $SERVICES; do
   SUFFIX="${SVC##*_}"            # chatcrm_api -> api
   IMG="$REPO-$SUFFIX:$TAG"
