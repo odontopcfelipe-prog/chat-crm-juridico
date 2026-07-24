@@ -155,8 +155,8 @@ export function PatientSearch({ className = '' }: { className?: string }) {
           onChange={(e) => { setQuery(e.target.value); setOpen(true); setHighlighted(0); }}
           onFocus={() => setOpen(true)}
           onKeyDown={onKeyDown}
-          placeholder="Buscar paciente (/, Ctrl+K)"
-          className="w-full pl-9 pr-12 py-2 rounded-full bg-card border border-border text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
+          placeholder="Localizar paciente (/, Ctrl+K)"
+          className="w-full pl-9 pr-12 py-2 rounded-lg bg-card border border-border text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary"
         />
         {loading && (
           <Loader2 size={14} className="absolute right-10 top-1/2 -translate-y-1/2 text-muted-foreground animate-spin" />
