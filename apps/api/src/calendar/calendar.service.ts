@@ -1638,11 +1638,40 @@ export class CalendarService {
     // resolveTenantInstance do reminder worker. Quando o purpose PEDIDO é FINANCEIRO,
     // o fallback antigo se mantém (quem cobra decide o próprio fallback).
     const excluiFin = purpose !== 'FINANCEIRO';
+
+    // Onda 18.x — UNIÃO Comercial↔Clínica: se o chip pedido (CLINICA/COMERCIAL) está
+    // fora, usa o OUTRO chip clínico ANTES de qualquer fallback. São o mesmo "mundo"
+    // (paciente/lead) — pode trocar entre eles, mas NUNCA cai no Financeiro (número de
+    // cobrança). Assim o disparo não para quando a Clínica cai: sai pelo Comercial.
+    if (excluiFin && tenant_id && (purpose === 'CLINICA' || purpose === 'COMERCIAL')) {
+      const irmao = purpose === 'CLINICA' ? 'COMERCIAL' : 'CLINICA';
+      const bySibling = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id, purpose: irmao },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+      if (bySibling?.name) return bySibling.name;
+    }
+
+    // Nomes dos chips FINANCEIRO do tenant — pra NUNCA vazarem no fallback por conversa
+    // (a cobrança dá bump em last_message_at e sequestra a instância mais recente).
+    const finNames = excluiFin && tenant_id
+      ? (await this.prisma.instance.findMany({
+          where: { type: 'whatsapp', tenant_id, purpose: 'FINANCEIRO' },
+          select: { name: true },
+        })).map((i) => i.name)
+      : [];
+
     const convo = await this.prisma.conversation.findFirst({
       where: {
         instance_name: { not: null },
         ...(tenant_id ? { tenant_id } : {}),
-        ...(excluiFin ? { NOT: { inbox: { purpose: 'FINANCEIRO' } } } : {}),
+        ...(excluiFin
+          ? { NOT: [
+              { inbox: { purpose: 'FINANCEIRO' } },
+              ...(finNames.length ? [{ instance_name: { in: finNames } }] : []),
+            ] }
+          : {}),
       },
       orderBy: { last_message_at: 'desc' },
       select: { instance_name: true },
@@ -1658,8 +1687,11 @@ export class CalendarService {
       select: { name: true },
     });
     if (inst?.name) return inst.name;
-    // Só sobrou o chip financeiro (tenant 1-chip marcado FINANCEIRO): usa ele mesmo
-    // assim — melhor a mensagem sair pelo chip errado do que o paciente não receber.
+    // Onda 18.x — disparo de PACIENTE (CLINICA/COMERCIAL): se só sobrou o chip
+    // Financeiro, NÃO envia por ele. Devolve null → o chamador registra FAILED e o
+    // aviso de tela pede pra reconectar. Melhor não enviar do que sair do número de
+    // cobrança. Só quando o purpose PEDIDO é FINANCEIRO é que o financeiro é usado.
+    if (excluiFin) return null;
     const qualquer = await this.prisma.instance.findFirst({
       where: { type: 'whatsapp', ...(tenant_id ? { tenant_id } : {}) },
       orderBy: { created_at: 'asc' },

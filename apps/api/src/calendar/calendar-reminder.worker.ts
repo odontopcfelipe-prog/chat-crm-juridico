@@ -1219,6 +1219,22 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       }).catch(() => null);
       if (byPurpose?.name) return byPurpose.name;
     }
+    // Onda 18.x — UNIÃO Comercial↔Clínica: chip pedido fora → usa o OUTRO chip
+    // clínico antes de qualquer fallback (mesmo mundo paciente/lead). Nunca Financeiro.
+    if (purpose === 'CLINICA' || purpose === 'COMERCIAL') {
+      const irmao = purpose === 'CLINICA' ? 'COMERCIAL' : 'CLINICA';
+      const bySibling = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id: tenantId, purpose: irmao },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      }).catch(() => null);
+      if (bySibling?.name) return bySibling.name;
+    }
+    // Nomes dos chips FINANCEIRO — pra não vazarem no fallback por conversa.
+    const finNames = (await this.prisma.instance.findMany({
+      where: { type: 'whatsapp', tenant_id: tenantId, purpose: 'FINANCEIRO' },
+      select: { name: true },
+    }).catch(() => [] as { name: string }[])).map((i) => i.name);
     // Fallback: a conversa mais recente do TENANT. Excluir o financeiro é essencial —
     // ele não é do mundo da agenda e, como toda cobrança dá bump no last_message_at,
     // ele virava "a mais recente" e SEQUESTRAVA o chip do próximo lembrete de consulta.
@@ -1226,7 +1242,10 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
       where: {
         instance_name: { not: null },
         tenant_id: tenantId,
-        NOT: { inbox: { purpose: 'FINANCEIRO' } },
+        NOT: [
+          { inbox: { purpose: 'FINANCEIRO' } },
+          ...(finNames.length ? [{ instance_name: { in: finNames } }] : []),
+        ],
       },
       orderBy: { last_message_at: 'desc' },
       select: { instance_name: true },
@@ -1239,22 +1258,13 @@ Gere APENAS a mensagem final formatada para WhatsApp, sem explicações adiciona
     }).catch(() => null);
     if (inst?.name) return inst.name;
 
-    // Último recurso: o tenant só tem chip FINANCEIRO. Manda por ele mesmo assim —
-    // devolver null aqui NÃO cai num fallback útil: o sendText resolve pelo
-    // EVOLUTION_INSTANCE_NAME (TenantSetting legado), que num tenant moderno não
-    // existe e vira o literal 'whatsapp' → 404 → o paciente não recebe o lembrete.
-    // Chip errado é ruim; paciente perder o lembrete da consulta é pior.
-    const soFin = await this.prisma.instance.findFirst({
-      where: { type: 'whatsapp', tenant_id: tenantId },
-      orderBy: { created_at: 'asc' },
-      select: { name: true },
-    }).catch(() => null);
-    if (soFin?.name) {
-      this.logger.warn(
-        `[REMINDER] Tenant ${tenantId} só tem chip FINANCEIRO — lembrete de agenda vai sair por ele. Conecte um chip CLINICA.`,
-      );
-      return soFin.name;
-    }
+    // Onda 18.x — só sobrou o chip FINANCEIRO: NÃO manda lembrete/confirmação de
+    // paciente por ele (número de cobrança). Devolve null → não envia; o aviso de
+    // tela pede pra reconectar a Clínica. (Antes saía pelo financeiro; a clínica
+    // preferiu não trocar o número do paciente.)
+    this.logger.warn(
+      `[REMINDER] Tenant ${tenantId} sem chip CLINICA/COMERCIAL conectado — disparo de paciente NÃO sai pelo Financeiro. Reconecte a Clínica.`,
+    );
     return null;
   }
 
