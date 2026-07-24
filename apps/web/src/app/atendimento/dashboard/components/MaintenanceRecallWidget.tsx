@@ -12,16 +12,17 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  Clock, AlertTriangle, ChevronRight, Loader2, Phone,
+  AlertTriangle, ChevronRight, Loader2, Phone,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface OverdueTask {
   id: string;
   title: string;
   due_date: string;
   status: string;
-  patient: { id: string; name: string; phone: string | null };
+  patient: { id: string; name: string; phone: string | null; avatar_url?: string | null };
   procedure?: { id: string; name: string } | null;
 }
 
@@ -77,7 +78,13 @@ export function MaintenanceRecallWidget() {
               onClick={() => router.push(`/atendimento/pacientes/${t.patient.id}?tab=maintenance`)}
               className="px-3 py-2 rounded-lg border border-border hover:border-amber-500/40 hover:bg-amber-500/5 cursor-pointer transition-colors flex items-center gap-2"
             >
-              <Clock size={12} className="text-amber-600 shrink-0" />
+              <PatientAvatar
+                patientId={t.patient.id}
+                patientName={t.patient.name}
+                avatarUrl={t.patient.avatar_url}
+                size={32}
+                shape="circle"
+              />
               <div className="flex-1 min-w-0">
                 <p className="text-sm font-medium truncate">{t.patient.name}</p>
                 <p className="text-xs text-muted-foreground truncate">

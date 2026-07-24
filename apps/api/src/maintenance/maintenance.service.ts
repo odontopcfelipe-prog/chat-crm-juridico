@@ -270,7 +270,7 @@ export class MaintenanceService {
       orderBy: { due_date: 'asc' },
       take: 50,
       include: {
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         procedure: { select: { id: true, name: true } },
       },
     });

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface Installment {
   id: string;
@@ -21,7 +22,7 @@ interface Installment {
   notes: string | null;
   collection_stage: string | null;
   gateway_charge_id: string | null;
-  patient: { id: string; name: string; phone: string | null; email: string | null; cpf?: string | null };
+  patient: { id: string; name: string; phone: string | null; email: string | null; cpf?: string | null; avatar_url?: string | null };
   quote: { id: string; total_value: string } | null;
   _count?: { collection_attempts: number };
 }
@@ -213,12 +214,23 @@ export default function ParcelasPage() {
                 return (
                   <tr key={i.id} className="border-b border-border last:border-0 hover:bg-accent/30">
                     <td className="px-3 py-2">
-                      <div className="font-medium">{i.patient.name}</div>
+                      <div className="flex items-center gap-2.5">
+                      <PatientAvatar
+                        patientId={i.patient.id}
+                        patientName={i.patient.name}
+                        avatarUrl={i.patient.avatar_url}
+                        size={28}
+                        shape="circle"
+                      />
+                      <div className="min-w-0">
+                      <div className="font-medium truncate">{i.patient.name}</div>
                       {i.patient.phone && (
                         <div className="text-xs text-muted-foreground flex items-center gap-1">
                           <Phone size={10} /> {i.patient.phone}
                         </div>
                       )}
+                      </div>
+                      </div>
                     </td>
                     <td className="px-3 py-2 text-xs">
                       {i.sequence}/{i.total_count}
