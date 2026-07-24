@@ -396,6 +396,11 @@ model Conversation {
   @@index([status])
   @@index([pending_transfer_to_id])
   @@index([inbox_id])
+  // Onda 18.35 — índices compostos p/ a query paginada do inbox (findAll):
+  // orderBy last_message_at desc filtrando por tenant (e por inbox no setor).
+  // Criados em prod via manual-sql CONCURRENTLY (não por prisma migrate).
+  @@index([tenant_id, last_message_at(sort: Desc)])
+  @@index([tenant_id, inbox_id, last_message_at(sort: Desc)])
 }
 
 model Message {
@@ -482,6 +487,8 @@ model Task {
   @@index([status])
   @@index([tenant_id])
   @@index([lead_id])
+  // Onda 18.35 — o include de `tasks` do inbox filtra por conversation_id + status.
+  @@index([conversation_id, status])
 }
 
 model TaskPostponement {

@@ -1,7 +1,7 @@
 'use client';
 
 import { Search, X, PanelLeftClose, Bell, Clock, UserCheck, UserSearch, Wallet, LayoutGrid, Grid3X3, Square } from 'lucide-react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import {
   requestNotificationPermission,
   dismissBanner,
@@ -88,6 +88,196 @@ function statusBadge(status: string) {
   return <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${badge.class}`}>{badge.label}</span>;
 }
 
+// ─── Conversation Row (memoizado) ───────────────────────────────
+// Onda 18.35 — extraído do map e memoizado por conv.id: quando `unreadCounts`
+// muda pra UMA conversa (socket), só a linha afetada re-renderiza — não as ~200
+// da lista. Props são primitivas/estáveis de propósito (unread number, flags
+// boolean, handlers useCallback) pro React.memo conseguir pular.
+interface ConversationRowProps {
+  conv: ConversationSummary;
+  unread: number;
+  isSelected: boolean;
+  isBulkSelected: boolean;
+  inBulkMode: boolean;
+  onSelect: (id: string) => void;
+  onToggleBulk?: (id: string) => void;
+  onLightbox: (url: string) => void;
+}
+
+const ConversationRow = memo(function ConversationRow({
+  conv,
+  unread,
+  isSelected,
+  isBulkSelected,
+  inBulkMode,
+  onSelect,
+  onToggleBulk,
+  onLightbox,
+}: ConversationRowProps) {
+  return (
+    <div
+      onClick={() => {
+        if (inBulkMode) { onToggleBulk?.(conv.id); return; }
+        onSelect(conv.id);
+      }}
+      className={`group flex gap-4 p-4 border-b border-border/50 cursor-pointer transition-colors relative
+        ${isSelected ? 'bg-accent/50' : 'hover:bg-accent/30'}
+        ${isBulkSelected ? 'bg-primary/10' : ''}
+      `}
+    >
+      {isSelected && !inBulkMode && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
+      {/* Checkbox (visible on hover or in bulk mode) + Avatar + score badge */}
+      <div className="flex flex-col items-center gap-0.5 shrink-0 relative">
+        <div
+          className={`absolute -left-1 top-0 z-10 transition-opacity ${inBulkMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+          onClick={(e) => { e.stopPropagation(); onToggleBulk?.(conv.id); }}
+        >
+          <input
+            type="checkbox"
+            checked={isBulkSelected}
+            onChange={() => onToggleBulk?.(conv.id)}
+            className="w-4 h-4 rounded accent-primary cursor-pointer"
+            aria-label={`Selecionar ${conv.contactName || conv.contactPhone}`}
+          />
+        </div>
+        <ContactAvatar
+          src={conv.profile_picture_url}
+          name={conv.contactName}
+          sizeClass="w-11 h-11"
+          onClick={(url) => { onLightbox(url); }}
+        />
+        {(() => {
+          const stage = normalizeStage(conv.leadStage || '');
+          if (stage === 'PERDIDO' || stage === 'FINALIZADO' || !conv.leadStage) return null;
+          const score = computeScore(conv);
+          return (
+            <span
+              className={`text-[9px] font-bold tabular-nums px-1.5 rounded-full border leading-[14px] ${scoreStyle(score)}`}
+              title={`Score do lead: ${score}/100`}
+            >
+              {score}
+            </span>
+          );
+        })()}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex justify-between items-start mb-0.5">
+          <span className="font-semibold truncate pl-0.5 text-foreground">
+            {conv.contactName || conv.contactPhone}
+          </span>
+          <div className="flex items-center gap-1.5 shrink-0 ml-1">
+            {unread > 0 && (
+              <span className="bg-red-500 text-white text-[11px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 leading-none shadow-md">
+                {unread > 99 ? '99+' : unread}
+              </span>
+            )}
+            <span className="text-[11px] text-muted-foreground">{formatTime(conv.lastMessageAt)}</span>
+          </div>
+        </div>
+        {conv.contactPhone && conv.contactName !== conv.contactPhone && (
+          <p className="text-[11px] text-muted-foreground truncate pl-0.5 mb-0.5">{conv.contactPhone}</p>
+        )}
+        <div className="mb-1 flex items-center gap-2 flex-wrap">
+          {statusBadge(conv.status)}
+          {(conv.originAssignedUserId ? conv.originAssignedUserName : conv.assignedAgentName) && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
+              <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
+              Aten. {conv.originAssignedUserId ? conv.originAssignedUserName : conv.assignedAgentName}
+            </span>
+          )}
+          {/* Badge SLA: aguardando resposta há mais de 15min */}
+          {(() => {
+            if (unread === 0 || conv.status === 'CLOSED' || conv.status === 'ADIADO') return null;
+            const waitingMins = conv.lastMessageAt
+              ? Math.floor((Date.now() - new Date(conv.lastMessageAt).getTime()) / 60000)
+              : 0;
+            if (waitingMins < 15) return null;
+            const isUrgent = waitingMins >= 60;
+            return (
+              <span
+                title={`Cliente aguardando resposta há ${waitingMins >= 60 ? `${Math.floor(waitingMins / 60)}h${waitingMins % 60 > 0 ? `${waitingMins % 60}min` : ''}` : `${waitingMins}min`}`}
+                className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${isUrgent ? 'bg-red-500/15 text-red-400 border-red-500/30' : 'bg-amber-500/15 text-amber-400 border-amber-500/30'}`}
+              >
+                ⏱ {waitingMins >= 60 ? `${Math.floor(waitingMins / 60)}h` : `${waitingMins}min`}
+              </span>
+            );
+          })()}
+        </div>
+        {conv.specialty && (
+          <div className="mb-1.5 flex items-center gap-1.5 flex-wrap">
+            <span className="inline-flex items-center gap-1 text-[10px] text-violet-400 font-bold border border-violet-500/20 bg-violet-500/10 rounded-md px-1.5 py-0.5">
+              ⚖️ {conv.specialty}
+            </span>
+            {conv.assignedDentistName && (
+              <span className="text-[10px] text-violet-300 font-medium truncate">
+                Dr(a). {conv.assignedDentistName}
+              </span>
+            )}
+          </div>
+        )}
+        {/* Etiquetas do lead */}
+        {conv.leadTags && conv.leadTags.length > 0 && (
+          <div className="mb-1 flex items-center gap-1 flex-wrap">
+            {conv.leadTags.slice(0, 3).map(tag => (
+              <span
+                key={tag}
+                className="inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/80 border border-primary/20"
+              >
+                {tag}
+              </span>
+            ))}
+            {conv.leadTags.length > 3 && (
+              <span className="text-[9px] text-muted-foreground/60">+{conv.leadTags.length - 3}</span>
+            )}
+          </div>
+        )}
+        {conv.activeTask && (() => {
+          const isOverdue = conv.activeTask.dueAt ? new Date(conv.activeTask.dueAt) < new Date() : false;
+          return (
+            <div className="flex items-center gap-1.5 mb-0.5">
+              <Clock size={11} className={isOverdue ? 'text-red-400 animate-pulse' : 'text-amber-400'} />
+              <span className={`text-[10px] font-medium truncate max-w-[120px] ${isOverdue ? 'text-red-400' : 'text-amber-400'}`}>
+                {conv.activeTask.title}
+              </span>
+              {conv.activeTask.dueAt && (
+                <span className={`text-[9px] font-bold whitespace-nowrap ${isOverdue ? 'text-red-500' : 'text-muted-foreground'}`}>
+                  {formatTaskDate(conv.activeTask.dueAt)}
+                </span>
+              )}
+              {(conv.activeTask.postponeCount ?? 0) > 0 && (
+                <span className="text-[9px] text-amber-500/70 font-semibold whitespace-nowrap">
+                  ×{conv.activeTask.postponeCount}
+                </span>
+              )}
+            </div>
+          );
+        })()}
+        <div className="flex items-center gap-2">
+          <p className={`text-sm truncate flex-1 ${unread > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
+            {conv.lastMessage}
+          </p>
+          {/* Chip de dormência: sem atividade há mais de 2 dias */}
+          {(() => {
+            if (!conv.lastMessageAt || conv.status === 'CLOSED' || conv.status === 'ADIADO') return null;
+            const stage = normalizeStage(conv.leadStage || '');
+            if (stage === 'PERDIDO' || stage === 'FINALIZADO') return null;
+            const days = Math.floor((Date.now() - new Date(conv.lastMessageAt).getTime()) / 86400000);
+            if (days < 2) return null;
+            return (
+              <span
+                title={`Sem atividade há ${days} dia${days > 1 ? 's' : ''}`}
+                className="shrink-0 text-[9px] font-bold text-muted-foreground/70 bg-muted/60 border border-border/60 rounded-full px-1.5 py-0.5"
+              >
+                💤 {days}d
+              </span>
+            );
+          })()}
+        </div>
+      </div>
+    </div>
+  );
+});
+
 // ─── Props ──────────────────────────────────────────────────────
 
 export interface InboxSidebarProps {
@@ -136,11 +326,17 @@ export interface InboxSidebarProps {
    *  Toggle no header da sidebar troca entre os modos sem mudar de rota. */
   splitMode?: 1 | 4 | 6;
   onSplitModeChange?: (mode: 1 | 4 | 6) => void;
+  /** Onda 18.35 — scroll infinito: há próxima página no backend. */
+  hasMore?: boolean;
+  /** Uma página adicional está sendo carregada. */
+  loadingMore?: boolean;
+  /** Carrega a próxima página (chamado quando o sentinela entra em tela). */
+  onLoadMore?: () => void;
 }
 
 // ─── Component ──────────────────────────────────────────────────
 
-export function InboxSidebar({
+export const InboxSidebar = memo(function InboxSidebar({
   conversations,
   adiadoConversations,
   filteredConversations,
@@ -178,8 +374,37 @@ export function InboxSidebar({
   hasDisconnectedInstance,
   splitMode = 1,
   onSplitModeChange,
+  hasMore = false,
+  loadingMore = false,
+  onLoadMore,
 }: InboxSidebarProps) {
   const { isAdmin } = useRole();
+
+  // Onda 18.35 — scroll infinito: IntersectionObserver dispara `onLoadMore` quando
+  // o sentinela no fim da lista entra em tela (root = o próprio container rolável).
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const loadMoreRef = useRef<HTMLDivElement>(null);
+
+  // Handler ESTÁVEL de seleção passado às linhas memoizadas: selecionar + zerar
+  // o unread local daquela conversa (era inline no map, recriado a cada render).
+  const handleSelectRow = useCallback((id: string) => {
+    onSelectConversation(id);
+    onSetUnreadCounts(prev => { const n = { ...prev }; delete n[id]; return n; });
+  }, [onSelectConversation, onSetUnreadCounts]);
+
+  useEffect(() => {
+    const sentinel = loadMoreRef.current;
+    if (!sentinel || !onLoadMore || !hasMore) return;
+    const io = new IntersectionObserver(
+      (entries) => { if (entries[0]?.isIntersecting) onLoadMore(); },
+      { root: scrollContainerRef.current ?? null, rootMargin: '250px' },
+    );
+    io.observe(sentinel);
+    return () => io.disconnect();
+    // Reataca ao mudar tamanho da lista/estado: se o sentinela seguir visível após
+    // carregar (viewport alto, poucos itens), dispara de novo até esvaziar as páginas.
+    // searchQuery/leadFilter entram nas deps porque escondem/mostram o sentinela.
+  }, [onLoadMore, hasMore, loadingMore, filteredConversations.length, searchQuery, leadFilter]);
 
   const myActiveConvs = (c: ConversationSummary) =>
     (c.status === 'ACTIVE' || c.status === 'MONITORING') && c.assignedAgentId === currentUserId;
@@ -527,7 +752,7 @@ export function InboxSidebar({
         )}
       </div>
 
-      <div className={`flex-1 overflow-y-auto w-full custom-scrollbar ${isMobile && !selectedId ? 'pb-16' : ''}`}>
+      <div ref={scrollContainerRef} className={`flex-1 overflow-y-auto w-full custom-scrollbar ${isMobile && !selectedId ? 'pb-16' : ''}`}>
         {loading ? (
           <div className="p-10 text-center text-muted-foreground text-sm">Carregando conversas...</div>
         ) : filteredConversations.length === 0 ? (
@@ -535,189 +760,42 @@ export function InboxSidebar({
             {searchQuery.trim() ? `Nenhum resultado para "${searchQuery}".` : 'Nenhuma conversa encontrada.'}
           </div>
         ) : (
-          (() => {
-            let lastConvDateKey = '';
-            return filteredConversations.map((conv) => {
-              const convDate = conv.lastMessageAt;
-              const dateKey = convDate ? getDateKey(convDate) : '__nodate__';
-              const showDateSep = dateKey !== lastConvDateKey;
-              if (showDateSep) lastConvDateKey = dateKey;
-              const isBulkSelected = selectedBulk?.has(conv.id) ?? false;
-              const inBulkMode = (selectedBulk?.size ?? 0) > 0;
-              return (
-                <div key={conv.id}>
-                  {showDateSep && convDate && (
-                    <DateSeparator label={formatDateLabel(convDate)} />
-                  )}
-                  <div
-                    onClick={() => {
-                      if (inBulkMode) {
-                        onToggleBulk?.(conv.id);
-                        return;
-                      }
-                      onSelectConversation(conv.id);
-                      onSetUnreadCounts(prev => { const n = { ...prev }; delete n[conv.id]; return n; });
-                    }}
-                    className={`group flex gap-4 p-4 border-b border-border/50 cursor-pointer transition-colors relative
-                      ${selectedId === conv.id ? 'bg-accent/50' : 'hover:bg-accent/30'}
-                      ${isBulkSelected ? 'bg-primary/10' : ''}
-                    `}
-                  >
-                    {selectedId === conv.id && !inBulkMode && <div className="absolute left-0 top-0 bottom-0 w-1 bg-primary" />}
-                    {/* Checkbox (visible on hover or in bulk mode) + Avatar + score badge */}
-                    <div className="flex flex-col items-center gap-0.5 shrink-0 relative">
-                      <div
-                        className={`absolute -left-1 top-0 z-10 transition-opacity ${inBulkMode ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
-                        onClick={(e) => { e.stopPropagation(); onToggleBulk?.(conv.id); }}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={isBulkSelected}
-                          onChange={() => onToggleBulk?.(conv.id)}
-                          className="w-4 h-4 rounded accent-primary cursor-pointer"
-                          aria-label={`Selecionar ${conv.contactName || conv.contactPhone}`}
-                        />
-                      </div>
-                      <ContactAvatar
-                        src={conv.profile_picture_url}
-                        name={conv.contactName}
-                        sizeClass="w-11 h-11"
-                        onClick={(url) => { onLightbox(url); }}
-                      />
-                      {(() => {
-                        const stage = normalizeStage(conv.leadStage || '');
-                        if (stage === 'PERDIDO' || stage === 'FINALIZADO' || !conv.leadStage) return null;
-                        const score = computeScore(conv);
-                        return (
-                          <span
-                            className={`text-[9px] font-bold tabular-nums px-1.5 rounded-full border leading-[14px] ${scoreStyle(score)}`}
-                            title={`Score do lead: ${score}/100`}
-                          >
-                            {score}
-                          </span>
-                        );
-                      })()}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex justify-between items-start mb-0.5">
-                        <span className="font-semibold truncate pl-0.5 text-foreground">
-                          {conv.contactName || conv.contactPhone}
-                        </span>
-                        <div className="flex items-center gap-1.5 shrink-0 ml-1">
-                          {(unreadCounts[conv.id] || 0) > 0 && (
-                            <span className="bg-red-500 text-white text-[11px] font-bold rounded-full min-w-[20px] h-[20px] flex items-center justify-center px-1 leading-none shadow-md">
-                              {unreadCounts[conv.id] > 99 ? '99+' : unreadCounts[conv.id]}
-                            </span>
-                          )}
-                          <span className="text-[11px] text-muted-foreground">{formatTime(conv.lastMessageAt)}</span>
-                        </div>
-                      </div>
-                      {conv.contactPhone && conv.contactName !== conv.contactPhone && (
-                        <p className="text-[11px] text-muted-foreground truncate pl-0.5 mb-0.5">{conv.contactPhone}</p>
-                      )}
-                      <div className="mb-1 flex items-center gap-2 flex-wrap">
-                        {statusBadge(conv.status)}
-                        {(conv.originAssignedUserId ? conv.originAssignedUserName : conv.assignedAgentName) && (
-                          <span className="inline-flex items-center gap-1 text-[10px] text-muted-foreground font-medium">
-                            <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/40 inline-block" />
-                            Aten. {conv.originAssignedUserId ? conv.originAssignedUserName : conv.assignedAgentName}
-                          </span>
-                        )}
-                        {/* Badge SLA: aguardando resposta há mais de 15min */}
-                        {(() => {
-                          const unread = unreadCounts[conv.id] || 0;
-                          if (unread === 0 || conv.status === 'CLOSED' || conv.status === 'ADIADO') return null;
-                          const waitingMins = conv.lastMessageAt
-                            ? Math.floor((Date.now() - new Date(conv.lastMessageAt).getTime()) / 60000)
-                            : 0;
-                          if (waitingMins < 15) return null;
-                          const isUrgent = waitingMins >= 60;
-                          return (
-                            <span
-                              title={`Cliente aguardando resposta há ${waitingMins >= 60 ? `${Math.floor(waitingMins / 60)}h${waitingMins % 60 > 0 ? `${waitingMins % 60}min` : ''}` : `${waitingMins}min`}`}
-                              className={`inline-flex items-center gap-0.5 text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${isUrgent ? 'bg-red-500/15 text-red-400 border-red-500/30' : 'bg-amber-500/15 text-amber-400 border-amber-500/30'}`}
-                            >
-                              ⏱ {waitingMins >= 60 ? `${Math.floor(waitingMins / 60)}h` : `${waitingMins}min`}
-                            </span>
-                          );
-                        })()}
-                      </div>
-                      {conv.specialty && (
-                        <div className="mb-1.5 flex items-center gap-1.5 flex-wrap">
-                          <span className="inline-flex items-center gap-1 text-[10px] text-violet-400 font-bold border border-violet-500/20 bg-violet-500/10 rounded-md px-1.5 py-0.5">
-                            ⚖️ {conv.specialty}
-                          </span>
-                          {conv.assignedDentistName && (
-                            <span className="text-[10px] text-violet-300 font-medium truncate">
-                              Dr(a). {conv.assignedDentistName}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                      {/* Etiquetas do lead */}
-                      {conv.leadTags && conv.leadTags.length > 0 && (
-                        <div className="mb-1 flex items-center gap-1 flex-wrap">
-                          {conv.leadTags.slice(0, 3).map(tag => (
-                            <span
-                              key={tag}
-                              className="inline-flex items-center text-[9px] font-semibold px-1.5 py-0.5 rounded-full bg-primary/10 text-primary/80 border border-primary/20"
-                            >
-                              {tag}
-                            </span>
-                          ))}
-                          {conv.leadTags.length > 3 && (
-                            <span className="text-[9px] text-muted-foreground/60">+{conv.leadTags.length - 3}</span>
-                          )}
-                        </div>
-                      )}
-                      {conv.activeTask && (() => {
-                        const isOverdue = conv.activeTask.dueAt ? new Date(conv.activeTask.dueAt) < new Date() : false;
-                        return (
-                          <div className="flex items-center gap-1.5 mb-0.5">
-                            <Clock size={11} className={isOverdue ? 'text-red-400 animate-pulse' : 'text-amber-400'} />
-                            <span className={`text-[10px] font-medium truncate max-w-[120px] ${isOverdue ? 'text-red-400' : 'text-amber-400'}`}>
-                              {conv.activeTask.title}
-                            </span>
-                            {conv.activeTask.dueAt && (
-                              <span className={`text-[9px] font-bold whitespace-nowrap ${isOverdue ? 'text-red-500' : 'text-muted-foreground'}`}>
-                                {formatTaskDate(conv.activeTask.dueAt)}
-                              </span>
-                            )}
-                            {(conv.activeTask.postponeCount ?? 0) > 0 && (
-                              <span className="text-[9px] text-amber-500/70 font-semibold whitespace-nowrap">
-                                ×{conv.activeTask.postponeCount}
-                              </span>
-                            )}
-                          </div>
-                        );
-                      })()}
-                      <div className="flex items-center gap-2">
-                        <p className={`text-sm truncate flex-1 ${(unreadCounts[conv.id] || 0) > 0 ? 'text-foreground font-medium' : 'text-muted-foreground'}`}>
-                          {conv.lastMessage}
-                        </p>
-                        {/* Chip de dormência: sem atividade há mais de 2 dias */}
-                        {(() => {
-                          if (!conv.lastMessageAt || conv.status === 'CLOSED' || conv.status === 'ADIADO') return null;
-                          const stage = normalizeStage(conv.leadStage || '');
-                          if (stage === 'PERDIDO' || stage === 'FINALIZADO') return null;
-                          const days = Math.floor((Date.now() - new Date(conv.lastMessageAt).getTime()) / 86400000);
-                          if (days < 2) return null;
-                          return (
-                            <span
-                              title={`Sem atividade há ${days} dia${days > 1 ? 's' : ''}`}
-                              className="shrink-0 text-[9px] font-bold text-muted-foreground/70 bg-muted/60 border border-border/60 rounded-full px-1.5 py-0.5"
-                            >
-                              💤 {days}d
-                            </span>
-                          );
-                        })()}
-                      </div>
-                    </div>
+          <>
+            {(() => {
+              let lastConvDateKey = '';
+              return filteredConversations.map((conv) => {
+                const convDate = conv.lastMessageAt;
+                const dateKey = convDate ? getDateKey(convDate) : '__nodate__';
+                const showDateSep = dateKey !== lastConvDateKey;
+                if (showDateSep) lastConvDateKey = dateKey;
+                return (
+                  <div key={conv.id}>
+                    {showDateSep && convDate && (
+                      <DateSeparator label={formatDateLabel(convDate)} />
+                    )}
+                    <ConversationRow
+                      conv={conv}
+                      unread={unreadCounts[conv.id] || 0}
+                      isSelected={selectedId === conv.id}
+                      isBulkSelected={selectedBulk?.has(conv.id) ?? false}
+                      inBulkMode={(selectedBulk?.size ?? 0) > 0}
+                      onSelect={handleSelectRow}
+                      onToggleBulk={onToggleBulk}
+                      onLightbox={onLightbox}
+                    />
                   </div>
-                </div>
-              );
-            });
-          })()
+                );
+              });
+            })()}
+            {/* Onda 18.35 — sentinela do scroll infinito. Some durante a busca
+                (a lista já carrega tudo), no filtro Adiados (fonte separada, não
+                paginada) e quando o backend diz que não há mais. */}
+            {hasMore && !searchQuery.trim() && leadFilter !== 'ADIADO' && (
+              <div ref={loadMoreRef} className="py-4 text-center text-[11px] text-muted-foreground/60 select-none">
+                {loadingMore ? 'Carregando mais…' : ' '}
+              </div>
+            )}
+          </>
         )}
       </div>
 
@@ -731,4 +809,4 @@ export function InboxSidebar({
       )}
     </section>
   );
-}
+});

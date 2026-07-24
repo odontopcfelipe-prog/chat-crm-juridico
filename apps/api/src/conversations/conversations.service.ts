@@ -21,7 +21,7 @@ export class ConversationsService {
     return this.prisma.conversation.create({ data });
   }
 
-  async findAll(status?: string, userId?: string, inboxId?: string, tenantId?: string, clientMode?: boolean, viewMode?: string) {
+  async findAll(status?: string, userId?: string, inboxId?: string, tenantId?: string, clientMode?: boolean, viewMode?: string, limit?: number, offset?: number) {
     const where: any = {};
     // Filtro por status explícito (se passado via query param)
     if (status) {
@@ -127,9 +127,22 @@ export class ConversationsService {
     // Onda 18.xx — removido o prisma.conversation.count({ where }) que rodava em paralelo:
     // ele re-executava o MESMO WHERE relacional pesado (EXISTS em lead/inbox) só pra um
     // `total` que o front nunca lê. Cortar poupa ~metade do custo de filtro por chamada.
-    const conversations = await this.prisma.conversation.findMany({
+    //
+    // Onda 18.35 (perf paginação) — quando o chamador passa `limit`, buscamos
+    // apenas essa página (com includes pesados: última msg+media, pipeline, tasks).
+    // Truque "take + 1": pedimos um item a mais só pra saber se HÁ próxima página,
+    // sem precisar reintroduzir o count({where}) pesado que foi cortado acima.
+    // Sem `limit`, o comportamento é o legado (traz tudo) — não quebra os demais
+    // consumidores do endpoint (ADIADO, ChatClient, etc.) que não paginam.
+    // Sem cap artificial: a ausência de `limit` já retorna tudo, então limitar
+    // aqui não protegeria de nada e só criaria "encolhimento" da lista quando o
+    // front pede limit = itens-já-carregados (preserva a janela) acima do cap.
+    const effectiveLimit = limit && limit > 0 ? limit : undefined;
+    const skip = offset && offset > 0 ? offset : undefined;
+    const rows = await this.prisma.conversation.findMany({
       where,
       orderBy: { last_message_at: 'desc' },
+      ...(effectiveLimit !== undefined ? { take: effectiveLimit + 1, skip } : {}),
       include: {
         lead: {
           select: {
@@ -155,6 +168,11 @@ export class ConversationsService {
         },
       },
     });
+
+    // "take + 1": se veio o item-sentinela, há próxima página. Descartamos ele antes
+    // de enriquecer/serializar (enrichment roda só sobre a página real).
+    const hasMore = effectiveLimit !== undefined && rows.length > effectiveLimit;
+    const conversations = hasMore ? rows.slice(0, effectiveLimit) : rows;
 
     // Enrich with dentist and origin-attendant names in a single query
     const dentistIds = [...new Set(conversations.map((c: any) => c.assigned_dentist_id).filter(Boolean))] as string[];
@@ -239,7 +257,7 @@ export class ConversationsService {
       hasNotes: !!noteCountMap[c.id],
     }));
 
-    return { data, total: data.length };
+    return { data, total: data.length, hasMore };
   }
 
   async findOne(id: string, tenantId?: string) {

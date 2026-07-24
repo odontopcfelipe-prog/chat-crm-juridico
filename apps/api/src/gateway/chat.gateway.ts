@@ -557,9 +557,20 @@ export class ChatGateway {
 
   // ─── Connection Status ──────────────────────────────────────
 
-  emitConnectionStatusUpdate(data: { instanceName: string; state: string; statusReason?: number }) {
-    this.logger.log(`[SOCKET] Emitting connection_status_update: ${data.instanceName} → ${data.state}`);
-    this.server.emit('connection_status_update', data);
+  emitConnectionStatusUpdate(data: { instanceName: string; state: string; statusReason?: number; tenantId?: string | null }) {
+    const { tenantId, ...payload } = data;
+    // Onda 18.35 — escopar por tenant. Antes era `this.server.emit` GLOBAL: uma
+    // desconexão de UMA clínica disparava re-render (banner "WhatsApp desconectado")
+    // em TODO operador de TODO tenant. Com 3 chips por clínica o volume triplicou.
+    // Emitimos só pra sala do tenant; fallback GLOBAL apenas quando o tenant é
+    // desconhecido (instância órfã), pra não perder o aviso de queda.
+    if (tenantId) {
+      this.logger.log(`[SOCKET] Emitting connection_status_update to tenant:${tenantId}: ${payload.instanceName} → ${payload.state}`);
+      this.server.to(`tenant:${tenantId}`).emit('connection_status_update', payload);
+    } else {
+      this.logger.log(`[SOCKET] Emitting connection_status_update (GLOBAL, tenant desconhecido): ${payload.instanceName} → ${payload.state}`);
+      this.server.emit('connection_status_update', payload);
+    }
   }
 
   // ─── Contact Presence ──────────────────────────────────────

@@ -1172,10 +1172,17 @@ export class EvolutionService implements OnApplicationBootstrap {
     const instanceName = payload?.instance || payload?.instanceId;
     const state = data?.state || data?.status || 'unknown';
 
+    // Onda 18.35 — resolve o tenant da instância pra escopar o socket (evita
+    // re-render cross-tenant). connection.update é raro (só conecta/desconecta),
+    // então a lookup extra é barata. tenant desconhecido → emissão global (fallback).
+    const cuInbox = instanceName ? await this.inboxesService.findByInstanceName(instanceName).catch(() => null) : null;
+    const cuTenantId: string | null = (cuInbox as any)?.tenant_id || (cuInbox as any)?.inbox?.tenant_id || null;
+
     this.chatGateway.emitConnectionStatusUpdate({
       instanceName: instanceName || 'unknown',
       state,
       statusReason: data?.statusReason,
+      tenantId: cuTenantId,
     });
 
     this.logger.log(`[WEBHOOK] Instance ${instanceName} connection: ${state}`);

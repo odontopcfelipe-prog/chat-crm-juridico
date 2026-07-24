@@ -93,6 +93,9 @@ function DateSeparator({ label }: { label: string }) {
 
 
 
+// Onda 18.35 — tamanho da página do scroll infinito da lista de conversas.
+const CONV_PAGE_SIZE = 50;
+
 export default function Dashboard() {
   const router = useRouter();
   const { isAdmin } = useRole();
@@ -109,6 +112,11 @@ export default function Dashboard() {
     } catch { return 'MINE'; }
   });
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
+  // Onda 18.35 (perf paginação) — scroll infinito da lista de conversas.
+  // `hasMoreConvs`: o backend sinalizou que há página seguinte (take+1).
+  // `loadingMoreConvs`: um "carregar mais" está em voo (evita disparo duplo).
+  const [hasMoreConvs, setHasMoreConvs] = useState(false);
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false);
   const [userInboxes, setUserInboxes] = useState<any[]>([]);
   const [selectedInboxId, setSelectedInboxId] = useState<string | null>(null);
   const [clientMode, setClientMode] = useState(false); // false = Leads, true = Clientes
@@ -310,8 +318,14 @@ export default function Dashboard() {
   // (stale-while-revalidate) — troca instantânea em vez de esperar o round-trip do fetch.
   const listCacheRef = useRef<Record<string, ConversationSummary[]>>({});
 
+  // Onda 18.35 — espelho de `debouncedSearch` num ref: `fetchConversations` decide
+  // se pagina (browse) ou carrega TUDO (busca ativa) sem virar dependência do
+  // useCallback (que recriaria a função e re-registraria todos os listeners).
+  const debouncedSearchRef = useRef('');
+
   // Keep refs in sync
   useEffect(() => { selectedInboxIdRef.current = selectedInboxId; }, [selectedInboxId]);
+  useEffect(() => { debouncedSearchRef.current = debouncedSearch; }, [debouncedSearch]);
   useEffect(() => { clientModeRef.current = clientMode; }, [clientMode]);
   useEffect(() => { financialModeRef.current = financialMode; }, [financialMode]);
   // Onda 18.34 — LEMBRA a última aba (Leads/Clientes/Financeiro) entre F5. Restaura
@@ -617,7 +631,7 @@ export default function Dashboard() {
     return () => document.removeEventListener('mousedown', handler);
   }, [showStageDropdown]);
 
-  const fetchConversations = useCallback(async (inboxId?: string | null, silent = false) => {
+  const fetchConversations = useCallback(async (inboxId?: string | null, silent = false, opts?: { append?: boolean }) => {
     // Onda 18.7 — viewMode tem precedência (financial > clients/leads).
     // Onda 18.34 — captura a aba no INÍCIO; se mudar enquanto busca, descarta a
     // resposta (senão o fetch de "leads" do load inicial chega depois e sobrescreve
@@ -625,12 +639,27 @@ export default function Dashboard() {
     const viewMode = financialModeRef.current
       ? 'financial'
       : clientModeRef.current ? 'clients' : 'leads';
+    // Onda 18.35 (perf paginação):
+    //  - append: busca a PRÓXIMA página (offset = itens já carregados da aba).
+    //  - replace + busca ATIVA: carrega TUDO (sem limit) → a busca client-side cobre
+    //    o setor inteiro, não só as ~50 visíveis (preserva o comportamento legado).
+    //  - replace normal (troca de aba / refresh do socket): recarrega preservando
+    //    quantos já estavam carregados (mín. 1 página) — refresh NÃO encolhe a lista.
+    const append = opts?.append === true;
+    const searching = debouncedSearchRef.current.trim().length > 0;
+    const existing = listCacheRef.current[viewMode] || [];
+    const params: Record<string, any> = { inboxId: inboxId || undefined, viewMode };
+    if (append) {
+      params.limit = CONV_PAGE_SIZE;
+      params.offset = existing.length;
+    } else if (!searching) {
+      params.limit = Math.max(CONV_PAGE_SIZE, existing.length);
+      params.offset = 0;
+    }
+    if (append) setLoadingMoreConvs(true);
     try {
       const res = await api.get('/conversations', {
-        params: {
-          inboxId: inboxId || undefined,
-          viewMode,
-        },
+        params,
         // silent=true: chamadas de background (inboxUpdate) não disparam redirect global de 401
         ...( silent ? { _silent401: true } as any : {} ),
       });
@@ -639,20 +668,42 @@ export default function Dashboard() {
         ? 'financial'
         : clientModeRef.current ? 'clients' : 'leads';
       if (viewMode !== currentViewMode) return;
-      // Suporta resposta paginada { data, total, ... } ou array legado
+      // Suporta resposta paginada { data, total, hasMore } ou array legado
       const items = Array.isArray(res.data) ? res.data : (res.data?.data || []);
-      setConversations(items);
-      listCacheRef.current[viewMode] = items; // atualiza o cache da aba p/ trocas instantâneas
+      const more = Array.isArray(res.data) ? false : !!res.data?.hasMore;
+      let nextList: ConversationSummary[];
+      if (append) {
+        // Concatena dedupando por id (páginas podem sobrepor se a lista se moveu
+        // entre os fetches). Parte do cache mais recente da aba, não de `existing`.
+        const base = listCacheRef.current[viewMode] || [];
+        const seen = new Set(base.map(c => c.id));
+        nextList = [...base];
+        for (const it of items) if (!seen.has(it.id)) nextList.push(it);
+      } else {
+        nextList = items;
+      }
+      setConversations(nextList);
+      listCacheRef.current[viewMode] = nextList; // atualiza o cache da aba p/ trocas instantâneas
+      setHasMoreConvs(more);
     } catch (e: any) {
       if (e.response?.status === 401 && !silent) {
         // Deixa o interceptor global (api.ts) tratar via evento auth:logout
       } else if (e.response?.status !== 401) {
-        setConversations([]);
+        if (!append) setConversations([]); // erro no append não zera o que já está na tela
       }
     } finally {
       setLoading(false);
+      if (append) setLoadingMoreConvs(false);
     }
   }, []);
+
+  // Onda 18.35 — carregar próxima página (scroll infinito). Ignora durante busca
+  // (a busca já carrega tudo) e evita disparo duplo enquanto um append está em voo.
+  const handleLoadMoreConvs = useCallback(() => {
+    if (loadingMoreConvs || !hasMoreConvs) return;
+    if (debouncedSearchRef.current.trim()) return;
+    fetchConversations(selectedInboxIdRef.current, true, { append: true });
+  }, [loadingMoreConvs, hasMoreConvs, fetchConversations]);
 
   const fetchAdiadoConversations = useCallback(async (inboxId?: string | null) => {
     try {
@@ -816,9 +867,12 @@ export default function Dashboard() {
       if (inboxUpdateTimer) clearTimeout(inboxUpdateTimer);
       inboxUpdateTimer = setTimeout(() => {
         inboxUpdateTimer = null;
+        // Onda 18.35 — refetch mínimo por evento: só a lista da aba ativa + adiados
+        // (badge) + contadores. `fetchPendingTransfers` saiu daqui: já é coberto pelo
+        // evento `transfer_request` (popup imediato) e pelo polling de 30s — mantê-lo
+        // aqui era a 5ª requisição por inboxUpdate à toa (com 3 chips, o volume triplicou).
         fetchConversations(selectedInboxIdRef.current, true);
         fetchAdiadoConversations(selectedInboxIdRef.current);
-        fetchPendingTransfers(true);
         api.get('/conversations/unread-counts', { _silent401: true } as any)
           .then(r => {
             if (r.data && typeof r.data === 'object' && !Array.isArray(r.data)) {
@@ -1063,9 +1117,21 @@ export default function Dashboard() {
       setConversations([]);
       setLoading(true);
     }
+    // Onda 18.35 — hasMore é global mas reflete a aba ativa; zera na troca até o
+    // revalidate resolver (evita disparar "carregar mais" com offset da aba anterior).
+    setHasMoreConvs(false);
     fetchConversations(selectedInboxId, true);
     fetchAdiadoConversations(selectedInboxId);
   }, [fetchConversations, fetchAdiadoConversations, selectedInboxId, clientMode, financialMode]);
+
+  // Onda 18.35 — ao INICIAR uma busca com a lista ainda paginada, recarrega TUDO
+  // uma vez pra a busca (client-side) cobrir o setor inteiro, não só as ~50 visíveis.
+  // Quando o full-load resolve, hasMoreConvs vira false e este effect não repete.
+  useEffect(() => {
+    if (debouncedSearch.trim() && hasMoreConvs && !loadingMoreConvs) {
+      fetchConversations(selectedInboxIdRef.current, true);
+    }
+  }, [debouncedSearch, hasMoreConvs, loadingMoreConvs, fetchConversations]);
 
   // Polling de transferências pendentes (30s) — resiliência caso o socket perca o evento
   // Pula quando offline para nao gerar cascata de Network Error no console
@@ -2027,7 +2093,7 @@ export default function Dashboard() {
     }
   }, []);
 
-  const handleQuickAcceptTransfer = async (conversationId: string) => {
+  const handleQuickAcceptTransfer = useCallback(async (conversationId: string) => {
     try {
       await api.patch(`/conversations/${conversationId}/transfer-accept`);
       shownTransferIdsRef.current.delete(conversationId);
@@ -2036,7 +2102,32 @@ export default function Dashboard() {
     } catch (e) {
       console.error('Failed to quick accept transfer', e);
     }
-  };
+  }, [fetchPendingTransfers, fetchConversations]);
+
+  // Onda 18.35 — props-função ESTÁVEIS pro InboxSidebar (React.memo). Sem isso,
+  // toda tecla digitada na caixa de resposta re-renderiza Dashboard → recriava
+  // estas arrow-functions inline → memo do sidebar (e das linhas) nunca pulava.
+  const handleSetClientMode = useCallback((mode: boolean) => {
+    setClientMode(mode);
+    setFinancialMode(false);
+    try { localStorage.setItem('atendimento_tab', mode ? 'clients' : 'leads'); } catch {}
+  }, []);
+  const handleSetFinancialMode = useCallback((v: boolean) => {
+    setFinancialMode(v);
+    try { localStorage.setItem('atendimento_tab', v ? 'financial' : (clientModeRef.current ? 'clients' : 'leads')); } catch {}
+  }, []);
+  const handleShowTransferPopup = useCallback((pt: any) => {
+    setIncomingTransfer(pt);
+    setShowDeclineInput(false);
+    setDeclineReason('');
+  }, []);
+  const handleClearBulk = useCallback(() => setSelectedBulk(new Set()), []);
+  // hasDisconnectedInstance: memoizado por instanceStatuses (não recomputar o
+  // Object.values(...).some(...) a cada render do Dashboard).
+  const hasDisconnectedInstance = useMemo(
+    () => Object.values(instanceStatuses).some(s => s === 'close'),
+    [instanceStatuses],
+  );
 
   const handleSendFormLink = async () => {
     if (!selectedId || !selected?.leadId) return;
@@ -2398,23 +2489,26 @@ export default function Dashboard() {
         onSetSearchQuery={setSearchQuery}
         onSetLeadFilter={setLeadFilter}
         clientMode={clientMode}
-        onSetClientMode={(mode) => { setClientMode(mode); setFinancialMode(false); try { localStorage.setItem('atendimento_tab', mode ? 'clients' : 'leads'); } catch {} }}
+        onSetClientMode={handleSetClientMode}
         financialMode={financialMode}
-        onSetFinancialMode={(v) => { setFinancialMode(v); try { localStorage.setItem('atendimento_tab', v ? 'financial' : (clientMode ? 'clients' : 'leads')); } catch {} }}
+        onSetFinancialMode={handleSetFinancialMode}
         onSetSelectedInboxId={setSelectedInboxId}
         onSetInboxOpen={setInboxOpen}
         onSetShowNotifBanner={setShowNotifBanner}
         onSetUnreadCounts={setUnreadCounts}
         onQuickAcceptTransfer={handleQuickAcceptTransfer}
-        onShowTransferPopup={(pt) => { setIncomingTransfer(pt); setShowDeclineInput(false); setDeclineReason(''); }}
+        onShowTransferPopup={handleShowTransferPopup}
         onLightbox={setLightbox}
-        hasDisconnectedInstance={Object.values(instanceStatuses).some(s => s === 'close')}
+        hasDisconnectedInstance={hasDisconnectedInstance}
         selectedBulk={selectedBulk}
         onToggleBulk={toggleBulk}
-        onClearBulk={() => setSelectedBulk(new Set())}
+        onClearBulk={handleClearBulk}
         onBulkAction={handleBulkAction}
         splitMode={splitMode}
         onSplitModeChange={setSplitMode}
+        hasMore={hasMoreConvs}
+        loadingMore={loadingMoreConvs}
+        onLoadMore={handleLoadMoreConvs}
       />
 
       {/* INBOX OPEN BUTTON (when collapsed) - desktop only */}

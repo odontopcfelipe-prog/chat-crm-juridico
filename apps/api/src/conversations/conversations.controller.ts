@@ -25,11 +25,18 @@ export class ConversationsController {
     @Query('status') status: string | undefined,
     @Query('clientMode') clientMode: string | undefined,
     @Query('viewMode') viewMode: string | undefined,
+    @Query('limit') limit: string | undefined,
+    @Query('offset') offset: string | undefined,
     @Request() req?: any,
   ) {
     const userId = req?.user?.id;
     const clientModeBool = clientMode === 'true' ? true : clientMode === 'false' ? false : undefined;
-    return this.conversationsService.findAll(status, userId, inboxId, req?.user?.tenant_id, clientModeBool, viewMode);
+    // Paginação opcional: só ativa quando o front manda `limit` (scroll infinito
+    // do inbox). Ausente = comportamento legado (traz tudo), pros consumidores
+    // que não paginam. NaN/valores inválidos caem em undefined (sem paginação).
+    const limitNum = limit != null && /^\d+$/.test(limit) ? parseInt(limit, 10) : undefined;
+    const offsetNum = offset != null && /^\d+$/.test(offset) ? parseInt(offset, 10) : undefined;
+    return this.conversationsService.findAll(status, userId, inboxId, req?.user?.tenant_id, clientModeBool, viewMode, limitNum, offsetNum);
   }
 
   @Get('pending-transfers')
