@@ -58,7 +58,7 @@ interface CalendarEvent {
   assigned_user?: { id: string; name: string } | null;
   created_by?: { id: string; name: string } | null;
   lead?: { id: string; name: string | null; phone: string } | null;
-  patient?: { id: string; name: string | null; phone: string | null } | null;
+  patient?: { id: string; name: string | null; phone: string | null; avatar_url?: string | null } | null;
   // Validacao clinica (Fase 23)
   validated_at?: string | null;
   validated_by_user_id?: string | null;
@@ -2084,9 +2084,20 @@ export default function AgendaPage() {
                         {d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })}
                       </span>
                     </div>
-                    <p className="text-xs font-semibold truncate text-foreground">
-                      {ev.title}
-                    </p>
+                    <div className="flex items-center gap-2 min-w-0">
+                      {ev.patient && (
+                        <PatientAvatar
+                          patientId={ev.patient.id}
+                          patientName={ev.patient.name || 'Paciente'}
+                          avatarUrl={ev.patient.avatar_url}
+                          size={24}
+                          shape="circle"
+                        />
+                      )}
+                      <p className="text-xs font-semibold truncate text-foreground flex-1">
+                        {ev.title}
+                      </p>
+                    </div>
                     {ev.lead && (
                       <p className="text-[10px] text-muted-foreground truncate mt-0.5">👤 {ev.lead.name || ev.lead.phone}</p>
                     )}

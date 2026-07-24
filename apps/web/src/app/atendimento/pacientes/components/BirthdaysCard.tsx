@@ -11,6 +11,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Cake, Phone, Loader2, ChevronRight } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface Birthday {
   id: string;
@@ -99,9 +100,13 @@ export default function BirthdaysCard() {
               className="flex items-center justify-between gap-3 p-2 rounded hover:bg-accent/50 cursor-pointer text-sm"
             >
               <div className="flex items-center gap-2 min-w-0">
-                <div className="w-7 h-7 rounded-full bg-pink-500/10 flex items-center justify-center text-pink-600 text-xs font-bold shrink-0">
-                  {p.name.split(' ').slice(0, 2).map((n) => n[0]?.toUpperCase()).join('') || '?'}
-                </div>
+                <PatientAvatar
+                  patientId={p.id}
+                  patientName={p.name}
+                  avatarUrl={p.avatar_url}
+                  size={28}
+                  shape="circle"
+                />
                 <div className="min-w-0">
                   <div className="font-medium truncate">{p.name}</div>
                   <div className="text-xs text-muted-foreground flex items-center gap-2">

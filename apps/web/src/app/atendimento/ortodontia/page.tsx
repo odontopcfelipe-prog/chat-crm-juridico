@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'concluido' | 'saiu';
 
@@ -54,8 +55,6 @@ const WD_FULL: Record<number, string> = { 0: 'Domingo', 1: 'Segunda', 2: 'Terça
 const fmtDate = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('pt-BR') : '—');
 const fmtDateTime = (iso: string | null) =>
   iso ? new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '';
-const initials = (name: string | null) =>
-  (name || '?').split(' ').filter(Boolean).slice(0, 2).map((w) => w[0]).join('').toUpperCase();
 
 export default function OrtodontiaPage() {
   const router = useRouter();
@@ -291,8 +290,14 @@ function OrthoCardItem({ card, showDentist, completing, dentists, migrating, onC
   return (
     <div className="bg-card border border-border rounded-lg p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <button onClick={onOpen} className="w-8 h-8 rounded-full bg-primary/10 text-primary text-xs font-bold flex items-center justify-center shrink-0">
-          {initials(card.patient.name)}
+        <button onClick={onOpen} className="shrink-0 rounded-full" title="Abrir ficha">
+          <PatientAvatar
+            patientId={card.patient.id}
+            patientName={card.patient.name || 'Sem nome'}
+            avatarUrl={card.patient.avatar_url}
+            size={32}
+            shape="circle"
+          />
         </button>
         <button onClick={onOpen} className="font-semibold text-sm text-foreground hover:text-primary text-left truncate flex-1">
           {card.patient.name || 'Sem nome'}

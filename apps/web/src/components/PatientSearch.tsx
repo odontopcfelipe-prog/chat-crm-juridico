@@ -2,9 +2,10 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, Loader2, User, Phone, IdCard, Plus, DollarSign } from 'lucide-react';
+import { Search, Loader2, Phone, IdCard, Plus, DollarSign } from 'lucide-react';
 import api from '@/lib/api';
 import { showError } from '@/lib/toast';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 /**
  * Busca global de paciente — convencao Clinicorp.
@@ -20,6 +21,8 @@ interface PatientHit {
   cpf: string | null;
   phone: string | null;
   email: string | null;
+  avatar_url?: string | null;
+  lead?: { profile_picture_url: string | null } | null;
 }
 
 export function PatientSearch({ className = '' }: { className?: string }) {
@@ -191,9 +194,14 @@ export function PatientSearch({ className = '' }: { className?: string }) {
                       onClick={() => goto(p.id)}
                       className="flex-1 text-left px-3 py-2 flex items-center gap-3 min-w-0"
                     >
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center shrink-0">
-                        <User size={16} className="text-primary" />
-                      </div>
+                      <PatientAvatar
+                        patientId={p.id}
+                        patientName={p.name}
+                        avatarUrl={p.avatar_url}
+                        fallbackPhotoUrl={p.lead?.profile_picture_url}
+                        size={32}
+                        shape="circle"
+                      />
                       <div className="flex-1 min-w-0">
                         <div className="text-sm font-medium truncate">{p.name}</div>
                         <div className="text-xs text-muted-foreground flex items-center gap-3 mt-0.5">

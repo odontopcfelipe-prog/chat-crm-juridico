@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { Search, X, UserPlus, Loader2, Activity, Phone } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface PatientHit {
   id: string;
@@ -28,6 +29,8 @@ interface PatientHit {
   phone: string | null;
   cpf?: string | null;
   status?: string;
+  avatar_url?: string | null;
+  lead?: { profile_picture_url: string | null } | null;
 }
 
 interface Props {
@@ -171,9 +174,14 @@ export function NovaAvaliacaoModal({ open, onClose }: Props) {
                   onClick={() => goToPatient(p.id)}
                   className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent/20 active:bg-accent/40 transition-colors text-left"
                 >
-                  <div className="w-9 h-9 rounded-full bg-primary/10 grid place-items-center text-primary font-bold text-sm flex-none">
-                    {(p.name || '?').charAt(0).toUpperCase()}
-                  </div>
+                  <PatientAvatar
+                    patientId={p.id}
+                    patientName={p.name || 'Sem nome'}
+                    avatarUrl={p.avatar_url}
+                    fallbackPhotoUrl={p.lead?.profile_picture_url}
+                    size={36}
+                    shape="circle"
+                  />
                   <div className="flex-1 min-w-0">
                     <div className="text-sm font-semibold text-foreground truncate">{p.name || 'Sem nome'}</div>
                     <div className="text-[11px] text-muted-foreground flex items-center gap-3">
