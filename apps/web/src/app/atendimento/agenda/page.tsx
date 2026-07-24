@@ -1019,7 +1019,12 @@ export default function AgendaPage() {
   // rolar tanto, mais perto do Dental Office) sem apertar o avatar. Reavalia no resize.
   const [agendaDensity, setAgendaDensity] = useState<AgendaDensity>('amplo');
   useEffect(() => {
-    const pick = () => setAgendaDensity(window.innerWidth >= 1600 ? 'amplo' : 'confortavel');
+    const pick = () => {
+      // >=1600 monitor grande: "amplo" (intacto, como o dono validou). <1600 (laptops
+      // e monitores menores): "compacto" (50px/hora) → cabe o dia todo (~07:00–21:00)
+      // sem rolar, estilo Dental Office. O avatar encolhe junto (via data-density).
+      setAgendaDensity(window.innerWidth >= 1600 ? 'amplo' : 'compacto');
+    };
     pick();
     window.addEventListener('resize', pick);
     return () => window.removeEventListener('resize', pick);
@@ -2474,7 +2479,7 @@ export default function AgendaPage() {
               />
             </div>
           ) : (
-            <div className="sx-react-calendar-wrapper h-full min-h-[500px]" style={{
+            <div className="sx-react-calendar-wrapper h-full min-h-[500px]" data-agenda-density={agendaDensity} style={{
               ['--sx-color-primary' as any]: 'hsl(var(--primary))',
               ['--sx-color-surface' as any]: 'hsl(var(--card))',
               ['--sx-color-on-surface' as any]: 'hsl(var(--foreground))',

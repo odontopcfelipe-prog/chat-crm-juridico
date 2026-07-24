@@ -541,6 +541,11 @@
 }
 .sx-react-calendar-wrapper .ag-card .ag-av img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sx-react-calendar-wrapper .ag-card .ag-av.ag-av-i { color: #fff; font-size: 10.5px; font-weight: 800; letter-spacing: .02em; }
+/* Avatar ESCALA com a densidade (consistente por tela): denso = menor, pra caber
+   nas linhas mais baixas sem estourar o card curto. 28px é o padrão (amplo). */
+.sx-react-calendar-wrapper[data-agenda-density="confortavel"] .ag-card .ag-av { width: 24px; height: 24px; margin: 0 6px 0 2px; }
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .ag-card .ag-av { width: 20px; height: 20px; margin: 0 5px 0 2px; }
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .ag-card .ag-av.ag-av-i { font-size: 8.5px; }
 .sx-react-calendar-wrapper .ag-card .ag-body { display: flex; flex-direction: column; min-width: 0; width: 100%; gap: 0; }
 .sx-react-calendar-wrapper .ag-card .ag-r1 { display: flex; align-items: center; gap: 4px; }
 .sx-react-calendar-wrapper .ag-card .ag-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
