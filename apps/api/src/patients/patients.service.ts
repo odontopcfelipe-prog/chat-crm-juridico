@@ -1,6 +1,7 @@
 import { Injectable, Logger, NotFoundException, ForbiddenException, BadRequestException, Inject, forwardRef } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FileStorageService } from '../media/filesystem.service';
+import { WhatsappService } from '../whatsapp/whatsapp.service';
 import { ReferralsService } from '../referrals/referrals.service';
 import { PatientTagsService } from '../patient-tags/patient-tags.service';
 import { Prisma } from '@crm/shared';
@@ -73,6 +74,7 @@ export class PatientsService {
     private fileStorage: FileStorageService,
     @Inject(forwardRef(() => ReferralsService)) private referralsService: ReferralsService,
     private patientTagsService: PatientTagsService,
+    @Inject(forwardRef(() => WhatsappService)) private whatsapp: WhatsappService,
   ) {}
 
   /**
@@ -1344,6 +1346,85 @@ export class PatientsService {
 
     this.logger.log(`[AVATAR] Foto atualizada para paciente ${patientId}`);
     return { avatar_url: relativePath };
+  }
+
+  /**
+   * Onda 18.x — Backfill de fotos do WhatsApp pros pacientes ANTIGOS (sem
+   * avatar_url). A cópia permanente só acontecia na conversão lead→paciente; quem
+   * foi convertido antes ficou sem foto. E a URL crua do WhatsApp expira em horas,
+   * então NÃO dá pra reusar a `lead.profile_picture_url` guardada — buscamos uma
+   * FRESCA na Evolution e baixamos pro nosso storage (persiste, não expira).
+   *
+   * Paginado por OFFSET (não por "avatar_url null") pra não reprocessar em loop os
+   * pacientes cujo WhatsApp não tem foto (privacidade/sem foto). PAUSA de 500ms
+   * entre cada consulta ao WhatsApp — anti-ban (não parece scraping). O front
+   * chama em lotes até `done`.
+   */
+  async backfillWhatsappAvatars(tenantId: string, offset = 0, limit = 10) {
+    const take = Math.min(Math.max(limit, 1), 25);
+    // Chip pra consultar as fotos: preferir CLINICA/COMERCIAL; nunca o Financeiro.
+    let chip = await this.prisma.instance.findFirst({
+      where: { type: 'whatsapp', tenant_id: tenantId, purpose: { in: ['CLINICA', 'COMERCIAL'] } },
+      orderBy: { created_at: 'asc' },
+      select: { name: true },
+    });
+    if (!chip) {
+      chip = await this.prisma.instance.findFirst({
+        where: { type: 'whatsapp', tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+        orderBy: { created_at: 'asc' },
+        select: { name: true },
+      });
+    }
+    if (!chip?.name) {
+      throw new BadRequestException('Nenhum chip WhatsApp da clínica conectado pra buscar as fotos.');
+    }
+
+    const patients = await this.prisma.patient.findMany({
+      where: { tenant_id: tenantId, lead_id: { not: null } },
+      orderBy: { created_at: 'asc' },
+      skip: offset > 0 ? offset : undefined,
+      take,
+      select: { id: true, phone: true, avatar_url: true, lead_id: true, lead: { select: { phone: true } } },
+    });
+
+    let updated = 0;
+    let noPhoto = 0;
+    let failed = 0;
+    let skipped = 0;
+    for (const p of patients) {
+      if (p.avatar_url) { skipped++; continue; } // já tem foto (salva/manual)
+      const phone = p.phone || p.lead?.phone;
+      if (!phone) { skipped++; continue; }
+      try {
+        const freshUrl: string | null = await this.whatsapp.fetchProfilePicture(chip.name, phone);
+        if (!freshUrl) {
+          noPhoto++;
+        } else {
+          await this.copyWhatsappAvatarToPatient(p.id, tenantId, freshUrl);
+          if (p.lead_id) {
+            await this.prisma.lead
+              .update({ where: { id: p.lead_id }, data: { profile_picture_url: freshUrl } })
+              .catch(() => {});
+          }
+          updated++;
+        }
+      } catch (e: any) {
+        failed++;
+        this.logger.warn(`[AVATAR-BACKFILL] paciente ${p.id}: ${e?.message}`);
+      }
+      // pausa anti-ban entre consultas ao WhatsApp
+      await new Promise((r) => setTimeout(r, 500));
+    }
+
+    return {
+      scanned: patients.length,
+      updated,
+      noPhoto,
+      failed,
+      skipped,
+      nextOffset: offset + patients.length,
+      done: patients.length < take,
+    };
   }
 
   /** Retorna buffer + mimeType da foto pra servir via HTTP. */

@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef, Suspense } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon, SlidersHorizontal, Download } from 'lucide-react';
+import { Search, Plus, Loader2, User, Phone, Archive, CheckCircle2, XCircle, Tag as TagIcon, SlidersHorizontal, Download, ImageDown } from 'lucide-react';
 import api from '@/lib/api';
-import { showError } from '@/lib/toast';
+import { showError, showSuccess } from '@/lib/toast';
 import { useRole } from '@/lib/useRole';
 import { formatPhone, formatCPF } from '@/lib/utils';
 import NewPatientModal from './components/NewPatientModal';
@@ -68,6 +68,9 @@ function PacientesPageInner() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<'all' | 'ACTIVE' | 'INACTIVE' | 'ARCHIVED'>('all');
   const [showModal, setShowModal] = useState(false);
+  // Backfill de fotos do WhatsApp (pacientes antigos sem foto salva)
+  const [backfillRunning, setBackfillRunning] = useState(false);
+  const [backfillMsg, setBackfillMsg] = useState<string | null>(null);
   const [stats, setStats] = useState({ total: 0, active: 0, inactive: 0, archived: 0, with_active_plan: 0 });
   const [allTags, setAllTags] = useState<PatientTag[]>([]);
   const [tagFilter, setTagFilter] = useState<string>('');
@@ -131,6 +134,47 @@ function PacientesPageInner() {
       if (seq === loadSeqRef.current) setLoading(false);
     }
   }, [search, status, tagFilter, noVisitMonths, withActivePlan, withoutAnamnesis, page]);
+
+  // Puxa as fotos do WhatsApp pros pacientes SEM foto salva. Roda em lotes (o
+  // backend busca 1 foto fresca por paciente com pausa anti-ban), até acabar.
+  const handleBackfillPhotos = async () => {
+    if (backfillRunning) return;
+    if (!confirm(
+      'Puxar as fotos do WhatsApp pros pacientes que ainda não têm foto?\n\n' +
+      'O sistema consulta o WhatsApp de cada um, com uma pausa entre eles (pode levar alguns minutos). ' +
+      'Quem já tem foto (salva ou enviada por você) não é mexido.'
+    )) return;
+    setBackfillRunning(true);
+    setBackfillMsg('Puxando fotos... 0');
+    let offset = 0;
+    let totalUpdated = 0, totalNoPhoto = 0, totalFailed = 0;
+    try {
+      for (let i = 0; i < 500; i++) {
+        const { data } = await api.post<{ updated: number; noPhoto: number; failed: number; nextOffset: number; done: boolean }>(
+          '/patients/backfill-whatsapp-avatars',
+          { offset, limit: 10 },
+        );
+        totalUpdated += data.updated || 0;
+        totalNoPhoto += data.noPhoto || 0;
+        totalFailed += data.failed || 0;
+        offset = data.nextOffset;
+        setBackfillMsg(`Puxando fotos... ${totalUpdated}`);
+        if (data.done) break;
+        await new Promise((r) => setTimeout(r, 800)); // respiro entre lotes
+      }
+      showSuccess(
+        `Fotos atualizadas: ${totalUpdated}.` +
+        (totalNoPhoto ? ` Sem foto no WhatsApp: ${totalNoPhoto}.` : '') +
+        (totalFailed ? ` Falhas: ${totalFailed}.` : '')
+      );
+      await load(); // recarrega a lista pra mostrar as fotos novas
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Falha ao puxar as fotos do WhatsApp');
+    } finally {
+      setBackfillRunning(false);
+      setBackfillMsg(null);
+    }
+  };
 
   // Export CSV: gera planilha com filtros aplicados (limit alto)
   const handleExportCsv = async () => {
@@ -204,12 +248,25 @@ function PacientesPageInner() {
             DENTIST/FINANCEIRO nao cadastram standalone — pra atender, usam
             o botao "Atender" da ficha (ensure-patient idempotente). */}
         {role.canCreatePatient && (
-          <button
-            onClick={() => setShowModal(true)}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
-          >
-            <Plus size={16} /> Novo paciente
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleBackfillPhotos}
+              disabled={backfillRunning}
+              title="Puxar as fotos do WhatsApp pros pacientes que ainda não têm foto (com pausa anti-ban)"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-card border border-border text-sm font-medium hover:bg-accent transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+            >
+              {backfillRunning
+                ? <Loader2 size={16} className="animate-spin" />
+                : <ImageDown size={16} />}
+              {backfillMsg || 'Puxar fotos do WhatsApp'}
+            </button>
+            <button
+              onClick={() => setShowModal(true)}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 transition-colors"
+            >
+              <Plus size={16} /> Novo paciente
+            </button>
+          </div>
         )}
       </div>
 

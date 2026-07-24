@@ -6,6 +6,7 @@ import { FileStorageService } from '../media/filesystem.service';
 import { ReferralsModule } from '../referrals/referrals.module';
 import { LeadsModule } from '../leads/leads.module';
 import { PatientTagsModule } from '../patient-tags/patient-tags.module';
+import { WhatsappModule } from '../whatsapp/whatsapp.module';
 
 @Module({
   imports: [
@@ -15,6 +16,8 @@ import { PatientTagsModule } from '../patient-tags/patient-tags.module';
     LeadsModule,
     // Onda 17.33 — aplicar etiquetas ja na criacao do paciente
     PatientTagsModule,
+    // Onda 18.x — backfill de fotos do WhatsApp (fetchProfilePicture)
+    forwardRef(() => WhatsappModule),
   ],
   controllers: [PatientsController],
   providers: [PatientsService, FileStorageService, AffiliateService],

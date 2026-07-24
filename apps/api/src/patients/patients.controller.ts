@@ -54,6 +54,21 @@ export class PatientsController {
     });
   }
 
+  /**
+   * Onda 18.x — Backfill de fotos do WhatsApp pros pacientes antigos (sem foto).
+   * Busca foto FRESCA na Evolution e baixa pro storage (permanente, não expira).
+   * Paginado por offset, com pausa anti-ban no service; o front chama em lotes até
+   * `done`. Declarado ANTES das rotas :id pra não colidir.
+   * POST /patients/backfill-whatsapp-avatars  body: { offset?, limit? }
+   */
+  @RequiresPermission('edit_patients')
+  @Post('backfill-whatsapp-avatars')
+  backfillAvatars(@Body() body: { offset?: number; limit?: number }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.backfillWhatsappAvatars(tenantId, body?.offset ?? 0, body?.limit ?? 10);
+  }
+
   @RequiresPermission('view_patients')
   @Get()
   findAll(
