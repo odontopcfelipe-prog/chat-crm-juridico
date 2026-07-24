@@ -30,10 +30,12 @@ import {
   HeartPulse,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface PostAvaliacaoLead {
   id: string;
   name: string | null;
+  profile_picture_url?: string | null;
   phone: string | null;
   current_stage: { id: string; slug: string; name: string; color: string | null; emoji: string | null; is_won?: boolean; is_lost?: boolean } | null;
   conversations: Array<{
@@ -271,6 +273,15 @@ export function PostAvaliacaoView({ onOpenDetail, onOpenChat }: Props) {
                   >
                     {/* Acento colorido por bucket */}
                     <div className={`w-1 h-12 rounded-full ${bucket.accent} shrink-0 mt-0.5`} />
+
+                    <PatientAvatar
+                      patientId={lead.post_avaliacao?.patient?.id ?? lead.id}
+                      patientName={lead.name || lead.phone || 'Sem nome'}
+                      avatarUrl={null}
+                      fallbackPhotoUrl={lead.profile_picture_url}
+                      size={40}
+                      shape="circle"
+                    />
 
                     {/* Bloco principal */}
                     <div className="flex-1 min-w-0">

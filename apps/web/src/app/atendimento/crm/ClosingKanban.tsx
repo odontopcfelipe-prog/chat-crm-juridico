@@ -42,11 +42,13 @@ import {
   Stethoscope,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { PatientAvatar } from '@/components/PatientAvatar';
 
 interface ClosingLead {
   id: string;
   name: string | null;
   phone: string | null;
+  profile_picture_url?: string | null;
   current_stage: { id: string; slug: string; name: string; color: string | null; emoji: string | null; is_won?: boolean; is_lost?: boolean } | null;
   conversations: Array<{
     id: string;
@@ -324,8 +326,16 @@ export function ClosingKanban({ onOpenDetail, onOpenChat }: Props) {
                           onClick={() => openCard(lead)}
                           className="group p-2.5 rounded-lg border border-border bg-background hover:border-primary/40 hover:shadow-sm transition-all cursor-pointer"
                         >
-                          {/* Header do card: nome + paciente badge */}
-                          <div className="flex items-start gap-1.5 mb-1.5">
+                          {/* Header do card: foto + nome + paciente badge */}
+                          <div className="flex items-center gap-1.5 mb-1.5">
+                            <PatientAvatar
+                              patientId={lead.post_avaliacao?.patient?.id ?? lead.id}
+                              patientName={lead.name || lead.phone || 'Sem nome'}
+                              avatarUrl={null}
+                              fallbackPhotoUrl={lead.profile_picture_url}
+                              size={28}
+                              shape="circle"
+                            />
                             <span className="text-sm font-bold text-foreground truncate flex-1">
                               {lead.name || lead.phone || 'Sem nome'}
                             </span>
