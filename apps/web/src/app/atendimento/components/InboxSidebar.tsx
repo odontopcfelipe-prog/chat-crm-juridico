@@ -241,7 +241,7 @@ export function InboxSidebar({
   }, [showSaveInput]);
 
   return (
-    <section className={`flex flex-col overflow-hidden bg-card border-r border-border shrink-0 z-40 transition-all duration-300 ${isMobile ? (selectedId ? 'hidden' : 'w-full') : (inboxOpen ? 'w-[380px]' : 'w-0')}`}>
+    <section className={`flex flex-col overflow-hidden bg-card border-r border-border shrink-0 z-40 transition-all duration-300 ${isMobile ? (selectedId ? 'hidden' : 'w-full') : (inboxOpen ? 'w-[31%] min-w-[400px] max-w-[640px]' : 'w-0')}`}>
       {/* Onda 5e v15 (Fase 25) — Header compactado:
           - Titulo "Inbox" -> "WhatsApp" (alinhado com label do menu)
           - Padding reduzido (p-5 -> p-3) e space-y-4 -> space-y-2
