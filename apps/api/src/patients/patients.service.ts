@@ -1392,7 +1392,11 @@ export class PatientsService {
     let failed = 0;
     let skipped = 0;
     for (const p of patients) {
-      if (p.avatar_url) { skipped++; continue; } // já tem foto (salva/manual)
+      // Pula só se a foto REALMENTE existe no storage. Fotos antigas (manuais ou já
+      // baixadas) foram apagadas nos redeploys quando o volume ainda era efêmero →
+      // avatar_url aponta pra arquivo que sumiu; nesse caso re-busca do WhatsApp em
+      // vez de deixar o paciente preso na inicial (a foto original não tem como voltar).
+      if (p.avatar_url && (await this.fileStorage.exists(p.avatar_url))) { skipped++; continue; }
       const rawPhone = p.phone || p.lead?.phone;
       if (!rawPhone) { skipped++; continue; }
       // fetchProfilePicture NÃO adiciona o 55 (diferente do envio) — normaliza aqui,
