@@ -273,7 +273,11 @@ export default function AtendimentoLayout({ children }: { children: React.ReactN
           // Pra adicionar mais: basta incluir o prefixo na lista.
           const HIDE_SEARCH_PREFIXES = [
             '/atendimento/chat',         // chat ja tem busca propria
-            '/atendimento/agenda',       // agenda tem busca de eventos propria
+            // Onda 18.x — Agenda VOLTA a mostrar a busca "Localizar paciente" no
+            // topo (pedido: "deixe dessa forma na parte de cima"). A barra ja
+            // renderiza (sino/tema/avatar); a busca so preenche o meio vazio, sem
+            // custo de altura vertical. Continua tendo a busca de eventos propria
+            // dentro do calendario — sao coisas diferentes (paciente vs evento).
             '/atendimento/settings',     // 23 telas de config
             '/atendimento/peticoes',     // juridico legado
             '/atendimento/manual',       // documentacao/help
