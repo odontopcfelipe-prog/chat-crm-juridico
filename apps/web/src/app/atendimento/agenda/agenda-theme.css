@@ -119,6 +119,21 @@
   color: var(--text-secondary) !important;
 }
 
+/* Densidade "compacto" (telas <1600px): header do calendário + linha dos dias
+   MAIS ENXUTOS pra ganhar altura pra grade. Não afeta o monitor grande (amplo). */
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .sx__calendar-header {
+  padding-top: 4px !important; padding-bottom: 4px !important; min-height: 0 !important;
+}
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .sx__week-grid__date {
+  padding-top: 2px !important; padding-bottom: 2px !important;
+}
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .sx__week-grid__day-name {
+  font-size: 9px !important; letter-spacing: .03em;
+}
+.sx-react-calendar-wrapper[data-agenda-density="compacto"] .sx__week-grid__date-number {
+  font-size: 14px !important; line-height: 1.05 !important; margin-top: 0 !important;
+}
+
 /**
  * FIX: horário cortado em eventos curtos (1h ou menos)
  *
