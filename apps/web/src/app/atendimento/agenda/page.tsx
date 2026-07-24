@@ -23,7 +23,7 @@ import {
   Clock, User, AlertTriangle, CheckCircle2, Bell,
   Download, Copy, Users, Stethoscope,
   LayoutGrid, CalendarDays as CalendarViewIcon,
-  ExternalLink, Ban, Loader2,
+  ExternalLink, Ban, Loader2, Rows3,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { PatientAvatar } from '@/components/PatientAvatar';
@@ -1017,18 +1017,29 @@ export default function AgendaPage() {
   // monitor grande (>=1600px) mantém "amplo" (fica perfeito, como o dono validou);
   // telas menores usam "confortavel" (linhas ~30% mais baixas → cabe mais do dia sem
   // rolar tanto, mais perto do Dental Office) sem apertar o avatar. Reavalia no resize.
-  const [agendaDensity, setAgendaDensity] = useState<AgendaDensity>('amplo');
+  // Densidade da agenda: AUTO por tela (amplo em >=1600, compacto em <1600) como
+  // default, com OVERRIDE manual salvo em localStorage. O botão na barra deixa o
+  // usuário forçar Compacto/Confortável/Amplo e ver NA HORA, em qualquer monitor —
+  // resolve o "no meu não muda" (quem tá no monitor grande via só o auto = amplo).
+  const [autoDensity, setAutoDensity] = useState<AgendaDensity>('amplo');
+  const [densityOverride, setDensityOverride] = useState<AgendaDensity | null>(null);
   useEffect(() => {
-    const pick = () => {
-      // >=1600 monitor grande: "amplo" (intacto, como o dono validou). <1600 (laptops
-      // e monitores menores): "compacto" (50px/hora) → cabe o dia todo (~07:00–21:00)
-      // sem rolar, estilo Dental Office. O avatar encolhe junto (via data-density).
-      setAgendaDensity(window.innerWidth >= 1600 ? 'amplo' : 'compacto');
-    };
+    try {
+      const s = localStorage.getItem('agenda_density');
+      if (s === 'compacto' || s === 'confortavel' || s === 'amplo') setDensityOverride(s);
+    } catch { /* ignore */ }
+    const pick = () => setAutoDensity(window.innerWidth >= 1600 ? 'amplo' : 'compacto');
     pick();
     window.addEventListener('resize', pick);
     return () => window.removeEventListener('resize', pick);
   }, []);
+  const agendaDensity: AgendaDensity = densityOverride ?? autoDensity;
+  const cycleDensity = () => {
+    const next: AgendaDensity =
+      agendaDensity === 'compacto' ? 'confortavel' : agendaDensity === 'confortavel' ? 'amplo' : 'compacto';
+    setDensityOverride(next);
+    try { localStorage.setItem('agenda_density', next); } catch { /* ignore */ }
+  };
   useEffect(() => {
     try {
       setHideMadrugada(localStorage.getItem('agenda:hideMadrugada') !== 'false');
@@ -2258,6 +2269,16 @@ export default function AgendaPage() {
               {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
             </select>
           )}
+          {/* Densidade — cicla Compacto → Confortável → Amplo (salvo por navegador).
+              Cada um ajusta pra sua tela e vê na hora, sem depender do tamanho auto. */}
+          <button
+            onClick={cycleDensity}
+            className="pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-border bg-card text-xs font-medium text-muted-foreground shadow-sm hover:bg-accent transition-colors"
+            title="Densidade da agenda (Compacto / Confortável / Amplo) — clique pra alternar"
+          >
+            <Rows3 size={12} />
+            <span>{agendaDensity === 'compacto' ? 'Compacto' : agendaDensity === 'confortavel' ? 'Confortável' : 'Amplo'}</span>
+          </button>
           <button
             onClick={() => setKanbanView(v => !v)}
             className={`pointer-events-auto inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors shadow-sm ${
