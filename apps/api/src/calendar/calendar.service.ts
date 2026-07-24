@@ -173,7 +173,7 @@ export class CalendarService {
       include: {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
         // Paciente vinculado: exibido no card da agenda + botao "Abrir ficha"
         // no modal de edicao. Necessario tanto no findAll quanto no findOne
         // pra evitar fetch extra ao clicar no evento.
@@ -192,7 +192,7 @@ export class CalendarService {
       include: {
         assigned_user: { select: { id: true, name: true } },
         created_by: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
         // v32: patient pra UI mostrar nome quando paciente foi vinculado direto
         patient: { select: { id: true, name: true, phone: true, avatar_url: true } },
         appointment_type: true,
@@ -1092,7 +1092,7 @@ export class CalendarService {
             id: true, title: true, type: true, status: true, start_at: true,
             location: true,
             assigned_user: { select: { id: true, name: true } },
-            lead: { select: { id: true, name: true, phone: true } },
+            lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
             // v31: tambem traz patient pra fallback quando evento foi criado
             // direto via ficha do paciente (sem lead vinculado)
             patient: { select: { id: true, name: true, phone: true } },
@@ -1142,7 +1142,7 @@ export class CalendarService {
         event: {
           select: {
             id: true, title: true, start_at: true, lead_id: true,
-            lead: { select: { id: true, name: true, phone: true } },
+            lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
             // v31: patient como fallback (eventos criados via ficha do paciente)
             patient: { select: { id: true, name: true, phone: true } },
             assigned_user: { select: { name: true } },
@@ -3037,7 +3037,7 @@ export class CalendarService {
       },
       include: {
         assigned_user: { select: { id: true, name: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
       },
       orderBy: { start_at: 'desc' },
       take: 20,
@@ -3295,7 +3295,7 @@ export class CalendarService {
         where: { id: eventId },
         include: {
           assigned_user: { select: { id: true, name: true } },
-          lead: { select: { id: true, name: true, phone: true } },
+          lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
         },
       });
       if (!fullEvent?.tenant_id) {
@@ -3369,7 +3369,7 @@ export class CalendarService {
         assigned_user_id: true,
         assigned_user: { select: { id: true, name: true } },
         patient: { select: { id: true, name: true, phone: true } },
-        lead: { select: { id: true, name: true, phone: true } },
+        lead: { select: { id: true, name: true, phone: true, profile_picture_url: true } },
       },
       orderBy: { start_at: 'desc' },
       take: 200,

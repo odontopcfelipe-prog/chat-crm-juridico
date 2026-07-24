@@ -57,7 +57,7 @@ interface CalendarEvent {
   created_by_id?: string | null;
   assigned_user?: { id: string; name: string } | null;
   created_by?: { id: string; name: string } | null;
-  lead?: { id: string; name: string | null; phone: string } | null;
+  lead?: { id: string; name: string | null; phone: string; profile_picture_url?: string | null } | null;
   patient?: { id: string; name: string | null; phone: string | null; avatar_url?: string | null } | null;
   // Validacao clinica (Fase 23)
   validated_at?: string | null;
@@ -656,6 +656,38 @@ export default function AgendaPage() {
   const searchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [mounted, setMounted] = useState(false);
   const [hoverTooltip, setHoverTooltip] = useState<{ event: CalendarEvent; x: number; y: number } | null>(null);
+
+  // Fotos dos pacientes pré-carregadas em BLOB pro card da grade: o endpoint
+  // /patients/:id/avatar é autenticado por JWT, então <img src> cru daria 401.
+  // Mapa por patientId; o card HTML embute <img src=blob> e o effect de eventos
+  // re-seta o calendário quando as fotos carregam (avatarBlobs entra nas deps).
+  const [avatarBlobs, setAvatarBlobs] = useState<Record<string, string>>({});
+  const avatarInflightRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const toLoad: string[] = [];
+    for (const e of events) {
+      const pid = e.patient?.id;
+      if (pid && e.patient?.avatar_url && !avatarBlobs[pid] && !avatarInflightRef.current.has(pid)) {
+        toLoad.push(pid);
+      }
+    }
+    if (toLoad.length === 0) return;
+    let cancelled = false;
+    toLoad.forEach((pid) => {
+      avatarInflightRef.current.add(pid);
+      api.get(`/patients/${pid}/avatar`, { responseType: 'blob', ...({ _silent401: true } as any) })
+        .then((res) => {
+          if (cancelled) return;
+          const url = URL.createObjectURL(res.data as Blob);
+          setAvatarBlobs((prev) => (prev[pid] ? prev : { ...prev, [pid]: url }));
+        })
+        .catch(() => { /* sem foto / 404 → cai nas iniciais */ })
+        .finally(() => { avatarInflightRef.current.delete(pid); });
+    });
+    return () => { cancelled = true; };
+  }, [events, avatarBlobs]);
+  // Revoga os blobs no unmount (evita vazamento de memória).
+  useEffect(() => () => { Object.values(avatarBlobs).forEach((u) => URL.revokeObjectURL(u)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const [kanbanView, setKanbanView] = useState(false);
   // Onda 5e v9 (Fase 25) — modal de bloqueio de agenda do dentista
   const [showBlockModal, setShowBlockModal] = useState(false);
@@ -1371,9 +1403,21 @@ export default function AgendaPage() {
             const showProc = !!clientName && !!e.title && e.title.trim().length > 2;
             const showType = e.type !== 'CONSULTA';
             const tpColor = getEventColor(e.type);
+            // Avatar do paciente no card: foto SALVA (blob pré-carregado) → foto do
+            // WhatsApp (URL direta, só evento de lead) → iniciais com a cor do dentista.
+            const _pid = e.patient?.id;
+            const _blob = _pid ? avatarBlobs[_pid] : undefined;
+            const _waPhoto = !_blob && !e.patient ? (e.lead?.profile_picture_url || '') : '';
+            const _avInit = (clientName || nm || '?').trim().split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0] || '').join('').toUpperCase() || '?';
+            const _avatar = _blob
+              ? `<span class="ag-av"><img src="${agendaEsc(_blob)}" alt=""/></span>`
+              : _waPhoto
+                ? `<span class="ag-av"><img src="${agendaEsc(_waPhoto)}" alt=""/></span>`
+                : `<span class="ag-av ag-av-i" style="background:${dtColor}">${agendaEsc(_avInit)}</span>`;
             cardHtml =
               '<div class="ag-card">' +
                 `<span class="ag-bar" style="background:${dtColor}"></span>` +
+                _avatar +
                 '<div class="ag-body">' +
                   `<div class="ag-r1"><span class="ag-dot" style="background:${stColor}"></span>` +
                   `<span class="ag-time">${agendaEsc(timeLabel)}</span>` +
@@ -1437,7 +1481,7 @@ export default function AgendaPage() {
     } catch (err) {
       console.error('[Agenda] Error syncing events to calendar:', err);
     }
-  }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled]);
+  }, [events, scheduleBlocks, filterTypes, eventsServicePlugin, showAllUsers, filterUserId, showCancelled, avatarBlobs]);
 
   // Carga inicial: schedule-x v4 não chama onRangeUpdate no mount.
   // Buscamos um range largo (semana atual ± 4 semanas = ~2 meses) para garantir
