@@ -672,31 +672,32 @@ export default function AgendaPage() {
   // re-seta o calendário quando as fotos carregam (avatarBlobs entra nas deps).
   const [avatarBlobs, setAvatarBlobs] = useState<Record<string, string>>({});
   const avatarInflightRef = useRef<Set<string>>(new Set());
+  // pids já carregados (REF, não state) — dedupe SEM re-disparar o effect.
+  const avatarLoadedRef = useRef<Record<string, string>>({});
   useEffect(() => {
-    const toLoad: string[] = [];
+    // BUGFIX (Onda 18.x) "fotos aparecem quando querem": o effect tinha
+    // `avatarBlobs` nas deps + flag `cancelled`. Cada foto que carregava
+    // RE-rodava o effect e CANCELAVA as outras em voo (descartadas e re-buscadas)
+    // → thrash → carregamento inconsistente. Agora roda só quando `events` muda,
+    // deduplica por ref e NÃO cancela nada em voo: cada foto carrega 1x e fica.
     for (const e of events) {
       const pid = e.patient?.id;
-      if (pid && e.patient?.avatar_url && !avatarBlobs[pid] && !avatarInflightRef.current.has(pid)) {
-        toLoad.push(pid);
-      }
-    }
-    if (toLoad.length === 0) return;
-    let cancelled = false;
-    toLoad.forEach((pid) => {
+      if (!pid || !e.patient?.avatar_url) continue;
+      if (avatarLoadedRef.current[pid] || avatarInflightRef.current.has(pid)) continue;
       avatarInflightRef.current.add(pid);
       api.get(`/patients/${pid}/avatar`, { responseType: 'blob', ...({ _silent401: true } as any) })
         .then((res) => {
-          if (cancelled) return;
           const url = URL.createObjectURL(res.data as Blob);
+          avatarLoadedRef.current[pid] = url;
           setAvatarBlobs((prev) => (prev[pid] ? prev : { ...prev, [pid]: url }));
         })
         .catch(() => { /* sem foto / 404 → cai nas iniciais */ })
         .finally(() => { avatarInflightRef.current.delete(pid); });
-    });
-    return () => { cancelled = true; };
-  }, [events, avatarBlobs]);
-  // Revoga os blobs no unmount (evita vazamento de memória).
-  useEffect(() => () => { Object.values(avatarBlobs).forEach((u) => URL.revokeObjectURL(u)); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    }
+  }, [events]);
+  // Revoga os blobs no unmount. Usa a REF (mapa real); o state num closure de
+  // deps [] estaria vazio e não revogaria nada.
+  useEffect(() => () => { Object.values(avatarLoadedRef.current).forEach((u) => URL.revokeObjectURL(u)); }, []);
   const [kanbanView, setKanbanView] = useState(false);
   // Onda 5e v9 (Fase 25) — modal de bloqueio de agenda do dentista
   const [showBlockModal, setShowBlockModal] = useState(false);
