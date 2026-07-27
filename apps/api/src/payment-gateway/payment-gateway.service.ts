@@ -684,18 +684,22 @@ export class PaymentGatewayService {
     });
     if (!patient) throw new NotFoundException('Paciente nao encontrado');
     if (patient.tenant_id !== tenantId) throw new BadRequestException('Acesso negado');
-    if (!patient.lead_id) return [];
 
-    const customer = await this.prisma.paymentGatewayCustomer.findFirst({
-      where: { lead_id: patient.lead_id, gateway: 'ASAAS' },
-    });
-    if (!customer) return [];
+    // Onda 18.x — duas fontes de vinculo, unidas por OR:
+    //  (a) DIRETO via patient_id — cobre boletos importados do Asaas, inclusive
+    //      paciente SEM telefone/lead (que a cadeia de cliente nao alcanca);
+    //  (b) cadeia do cliente do gateway (lead -> PaymentGatewayCustomer -> external_id).
+    const or: any[] = [{ patient_id: patientId }];
+    if (patient.lead_id) {
+      const customer = await this.prisma.paymentGatewayCustomer.findFirst({
+        where: { lead_id: patient.lead_id, gateway: 'ASAAS' },
+        select: { external_id: true },
+      });
+      if (customer) or.push({ customer_external_id: customer.external_id });
+    }
 
     return this.prisma.paymentGatewayCharge.findMany({
-      where: {
-        tenant_id: tenantId,
-        customer_external_id: customer.external_id,
-      },
+      where: { tenant_id: tenantId, OR: or },
       orderBy: { created_at: 'desc' },
       take: 100,
     });
