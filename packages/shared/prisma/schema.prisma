@@ -1655,6 +1655,11 @@ model PaymentGatewayCharge {
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
+  /// Onda 18.x — vinculo DIRETO ao paciente. Boletos importados do Asaas nao tem
+  /// treatment_plan; sem isso a lista/resumo mostrava "Sem nome". Permite resolver
+  /// o paciente mesmo sem plano nem cadeia de cliente (ex.: paciente sem telefone).
+  patient_id String?
+
   lead_honorario_payment_id String?               @unique
   lead_honorario_payment    LeadHonorarioPayment? @relation(fields: [lead_honorario_payment_id], references: [id], onDelete: SetNull)
   transaction               FinancialTransaction? @relation(fields: [transaction_id], references: [id], onDelete: SetNull)
@@ -1662,12 +1667,14 @@ model PaymentGatewayCharge {
   installment               Installment?          @relation(fields: [installment_id], references: [id], onDelete: SetNull)
   /// Onda 14.59
   treatment_plan            TreatmentPlan?        @relation(fields: [treatment_plan_id], references: [id], onDelete: SetNull)
+  patient                   Patient?              @relation("PatientAsaasCharges", fields: [patient_id], references: [id], onDelete: SetNull)
 
   @@index([tenant_id, status])
   @@index([customer_external_id])
   @@index([due_date, status])
   @@index([installment_id])
   @@index([treatment_plan_id, kind])
+  @@index([patient_id])
 }
 
 // ===============================================
@@ -2021,6 +2028,7 @@ model Patient {
   commissions              Commission[]
   // Regua de cobranca (Fase 11)
   installments             Installment[]
+  asaas_charges            PaymentGatewayCharge[] @relation("PatientAsaasCharges")
   // Portal do paciente (Fase 13)
   portal_tokens            PortalToken[]
   // Smile/Face Design (Fase 16)

@@ -453,6 +453,8 @@ export class FinanceiroChargesService {
             },
           },
           installment: { select: { id: true, sequence: true, total_count: true } },
+          // Onda 18.x — vinculo direto (boletos importados do Asaas sem treatment_plan).
+          patient: { select: { id: true, name: true, phone: true, cpf: true, avatar_url: true } },
         },
         orderBy: { due_date: 'asc' },
         take: limit,
@@ -654,7 +656,7 @@ export class FinanceiroChargesService {
             ? 'Entrada'
             : null,
       // Paciente + dentista pra mostrar na linha (fallback: cadeia do cliente p/ boletos Asaas importados)
-      patient: r.treatment_plan?.patient || (r as any)._resolvedPatient || null,
+      patient: r.treatment_plan?.patient || (r as any).patient || (r as any)._resolvedPatient || null,
       dentist: r.treatment_plan?.quote?.created_by || null,
       quote_number: r.treatment_plan?.quote?.quote_number || null,
       created_at: r.created_at,
