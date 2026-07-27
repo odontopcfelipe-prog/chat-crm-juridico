@@ -461,6 +461,35 @@ export class FinanceiroChargesService {
       this.prisma.paymentGatewayCharge.count({ where }),
     ]);
 
+    // Onda 18.x — FALLBACK de nome pros boletos IMPORTADOS do Asaas: eles não têm
+    // treatment_plan, então treatment_plan.patient = null e a lista mostrava "Sem nome".
+    // Resolve o paciente pela cadeia do cliente do gateway:
+    //   charge.customer_external_id → PaymentGatewayCustomer.lead_id → Patient.lead_id.
+    const orphanExt = [...new Set(
+      rows.filter((r: any) => !r.treatment_plan?.patient && r.customer_external_id).map((r: any) => r.customer_external_id as string),
+    )];
+    if (orphanExt.length) {
+      const custs = await this.prisma.paymentGatewayCustomer.findMany({
+        where: { external_id: { in: orphanExt }, ...(tenantId ? { tenant_id: tenantId } : {}) },
+        select: { external_id: true, lead_id: true },
+      });
+      const leadIds = [...new Set(custs.map((c) => c.lead_id))];
+      const pats = leadIds.length
+        ? await this.prisma.patient.findMany({
+            where: { lead_id: { in: leadIds }, ...(tenantId ? { tenant_id: tenantId } : {}) },
+            select: { id: true, name: true, phone: true, cpf: true, avatar_url: true, lead_id: true },
+          })
+        : [];
+      const patByLead = new Map(pats.map((p) => [p.lead_id as string, p]));
+      const extToPatient = new Map<string, any>();
+      for (const c of custs) { const p = patByLead.get(c.lead_id); if (p) extToPatient.set(c.external_id, p); }
+      for (const r of rows as any[]) {
+        if (!r.treatment_plan?.patient && r.customer_external_id) {
+          r._resolvedPatient = extToPatient.get(r.customer_external_id) || null;
+        }
+      }
+    }
+
     return {
       data: rows.map((r) => this.serializeCharge(r as any)),
       total,
@@ -624,8 +653,8 @@ export class FinanceiroChargesService {
           : r.kind === 'ENTRADA'
             ? 'Entrada'
             : null,
-      // Paciente + dentista pra mostrar na linha
-      patient: r.treatment_plan?.patient || null,
+      // Paciente + dentista pra mostrar na linha (fallback: cadeia do cliente p/ boletos Asaas importados)
+      patient: r.treatment_plan?.patient || (r as any)._resolvedPatient || null,
       dentist: r.treatment_plan?.quote?.created_by || null,
       quote_number: r.treatment_plan?.quote?.quote_number || null,
       created_at: r.created_at,
