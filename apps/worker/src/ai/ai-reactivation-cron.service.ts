@@ -33,6 +33,11 @@ export class AiReactivationCronService {
           ai_mode: false,
           ai_mode_disabled_at: { lt: twentyFourHoursAgo },
           status: { notIn: ['FECHADO'] },
+          // Onda 18.x — NÃO religar o que o operador DESLIGOU MANUALMENTE. Antes o
+          // cron reativava tudo, então "IA Inativa" voltava sozinha em 24h e a
+          // Sophia disparava de novo. `not: 'MANUAL'` inclui os NULL/auto (Prisma
+          // trata null como "não é MANUAL"), então só o manual fica protegido.
+          ai_mode_source: { not: 'MANUAL' },
           // Apenas conversas com lead ativo (não PERDIDO/FINALIZADO)
           lead: { stage: { notIn: ['PERDIDO', 'FINALIZADO'] } },
         },

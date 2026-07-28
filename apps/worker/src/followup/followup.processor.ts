@@ -159,6 +159,17 @@ export class FollowupProcessor extends WorkerHost {
       where: { lead_id: enrollment.lead_id, status: 'ABERTO' },
       orderBy: { last_message_at: 'desc' },
     });
+    // Onda 18.x — respeita o "IA Inativa": se o operador desligou a IA da conversa,
+    // NAO manda follow-up de sequencia (o usuario espera silencio ao desligar).
+    // Reagenda pra rechecar depois (caso a IA volte a ser ligada).
+    if (convo && (convo as any).ai_mode === false) {
+      this.logger.log(`[FOLLOWUP] Pulando ${enrollment.lead_id} — IA da conversa desativada (ai_mode=false)`);
+      await this.prisma.followupEnrollment.update({
+        where: { id: enrollmentId },
+        data: { next_send_at: new Date(Date.now() + 12 * 3600000) },
+      });
+      return;
+    }
     if (convo?.last_message_at) {
       const horasDesde = (Date.now() - convo.last_message_at.getTime()) / 3600000;
       if (horasDesde < 12) {

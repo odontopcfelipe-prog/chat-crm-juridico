@@ -84,6 +84,10 @@ export class FollowupCronService {
         for (const lead of leads) {
           if (!lead.conversations?.length) continue;
           const convo = lead.conversations[0];
+          // Onda 18.x — respeita o "IA Inativa": conversa com IA desligada pelo
+          // operador NAO recebe follow-up automatico (Sophia disparava mesmo com
+          // a IA off porque este cron nunca lia ai_mode).
+          if (convo.ai_mode === false) continue;
           if (convo.last_message_at) {
             const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
             if (convo.last_message_at > oneDayAgo) continue;
