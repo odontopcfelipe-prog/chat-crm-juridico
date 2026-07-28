@@ -297,10 +297,17 @@ export class CalendarService {
         recurrence_days: data.recurrence_days ?? [],
         reminders: data.reminders?.length
           ? {
-              create: data.reminders.map((r) => ({
-                minutes_before: r.minutes_before,
-                channel: r.channel ?? 'PUSH',
-              })),
+              // Onda 18.x — DEDUP por (minutes_before, channel): sem isso, uma antecedencia
+              // repetida no payload/config virava 2 EventReminder -> 2 jobs -> lembrete
+              // duplicado no MESMO minuto ("cafezinho" 2x). Mantem 1 por combinacao.
+              create: [
+                ...new Map(
+                  data.reminders.map((r) => [
+                    `${r.minutes_before}:${r.channel ?? 'PUSH'}`,
+                    { minutes_before: r.minutes_before, channel: r.channel ?? 'PUSH' },
+                  ]),
+                ).values(),
+              ],
             }
           : undefined,
       },
@@ -610,12 +617,17 @@ export class CalendarService {
       // Substitui no banco
       await this.prisma.eventReminder.deleteMany({ where: { event_id: event.id } });
       if (incomingReminders.length > 0) {
+        // Onda 18.x — DEDUP por (minutes_before, channel) — ver create(). Evita 2
+        // EventReminder identicos (lembrete duplicado no mesmo minuto).
         await this.prisma.eventReminder.createMany({
-          data: incomingReminders.map((r) => ({
-            event_id: event.id,
-            minutes_before: r.minutes_before,
-            channel: r.channel ?? 'WHATSAPP',
-          })),
+          data: [
+            ...new Map(
+              incomingReminders.map((r) => [
+                `${r.minutes_before}:${r.channel ?? 'WHATSAPP'}`,
+                { event_id: event.id, minutes_before: r.minutes_before, channel: r.channel ?? 'WHATSAPP' },
+              ]),
+            ).values(),
+          ],
         });
       }
       // Recarrega pra ter os IDs novos pra enqueue
@@ -1536,6 +1548,14 @@ export class CalendarService {
           throw new BadRequestException('cada antecedencia precisa ter channel string');
         }
       }
+      // Onda 18.x — DEDUP: nunca persistir antecedencia repetida (mesma
+      // minutes_before+channel). Uma config duplicada fazia TODO agendamento
+      // gravar 2 EventReminder iguais -> lembrete duplicado ("cafezinho" 2x). Raiz.
+      config.default_antecedencias = [
+        ...new Map(
+          config.default_antecedencias.map((a) => [`${a.minutes_before}:${a.channel}`, a]),
+        ).values(),
+      ];
     }
     if (config.templates) {
       for (const k of ['consulta_24h', 'consulta_1h', 'consulta_15min']) {

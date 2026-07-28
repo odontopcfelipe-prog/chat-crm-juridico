@@ -410,6 +410,21 @@ export class CalendarReminderWorker extends WorkerHost {
       return;
     }
 
+    // Onda 18.x — CLAIM ATOMICO antes de enviar (anti-duplicidade). O guard de
+    // sent_at (L341) era read-then-write: se a gravacao de sent_at pos-envio
+    // falhasse, o BullMQ (attempts:3) re-tentava e REENVIAVA. Aqui viramos
+    // sent_at null->agora em UMA operacao condicional; so quem conseguir (count=1)
+    // envia. Retry/re-entrega de job "stalled"/execucao concorrente => count=0 =>
+    // NAO reenvia. Em falha de envio, o sent_at e RESETADO pra null mais abaixo.
+    const claim = await this.prisma.eventReminder.updateMany({
+      where: { id: reminderId, sent_at: null },
+      data: { sent_at: new Date() },
+    });
+    if (claim.count === 0) {
+      this.logger.log(`Reminder ${reminderId} ja reivindicado por outra execucao — ignorando (anti-duplicidade)`);
+      return;
+    }
+
     // Envia pelo canal apropriado. Dedup defensivo: so marca sent_at se o
     // envio foi bem-sucedido (evita perder o job quando ha falha transitoria).
     // v24: lastErrorMsg captura motivo legivel pra salvar no banco (UI exibe).
@@ -454,10 +469,13 @@ export class CalendarReminderWorker extends WorkerHost {
       });
       this.logger.log(`[REMINDER] ${channel} enviado para evento "${event.title}" (${eventId})${capturedExternalMsgId ? ` msgId=${capturedExternalMsgId}` : ''}`);
     } else {
-      // v24: salva motivo da falha pra UI mostrar no badge FALHOU
+      // v24: salva motivo da falha pra UI mostrar no badge FALHOU.
+      // Onda 18.x — RESET do claim: o envio falhou, entao desfaz o sent_at que a
+      // reivindicacao atomica marcou (senao ficaria "enviado" sem ter ido).
       await this.prisma.eventReminder.update({
         where: { id: reminderId },
         data: {
+          sent_at: null,
           last_error: lastErrorMsg ||
             `Falha ao enviar via ${channel}. Verifique se a instancia Evolution esta online e o numero tem WhatsApp ativo.`,
         },
