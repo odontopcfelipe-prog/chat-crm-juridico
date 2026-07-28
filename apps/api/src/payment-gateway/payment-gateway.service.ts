@@ -1553,13 +1553,34 @@ export class PaymentGatewayService {
 
     // Se pagamento RECEIVED ou CONFIRMED, notificar cliente via WhatsApp
     if (mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') {
-      try {
-        await this.notifyClientPaymentReceived(paymentData, charge);
-      } catch (e: any) {
-        this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento: ${e.message}`);
+      // Onda 18.x — IDEMPOTENCIA DO ENVIO (nao do processamento). O Asaas manda
+      // PAYMENT_CONFIRMED e depois PAYMENT_RECEIVED (status distintos), entao o
+      // guard de status (linha ~1417) NAO barra e a confirmacao saia 2x; no PIX
+      // os dois eventos chegam quase juntos e a corrida criava 2 conversas
+      // financeiras pro mesmo paciente (uma SOPHIA, outra ATRIBUIDA pelo eco).
+      // Claim atomico: so o 1o evento ganha o direito de notificar. A transicao
+      // de status/baixa no caixa (ensureChargeReceita etc.) roda fora deste if,
+      // entao continua normal.
+      const claim = await this.prisma.paymentGatewayCharge.updateMany({
+        where: { id: charge.id, confirmation_notified_at: null },
+        data: { confirmation_notified_at: new Date() },
+      });
+      if (claim.count > 0) {
+        try {
+          await this.notifyClientPaymentReceived(paymentData, charge);
+        } catch (e: any) {
+          // Libera o claim pra retry numa proxima entrega do webhook (o cliente
+          // nao pode ficar sem a confirmacao por causa de uma falha de envio).
+          await this.prisma.paymentGatewayCharge
+            .updateMany({ where: { id: charge.id }, data: { confirmation_notified_at: null } })
+            .catch(() => undefined);
+          this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento: ${e.message}`);
+        }
+        // Onda 17.32.181 — e-mail automatico "pagamento confirmado"
+        void this.sendPaymentConfirmedEmail(charge, paymentData);
+      } else {
+        this.logger.debug(`[WEBHOOK] Confirmacao de pagamento ja enviada p/ charge ${charge.id} — ignorando duplicata (status ${mappedStatus})`);
       }
-      // Onda 17.32.181 — e-mail automatico "pagamento confirmado"
-      void this.sendPaymentConfirmedEmail(charge, paymentData);
     }
 
     // Onda 17.32.182 — e-mail automatico "pagamento atrasado": o banco
@@ -1958,34 +1979,45 @@ export class PaymentGatewayService {
         select: { id: true },
       });
       if (!finInbox) return null;
-      const existing = await this.prisma.conversation.findFirst({
-        where: {
-          lead_id: leadId,
-          channel: 'whatsapp',
-          status: { not: 'ENCERRADO' },
-          inbox: { purpose: 'FINANCEIRO' },
-        },
-        orderBy: { last_message_at: 'desc' },
-        select: { id: true, instance_name: true },
-      });
-      if (existing) return existing;
+      // finInstance/cleanPhone resolvidos FORA da transacao (nao dependem do lock;
+      // evita segurar a tx durante I/O).
       const finInstance = await this.whatsapp.getInstanceForPurpose(tenantId, 'FINANCEIRO');
       const cleanPhone = (phone || '').replace(/\D/g, '');
-      const created = await this.prisma.conversation.create({
-        data: {
-          lead_id: leadId,
-          channel: 'whatsapp',
-          status: 'ABERTO',
-          ...(cleanPhone ? { external_id: `${cleanPhone}@s.whatsapp.net` } : {}),
-          inbox_id: finInbox.id,
-          instance_name: finInstance ?? null,
-          tenant_id: tenantId,
-          last_message_at: new Date(),
-        },
-        select: { id: true, instance_name: true },
+      // Onda 18.x — find-or-create ATOMICO. Sem isso, dois disparos concorrentes
+      // (ex.: CONFIRMED + RECEIVED do Asaas quase juntos, ou eco reentrando)
+      // faziam os dois findFirst verem null e os dois create rodarem -> DUAS
+      // conversas financeiras pro mesmo lead. Um advisory lock por lead serializa
+      // o par find->create sem precisar de unique constraint no banco (o Conversation
+      // nao tem @@unique — indices sao criados manualmente via psql aqui).
+      return await this.prisma.$transaction(async (tx) => {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${leadId}), 0)`;
+        const existing = await tx.conversation.findFirst({
+          where: {
+            lead_id: leadId,
+            channel: 'whatsapp',
+            status: { not: 'ENCERRADO' },
+            inbox: { purpose: 'FINANCEIRO' },
+          },
+          orderBy: { last_message_at: 'desc' },
+          select: { id: true, instance_name: true },
+        });
+        if (existing) return existing;
+        const created = await tx.conversation.create({
+          data: {
+            lead_id: leadId,
+            channel: 'whatsapp',
+            status: 'ABERTO',
+            ...(cleanPhone ? { external_id: `${cleanPhone}@s.whatsapp.net` } : {}),
+            inbox_id: finInbox.id,
+            instance_name: finInstance ?? null,
+            tenant_id: tenantId,
+            last_message_at: new Date(),
+          },
+          select: { id: true, instance_name: true },
+        });
+        this.logger.log(`[FINANCEIRO] Conversa própria criada pro lead ${leadId}: ${created.id}`);
+        return created;
       });
-      this.logger.log(`[FINANCEIRO] Conversa própria criada pro lead ${leadId}: ${created.id}`);
-      return created;
     } catch (e: any) {
       this.logger.warn(`[FINANCEIRO] Falha ao resolver conversa do financeiro: ${e.message}`);
       return null;

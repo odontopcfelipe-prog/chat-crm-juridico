@@ -1637,6 +1637,12 @@ model PaymentGatewayCharge {
   // Onda 17.32.182 — dedup do lembrete "vence amanha" (cron diario)
   due_reminder_sent_at DateTime?
 
+  /// Onda 18.x — dedup do ENVIO de "Pagamento Confirmado". O Asaas manda
+  /// PAYMENT_CONFIRMED e depois PAYMENT_RECEIVED (status distintos), entao a
+  /// confirmacao saia 2x e (no PIX quase simultanea) criava 2 conversas
+  /// financeiras pro mesmo paciente. Claim atomico: so o 1o evento notifica.
+  confirmation_notified_at DateTime?
+
   /// Onda 14.59 — Vincula direto ao TreatmentPlan (pra sinal/entrada que nao
   /// passam por Installment). Permite query "todas charges deste plan".
   treatment_plan_id String?
