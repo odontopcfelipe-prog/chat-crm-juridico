@@ -49,10 +49,10 @@ async function main() {
   // 2) Conversas nesses inboxes (nao encerradas)
   const convs = await prisma.conversation.findMany({
     where: { inbox_id: { in: finInboxIds }, status: { not: 'ENCERRADO' } },
+    // NB: Conversation NAO tem created_at no schema (so last_message_at).
     select: {
       id: true, lead_id: true, tenant_id: true, inbox_id: true,
       assigned_user_id: true, ai_mode: true, status: true, last_message_at: true,
-      created_at: true,
     },
   });
 
@@ -85,7 +85,7 @@ async function main() {
       if (aa !== bb) return bb - aa;
       const lm = new Date(b.last_message_at).getTime() - new Date(a.last_message_at).getTime();
       if (lm !== 0) return lm;
-      return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+      return a.id.localeCompare(b.id); // desempate estavel (Conversation nao tem created_at)
     });
     const canon = sorted[0];
     const dups = sorted.slice(1);
