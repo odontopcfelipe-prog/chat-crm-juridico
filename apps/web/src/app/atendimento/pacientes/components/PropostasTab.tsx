@@ -3559,6 +3559,16 @@ function PropostaPainel({
       setCustomSignalValue(customDownPayment);
     }
   }, [customDownPayment, customSignalValue]);
+  // Onda 18.x — mudar a ENTRADA (input/% dos modais) ZERA o sinal. O sinal e
+  // "parte da entrada paga hoje" (ajuste interno no topico 4); ao mexer na
+  // entrada, herdar o sinal antigo gerava um "sinal fantasma" (ex.: entrada 150
+  // exibindo sinal 500). O operador reconfigura o sinal no topico 4 se quiser.
+  // NB: NAO e usado no restore (la o sinal salvo e recuperado de proposito).
+  const handleChangeDownPayment = useCallback((v: number) => {
+    const dp = Number.isFinite(v) && v > 0 ? v : 0;
+    setCustomDownPayment(dp);
+    setCustomSignalValue(0);
+  }, []);
   // Onda 18 — toggle do desconto à vista (gatilho de fechamento). Inicia do que
   // está salvo na proposta; ressincroniza ao trocar de quote.
   const [avistaEnabled, setAvistaEnabled] = useState(false);
@@ -4445,7 +4455,7 @@ function PropostaPainel({
                 total={total}
                 activePaymentKey={activePaymentKey}
                 customDownPayment={customDownPayment}
-                onChangeCustomDownPayment={setCustomDownPayment}
+                onChangeCustomDownPayment={handleChangeDownPayment}
                 customSignalValue={customSignalValue}
                 onChangeCustomSignalValue={setCustomSignalValue}
                 customSignalMethod={customSignalMethod}
@@ -4485,7 +4495,7 @@ function PropostaPainel({
                 avistaDiscountPct={avistaDiscountPct}
                 activePaymentKey={activePaymentKey}
                 customDownPayment={customDownPayment}
-                onChangeCustomDownPayment={setCustomDownPayment}
+                onChangeCustomDownPayment={handleChangeDownPayment}
                 customSignalValue={customSignalValue}
                 onChangeCustomSignalValue={setCustomSignalValue}
                 customSignalMethod={customSignalMethod}
