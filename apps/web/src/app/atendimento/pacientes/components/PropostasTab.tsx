@@ -5444,27 +5444,155 @@ function BoletoCobrancaUnificadaModal({
                   </p>
                 </div>
 
-                {/* Onda 17.32.11 — Botoes PIX/Boleto/Especie removidos do Step 1.
-                    Conceito: o Step 1 so define o VALOR da entrada. O metodo
-                    de pagamento e propriedade do SINAL (parte da entrada paga
-                    no fechamento) e vive no Step 3 (timeline). O restante da
-                    entrada SEMPRE vira boleto. */}
-                {customDownPayment > 0 && customSignalValue > 0 && customSignalValue < customDownPayment && (
-                  <div className="text-[11px] text-muted-foreground bg-muted/30 px-3 py-2 rounded-md flex items-start gap-2">
-                    <span className="text-amber-600 mt-0.5">ℹ</span>
-                    <span>
-                      Sinal de R$ <strong className="text-foreground tabular-nums">{fmtBRL(customSignalValue)}</strong> via {customSignalMethod === 'PIX' ? 'PIX' : customSignalMethod === 'BOLETO' ? 'boleto' : 'espécie'} +
-                      restante R$ <strong className="text-foreground tabular-nums">{fmtBRL(customDownPayment - customSignalValue)}</strong> em boleto · ajuste no Step 3 abaixo
-                    </span>
+                {/* Onda 18.x — Restante da entrada (entrada − sinal) vira boleto/PIX/
+                    especie. Movido pro Step 1 (fica junto da entrada, igual a foto).
+                    So aparece com entrada > 0. */}
+                {entradaBoletoValor > 0 && (
+                  <div className="flex items-start justify-between gap-3 flex-wrap border-t border-border/40 pt-3 mt-1">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground/80">
+                        Entrada <span className="text-red-600">*</span>
+                      </p>
+                      <p className="text-[10px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                          const isActive = customRestMethod === m;
+                          const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => onChangeCustomRestMethod(m)}
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                isActive
+                                  ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
+                                  : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <input
+                          type="date"
+                          value={customEntradaDueDate}
+                          onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
+                          required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customEntradaDueDate && !isDueDatePast(customEntradaDueDate)
+                              ? 'border-border'
+                              : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
+                        />
+                        {isDueDatePast(customEntradaDueDate) && (
+                          <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                            ⚠ Data no passado — confira o ano
+                          </span>
+                        )}
+                      </div>
+                      <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
+                        R$ {fmtBRL(entradaBoletoValor)}
+                      </p>
+                    </div>
                   </div>
                 )}
               </div>
 
-              {/* ── Step 2: Como pagar o restante ─────────────────── */}
+              {/* ── Step 2: Sinal de fechamento — Onda 18.x: subiu pra logo apos a
+                  Entrada (ordem 1·2·3 da foto). Discreto, "ajuste interno". Com
+                  entrada > 0 edita o sinal; com entrada 0 mostra so uma dica. */}
+              <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3.5">
+                <div className="flex items-center gap-2.5 mb-2.5">
+                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
+                    2
+                  </div>
+                  <div className="flex-1">
+                    <p className="text-sm font-bold text-foreground">Sinal de fechamento</p>
+                    <p className="text-[10px] text-muted-foreground/70">
+                      Parte da entrada paga hoje · ajuste interno
+                    </p>
+                  </div>
+                </div>
+
+                {customDownPayment > 0 ? (
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-xs font-semibold text-foreground/80">Sinal de fechamento</p>
+                      <p className="text-[10px] text-muted-foreground">Cobrado hoje · método abaixo</p>
+                      <div className="flex items-center gap-1 mt-1.5">
+                        {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
+                          const isActive = customSignalMethod === m;
+                          const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
+                          return (
+                            <button
+                              key={m}
+                              type="button"
+                              onClick={() => onChangeCustomSignalMethod(m)}
+                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
+                                isActive
+                                  ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
+                                  : 'border-border bg-card hover:bg-accent text-muted-foreground'
+                              }`}
+                            >
+                              {label}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                    <div className="shrink-0 flex items-center gap-2">
+                      <div className="flex flex-col gap-0.5">
+                        <input
+                          type="date"
+                          value={customSinalDueDate}
+                          onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
+                          required
+                          min={new Date().toISOString().slice(0, 10)}
+                          max="2099-12-31"
+                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
+                            customSinalDueDate && !isDueDatePast(customSinalDueDate)
+                              ? 'border-border'
+                              : 'border-red-500 ring-1 ring-red-500/30'
+                          }`}
+                        />
+                        {isDueDatePast(customSinalDueDate) && (
+                          <span className="text-[9px] font-semibold text-red-600 leading-tight">
+                            ⚠ Data no passado — confira o ano
+                          </span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
+                        onChange={(e) => {
+                          const digits = e.target.value.replace(/\D/g, '');
+                          const num = digits === '' ? 0 : Number(digits) / 100;
+                          onChangeCustomSignalValue(Math.min(num, customDownPayment));
+                        }}
+                        placeholder="R$ 0,00"
+                        inputMode="numeric"
+                        className="w-28 text-sm font-bold tabular-nums px-2 py-1 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-amber-500/30"
+                      />
+                    </div>
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-muted-foreground/70">
+                    Sem sinal. Defina uma <span className="font-semibold text-muted-foreground">Entrada</span> no tópico 1 pra cobrar um valor no fechamento.
+                  </p>
+                )}
+              </div>
+
+              {/* ── Step 3: Como pagar o restante ─────────────────── */}
               <div className="rounded-xl border border-border bg-card p-4">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
-                    2
+                    3
                   </div>
                   <div className="flex-1">
                     <p className="text-sm font-bold text-foreground">Como pagar o restante</p>
@@ -5530,22 +5658,15 @@ function BoletoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* ── Step 3: Plano de cobranca (timeline) ──────────── */}
+              {/* ── Data do 1º boleto — sub-secao do Step 3 (sem numero, igual a foto) ── */}
               <div className="rounded-xl border border-border bg-card p-4">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-7 h-7 rounded-lg bg-foreground text-background flex items-center justify-center text-xs font-bold shrink-0">
-                    3
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-sm font-bold text-foreground">Data do 1º boleto</p>
-                    <p className="text-[11px] text-muted-foreground">
-                      Vencimento da 1ª parcela e próximas
-                    </p>
-                  </div>
+                <div className="mb-3">
+                  <p className="text-sm font-bold text-foreground">Data do 1º boleto</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    Vencimento da 1ª parcela e próximas
+                  </p>
                 </div>
 
-                {/* Onda 18.1 — Tópico 3 = SÓ o boleto (data do 1º). Sem timeline,
-                    é uma linha só. O sinal saiu pro tópico 4 (discreto). */}
                 <div className="space-y-2">
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex-1 min-w-0">
@@ -5588,151 +5709,6 @@ function BoletoCobrancaUnificadaModal({
                     </div>
                   </div>
                 </div>
-              </div>
-
-              {/* ── Step 4: Sinal de fechamento — Onda 18.2: SEMPRE visível (estrutura
-                  1·2·3·4 consistente), mas discreto. Com entrada > 0 edita o sinal +
-                  resto da entrada; com entrada 0 mostra só uma dica (sem inputs
-                  obrigatórios, pra não sujar/travar a emissão). */}
-              <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 p-3.5">
-                <div className="flex items-center gap-2.5 mb-2.5">
-                  <div className="w-6 h-6 rounded-lg bg-muted text-muted-foreground/80 flex items-center justify-center text-[11px] font-bold shrink-0">
-                    4
-                  </div>
-                  <div className="flex-1">
-                    <p className="text-xs font-semibold text-muted-foreground">Sinal de fechamento</p>
-                    <p className="text-[10px] text-muted-foreground/70">
-                      Parte da entrada paga hoje · ajuste interno
-                    </p>
-                  </div>
-                </div>
-
-                {customDownPayment > 0 ? (
-                <div className="space-y-3">
-                  {/* Sinal — método + data + valor (sem timeline) */}
-                  <div className="flex items-start justify-between gap-3 flex-wrap">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-xs font-semibold text-foreground/80">Sinal de fechamento</p>
-                      <p className="text-[10px] text-muted-foreground">Cobrado hoje · método abaixo</p>
-                      <div className="flex items-center gap-1 mt-1.5">
-                        {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
-                          const isActive = customSignalMethod === m;
-                          const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
-                          return (
-                            <button
-                              key={m}
-                              type="button"
-                              onClick={() => onChangeCustomSignalMethod(m)}
-                              className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
-                                isActive
-                                  ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
-                                  : 'border-border bg-card hover:bg-accent text-muted-foreground'
-                              }`}
-                            >
-                              {label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                    <div className="shrink-0 flex items-center gap-2">
-                      <div className="flex flex-col gap-0.5">
-                        <input
-                          type="date"
-                          value={customSinalDueDate}
-                          onChange={(e) => onChangeCustomSinalDueDate(e.target.value)}
-                          required
-                          min={new Date().toISOString().slice(0, 10)}
-                          max="2099-12-31"
-                          className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                            customSinalDueDate && !isDueDatePast(customSinalDueDate)
-                              ? 'border-border'
-                              : 'border-red-500 ring-1 ring-red-500/30'
-                          }`}
-                        />
-                        {isDueDatePast(customSinalDueDate) && (
-                          <span className="text-[9px] font-semibold text-red-600 leading-tight">
-                            ⚠ Data no passado — confira o ano
-                          </span>
-                        )}
-                      </div>
-                      <input
-                        type="text"
-                        value={sinalValor > 0 ? `R$ ${fmtBRL(sinalValor)}` : ''}
-                        onChange={(e) => {
-                          const digits = e.target.value.replace(/\D/g, '');
-                          const num = digits === '' ? 0 : Number(digits) / 100;
-                          onChangeCustomSignalValue(Math.min(num, customDownPayment));
-                        }}
-                        placeholder="R$ 0,00"
-                        inputMode="numeric"
-                        className="w-28 text-sm font-bold tabular-nums px-2 py-1 rounded-md border border-border bg-background text-right focus:outline-none focus:ring-2 focus:ring-amber-500/30"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Entrada (resto da entrada após o sinal) */}
-                  {entradaBoletoValor > 0 && (
-                    <div className="flex items-start justify-between gap-3 flex-wrap border-t border-border/40 pt-3">
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-foreground/80">
-                          Entrada <span className="text-red-600">*</span>
-                        </p>
-                        <p className="text-[10px] text-muted-foreground">Restante da entrada · vencimento obrigatório</p>
-                        <div className="flex items-center gap-1 mt-1.5">
-                          {(['PIX', 'BOLETO', 'CASH'] as const).map((m) => {
-                            const isActive = customRestMethod === m;
-                            const label = m === 'PIX' ? 'PIX' : m === 'BOLETO' ? 'Boleto' : 'Espécie';
-                            return (
-                              <button
-                                key={m}
-                                type="button"
-                                onClick={() => onChangeCustomRestMethod(m)}
-                                className={`text-[10px] font-semibold px-2 py-0.5 rounded border transition-colors ${
-                                  isActive
-                                    ? 'border-amber-600 bg-amber-500/15 text-amber-800 dark:text-amber-400'
-                                    : 'border-border bg-card hover:bg-accent text-muted-foreground'
-                                }`}
-                              >
-                                {label}
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-2">
-                        <div className="flex flex-col gap-0.5">
-                          <input
-                            type="date"
-                            value={customEntradaDueDate}
-                            onChange={(e) => onChangeCustomEntradaDueDate(e.target.value)}
-                            required
-                            min={new Date().toISOString().slice(0, 10)}
-                            max="2099-12-31"
-                            className={`text-[11px] px-2 py-1 rounded border bg-background text-foreground ${
-                              customEntradaDueDate && !isDueDatePast(customEntradaDueDate)
-                                ? 'border-border'
-                                : 'border-red-500 ring-1 ring-red-500/30'
-                            }`}
-                          />
-                          {isDueDatePast(customEntradaDueDate) && (
-                            <span className="text-[9px] font-semibold text-red-600 leading-tight">
-                              ⚠ Data no passado — confira o ano
-                            </span>
-                          )}
-                        </div>
-                        <p className="w-28 text-sm font-bold tabular-nums text-foreground text-right px-2 py-1">
-                          R$ {fmtBRL(entradaBoletoValor)}
-                        </p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-                ) : (
-                  <p className="text-[11px] text-muted-foreground/70">
-                    Sem sinal. Defina uma <span className="font-semibold text-muted-foreground">Entrada</span> no tópico 1 pra cobrar um valor no fechamento.
-                  </p>
-                )}
               </div>
             </div>
 
