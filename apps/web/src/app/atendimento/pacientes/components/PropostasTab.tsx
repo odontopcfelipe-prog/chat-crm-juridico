@@ -397,7 +397,11 @@ function buildPaymentOptions(avistaPct: number = 0): {
           discountPercent: 0,
           installments: n,
           variant: 'parcelado' as const,
-          interestRate: 1.5,
+          // Onda 18.x — "condicao a vista" (avistaPct > 0) ZERA o juros das
+          // parcelas. Como buildPaymentOptions e a fonte UNICA (tela + previa +
+          // emissao via approve-and-bill), o boleto real tambem sai sem juros —
+          // nao e so cosmetico. Sem avista, mantem 1,5%/mes.
+          interestRate: avistaPct > 0 ? 0 : 1.5,
           downPaymentPercent: hasDownPayment ? 20 : 0,
         };
       }),
@@ -4519,7 +4523,11 @@ function PropostaPainel({
                   // Modal so fecha quando precisa abrir o credit-check (que
                   // ocupa a tela). Senao o operador continua no modal pra
                   // ajustar mais coisas e clicar "Emitir cobranca" no fim.
-                  if (opt.key === 'boleto-avista' || !requiresCC) {
+                  // Onda 18.x — a vista = SEM juros = sem risco de financiamento
+                  // => consulta de credito DISPENSADA. Aplica direto pelo caminho
+                  // principal (buildPaymentOptions com o flag), evitando o
+                  // CreditCheckDialog que emitiria com 1,5%/mes (mentira de preco).
+                  if (opt.key === 'boleto-avista' || !requiresCC || avistaEnabled) {
                     onChangePayment(opt.key);
                   } else {
                     setBoletoModalOpen(false);
@@ -5374,7 +5382,7 @@ function BoletoCobrancaUnificadaModal({
               {avistaDiscountPct > 0 && (
                 <label
                   className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                  title={`Desconto à vista de ${avistaDiscountPct}% no boleto à vista — gatilho de fechamento. Ligue só quando for oferecer.`}
+                  title={`Condição à vista: remove os juros do parcelamento (tira os 1,5%/mês) e dispensa a consulta de crédito. Gatilho de fechamento — ligue só quando for oferecer.`}
                 >
                   <input
                     type="checkbox"
@@ -5641,11 +5649,15 @@ function BoletoCobrancaUnificadaModal({
                             R$ {fmtBRL(c.installmentValue)}
                           </strong>
                           <span className="text-muted-foreground">/mês</span>
-                          {hasInterest && (
+                          {hasInterest ? (
                             <span className="block text-[10px] text-amber-700 leading-tight mt-0.5">
                               juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}
                             </span>
-                          )}
+                          ) : avistaEnabled ? (
+                            <span className="block text-[10px] text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
+                              sem juros · à vista · consulta dispensada
+                            </span>
+                          ) : null}
                         </span>
                         <span className="flex items-center justify-center">
                           <span className={`w-4 h-4 rounded-full border-2 transition-colors ${
