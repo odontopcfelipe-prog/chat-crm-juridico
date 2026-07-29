@@ -3548,6 +3548,17 @@ function PropostaPainel({
   const [customSignalMethod, setCustomSignalMethod] = useState<'PIX' | 'BOLETO' | 'CASH'>('PIX');
   const [customEntradaDueDate, setCustomEntradaDueDate] = useState<string>('');
   const [customInstallmentsStartDate, setCustomInstallmentsStartDate] = useState<string>('');
+  // Onda 18.x — INVARIANTE: o sinal e PARTE da entrada, logo nunca pode exceder
+  // a entrada. Sem isso, reduzir/zerar a entrada (ex.: clicar 50% e depois
+  // limpar) deixava um "sinal fantasma" — no resumo E, pior, na cobranca
+  // salva/emitida (customSignalValue e estado separado, persistido em
+  // localStorage/DB). Este clamp tambem AUTO-CURA quotes legadas ao carregar
+  // (chosen_signal_value > 0 com entrada 0).
+  useEffect(() => {
+    if (customSignalValue > customDownPayment) {
+      setCustomSignalValue(customDownPayment);
+    }
+  }, [customDownPayment, customSignalValue]);
   // Onda 18 — toggle do desconto à vista (gatilho de fechamento). Inicia do que
   // está salvo na proposta; ressincroniza ao trocar de quote.
   const [avistaEnabled, setAvistaEnabled] = useState(false);
@@ -5254,8 +5265,10 @@ function BoletoCobrancaUnificadaModal({
 
   // Etapa "Plano de cobranca" (Step 3): sinal de fechamento (PIX hoje) +
   // entrada (boleto, data configuravel) + parcelas (1a data configuravel).
-  const sinalValor = customSignalValue;
-  const entradaBoletoValor = Math.max(0, customDownPayment - customSignalValue);
+  // Onda 18.x — sinal e PARTE da entrada: clampa pra nunca exceder (igual ao
+  // modal irmao). Com entrada 0, sinal = 0 (sem "sinal fantasma" no resumo).
+  const sinalValor = Math.max(0, Math.min(customSignalValue, customDownPayment));
+  const entradaBoletoValor = Math.max(0, customDownPayment - sinalValor);
   const parcelasValor = activeCalc ? activeCalc.finalValue - customDownPayment : 0;
 
   const todayLabel = (() => {
