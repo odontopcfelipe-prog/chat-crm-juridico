@@ -1161,7 +1161,13 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // como opcional. Caso a consulta esteja EXIGIDA, segue bloqueando com
     // mensagem orientadora (operador deve passar pelo card do Boleto pra a
     // consulta abrir automaticamente).
-    if (activeOpt.variant === 'parcelado' && activeOpt.installments > 1) {
+    // Onda 18.x — CORRECAO CRITICA: 1x COM entrada/sinal tambem entra no fluxo de
+    // split (entrada + boleto). Antes so `installments > 1` entrava, entao 1x-com-
+    // entrada caia no ramo generico e emitia UM boleto do total (ex.: R$ 1.000 em
+    // vez de entrada 500 + boleto 500). 1x SEM entrada segue no generico (boleto a
+    // vista unico).
+    const temEntradaOuSinal = customDp > 0 || (extras?.customSignalValue ?? 0) > 0;
+    if (activeOpt.variant === 'parcelado' && (activeOpt.installments > 1 || temEntradaOuSinal)) {
       const ccRequired = selectedDetail.requires_credit_check !== false;
       if (ccRequired) {
         showError(
