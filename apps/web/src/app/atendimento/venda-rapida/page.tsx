@@ -322,15 +322,15 @@ export default function VendaRapidaPage() {
     });
   };
 
-  // Onda 17.39 — define preço unitário (desconto). null/≥base reseta pro de
-  // tabela; clampa em [0, base] (só desconto, nunca acima da tabela).
+  // Onda 18.x — define preço unitário custom. Agora aceita DESCONTO **ou
+  // ACRÉSCIMO** (decisão do operador; ex.: aparelho ortô que vende acima da
+  // tabela). null/<=0 reseta pro preço de tabela (base_price).
   const setItemPrice = (procId: string, v: number | null) => {
     setCart((prev) =>
       prev.map((it) => {
         if (it.procedure.id !== procId) return it;
-        const base = Number(it.procedure.base_price);
-        if (v == null || v >= base) return { ...it, customPrice: null };
-        return { ...it, customPrice: Math.max(0, v) };
+        if (v == null || v <= 0) return { ...it, customPrice: null };
+        return { ...it, customPrice: v };
       }),
     );
   };
@@ -1533,10 +1533,11 @@ function ToothPicker({
   );
 }
 
-// ─── Onda 17.39 — Editor de preço unitário (desconto) ──────────────────────
+// ─── Editor de preço unitário (desconto OU acréscimo) ──────────────────────
 // Só renderizado pra quem tem a permissão `override_price`. Clica no preço →
-// input inline. Clampa em [0, base] (só desconto: nunca acima da tabela).
-// Mostra o preço de tabela riscado quando há desconto. O backend revalida.
+// input inline. Onda 18.x — aceita valor ACIMA ou ABAIXO da tabela (ex.: ortô
+// que vende mais caro). Mostra a tabela riscada quando muda (verde=desconto,
+// âmbar=acréscimo). O backend revalida.
 function PriceTag({
   base,
   value,
@@ -1549,6 +1550,8 @@ function PriceTag({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState('');
   const discounted = value < base - 0.001;
+  const raised = value > base + 0.001;
+  const changed = discounted || raised;
 
   // Abre o campo VAZIO (preço atual fica no placeholder). Assim, no celular,
   // digitar o novo valor substitui em vez de anexar ao texto pré-preenchido.
@@ -1559,13 +1562,31 @@ function PriceTag({
   const commit = () => {
     const raw = draft.trim();
     if (raw === '') {
-      // Vazio = não mexe (evita zerar um desconto só por abrir e fechar).
+      // Vazio = não mexe (evita zerar um preço custom só por abrir e fechar).
       setEditing(false);
       return;
     }
-    // aceita "1.800,00" ou "1800" — tira separador de milhar, vírgula vira ponto
-    const n = Number(raw.replace(/\./g, '').replace(',', '.'));
-    if (isFinite(n) && n > 0) onChange(n); // setItemPrice clampa em [0, tabela]
+    // Parse tolerante ao formato BR. Regra: o ÚLTIMO separador é o decimal.
+    // - "1.800,00" -> vírgula é decimal, ponto é milhar -> 1800
+    // - "350.00"   -> ponto seguido de 1-2 casas = decimal -> 350 (antes virava 35000!)
+    // - "1.200"    -> ponto seguido de 3 casas = milhar -> 1200
+    // - "1800"     -> 1800
+    const cleaned = raw.replace(/[^\d.,]/g, '');
+    const lastComma = cleaned.lastIndexOf(',');
+    const lastDot = cleaned.lastIndexOf('.');
+    let normalized: string;
+    if (lastComma > lastDot) {
+      normalized = cleaned.replace(/\./g, '').replace(',', '.');
+    } else if (lastDot > lastComma) {
+      const decimals = cleaned.length - lastDot - 1;
+      normalized = decimals <= 2
+        ? cleaned.replace(/,/g, '')       // ponto é decimal
+        : cleaned.replace(/[.,]/g, '');   // ponto é milhar
+    } else {
+      normalized = cleaned;
+    }
+    const n = Number(normalized);
+    if (isFinite(n) && n > 0) onChange(n); // aceita acima OU abaixo da tabela
     setEditing(false);
   };
   const resetTable = () => {
@@ -1601,7 +1622,7 @@ function PriceTag({
         >
           <Check size={13} />
         </button>
-        {discounted && (
+        {changed && (
           <button
             type="button"
             onMouseDown={(e) => e.preventDefault()}
@@ -1621,12 +1642,13 @@ function PriceTag({
       type="button"
       onClick={open}
       className="group/price inline-flex items-center gap-1 hover:text-primary"
-      title="Alterar preço (dar desconto)"
+      title="Alterar preço (desconto ou acréscimo)"
     >
-      {discounted && <span className="line-through text-muted-foreground/50">R$ {fmtBRL(base)}</span>}
+      {changed && <span className="line-through text-muted-foreground/50">R$ {fmtBRL(base)}</span>}
       <span
         className={`border-b border-dashed border-muted-foreground/40 ${
-          discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400' : ''
+          discounted ? 'font-semibold text-emerald-700 dark:text-emerald-400'
+            : raised ? 'font-semibold text-amber-700 dark:text-amber-400' : ''
         }`}
       >
         R$ {fmtBRL(value)}

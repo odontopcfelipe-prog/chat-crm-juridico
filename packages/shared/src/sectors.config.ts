@@ -179,6 +179,10 @@ export const SECTORS: SectorMeta[] = [
       // Onda 18.x — recepcao OPERA o caixa do dia (lanca entradas/saidas +
       // fecha conferindo), sem enxergar cobrancas/financeiro (view_financial).
       'operate_cash',
+      // Onda 18.x — recepcao pode ALTERAR o preco na venda de balcao (desconto
+      // OU acrescimo, ex.: aparelho orto que vende acima da tabela). Decisao do
+      // usuario: liberar edicao de preco pra todo o setor recepcao.
+      'override_price',
     ],
     home: {
       persona: 'Recepcionista',
