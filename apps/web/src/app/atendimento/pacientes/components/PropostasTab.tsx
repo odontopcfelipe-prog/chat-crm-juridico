@@ -114,6 +114,8 @@ interface QuoteDetailLite {
   /** Onda 18 — desconto à vista opcional (toggle salvo + % congelado). */
   avista_discount_enabled?: boolean | null;
   avista_discount_pct?: number | string | null;
+  /** Onda 18.x — S/J (sem juros nas parcelas do boleto), salvo na proposta. */
+  sem_juros_enabled?: boolean | null;
   chosen_down_payment?: string | number | null;
   /** Onda 15 (etapa 16.8) — plano de cobranca da entrada congelado quando
    *  operador clica em "Salvar proposta". Restaurado ao reabrir o painel. */
@@ -332,7 +334,7 @@ interface PaymentOption {
   isAVistaHighlight?: boolean;
 }
 
-function buildPaymentOptions(avistaPct: number = 0): {
+function buildPaymentOptions(avistaPct: number = 0, semJuros: boolean = false): {
   avista: PaymentOption[];
   cartao: PaymentOption[];
   parcelado: PaymentOption[];
@@ -394,14 +396,16 @@ function buildPaymentOptions(avistaPct: number = 0): {
           key: `parcelado-${n}x`,
           label: `${n}x`,
           sublabel: n === 1 ? '30 dias' : '',
-          discountPercent: 0,
+          // Onda 18.x — DOIS gatilhos INDEPENDENTES:
+          //  - "condicao a vista" (avistaPct > 0) -> desconto % que ABATE a base
+          //    (applyPaymentOption aplica em TODOS os ramos, inclusive parcelado).
+          //  - "S/J" (semJuros) -> zera os 1,5%/mes das parcelas.
+          // buildPaymentOptions e a fonte UNICA (tela + previa + emissao), entao
+          // o boleto REAL reflete os dois — nao e cosmetico.
+          discountPercent: avistaPct,
           installments: n,
           variant: 'parcelado' as const,
-          // Onda 18.x — "condicao a vista" (avistaPct > 0) ZERA o juros das
-          // parcelas. Como buildPaymentOptions e a fonte UNICA (tela + previa +
-          // emissao via approve-and-bill), o boleto real tambem sai sem juros —
-          // nao e so cosmetico. Sem avista, mantem 1,5%/mes.
-          interestRate: avistaPct > 0 ? 0 : 1.5,
+          interestRate: semJuros ? 0 : 1.5,
           downPaymentPercent: hasDownPayment ? 20 : 0,
         };
       }),
@@ -442,11 +446,19 @@ function applyPaymentOption(
 } {
   // Onda 14.29 — opcoes a vista (PIX e Boleto a vista) ignoram entrada custom
   const isAvistaTotal = opt.variant === 'avista' || opt.key === 'boleto-avista';
+  // Onda 18.x — o DESCONTO (opt.discountPercent, ex.: "condicao a vista" 10%)
+  // ABATE a base ANTES do calculo, em TODOS os ramos (parcelado com juros,
+  // parcelado com entrada e a vista). Antes o desconto so entrava no ramo
+  // "sem juros E sem entrada", entao "condicao a vista" nao pegava no boleto
+  // parcelado. `base` = total ja com desconto; savedValue = quanto foi abatido.
+  const discountPct = opt.discountPercent || 0;
+  const base = discountPct > 0 ? total * (1 - discountPct / 100) : total;
+  const savedValue = total - base;
   // Entrada efetiva: custom (se > 0 e nao for avista) sobrescreve o default
-  // do opt.downPaymentPercent. Sempre limitada a total - 1 centavo pra nao
-  // gerar parcelas em valor 0.
+  // do opt.downPaymentPercent. Limitada a base - 1 centavo (a entrada nunca
+  // passa do valor JA com desconto) pra nao gerar parcelas em valor 0.
   const customClamped = (customDownPayment ?? 0) > 0
-    ? Math.min(Math.max(0, customDownPayment as number), total - 0.01)
+    ? Math.min(Math.max(0, customDownPayment as number), base - 0.01)
     : 0;
 
   if (opt.interestRate && opt.interestRate > 0) {
@@ -455,9 +467,9 @@ function applyPaymentOption(
       : customClamped > 0
       ? customClamped
       : (opt.downPaymentPercent ?? 0) > 0
-      ? total * ((opt.downPaymentPercent ?? 0) / 100)
+      ? base * ((opt.downPaymentPercent ?? 0) / 100)
       : 0;
-    const financedAmount = total - downPaymentValue;
+    const financedAmount = base - downPaymentValue;
     const i = opt.interestRate / 100;
     const n = opt.installments;
     const pmt = financedAmount * i / (1 - Math.pow(1 + i, -n));
@@ -466,29 +478,28 @@ function applyPaymentOption(
     return {
       finalValue,
       installmentValue: pmt,
-      savedValue: 0,
-      extraInterest: finalValue - total,
+      savedValue,
+      extraInterest: finalValue - base,
       downPaymentValue,
       financedAmount,
     };
   }
   // Onda 14.29 — opcao sem juros mas com entrada custom (ex: cartao 6x sem
-  // juros + entrada 5k): entrada abate do total, parcelas dividem o resto.
+  // juros + entrada 5k): entrada abate da base, parcelas dividem o resto.
   // Aplicada so se nao for avista (PIX/Boleto a vista preservam comportamento).
   if (!isAvistaTotal && customClamped > 0) {
     const downPaymentValue = customClamped;
-    const financedAmount = total - downPaymentValue;
+    const financedAmount = base - downPaymentValue;
     return {
-      finalValue: total,
+      finalValue: base,
       installmentValue: financedAmount / opt.installments,
-      savedValue: 0,
+      savedValue,
       extraInterest: 0,
       downPaymentValue,
       financedAmount,
     };
   }
-  const savedValue = total * (opt.discountPercent / 100);
-  const finalValue = total - savedValue;
+  const finalValue = base;
   return {
     finalValue,
     installmentValue: finalValue / opt.installments,
@@ -896,6 +907,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       entrada_due_date?: string | null;
       installments_start_date?: string | null;
       avista_discount_enabled?: boolean | null;
+      sem_juros_enabled?: boolean | null;
     },
   ) => {
     // Optimistic — atualiza estado local antes do PATCH
@@ -921,6 +933,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
             chosen_installments_start_date: opts?.installments_start_date ?? null,
             avista_discount_enabled: opts?.avista_discount_enabled ?? false,
             avista_discount_pct: opts?.avista_discount_enabled ? avistaDiscountPct : 0,
+            sem_juros_enabled: opts?.sem_juros_enabled ?? false,
           }
         : prev,
     );
@@ -933,6 +946,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         entrada_due_date: opts?.entrada_due_date ?? null,
         installments_start_date: opts?.installments_start_date ?? null,
         avista_discount_enabled: opts?.avista_discount_enabled ?? false,
+        sem_juros_enabled: opts?.sem_juros_enabled ?? false,
       });
       showSuccess('Proposta salva — aguardando decisão do paciente');
       load(); // refetch da lista em background pra garantir consistencia
@@ -1114,6 +1128,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     // % de desconto à vista SALVO na proposta (0 se o toggle estiver desligado).
     const opts = buildPaymentOptions(
       selectedDetail.avista_discount_enabled ? Number(selectedDetail.avista_discount_pct) || 0 : 0,
+      !!selectedDetail.sem_juros_enabled,
     );
     const allOpts = [...opts.avista, ...opts.cartao, ...opts.parcelado];
     let activeOpt = allOpts.find((o) => o.key === activePaymentKey) || opts.avista[0];
@@ -1888,6 +1903,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
         const total = hasApproved ? approvedValue : totalBruto;
         const opts = buildPaymentOptions(
           selectedDetail.avista_discount_enabled ? Number(selectedDetail.avista_discount_pct) || 0 : 0,
+          !!selectedDetail.sem_juros_enabled,
         );
         const allOptions = [...opts.avista, ...opts.cartao, ...opts.parcelado];
         const activeOption = allOptions.find((o) => o.key === activePaymentKey) || opts.avista[0];
@@ -3526,6 +3542,7 @@ function PropostaPainel({
     entrada_due_date?: string | null;
     installments_start_date?: string | null;
     avista_discount_enabled?: boolean | null;
+    sem_juros_enabled?: boolean | null;
   }) => void;
   /** Onda 14.33 — Desmarca a escolhida (volta ao estado neutro). */
 }) {
@@ -3579,6 +3596,12 @@ function PropostaPainel({
   useEffect(() => {
     setAvistaEnabled(!!detail?.avista_discount_enabled);
   }, [detail?.id, detail?.avista_discount_enabled]);
+  // Onda 18.x — toggle "S/J" (sem juros nas parcelas do boleto), INDEPENDENTE
+  // do desconto à vista. Inicia do que está salvo na proposta.
+  const [semJuros, setSemJuros] = useState(false);
+  useEffect(() => {
+    setSemJuros(!!detail?.sem_juros_enabled);
+  }, [detail?.id, detail?.sem_juros_enabled]);
 
   // Onda 18.6 — Edicao de preco de item, restrita a ADMIN. useRole le o papel do
   // JWT; SUPER_ADMIN tambem passa. Nao-admin nem ve o controle (o backend tambem
@@ -3803,7 +3826,7 @@ function PropostaPainel({
 
   // Onda 18 — desconto à vista só entra se o operador ligou o toggle.
   const effAvistaPct = avistaEnabled ? (avistaDiscountPct ?? 10) : 0;
-  const options = buildPaymentOptions(effAvistaPct);
+  const options = buildPaymentOptions(effAvistaPct, semJuros);
   // Onda 14.29 (fix) — removidos activeOption/activeCalc que sobraram da
   // Onda 14.28 (resumo "voce esta oferecendo" foi removido). Cada card de
   // pagamento (PIX/Cartao/Boleto) calcula seu proprio valor internamente.
@@ -4482,7 +4505,7 @@ function PropostaPainel({
                     signal_method: customSignalValue > 0 ? customSignalMethod : null,
                     entrada_due_date: customEntradaDueDate || null,
                     installments_start_date: customInstallmentsStartDate || null,
-                    avista_discount_enabled: avistaEnabled,
+                    avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
                   });
                 }}
                 onClose={() => setCartaoModalOpen(false)}
@@ -4497,6 +4520,8 @@ function PropostaPainel({
                 avistaEnabled={avistaEnabled}
                 onChangeAvistaEnabled={setAvistaEnabled}
                 avistaDiscountPct={avistaDiscountPct}
+                semJuros={semJuros}
+                onChangeSemJuros={setSemJuros}
                 activePaymentKey={activePaymentKey}
                 customDownPayment={customDownPayment}
                 onChangeCustomDownPayment={handleChangeDownPayment}
@@ -4523,11 +4548,11 @@ function PropostaPainel({
                   // Modal so fecha quando precisa abrir o credit-check (que
                   // ocupa a tela). Senao o operador continua no modal pra
                   // ajustar mais coisas e clicar "Emitir cobranca" no fim.
-                  // Onda 18.x — a vista = SEM juros = sem risco de financiamento
-                  // => consulta de credito DISPENSADA. Aplica direto pelo caminho
+                  // Onda 18.x — SEM JUROS (S/J) = sem risco de financiamento =>
+                  // consulta de credito DISPENSADA. Aplica direto pelo caminho
                   // principal (buildPaymentOptions com o flag), evitando o
                   // CreditCheckDialog que emitiria com 1,5%/mes (mentira de preco).
-                  if (opt.key === 'boleto-avista' || !requiresCC || avistaEnabled) {
+                  if (opt.key === 'boleto-avista' || !requiresCC || semJuros) {
                     onChangePayment(opt.key);
                   } else {
                     setBoletoModalOpen(false);
@@ -4552,7 +4577,7 @@ function PropostaPainel({
                     signal_method: customSignalValue > 0 ? customSignalMethod : null,
                     entrada_due_date: customEntradaDueDate || null,
                     installments_start_date: customInstallmentsStartDate || null,
-                    avista_discount_enabled: avistaEnabled,
+                    avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
                   });
                 }}
                 onClose={() => setBoletoModalOpen(false)}
@@ -4612,7 +4637,7 @@ function PropostaPainel({
                     // QR Asaas usa a data; manual é imediato (sem vencimento).
                     entrada_due_date: pixModalMode === 'PIX' && pixKind === 'ASAAS' ? (customPixDueDate || null) : null,
                     installments_start_date: null,
-                    avista_discount_enabled: avistaEnabled,
+                    avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
                   });
                 }}
                 onClose={() => setPixModalOpen(false)}
@@ -4693,7 +4718,7 @@ function PropostaPainel({
               signal_method: customSignalValue > 0 ? customSignalMethod : null,
               entrada_due_date: customEntradaDueDate || null,
               installments_start_date: customInstallmentsStartDate || null,
-              avista_discount_enabled: avistaEnabled,
+              avista_discount_enabled: avistaEnabled, sem_juros_enabled: semJuros,
             })}
             className="text-xs px-3 py-2 rounded-lg border border-amber-500/50 bg-amber-500/5 text-amber-800 hover:bg-amber-500/15 flex items-center gap-1.5 ml-auto"
             title="Marca esta proposta como a escolhida — fica em destaque, demais ficam esmaecidas. Forma de pagamento e entrada atuais ficam salvos."
@@ -5221,6 +5246,8 @@ function BoletoCobrancaUnificadaModal({
   avistaEnabled,
   onChangeAvistaEnabled,
   avistaDiscountPct,
+  semJuros,
+  onChangeSemJuros,
 }: {
   detail: QuoteDetailLite;
   options: PaymentOption[];
@@ -5255,6 +5282,8 @@ function BoletoCobrancaUnificadaModal({
   avistaEnabled: boolean;
   onChangeAvistaEnabled: (v: boolean) => void;
   avistaDiscountPct: number;
+  semJuros: boolean;
+  onChangeSemJuros: (v: boolean) => void;
 }) {
   // Onda 14.25 — Separa a opcao destacada (boleto a vista) das demais.
   const highlightOption = options.find((o) => o.isAVistaHighlight);
@@ -5377,22 +5406,37 @@ function BoletoCobrancaUnificadaModal({
                 </div>
               </div>
 
-              {/* Onda 18 — Desconto à vista (gatilho). DISCRETO: só afeta o "boleto à vista";
-                  o paciente não deve ver "10% off" e já pedir. % só no tooltip do operador. */}
-              {avistaDiscountPct > 0 && (
+              {/* Onda 18.x — dois gatilhos de fechamento DISCRETOS, lado a lado:
+                  "condição à vista" (desconto %) e "S/J" (sem juros). Independentes.
+                  % / detalhe só no tooltip do operador (paciente não vê). */}
+              <div className="flex items-center gap-4 flex-wrap">
+                {avistaDiscountPct > 0 && (
+                  <label
+                    className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
+                    title={`Desconto à vista de ${avistaDiscountPct}%: abate ${avistaDiscountPct}% do total (à vista e nas parcelas). Gatilho de fechamento — ligue só quando for oferecer.`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={avistaEnabled}
+                      onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-border accent-emerald-600 shrink-0"
+                    />
+                    <span>condição à vista</span>
+                  </label>
+                )}
                 <label
                   className="flex items-center gap-1.5 w-fit cursor-pointer text-[11px] text-muted-foreground/60 hover:text-muted-foreground transition-colors"
-                  title={`Condição à vista: remove os juros do parcelamento (tira os 1,5%/mês) e dispensa a consulta de crédito. Gatilho de fechamento — ligue só quando for oferecer.`}
+                  title="S/J (sem juros): as parcelas do boleto saem SEM os 1,5%/mês e dispensam a consulta de crédito. Independente do desconto à vista."
                 >
                   <input
                     type="checkbox"
-                    checked={avistaEnabled}
-                    onChange={(e) => onChangeAvistaEnabled(e.target.checked)}
-                    className="w-3.5 h-3.5 rounded border-border accent-emerald-600 shrink-0"
+                    checked={semJuros}
+                    onChange={(e) => onChangeSemJuros(e.target.checked)}
+                    className="w-3.5 h-3.5 rounded border-border accent-amber-600 shrink-0"
                   />
-                  <span>condição à vista</span>
+                  <span className="font-semibold tracking-wide">S/J</span>
                 </label>
-              )}
+              </div>
 
               {/* ── Step 1: Entrada ───────────────────────────────── */}
               <div className="rounded-xl border border-border bg-card p-4">
@@ -5653,9 +5697,9 @@ function BoletoCobrancaUnificadaModal({
                             <span className="block text-[10px] text-amber-700 leading-tight mt-0.5">
                               juros 1,5%/mês · {requiresCreditCheck ? 'exige consulta de crédito' : 'consulta dispensada'}
                             </span>
-                          ) : avistaEnabled ? (
+                          ) : semJuros ? (
                             <span className="block text-[10px] text-emerald-700 dark:text-emerald-400 leading-tight mt-0.5">
-                              sem juros · à vista · consulta dispensada
+                              sem juros · consulta dispensada
                             </span>
                           ) : null}
                         </span>

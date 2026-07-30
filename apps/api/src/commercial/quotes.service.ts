@@ -453,6 +453,8 @@ export class QuotesService {
       installments_start_date?: string | null;
       // Onda 18 — toggle do desconto à vista (gatilho de fechamento).
       avista_discount_enabled?: boolean | null;
+      // Onda 18.x — toggle "S/J" (sem juros nas parcelas do boleto).
+      sem_juros_enabled?: boolean | null;
     },
   ) {
     const quote = await this.findOne(quoteId, tenantId);
@@ -487,6 +489,8 @@ export class QuotesService {
     // save pra congelar a oferta (não muda se a clínica reconfigurar depois).
     const avistaEnabled = opts?.avista_discount_enabled === true;
     const avistaPct = avistaEnabled ? await this.getAvistaDiscountPct(tenantId) : 0;
+    // Onda 18.x — S/J (sem juros) independente do desconto à vista.
+    const semJurosEnabled = opts?.sem_juros_enabled === true;
 
     await this.prisma.$transaction(async (tx) => {
       // 1. Desmarca quaisquer outras chosen do mesmo paciente (so 1 por vez)
@@ -513,6 +517,7 @@ export class QuotesService {
           chosen_installments_start_date: cleanInstallmentsStartDate,
           avista_discount_enabled: avistaEnabled,
           avista_discount_pct: avistaPct,
+          sem_juros_enabled: semJurosEnabled,
         },
       });
     });

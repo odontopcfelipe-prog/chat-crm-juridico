@@ -598,6 +598,7 @@ export class CommercialController {
       entrada_due_date?: string | null;
       installments_start_date?: string | null;
       avista_discount_enabled?: boolean | null;
+      sem_juros_enabled?: boolean | null;
     },
     @Authenticated() user: AuthUser,
   ) {
@@ -609,6 +610,7 @@ export class CommercialController {
       entrada_due_date: body?.entrada_due_date,
       installments_start_date: body?.installments_start_date,
       avista_discount_enabled: body?.avista_discount_enabled,
+      sem_juros_enabled: body?.sem_juros_enabled,
     });
   }
 
