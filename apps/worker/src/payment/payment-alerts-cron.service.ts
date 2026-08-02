@@ -55,15 +55,24 @@ const STAGE_SETTING_PREFIX: Record<Stage, string> = {
 };
 
 interface ChargeCandidate {
+  /** Boleto REPRESENTANTE do grupo (o mais atrasado). Só métrica/log. */
   chargeId: string;
+  /** Onda 18.x — chave de dedup e agrupamento é o PACIENTE (não o boleto), pra
+   *  paciente com N parcelas atrasadas receber 1 aviso por estágio (não N). */
+  patientId: string;
   tenantId: string;
   stage: Stage;
   phone: string;
   name: string;
+  /** TOTAL do grupo (soma dos N boletos daquele paciente+estágio). */
   amount: number;
+  /** Quantos boletos no grupo (>1 = mensagem agrupada, sem PDF). */
+  count: number;
   dueDate: Date;
   link: string;
-  /** URL do PDF do boleto (só quando billing_type=BOLETO) — manda como documento. */
+  /** Todos os links do grupo (usados no texto agrupado quando count > 1). */
+  links: string[];
+  /** URL do PDF do boleto (só quando billing_type=BOLETO E count===1) — manda como documento. */
   pdfUrl: string | null;
   /** Disparo ANTECIPADO pra sexta (vencimento cai dom/seg, dias sem cron): o dia da
    *  semana do vencimento, pra trocar o "amanhã" do template e não mentir. */
@@ -146,8 +155,9 @@ export class PaymentAlertsCronService {
     if (messageId === 'NO_CONFIG') return 'cooldown';
 
     // Marca na TENTATIVA (sucesso OU falha) e avança o marca-passo — assim um
-    // número inválido não trava as próximas cobranças.
-    await this.logSent(pick.chargeId, pick.stage, pick.tenantId, typeof messageId === 'string' ? messageId : null);
+    // número inválido não trava as próximas cobranças. Onda 18.x — dedup por
+    // PACIENTE (não por boleto): grava o patientId no AuditLog.
+    await this.logSent(pick.patientId, pick.stage, pick.tenantId, typeof messageId === 'string' ? messageId : null);
     // Central de Disparos 2.0 — registro unificado (métrica/resumo por disparo).
     await this.logDispatchUnificado(pick.tenantId, pick.stage, pick.name, pick.phone, messageId, pick.chargeId);
     this.lastSentAt = nowMs;
@@ -275,8 +285,11 @@ export class PaymentAlertsCronService {
         boleto_url: true,
         billing_type: true,
         pix_copy_paste: true,
-        treatment_plan: { select: { patient: { select: { name: true, phone: true } } } },
-        installment: { select: { patient: { select: { name: true, phone: true } } } },
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        // Onda 18.x — boleto IMPORTADO do Asaas não tem plano/parcela; tem só o
+        // paciente vinculado DIRETO. Sem isto, a régua nunca cobra os importados.
+        patient: { select: { id: true, name: true, phone: true } },
       },
       orderBy: { due_date: 'asc' }, // a mais antiga (mais atrasada) primeiro
       take: 500,
@@ -304,9 +317,11 @@ export class PaymentAlertsCronService {
       }
       if (!stage) continue;
 
-      const patient = c.treatment_plan?.patient || c.installment?.patient;
+      // Onda 18.x — resolve o paciente por plano, parcela OU vínculo DIRETO
+      // (boleto importado do Asaas). O id é a chave de agrupamento/dedup.
+      const patient = c.treatment_plan?.patient || c.installment?.patient || c.patient;
       const phone = patient?.phone?.trim();
-      if (!patient || !phone) continue;
+      if (!patient || !patient.id || !phone) continue;
 
       const link =
         c.invoice_url ||
@@ -328,13 +343,16 @@ export class PaymentAlertsCronService {
 
       candidates.push({
         chargeId: c.id,
+        patientId: patient.id,
         tenantId: tid,
         stage,
         phone,
         name: patient.name,
         amount: Number(c.amount),
+        count: 1,
         dueDate: new Date(c.due_date),
         link,
+        links: [link],
         pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
         venceEm,
         tipo,
@@ -342,15 +360,35 @@ export class PaymentAlertsCronService {
     }
     if (candidates.length === 0) return null;
 
-    // Anti-repetição por estágio: 1 query batch no AuditLog pros candidatos.
-    const ids = candidates.map((c) => c.chargeId);
+    // Onda 18.x — AGRUPA por (tenant, paciente, estágio): paciente com N boletos
+    // atrasados no mesmo estágio recebe UM aviso (total + todos os links), não N
+    // (anti-spam/anti-ban). A ordem por due_date asc garante que o REPRESENTANTE
+    // (1º do grupo) é o mais atrasado.
+    const groups = new Map<string, ChargeCandidate>();
+    for (const cand of candidates) {
+      const key = `${cand.tenantId}::${cand.patientId}::${cand.stage}`;
+      const g = groups.get(key);
+      if (!g) {
+        groups.set(key, { ...cand, links: [...cand.links] });
+      } else {
+        g.amount += cand.amount;
+        g.count += 1;
+        if (!g.links.includes(cand.link)) g.links.push(cand.link);
+        g.pdfUrl = null; // grupo > 1 vai como TEXTO com os N links, não 1 PDF
+      }
+    }
+    const grouped = [...groups.values()];
+
+    // Anti-repetição por PACIENTE+estágio (não por boleto): 1 query batch no
+    // AuditLog. (Antes era por charge; a chave agora é o patientId.)
+    const ids = grouped.map((g) => g.patientId);
     const already = await this.prisma.auditLog.findMany({
       where: { entity: 'PAYMENT_ALERT', entity_id: { in: ids }, action: { in: STAGES } },
       select: { entity_id: true, action: true },
     });
     const sentSet = new Set(already.map((a) => `${a.entity_id}:${a.action}`));
 
-    return candidates.find((c) => !sentSet.has(`${c.chargeId}:${c.stage}`)) || null;
+    return grouped.find((g) => !sentSet.has(`${g.patientId}:${g.stage}`)) || null;
   }
 
   /** Estágios LIGADOS pro tenant (GlobalSetting BOLETO_*_${tenant} === 'true'). */
@@ -395,6 +433,17 @@ export class PaymentAlertsCronService {
     const valor = c.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
     const dd = String(c.dueDate.getUTCDate()).padStart(2, '0');
     const mm = String(c.dueDate.getUTCMonth() + 1).padStart(2, '0');
+    // Onda 18.x — AGRUPADO: paciente com VÁRIOS boletos no mesmo estágio recebe
+    // UMA mensagem com o TOTAL + todos os links (não uma por boleto). Formato
+    // próprio (o template do estágio é singular "seu boleto"); {valor} = total.
+    if (c.count > 1) {
+      const linksTxt = c.links.join('\n');
+      return (
+        `Olá ${firstName}, você tem ${c.count} boletos em aberto na ${clinica}, ` +
+        `no total de ${valor}.\n\nAcesse pelos links abaixo:\n${linksTxt}\n\n` +
+        `Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.`
+      );
+    }
     let base = template;
     // Disparo antecipado pra sexta (vencimento dom/seg): o template do 1d_antes diz
     // "amanhã" — troca pelo dia real pra não mentir. Best-effort: se a clínica editou
@@ -519,18 +568,19 @@ export class PaymentAlertsCronService {
   }
 
   /** Registra o envio do estágio (idempotência exactly-once por charge+estágio). */
-  private async logSent(chargeId: string, stage: Stage, tenantId: string, messageId: string | null): Promise<void> {
+  private async logSent(dedupKey: string, stage: Stage, tenantId: string, messageId: string | null): Promise<void> {
+    // Onda 18.x — dedupKey = patientId (idempotência 1 aviso/paciente/estágio).
     try {
       await this.prisma.auditLog.create({
         data: {
           entity: 'PAYMENT_ALERT',
-          entity_id: chargeId,
+          entity_id: dedupKey,
           action: stage,
           meta_json: { tenant_id: tenantId, message_id: messageId, sent_at: new Date().toISOString() },
         },
       });
     } catch (e: any) {
-      this.logger.warn(`[COBRANCA] Falha ao registrar AuditLog da charge ${chargeId}: ${e.message}`);
+      this.logger.warn(`[COBRANCA] Falha ao registrar AuditLog (${dedupKey}): ${e.message}`);
     }
   }
 

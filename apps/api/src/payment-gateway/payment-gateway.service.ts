@@ -146,6 +146,9 @@ export class PaymentGatewayService {
             quote: { select: { created_by_user_id: true } },
           },
         },
+        // Onda 18.x — boleto IMPORTADO do Asaas nao tem treatment_plan; le o
+        // paciente vinculado DIRETO (patient_id) pra a receita nao entrar anonima.
+        patient: { select: { name: true, lead_id: true } },
       },
     });
     if (!charge) return null;
@@ -154,7 +157,7 @@ export class PaymentGatewayService {
     if (charge.lead_honorario_payment_id) return null;
 
     const now = new Date();
-    const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
+    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || 'Paciente';
     const method = opts?.paymentMethod || this.mapBillingToCaixaMethod(charge.billing_type);
     const inClinic = !!opts?.receivedInClinic;
     // Maquineta parcelada: só INFO (a adquirente faz o split; não gera cobrança).
@@ -175,8 +178,9 @@ export class PaymentGatewayService {
         status: 'PAGO',
         dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
         // CLIENTE na tela de Entradas: amarra a receita ao paciente (via Lead) — antes
-        // o nome só ia na descrição e a coluna Cliente ficava "—".
-        lead_id: charge.treatment_plan?.patient?.lead_id ?? null,
+        // o nome só ia na descrição e a coluna Cliente ficava "—". Fallback pro
+        // paciente direto (boleto importado do Asaas, sem treatment_plan).
+        lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null,
         reference_id: charge.external_id,
         notes: inClinic
           ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
@@ -216,6 +220,8 @@ export class PaymentGatewayService {
             quote: { select: { created_by_user_id: true } },
           },
         },
+        // Onda 18.x — fallback pro paciente direto (boleto importado do Asaas).
+        patient: { select: { name: true, lead_id: true } },
       },
     });
     if (!charge) return null;
@@ -223,9 +229,9 @@ export class PaymentGatewayService {
     if (charge.lead_honorario_payment_id) return null; // jurídico tem caixa próprio
 
     const now = new Date();
-    const patientName = charge.treatment_plan?.patient?.name || 'Paciente';
+    const patientName = charge.treatment_plan?.patient?.name || charge.patient?.name || 'Paciente';
     const dentistId = charge.treatment_plan?.quote?.created_by_user_id ?? null;
-    const leadId = charge.treatment_plan?.patient?.lead_id ?? null; // p/ coluna Cliente em Entradas
+    const leadId = charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null; // p/ coluna Cliente em Entradas
 
     // As receitas do split precisam entrar no ESCOPO do caixa (caixaWhere exige
     // account_id | cash_closing_id | gateway_charge). CADA forma vai pra SUA conta:
