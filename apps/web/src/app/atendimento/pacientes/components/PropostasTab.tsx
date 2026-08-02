@@ -1463,15 +1463,15 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
       showError('A proposta nao tem procedimentos pra adicionar.');
       return;
     }
-    const total = Number(selectedDetail.total_value) || 0;
     const confirmMsg =
       `Adicionar ao tratamento SEM gerar cobranca?\n\n` +
-      `${itemCount} procedimento(s) · R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+      `${itemCount} procedimento(s)\n\n` +
       `Isso vai:\n` +
       `• Aceitar o orcamento e ativar o plano\n` +
+      `• ZERAR os valores dos procedimentos (os precos de hoje nao batem com\n` +
+      `  os da epoca; a divida real fica nos boletos ja importados do Asaas)\n` +
       `• Mandar pra fila do Financeiro validar (depois o dentista)\n` +
-      `• NAO gerar boleto/PIX nem divida nova — a divida do paciente continua\n` +
-      `  nos boletos ja importados do Asaas\n` +
+      `• NAO gerar boleto/PIX nem divida nova\n` +
       `• NAO contar como venda do dia, NAO enviar contrato\n\n` +
       `Use so pra MIGRACAO (paciente ja tem os boletos). Pra cobrar de verdade,\n` +
       `use "Encaminhar ao financeiro".`;

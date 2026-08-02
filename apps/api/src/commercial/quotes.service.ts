@@ -2248,6 +2248,28 @@ export class QuotesService {
    * (accept ja checa DRAFT/SENT; quote_id @unique => 1 plano por quote).
    */
   async acceptNoCharge(id: string, tenantId: string, userId?: string) {
+    // Valida tenant + status ANTES de zerar (accept revalida depois).
+    const quote = await this.findOne(id, tenantId);
+    if (!['DRAFT', 'SENT'].includes(quote.status)) {
+      throw new BadRequestException(
+        `Apenas orcamentos DRAFT/SENT podem ser adicionados sem cobranca. Status atual: ${quote.status}`,
+      );
+    }
+    // ZERA os valores (decisao do usuario). Migracao: os precos de HOJE nao
+    // batem com os da EPOCA e a divida real sao os boletos importados do Asaas.
+    // Zerar evita por um valor de hoje (errado/inflado) no plano/Total contratado.
+    // O dentista valida os procedimentos normalmente; o dinheiro fica so nos
+    // boletos. accept() (abaixo) copia os itens JA zerados pro plano.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.quoteItem.updateMany({
+        where: { quote_id: id },
+        data: { unit_price: 0, total_price: 0 },
+      });
+      await tx.quote.update({
+        where: { id },
+        data: { total_value: 0, subtotal: 0, discount_value: 0 },
+      });
+    });
     const result = await this.accept(id, tenantId, userId, { deferContract: true, noCharge: true });
     // Ativa o plano: em PENDING_SIGNATURE ele nao entra na fila do Financeiro
     // nem no board do dentista. NAO valida aqui (fila do Financeiro).
@@ -2258,8 +2280,8 @@ export class QuotesService {
       });
     }
     this.logger.log(
-      `[ACCEPT-NO-CHARGE] Quote ${id} aceita SEM cobranca; plano ${result.treatment_plan.id} ` +
-      `ativado (fila do Financeiro). Nenhuma charge gerada.`,
+      `[ACCEPT-NO-CHARGE] Quote ${id} zerada + aceita SEM cobranca; plano ` +
+      `${result.treatment_plan.id} ativado (fila do Financeiro). Nenhuma charge, valores zerados.`,
     );
     return result;
   }
