@@ -1452,6 +1452,44 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
     }
   }, [selectedDetail, activePaymentKey, load]);
 
+  // Onda 18.x — MIGRACAO ASAAS: adiciona os procedimentos ao tratamento SEM
+  // gerar cobranca. Pra pacientes importados do Asaas que ja tem os boletos
+  // (a divida) mas nao tem os procedimentos. Aceita + ativa o plano (fila do
+  // Financeiro), sem boleto/PIX, sem TCLE, sem contar como venda/afiliado.
+  const acceptNoCharge = useCallback(async () => {
+    if (!selectedDetail) return;
+    const itemCount = selectedDetail.items?.length || 0;
+    if (itemCount === 0) {
+      showError('A proposta nao tem procedimentos pra adicionar.');
+      return;
+    }
+    const total = Number(selectedDetail.total_value) || 0;
+    const confirmMsg =
+      `Adicionar ao tratamento SEM gerar cobranca?\n\n` +
+      `${itemCount} procedimento(s) · R$ ${total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}\n\n` +
+      `Isso vai:\n` +
+      `• Aceitar o orcamento e ativar o plano\n` +
+      `• Mandar pra fila do Financeiro validar (depois o dentista)\n` +
+      `• NAO gerar boleto/PIX nem divida nova — a divida do paciente continua\n` +
+      `  nos boletos ja importados do Asaas\n` +
+      `• NAO contar como venda do dia, NAO enviar contrato\n\n` +
+      `Use so pra MIGRACAO (paciente ja tem os boletos). Pra cobrar de verdade,\n` +
+      `use "Encaminhar ao financeiro".`;
+    if (!window.confirm(confirmMsg)) return;
+    setApprovingBill(true);
+    try {
+      await api.post(`/quotes/${selectedDetail.id}/accept-no-charge`);
+      showSuccess('Procedimentos adicionados ao tratamento (sem cobranca) — na fila do Financeiro.');
+      setSelectedId(null);
+      load();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao adicionar ao tratamento sem cobranca');
+    } finally {
+      setApprovingBill(false);
+    }
+  }, [selectedDetail, load]);
+
   // Onda 13 — adiciona bônus de fechamento ao quote selecionado
   const addBonus = useCallback(async (payload: {
     type: BonusType;
@@ -1836,6 +1874,7 @@ export default function PropostasTab({ patientId, onOpenQuoteDetail, onGoToEvalu
           }}
           onAddBonus={() => setBonusOpen(true)}
           onApproveAndBill={approveAndBill}
+          onAcceptNoCharge={acceptNoCharge}
           // Onda 14.26 — toggle "exige consulta de credito" no card boleto
           onToggleRequiresCreditCheck={(value) => toggleRequiresCreditCheck(selectedId!, value)}
           // Onda 14.33 / 14.38 — salvar proposta como "aguardando decisão do
@@ -3487,6 +3526,7 @@ function PropostaPainel({
   onOpenCreditCheckForParcelas,
   onAddBonus,
   onApproveAndBill,
+  onAcceptNoCharge,
   onToggleRequiresCreditCheck,
   onChooseAsProposal,
   onReload,
@@ -3533,6 +3573,8 @@ function PropostaPainel({
     customEntradaDueDate?: string;
     customInstallmentsStartDate?: string;
   }) => void;
+  /** Onda 18.x — MIGRACAO: adiciona ao tratamento SEM gerar cobranca. */
+  onAcceptNoCharge?: () => void;
   /** Onda 14.26 — toggle "exige consulta de credito" no card de boleto.
    *  Quando false, parcelados aplicam direto sem credit-check. */
   onToggleRequiresCreditCheck?: (value: boolean) => void;
@@ -4746,6 +4788,18 @@ function PropostaPainel({
           {sending ? <Loader2 size={12} className="animate-spin" /> : <Send size={12} />}
           Enviar pro paciente
         </button>
+        {/* Onda 18.x — MIGRACAO ASAAS: adiciona os procedimentos ao tratamento
+            SEM gerar cobranca. Pro paciente importado que ja tem os boletos. */}
+        {onAcceptNoCharge && (
+          <button
+            type="button"
+            onClick={onAcceptNoCharge}
+            className="text-xs px-3 py-2 rounded-lg border border-sky-500/50 bg-sky-500/5 text-sky-800 dark:text-sky-300 hover:bg-sky-500/15 flex items-center gap-1.5 font-semibold"
+            title="MIGRAÇÃO: adiciona os procedimentos ao tratamento SEM gerar cobrança (o paciente já tem os boletos importados do Asaas). Vai pra fila do Financeiro validar. Não gera boleto nem dívida nova."
+          >
+            Adicionar ao tratamento (sem cobrar)
+          </button>
+        )}
         {/* Botao "Encaminhar ao financeiro": a proposta precisa estar SALVA
             primeiro (chosen). Fica SEMPRE visível pra mostrar o próximo passo,
             mas só habilita depois do "Salvar proposta" — com dica quando apagado.

@@ -274,6 +274,19 @@ export class CommercialController {
   }
 
   /**
+   * Onda 18.x — MIGRACAO ASAAS: aceita a proposta e ativa o plano SEM gerar
+   * cobranca (paciente ja tem os boletos importados). So registra os
+   * procedimentos pro dentista validar. Nao conta como venda/afiliado.
+   */
+  @RequiresPermission('manage_proposals')
+  @Post('quotes/:id/accept-no-charge')
+  acceptQuoteNoCharge(@Param('id') id: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.quotesService.acceptNoCharge(id, tenantId, req.user?.id);
+  }
+
+  /**
    * Onda 4.3 (Fase 25) — Track view do portal (publico, sem auth).
    * Chamado pelo frontend do portal quando paciente abre orcamento.
    * Incrementa portal_view_count + atualiza portal_last_viewed_at.

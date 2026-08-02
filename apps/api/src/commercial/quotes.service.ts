@@ -2144,7 +2144,7 @@ export class QuotesService {
     segundaPassada.unref?.();
   }
 
-  async accept(id: string, tenantId: string, userId?: string, opts?: { deferContract?: boolean }) {
+  async accept(id: string, tenantId: string, userId?: string, opts?: { deferContract?: boolean; noCharge?: boolean }) {
     const quote = await this.findOne(id, tenantId);
     // Onda 3.7 — DRAFT tambem pode ser aceito (operador confirma direto sem
     // passar pelo portal — caso comum: paciente fechou na recepcao). Auto-seta
@@ -2169,7 +2169,12 @@ export class QuotesService {
         where: { id },
         data: {
           status: 'ACCEPTED',
-          accepted_at: now,
+          // Onda 18.x — MIGRACAO (noCharge): NAO seta accepted_at. Todas as
+          // queries de "venda" (vendas_do_dia, reports, comissao, metas, clinics)
+          // filtram por accepted_at no periodo, entao sem accepted_at a migracao
+          // NAO entra em nenhuma delas. Ja o "Total contratado" da ficha e por
+          // STATUS=ACCEPTED, entao o valor segue coerente com os boletos.
+          accepted_at: opts?.noCharge ? null : now,
           // Onda 3.7 — se aceitando direto de DRAFT, registra sent_at agora pra
           // manter audit trail consistente (todo aceito teve um "envio").
           ...(quote.status === 'DRAFT' && !quote.sent_at ? { sent_at: now } : {}),
@@ -2222,8 +2227,40 @@ export class QuotesService {
     // idempotente por quote_id. Extraído pra helper porque a Quote também vira
     // ACCEPTED por OUTROS caminhos (aceite leve do financiamento, aprovação
     // parcial, auto-aceite por sinal pago) — todos precisam creditar o afiliado.
-    this.recordAffiliateReferral(id, quote.patient_id, Number(quote.total_value), tenantId);
+    // Onda 18.x — MIGRACAO (noCharge) NAO credita afiliado: nao e venda nova,
+    // o paciente ja existia (importado do Asaas), so estamos registrando os
+    // procedimentos pro dentista validar.
+    if (!opts?.noCharge) {
+      this.recordAffiliateReferral(id, quote.patient_id, Number(quote.total_value), tenantId);
+    }
 
+    return result;
+  }
+
+  /**
+   * Onda 18.x — MIGRACAO ASAAS: aceita a proposta e cria/ATIVA o plano de
+   * tratamento SEM gerar nenhuma cobranca. Uso: pacientes importados do Asaas ja
+   * tem os boletos (a divida), so falta registrar os PROCEDIMENTOS pro dentista
+   * validar. NAO gera boleto/PIX/CASH, NAO manda TCLE (deferContract), NAO conta
+   * como venda do dia nem credita afiliado (accept sem accepted_at). O plano fica
+   * ACTIVE + validated_by_financial_at=null -> cai na fila do Financeiro pra um
+   * humano liberar antes do dentista (decisao do usuario). Idempotente por quote
+   * (accept ja checa DRAFT/SENT; quote_id @unique => 1 plano por quote).
+   */
+  async acceptNoCharge(id: string, tenantId: string, userId?: string) {
+    const result = await this.accept(id, tenantId, userId, { deferContract: true, noCharge: true });
+    // Ativa o plano: em PENDING_SIGNATURE ele nao entra na fila do Financeiro
+    // nem no board do dentista. NAO valida aqui (fila do Financeiro).
+    if (result.treatment_plan.status !== 'ACTIVE') {
+      await this.prisma.treatmentPlan.update({
+        where: { id: result.treatment_plan.id },
+        data: { status: 'ACTIVE', start_date: new Date() },
+      });
+    }
+    this.logger.log(
+      `[ACCEPT-NO-CHARGE] Quote ${id} aceita SEM cobranca; plano ${result.treatment_plan.id} ` +
+      `ativado (fila do Financeiro). Nenhuma charge gerada.`,
+    );
     return result;
   }
 
