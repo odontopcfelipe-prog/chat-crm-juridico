@@ -36,6 +36,21 @@ export class LeadsService {
 
   async create(data: Prisma.LeadCreateInput, inboxId?: string | null): Promise<Lead> {
     if (data.phone) data = { ...data, phone: to12Digits(data.phone) };
+    // ANTI-DUPLICATA por formato: ANTES de criar, casa o MESMO assinante já gravado
+    // em qualquer variante (com/sem 55, com/sem o 9) DENTRO do tenant e ADOTA o
+    // existente — senão o POST /leads manual e o MCP criar_cliente geravam contato
+    // GÊMEO (fonte primária). Mesma proteção do upsert; só troca 55/9, nunca funde
+    // pessoas diferentes. O catch P2002 abaixo segue como rede contra corrida.
+    if (data.phone) {
+      const tid = (data as any).tenant_id ?? (data as any).tenant?.connect?.id ?? null;
+      const twin = await this.prisma.lead.findFirst({
+        where: { tenant_id: tid, phone: { in: brazilPhoneMatchVariants(data.phone as string) } },
+      });
+      if (twin) {
+        this.logger.log(`[CREATE] Telefone ${data.phone} já existe como ${twin.phone} (tenant ${tid ?? 'null'}) — adotou lead ${twin.id} (sem duplicar)`);
+        return twin;
+      }
+    }
     let lead: Lead;
     try {
       lead = await this.prisma.lead.create({ data });
@@ -636,10 +651,12 @@ export class LeadsService {
    *     rotinas administrativas globais conscientes do vazamento)
    */
   async findByPhone(phone: string, tenantId?: string | null): Promise<Lead | null> {
-    const normalized = to12Digits(phone);
+    // Casa TODAS as variantes (com/sem 55, com/sem o 9) — antes só o canônico + o
+    // valor cru, então um número gravado noutro formato não era achado e o chamador
+    // acabava criando um contato GÊMEO. Só troca 55/9 do mesmo assinante.
     return this.prisma.lead.findFirst({
       where: {
-        OR: [{ phone: normalized }, { phone }],
+        phone: { in: brazilPhoneMatchVariants(phone) },
         ...(tenantId !== undefined ? { tenant_id: tenantId } : {}),
       },
     });

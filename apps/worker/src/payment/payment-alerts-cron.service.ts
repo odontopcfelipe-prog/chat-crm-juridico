@@ -4,6 +4,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   toBrazilWhatsappNumber,
+  brazilPhoneMatchVariants,
   defaultCobrancaTemplate,
   DEFAULT_BOLETO_INTRO,
   COBRANCA_STAGES,
@@ -233,11 +234,14 @@ export class PaymentAlertsCronService {
       });
       if (!finInbox) return; // tenant sem inbox financeiro — nada a registrar
 
-      // Lead pelo telefone (mesma normalização do envio) — sem lead, não registra.
+      // Lead pelo telefone: casa TODAS as variantes (com/sem 55, com/sem o 9) pra
+      // NÃO grudar a conversa financeira num contato GÊMEO. O antigo slice(-11) do
+      // canônico 12-díg-sem-9 pegava o DDD errado e grudava no FANTASMA (bug do
+      // Remilson: cobrança caía no lead duplicado, não no real). `clean` (com 55)
+      // segue só pro external_id do JID.
       const clean = toBrazilWhatsappNumber(phone).replace(/\D/g, '');
-      const last11 = clean.slice(-11);
       const lead = await this.prisma.lead.findFirst({
-        where: { tenant_id: tenantId, phone: { endsWith: last11 } },
+        where: { tenant_id: tenantId, phone: { in: brazilPhoneMatchVariants(phone) } },
         select: { id: true },
       });
       if (!lead) return;
