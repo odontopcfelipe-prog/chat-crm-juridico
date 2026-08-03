@@ -1372,7 +1372,11 @@ export class PaymentGatewayService {
     return { ok, configured: true };
   }
 
-  async handleWebhook(payload: any) {
+  async handleWebhook(payload: any, opts?: { silent?: boolean }) {
+    // opts.silent = reprocessamento por RECONCILE (não é um webhook ao vivo): atualiza
+    // status/baixa no caixa mas NÃO manda WhatsApp/e-mail ao paciente. Sem isto, ao
+    // reconciliar a carteira antiga o sistema dispararia "Pagamento Confirmado" (e
+    // "cobrança cancelada", "atrasado") de pagamentos que já ocorreram há meses — spam.
     const event = payload?.event;
     const paymentData = payload?.payment;
 
@@ -1399,7 +1403,7 @@ export class PaymentGatewayService {
       const mappedStatusNoCharge = ASAAS_STATUS_MAP[paymentData.status] || paymentData.status;
 
       // Notificar exclusão/estorno
-      if (mappedStatusNoCharge === 'DELETED' || mappedStatusNoCharge === 'REFUNDED' || event === 'PAYMENT_DELETED') {
+      if ((mappedStatusNoCharge === 'DELETED' || mappedStatusNoCharge === 'REFUNDED' || event === 'PAYMENT_DELETED') && !opts?.silent) {
         try {
           await this.notifyClientChargeDeleted(paymentData, { amount: paymentData.value }, mappedStatusNoCharge === 'REFUNDED' ? 'REFUNDED' : 'DELETED');
         } catch (e: any) {
@@ -1408,7 +1412,7 @@ export class PaymentGatewayService {
       }
 
       // Notificar pagamento confirmado
-      if (mappedStatusNoCharge === 'RECEIVED' || mappedStatusNoCharge === 'CONFIRMED' || event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') {
+      if ((mappedStatusNoCharge === 'RECEIVED' || mappedStatusNoCharge === 'CONFIRMED' || event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && !opts?.silent) {
         try {
           await this.notifyClientPaymentReceived(paymentData, { amount: paymentData.value });
         } catch (e: any) {
@@ -1574,7 +1578,7 @@ export class PaymentGatewayService {
         where: { id: charge.id, confirmation_notified_at: null },
         data: { confirmation_notified_at: new Date() },
       });
-      if (claim.count > 0) {
+      if (claim.count > 0 && !opts?.silent) {
         try {
           await this.notifyClientPaymentReceived(paymentData, charge);
         } catch (e: any) {
@@ -1594,16 +1598,20 @@ export class PaymentGatewayService {
 
     // Onda 17.32.182 — e-mail automatico "pagamento atrasado": o banco
     // (Asaas) envia PAYMENT_OVERDUE quando a cobranca vence sem pagar
-    if (mappedStatus === 'OVERDUE') {
+    if (mappedStatus === 'OVERDUE' && !opts?.silent) {
       void this.sendPaymentOverdueEmail(charge);
     }
 
     // Se cobrança DELETADA ou REFUNDED, notificar cliente via WhatsApp
     if (mappedStatus === 'DELETED' || mappedStatus === 'REFUNDED') {
-      try {
-        await this.notifyClientChargeDeleted(paymentData, charge, mappedStatus);
-      } catch (e: any) {
-        this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre exclusão: ${e.message}`);
+      // Reconcile silencioso: faz a demoção do lead (interno) mas NÃO avisa o
+      // paciente sobre exclusão/estorno de um evento que já ocorreu há tempos.
+      if (!opts?.silent) {
+        try {
+          await this.notifyClientChargeDeleted(paymentData, charge, mappedStatus);
+        } catch (e: any) {
+          this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre exclusão: ${e.message}`);
+        }
       }
 
       // Onda 17.32.55 — Se TODAS as charges ativas do paciente foram
@@ -1654,11 +1662,12 @@ export class PaymentGatewayService {
         const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
 
         if (mappedStatus !== charge.status) {
-          // Reprocessar como se fosse um webhook
-          await this.handleWebhook({
-            event: 'PAYMENT_' + asaasData.status,
-            payment: asaasData,
-          });
+          // Reprocessar como se fosse um webhook — SILENCIOSO (só status/caixa, sem
+          // mandar "Pagamento Confirmado" de um pagamento que já aconteceu).
+          await this.handleWebhook(
+            { event: 'PAYMENT_' + asaasData.status, payment: asaasData },
+            { silent: true },
+          );
           updated++;
         }
       } catch (e: any) {
@@ -1714,8 +1723,13 @@ export class PaymentGatewayService {
           const asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
           const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
           if (mappedStatus !== charge.status) {
-            // Reprocessa pela MESMA via idempotente do webhook (baixa + paid_at + caixa).
-            await this.handleWebhook({ event: 'PAYMENT_' + asaasData.status, payment: asaasData });
+            // Reprocessa pela MESMA via idempotente do webhook — SILENCIOSO (baixa +
+            // paid_at + caixa, mas SEM "Pagamento Confirmado" ao paciente: é um
+            // pagamento antigo; avisar agora seria spam de confirmação atrasada).
+            await this.handleWebhook(
+              { event: 'PAYMENT_' + asaasData.status, payment: asaasData },
+              { silent: true },
+            );
             updated++;
           }
         } catch (e: any) {
