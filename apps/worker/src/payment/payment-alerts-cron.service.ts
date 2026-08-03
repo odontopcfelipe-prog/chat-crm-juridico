@@ -64,6 +64,11 @@ const STAGE_SETTING_PREFIX: Record<Stage, string> = {
 const OVERDUE_LOOKBACK_DAYS = 1095; // ~3 anos
 /** Cadência: re-toca o MESMO paciente no máx 1× a cada N dias (recorrência semanal). */
 const OVERDUE_REPEAT_DAYS = 7;
+/** Teto da varredura por tick. Precisa caber a carteira vencida INTEIRA da(s)
+ *  clínica(s) com o toggle ligado — senão o take corta nos boletos mais antigos
+ *  ANTES do dedup por recência e os pacientes além do corte nunca são cobrados
+ *  (starvation). 4000 cobre com folga uma clínica; se estourar, loga aviso. */
+const OVERDUE_SCAN_CAP = 4000;
 
 interface ChargeCandidate {
   /** Boleto REPRESENTANTE do grupo (o mais atrasado). Só métrica/log. */
@@ -247,35 +252,70 @@ export class PaymentAlertsCronService {
         orderBy: { last_message_at: 'desc' },
         select: { id: true },
       });
-      if (!conv) {
-        conv = await this.prisma.conversation.create({
-          data: {
-            lead_id: lead.id,
-            channel: 'whatsapp',
-            status: 'ABERTO',
-            external_id: `${clean}@s.whatsapp.net`,
-            inbox_id: finInbox.id,
-            instance_name: instanceName,
-            tenant_id: tenantId,
-            last_message_at: new Date(),
-          },
-          select: { id: true },
+      // ANTI-CASCA: NÃO criar a conversa com last_message_at=agora ANTES da msg.
+      // O echo (fromMe) do próprio envio chega pelo webhook com o MESMO
+      // external_message_id (@unique GLOBAL) e pode gravar a msg primeiro → o
+      // create daqui estoura P2002. Se a conversa fosse criada antes, sobraria uma
+      // CASCA vazia com timestamp recente (a que o operador abre e vê "Nenhuma
+      // mensagem"). Então: conversa existente → tenta gravar (P2002 = echo já
+      // gravou, ok); conversa nova → cria conversa + msg numa TRANSAÇÃO, e se a msg
+      // colidir a tx desfaz a conversa também (nunca deixa casca).
+      const externalId = messageId || `sys_cobranca_${Date.now()}`;
+      const isDupKey = (err: any) => err?.code === 'P2002';
+
+      if (conv) {
+        try {
+          await this.prisma.message.create({
+            data: {
+              conversation_id: conv.id,
+              direction: 'out',
+              type: 'text',
+              text,
+              external_message_id: externalId,
+              status: 'enviado',
+            },
+          });
+        } catch (e: any) {
+          if (!isDupKey(e)) throw e; // erro real → catch externo
+          return; // echo já registrou a mesma mensagem — não duplica
+        }
+        await this.prisma.conversation.update({
+          where: { id: conv.id },
+          data: { last_message_at: new Date() },
         });
+        return;
       }
-      await this.prisma.message.create({
-        data: {
-          conversation_id: conv.id,
-          direction: 'out',
-          type: 'text',
-          text,
-          external_message_id: messageId || `sys_cobranca_${Date.now()}`,
-          status: 'enviado',
-        },
-      });
-      await this.prisma.conversation.update({
-        where: { id: conv.id },
-        data: { last_message_at: new Date() },
-      });
+
+      try {
+        await this.prisma.$transaction(async (tx) => {
+          const created = await tx.conversation.create({
+            data: {
+              lead_id: lead.id,
+              channel: 'whatsapp',
+              status: 'ABERTO',
+              external_id: `${clean}@s.whatsapp.net`,
+              inbox_id: finInbox.id,
+              instance_name: instanceName,
+              tenant_id: tenantId,
+              last_message_at: new Date(),
+            },
+            select: { id: true },
+          });
+          await tx.message.create({
+            data: {
+              conversation_id: created.id,
+              direction: 'out',
+              type: 'text',
+              text,
+              external_message_id: externalId,
+              status: 'enviado',
+            },
+          });
+        });
+      } catch (e: any) {
+        if (!isDupKey(e)) throw e; // erro real → catch externo
+        // echo já criou conversa+msg dele; a tx desfez a nossa (sem casca vazia).
+      }
     } catch (e: any) {
       this.logger.warn(`[COBRANCA] Falha ao registrar na conversa do financeiro: ${e.message}`);
     }
@@ -454,9 +494,18 @@ export class PaymentAlertsCronService {
         patient: { select: { id: true, name: true, phone: true } },
       },
       orderBy: { due_date: 'asc' }, // a mais antiga (mais atrasada) primeiro
-      take: 1000,
+      take: OVERDUE_SCAN_CAP,
     });
     if (charges.length === 0) return null;
+    // Cap estourado: a carteira vencida excede a janela de varredura → os boletos
+    // mais ANTIGOS além do corte podem esperar mais pra serem cobrados. NÃO é
+    // silencioso (evita "cobri tudo" enganoso); subir OVERDUE_SCAN_CAP se recorrente.
+    if (charges.length >= OVERDUE_SCAN_CAP) {
+      this.logger.warn(
+        `[COBRANCA] Carteira vencida atingiu o teto de varredura (${OVERDUE_SCAN_CAP}); ` +
+        `boletos mais antigos além do corte podem demorar mais. Considere subir OVERDUE_SCAN_CAP.`,
+      );
+    }
 
     const candidates: ChargeCandidate[] = [];
     for (const c of charges) {
@@ -517,13 +566,18 @@ export class PaymentAlertsCronService {
     // Dedup por JANELA DE TEMPO (não once-ever): re-toca no máx 1× a cada
     // OVERDUE_REPEAT_DAYS por paciente. É o que faz a cobrança RECORRER até pagar,
     // sem virar spam. (Os marcos usam dedup once-ever; este usa created_at recente.)
+    // ANTI-BAN CRÍTICO: olha QUALQUER estágio (action in STAGES), não só
+    // 'boleto_atrasado'. Senão a carteira re-cobra no MESMO dia quem acabou de
+    // receber um marco (boleto_atraso_1d/15d/30d escrevem outra action) → 2
+    // cobranças da mesma dívida em minutos. Incluir os marcos na recência garante
+    // 1 toque/semana somando TUDO que o paciente recebeu pelo chip Financeiro.
     const cutoff = new Date(Date.now() - OVERDUE_REPEAT_DAYS * 86_400_000);
     const ids = grouped.map((g) => g.patientId);
     const already = await this.prisma.auditLog.findMany({
       where: {
         entity: 'PAYMENT_ALERT',
         entity_id: { in: ids },
-        action: 'boleto_atrasado',
+        action: { in: STAGES },
         created_at: { gte: cutoff },
       },
       select: { entity_id: true },

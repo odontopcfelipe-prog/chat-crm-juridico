@@ -518,22 +518,35 @@ export class EvolutionService implements OnApplicationBootstrap {
       }
 
       const isOutgoing = isFromMe;
-      const msg = await this.prisma.message.create({
-        data: {
-          conversation_id: conv.id,
-          direction: isOutgoing ? 'out' : 'in',
-          type: msgType,
-          text: messageContent,
-          external_message_id: externalMessageId,
-          status: isOutgoing ? 'enviado' : 'recebido',
-          reply_to_id: replyToId,
-          reply_to_text: replyToText,
-          // Model B: grava o chip que de fato recebeu/enviou esta msg. A conversa
-          // pode flutuar entre Comercial/Clinica, mas o retry de download de midia
-          // precisa bater na instancia certa (a que tem a msg na Evolution).
-          instance_name: instanceName,
-        },
-      });
+      let msg;
+      try {
+        msg = await this.prisma.message.create({
+          data: {
+            conversation_id: conv.id,
+            direction: isOutgoing ? 'out' : 'in',
+            type: msgType,
+            text: messageContent,
+            external_message_id: externalMessageId,
+            status: isOutgoing ? 'enviado' : 'recebido',
+            reply_to_id: replyToId,
+            reply_to_text: replyToText,
+            // Model B: grava o chip que de fato recebeu/enviou esta msg. A conversa
+            // pode flutuar entre Comercial/Clinica, mas o retry de download de midia
+            // precisa bater na instancia certa (a que tem a msg na Evolution).
+            instance_name: instanceName,
+          },
+        });
+      } catch (e: any) {
+        // Corrida no external_message_id @unique GLOBAL: a OUTRA ponta (ex.: o cron
+        // de cobrança do Financeiro, que grava o echo do próprio envio) já inseriu
+        // esta mensagem. Não é erro — pula SÓ esta e segue o lote. Sem o guard, um
+        // P2002 aqui abortava as DEMAIS mensagens do mesmo payload (perda de inbound).
+        if (e?.code === 'P2002') {
+          this.logger.warn(`[WEBHOOK] external_message_id ${externalMessageId} já existe (corrida) — pulando esta mensagem.`);
+          continue;
+        }
+        throw e;
+      }
 
       // Update Convo last message
       await this.prisma.conversation.update({
