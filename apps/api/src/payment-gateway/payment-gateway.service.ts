@@ -4,6 +4,7 @@ import {
   BadRequestException,
   Logger,
 } from '@nestjs/common';
+import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import axios from 'axios';
 import { ModuleRef } from '@nestjs/core';
@@ -35,6 +36,8 @@ const ASAAS_STATUS_MAP: Record<string, string> = {
 @Injectable()
 export class PaymentGatewayService {
   private readonly logger = new Logger(PaymentGatewayService.name);
+  /** Guard de reentrância do reconcile automático (@Cron). */
+  private reconcileCronBusy = false;
 
   constructor(
     private prisma: PrismaService,
@@ -1667,6 +1670,69 @@ export class PaymentGatewayService {
     }
 
     return { total: pendingCharges.length, updated, errors };
+  }
+
+  /**
+   * Reconcile AUTOMÁTICO (self-heal) — antes o reconcile era 100% manual e ninguém
+   * o disparava, então cobrança paga-no-Asaas ficava congelada PENDING/OVERDUE e a
+   * régua cobrava quem já pagou. Este cron sincroniza o status real do Asaas SÓ pro
+   * CONJUNTO DE RISCO: cobranças VENCIDAS (due_date < hoje) ainda PENDING/OVERDUE —
+   * exatamente o que a régua pode cobrar. Baixa as que o Asaas diz pagas.
+   *
+   * Anti-rate-limit: lote pequeno por rodada + AMOSTRAGEM ROTATIVA (offset aleatório)
+   * pra varrer a carteira ao longo do dia sem martelar o Asaas nem re-checar sempre
+   * as mesmas. getCharge falho é tolerado (loga e segue). Guard de reentrância.
+   */
+  @Cron('*/10 8-20 * * *', { timeZone: 'America/Maceio' })
+  async reconcileOverdueCron() {
+    if (this.reconcileCronBusy) return;
+    this.reconcileCronBusy = true;
+    try {
+      const BATCH = 50;
+      const where: any = {
+        gateway: 'ASAAS',
+        status: { in: ['PENDING', 'OVERDUE'] },
+        received_in_cash: false,
+        due_date: { lt: new Date() }, // só VENCIDAS — o conjunto que a régua cobra
+      };
+      const count = await this.prisma.paymentGatewayCharge.count({ where });
+      if (count === 0) return;
+      // Offset rotativo: cada rodada olha uma janela diferente da carteira vencida.
+      const skip = count > BATCH ? Math.floor(Math.random() * (count - BATCH)) : 0;
+      const batch = await this.prisma.paymentGatewayCharge.findMany({
+        where,
+        take: BATCH,
+        skip,
+        orderBy: { due_date: 'asc' },
+        select: { external_id: true, tenant_id: true, status: true },
+      });
+
+      let updated = 0;
+      let errors = 0;
+      for (const charge of batch) {
+        try {
+          const asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
+          const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
+          if (mappedStatus !== charge.status) {
+            // Reprocessa pela MESMA via idempotente do webhook (baixa + paid_at + caixa).
+            await this.handleWebhook({ event: 'PAYMENT_' + asaasData.status, payment: asaasData });
+            updated++;
+          }
+        } catch (e: any) {
+          errors++;
+          this.logger.warn(`[RECONCILE-CRON] Falha ao verificar ${charge.external_id}: ${e.message}`);
+        }
+      }
+      if (updated > 0 || errors > 0) {
+        this.logger.log(
+          `[RECONCILE-CRON] Janela ${skip}-${skip + batch.length}/${count} vencidas em aberto — ${updated} baixadas, ${errors} erros`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`[RECONCILE-CRON] Erro no ciclo: ${e.message}`);
+    } finally {
+      this.reconcileCronBusy = false;
+    }
   }
 
   // ─── Settings ──────────────────────────────────────────
