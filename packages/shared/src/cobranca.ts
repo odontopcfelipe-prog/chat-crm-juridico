@@ -8,7 +8,13 @@ export type CobrancaStage =
   | 'boleto_no_dia'
   | 'boleto_atraso_1d'
   | 'boleto_atraso_15d'
-  | 'boleto_atraso_30d';
+  | 'boleto_atraso_30d'
+  // "Cobrar atrasados (recorrente)": os 3 marcos acima disparam UMA vez, em datas
+  // EXATAS (1/15/30 dias) e dentro de uma janela curta. Isso deixa de fora quem
+  // caiu ENTRE os marcos e, principalmente, a CARTEIRA ANTIGA migrada do Asaas
+  // (meses/anos de atraso). Este estágio pega QUALQUER boleto vencido, com cadência
+  // recorrente (1×/semana por paciente), agrupado — pra ir zerando o backlog.
+  | 'boleto_atrasado';
 
 export const COBRANCA_STAGES: CobrancaStage[] = [
   'boleto_1d_antes',
@@ -16,6 +22,7 @@ export const COBRANCA_STAGES: CobrancaStage[] = [
   'boleto_atraso_1d',
   'boleto_atraso_15d',
   'boleto_atraso_30d',
+  'boleto_atrasado',
 ];
 
 /** Rascunhos aprovados pelo cliente (gentil → firme). {nome} {valor} {data} {link}. */
@@ -37,6 +44,10 @@ export const DEFAULT_COBRANCA_TEMPLATES: Record<CobrancaStage, string> = {
     'Oi {nome}, sua parcela de *{valor}* está com *30 dias* de atraso (venceu em {data}).\n\n' +
     'Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}\n\n' +
     'Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
+  boleto_atrasado:
+    'Oi {nome}, tudo bem? Sua parcela de *{valor}* venceu em {data} e ainda consta em aberto por aqui.\n\n' +
+    'Quando puder, é só usar o link atualizado pra regularizar: {link}\n\n' +
+    'Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, fale com a gente!',
 };
 
 export function isCobrancaStage(s: string): s is CobrancaStage {
@@ -90,6 +101,10 @@ const COBRANCA_STAGE_BASE: Record<CobrancaStage, string> = {
     'Oi {nome}, {item} de *{valor}* está com *30 dias* de atraso (venceu em {data}).\n\n' +
     'Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}\n\n' +
     'Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
+  boleto_atrasado:
+    'Oi {nome}, tudo bem? {item} de *{valor}* venceu em {data} e ainda consta em aberto por aqui.\n\n' +
+    'Quando puder, é só usar {meio} atualizado pra regularizar: {link}\n\n' +
+    'Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!',
 };
 
 /** Texto padrão do estágio PARA UM TIPO (preenche {item}/{meio} da base). */

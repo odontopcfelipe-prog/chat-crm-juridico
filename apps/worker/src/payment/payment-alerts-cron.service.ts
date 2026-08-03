@@ -52,7 +52,18 @@ const STAGE_SETTING_PREFIX: Record<Stage, string> = {
   boleto_atraso_1d: 'BOLETO_ATRASO_1D',
   boleto_atraso_15d: 'BOLETO_ATRASO_15D',
   boleto_atraso_30d: 'BOLETO_ATRASO_30D',
+  boleto_atrasado: 'BOLETO_ATRASADO',
 };
+
+// ─── "Cobrar atrasados (recorrente)" — carteira antiga ──────────────────────
+//   Os marcos acima (1/15/30d) disparam UMA vez, em datas exatas e numa janela
+//   curta (−33d). A carteira MIGRADA do Asaas está toda fora disso (meses/anos de
+//   atraso). Este passe SECUNDÁRIO pega QUALQUER boleto vencido e re-toca o
+//   paciente 1×/semana até regularizar — mesmo marca-passo/anti-ban, agrupado.
+/** Quão pra trás varrer a carteira vencida (piso: evita puxar histórico infinito). */
+const OVERDUE_LOOKBACK_DAYS = 1095; // ~3 anos
+/** Cadência: re-toca o MESMO paciente no máx 1× a cada N dias (recorrência semanal). */
+const OVERDUE_REPEAT_DAYS = 7;
 
 interface ChargeCandidate {
   /** Boleto REPRESENTANTE do grupo (o mais atrasado). Só métrica/log. */
@@ -139,9 +150,23 @@ export class PaymentAlertsCronService {
     const intro = await this.findNextIntro();
     if (intro) return await this.sendIntro(intro, nowMs);
 
-    const pick = await this.findNextCharge();
+    // 1º os MARCOS exatos (1/15/30d — prioridade, são sensíveis à data); se não há
+    // nenhum pendente, drena a CARTEIRA de atrasados (recorrente, janela larga).
+    // O findNextOverdue só custa uma query quando algum tenant ligou o toggle.
+    const pick = (await this.findNextCharge()) || (await this.findNextOverdue());
     if (!pick) return 'empty'; // nada pra mandar — NÃO mexe no cooldown
 
+    return await this.sendPacedCharge(pick, nowMs);
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /**
+   * Envia UMA cobrança já escolhida (marco ou atrasado-recorrente) e avança o
+   * marca-passo. Extraído pra ser reusado pelos dois passes (marcos + carteira).
+   */
+  private async sendPacedCharge(pick: ChargeCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
     const template = await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo);
     const clinica = await this.resolveClinicName(pick.tenantId);
@@ -181,9 +206,6 @@ export class PaymentAlertsCronService {
       `[COBRANCA] ${pick.stage} enviado (charge ${pick.chargeId}); próximo em ~${Math.round(this.nextGapMs / 60000)}min`,
     );
     return 'sent';
-    } finally {
-      this.busy = false;
-    }
   }
 
   /**
@@ -389,6 +411,142 @@ export class PaymentAlertsCronService {
     const sentSet = new Set(already.map((a) => `${a.entity_id}:${a.action}`));
 
     return grouped.find((g) => !sentSet.has(`${g.patientId}:${g.stage}`)) || null;
+  }
+
+  /**
+   * "Cobrar atrasados (recorrente)" — passe SECUNDÁRIO da carteira vencida. Pega
+   * QUALQUER boleto vencido (diff >= 1), sem exigir o marco exato nem a janela
+   * curta dos marcos — é isto que alcança a carteira ANTIGA migrada do Asaas
+   * (meses/anos de atraso) e quem caiu ENTRE os marcos. Agrupa por paciente
+   * (1 aviso com o total + todos os links) e RE-TOCA no máx 1×/semana por paciente
+   * (dedup por janela de tempo, não once-ever) — assim a cobrança recorre até
+   * regularizar, sempre dentro do marca-passo/anti-ban. Opt-in por tenant.
+   */
+  private async findNextOverdue(): Promise<ChargeCandidate | null> {
+    // Só varre se ALGUM tenant ligou o "cobrar atrasados" — senão nem toca no banco.
+    const enabledTenants = await this.loadOverdueEnabledTenants();
+    if (enabledTenants.size === 0) return null;
+
+    const todayIdx = this.dayIndexUTC(new Date(Date.now() - 3 * 3_600_000)); // hoje Maceió
+    // Janela LARGA: do piso (−OVERDUE_LOOKBACK_DAYS) até agora. O filtro real de
+    // "vencido" é o diff >= 1 no loop (due de hoje = diff 0 = NÃO é atraso).
+    const lo = new Date(Date.now() - OVERDUE_LOOKBACK_DAYS * 86_400_000);
+    const hi = new Date(Date.now());
+
+    const charges = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        status: { in: ['PENDING', 'OVERDUE'] },
+        received_in_cash: false,
+        due_date: { gte: lo, lte: hi },
+        tenant_id: { in: [...enabledTenants] },
+      },
+      select: {
+        id: true,
+        tenant_id: true,
+        amount: true,
+        due_date: true,
+        invoice_url: true,
+        boleto_url: true,
+        billing_type: true,
+        pix_copy_paste: true,
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        patient: { select: { id: true, name: true, phone: true } },
+      },
+      orderBy: { due_date: 'asc' }, // a mais antiga (mais atrasada) primeiro
+      take: 1000,
+    });
+    if (charges.length === 0) return null;
+
+    const candidates: ChargeCandidate[] = [];
+    for (const c of charges) {
+      const diff = todayIdx - this.dayIndexUTC(new Date(c.due_date));
+      if (diff < 1) continue; // vence hoje/no futuro → não é atraso (marcos cuidam)
+
+      const patient = c.treatment_plan?.patient || c.installment?.patient || c.patient;
+      const phone = patient?.phone?.trim();
+      if (!patient || !patient.id || !phone) continue;
+
+      const link =
+        c.invoice_url ||
+        c.boleto_url ||
+        (c.pix_copy_paste ? `Pix copia e cola:\n${c.pix_copy_paste}` : '');
+      if (!link) continue;
+
+      const tipo: CobrancaTipo = c.installment
+        ? 'parcelado'
+        : c.billing_type === 'PIX'
+          ? 'pix'
+          : 'boleto';
+
+      candidates.push({
+        chargeId: c.id,
+        patientId: patient.id,
+        tenantId: c.tenant_id || '',
+        stage: 'boleto_atrasado',
+        phone,
+        name: patient.name,
+        amount: Number(c.amount),
+        count: 1,
+        dueDate: new Date(c.due_date),
+        link,
+        links: [link],
+        pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
+        tipo,
+      });
+    }
+    if (candidates.length === 0) return null;
+
+    // Agrupa por (tenant, paciente): 1 aviso com o TOTAL da carteira do paciente +
+    // todos os links (não 1 msg por boleto — anti-spam/anti-ban).
+    const groups = new Map<string, ChargeCandidate>();
+    for (const cand of candidates) {
+      const key = `${cand.tenantId}::${cand.patientId}`;
+      const g = groups.get(key);
+      if (!g) {
+        groups.set(key, { ...cand, links: [...cand.links] });
+      } else {
+        g.amount += cand.amount;
+        g.count += 1;
+        if (!g.links.includes(cand.link)) g.links.push(cand.link);
+        g.pdfUrl = null; // grupo > 1 vai como TEXTO com os N links, não 1 PDF
+      }
+    }
+    const grouped = [...groups.values()];
+
+    // Dedup por JANELA DE TEMPO (não once-ever): re-toca no máx 1× a cada
+    // OVERDUE_REPEAT_DAYS por paciente. É o que faz a cobrança RECORRER até pagar,
+    // sem virar spam. (Os marcos usam dedup once-ever; este usa created_at recente.)
+    const cutoff = new Date(Date.now() - OVERDUE_REPEAT_DAYS * 86_400_000);
+    const ids = grouped.map((g) => g.patientId);
+    const already = await this.prisma.auditLog.findMany({
+      where: {
+        entity: 'PAYMENT_ALERT',
+        entity_id: { in: ids },
+        action: 'boleto_atrasado',
+        created_at: { gte: cutoff },
+      },
+      select: { entity_id: true },
+    });
+    const recent = new Set(already.map((a) => a.entity_id));
+    return grouped.find((g) => !recent.has(g.patientId)) || null;
+  }
+
+  /** Tenants com o "cobrar atrasados (recorrente)" LIGADO (BOLETO_ATRASADO_${tenant}
+   *  === 'true'). Uma query só — devolve o conjunto de tenantIds habilitados. */
+  private async loadOverdueEnabledTenants(): Promise<Set<string>> {
+    const out = new Set<string>();
+    try {
+      const prefix = 'BOLETO_ATRASADO_';
+      const rows = await this.prisma.globalSetting.findMany({
+        where: { key: { startsWith: prefix }, value: 'true' },
+        select: { key: true },
+      });
+      for (const r of rows) out.add(r.key.slice(prefix.length));
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] Falha ao carregar tenants de atrasados: ${e.message}`);
+    }
+    return out;
   }
 
   /** Estágios LIGADOS pro tenant (GlobalSetting BOLETO_*_${tenant} === 'true'). */

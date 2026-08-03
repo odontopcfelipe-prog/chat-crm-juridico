@@ -57,6 +57,9 @@ export type OperacionalKey =
   // Onda 18.16 — cobrança financeira (chip FINANCEIRO). Cada estágio liga/desliga
   // sozinho; o cron do worker varre o que está em aberto e dispara o certo.
   | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d'
+  // "Cobrar atrasados (recorrente)" — varre a carteira vencida (inclui a antiga
+  // migrada do Asaas, fora dos marcos 1/15/30) e re-toca 1×/semana por paciente.
+  | 'boleto_atrasado'
   // Onda 18.28 — confirmação de pagamento (por EVENTO: webhook do Asaas quando cai
   // um pagamento). Não é agendada como os boletos; o webhook checa este toggle.
   | 'confirmacao_pagamento'
@@ -213,6 +216,13 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atraso_30d', nome: 'Cobrança · 30 dias de atraso', categoria: 'financeiro',
     gatilho: '30 dias após vencer · negociar', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_30d' },
+  // "Cobrar atrasados (recorrente)": os 3 marcos acima disparam UMA vez, em datas
+  // exatas. Este pega QUALQUER boleto vencido (inclusive a carteira ANTIGA migrada
+  // do Asaas, meses/anos de atraso) e re-toca o paciente 1×/semana até regularizar —
+  // agrupado (1 msg com o total + todos os links), no mesmo marca-passo anti-ban.
+  { id: 'boleto_atrasado', nome: 'Cobrar atrasados · carteira vencida (recorrente)', categoria: 'financeiro',
+    gatilho: 'Qualquer boleto vencido (inclui a carteira antiga do Asaas) · re-toque semanal · agrupado por paciente', canal: 'WhatsApp', tags: ['Template', 'Recorrente'],
+    editor: 'cobranca', operacionalKey: 'boleto_atrasado' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

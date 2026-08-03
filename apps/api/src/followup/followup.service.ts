@@ -105,6 +105,7 @@ export class FollowupService {
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
+      bolAtrasadoSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -152,6 +153,10 @@ export class FollowupService {
       // Comprovante de pagamento (venda paga na clínica). Toggle próprio; ausente
       // HERDA a negociação aprovada (continuidade — quem já usava não fica mudo).
       this.prisma.globalSetting.findUnique({ where: { key: `COMPROVANTE_PAGAMENTO_ENABLED_${tenantId}` } }),
+      // "Cobrar atrasados (recorrente)" — varre a carteira vencida (inclui a antiga
+      // migrada do Asaas) e re-toca 1×/semana. Default OFF (opt-in). O worker lê a
+      // MESMA key (BOLETO_ATRASADO_${tenant}).
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASADO_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -310,6 +315,8 @@ export class FollowupService {
       boleto_atraso_1d: { enabled: bolA1Setting?.value === 'true' },
       boleto_atraso_15d: { enabled: bolA15Setting?.value === 'true' },
       boleto_atraso_30d: { enabled: bolA30Setting?.value === 'true' },
+      // "Cobrar atrasados (recorrente)" — carteira vencida, re-toque semanal. Default OFF.
+      boleto_atrasado: { enabled: bolAtrasadoSetting?.value === 'true' },
       // Default LIGADA (só desliga se o valor salvo for 'false').
       confirmacao_pagamento: { enabled: (payConfSetting?.value ?? 'true') !== 'false' },
       // Onda 18.x — ortodontia por ordem de chegada. Default OFF (só liga com 'true').
@@ -515,6 +522,7 @@ export class FollowupService {
       boleto_atraso_1d: ['boleto_atraso_1d'],
       boleto_atraso_15d: ['boleto_atraso_15d'],
       boleto_atraso_30d: ['boleto_atraso_30d'],
+      boleto_atrasado: ['boleto_atrasado'],
       confirmacao_pagamento: ['confirmacao_pagamento'],
       aniversario: ['aniversario'],
       aniversario_classica: ['aniversario'],
@@ -707,7 +715,10 @@ export class FollowupService {
       case 'boleto_no_dia':
       case 'boleto_atraso_1d':
       case 'boleto_atraso_15d':
-      case 'boleto_atraso_30d': {
+      case 'boleto_atraso_30d':
+      // "Cobrar atrasados (recorrente)": BOLETO_ATRASADO_${tenant} (o worker lê a
+      // mesma key em loadOverdueEnabledTenants). Cai no mesmo which.toUpperCase().
+      case 'boleto_atrasado': {
         const key = `${which.toUpperCase()}_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
