@@ -1650,7 +1650,15 @@ function ParcelaLinha({
   registering?: boolean;
 }) {
   const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
-  const isOverdue = !isPaid && p.dueDate && new Date(p.dueDate).getTime() < Date.now();
+  // Vencido = vencimento em dia ANTERIOR a hoje (dia local de Maceió). O due_date
+  // vem como meia-noite UTC (a data em si), então SÓ o "hoje" precisa do fuso −3h.
+  // Antes usava getTime() < Date.now() (UTC), que marcava "VENCIDO" uma cobrança
+  // que vence HOJE já a partir das 21h de Maceió do dia anterior → entrada/venda do
+  // dia aparecia atrasada antes de a paciente pagar. Compara YYYY-MM-DD.
+  const _due = p.dueDate ? new Date(p.dueDate) : null;
+  const dueDay = _due && !isNaN(_due.getTime()) ? _due.toISOString().slice(0, 10) : '';
+  const maceioToday = new Date(Date.now() - 3 * 3600000).toISOString().slice(0, 10);
+  const isOverdue = !isPaid && !!dueDay && dueDay < maceioToday;
   const isCancelled = p.status === 'DELETED' || p.status === 'REFUNDED';
   // Onda 17.32.76 — "Sinal de fechamento" SO quando kind eh explicitamente
   // SINAL. Antes 1 cobranca unica (totalCount=1, kind=null) caia como
