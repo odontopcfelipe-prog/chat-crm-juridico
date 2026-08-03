@@ -1625,16 +1625,22 @@ export class PaymentGatewayService {
   // ─── Reconciliation ────────────────────────────────────
 
   async reconcile(tenantId?: string) {
-    const where: any = { status: 'PENDING', gateway: 'ASAAS' };
+    // ANTES filtrava só status:'PENDING' → NUNCA reconciliava OVERDUE: uma parcela
+    // vencida e PAGA no Asaas ficava congelada em OVERDUE no banco local (webhook
+    // perdido / import de boleto já-pago), e a régua cobrava quem já pagou. Agora
+    // cobre PENDING + OVERDUE (o getCharge ao vivo + handleWebhook idempotente já
+    // fazem a baixa correta; só faltava alcançar o OVERDUE). take maior pra limpar
+    // a carteira de uma vez (re-rodar processa o resto — é idempotente).
+    const where: any = { status: { in: ['PENDING', 'OVERDUE'] }, gateway: 'ASAAS' };
     if (tenantId) where.tenant_id = tenantId;
 
     const pendingCharges = await this.prisma.paymentGatewayCharge.findMany({
       where,
-      take: 100,
+      take: 1000,
       orderBy: { created_at: 'asc' },
     });
 
-    this.logger.log(`[RECONCILE] Verificando ${pendingCharges.length} cobrancas pendentes`);
+    this.logger.log(`[RECONCILE] Verificando ${pendingCharges.length} cobrancas em aberto (PENDING+OVERDUE)`);
 
     let updated = 0;
     let errors = 0;
