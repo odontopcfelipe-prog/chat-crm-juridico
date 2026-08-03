@@ -344,6 +344,7 @@ export class PaymentAlertsCronService {
       },
       select: {
         id: true,
+        created_at: true,
         tenant_id: true,
         amount: true,
         due_date: true,
@@ -382,6 +383,16 @@ export class PaymentAlertsCronService {
         venceEm = diff === -2 ? 'no domingo' : 'na segunda-feira';
       }
       if (!stage) continue;
+
+      // Anti-rajada na venda: NÃO cobrar cobrança NASCIDA HOJE. A entrada/parcela de
+      // uma venda fechada agora nasce com vencimento HOJE (diff 0 = boleto_no_dia), e a
+      // régua a cobraria ~1min depois do fechamento — enquanto o paciente paga o PIX e
+      // ANTES de a baixa chegar (status ainda PENDING) → "vence hoje R$X" redundante +
+      // parece "atrasado". O fluxo da venda (pix_delivery/apresentação) já comunica; a
+      // régua espera o próximo dia. Espelha o boleto_intro, que já exclui "vendas de
+      // hoje". createdIdx/todayIdx no DIA LOCAL de Maceió.
+      const createdIdx = this.dayIndexUTC(new Date(new Date(c.created_at).getTime() - 3 * 3_600_000));
+      if (createdIdx >= todayIdx) continue;
 
       // Onda 18.x — resolve o paciente por plano, parcela OU vínculo DIRETO
       // (boleto importado do Asaas). O id é a chave de agrupamento/dedup.
