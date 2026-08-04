@@ -456,9 +456,12 @@ export class EvolutionService implements OnApplicationBootstrap {
 
       // Para mensagens enviadas (fromMe=true / send.message echo), verifica se existe uma
       // mensagem "pendente" na mesma conversa com o mesmo texto salva em menos de 2 minutos.
-      // Isso ocorre quando o CRM salva a mensagem com external_message_id temporário (out_xxx)
-      // porque a Evolution API retornou erro na chamada mas a mensagem foi enviada mesmo assim.
-      // Nesse caso, atualiza o external_message_id em vez de criar duplicata.
+      // Isso ocorre quando o CRM/worker salva a mensagem com external_message_id OTIMISTA
+      // (sintético) no momento do envio, e depois chega o eco do WhatsApp com o id real.
+      // Sem reconciliar, viram DUAS linhas pra UM envio (paciente recebe 1, CRM mostra 2).
+      // Prefixos sintéticos: 'out_' (CRM manda), 'sys_reminder_*'/'sys_cobranca_*' (crons/
+      // lembretes/cobrança). ANTES só casava 'out_' → lembrete e cobrança duplicavam a bolha.
+      // Agora casa QUALQUER otimista (out_ OU sys_) e atualiza o id em vez de duplicar.
       if (isFromMe && messageContent) {
         const since = new Date(Date.now() - 2 * 60 * 1000); // janela de 2 minutos
         const pendingMsg = await this.prisma.message.findFirst({
@@ -467,7 +470,10 @@ export class EvolutionService implements OnApplicationBootstrap {
             direction: 'out',
             text: messageContent,
             created_at: { gte: since },
-            external_message_id: { startsWith: 'out_' },
+            OR: [
+              { external_message_id: { startsWith: 'out_' } },
+              { external_message_id: { startsWith: 'sys_' } },
+            ],
           },
           include: { media: true, skill: { select: { id: true, name: true, area: true } } },
         });
