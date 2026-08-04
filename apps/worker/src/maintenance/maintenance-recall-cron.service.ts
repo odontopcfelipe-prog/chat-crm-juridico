@@ -110,6 +110,17 @@ export class MaintenanceRecallCronService {
       return 'failed';
     }
 
+    // CLAIM ATOMICO (anti-duplicidade) — reivindica reminder_sent_at ANTES de enviar.
+    // Antes era read-then-send-then-mark: 2 execucoes concorrentes (sobreposicao de
+    // deploy/restart, ou >1 replica no futuro) liam reminder_sent_at:null e enviavam 2x
+    // ao paciente. Agora so quem vira null->agora (count===1) envia; a outra ve count===0
+    // e pula. Em NO_CONFIG (nao enviou) o claim e LIBERADO abaixo pra tentar no proximo tick.
+    const claim = await (this.prisma as any).maintenanceTask.updateMany({
+      where: { id: task.id, reminder_sent_at: null },
+      data: { reminder_sent_at: new Date() },
+    });
+    if (claim.count === 0) return 'empty'; // outra execucao ja reivindicou — nao duplica
+
     const dueDateStr = new Date(task.due_date).toLocaleDateString('pt-BR', {
       day: '2-digit', month: 'long',
     });
@@ -123,8 +134,14 @@ export class MaintenanceRecallCronService {
 
     const messageId = await this.sendWhatsApp(task.patient.phone, msg, task.patient.tenant_id);
 
-    // Config do Evolution ausente: NAO gasta o slot, tenta de novo no proximo tick.
-    if (messageId === 'NO_CONFIG') return 'cooldown';
+    // Config do Evolution ausente: NAO enviou → LIBERA o claim (reminder_sent_at volta
+    // a null) pra tentar no proximo tick, e NAO gasta o slot do marca-passo.
+    if (messageId === 'NO_CONFIG') {
+      await (this.prisma as any).maintenanceTask
+        .updateMany({ where: { id: task.id }, data: { reminder_sent_at: null } })
+        .catch(() => undefined);
+      return 'cooldown';
+    }
 
     // Marca na TENTATIVA (sucesso OU falha) e avanca o marca-passo — assim um
     // numero invalido nao trava os proximos recalls.
