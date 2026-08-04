@@ -299,9 +299,11 @@ export class BookAppointmentHandler implements ToolHandler {
             { reminderId: r.id, eventId: event.id, channel: r.channel },
             {
               delay,
+              // ANTI-DUPLICIDADE: 1 tentativa (ver calendar.service.enqueueReminders).
+              // attempts:3 reenviava o lembrete quando a Evolution entregava mas
+              // respondia erro → paciente recebia 2x. Sem retry = sem reenvio.
               jobId: `reminder-${r.id}`,
-              attempts: 3,
-              backoff: { type: 'exponential', delay: 5000 },
+              attempts: 1,
               removeOnComplete: true,
               removeOnFail: 50,
             },

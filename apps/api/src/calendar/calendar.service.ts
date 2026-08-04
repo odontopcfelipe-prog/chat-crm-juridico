@@ -481,9 +481,14 @@ export class CalendarService {
           channel: r.channel,
         }, {
           delay,
+          // ANTI-DUPLICIDADE: 1 tentativa só. Com attempts:3, quando a Evolution
+          // ENTREGA a mensagem mas responde erro/timeout, o worker marca "falha",
+          // reseta sent_at=null e o BullMQ RE-ENTREGA o job → o paciente recebe o
+          // MESMO lembrete/confirmação 2x quase no mesmo segundo. Sem retry, um erro
+          // ambíguo não vira reenvio. Backstop da confirmação de 48h: o scheduler de
+          // 24h (AppointmentConfirmation) cobre se o de 48h não sair.
           jobId,
-          attempts: 3,
-          backoff: { type: 'exponential', delay: 5000 },
+          attempts: 1,
           removeOnComplete: true,
           removeOnFail: 50,
         });
