@@ -719,7 +719,11 @@ export class AiProcessor extends WorkerHost {
         await this.reminderQueue.add(
           'send-reminder',
           { reminderId: r.id, eventId: event.id, channel: r.channel },
-          { delay: fireAt.getTime() - Date.now() },
+          // ANTI-DUPLICIDADE (espelha calendar.service/book-appointment): jobId ESTÁVEL
+          // (dedup natural do BullMQ) + attempts:1. Sem isto herdava attempts:3 e, como o
+          // processor reseta sent_at na falha, uma entrega-com-erro da Evolution reenviava
+          // ao paciente. (Latente: só via autobook da IA, default OFF.)
+          { delay: fireAt.getTime() - Date.now(), jobId: `reminder-${r.id}`, attempts: 1, removeOnComplete: true, removeOnFail: 50 },
         );
       }
     }
