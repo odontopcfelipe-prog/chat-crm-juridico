@@ -163,6 +163,17 @@ export class AppointmentConfirmationDispatcherService {
           continue;
         }
 
+        // CLAIM ATÔMICO — reivindica a linha ANTES de enviar. O dedup antigo era
+        // check-then-send (lê sent_at=null → envia → marca): se DOIS workers rodam
+        // juntos (2 réplicas, ou sobreposição durante um deploy), ambos liam null e
+        // enviavam 2x (confirmação duplicada). O updateMany condicional garante que
+        // só UMA execução ganha o envio; a outra vê count=0 e pula.
+        const claim = await this.prisma.appointmentConfirmation.updateMany({
+          where: { id: c.id, sent_at: null },
+          data: { sent_at: new Date() },
+        });
+        if (claim.count === 0) { skipped++; continue; } // outra execução já pegou esta
+
         try {
           await axios.post(
             `${apiUrl}/message/sendText/${instance}`,

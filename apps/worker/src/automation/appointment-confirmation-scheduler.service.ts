@@ -216,17 +216,29 @@ export class AppointmentConfirmationSchedulerService {
           .replace(/\n{3,}/g, '\n\n')
           .trim();
 
-        await this.prisma.appointmentConfirmation.create({
-          data: {
-            appointment_id: ev.id,
-            channel: 'WHATSAPP',
-            scheduled_for: now,
-            // sent_at fica null — outro worker envia efetivamente
-            message_text: message,
-            response_status: 'PENDENTE',
-          },
+        // Cria SERIALIZADO por agendamento (advisory lock). O existing-check acima é
+        // check-then-create NÃO-atômico: se DOIS workers rodam juntos (2 réplicas ou
+        // sobreposição de deploy), ambos passavam sem achar existente e criavam 2
+        // confirmações → 2 mensagens. O lock por appointment_id faz o 2º ver a do 1º.
+        await this.prisma.$transaction(async (tx) => {
+          await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${ev.id}))`;
+          const dup = await tx.appointmentConfirmation.findFirst({
+            where: { appointment_id: ev.id, channel: 'WHATSAPP' },
+            select: { id: true },
+          });
+          if (dup) return; // outra execução já criou dentro da corrida
+          await tx.appointmentConfirmation.create({
+            data: {
+              appointment_id: ev.id,
+              channel: 'WHATSAPP',
+              scheduled_for: now,
+              // sent_at fica null — outro worker envia efetivamente
+              message_text: message,
+              response_status: 'PENDENTE',
+            },
+          });
+          created++;
         });
-        created++;
       }
 
       if (created > 0 || skipped > 0) {
