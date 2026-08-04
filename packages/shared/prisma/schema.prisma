@@ -598,6 +598,16 @@ model SkillExecutionLog {
   @@index([skill_id])
 }
 
+// Dedup do ENVIO de "Pagamento Confirmado" por PAGAMENTO (external_id = payment.id
+// do Asaas), compartilhado pelos DOIS caminhos do handleWebhook (com e sem charge
+// local). O Asaas manda PAYMENT_CONFIRMED e depois PAYMENT_RECEIVED; se um evento
+// cai no ramo SEM-charge (corrida venda×pagamento, findUnique volta null), ele
+// notificava sem dedup e saía a confirmação 2x. Esta trava garante 1 aviso/pagamento.
+model PaymentNotifyDedup {
+  external_id String   @id
+  created_at  DateTime @default(now())
+}
+
 model AuditLog {
   id            String   @id @default(uuid())
   actor_user_id String?

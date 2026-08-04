@@ -1372,6 +1372,34 @@ export class PaymentGatewayService {
     return { ok, configured: true };
   }
 
+  /**
+   * Trava de dedup do ENVIO de "Pagamento Confirmado" por PAGAMENTO (external_id =
+   * payment.id do Asaas). Compartilhada pelos DOIS caminhos do handleWebhook (com e
+   * SEM charge local): o Asaas manda PAYMENT_CONFIRMED e depois PAYMENT_RECEIVED, e
+   * numa corrida venda×pagamento um evento cai no ramo sem-charge (findUnique null) e
+   * notificava sem dedup → 2 confirmações. Retorna true se GANHOU o direito de avisar.
+   * Fail-open: erro inesperado (ex.: tabela ainda não criada por db push) → true.
+   */
+  private async claimPaymentNotify(externalId?: string | null): Promise<boolean> {
+    if (!externalId) return true; // sem id não dá pra dedupar (raro) — deixa passar
+    try {
+      await this.prisma.paymentNotifyDedup.create({ data: { external_id: externalId } });
+      return true;
+    } catch (e: any) {
+      if (e?.code === 'P2002') return false; // outro evento deste pagamento já avisou
+      this.logger.warn(`[NOTIFY-DEDUP] claim falhou p/ ${externalId} (fail-open): ${e?.message}`);
+      return true;
+    }
+  }
+
+  /** Libera a trava (permite retry numa próxima entrega) quando o ENVIO falha. */
+  private async releasePaymentNotify(externalId?: string | null): Promise<void> {
+    if (!externalId) return;
+    await this.prisma.paymentNotifyDedup
+      .delete({ where: { external_id: externalId } })
+      .catch(() => undefined);
+  }
+
   async handleWebhook(payload: any, opts?: { silent?: boolean }) {
     // opts.silent = reprocessamento por RECONCILE (não é um webhook ao vivo): atualiza
     // status/baixa no caixa mas NÃO manda WhatsApp/e-mail ao paciente. Sem isto, ao
@@ -1413,10 +1441,15 @@ export class PaymentGatewayService {
 
       // Notificar pagamento confirmado
       if ((mappedStatusNoCharge === 'RECEIVED' || mappedStatusNoCharge === 'CONFIRMED' || event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && !opts?.silent) {
-        try {
-          await this.notifyClientPaymentReceived(paymentData, { amount: paymentData.value });
-        } catch (e: any) {
-          this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento (sem registro local): ${e.message}`);
+        // Trava por payment.id (compartilhada com o ramo com-charge) — sem ela,
+        // CONFIRMED + RECEIVED do mesmo pagamento avisavam 2x aqui (sem charge pra dedupar).
+        if (await this.claimPaymentNotify(paymentData.id)) {
+          try {
+            await this.notifyClientPaymentReceived(paymentData, { amount: paymentData.value });
+          } catch (e: any) {
+            await this.releasePaymentNotify(paymentData.id);
+            this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento (sem registro local): ${e.message}`);
+          }
         }
       }
 
@@ -1574,25 +1607,24 @@ export class PaymentGatewayService {
       // Claim atomico: so o 1o evento ganha o direito de notificar. A transicao
       // de status/baixa no caixa (ensureChargeReceita etc.) roda fora deste if,
       // entao continua normal.
-      const claim = await this.prisma.paymentGatewayCharge.updateMany({
+      // Marca no charge (registro/compat). O GATE REAL do envio agora é a trava por
+      // payment.id (claimPaymentNotify), COMPARTILHADA com o ramo sem-charge — assim
+      // CONFIRMED+RECEIVED e a corrida venda×pagamento mandam a confirmação 1x só.
+      await this.prisma.paymentGatewayCharge.updateMany({
         where: { id: charge.id, confirmation_notified_at: null },
         data: { confirmation_notified_at: new Date() },
       });
-      if (claim.count > 0 && !opts?.silent) {
+      if (!opts?.silent && (await this.claimPaymentNotify(paymentData.id))) {
         try {
           await this.notifyClientPaymentReceived(paymentData, charge);
         } catch (e: any) {
-          // Libera o claim pra retry numa proxima entrega do webhook (o cliente
+          // Libera a trava pra retry numa proxima entrega do webhook (o cliente
           // nao pode ficar sem a confirmacao por causa de uma falha de envio).
-          await this.prisma.paymentGatewayCharge
-            .updateMany({ where: { id: charge.id }, data: { confirmation_notified_at: null } })
-            .catch(() => undefined);
+          await this.releasePaymentNotify(paymentData.id);
           this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre pagamento: ${e.message}`);
         }
         // Onda 17.32.181 — e-mail automatico "pagamento confirmado"
         void this.sendPaymentConfirmedEmail(charge, paymentData);
-      } else {
-        this.logger.debug(`[WEBHOOK] Confirmacao de pagamento ja enviada p/ charge ${charge.id} — ignorando duplicata (status ${mappedStatus})`);
       }
     }
 
