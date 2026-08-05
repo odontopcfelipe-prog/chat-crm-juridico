@@ -1825,11 +1825,10 @@ function ParcelaLinha({
             type="button"
             onClick={onDelete}
             disabled={deleting}
-            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-red-500/50 bg-transparent text-red-700 dark:text-red-400 hover:bg-red-500/10 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+            className="p-1.5 rounded-md text-red-600 dark:text-red-400 hover:bg-red-500/10 inline-flex items-center transition-colors disabled:opacity-50 disabled:cursor-wait"
             title="Apagar esta cobrança no Asaas e no sistema (admin)"
           >
-            {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-            Apagar
+            {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
           </button>
         )}
       </div>
@@ -2524,11 +2523,10 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
             type="button"
             onClick={handleDelete}
             disabled={deleting}
-            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-red-500/50 text-red-700 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-wait"
+            className="p-1.5 rounded-lg text-red-600 hover:text-red-700 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-wait transition-colors"
             title="Apagar esta cobrança no Asaas e no sistema (admin)"
           >
-            {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
-            Apagar
+            {deleting ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
           </button>
         )}
       </div>
