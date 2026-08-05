@@ -378,6 +378,7 @@ export class FinanceiroChargesService {
     tenantId?: string;
     dentistId?: string;
     patientId?: string;
+    search?: string; // busca por nome/telefone/CPF do paciente (server-side, atravessa toda a carteira)
     status?: string; // PENDING|RECEIVED|OVERDUE|CONFIRMED|...
     statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'all';
     kind?: string; // SINAL|ENTRADA|INSTALLMENT
@@ -387,7 +388,7 @@ export class FinanceiroChargesService {
     limit?: number;
     offset?: number;
   }) {
-    const { tenantId, dentistId, patientId, status, statusGroup, kind, billingType, startDate, endDate } = opts;
+    const { tenantId, dentistId, patientId, search, status, statusGroup, kind, billingType, startDate, endDate } = opts;
     const limit = Math.min(opts.limit || 100, 500);
     const offset = opts.offset || 0;
     const now = new Date();
@@ -402,6 +403,49 @@ export class FinanceiroChargesService {
       where.treatment_plan = { patient_id: patientId };
     } else if (dentistId) {
       where.treatment_plan = { quote: { created_by_user_id: dentistId } };
+    }
+
+    // Busca por paciente (server-side → atravessa TODA a carteira, não só as 200
+    // carregadas). Casa nome (case-insensitive) + telefone/CPF (só dígitos), e
+    // procura o paciente pelos TRÊS caminhos de vínculo que uma charge pode ter:
+    //   1) direto: patient_id (boletos importados do Asaas COM vínculo)
+    //   2) via plano: treatment_plan.patient
+    //   3) órfão: customer_external_id → PaymentGatewayCustomer.lead_id → Patient.lead_id
+    //      (importados SEM plano e SEM patient_id — resolvidos só pela cadeia do gateway)
+    // Vai em AND separado pra não colidir com o OR do statusGroup='paid'.
+    const term = (search || '').trim();
+    if (term) {
+      const digits = term.replace(/\D/g, '');
+      const nameCond = { name: { contains: term, mode: 'insensitive' as const } };
+      const phoneCpfConds = digits.length >= 3
+        ? [{ phone: { contains: digits } }, { cpf: { contains: digits } }]
+        : [];
+      const patientMatch = { OR: [nameCond, ...phoneCpfConds] };
+
+      const patientOr: any[] = [
+        { patient: patientMatch },        // 1) direto
+        { treatment_plan: { patient: patientMatch } }, // 2) via plano
+      ];
+
+      // 3) órfãos: acha os pacientes que casam → seus leads → os external_ids do
+      // gateway → charges por customer_external_id. Só quando buscando (2 queries extra).
+      const matchedPatients = await this.prisma.patient.findMany({
+        where: { ...(tenantId ? { tenant_id: tenantId } : {}), lead_id: { not: null }, ...patientMatch },
+        select: { lead_id: true },
+        take: 500,
+      });
+      const leadIds = [...new Set(matchedPatients.map((p) => p.lead_id).filter(Boolean) as string[])];
+      if (leadIds.length) {
+        const custs = await this.prisma.paymentGatewayCustomer.findMany({
+          where: { lead_id: { in: leadIds }, ...(tenantId ? { tenant_id: tenantId } : {}) },
+          select: { external_id: true },
+        });
+        const extIds = [...new Set(custs.map((c) => c.external_id).filter(Boolean) as string[])];
+        if (extIds.length) patientOr.push({ customer_external_id: { in: extIds } });
+      }
+
+      if (!where.AND) where.AND = [];
+      where.AND.push({ OR: patientOr });
     }
 
     if (status) {

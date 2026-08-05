@@ -116,6 +116,14 @@ export default function BoletosTab({ dentistId }: Props) {
   const [kind, setKind] = useState<string>('');
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
+  // Busca é SERVER-SIDE (atravessa toda a carteira, não só as 200 carregadas).
+  // Debounce pra não bater na API a cada tecla.
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search), 350);
+    return () => clearTimeout(t);
+  }, [search]);
+  const searching = debouncedSearch.trim().length > 0;
   const [markingCash, setMarkingCash] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const role = useRole(); // role.isAdmin gateia o botão de apagar boleto
@@ -123,8 +131,12 @@ export default function BoletosTab({ dentistId }: Props) {
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const params: any = { limit: 200 };
-      if (statusGroup !== 'all') params.statusGroup = statusGroup;
+      const term = debouncedSearch.trim();
+      const params: any = { limit: term ? 500 : 200 };
+      // Buscando um paciente → traz TODOS os status dele (pago/aberto/atrasado):
+      // manda `search` e NÃO manda statusGroup (o chip é ignorado durante a busca).
+      if (term) params.search = term;
+      else if (statusGroup !== 'all') params.statusGroup = statusGroup;
       if (kind) params.kind = kind;
       if (billingType) params.billingType = billingType;
       if (dentistId) params.dentistId = dentistId;
@@ -145,7 +157,7 @@ export default function BoletosTab({ dentistId }: Props) {
     } finally {
       setLoading(false);
     }
-  }, [statusGroup, kind, billingType, dentistId]);
+  }, [statusGroup, kind, billingType, dentistId, debouncedSearch]);
 
   useEffect(() => {
     fetchData();
@@ -259,7 +271,9 @@ export default function BoletosTab({ dentistId }: Props) {
   // (aberto e vencidos por vencimento; pagos pelo pagamento mais recente). Com um
   // chip específico selecionado o backend já filtrou → lista única, sem cabeçalho.
   const groups = useMemo(() => {
-    if (statusGroup !== 'all') {
+    // Buscando um paciente → sempre a visão agrupada (mostra pago + aberto + atrasado
+    // dele de uma vez), ignorando o chip de status que estiver ativo.
+    if (statusGroup !== 'all' && !searching) {
       return [{ key: 'flat', label: '', icon: FileText, color: 'text-foreground', rows: filtered, total: filtered.reduce((s, c) => s + c.amount, 0) }];
     }
     const byDueAsc = (a: Charge, b: Charge) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
@@ -273,7 +287,7 @@ export default function BoletosTab({ dentistId }: Props) {
       { key: 'vencidos', label: 'Vencidos', icon: AlertTriangle, color: 'text-red-400', rows: vencidos, total: sum(vencidos) },
       { key: 'pagos', label: 'Pagos', icon: Check, color: 'text-emerald-400', rows: pagos, total: sum(pagos) },
     ].filter((g) => g.rows.length > 0);
-  }, [filtered, statusGroup]);
+  }, [filtered, statusGroup, searching]);
 
   return (
     <div className="space-y-4">
@@ -287,8 +301,11 @@ export default function BoletosTab({ dentistId }: Props) {
               <button
                 key={g.key}
                 onClick={() => setStatusGroup((prev) => (prev === g.key ? 'all' : g.key))}
+                title={searching ? 'Filtro de status ignorado durante a busca por paciente' : undefined}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
-                  statusGroup === g.key
+                  searching ? 'opacity-40' : ''
+                } ${
+                  statusGroup === g.key && !searching
                     ? 'bg-primary text-primary-foreground'
                     : `bg-background border border-border ${g.color} hover:bg-accent/30`
                 }`}
