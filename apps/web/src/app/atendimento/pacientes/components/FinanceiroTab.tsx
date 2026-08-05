@@ -2391,6 +2391,7 @@ function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: (
 function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => void }) {
   const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
   const [deleting, setDeleting] = useState(false);
+  const [receiving, setReceiving] = useState(false);
   const isPix = c.billing_type === 'PIX';
   const isBoleto = c.billing_type === 'BOLETO';
   const isCartao = c.billing_type === 'CREDIT_CARD';
@@ -2426,6 +2427,30 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     if (c.pix_copy_paste) {
       navigator.clipboard?.writeText(c.pix_copy_paste);
       showSuccess('Código PIX copiado');
+    }
+  };
+
+  // Dar baixa "pago" manualmente — paciente pagou por fora (PIX/cartão/espécie).
+  // Fecha a cobrança no Asaas (link/QR morre) + lança a receita no caixa + libera comissão.
+  const handleReceive = async () => {
+    if (receiving || isPaid) return;
+    if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.'); return; }
+    const metodoLabel = isPix ? 'PIX' : isCartao ? 'cartão' : 'dinheiro/espécie';
+    if (!window.confirm(
+      `Marcar como RECEBIDO (${fmtBRL(c.amount)})?\n\n` +
+      `Use só se o paciente JÁ pagou por fora (${metodoLabel}).\n\n` +
+      `Isso fecha a cobrança no Asaas (o link/QR para de funcionar), lança a receita no caixa e libera a comissão.`,
+    )) return;
+    const caixaMethod = isPix ? 'PIX' : isCartao ? 'CARTAO' : 'DINHEIRO';
+    setReceiving(true);
+    try {
+      await api.post(`/payment-gateway/charges/asaas/${c.external_id}/receive-in-cash`, { payment_method: caixaMethod });
+      showSuccess('Baixa registrada — cobrança fechada no Asaas e receita no caixa.');
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao registrar o recebimento.');
+    } finally {
+      setReceiving(false);
     }
   };
 
@@ -2516,6 +2541,19 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
             <ExternalLink size={11} />
             Cartão
           </a>
+        )}
+        {/* Dar baixa "pago" manual — paciente pagou por fora. Fecha no Asaas + caixa. */}
+        {!isPaid && !isCancelled && c.external_id && (
+          <button
+            type="button"
+            onClick={handleReceive}
+            disabled={receiving}
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-emerald-500/50 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-500/10 disabled:opacity-50 disabled:cursor-wait"
+            title="Paciente pagou por fora? Dar baixa (marca pago + fecha no Asaas + lança no caixa)"
+          >
+            {receiving ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
+            Dar baixa
+          </button>
         )}
         {/* Apagar — SOMENTE ADMIN, só enquanto NÃO paga. Apaga no Asaas + sistema. */}
         {role.isAdmin && !isPaid && !isCancelled && c.external_id && (
