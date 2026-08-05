@@ -1803,9 +1803,9 @@ function ParcelaLinha({
             Ver
           </button>
         )}
-        {/* Onda 18.11 — "A pagar" (vermelho) enquanto não recebido. Clicar dá a
-            baixa (fecha no Asaas + lança no caixa). Quando paga — manual OU
-            automático (webhook) — some e o selo "Pago" verde acima aparece. */}
+        {/* Onda 18.11 — "Dar baixa" (vermelho) enquanto não recebido. Clicar fecha
+            no Asaas + lança no caixa. Quando paga — manual OU automático (webhook)
+            — some e o selo "Pago" verde acima aparece. */}
         {!isPaid && !isCancelled && (
           <button
             type="button"
@@ -1815,7 +1815,7 @@ function ParcelaLinha({
             title="Paciente pagou por fora? Clique pra dar baixa (fecha no Asaas + lança no caixa)."
           >
             {registering ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
-            A pagar
+            Dar baixa
           </button>
         )}
         {/* Apagar cobrança — SOMENTE ADMIN, e só enquanto NÃO paga (paga não pode
