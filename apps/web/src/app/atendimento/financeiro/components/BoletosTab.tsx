@@ -73,9 +73,10 @@ const STATUS_GROUPS = [
   { key: 'overdue', label: 'Atrasados', icon: AlertTriangle, color: 'text-red-400' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
+  { key: 'all', label: 'Todos', icon: FileText, color: 'text-foreground' },
 ] as const;
-// "Todos" saiu dos chips: a visão SEM filtro já é a agrupada (Em Aberto/Vencidos/Pagos).
-// 'all' segue como estado-base (nenhum chip ativo); clicar no chip ativo volta pra ele.
+// Abas EXCLUSIVAS: cada chip mostra SÓ o seu status (lista única). O chip "Todos"
+// mostra a visão agrupada (Em Aberto / Vencidos / Pagos). Abre em "Em aberto".
 type StatusGroup = 'all' | typeof STATUS_GROUPS[number]['key'];
 
 const KIND_LABEL: Record<string, string> = {
@@ -110,9 +111,9 @@ export default function BoletosTab({ dentistId }: Props) {
   const [loading, setLoading] = useState(true);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [total, setTotal] = useState(0);
-  // Default 'all' = visão agrupada (Em Aberto / Vencidos / Pagos), sem chip ativo.
-  // Clicar num chip filtra; clicar de novo no chip ativo volta pra visão agrupada.
-  const [statusGroup, setStatusGroup] = useState<StatusGroup>('all');
+  // Abre em "Em aberto". Chips são abas exclusivas — clicar troca o status mostrado
+  // (o chip "Todos" volta pra visão agrupada). Nunca fica sem nenhum ativo.
+  const [statusGroup, setStatusGroup] = useState<StatusGroup>('open');
   const [kind, setKind] = useState<string>('');
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -274,7 +275,10 @@ export default function BoletosTab({ dentistId }: Props) {
     // Buscando um paciente → sempre a visão agrupada (mostra pago + aberto + atrasado
     // dele de uma vez), ignorando o chip de status que estiver ativo.
     if (statusGroup !== 'all' && !searching) {
-      return [{ key: 'flat', label: '', icon: FileText, color: 'text-foreground', rows: filtered, total: filtered.reduce((s, c) => s + c.amount, 0) }];
+      // Lista única do filtro ativo, com cabeçalho (nome + contagem + total) pra
+      // deixar claro qual status está sendo mostrado.
+      const active = STATUS_GROUPS.find((g) => g.key === statusGroup);
+      return [{ key: 'flat', label: active?.label || '', icon: active?.icon || FileText, color: active?.color || 'text-foreground', rows: filtered, total: filtered.reduce((s, c) => s + c.amount, 0) }];
     }
     const byDueAsc = (a: Charge, b: Charge) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
     const paidTime = (c: Charge) => new Date(c.paid_at || c.payment_date || c.due_date).getTime();
@@ -300,7 +304,7 @@ export default function BoletosTab({ dentistId }: Props) {
             return (
               <button
                 key={g.key}
-                onClick={() => setStatusGroup((prev) => (prev === g.key ? 'all' : g.key))}
+                onClick={() => setStatusGroup(g.key)}
                 title={searching ? 'Filtro de status ignorado durante a busca por paciente' : undefined}
                 className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold whitespace-nowrap transition-colors ${
                   searching ? 'opacity-40' : ''
