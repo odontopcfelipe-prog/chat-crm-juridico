@@ -429,7 +429,7 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
       {/* Onda 14.9 — Cobranças "órfãs" (sem quote aceito vinculado).
           Caso raro mas mantém — ex: charges legadas via Installment. */}
       {charges.length > 0 && acceptedQuotes.length === 0 && (
-        <ChargesSection charges={charges} />
+        <ChargesSection charges={charges} onReload={load} />
       )}
 
       {/* Lista de parcelas — so renderiza se ha installments. Onda 14.9 */}
@@ -2337,7 +2337,7 @@ function ProceduresListModal({
   );
 }
 
-function ChargesSection({ charges }: { charges: Charge[] }) {
+function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: () => void }) {
   const summary = useMemo(() => {
     let paid = 0;
     let pending = 0;
@@ -2381,7 +2381,7 @@ function ChargesSection({ charges }: { charges: Charge[] }) {
       </div>
       <ul className="divide-y divide-border">
         {charges.map((c) => (
-          <ChargeRow key={c.id} charge={c} />
+          <ChargeRow key={c.id} charge={c} onReload={onReload} />
         ))}
       </ul>
     </div>
@@ -2389,7 +2389,9 @@ function ChargesSection({ charges }: { charges: Charge[] }) {
 }
 
 /** Onda 14.9 — Renderiza uma linha de cobranca com tipo, valor, status e ações */
-function ChargeRow({ charge: c }: { charge: Charge }) {
+function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => void }) {
+  const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
+  const [deleting, setDeleting] = useState(false);
   const isPix = c.billing_type === 'PIX';
   const isBoleto = c.billing_type === 'BOLETO';
   const isCartao = c.billing_type === 'CREDIT_CARD';
@@ -2425,6 +2427,28 @@ function ChargeRow({ charge: c }: { charge: Charge }) {
     if (c.pix_copy_paste) {
       navigator.clipboard?.writeText(c.pix_copy_paste);
       showSuccess('Código PIX copiado');
+    }
+  };
+
+  // Apagar cobrança (ADMIN) — apaga no Asaas E no sistema, silenciosamente.
+  const handleDelete = async () => {
+    if (deleting) return;
+    if (isPaid) { showError('Cobrança já paga — não pode ser apagada.'); return; }
+    if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra apagar.'); return; }
+    if (!window.confirm(
+      `APAGAR esta cobrança (${fmtBRL(c.amount)})?\n\n` +
+      `Apaga NO ASAAS e NO SISTEMA — não dá pra desfazer. O paciente NÃO é avisado.\n` +
+      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
+    )) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}`);
+      showSuccess('Cobrança apagada (Asaas + sistema).');
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao apagar a cobrança.');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -2493,6 +2517,19 @@ function ChargeRow({ charge: c }: { charge: Charge }) {
             <ExternalLink size={11} />
             Cartão
           </a>
+        )}
+        {/* Apagar — SOMENTE ADMIN, só enquanto NÃO paga. Apaga no Asaas + sistema. */}
+        {role.isAdmin && !isPaid && !isCancelled && c.external_id && (
+          <button
+            type="button"
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-xs inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-red-500/50 text-red-700 dark:text-red-400 hover:bg-red-500/10 disabled:opacity-50 disabled:cursor-wait"
+            title="Apagar esta cobrança no Asaas e no sistema (admin)"
+          >
+            {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+            Apagar
+          </button>
         )}
       </div>
     </li>
