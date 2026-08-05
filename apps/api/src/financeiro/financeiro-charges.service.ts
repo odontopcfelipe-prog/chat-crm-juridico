@@ -417,9 +417,16 @@ export class FinanceiroChargesService {
     if (term) {
       const digits = term.replace(/\D/g, '');
       const nameCond = { name: { contains: term, mode: 'insensitive' as const } };
-      const phoneCpfConds = digits.length >= 3
-        ? [{ phone: { contains: digits } }, { cpf: { contains: digits } }]
-        : [];
+      // Telefone/CPF: a coluna guarda formatos MISTOS ((82) 9..., 82..., 123.456...).
+      // Prisma nao normaliza a coluna, entao casamos por DOIS lados: o termo como
+      // digitado (pega os salvos COM mascara) e so os digitos (pega os SEM mascara).
+      // So entra quando o termo parece telefone/CPF (>=3 digitos) — busca por nome
+      // nao carrega essas clausulas atoa.
+      const phoneCpfConds: any[] = [];
+      if (digits.length >= 3) {
+        phoneCpfConds.push({ phone: { contains: term } }, { cpf: { contains: term } });
+        if (digits !== term) phoneCpfConds.push({ phone: { contains: digits } }, { cpf: { contains: digits } });
+      }
       const patientMatch = { OR: [nameCond, ...phoneCpfConds] };
 
       const patientOr: any[] = [
