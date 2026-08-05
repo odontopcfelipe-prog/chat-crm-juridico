@@ -16,12 +16,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList, CheckCircle2, Printer,
+  ClipboardList, CheckCircle2, Printer, Trash2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 // Onda 17.72 — gate Financeiro→Tratamento: botão "Validar" só pra quem tem manage_financial
 import { useUserPermissions } from '@/lib/useUserPermissions';
+// Apagar cobrança é ADMIN-only (mesmo gate do "Excluir" do paciente).
+import { useRole } from '@/lib/useRole';
 // Onda 14.18 — identificador unificado entre as 4 abas
 import { getQuoteDisplayName, getQuoteNumberBadge } from '@/lib/quote-display';
 
@@ -699,6 +701,7 @@ function ProposalFinancialCard({
   // Onda 17.72 — gate Financeiro→Tratamento. So quem tem manage_financial vê
   // o botão "Validar" que libera o tratamento pro dentista confirmar.
   const { hasPermission } = useUserPermissions();
+  const role = useRole(); // role.isAdmin gateia o botão de apagar cobrança
   const [validatingPlanId, setValidatingPlanId] = useState<string | null>(null);
   // Onda 17.32.46 — Modal pra ver PDF do boleto / pagina PIX com QR code
   // dentro do proprio sistema, sem precisar mandar pro paciente ver.
@@ -717,6 +720,39 @@ function ProposalFinancialCard({
   // (fecha a cobrança no Asaas -> link/QR morre + lança receita no caixa +
   // libera comissão). Pra quando o paciente pagou por fora (PIX/dinheiro).
   const [registeringId, setRegisteringId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  // Apagar cobrança (ADMIN) — apaga no Asaas E no sistema, silenciosamente.
+  const handleDeleteCharge = async (p: ParcelaItem) => {
+    if (deletingId) return; // evita duplo-clique
+    if (!p.asaasId) { showError('Cobrança sem ID do Asaas — não dá pra apagar por aqui.'); return; }
+    if (p.status === 'RECEIVED' || p.status === 'CONFIRMED') {
+      showError('Cobrança já paga — não pode ser apagada.');
+      return;
+    }
+    if (!window.confirm(
+      `APAGAR esta cobrança (R$ ${fmtBRL(p.value)})?\n\n` +
+      `Isso apaga o boleto NO ASAAS e NO SISTEMA — não dá pra desfazer.\n` +
+      `O link/QR para de funcionar e a cobrança some da ficha.\n` +
+      `O paciente NÃO é avisado.\n\n` +
+      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
+    )) return;
+    setDeletingId(p.asaasId);
+    try {
+      await api.delete(`/payment-gateway/charges/asaas/${p.asaasId}`);
+      showSuccess('Cobrança apagada (Asaas + sistema).');
+      setSubInstallmentsByCharge((prev) => {
+        if (prev[p.chargeId] === undefined) return prev;
+        const next = { ...prev };
+        delete next[p.chargeId];
+        return next;
+      });
+      onReload?.();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao apagar a cobrança.');
+    } finally {
+      setDeletingId(null);
+    }
+  };
   const handleRegistrar = async (p: ParcelaItem) => {
     if (registeringId) return; // evita duplo-clique
     if (!p.asaasId) {
@@ -1623,6 +1659,9 @@ function ProposalFinancialCard({
                   onRegistrar={() => handleRegistrar(p)}
                   onReenviar={() => onOpenDetail()}
                   registering={registeringId === p.asaasId}
+                  onDelete={() => handleDeleteCharge(p)}
+                  canDelete={role.isAdmin}
+                  deleting={deletingId === p.asaasId}
                 />
               ))}
             </ul>
@@ -1642,12 +1681,18 @@ function ParcelaLinha({
   onRegistrar,
   onReenviar,
   registering = false,
+  onDelete,
+  canDelete = false,
+  deleting = false,
 }: {
   parcela: ParcelaItem;
   onView: () => void;
   onRegistrar: () => void;
   onReenviar: () => void;
   registering?: boolean;
+  onDelete?: () => void;
+  canDelete?: boolean;
+  deleting?: boolean;
 }) {
   const isPaid = p.status === 'RECEIVED' || p.status === 'CONFIRMED';
   // Vencido = vencimento em dia ANTERIOR a hoje (dia local de Maceió). O due_date
@@ -1771,6 +1816,20 @@ function ParcelaLinha({
           >
             {registering ? <Loader2 size={11} className="animate-spin" /> : <DollarSign size={11} />}
             A pagar
+          </button>
+        )}
+        {/* Apagar cobrança — SOMENTE ADMIN, e só enquanto NÃO paga (paga não pode
+            ser apagada: a receita já entrou no caixa). Apaga no Asaas + no sistema. */}
+        {canDelete && onDelete && !isPaid && !isCancelled && (
+          <button
+            type="button"
+            onClick={onDelete}
+            disabled={deleting}
+            className="text-xs font-semibold px-2.5 py-1.5 rounded-md border border-red-500/50 bg-transparent text-red-700 dark:text-red-400 hover:bg-red-500/10 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50 disabled:cursor-wait whitespace-nowrap"
+            title="Apagar esta cobrança no Asaas e no sistema (admin)"
+          >
+            {deleting ? <Loader2 size={11} className="animate-spin" /> : <Trash2 size={11} />}
+            Apagar
           </button>
         )}
       </div>

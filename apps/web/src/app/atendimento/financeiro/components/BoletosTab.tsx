@@ -22,11 +22,13 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
-  Copy, MessageCircle, DollarSign, FileText, Filter, X,
+  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
+// Apagar boleto é ADMIN-only.
+import { useRole } from '@/lib/useRole';
 
 interface Charge {
   id: string;
@@ -115,6 +117,8 @@ export default function BoletosTab({ dentistId }: Props) {
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
   const [markingCash, setMarkingCash] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const role = useRole(); // role.isAdmin gateia o botão de apagar boleto
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -214,6 +218,31 @@ export default function BoletosTab({ dentistId }: Props) {
       showError(e?.response?.data?.message || 'Erro ao marcar como pago');
     } finally {
       setMarkingCash(null);
+    }
+  };
+
+  // Apagar boleto (ADMIN) — apaga no Asaas E no sistema, silenciosamente.
+  const handleDeleteBoleto = async (c: Charge) => {
+    if (deletingId) return;
+    if (c.status === 'RECEIVED' || c.status === 'CONFIRMED' || c.received_in_cash) {
+      showError('Cobrança já paga — não pode ser apagada.');
+      return;
+    }
+    if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra apagar.'); return; }
+    if (!confirm(
+      `APAGAR o boleto de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)})?\n\n` +
+      `Apaga NO ASAAS e NO SISTEMA — não dá pra desfazer. O paciente NÃO é avisado.\n` +
+      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
+    )) return;
+    setDeletingId(c.id);
+    try {
+      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}`);
+      showSuccess('Boleto apagado (Asaas + sistema).');
+      fetchData();
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Erro ao apagar o boleto.');
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -493,6 +522,17 @@ export default function BoletosTab({ dentistId }: Props) {
                               title="Marcar como recebido em espécie"
                             >
                               {markingCash === c.id ? <Loader2 size={13} className="animate-spin" /> : <DollarSign size={13} />}
+                            </button>
+                          )}
+                          {/* Apagar — SOMENTE ADMIN, só enquanto NÃO paga. Apaga no Asaas + sistema. */}
+                          {role.isAdmin && !isPaid && c.external_id && (
+                            <button
+                              onClick={() => handleDeleteBoleto(c)}
+                              disabled={deletingId === c.id}
+                              className="p-1.5 rounded-lg hover:bg-red-500/15 text-red-500 transition-colors disabled:opacity-50"
+                              title="Apagar cobrança no Asaas e no sistema (admin)"
+                            >
+                              {deletingId === c.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                             </button>
                           )}
                         </div>

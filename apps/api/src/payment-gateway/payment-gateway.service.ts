@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
   Logger,
 } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
@@ -1711,6 +1712,69 @@ export class PaymentGatewayService {
     }
 
     return { total: pendingCharges.length, updated, errors };
+  }
+
+  /**
+   * Exclui uma cobrança (ação de ADMIN) — no Asaas E no sistema, de forma SILENCIOSA.
+   * (1) acha a charge tenant-scoped (anti-IDOR); (2) BLOQUEIA se já paga/recebida
+   * (o Asaas recusa o delete de pagamento recebido, e apagar deixaria RECEITA ÓRFÃ no
+   * caixa + comissão já liberada); (3) marca status='DELETED' no LOCAL ANTES de chamar
+   * o Asaas — assim o webhook PAYMENT_DELETED que volta cai na guarda de idempotência
+   * (status já DELETED em handleWebhook) e NÃO manda "Cobrança Cancelada" ao paciente;
+   * (4) DELETE /payments/{external_id} no Asaas (404 = já não existe lá → sucesso).
+   * Em falha do Asaas (não-404) REVERTE o status local, pra não marcar como apagado
+   * algo que segue vivo no Asaas.
+   */
+  async deleteCharge(externalId: string, callerTenantId?: string | null) {
+    const charge = await this.prisma.paymentGatewayCharge.findFirst({
+      where: { external_id: externalId },
+      select: {
+        id: true, tenant_id: true, status: true,
+        received_in_cash: true, transaction_id: true, gateway: true,
+      },
+    });
+    if (!charge) throw new NotFoundException('Cobrança não encontrada');
+
+    // Anti-IDOR: só apaga cobrança da PRÓPRIA clínica.
+    if (charge.tenant_id && callerTenantId && charge.tenant_id !== callerTenantId) {
+      throw new ForbiddenException('Cobrança de outra clínica');
+    }
+
+    // Já paga/recebida → NÃO apaga (o valor já entrou no caixa; apagar deixaria
+    // receita órfã e comissão liberada sem cobrança). O Asaas também recusa.
+    if (
+      charge.status === 'RECEIVED' || charge.status === 'CONFIRMED' ||
+      charge.received_in_cash || charge.transaction_id
+    ) {
+      throw new BadRequestException(
+        'Esta cobrança já foi paga/recebida — não pode ser apagada (o valor já entrou no caixa).',
+      );
+    }
+
+    // Marca DELETED no LOCAL ANTES do Asaas (silêncio — ver docstring).
+    await this.prisma.paymentGatewayCharge.update({
+      where: { id: charge.id },
+      data: { status: 'DELETED' },
+    });
+
+    // Apaga no Asaas (se for cobrança do gateway). 404 = já não existe lá → ok.
+    if ((charge.gateway || 'ASAAS') === 'ASAAS' && externalId) {
+      try {
+        await this.asaas.deleteCharge(externalId, charge.tenant_id || callerTenantId);
+      } catch (e: any) {
+        const msg = String(e?.message || '');
+        if (!msg.includes('[Asaas 404]')) {
+          // Falhou no Asaas por outro motivo — reverte o status local.
+          await this.prisma.paymentGatewayCharge
+            .update({ where: { id: charge.id }, data: { status: charge.status } })
+            .catch(() => undefined);
+          throw new BadRequestException(`Falha ao apagar no Asaas: ${msg}`);
+        }
+      }
+    }
+
+    this.logger.log(`[DELETE-CHARGE] Cobrança ${externalId} apagada (local DELETED + Asaas)`);
+    return { deleted: true };
   }
 
   /**

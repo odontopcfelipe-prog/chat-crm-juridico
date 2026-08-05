@@ -19,6 +19,7 @@ import { AsaasClient } from './asaas/asaas-client';
 import { BoletoDeliveryService } from './boleto-delivery.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators/public.decorator';
+import { Roles } from '../auth/decorators/roles.decorator';
 
 @Controller('payment-gateway')
 export class PaymentGatewayController {
@@ -422,13 +423,14 @@ export class PaymentGatewayController {
     return { ...(result || {}), caixa };
   }
 
-  /** Excluir cobrança no Asaas */
+  /** Excluir cobrança — SOMENTE ADMIN. Apaga no Asaas E no sistema (soft-delete
+   *  status=DELETED), de forma SILENCIOSA (sem avisar o paciente). O service faz
+   *  o tenant-scope (anti-IDOR) e bloqueia cobrança já paga. */
+  @Roles('ADMIN', 'SUPER_ADMIN')
   @Delete('charges/asaas/:chargeId')
   async deleteAsaasCharge(@Param('chargeId') chargeId: string, @Req() req: any) {
-    this.logger.log(`[DELETE /charges/asaas/${chargeId}] Excluindo cobranca no Asaas`);
-    // Isolamento + authz: só exclui cobrança da própria clínica, na conta dela.
-    const tenantId = await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
-    return this.asaasClient.deleteCharge(chargeId, tenantId);
+    this.logger.log(`[DELETE /charges/asaas/${chargeId}] Excluindo cobranca (admin)`);
+    return this.service.deleteCharge(chargeId, req.user?.tenant_id);
   }
 
   /** Detalhes de uma cobrança por honorarioPaymentId */
