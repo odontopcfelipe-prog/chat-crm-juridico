@@ -2213,19 +2213,6 @@ export class PaymentGatewayService {
   }
 
   private async notifyClientPaymentReceived(paymentData: any, charge: any) {
-    // Onda 18.28 — respeita o toggle "Confirmação de pagamento" da Central de
-    // Disparos (default LIGADA; só pula se o admin desligou explicitamente).
-    const tenantId = (charge as any)?.tenant_id;
-    if (tenantId) {
-      const flag = await this.prisma.globalSetting.findUnique({
-        where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` },
-      });
-      if (flag?.value === 'false') {
-        this.logger.log(`[WEBHOOK] Confirmação de pagamento desligada (tenant ${tenantId}) — pulando`);
-        return;
-      }
-    }
-
     const customerId = paymentData.customer;
     if (!customerId) return;
 
@@ -2237,6 +2224,23 @@ export class PaymentGatewayService {
     });
 
     if (!gatewayCustomer?.lead?.phone) return;
+
+    // Onda 18.28 — respeita o toggle "Confirmação de pagamento" da Central de Disparos
+    // (default LIGADA; só pula se o admin desligou explicitamente).
+    // BUGFIX: o tenant vem da charge OU do LEAD do cliente do gateway. Cobrança gerada
+    // de "Pix recebido" chega SEM charge local (tenant_id undefined) → o gate `if
+    // (tenantId)` era pulado e a "Pagamento Confirmado!" saía MESMO com o toggle
+    // DESLIGADO. Resolver o tenant pelo lead fecha esse furo.
+    const tenantId = (charge as any)?.tenant_id ?? gatewayCustomer.lead.tenant_id ?? null;
+    if (tenantId) {
+      const flag = await this.prisma.globalSetting.findUnique({
+        where: { key: `PAYMENT_CONFIRMATION_ENABLED_${tenantId}` },
+      });
+      if (flag?.value === 'false') {
+        this.logger.log(`[WEBHOOK] Confirmação de pagamento desligada (tenant ${tenantId}) — pulando`);
+        return;
+      }
+    }
 
     const lead = gatewayCustomer.lead;
     const firstName = (lead.name || 'Cliente').split(' ')[0];
