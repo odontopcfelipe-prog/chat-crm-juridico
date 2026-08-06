@@ -6,11 +6,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
-  CalendarDays, CalendarClock, CalendarPlus, CheckCircle2, Loader2, RefreshCw, Stethoscope,
+  CalendarDays, CalendarClock, CalendarPlus, CheckCircle2, Loader2, RefreshCw, Stethoscope, X,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
+import { useRole } from '@/lib/useRole';
 
 type OrthoStatus = 'agendado' | 'nao_agendado' | 'concluido' | 'saiu';
 
@@ -64,6 +65,9 @@ export default function OrtodontiaPage() {
   const [completing, setCompleting] = useState<string | null>(null);
   const [dentists, setDentists] = useState<{ id: string; name: string; ortho_days?: number[] }[]>([]);
   const [migrating, setMigrating] = useState<string | null>(null);
+  const role = useRole(); // só admin define o dia do ortodontista direto no quadro
+  const [dayPickerOpen, setDayPickerOpen] = useState<number | null>(null); // weekday com o seletor aberto
+  const [savingDay, setSavingDay] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -77,9 +81,33 @@ export default function OrtodontiaPage() {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
+  const loadDentists = useCallback(() => {
     api.get<{ id: string; name: string; ortho_days?: number[] }[]>('/users/lawyers').then((r) => setDentists(r.data || [])).catch(() => {});
   }, []);
+  useEffect(() => { loadDentists(); }, [loadDentists]);
+
+  // Admin define/tira o dia de atendimento de um ortodontista DIRETO no quadro
+  // (antes só dava pelo cadastro em Configurações → Usuários). PATCH /users/:id
+  // só troca ortho_days (o service atualiza campo-a-campo; não mexe no resto).
+  const toggleDentistDay = async (
+    dentist: { id: string; name: string; ortho_days?: number[] },
+    weekday: number,
+  ) => {
+    if (savingDay) return;
+    const cur = dentist.ortho_days || [];
+    const has = cur.includes(weekday);
+    const next = has ? cur.filter((d) => d !== weekday) : [...cur, weekday].sort((a, b) => a - b);
+    setSavingDay(true);
+    try {
+      await api.patch(`/users/${dentist.id}`, { ortho_days: next });
+      setDentists((prev) => prev.map((d) => (d.id === dentist.id ? { ...d, ortho_days: next } : d)));
+      showSuccess(has ? `${dentist.name} saiu de ${WD_FULL[weekday]}` : `${dentist.name} atende ${WD_FULL[weekday]}`);
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível salvar o dia');
+    } finally {
+      setSavingDay(false);
+    }
+  };
 
   // Colunas = dentistas presentes (+ "Sem dentista" por último). Filtra pelo status escolhido.
   const columns = useMemo(() => {
@@ -229,18 +257,69 @@ export default function OrtodontiaPage() {
                 </div>
                 <span className="text-xs text-muted-foreground shrink-0">{col.cards.length}</span>
               </div>
-              {/* Faixa que EVIDENCIA o ortodontista do dia (modo "Todos os dias") */}
-              {isDayView && (
-                <div className="px-3 py-2 border-b border-border bg-primary/10 flex items-center gap-2 flex-wrap">
+              {/* Faixa do ortodontista do dia (modo "Todos os dias"). Admin define/tira
+                  o dentista do dia DIRETO aqui — não precisa ir no cadastro. */}
+              {isDayView && col.weekday != null && (
+                <div className="px-3 py-2 border-b border-border bg-primary/10 flex items-center gap-x-2 gap-y-1.5 flex-wrap">
                   <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-primary shrink-0">
                     <Stethoscope size={12} /> Ortodontista
                   </span>
-                  {orthoOfDay.length ? (
-                    orthoOfDay.map((d) => (
-                      <span key={d.id} className="text-xs font-bold text-foreground">{d.name}</span>
-                    ))
-                  ) : (
+                  {orthoOfDay.map((d) => (
+                    <span key={d.id} className="inline-flex items-center gap-1 text-xs font-bold text-foreground bg-background border border-border rounded-full pl-2 pr-1 py-0.5">
+                      {d.name}
+                      {role.isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => toggleDentistDay(d, col.weekday as number)}
+                          disabled={savingDay}
+                          title={`Tirar ${d.name} de ${WD_FULL[col.weekday as number]}`}
+                          className="text-muted-foreground hover:text-red-500 disabled:opacity-40"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </span>
+                  ))}
+                  {orthoOfDay.length === 0 && !role.isAdmin && (
                     <span className="text-xs text-muted-foreground italic">a definir no cadastro</span>
+                  )}
+                  {role.isAdmin && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={() => setDayPickerOpen(dayPickerOpen === col.weekday ? null : (col.weekday as number))}
+                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-primary hover:underline"
+                      >
+                        <CalendarPlus size={12} /> {orthoOfDay.length ? 'definir' : 'definir ortodontista'}
+                      </button>
+                      {dayPickerOpen === col.weekday && (
+                        <>
+                          <div className="fixed inset-0 z-10" onClick={() => setDayPickerOpen(null)} />
+                          <div className="absolute z-20 mt-1 left-0 w-56 bg-card border border-border rounded-lg shadow-lg p-1 max-h-64 overflow-y-auto">
+                            <div className="px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-muted-foreground">Quem atende {WD_FULL[col.weekday as number]}?</div>
+                            {dentists.length === 0 ? (
+                              <div className="text-xs text-muted-foreground p-2">Nenhum dentista cadastrado</div>
+                            ) : (
+                              dentists.map((d) => {
+                                const on = (d.ortho_days || []).includes(col.weekday as number);
+                                return (
+                                  <button
+                                    key={d.id}
+                                    type="button"
+                                    onClick={() => toggleDentistDay(d, col.weekday as number)}
+                                    disabled={savingDay}
+                                    className={`w-full text-left px-2 py-1.5 rounded text-xs flex items-center justify-between gap-2 hover:bg-accent/30 disabled:opacity-40 ${on ? 'text-primary font-bold' : 'text-foreground'}`}
+                                  >
+                                    <span className="truncate">{d.name}</span>
+                                    {on && <CheckCircle2 size={13} className="text-primary shrink-0" />}
+                                  </button>
+                                );
+                              })
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
               )}
