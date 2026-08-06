@@ -2193,10 +2193,16 @@ export class CalendarService {
     const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0));
     const dayEnd = new Date(dayStart.getTime() + 24 * 60 * 60 * 1000);
 
+    // Regra canônica de "profissional que atende" (igual findLawyers / sendTestDisparo
+    // L1976): DENTIST OU ADMIN com especialidade. Antes era só DENTIST → ortodontista
+    // ADMIN (ex.: Dra. Suellen) não recebia o resumo da PRÓPRIA agenda do dia.
     const dentists = await this.prisma.user.findMany({
       where: {
         ...(tenant_id ? { tenant_id } : {}),
-        roles: { has: 'DENTIST' },
+        OR: [
+          { roles: { has: 'DENTIST' } },
+          { roles: { has: 'ADMIN' }, specialties: { isEmpty: false } },
+        ],
       },
       select: { id: true, name: true, phone: true },
     });
