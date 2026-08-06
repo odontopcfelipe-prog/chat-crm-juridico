@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { normalizeBrazilianPhone } from '../common/utils/phone';
+import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 export interface CleanupResult {
   totalDuplicatesFound: number;
@@ -9,6 +9,9 @@ export interface CleanupResult {
   updatedPatients: number;
   /** Leads (contatos WhatsApp) renomeados pro nome do CADASTRO do paciente. */
   renamedLeads: number;
+  /** Pacientes SEM lead (ex.: importados) que foram LINKADOS ao contato WhatsApp
+   *  do mesmo número — fecha o "2 contatos" (paciente com nome + lead com número). */
+  linkedPatients: number;
   /** Duplicatas que NÃO foram mescladas por segurança (ambos os lados têm
    *  paciente) — precisam de decisão manual. */
   skipped: number;
@@ -41,6 +44,7 @@ export class LeadsCleanupService {
       updatedPhones: 0,
       updatedPatients: 0,
       renamedLeads: 0,
+      linkedPatients: 0,
       skipped: 0,
       errors: [],
     };
@@ -199,6 +203,42 @@ export class LeadsCleanupService {
           .update({ where: { id: p.lead.id }, data: { name: nome } })
           .then(() => { result.renamedLeads++; })
           .catch(() => undefined);
+      }
+
+      // BACKFILL do "2 contatos": paciente SEM lead (ex.: importado do Asaas) mas com
+      // telefone e nome real. Acha o contato WhatsApp pelo número (variantes com/sem
+      // 9/55), LINKA o paciente a ele e adota o nome do cadastro. Não rouba lead que
+      // já é de outro paciente (número compartilhado). A conversa já existe no lead —
+      // linkar basta pro paciente enxergá-la, e renomear deixa achável na busca/agenda.
+      const unlinked = await this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, lead_id: null, phone: { not: null } },
+        select: { id: true, name: true, phone: true },
+      });
+      for (const p of unlinked) {
+        const nome = (p.name || '').trim();
+        if (!p.phone || !nome || nome === 'Paciente sem nome') continue;
+        const lead = await this.prisma.lead.findFirst({
+          where: { tenant_id: tenantId, phone: { in: brazilPhoneMatchVariants(p.phone) } },
+          select: { id: true, name: true },
+        });
+        if (!lead) continue;
+        const claimed = await this.prisma.patient.findFirst({
+          where: { lead_id: lead.id },
+          select: { id: true },
+        });
+        if (claimed) continue; // número compartilhado — não rouba o lead de outro paciente
+        const linked = await this.prisma.patient
+          .update({ where: { id: p.id }, data: { lead_id: lead.id } })
+          .then(() => true)
+          .catch(() => false);
+        if (!linked) continue;
+        result.linkedPatients++;
+        if (lead.name !== nome) {
+          await this.prisma.lead
+            .update({ where: { id: lead.id }, data: { name: nome } })
+            .then(() => { result.renamedLeads++; })
+            .catch(() => undefined);
+        }
       }
     }
 

@@ -243,13 +243,14 @@ export default function CentralDisparosPage() {
     setFixingPhones(true);
     try {
       const r = await api.post('/leads/cleanup/deduplicate');
-      const { mergedLeads = 0, updatedPhones = 0, updatedPatients = 0, renamedLeads = 0, skipped = 0 } = r.data || {};
+      const { mergedLeads = 0, updatedPhones = 0, updatedPatients = 0, renamedLeads = 0, linkedPatients = 0, skipped = 0 } = r.data || {};
       const padronizados = updatedPhones + updatedPatients;
-      if (mergedLeads === 0 && padronizados === 0 && renamedLeads === 0 && skipped === 0) {
+      if (mergedLeads === 0 && padronizados === 0 && renamedLeads === 0 && linkedPatients === 0 && skipped === 0) {
         showSuccess('Tudo certo — nenhum contato duplicado, telefone fora do padrão ou nome desatualizado.');
       } else {
         const partes: string[] = [];
         if (mergedLeads > 0) partes.push(`${mergedLeads} contato(s) duplicado(s) unificado(s)`);
+        if (linkedPatients > 0) partes.push(`${linkedPatients} paciente(s) ligado(s) ao contato do WhatsApp`);
         if (renamedLeads > 0) partes.push(`${renamedLeads} nome(s) de contato atualizado(s) pelo cadastro`);
         if (padronizados > 0) partes.push(`${padronizados} telefone(s) padronizado(s)`);
         let msg = partes.length ? `Pronto: ${partes.join(' e ')}.` : 'Verificação concluída.';

@@ -586,12 +586,22 @@ export class PatientsService {
 
     const updated = await this.prisma.patient.update({ where: { id }, data });
 
-    // Nome do cadastro é a fonte da verdade do contato: quando o nome muda, sincroniza o
-    // Lead (contato WhatsApp) — senão a conversa continuaria com o nome antigo/pushName.
-    if (typeof data.name === 'string' && data.name.trim() && updated.lead_id) {
-      await this.prisma.lead
-        .update({ where: { id: updated.lead_id }, data: { name: data.name.trim() } })
-        .catch((e: any) => this.logger.warn(`[PATIENT UPDATE] falha ao sincronizar nome do lead ${updated.lead_id}: ${e?.message}`));
+    // Nome do cadastro é a FONTE DA VERDADE do contato WhatsApp. Ao salvar o nome:
+    //  - lead JÁ linkado → renomeia direto (a conversa passa a mostrar o nome do cadastro).
+    //  - SEM lead mas COM telefone (ex.: paciente importado do Asaas) → acha/adota o
+    //    contato do WhatsApp pelo número (variantes com/sem 9/55), LINKA e adota o nome.
+    //    Fecha o "2 contatos": paciente com nome de um lado + lead com o número no
+    //    WhatsApp do outro, soltos — que sumia da busca/agenda pelo nome novo.
+    if (typeof data.name === 'string' && data.name.trim()) {
+      const novoNome = data.name.trim();
+      if (updated.lead_id) {
+        await this.prisma.lead
+          .update({ where: { id: updated.lead_id }, data: { name: novoNome } })
+          .catch((e: any) => this.logger.warn(`[PATIENT UPDATE] falha ao sincronizar nome do lead ${updated.lead_id}: ${e?.message}`));
+      } else if (updated.phone) {
+        await this.ensureLeadAndConversation(updated.id, updated.phone, novoNome, tenantId)
+          .catch((e: any) => this.logger.warn(`[PATIENT UPDATE] falha ao linkar/sincronizar contato do paciente ${updated.id}: ${e?.message}`));
+      }
     }
     return updated;
   }
