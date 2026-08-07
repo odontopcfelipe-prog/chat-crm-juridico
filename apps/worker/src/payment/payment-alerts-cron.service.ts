@@ -87,10 +87,11 @@ interface ChargeCandidate {
   count: number;
   dueDate: Date;
   link: string;
-  /** Todos os links do grupo (usados no texto agrupado quando count > 1). */
+  /** Links a MOSTRAR na legenda — só os SEM PDF (ex.: PIX). Boleto vira anexo. */
   links: string[];
-  /** URL do PDF do boleto (só quando billing_type=BOLETO E count===1) — manda como documento. */
-  pdfUrl: string | null;
+  /** PDFs dos boletos a anexar — 1 por boleto (cada boleto = 1 documento separado).
+   *  Vazio = cobrança sem PDF (PIX/sem-URL) → segue como texto+link. */
+  pdfUrls: string[];
   /** Disparo ANTECIPADO pra sexta (vencimento cai dom/seg, dias sem cron): o dia da
    *  semana do vencimento, pra trocar o "amanhã" do template e não mentir. */
   venceEm?: string;
@@ -177,13 +178,22 @@ export class PaymentAlertsCronService {
     const template = await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo);
     const clinica = await this.resolveClinicName(pick.tenantId);
     const message = this.buildMessage(pick, template, clinica);
-    // Boleto → manda o PDF anexo (a mensagem vira legenda); PIX/sem-boleto seguem texto+link.
-    const messageId = pick.pdfUrl
-      ? await this.sendWhatsAppMedia(pick.phone, pick.pdfUrl, message, instanceName)
-      : await this.sendWhatsApp(pick.phone, message, instanceName);
-
-    // Evolution não configurado: NÃO gasta o slot, tenta de novo no próximo tick.
-    if (messageId === 'NO_CONFIG') return 'cooldown';
+    // Boleto(s) → manda CADA um como PDF anexo separado (o 1º leva a legenda; os
+    // demais vão sem texto). PIX/sem-boleto seguem texto+link. Evolution não
+    // configurado (NO_CONFIG): NÃO gasta o slot, tenta de novo no próximo tick.
+    let messageId: string | false | 'NO_CONFIG';
+    if (pick.pdfUrls.length) {
+      const ids: (string | false)[] = [];
+      for (let i = 0; i < pick.pdfUrls.length; i++) {
+        const r = await this.sendWhatsAppMedia(pick.phone, pick.pdfUrls[i], i === 0 ? message : '', instanceName);
+        if (r === 'NO_CONFIG') return 'cooldown';
+        ids.push(r);
+      }
+      messageId = ids.find((id) => id !== false) ?? false; // sucesso se ao menos 1 boleto saiu
+    } else {
+      messageId = await this.sendWhatsApp(pick.phone, message, instanceName);
+      if (messageId === 'NO_CONFIG') return 'cooldown';
+    }
 
     // Marca na TENTATIVA (sucesso OU falha) e avança o marca-passo — assim um
     // número inválido não trava as próximas cobranças. Onda 18.x — dedup por
@@ -429,8 +439,9 @@ export class PaymentAlertsCronService {
         count: 1,
         dueDate: new Date(c.due_date),
         link,
-        links: [link],
-        pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
+        // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
+        links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         venceEm,
         tipo,
       });
@@ -446,12 +457,14 @@ export class PaymentAlertsCronService {
       const key = `${cand.tenantId}::${cand.patientId}::${cand.stage}`;
       const g = groups.get(key);
       if (!g) {
-        groups.set(key, { ...cand, links: [...cand.links] });
+        groups.set(key, { ...cand, links: [...cand.links], pdfUrls: [...cand.pdfUrls] });
       } else {
         g.amount += cand.amount;
         g.count += 1;
-        if (!g.links.includes(cand.link)) g.links.push(cand.link);
-        g.pdfUrl = null; // grupo > 1 vai como TEXTO com os N links, não 1 PDF
+        for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
+        // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
+        // recebe N anexos, não 1 texto com N links).
+        for (const p of cand.pdfUrls) if (!g.pdfUrls.includes(p)) g.pdfUrls.push(p);
       }
     }
     const grouped = [...groups.values()];
@@ -554,8 +567,9 @@ export class PaymentAlertsCronService {
         count: 1,
         dueDate: new Date(c.due_date),
         link,
-        links: [link],
-        pdfUrl: c.billing_type === 'BOLETO' && c.boleto_url ? c.boleto_url : null,
+        // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
+        links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         tipo,
       });
     }
@@ -568,12 +582,14 @@ export class PaymentAlertsCronService {
       const key = `${cand.tenantId}::${cand.patientId}`;
       const g = groups.get(key);
       if (!g) {
-        groups.set(key, { ...cand, links: [...cand.links] });
+        groups.set(key, { ...cand, links: [...cand.links], pdfUrls: [...cand.pdfUrls] });
       } else {
         g.amount += cand.amount;
         g.count += 1;
-        if (!g.links.includes(cand.link)) g.links.push(cand.link);
-        g.pdfUrl = null; // grupo > 1 vai como TEXTO com os N links, não 1 PDF
+        for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
+        // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
+        // recebe N anexos, não 1 texto com N links).
+        for (const p of cand.pdfUrls) if (!g.pdfUrls.includes(p)) g.pdfUrls.push(p);
       }
     }
     const grouped = [...groups.values()];
@@ -664,10 +680,13 @@ export class PaymentAlertsCronService {
     // UMA mensagem com o TOTAL + todos os links (não uma por boleto). Formato
     // próprio (o template do estágio é singular "seu boleto"); {valor} = total.
     if (c.count > 1) {
-      const linksTxt = c.links.join('\n');
+      // Vários vencidos: os boletos vão como PDFs ANEXOS (sem link). Se sobrar algum
+      // SEM PDF no grupo (ex.: PIX), mostra só esse(s) link(s).
+      const anexo = c.pdfUrls.length ? `\n\nSeguem os boletos em anexo.` : '';
+      const linksTxt = c.links.length ? `\n\nAcesse pelos links abaixo:\n${c.links.join('\n')}` : '';
       return (
         `Olá ${firstName}, você tem ${c.count} boletos em aberto na ${clinica}, ` +
-        `no total de ${valor}.\n\nAcesse pelos links abaixo:\n${linksTxt}\n\n` +
+        `no total de ${valor}.${anexo}${linksTxt}\n\n` +
         `Se já pagou algum, é só desconsiderar. Qualquer dúvida, estamos à disposição.`
       );
     }
@@ -676,12 +695,23 @@ export class PaymentAlertsCronService {
     // "amanhã" — troca pelo dia real pra não mentir. Best-effort: se a clínica editou
     // o texto sem a palavra "amanhã", a {data} correta continua entre parênteses.
     if (c.venceEm) base = base.replace(/amanhã/gi, c.venceEm);
-    return base
+    let msg = base
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
       .replace(/\{data\}/g, `${dd}/${mm}`)
-      .replace(/\{link\}/g, c.link)
       .replace(/\{clinica\}/g, clinica);
+    // Boleto vai como PDF anexo → remove a LINHA que tem o {link} (o link some da
+    // legenda; "link gera desconfiança"). Sem PDF (PIX/sem-URL) → mantém o {link}.
+    if (c.pdfUrls.length) {
+      msg = msg
+        .replace(/^[^\n]*\{link\}[^\n]*\n?/gm, '')
+        .replace(/\{link\}/g, '')
+        .replace(/\n{3,}/g, '\n\n')
+        .trimEnd();
+    } else {
+      msg = msg.replace(/\{link\}/g, c.link);
+    }
+    return msg;
   }
 
   /** Nome da clínica (Tenant.name) pra usar como {clinica} no template. */
