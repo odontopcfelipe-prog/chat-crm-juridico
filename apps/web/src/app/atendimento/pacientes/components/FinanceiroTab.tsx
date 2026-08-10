@@ -775,12 +775,23 @@ function ProposalFinancialCard({
         payment_method: caixaMethod,
       });
       showSuccess('Baixa registrada — cobrança fechada no Asaas e receita no caixa.');
-      // Invalida o cache das sub-parcelas dessa cobrança pra o status atualizar.
+      // A parcela do card é lida dos sub_installments do ASAAS, que demora a propagar
+      // a baixa (ou o receiveInCash do Asaas pode falhar/estar em fila). A baixa LOCAL
+      // é autoritativa — é o que os KPIs já contam. Então marca ESTA parcela como paga
+      // no cache OTIMISTICAMENTE (em vez de deletar+re-buscar do Asaas ainda-vencido,
+      // que fazia a linha voltar pra "VENCIDO" mesmo com a baixa feita).
+      const nowIso = new Date().toISOString();
       setSubInstallmentsByCharge((prev) => {
-        if (prev[p.chargeId] === undefined) return prev;
-        const next = { ...prev };
-        delete next[p.chargeId];
-        return next;
+        const subs = prev[p.chargeId];
+        if (!subs) return prev;
+        return {
+          ...prev,
+          [p.chargeId]: subs.map((s) =>
+            s.external_id === p.asaasId
+              ? { ...s, status: 'RECEIVED', payment_date: s.payment_date ?? nowIso }
+              : s,
+          ),
+        };
       });
       onReload?.();
     } catch (e: any) {
