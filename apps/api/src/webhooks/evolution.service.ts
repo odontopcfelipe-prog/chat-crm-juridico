@@ -463,7 +463,11 @@ export class EvolutionService implements OnApplicationBootstrap {
       // lembretes/cobrança). ANTES só casava 'out_' → lembrete e cobrança duplicavam a bolha.
       // Agora casa QUALQUER otimista (out_ OU sys_) e atualiza o id em vez de duplicar.
       if (isFromMe && messageContent) {
-        const since = new Date(Date.now() - 2 * 60 * 1000); // janela de 2 minutos
+        // Janela de 10 min (era 2): quando o Evolution responde ERRO mas ENTREGA, o
+        // eco pode demorar; sem reconciliar a tempo, o operador vê "erro" (vermelho) e
+        // REENVIA → paciente recebe 2×. 10 min dá folga pro eco casar o otimista
+        // (out_/sys_) e marcar "enviado" antes do reenvio.
+        const since = new Date(Date.now() - 10 * 60 * 1000);
         const pendingMsg = await this.prisma.message.findFirst({
           where: {
             conversation_id: conv.id,
