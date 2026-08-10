@@ -454,6 +454,32 @@ export class PaymentGatewayService {
         invoice_url: c.invoiceUrl,
         payment_date: c.paymentDate,
       }));
+
+      // HONRA A BAIXA MANUAL local. As parcelas vêm do ASAAS, mas a baixa em dinheiro
+      // (receive-in-cash) marca a cobrança LOCAL (received_in_cash/RECEIVED) e o
+      // receiveInCash do Asaas é best-effort (pode falhar/estar em fila → a parcela
+      // seguia "vencida" na ficha DEPOIS da baixa, mesmo com caixa/KPIs certos). Cruza
+      // por external_id: se a cobrança local da parcela está paga, mostra PAGA aqui.
+      const extIds = items.map((i: any) => i.external_id).filter(Boolean);
+      if (extIds.length) {
+        const localPaid = await this.prisma.paymentGatewayCharge.findMany({
+          where: {
+            tenant_id: tenantId,
+            external_id: { in: extIds },
+            OR: [{ received_in_cash: true }, { status: { in: ['RECEIVED', 'CONFIRMED'] } }],
+          },
+          select: { external_id: true, paid_at: true },
+        });
+        const paidMap = new Map(localPaid.map((c) => [c.external_id, c] as const));
+        for (const it of items as any[]) {
+          const lp = paidMap.get(it.external_id);
+          if (lp && it.status !== 'RECEIVED' && it.status !== 'CONFIRMED') {
+            it.status = 'RECEIVED';
+            if (!it.payment_date && lp.paid_at) it.payment_date = lp.paid_at.toISOString();
+          }
+        }
+      }
+
       // Ordena por installmentNumber asc
       items.sort((a: any, b: any) => (a.installment_number || 0) - (b.installment_number || 0));
       return {
