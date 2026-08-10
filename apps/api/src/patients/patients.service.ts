@@ -750,6 +750,15 @@ export class PatientsService {
     return { ok: true, deleted_at: new Date().toISOString() };
   }
 
+  /** Paciente vinculado a um lead (lead_id), tenant-scoped. null se não houver. */
+  async findByLead(leadId: string, tenantId: string) {
+    if (!leadId) return null;
+    return this.prisma.patient.findFirst({
+      where: { lead_id: leadId, tenant_id: tenantId },
+      select: { id: true, name: true, status: true },
+    });
+  }
+
   /** Converte um Lead em Patient. Se o paciente ja existe (lead_id ja vinculado), retorna o existente. */
   async convertFromLead(leadId: string, tenantId: string, extraData: Partial<Prisma.PatientUncheckedCreateInput> = {}) {
     const lead = await this.prisma.lead.findUnique({ where: { id: leadId } });

@@ -147,6 +147,18 @@ export class PatientsController {
   }
 
   /**
+   * Paciente vinculado a um LEAD (por lead_id), tenant-scoped. Usado pelo Painel do
+   * Lead (chat) pra oferecer "Ver ficha do paciente". Retorna null se não houver.
+   * ANTES de @Get(':id') pra 'by-lead' não ser capturado como id.
+   */
+  @Get('by-lead/:leadId')
+  findByLead(@Param('leadId') leadId: string, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.patientsService.findByLead(leadId, tenantId);
+  }
+
+  /**
    * Funil 2 — botao "Atender" da ficha do paciente.
    * Gradua o lead vinculado pra "Em Fechamento" (etapa oculta do Kanban CRM,
    * visivel em /atendimento/fechamentos). Mesma logica usada pelo hook do

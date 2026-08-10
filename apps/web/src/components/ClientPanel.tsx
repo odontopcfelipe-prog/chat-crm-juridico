@@ -185,6 +185,7 @@ export function ClientPanel({
   const [saving, setSaving] = useState(false);
   const [resolvedAgent, setResolvedAgent] = useState<{ id: string; name: string } | null>(null);
   const [resolvedConvId, setResolvedConvId] = useState<string | null>(null);
+  const [linkedPatient, setLinkedPatient] = useState<{ id: string; name: string } | null>(null);
   const [documents, setDocuments] = useState<DocItem[]>([]);
   const [docsOpen, setDocsOpen] = useState(false);
   const [fichaOpen, setFichaOpen] = useState(false);
@@ -254,6 +255,9 @@ export function ClientPanel({
     setResolvedAgent(null);
     setResolvedConvId(null);
     setDocuments([]);
+    // Paciente vinculado a este lead (por lead_id) → habilita "Ver ficha do paciente".
+    setLinkedPatient(null);
+    api.get(`/patients/by-lead/${leadId}`).then(r => setLinkedPatient(r.data || null)).catch(() => setLinkedPatient(null));
     api.get(`/leads/${leadId}`).then(r => {
       setLead(r.data);
       setDriveFolderId(r.data.google_drive_folder_id ?? null);
@@ -1603,6 +1607,15 @@ export function ClientPanel({
         {/* Footer */}
         {lead && (
           <div className="px-6 py-4 border-t border-border shrink-0 space-y-2">
+            {linkedPatient && (
+              <button
+                className="w-full py-2.5 rounded-xl bg-emerald-600 text-white text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-emerald-700 transition-colors shadow-sm"
+                onClick={() => { router.push(`/atendimento/pacientes/${linkedPatient.id}`); onClose(); }}
+              >
+                <User size={15} />
+                Ver ficha do paciente
+              </button>
+            )}
             <button
               className="w-full py-2.5 rounded-xl bg-primary text-primary-foreground text-[13px] font-semibold flex items-center justify-center gap-2 hover:bg-primary/90 transition-colors shadow-sm"
               onClick={async () => {
