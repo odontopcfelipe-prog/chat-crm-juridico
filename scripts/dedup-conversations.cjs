@@ -72,6 +72,18 @@ async function main() {
     bump(tenant, 'groups');
     console.log(`\n[lead ${g[0].lead_id}] tenant ${tenant} — ${g.length} conversas | CANONICA ${canon.id} (msgs=${counts.get(canon.id)}, inst=${canon.instance_name || '-'}, ai=${canon.ai_mode})`);
 
+    // Se a canônica ganhou por VOLUME mas ficou com instância PLACEHOLDER ('whatsapp'/
+    // null), adota a instância REAL de alguma duplicata do grupo — senão a conversa viva
+    // NÃO CONSEGUE ENVIAR (foi a raiz da Bianca: inst='whatsapp' → sends viravam
+    // sys_reminder_ sem id do provedor). Mantém as mensagens da canônica + passa a enviar.
+    if (!isRealInstance(canon.instance_name)) {
+      const realInst = dups.find((d) => isRealInstance(d.instance_name))?.instance_name;
+      if (realInst) {
+        console.log(`  ⚠ canônica com inst='${canon.instance_name || '-'}' → ADOTA instância real '${realInst}'`);
+        if (COMMIT) await prisma.conversation.update({ where: { id: canon.id }, data: { instance_name: realInst } });
+      }
+    }
+
     let maxLast = new Date(canon.last_message_at).getTime();
     for (const d of dups) {
       const dMsgs = await prisma.message.findMany({ where: { conversation_id: d.id }, select: { id: true, text: true, direction: true, type: true, created_at: true } });
