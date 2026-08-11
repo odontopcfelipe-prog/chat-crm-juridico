@@ -1290,17 +1290,28 @@ export class WhatsappService {
         });
 
         if (!existingConv) {
-          existingConv = await this.prisma.conversation.create({
-            data: {
-              lead_id: lead.id,
-              channel: 'whatsapp',
-              status: 'ABERTO',
-              external_id: jid,
-              instance_name: instanceName,
-              inbox_id: inboxId,
-              tenant_id: tenantId,
-            },
-          });
+          try {
+            existingConv = await this.prisma.conversation.create({
+              data: {
+                lead_id: lead.id,
+                channel: 'whatsapp',
+                status: 'ABERTO',
+                external_id: jid,
+                instance_name: instanceName,
+                inbox_id: inboxId,
+                tenant_id: tenantId,
+              },
+            });
+          } catch (e: any) {
+            // Corrida (índice único parcial lead_id+inbox_id): reusa a conversa que
+            // o outro criou em vez de duplicar/quebrar o sync.
+            if (e?.code !== 'P2002') throw e;
+            existingConv = await this.prisma.conversation.findFirst({
+              where: { lead_id: lead.id, channel: 'whatsapp', status: { not: 'ENCERRADO' } },
+              orderBy: { last_message_at: 'desc' },
+            });
+            if (!existingConv) throw e;
+          }
         } else {
           // Garante que a conversa tenha os metadados corretos
           existingConv = await this.prisma.conversation.update({

@@ -345,19 +345,33 @@ export class EvolutionService implements OnApplicationBootstrap {
             this.logger.log(`[ADIADO] Conversa ${conv.id} recebeu msg mas permanece ADIADO`);
           }
         }
-        // 3) Se não encontrou nenhuma, criar nova
+        // 3) Se não encontrou nenhuma, criar nova. O índice único parcial
+        //    (lead_id, inbox_id) WHERE status<>'ENCERRADO' recusa a 2ª conversa numa
+        //    CORRIDA (dois webhooks quase juntos do mesmo lead+inbox). Em vez de
+        //    duplicar (ou quebrar o webhook), o PERDEDOR da corrida (P2002) REUSA a
+        //    conversa que o outro acabou de criar. É o fim do "2 conversas same-instance".
         if (!conv) {
-          conv = await this.prisma.conversation.create({
-            data: {
-              lead_id: lead.id,
-              channel: 'whatsapp',
-              status: 'ABERTO',
-              external_id: `${phone}@s.whatsapp.net`,
-              inbox_id: inboxId,
-              instance_name: instanceName,
-              tenant_id: effectiveTenantId || lead.tenant_id,
-            },
-          });
+          try {
+            conv = await this.prisma.conversation.create({
+              data: {
+                lead_id: lead.id,
+                channel: 'whatsapp',
+                status: 'ABERTO',
+                external_id: `${phone}@s.whatsapp.net`,
+                inbox_id: inboxId,
+                instance_name: instanceName,
+                tenant_id: effectiveTenantId || lead.tenant_id,
+              },
+            });
+          } catch (e: any) {
+            if (e?.code !== 'P2002') throw e;
+            conv = await this.prisma.conversation.findFirst({
+              where: { lead_id: lead.id, channel: 'whatsapp', status: { not: 'ENCERRADO' }, ...convScope },
+              orderBy: { last_message_at: 'desc' },
+            });
+            if (!conv) throw e;
+            this.logger.log(`[DEDUP] Corrida na criação de conversa (lead ${lead.id}) — reusando ${conv.id}`);
+          }
         }
       } else if ((!conv.inbox_id && inboxId) || (!conv.tenant_id && effectiveTenantId)) {
         // Conversa existe mas está sem inbox_id ou sem tenant_id — backfill a partir
@@ -1335,18 +1349,28 @@ export class EvolutionService implements OnApplicationBootstrap {
             },
           });
         } else {
-          conv = await this.prisma.conversation.create({
-            data: {
-              lead_id: lead.id,
-              channel: 'whatsapp',
-              status: 'ABERTO',
-              external_id: remoteJid,
-              inbox_id: inboxId,
-              instance_name: instanceName,
-              tenant_id: tenantId,
-              last_message_at: lastMsgTs ? new Date(lastMsgTs) : new Date(),
-            },
-          });
+          try {
+            conv = await this.prisma.conversation.create({
+              data: {
+                lead_id: lead.id,
+                channel: 'whatsapp',
+                status: 'ABERTO',
+                external_id: remoteJid,
+                inbox_id: inboxId,
+                instance_name: instanceName,
+                tenant_id: tenantId,
+                last_message_at: lastMsgTs ? new Date(lastMsgTs) : new Date(),
+              },
+            });
+          } catch (e: any) {
+            // Corrida (índice único parcial): reusa a conversa que o outro criou.
+            if (e?.code !== 'P2002') throw e;
+            conv = await this.prisma.conversation.findFirst({
+              where: { lead_id: lead.id, channel: 'whatsapp', status: { not: 'ENCERRADO' }, ...resyncScope },
+              orderBy: { last_message_at: 'desc' },
+            });
+            if (!conv) throw e;
+          }
         }
 
         newConvsCreated++;
