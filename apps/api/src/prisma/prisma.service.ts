@@ -39,12 +39,38 @@ export class PrismaService extends PrismaClient implements OnModuleInit {
         // Protege contra bug onde DATABASE_URL aponta para banco errado/vazio:
         // se os counts forem ~0 mas o sistema deveria ter dados, fica óbvio no log.
         this.logDatabaseIdentity().catch(e => this.logger.warn(`[DB-Identity] Falha ao logar identidade: ${e.message}`));
+        this.ensureIndexes().catch(e => this.logger.warn(`[DB-Index] Falha ao garantir índices: ${e.message}`));
       } catch (err) {
         this.logger.error(
           `❌ Erro na tentativa ${attempts}: ${err.message}. Nova tentativa em 5 segundos...`,
         );
         await new Promise((resolve) => setTimeout(resolve, 5000));
       }
+    }
+  }
+
+  /**
+   * Índices que o Prisma schema NÃO expressa (parciais). Idempotente (IF NOT EXISTS)
+   * e roda no boot como GARANTIA — o `prisma db push` do deploy pode dropar um índice
+   * fora do schema, então recriamos aqui. Se já existe, é no-op (sem lock). Se falhar
+   * (ex.: ainda há duplicata violando), loga em ERRO pra ficar óbvio.
+   */
+  private async ensureIndexes() {
+    // 1 conversa ATIVA (status != ENCERRADO) por (lead_id, inbox_id) — trava a
+    // duplicata de conversa (fantasma 'whatsapp' E corrida same-instance). As
+    // ENCERRADO/ inbox nulo ficam de fora (NULLs são distintos + filtro).
+    try {
+      await this.$executeRawUnsafe(
+        `CREATE UNIQUE INDEX IF NOT EXISTS "Conversation_lead_inbox_active_uq" ` +
+        `ON "Conversation" (lead_id, inbox_id) ` +
+        `WHERE status <> 'ENCERRADO' AND inbox_id IS NOT NULL;`,
+      );
+      this.logger.log('[DB-Index] Conversation_lead_inbox_active_uq garantido (1 conversa ativa por lead+inbox).');
+    } catch (e: any) {
+      this.logger.error(
+        `[DB-Index] ❌ NÃO criou Conversation_lead_inbox_active_uq: ${e.message}. ` +
+        `Provável duplicata ativa restante — rodar dedup-conversations.cjs --commit e reiniciar.`,
+      );
     }
   }
 
