@@ -7,10 +7,12 @@
  * lembrete (findFirst por last_message_at) oscila entre as duas → paciente/CRM
  * mostra duplicado, e a Sophia responde numa conversa que ninguém lê.
  *
- * O inbox FINANCEIRO é PULADO de propósito (mundo isolado, tem script próprio:
- * dedup-financeiro-conversations.cjs).
+ * Cobre TODOS os inboxes — INCLUSIVE Financeiro — pra casar o escopo do índice único
+ * "Conversation_lead_inbox_active_uq" (que também cobre financeiro). O agrupamento é
+ * por (lead_id, inbox_id): financeiro só funde com financeiro (mesmo inbox), NUNCA com
+ * clínica/comercial (inbox diferente) → o mundo isolado do financeiro é preservado.
  *
- * Estratégia por grupo (lead_id + inbox_id, exceto financeiro):
+ * Estratégia por grupo (lead_id + inbox_id):
  *   - Canônica = MAIS mensagens > instância REAL (≠ 'whatsapp'/null) > last_message_at
  *     mais recente > id (desempate estável).
  *   - Move as mensagens das duplicadas → canônica. Idêntica (mesmo texto+direção, ≤5min,
@@ -36,9 +38,6 @@ async function main() {
   console.log(`\n=== DEDUP CONVERSAS (geral, exceto FINANCEIRO) ${COMMIT ? '(COMMIT)' : '(DRY-RUN)'} ===`);
   if (ONLY_TENANT) console.log(`Filtro de tenant: ${ONLY_TENANT}`);
 
-  const finInboxes = await prisma.inbox.findMany({ where: { purpose: 'FINANCEIRO' }, select: { id: true } });
-  const finSet = new Set(finInboxes.map((i) => i.id));
-
   const convs = await prisma.conversation.findMany({
     where: { status: { not: 'ENCERRADO' }, ...(ONLY_TENANT ? { tenant_id: ONLY_TENANT } : {}) },
     select: { id: true, lead_id: true, tenant_id: true, inbox_id: true, assigned_user_id: true, ai_mode: true, instance_name: true, last_message_at: true },
@@ -46,7 +45,7 @@ async function main() {
 
   const groups = new Map();
   for (const c of convs) {
-    if (!c.inbox_id || finSet.has(c.inbox_id) || !c.lead_id) continue; // pula financeiro e sem inbox/lead
+    if (!c.inbox_id || !c.lead_id) continue; // sem inbox/lead não entra (índice também exige inbox_id)
     const k = `${c.lead_id}::${c.inbox_id}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(c);
