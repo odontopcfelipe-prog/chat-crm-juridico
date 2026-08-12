@@ -2959,7 +2959,15 @@ export class QuotesService {
     return quotes.map((q) => {
       // avaliação = dentista do item; senão o dentista do paciente
       const avaliacao_dentist = q.items?.[0]?.dentist ?? q.patient?.primary_dentist ?? null;
-      return { ...q, closed_by: closerByQuote.get(q.id) ?? null, avaliacao_dentist };
+      // Venda rápida x proposta real: a venda rápida grava `notes` começando em
+      // "venda rapida" ("Venda rapida — recebido na clinica: ..."). Robusto a ACENTO
+      // e caixa (normaliza NFD) — se editarem pra "Venda rápida", ainda casa. Usado
+      // pelo filtro Propostas/Vendas rápidas da página.
+      const is_venda_rapida = (q.notes || '')
+        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
+        .toLowerCase()
+        .startsWith('venda rapida');
+      return { ...q, closed_by: closerByQuote.get(q.id) ?? null, avaliacao_dentist, is_venda_rapida };
     });
   }
 
