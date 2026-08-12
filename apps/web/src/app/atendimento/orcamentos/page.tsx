@@ -41,6 +41,8 @@ interface Quote {
    *  formalizando como a escolhida. Usado pra distinguir "aprovadas" de
    *  "apenas aceitas" no funil. */
   is_chosen_proposal?: boolean;
+  /** Venda rápida (notes começa em "venda rapida") — pra separar da proposta real. */
+  is_venda_rapida?: boolean;
 }
 
 interface DashboardStats {
@@ -128,6 +130,9 @@ function OrcamentosPageInner() {
   // 'aprovados' (fechados, por ordem) — pra não perder quem fechou e falta agendar.
   // Aprovados na LINHA DE FRENTE (é o cenário de vendas) — abre nela por padrão.
   const [propostaTab, setPropostaTab] = useState<'aguardando' | 'aprovados'>('aprovados');
+  // Separa proposta REAL x venda rápida na aba Propostas (padrão só propostas, pra os
+  // R$150/avaliação não misturarem com os planos). 'todas' mostra as duas juntas.
+  const [tipoFilter, setTipoFilter] = useState<'propostas' | 'vendas' | 'todas'>('propostas');
   // Mantem filtro em sincro com o URL (quando operador clica entre Orcamentos
   // e Propostas no sidebar, ou volta/avanca no historico do browser).
   useEffect(() => { setStatusFilter(urlStatus); }, [urlStatus]);
@@ -171,6 +176,11 @@ function OrcamentosPageInner() {
       // "Enviado" (SENT) é da visão Propostas — NÃO aparece na Avaliação (nem no "Todos").
       l = l.filter((q) => q.status !== 'SENT');
     }
+    // Separa venda rápida x proposta real (só na visão Propostas). Padrão 'propostas'
+    // esconde as vendas rápidas (R$150/avaliação) pra não misturar com os planos.
+    if (isPropostas && tipoFilter !== 'todas') {
+      l = l.filter((q) => (tipoFilter === 'vendas' ? !!q.is_venda_rapida : !q.is_venda_rapida));
+    }
     if (dateFrom) l = l.filter((q) => localDay(q.created_at) >= dateFrom);
     if (dateTo) l = l.filter((q) => localDay(q.created_at) <= dateTo);
     if (isPropostas && propostaTab !== 'aprovados') {
@@ -193,7 +203,7 @@ function OrcamentosPageInner() {
       });
     }
     return l;
-  }, [list, dentistFilter, dateFrom, dateTo, isPropostas, propostaTab]);
+  }, [list, dentistFilter, dateFrom, dateTo, isPropostas, propostaTab, tipoFilter]);
 
   // Onda 15 (etapa 19.6) — Stats CALCULADAS NO CLIENTE a partir da lista
   // carregada. Antes dependia do endpoint /quotes/dashboard, que tinha
@@ -457,6 +467,29 @@ function OrcamentosPageInner() {
                 className={`px-3 py-1.5 rounded text-xs font-medium ${
                   propostaTab === t.key
                     ? (t.key === 'aprovados' ? 'bg-emerald-600 text-white' : 'bg-primary text-primary-foreground')
+                    : 'text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          )}
+          {/* Separa proposta REAL x venda rápida — pra não misturar os R$150/avaliação
+              com os planos. Padrão "Propostas". */}
+          {isPropostas && (
+          <div className="flex gap-1 bg-card border border-border rounded-lg p-1 flex-wrap">
+            {([
+              { key: 'propostas' as const, label: 'Propostas' },
+              { key: 'vendas' as const, label: 'Vendas rápidas' },
+              { key: 'todas' as const, label: 'Todas' },
+            ]).map((t) => (
+              <button
+                key={t.key}
+                onClick={() => setTipoFilter(t.key)}
+                className={`px-3 py-1.5 rounded text-xs font-medium ${
+                  tipoFilter === t.key
+                    ? 'bg-primary text-primary-foreground'
                     : 'text-muted-foreground hover:text-foreground'
                 }`}
               >

@@ -322,6 +322,10 @@ export class QuotesService {
       counter_proposals_count: q.notes
         ? (q.notes.match(/\[CONTRAPROPOSTA /g) || []).length
         : 0,
+      // Venda rápida x proposta real: a venda rápida grava `notes` começando em
+      // "venda rapida" (mesma marca do board CRM em is_venda_rapida). Permite a aba
+      // Propostas SEPARAR as duas (filtro Propostas / Vendas rápidas / Todas).
+      is_venda_rapida: (q.notes || '').toLowerCase().startsWith('venda rapida'),
     }));
   }
 
