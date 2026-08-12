@@ -26,9 +26,15 @@ export class ConversationsService {
     // Filtro por status explícito (se passado via query param)
     if (status) {
       where.status = status;
+    } else {
+      // NUNCA mostra conversa ENCERRADO na lista/busca. ENCERRADO é terminal — usado
+      // pelo dedup de conversas duplicadas pra "aposentar" o resíduo vazio (msgs
+      // movidas pra canônica). Sem este filtro, o resíduo ENCERRADO aparecia parecendo
+      // uma 2ª conversa do mesmo paciente (ex.: busca "Mauricio" trazia a ativa + a
+      // encerrada vazia). FECHADO/ADIADO continuam visíveis (visibilidade real é por
+      // lead.stage / lead.is_client).
+      where.status = { not: 'ENCERRADO' };
     }
-    // Não filtramos mais por conversation.status (FECHADO/ADIADO).
-    // A visibilidade é controlada exclusivamente por lead.stage e lead.is_client.
 
     // Tenant isolation
     if (tenantId) {
