@@ -37,7 +37,10 @@ export class CalendarCronService {
         JOIN "CalendarEvent" ce ON er.event_id = ce.id
         WHERE er.channel = 'PUSH'
           AND er.sent_at IS NULL
-          AND ce.start_at - (er.minutes_before * interval '1 minute') BETWEEN ${now} AND ${in2min}
+          -- start_at é naive-local de Maceió (UTC-3) gravado no campo UTC. Soma +3h
+          -- pra achar o instante REAL, senão a notificação PUSH sai ~3h ADIANTADA
+          -- (mesma correção que o enqueue do lembrete WhatsApp já faz).
+          AND ce.start_at + interval '3 hours' - (er.minutes_before * interval '1 minute') BETWEEN ${now} AND ${in2min}
           AND ce.status NOT IN ('CANCELADO', 'CONCLUIDO', 'ADIADO')
       `;
 
