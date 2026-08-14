@@ -1784,23 +1784,52 @@ export class PaymentGatewayService {
     });
 
     // Apaga no Asaas (se for cobrança do gateway). 404 = já não existe lá → ok.
+    let asaasSynced = true;
     if ((charge.gateway || 'ASAAS') === 'ASAAS' && externalId) {
       try {
         await this.asaas.deleteCharge(externalId, charge.tenant_id || callerTenantId);
       } catch (e: any) {
         const msg = String(e?.message || '');
-        if (!msg.includes('[Asaas 404]')) {
-          // Falhou no Asaas por outro motivo — reverte o status local.
-          await this.prisma.paymentGatewayCharge
-            .update({ where: { id: charge.id }, data: { status: charge.status } })
-            .catch(() => undefined);
-          throw new BadRequestException(`Falha ao apagar no Asaas: ${msg}`);
+        if (msg.includes('[Asaas 404]')) {
+          // Não existe mais no Asaas → já está "apagada" lá. Mantém DELETED. OK.
+        } else {
+          // Delete recusado por OUTRO motivo (400 "não pode apagar", config/rede, 5xx…).
+          // Antes revertíamos ÀS CEGAS — e boleto importado / carteira-antiga NUNCA saía
+          // do sistema (voltava pra OVERDUE e seguia poluindo o KPI "Atrasado" e a régua).
+          // Agora só reverto se a cobrança estiver COMPROVADAMENTE PAGA no Asaas (protege
+          // receita); caso contrário HONRO o apagamento do admin (best-effort). Se o boleto
+          // ainda estiver vivo lá e for pago, o webhook reconcilia pelo external_id (resgata
+          // a cobrança DELETED → RECEIVED e lança no caixa), então não se perde dinheiro.
+          let remotePaid = false;
+          try {
+            const remote = await this.asaas.getCharge(externalId, charge.tenant_id || callerTenantId);
+            const mapped = ASAAS_STATUS_MAP[remote?.status] || remote?.status;
+            remotePaid = mapped === 'RECEIVED' || mapped === 'CONFIRMED';
+          } catch {
+            // Não deu pra verificar (404/config/rede) → não está comprovadamente paga.
+            remotePaid = false;
+          }
+          if (remotePaid) {
+            await this.prisma.paymentGatewayCharge
+              .update({ where: { id: charge.id }, data: { status: charge.status } })
+              .catch(() => undefined);
+            this.logger.warn(`[DELETE-CHARGE] ${externalId} consta PAGA no Asaas — apagamento cancelado.`);
+            throw new BadRequestException(
+              'Esta cobrança consta PAGA no Asaas — não pode ser apagada (o valor já entrou).',
+            );
+          }
+          asaasSynced = false;
+          this.logger.warn(
+            `[DELETE-CHARGE] Asaas não confirmou a remoção de ${externalId} (${msg}) — mantido DELETED no sistema (best-effort; webhook reconcilia se for pago).`,
+          );
         }
       }
     }
 
-    this.logger.log(`[DELETE-CHARGE] Cobrança ${externalId} apagada (local DELETED + Asaas)`);
-    return { deleted: true };
+    this.logger.log(
+      `[DELETE-CHARGE] Cobrança ${externalId} apagada (local DELETED${asaasSynced ? ' + Asaas' : '; Asaas não confirmou — best-effort'})`,
+    );
+    return { deleted: true, asaasSynced };
   }
 
   /**
