@@ -1718,6 +1718,8 @@ export class PaymentGatewayService {
     for (const charge of pendingCharges) {
       try {
         const asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
+        // Asaas confirmou (200) que a cobrança foi apagada lá → reflete DELETED local.
+        if (await this.reflectAsaasSoftDelete(charge.external_id, asaasData)) { updated++; continue; }
         const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
 
         if (mappedStatus !== charge.status) {
@@ -1741,6 +1743,39 @@ export class PaymentGatewayService {
   }
 
   /**
+   * Auto-heal SEGURO de "cobrança apagada no Asaas". Quando um getCharge retorna
+   * HTTP 200 com `deleted:true`, o Asaas diz AUTORITATIVAMENTE que a cobrança foi
+   * apagada lá — e como veio 200, a config aponta pra conta/ambiente CERTO (sem o
+   * risco de 404 ESPÚRIO de chave/ambiente trocado). Só então reflete DELETED local,
+   * de forma SILENCIOSA (prisma.update direto — nunca via handleWebhook, pra não
+   * disparar "cobrança cancelada" ao paciente). Guard de pago (belt-and-suspenders
+   * sobre o where dos reconciles): NUNCA esconde algo que já entrou no caixa.
+   *
+   * ⚠️ Por que NÃO usar 404: um 404 significa "não existe NESSA conta/ambiente AGORA"
+   * — dá falso-positivo em boleto VIVO sob config errada (tenant_id null → chave
+   * global; swap sandbox↔prod; rotação de apiKey; incidente de isolamento). Por isso
+   * os reconciles mantêm 404 apenas como log+skip. Retorna true se marcou DELETED.
+   */
+  private async reflectAsaasSoftDelete(externalId: string, asaasData: any): Promise<boolean> {
+    if (asaasData?.deleted !== true) return false;
+    const cur = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { external_id: externalId },
+      select: { id: true, status: true, received_in_cash: true, transaction_id: true, paid_at: true },
+    });
+    if (!cur || cur.status === 'DELETED') return false;
+    // Nunca esconder cobrança comprovadamente paga/recebida.
+    if (
+      cur.received_in_cash || cur.transaction_id || cur.paid_at ||
+      cur.status === 'RECEIVED' || cur.status === 'CONFIRMED'
+    ) {
+      return false;
+    }
+    await this.prisma.paymentGatewayCharge.update({ where: { id: cur.id }, data: { status: 'DELETED' } });
+    this.logger.log(`[RECONCILE] ${externalId} apagada no Asaas (deleted:true) — refletido DELETED local (silencioso)`);
+    return true;
+  }
+
+  /**
    * Exclui uma cobrança (ação de ADMIN) — no Asaas E no sistema, de forma SILENCIOSA.
    * (1) acha a charge tenant-scoped (anti-IDOR); (2) BLOQUEIA se já paga/recebida
    * (o Asaas recusa o delete de pagamento recebido, e apagar deixaria RECEITA ÓRFÃ no
@@ -1748,8 +1783,9 @@ export class PaymentGatewayService {
    * o Asaas — assim o webhook PAYMENT_DELETED que volta cai na guarda de idempotência
    * (status já DELETED em handleWebhook) e NÃO manda "Cobrança Cancelada" ao paciente;
    * (4) DELETE /payments/{external_id} no Asaas (404 = já não existe lá → sucesso).
-   * Em falha do Asaas (não-404) REVERTE o status local, pra não marcar como apagado
-   * algo que segue vivo no Asaas.
+   * Em falha do Asaas NÃO-404, só REVERTE se a cobrança estiver COMPROVADAMENTE PAGA
+   * lá (getCharge RECEIVED/CONFIRMED); senão HONRA o apagamento do admin (best-effort)
+   * — o webhook reconcilia pelo external_id se o boleto ainda estiver vivo e for pago.
    */
   async deleteCharge(externalId: string, callerTenantId?: string | null) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
@@ -1872,6 +1908,8 @@ export class PaymentGatewayService {
       for (const charge of batch) {
         try {
           const asaasData = await this.asaas.getCharge(charge.external_id, charge.tenant_id);
+          // Asaas confirmou (200) que a cobrança foi apagada lá → reflete DELETED local.
+          if (await this.reflectAsaasSoftDelete(charge.external_id, asaasData)) { updated++; continue; }
           const mappedStatus = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
           if (mappedStatus !== charge.status) {
             // Reprocessa pela MESMA via idempotente do webhook — SILENCIOSO (baixa +
