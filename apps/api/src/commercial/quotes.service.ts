@@ -35,6 +35,20 @@ const DEFAULT_VALID_DAYS = 30;
 // Antecedencia da notificacao de expiracao (lembrete pro paciente)
 const EXPIRY_REMINDER_DAYS = 3;
 
+/**
+ * Venda rápida x proposta real — marca ÚNICA usada em TODO lugar (findAll, findByPatient,
+ * board de progresso). A venda rápida grava title/notes começando em "Venda rapida" (o
+ * fluxo gera automático: "Venda rapida — recebido na clinica: ..."). Accent-strip (NFD)
+ * cobre "Venda rápida" com acento; checa title OU notes. Centralizar evita a MESMA venda
+ * ser classificada diferente em telas diferentes (e furar o gate de A_AGENDAR/STANDBY, que
+ * geraria cobrança de agendamento indevida pra quem já é venda rápida).
+ */
+export function isVendaRapidaQuote(q: { title?: string | null; notes?: string | null }): boolean {
+  const norm = (s: string | null | undefined) =>
+    (s || '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+  return norm(q.title).startsWith('venda rapida') || norm(q.notes).startsWith('venda rapida');
+}
+
 @Injectable()
 export class QuotesService {
   private readonly logger = new Logger(QuotesService.name);
@@ -325,7 +339,7 @@ export class QuotesService {
       // Venda rápida x proposta real: a venda rápida grava `notes` começando em
       // "venda rapida" (mesma marca do board CRM em is_venda_rapida). Permite a aba
       // Propostas SEPARAR as duas (filtro Propostas / Vendas rápidas / Todas).
-      is_venda_rapida: (q.notes || '').toLowerCase().startsWith('venda rapida'),
+      is_venda_rapida: isVendaRapidaQuote(q),
     }));
   }
 
@@ -2963,10 +2977,7 @@ export class QuotesService {
       // "venda rapida" ("Venda rapida — recebido na clinica: ..."). Robusto a ACENTO
       // e caixa (normaliza NFD) — se editarem pra "Venda rápida", ainda casa. Usado
       // pelo filtro Propostas/Vendas rápidas da página.
-      const is_venda_rapida = (q.notes || '')
-        .normalize('NFD').replace(/\p{Diacritic}/gu, '')
-        .toLowerCase()
-        .startsWith('venda rapida');
+      const is_venda_rapida = isVendaRapidaQuote(q);
       return { ...q, closed_by: closerByQuote.get(q.id) ?? null, avaliacao_dentist, is_venda_rapida };
     });
   }
@@ -3361,9 +3372,7 @@ export class QuotesService {
     // `NOT NULL` = NULL, e o Postgres DESCARTA a linha. Efeito real (desde 13/jul):
     // quase todo paciente fechado sumia do board, só sobrava quem tinha notes
     // preenchido (ex.: bônus). O filtro JS trata NULL como "não é venda rápida".
-    const isVendaRapida = (q: { title?: string | null; notes?: string | null }) =>
-      (q.title || '').toLowerCase().startsWith('venda rápida') ||
-      (q.notes || '').toLowerCase().startsWith('venda rapida');
+    const isVendaRapida = isVendaRapidaQuote; // helper único (accent-strip, title OU notes)
     // Venda rápida VOLTA ao Progresso (entra no tratamento, precisa de acompanhamento),
     // mas MARCADA: cada card ganha is_venda_rapida (selo no front) e o disparo
     // "pacientes sem agendamento" pula os marcados (não cobra agendamento de balcão).
