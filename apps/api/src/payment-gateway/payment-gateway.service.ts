@@ -740,22 +740,29 @@ export class PaymentGatewayService {
       take: 100,
     });
 
-    // Onda 18.x — resolve o NOME de quem cancelou (pro rastro na ficha). O
-    // cancelled_by_user_id é String pura (sem relation), então busca em lote.
-    const cancellerIds = [
-      ...new Set(charges.map((c) => c.cancelled_by_user_id).filter(Boolean) as string[]),
+    // Onda 18.x — NOME de quem cancelou (pro rastro na ficha). Prefere o SNAPSHOT
+    // salvo (cancelled_by_name, estável mesmo se o user for renomeado/removido); só
+    // cai no lookup ao vivo pra registros LEGADOS que têm id mas não têm snapshot.
+    const legacyIds = [
+      ...new Set(
+        charges
+          .filter((c) => !c.cancelled_by_name && c.cancelled_by_user_id)
+          .map((c) => c.cancelled_by_user_id as string),
+      ),
     ];
     const nameById = new Map<string, string>();
-    if (cancellerIds.length) {
+    if (legacyIds.length) {
       const users = await this.prisma.user.findMany({
-        where: { id: { in: cancellerIds } },
+        where: { id: { in: legacyIds } },
         select: { id: true, name: true },
       });
       for (const u of users) nameById.set(u.id, u.name);
     }
     return charges.map((c) => ({
       ...c,
-      cancelled_by_name: c.cancelled_by_user_id ? nameById.get(c.cancelled_by_user_id) ?? null : null,
+      cancelled_by_name:
+        c.cancelled_by_name ??
+        (c.cancelled_by_user_id ? nameById.get(c.cancelled_by_user_id) ?? null : null),
     }));
   }
 
@@ -1524,6 +1531,13 @@ export class PaymentGatewayService {
         net_value: paymentData.netValue || charge.net_value,
         invoice_url: paymentData.invoiceUrl || charge.invoice_url,
         webhook_payload: payload,
+        // Onda 18.x — se uma cobrança CANCELADA (DELETED, best-effort) reviver por
+        // um pagamento real (o webhook a traz de volta pra RECEIVED/CONFIRMED/…),
+        // LIMPA o rastro de cancelamento — senão sobraria "Cancelado por Fulano"
+        // numa cobrança que caiu no caixa (dado auto-contraditório pra prova).
+        ...(charge.status === 'DELETED' && mappedStatus !== 'DELETED' && mappedStatus !== 'REFUNDED'
+          ? { cancelled_at: null, cancelled_by_user_id: null, cancelled_by_name: null, cancel_reason: null }
+          : {}),
       },
     });
 
@@ -1794,6 +1808,7 @@ export class PaymentGatewayService {
         status: 'DELETED',
         cancelled_at: new Date(),
         cancelled_by_user_id: null, // cancelamento do SISTEMA (não de um usuário)
+        cancelled_by_name: 'Sistema (reconciliação)',
         cancel_reason: 'Apagada no Asaas (reconciliação automática)',
       },
     });
@@ -1823,6 +1838,8 @@ export class PaymentGatewayService {
       select: {
         id: true, tenant_id: true, status: true,
         received_in_cash: true, transaction_id: true, gateway: true,
+        // Rastro existente — pra PRESERVAR o registro original num re-cancelamento.
+        cancelled_at: true, cancelled_by_user_id: true, cancelled_by_name: true, cancel_reason: true,
       },
     });
     if (!charge) throw new NotFoundException('Cobrança não encontrada');
@@ -1843,6 +1860,21 @@ export class PaymentGatewayService {
       );
     }
 
+    // Rastro IMUTÁVEL: se a cobrança JÁ estava cancelada, preserva o registro
+    // ORIGINAL (quem/quando/motivo) — um re-cancelamento (retry, 2 admins) só
+    // re-tenta o Asaas, nunca sobrescreve a auditoria do 1º cancelamento.
+    const alreadyCancelled = !!charge.cancelled_at;
+    // Snapshot do NOME de quem cancela (rastro estável mesmo se o user for
+    // renomeado/removido depois). Só resolve quando é um cancelamento novo.
+    let cancellerName: string | null = null;
+    if (!alreadyCancelled && opts?.userId) {
+      const u = await this.prisma.user.findUnique({
+        where: { id: opts.userId },
+        select: { name: true },
+      });
+      cancellerName = u?.name ?? null;
+    }
+
     // Marca DELETED no LOCAL ANTES do Asaas (silêncio — ver docstring). Grava o
     // RASTRO de auditoria (quem/quando/motivo) — a cobrança segue VISÍVEL como
     // "Cancelado" no cadastro do paciente, pra eventual revisão até judicial.
@@ -1850,9 +1882,10 @@ export class PaymentGatewayService {
       where: { id: charge.id },
       data: {
         status: 'DELETED',
-        cancelled_at: new Date(),
-        cancelled_by_user_id: opts?.userId ?? null,
-        cancel_reason: (opts?.reason || '').trim() || null,
+        cancelled_at: charge.cancelled_at ?? new Date(),
+        cancelled_by_user_id: alreadyCancelled ? charge.cancelled_by_user_id : (opts?.userId ?? null),
+        cancelled_by_name: alreadyCancelled ? charge.cancelled_by_name : cancellerName,
+        cancel_reason: alreadyCancelled ? charge.cancel_reason : ((opts?.reason || '').trim() || null),
       },
     });
 
@@ -1883,10 +1916,14 @@ export class PaymentGatewayService {
             remotePaid = false;
           }
           if (remotePaid) {
+            // Só reverte/limpa o rastro que ESTE chamada escreveu — se a cobrança
+            // já estava cancelada antes, preserva o registro original.
             await this.prisma.paymentGatewayCharge
               .update({
                 where: { id: charge.id },
-                data: { status: charge.status, cancelled_at: null, cancelled_by_user_id: null, cancel_reason: null },
+                data: alreadyCancelled
+                  ? { status: charge.status }
+                  : { status: charge.status, cancelled_at: null, cancelled_by_user_id: null, cancelled_by_name: null, cancel_reason: null },
               })
               .catch(() => undefined);
             this.logger.warn(`[DELETE-CHARGE] ${externalId} consta PAGA no Asaas — apagamento cancelado.`);

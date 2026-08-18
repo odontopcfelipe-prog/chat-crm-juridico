@@ -1674,6 +1674,7 @@ model PaymentGatewayCharge {
   /// id do usuario como String pura, sem @relation nem back-relation no User.
   cancelled_at         DateTime?
   cancelled_by_user_id String?
+  cancelled_by_name    String? // snapshot do nome (rastro estável mesmo se o user for renomeado/removido)
   cancel_reason        String?
 
   idempotency_key String?  @unique
