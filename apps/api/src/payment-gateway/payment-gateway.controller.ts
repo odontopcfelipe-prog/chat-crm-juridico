@@ -423,14 +423,25 @@ export class PaymentGatewayController {
     return { ...(result || {}), caixa };
   }
 
-  /** Excluir cobrança — SOMENTE ADMIN. Apaga no Asaas E no sistema (soft-delete
-   *  status=DELETED), de forma SILENCIOSA (sem avisar o paciente). O service faz
-   *  o tenant-scope (anti-IDOR) e bloqueia cobrança já paga. */
+  /** Cancelar/excluir cobrança — SOMENTE ADMIN. Apaga no Asaas E no sistema
+   *  (soft-delete status=DELETED), de forma SILENCIOSA (sem avisar o paciente),
+   *  MAS gravando o rastro de auditoria (quem/quando/motivo) — a cobrança segue
+   *  VISÍVEL como "Cancelado" no cadastro do paciente pra revisão até judicial.
+   *  O motivo vem por querystring (?reason=...) pra não esbarrar no ValidationPipe
+   *  forbidNonWhitelisted de um body sem DTO. O service faz o tenant-scope
+   *  (anti-IDOR) e bloqueia cobrança já paga. */
   @Roles('ADMIN', 'SUPER_ADMIN')
   @Delete('charges/asaas/:chargeId')
-  async deleteAsaasCharge(@Param('chargeId') chargeId: string, @Req() req: any) {
-    this.logger.log(`[DELETE /charges/asaas/${chargeId}] Excluindo cobranca (admin)`);
-    return this.service.deleteCharge(chargeId, req.user?.tenant_id);
+  async deleteAsaasCharge(
+    @Param('chargeId') chargeId: string,
+    @Req() req: any,
+    @Query('reason') reason?: string,
+  ) {
+    this.logger.log(`[DELETE /charges/asaas/${chargeId}] Cancelando cobranca (admin)`);
+    return this.service.deleteCharge(chargeId, req.user?.tenant_id, {
+      userId: req.user?.id ?? null,
+      reason: reason ?? null,
+    });
   }
 
   /** Detalhes de uma cobrança por honorarioPaymentId */

@@ -1667,6 +1667,15 @@ model PaymentGatewayCharge {
   received_by_user_id String?
   received_at         DateTime?
 
+  /// Onda 18.x — auditoria do CANCELAMENTO (soft-delete). Cobranca cancelada
+  /// mantem o registro VISIVEL como "Cancelado" no cadastro do paciente, com
+  /// rastro (quem/quando/motivo) para eventual revisao ate judicial, e fica
+  /// fora da inadimplencia/regua/KPI. Segue a convencao de received_by_user_id:
+  /// id do usuario como String pura, sem @relation nem back-relation no User.
+  cancelled_at         DateTime?
+  cancelled_by_user_id String?
+  cancel_reason        String?
+
   idempotency_key String?  @unique
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt

@@ -16,7 +16,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Loader2, DollarSign, Check, AlertTriangle, Clock, CreditCard, ExternalLink,
   Receipt, Send, Building2, Copy, ChevronDown, ChevronRight, FileText, Eye, X,
-  ClipboardList, CheckCircle2, Printer, Trash2,
+  ClipboardList, CheckCircle2, Printer, Trash2, Ban,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -72,6 +72,11 @@ interface Charge {
   created_at: string;
   /** Onda 17.32.43 — Tipo da charge no plano: SINAL / ENTRADA / PARCELA / etc. */
   kind?: 'SINAL' | 'ENTRADA' | 'PARCELA' | string | null;
+  /** Onda 18.x — rastro do cancelamento (quem/quando/motivo), pra revisão até judicial. */
+  cancelled_at?: string | null;
+  cancelled_by_user_id?: string | null;
+  cancelled_by_name?: string | null;
+  cancel_reason?: string | null;
 }
 
 interface Installment {
@@ -125,6 +130,22 @@ const fmtDate = (iso: string | null) => {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('pt-BR');
 };
+
+// Onda 18.x — data+hora pro rastro do cancelamento ("18/08/2026 14:30").
+const fmtDateTime = (iso?: string | null) => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  } catch {
+    return fmtDate(iso);
+  }
+};
+
+// Onda 18.x — status que representam cobrança CANCELADA/estornada (fora da
+// inadimplência, mas preservada como registro na seção "Boletos cancelados").
+const CANCELLED_CHARGE_STATUSES = ['DELETED', 'CANCELLED', 'REFUNDED'];
+const isCancelledStatus = (status?: string | null): boolean =>
+  !!status && CANCELLED_CHARGE_STATUSES.includes(status);
 
 // Onda 18.5 — data por extenso pra cabecalho de grupo ("03 de julho de 2026").
 const fmtDiaHeader = (iso: string | null) => {
@@ -432,6 +453,10 @@ export default function FinanceiroTab({ patientId, patientName }: Props) {
         <ChargesSection charges={charges} onReload={load} />
       )}
 
+      {/* Onda 18.x — Boletos cancelados (preservados com rastro p/ revisão até
+          judicial). Vale pros dois caminhos (com contrato e importado). */}
+      <CancelledChargesSection charges={charges} />
+
       {/* Lista de parcelas — so renderiza se ha installments. Onda 14.9 */}
       {installments.length > 0 && (
       <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -729,17 +754,20 @@ function ProposalFinancialCard({
       showError('Cobrança já paga — não pode ser apagada.');
       return;
     }
-    if (!window.confirm(
-      `APAGAR esta cobrança (R$ ${fmtBRL(p.value)})?\n\n` +
-      `Isso apaga o boleto NO ASAAS e NO SISTEMA — não dá pra desfazer.\n` +
-      `O link/QR para de funcionar e a cobrança some da ficha.\n` +
-      `O paciente NÃO é avisado.\n\n` +
-      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
-    )) return;
+    const reason = window.prompt(
+      `CANCELAR esta cobrança (R$ ${fmtBRL(p.value)})?\n\n` +
+      `Apaga o boleto NO ASAAS (o link/QR para de funcionar) e tira da inadimplência,\n` +
+      `MAS ela FICA REGISTRADA no cadastro como "Cancelado", com quem/quando/motivo —\n` +
+      `pra eventual revisão até judicial. O paciente NÃO é avisado.\n\n` +
+      `Digite o MOTIVO do cancelamento:`,
+      'Paciente cancelou o tratamento',
+    );
+    if (reason === null) return; // fechou/cancelou o prompt
+    const motivo = reason.trim();
     setDeletingId(p.asaasId);
     try {
-      await api.delete(`/payment-gateway/charges/asaas/${p.asaasId}`);
-      showSuccess('Cobrança apagada (Asaas + sistema).');
+      await api.delete(`/payment-gateway/charges/asaas/${p.asaasId}${motivo ? `?reason=${encodeURIComponent(motivo)}` : ''}`);
+      showSuccess('Cobrança cancelada — fica registrada no cadastro.');
       setSubInstallmentsByCharge((prev) => {
         if (prev[p.chargeId] === undefined) return prev;
         const next = { ...prev };
@@ -2348,18 +2376,24 @@ function ProceduresListModal({
 }
 
 function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: () => void }) {
+  // Cobranças CANCELADAS não entram na lista ativa nem no contador — elas ficam
+  // preservadas na seção "Boletos cancelados" (com rastro). Evita mostrar 2x.
+  const activeCharges = useMemo(
+    () => charges.filter((c) => !isCancelledStatus(c.status)),
+    [charges],
+  );
   const summary = useMemo(() => {
     let paid = 0;
     let pending = 0;
     let overdue = 0;
-    for (const c of charges) {
+    for (const c of activeCharges) {
       const amt = Number(c.amount);
       if (c.status === 'RECEIVED' || c.status === 'CONFIRMED') paid += amt;
       else if (c.status === 'PENDING') pending += amt;
       else if (c.status === 'OVERDUE') overdue += amt;
     }
     return { paid, pending, overdue };
-  }, [charges]);
+  }, [activeCharges]);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -2368,7 +2402,7 @@ function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: (
           <Receipt size={14} className="text-amber-700" />
           <p className="text-sm font-semibold">Cobranças geradas</p>
           <span className="text-xs text-muted-foreground">
-            ({charges.length})
+            ({activeCharges.length})
           </span>
         </div>
         <div className="flex items-center gap-3 text-[11px]">
@@ -2390,10 +2424,98 @@ function ChargesSection({ charges, onReload }: { charges: Charge[]; onReload?: (
         </div>
       </div>
       <ul className="divide-y divide-border">
-        {charges.map((c) => (
+        {activeCharges.map((c) => (
           <ChargeRow key={c.id} charge={c} onReload={onReload} />
         ))}
       </ul>
+    </div>
+  );
+}
+
+/**
+ * Onda 18.x — "Boletos cancelados": preserva no cadastro do paciente TODA cobrança
+ * cancelada/estornada, com o RASTRO (quem/quando/motivo), pra eventual revisão até
+ * judicial. Independe do render ativo (serve tanto pro paciente com contrato quanto
+ * pro importado). Read-only e recolhida por padrão pra não poluir a visão de dívida
+ * ativa. Não entra em KPI/inadimplência/régua (o backend já exclui DELETED).
+ */
+function CancelledChargesSection({ charges }: { charges: Charge[] }) {
+  const [open, setOpen] = useState(false);
+  const cancelled = useMemo(
+    () =>
+      charges
+        .filter((c) => isCancelledStatus(c.status))
+        .sort(
+          (a, b) =>
+            new Date(b.cancelled_at || b.created_at).getTime() -
+            new Date(a.cancelled_at || a.created_at).getTime(),
+        ),
+    [charges],
+  );
+  if (cancelled.length === 0) return null;
+  const total = cancelled.reduce((s, c) => s + Number(c.amount), 0);
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full px-4 py-3 border-b border-border flex items-center justify-between gap-2 text-left hover:bg-muted/30"
+      >
+        <div className="flex items-center gap-2">
+          <Ban size={14} className="text-muted-foreground" />
+          <p className="text-sm font-semibold">Boletos cancelados</p>
+          <span className="text-xs text-muted-foreground">({cancelled.length})</span>
+        </div>
+        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+          <span className="tabular-nums">{fmtBRL(total)}</span>
+          {open ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </div>
+      </button>
+      {open && (
+        <ul className="divide-y divide-border">
+          {cancelled.map((c) => {
+            const estornado = c.status === 'REFUNDED';
+            const verbo = estornado ? 'Estornado' : 'Cancelado';
+            return (
+              <li key={c.id} className="px-4 py-3 flex items-start gap-3 flex-wrap opacity-80">
+                <div className="flex-1 min-w-[220px]">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-sm font-semibold line-through text-muted-foreground">
+                      {c.billing_type === 'PIX'
+                        ? 'PIX'
+                        : c.billing_type === 'BOLETO'
+                          ? 'Boleto'
+                          : c.billing_type === 'CREDIT_CARD'
+                            ? 'Cartão'
+                            : c.billing_type}
+                    </span>
+                    <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium border bg-muted text-muted-foreground border-border">
+                      {verbo}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">
+                      Vencia {fmtDate(c.due_date)}
+                    </span>
+                  </div>
+                  {c.description && (
+                    <p className="text-xs text-muted-foreground mt-0.5">{c.description}</p>
+                  )}
+                  {/* Rastro de auditoria — quem / quando / motivo */}
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    {verbo}
+                    {c.cancelled_at ? ` em ${fmtDateTime(c.cancelled_at)}` : ''}
+                    {c.cancelled_by_name ? ` por ${c.cancelled_by_name}` : ''}
+                    {c.cancel_reason ? ` — ${c.cancel_reason}` : ''}
+                  </p>
+                </div>
+                <span className="text-sm font-bold tabular-nums line-through text-muted-foreground">
+                  {fmtBRL(Number(c.amount))}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
     </div>
   );
 }
@@ -2470,15 +2592,20 @@ function ChargeRow({ charge: c, onReload }: { charge: Charge; onReload?: () => v
     if (deleting) return;
     if (isPaid) { showError('Cobrança já paga — não pode ser apagada.'); return; }
     if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra apagar.'); return; }
-    if (!window.confirm(
-      `APAGAR esta cobrança (${fmtBRL(c.amount)})?\n\n` +
-      `Apaga NO ASAAS e NO SISTEMA — não dá pra desfazer. O paciente NÃO é avisado.\n` +
-      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
-    )) return;
+    const reason = window.prompt(
+      `CANCELAR esta cobrança (${fmtBRL(c.amount)})?\n\n` +
+      `Apaga o boleto NO ASAAS e tira da inadimplência, MAS ela FICA REGISTRADA no\n` +
+      `cadastro como "Cancelado" (quem/quando/motivo) — pra revisão até judicial.\n` +
+      `O paciente NÃO é avisado.\n\n` +
+      `Digite o MOTIVO do cancelamento:`,
+      'Paciente cancelou o tratamento',
+    );
+    if (reason === null) return; // fechou/cancelou o prompt
+    const motivo = reason.trim();
     setDeleting(true);
     try {
-      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}`);
-      showSuccess('Cobrança apagada (Asaas + sistema).');
+      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}${motivo ? `?reason=${encodeURIComponent(motivo)}` : ''}`);
+      showSuccess('Cobrança cancelada — fica registrada no cadastro.');
       onReload?.();
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao apagar a cobrança.');

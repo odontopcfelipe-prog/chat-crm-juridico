@@ -734,11 +734,29 @@ export class PaymentGatewayService {
       if (customer) or.push({ customer_external_id: customer.external_id });
     }
 
-    return this.prisma.paymentGatewayCharge.findMany({
+    const charges = await this.prisma.paymentGatewayCharge.findMany({
       where: { tenant_id: tenantId, OR: or },
       orderBy: { created_at: 'desc' },
       take: 100,
     });
+
+    // Onda 18.x — resolve o NOME de quem cancelou (pro rastro na ficha). O
+    // cancelled_by_user_id é String pura (sem relation), então busca em lote.
+    const cancellerIds = [
+      ...new Set(charges.map((c) => c.cancelled_by_user_id).filter(Boolean) as string[]),
+    ];
+    const nameById = new Map<string, string>();
+    if (cancellerIds.length) {
+      const users = await this.prisma.user.findMany({
+        where: { id: { in: cancellerIds } },
+        select: { id: true, name: true },
+      });
+      for (const u of users) nameById.set(u.id, u.name);
+    }
+    return charges.map((c) => ({
+      ...c,
+      cancelled_by_name: c.cancelled_by_user_id ? nameById.get(c.cancelled_by_user_id) ?? null : null,
+    }));
   }
 
   // ─── Customer sync ─────────────────────────────────────
@@ -1770,7 +1788,15 @@ export class PaymentGatewayService {
     ) {
       return false;
     }
-    await this.prisma.paymentGatewayCharge.update({ where: { id: cur.id }, data: { status: 'DELETED' } });
+    await this.prisma.paymentGatewayCharge.update({
+      where: { id: cur.id },
+      data: {
+        status: 'DELETED',
+        cancelled_at: new Date(),
+        cancelled_by_user_id: null, // cancelamento do SISTEMA (não de um usuário)
+        cancel_reason: 'Apagada no Asaas (reconciliação automática)',
+      },
+    });
     this.logger.log(`[RECONCILE] ${externalId} apagada no Asaas (deleted:true) — refletido DELETED local (silencioso)`);
     return true;
   }
@@ -1787,7 +1813,11 @@ export class PaymentGatewayService {
    * lá (getCharge RECEIVED/CONFIRMED); senão HONRA o apagamento do admin (best-effort)
    * — o webhook reconcilia pelo external_id se o boleto ainda estiver vivo e for pago.
    */
-  async deleteCharge(externalId: string, callerTenantId?: string | null) {
+  async deleteCharge(
+    externalId: string,
+    callerTenantId?: string | null,
+    opts?: { userId?: string | null; reason?: string | null },
+  ) {
     const charge = await this.prisma.paymentGatewayCharge.findFirst({
       where: { external_id: externalId },
       select: {
@@ -1813,10 +1843,17 @@ export class PaymentGatewayService {
       );
     }
 
-    // Marca DELETED no LOCAL ANTES do Asaas (silêncio — ver docstring).
+    // Marca DELETED no LOCAL ANTES do Asaas (silêncio — ver docstring). Grava o
+    // RASTRO de auditoria (quem/quando/motivo) — a cobrança segue VISÍVEL como
+    // "Cancelado" no cadastro do paciente, pra eventual revisão até judicial.
     await this.prisma.paymentGatewayCharge.update({
       where: { id: charge.id },
-      data: { status: 'DELETED' },
+      data: {
+        status: 'DELETED',
+        cancelled_at: new Date(),
+        cancelled_by_user_id: opts?.userId ?? null,
+        cancel_reason: (opts?.reason || '').trim() || null,
+      },
     });
 
     // Apaga no Asaas (se for cobrança do gateway). 404 = já não existe lá → ok.
@@ -1847,7 +1884,10 @@ export class PaymentGatewayService {
           }
           if (remotePaid) {
             await this.prisma.paymentGatewayCharge
-              .update({ where: { id: charge.id }, data: { status: charge.status } })
+              .update({
+                where: { id: charge.id },
+                data: { status: charge.status, cancelled_at: null, cancelled_by_user_id: null, cancel_reason: null },
+              })
               .catch(() => undefined);
             this.logger.warn(`[DELETE-CHARGE] ${externalId} consta PAGA no Asaas — apagamento cancelado.`);
             throw new BadRequestException(
