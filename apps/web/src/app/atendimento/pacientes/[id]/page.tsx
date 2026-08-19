@@ -171,6 +171,10 @@ function PacienteFichaInner() {
   const proposalsReadOnly = canProposals && !canManageProposals;
   const canFinancial = hasPermission('view_financial');
   const [patient, setPatient] = useState<Patient | null>(null);
+  // Selo de devedor/bloqueio no cabeçalho (best-effort — não trava o carregamento).
+  const [blockStatus, setBlockStatus] = useState<{
+    has_overdue: boolean; count: number; total: number; block_enabled: boolean; blocked: boolean;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
   // Aceita ?tab=odontogram (e variantes) na URL pra que outras páginas
   // (ex: botão "Atender" do CRM Kanban) abram direto na aba certa.
@@ -207,6 +211,10 @@ function PacienteFichaInner() {
     try {
       const { data } = await api.get<Patient>(`/patients/${params.id}`);
       setPatient(data);
+      // Status de bloqueio por boleto atrasado (best-effort, não bloqueia a ficha).
+      api.get(`/calendar/patients/${params.id}/block-status`)
+        .then((r) => setBlockStatus(r.data))
+        .catch(() => setBlockStatus(null));
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao carregar paciente');
     } finally {
@@ -402,6 +410,26 @@ function PacienteFichaInner() {
                 <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 border border-blue-500/20">
                   Menor de idade
                 </span>
+              )}
+              {/* Selo de devedor: vermelho = agendamento bloqueado (gate ligado +
+                  atraso); âmbar = tem atraso mas o gate está desligado. Clica → Financeiro. */}
+              {blockStatus?.has_overdue && (
+                <button
+                  type="button"
+                  onClick={() => { router.replace(`/atendimento/pacientes/${patient.id}?tab=financial`); setTab('financial'); }}
+                  title={blockStatus.blocked
+                    ? 'Agendamento bloqueado por boleto em atraso — ver Financeiro'
+                    : 'Paciente com boleto em atraso — ver Financeiro'}
+                  className={`text-xs px-2 py-0.5 rounded border font-semibold inline-flex items-center gap-1 ${
+                    blockStatus.blocked
+                      ? 'bg-red-500/10 text-red-700 border-red-500/30 dark:text-red-400'
+                      : 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-400'
+                  }`}
+                >
+                  {blockStatus.blocked ? '🔒 Agendamento bloqueado' : '⚠ Em atraso'}
+                  {' · '}
+                  {blockStatus.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
+                </button>
               )}
             </h1>
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">

@@ -112,6 +112,13 @@ export class CalendarController {
     });
   }
 
+  /** Status do bloqueio de agendamento por devedor — pro selo no cadastro do
+   *  paciente. Leitura tenant-scoped; qualquer usuário autenticado pode ver. */
+  @Get('patients/:patientId/block-status')
+  patientBlockStatus(@Param('patientId') patientId: string, @Request() req: any) {
+    return this.calendarService.getSchedulingBlockStatus(patientId, req.user?.tenant_id);
+  }
+
   /**
    * Campos que DENTIST/FINANCEIRO podem alterar do proprio evento.
    * Cobre o fluxo clinico: dentista marca status (CONCLUIDO/CONFIRMADO/etc)

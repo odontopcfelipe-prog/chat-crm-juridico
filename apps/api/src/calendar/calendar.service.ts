@@ -247,6 +247,29 @@ export class CalendarService {
     return { count: rows.length, total };
   }
 
+  /**
+   * Status do bloqueio de agendamento por devedor — pra SINALIZAR no cadastro do
+   * paciente (selo "bloqueado"). Diz se a clínica tem o gate ligado, se o paciente
+   * tem atraso AO VIVO (qtd/valor) e se HOJE ele seria bloqueado (gate + atraso).
+   */
+  async getSchedulingBlockStatus(patientId: string, tenantId?: string | null) {
+    const overdue = await this.getPatientOverdue(patientId, tenantId);
+    let blockEnabled = false;
+    if (tenantId) {
+      const flag = await this.prisma.globalSetting.findUnique({
+        where: { key: `BLOCK_SCHED_ON_OVERDUE_${tenantId}` },
+      });
+      blockEnabled = flag?.value === 'true';
+    }
+    return {
+      has_overdue: overdue.count > 0,
+      count: overdue.count,
+      total: overdue.total,
+      block_enabled: blockEnabled,
+      blocked: blockEnabled && overdue.count > 0,
+    };
+  }
+
   async create(data: {
     type: string;
     title: string;
