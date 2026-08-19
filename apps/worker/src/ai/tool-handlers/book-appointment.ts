@@ -255,6 +255,52 @@ export class BookAppointmentHandler implements ToolHandler {
       }
     }
 
+    // Bloqueio de agendamento de DEVEDOR (opt-in por clínica, default OFF). Mesma
+    // regra do CalendarService.create da API (a IA não passa por lá). A IA NÃO tem
+    // admin pra liberar, então SEMPRE barra quando ligado e o paciente tem boleto
+    // atrasado ao vivo. Verificação AO VIVO — pagar/cancelar destrava sozinho.
+    if (resolvedPatientId && convo.tenant_id) {
+      const flag = await prisma.globalSetting.findUnique({
+        where: { key: `BLOCK_SCHED_ON_OVERDUE_${convo.tenant_id}` },
+      });
+      if (flag?.value === 'true') {
+        const patient = await prisma.patient.findUnique({
+          where: { id: resolvedPatientId },
+          select: { lead_id: true },
+        });
+        const or: any[] = [
+          { patient_id: resolvedPatientId },
+          { treatment_plan: { patient_id: resolvedPatientId } },
+        ];
+        if (patient?.lead_id) {
+          const custs = await prisma.paymentGatewayCustomer.findMany({
+            where: { lead_id: patient.lead_id, tenant_id: convo.tenant_id },
+            select: { external_id: true },
+          });
+          const extIds = custs.map((c: { external_id: string }) => c.external_id).filter(Boolean) as string[];
+          if (extIds.length) or.push({ customer_external_id: { in: extIds } });
+        }
+        const overdueCount = await prisma.paymentGatewayCharge.count({
+          where: {
+            tenant_id: convo.tenant_id,
+            status: { in: ['PENDING', 'OVERDUE'] },
+            received_in_cash: false,
+            due_date: { lt: new Date() },
+            OR: or,
+          },
+        });
+        if (overdueCount > 0) {
+          this.logger.warn(`[book_appointment] BLOQUEIO devedor — paciente=${resolvedPatientId} tem ${overdueCount} boleto(s) atrasado(s); NÃO agenda.`);
+          return {
+            success: false,
+            error:
+              'Paciente com boleto em atraso — a política da clínica não permite agendar até regularizar. ' +
+              'NÃO agende. Oriente o paciente a pagar/negociar no Financeiro; a recepção pode liberar manualmente se necessário.',
+          };
+        }
+      }
+    }
+
     // Cria o CalendarEvent + reminders em uma só chamada
     const event = await prisma.calendarEvent.create({
       data: {

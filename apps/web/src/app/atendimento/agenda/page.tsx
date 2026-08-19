@@ -1770,7 +1770,7 @@ export default function AgendaPage() {
       // Bloqueio de agendamento de DEVEDOR. Admin pode LIBERAR aquele agendamento
       // com um motivo (reenvia com override); recepção é barrada com o aviso.
       if (data?.code === 'SCHEDULING_BLOCKED_OVERDUE' && !editingEvent && !payload.override_overdue_block) {
-        if (role.isAdmin) {
+        if (role.isAdmin || role.isSuperAdmin) {
           const reason = window.prompt(
             `${data.message}\n\nVocê é ADMIN e pode LIBERAR este agendamento mesmo assim.\n` +
             `Digite o MOTIVO da liberação (fica registrado):`,
@@ -1787,6 +1787,8 @@ export default function AgendaPage() {
             } catch (e2: any) {
               showError(e2?.response?.data?.message || 'Erro ao liberar/salvar.');
             }
+          } else {
+            showError('Liberação cancelada — informe um motivo para agendar mesmo assim.');
           }
           return;
         }

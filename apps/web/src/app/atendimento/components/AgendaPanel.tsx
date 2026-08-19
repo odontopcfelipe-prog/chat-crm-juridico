@@ -175,6 +175,7 @@ export function AgendaPanel({
     }
     setSending(true);
     let builtPayload: any = null;
+    let notifyPatient: (() => void) | null = null;
     try {
       // 1. Monta start_at ISO
       const startISO = new Date(`${date}T${time}:00`).toISOString();
@@ -206,11 +207,10 @@ export function AgendaPanel({
       }
       builtPayload = payload;
 
-      await api.post('/calendar/events', payload);
-
-      // 3. Manda mensagem padrao no WhatsApp (best-effort, nao bloqueia
-      //    sucesso se falhar — operador foi informado pelo toast)
-      if (conversationId) {
+      // Confirmação padrão no WhatsApp (best-effort). Extraída pra também ser
+      // enviada quando o admin LIBERA um devedor (senão o liberado ficava sem aviso).
+      notifyPatient = () => {
+        if (!conversationId) return;
         const dateBR = new Date(`${date}T${time}:00`).toLocaleDateString('pt-BR', {
           day: '2-digit', month: '2-digit', year: 'numeric',
         });
@@ -229,7 +229,12 @@ export function AgendaPanel({
         }).catch((err) => {
           console.warn('[AgendaPanel] Falha ao mandar msg confirmacao WhatsApp:', err);
         });
-      }
+      };
+
+      // 2. Cria evento
+      await api.post('/calendar/events', payload);
+      // 3. Notifica o paciente (best-effort)
+      notifyPatient();
 
       showSuccess('Agendamento criado e cliente notificado!');
       onClose();
@@ -237,7 +242,7 @@ export function AgendaPanel({
       const data = err?.response?.data;
       // Bloqueio de agendamento de DEVEDOR — admin pode LIBERAR com motivo.
       if (data?.code === 'SCHEDULING_BLOCKED_OVERDUE' && builtPayload && !builtPayload.override_overdue_block) {
-        if (role.isAdmin) {
+        if (role.isAdmin || role.isSuperAdmin) {
           const reason = window.prompt(
             `${data.message}\n\nVocê é ADMIN e pode LIBERAR este agendamento mesmo assim.\n` +
             `Digite o MOTIVO da liberação (fica registrado):`,
@@ -248,11 +253,14 @@ export function AgendaPanel({
             builtPayload.override_overdue_reason = reason.trim();
             try {
               await api.post('/calendar/events', builtPayload);
+              notifyPatient?.();
               showSuccess('Agendado (liberado apesar da dívida)');
               onClose();
             } catch (e2: any) {
               showError(e2?.response?.data?.message || 'Erro ao liberar/salvar.');
             }
+          } else {
+            showError('Liberação cancelada — informe um motivo para agendar mesmo assim.');
           }
           return;
         }
