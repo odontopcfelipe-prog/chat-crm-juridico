@@ -106,6 +106,9 @@ export class CalendarController {
       ...data,
       created_by_id: req.user.id,
       tenant_id: req.user?.tenant_id,
+      // Papéis do ator — pro serviço validar a LIBERAÇÃO do bloqueio de devedor
+      // (só ADMIN/SUPER_ADMIN libera). Não vem do DTO; injetado aqui.
+      actor_roles: req.user?.roles || [],
     });
   }
 

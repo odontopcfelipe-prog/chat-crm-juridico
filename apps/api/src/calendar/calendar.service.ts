@@ -204,6 +204,49 @@ export class CalendarService {
     return event;
   }
 
+  /**
+   * Boletos ATRASADOS (ao vivo) do paciente — mesma regra do Financeiro: em aberto
+   * (PENDING/OVERDUE) + NÃO recebido em espécie + vencido (due_date < agora).
+   * Cancelado (DELETED/CANCELLED/REFUNDED) e pago (RECEIVED/CONFIRMED) já ficam de
+   * fora por não estarem em OPEN. Cobre os 3 vínculos charge↔paciente: patient_id
+   * direto, via treatment_plan, e a cadeia do cliente do gateway (boleto importado
+   * sem patient_id/plano). Usado pelo bloqueio de agendamento de devedor.
+   */
+  private async getPatientOverdue(
+    patientId: string,
+    tenantId?: string | null,
+  ): Promise<{ count: number; total: number }> {
+    if (!tenantId) return { count: 0, total: 0 };
+    const or: any[] = [
+      { patient_id: patientId },
+      { treatment_plan: { patient_id: patientId } },
+    ];
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { lead_id: true },
+    });
+    if (patient?.lead_id) {
+      const custs = await this.prisma.paymentGatewayCustomer.findMany({
+        where: { lead_id: patient.lead_id, tenant_id: tenantId },
+        select: { external_id: true },
+      });
+      const extIds = custs.map((c) => c.external_id).filter(Boolean) as string[];
+      if (extIds.length) or.push({ customer_external_id: { in: extIds } });
+    }
+    const rows = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        tenant_id: tenantId,
+        status: { in: ['PENDING', 'OVERDUE'] },
+        received_in_cash: false,
+        due_date: { lt: new Date() },
+        OR: or,
+      },
+      select: { amount: true },
+    });
+    const total = rows.reduce((s, r) => s + Number(r.amount), 0);
+    return { count: rows.length, total };
+  }
+
   async create(data: {
     type: string;
     title: string;
@@ -226,6 +269,10 @@ export class CalendarService {
     recurrence_rule?: string;
     recurrence_end?: string;
     recurrence_days?: number[];
+    // Bloqueio de agendamento de devedor: liberação do admin (com motivo).
+    override_overdue_block?: boolean;
+    override_overdue_reason?: string;
+    actor_roles?: string[]; // papéis do usuário (injetado pelo controller, não do DTO)
   }) {
     if (!EVENT_TYPES.includes(data.type as any)) {
       throw new BadRequestException(`Tipo invalido: ${data.type}. Use: ${EVENT_TYPES.join(', ')}`);
@@ -273,6 +320,34 @@ export class CalendarService {
       }
     }
 
+    // Bloqueio de agendamento de DEVEDOR (opt-in por clínica, default OFF). Regra
+    // AO VIVO: conta boletos abertos vencidos do paciente — pagar/cancelar destrava
+    // sozinho (nada persistido). Bloqueia TODOS os tipos. Admin pode LIBERAR aquele
+    // agendamento com MOTIVO, que fica registrado no próprio evento (auditoria).
+    let overdueOverride: { by: string; reason: string } | null = null;
+    if (resolvedPatientId && data.tenant_id) {
+      const flag = await this.prisma.globalSetting.findUnique({
+        where: { key: `BLOCK_SCHED_ON_OVERDUE_${data.tenant_id}` },
+      });
+      if (flag?.value === 'true') {
+        const overdue = await this.getPatientOverdue(resolvedPatientId, data.tenant_id);
+        if (overdue.count > 0) {
+          const isAdmin = (data.actor_roles || []).some((r) => r === 'ADMIN' || r === 'SUPER_ADMIN');
+          const reason = (data.override_overdue_reason || '').trim();
+          if (data.override_overdue_block && isAdmin && reason) {
+            overdueOverride = { by: data.created_by_id, reason };
+          } else {
+            const brl = overdue.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+            throw new BadRequestException({
+              code: 'SCHEDULING_BLOCKED_OVERDUE',
+              message: `Paciente com ${overdue.count} boleto(s) em atraso (${brl}). Regularize no Financeiro ou peça a um administrador para liberar.`,
+              overdue: { count: overdue.count, total: overdue.total },
+            });
+          }
+        }
+      }
+    }
+
     const event = await this.prisma.calendarEvent.create({
       data: {
         type: data.type,
@@ -292,6 +367,10 @@ export class CalendarService {
         created_by_id: data.created_by_id,
         appointment_type_id: data.appointment_type_id,
         tenant_id: data.tenant_id,
+        // Auditoria da liberação de devedor (só preenchido quando um admin libera).
+        overdue_override_by_user_id: overdueOverride?.by ?? null,
+        overdue_override_at: overdueOverride ? new Date() : null,
+        overdue_override_reason: overdueOverride?.reason ?? null,
         recurrence_rule: data.recurrence_rule,
         recurrence_end: data.recurrence_end ? new Date(data.recurrence_end) : null,
         recurrence_days: data.recurrence_days ?? [],

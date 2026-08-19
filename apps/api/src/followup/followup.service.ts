@@ -105,7 +105,7 @@ export class FollowupService {
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
-      bolAtrasadoSetting,
+      bolAtrasadoSetting, blockSchedSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -157,6 +157,8 @@ export class FollowupService {
       // migrada do Asaas) e re-toca 1×/semana. Default OFF (opt-in). O worker lê a
       // MESMA key (BOLETO_ATRASADO_${tenant}).
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASADO_${tenantId}` } }),
+      // POLÍTICA — bloquear agendamento de paciente com boleto atrasado. Default OFF (opt-in).
+      this.prisma.globalSetting.findUnique({ where: { key: `BLOCK_SCHED_ON_OVERDUE_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -338,6 +340,8 @@ export class FollowupService {
       // motores já rodavam pra todo mundo; o card permite desligar).
       recall_preventivo: { enabled: ((recallSetting as any)?.value ?? 'true') !== 'false' },
       task_alerts: { enabled: ((taskAlertsSetting as any)?.value ?? 'true') !== 'false' },
+      // POLÍTICA — bloquear agendamento de devedor. Default OFF (opt-in).
+      block_sched_on_overdue: { enabled: blockSchedSetting?.value === 'true' },
       // Agenda do Comercial — 6 toggles (default OFF): versão dos disparos de
       // agendamento pro LEAD não-cliente, pelo chip COMERCIAL.
       ...Object.fromEntries(
@@ -813,6 +817,14 @@ export class FollowupService {
       // Fase 3 — alertas de tarefa à equipe (task-alerts-cron; default ON no cron).
       case 'task_alerts': {
         const key = `TASK_ALERTS_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // POLÍTICA (não é disparo) — bloquear agendamento de paciente com boleto
+      // atrasado. O CalendarService.create lê esta key (default OFF = opt-in).
+      case 'block_sched_on_overdue': {
+        const key = `BLOCK_SCHED_ON_OVERDUE_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

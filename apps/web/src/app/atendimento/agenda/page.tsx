@@ -1766,7 +1766,34 @@ export default function AgendaPage() {
         message: e?.message,
         full: e,
       });
-      showError(e?.response?.data?.message || e?.message || 'Erro ao salvar. Tente novamente');
+      const data = e?.response?.data;
+      // Bloqueio de agendamento de DEVEDOR. Admin pode LIBERAR aquele agendamento
+      // com um motivo (reenvia com override); recepção é barrada com o aviso.
+      if (data?.code === 'SCHEDULING_BLOCKED_OVERDUE' && !editingEvent && !payload.override_overdue_block) {
+        if (role.isAdmin) {
+          const reason = window.prompt(
+            `${data.message}\n\nVocê é ADMIN e pode LIBERAR este agendamento mesmo assim.\n` +
+            `Digite o MOTIVO da liberação (fica registrado):`,
+            '',
+          );
+          if (reason && reason.trim()) {
+            payload.override_overdue_block = true;
+            payload.override_overdue_reason = reason.trim();
+            try {
+              await api.post('/calendar/events', payload, { timeout: 30000 });
+              showSuccess('Agendado (liberado apesar da dívida)');
+              setShowModal(false);
+              if (rangeRef.current) fetchEvents(rangeRef.current.start, rangeRef.current.end);
+            } catch (e2: any) {
+              showError(e2?.response?.data?.message || 'Erro ao liberar/salvar.');
+            }
+          }
+          return;
+        }
+        showError(`${data.message}`);
+        return;
+      }
+      showError(data?.message || e?.message || 'Erro ao salvar. Tente novamente');
     } finally {
       setSavingEvent(false);
     }

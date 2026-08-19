@@ -18,6 +18,7 @@ import { useEffect, useState } from 'react';
 import { Calendar, X, Loader2, User, Stethoscope, MapPin, FileText, Clock } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
+import { useRole } from '@/lib/useRole';
 
 interface Specialist {
   id: string;
@@ -162,6 +163,7 @@ export function AgendaPanel({
     }
   };
 
+  const role = useRole();
   const handleSubmit = async () => {
     if (!dentistId) {
       showError('Selecione um dentista');
@@ -172,6 +174,7 @@ export function AgendaPanel({
       return;
     }
     setSending(true);
+    let builtPayload: any = null;
     try {
       // 1. Monta start_at ISO
       const startISO = new Date(`${date}T${time}:00`).toISOString();
@@ -201,6 +204,7 @@ export function AgendaPanel({
       if (reminderDefaults.length > 0) {
         payload.reminders = reminderDefaults;
       }
+      builtPayload = payload;
 
       await api.post('/calendar/events', payload);
 
@@ -230,7 +234,32 @@ export function AgendaPanel({
       showSuccess('Agendamento criado e cliente notificado!');
       onClose();
     } catch (err: any) {
-      const msg = err?.response?.data?.message || 'Erro ao criar agendamento';
+      const data = err?.response?.data;
+      // Bloqueio de agendamento de DEVEDOR — admin pode LIBERAR com motivo.
+      if (data?.code === 'SCHEDULING_BLOCKED_OVERDUE' && builtPayload && !builtPayload.override_overdue_block) {
+        if (role.isAdmin) {
+          const reason = window.prompt(
+            `${data.message}\n\nVocê é ADMIN e pode LIBERAR este agendamento mesmo assim.\n` +
+            `Digite o MOTIVO da liberação (fica registrado):`,
+            '',
+          );
+          if (reason && reason.trim()) {
+            builtPayload.override_overdue_block = true;
+            builtPayload.override_overdue_reason = reason.trim();
+            try {
+              await api.post('/calendar/events', builtPayload);
+              showSuccess('Agendado (liberado apesar da dívida)');
+              onClose();
+            } catch (e2: any) {
+              showError(e2?.response?.data?.message || 'Erro ao liberar/salvar.');
+            }
+          }
+          return;
+        }
+        showError(typeof data.message === 'string' ? data.message : 'Paciente com boleto em atraso.');
+        return;
+      }
+      const msg = data?.message || 'Erro ao criar agendamento';
       showError(typeof msg === 'string' ? msg : (Array.isArray(msg) ? msg.join(', ') : 'Erro ao criar agendamento'));
     } finally {
       setSending(false);

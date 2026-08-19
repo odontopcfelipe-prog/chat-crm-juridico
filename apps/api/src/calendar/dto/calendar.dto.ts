@@ -96,6 +96,14 @@ export class CreateEventDto {
   @IsArray()
   @IsNumber({}, { each: true })
   recurrence_days?: number[];
+
+  // Bloqueio de agendamento de devedor — liberação do admin (com motivo). Precisam
+  // existir no DTO senão o ValidationPipe (forbidNonWhitelisted) rejeita com 400.
+  @IsOptional() @IsBoolean()
+  override_overdue_block?: boolean;
+
+  @IsOptional() @IsString()
+  override_overdue_reason?: string;
 }
 
 export class UpdateEventDto {

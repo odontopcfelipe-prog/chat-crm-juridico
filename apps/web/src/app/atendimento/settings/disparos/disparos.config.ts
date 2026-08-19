@@ -87,7 +87,9 @@ export type OperacionalKey =
   // Resumo diário do dia (entradas/saídas/vendas/negociações) a um número configurado
   | 'daily_summary'
   // Notificação de venda feita (a cada venda) a um número configurado
-  | 'venda_feita';
+  | 'venda_feita'
+  // POLÍTICA (não é disparo) — bloquear agendamento de paciente com boleto atrasado.
+  | 'block_sched_on_overdue';
 
 export interface DisparoItem {
   id: string;
@@ -223,6 +225,12 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atrasado', nome: 'Cobrar atrasados · carteira vencida (recorrente)', categoria: 'financeiro',
     gatilho: 'Qualquer boleto vencido (inclui a carteira antiga do Asaas) · re-toque semanal · agrupado por paciente', canal: 'WhatsApp', tags: ['Template', 'Recorrente'],
     editor: 'cobranca', operacionalKey: 'boleto_atrasado' },
+  // POLÍTICA (não é mensagem): barra criar agendamento se o paciente tem boleto
+  // atrasado. Verificação AO VIVO (pagou/cancelou → destrava sozinho); admin libera
+  // aquele agendamento com motivo. Só-toggle (sem editor de texto nem métrica).
+  { id: 'block_sched_on_overdue', nome: 'Bloquear agendamento de devedor', categoria: 'financeiro',
+    gatilho: 'Barra marcar horário de quem tem boleto atrasado · admin libera com motivo · destrava ao pagar/cancelar', canal: 'Painel', tags: ['Política'],
+    editor: null, operacionalKey: 'block_sched_on_overdue' },
   { id: 'pre_consulta', nome: 'Orientações de pré-consulta', categoria: 'agendamento',
     gatilho: '1 dia antes · 1ª consulta', canal: 'WhatsApp', tags: [], editor: null, emBreve: true },
   { id: 'reagendamento_falta', nome: 'Reagendamento após falta', categoria: 'agendamento',

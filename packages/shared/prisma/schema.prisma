@@ -1129,6 +1129,13 @@ model CalendarEvent {
   validated_by         User?     @relation("EventValidator", fields: [validated_by_user_id], references: [id], onDelete: SetNull)
   validation_notes     String?
 
+  // Onda 18.x — liberação do bloqueio de agendamento de DEVEDOR: admin agendou
+  // APESAR de boleto atrasado. Rastro quem/quando/motivo (auditoria). String pura
+  // (sem relation, pra não exigir back-relation no User).
+  overdue_override_by_user_id String?
+  overdue_override_at         DateTime?
+  overdue_override_reason     String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
