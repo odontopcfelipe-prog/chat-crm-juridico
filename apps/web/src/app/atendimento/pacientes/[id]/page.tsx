@@ -57,6 +57,7 @@ interface Patient {
   gender: string | null;
   marital_status: string | null;
   avatar_url: string | null;
+  lead_id?: string | null;
   lead?: { profile_picture_url: string | null } | null;
   phone: string | null;
   email: string | null;
@@ -223,6 +224,30 @@ function PacienteFichaInner() {
   };
 
   useEffect(() => { load(); }, [params?.id]);
+
+  // Onda 18.x — "Falar no Financeiro": abre a conversa DESTE paciente no chip do
+  // FINANCEIRO (mundo isolado). O backend acha/cria a conversa do inbox
+  // purpose=FINANCEIRO (nunca cai no atendimento geral/Sophia nem outro número);
+  // depois abre a inbox já no modo Financeiro na conversa certa.
+  const abrirChatFinanceiro = async () => {
+    if (!patient?.lead_id) { showError('Paciente sem contato vinculado ao WhatsApp.'); return; }
+    try {
+      const { data } = await api.get<{ id: string | null }>(
+        `/payment-gateway/leads/${patient.lead_id}/financeiro-conversation`,
+      );
+      if (!data?.id) {
+        showError('Esta clínica não tem número do Financeiro configurado.');
+        return;
+      }
+      try {
+        localStorage.setItem('atendimento_tab', 'financial');
+        sessionStorage.setItem('crm_open_conv', data.id);
+      } catch { /* storage indisponível */ }
+      router.push('/atendimento');
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível abrir o chat do Financeiro.');
+    }
+  };
 
   const handleSendPortalLink = async () => {
     if (!patient) return;
@@ -492,6 +517,18 @@ function PacienteFichaInner() {
               title="Agendar consulta para este paciente"
             >
               <Calendar size={14} /> Agendar
+            </button>
+          )}
+          {/* Onda 18.x — "Falar no Financeiro": só na aba Financeiro, abre a conversa
+              do paciente no chip do FINANCEIRO (mundo isolado). Verde de WhatsApp. */}
+          {tab === 'financial' && canFinancial && patient.lead_id && patient.status !== 'ARCHIVED' && (
+            <button
+              type="button"
+              onClick={abrirChatFinanceiro}
+              className="text-xs text-white bg-emerald-600 hover:bg-emerald-700 px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm"
+              title="Abrir a conversa deste paciente no WhatsApp do Financeiro"
+            >
+              <MessageCircle size={14} /> Falar no Financeiro
             </button>
           )}
           {/* Onda 3.30 — "Enviar portal" removido do header pra limpar a

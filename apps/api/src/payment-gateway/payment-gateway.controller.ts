@@ -454,6 +454,17 @@ export class PaymentGatewayController {
     return this.service.getChargeDetails(honorarioPaymentId, tenantId);
   }
 
+  /** Conversa do FINANCEIRO do paciente (acha/cria) — pro botão "Falar no
+   *  Financeiro" da ficha. Tenant-scoped + anti-IDOR no service. Retorna
+   *  { id: null } se a clínica não tem chip Financeiro (front esconde/avisa). */
+  @Get('leads/:leadId/financeiro-conversation')
+  async getFinanceiroConversation(
+    @Param('leadId') leadId: string,
+    @Req() req: any,
+  ) {
+    return this.service.getFinanceiroConversationForLead(leadId, req.user?.tenant_id);
+  }
+
   // ─── POST ACTIONS ─────────────────────────────────────────
 
   @Post('charges')

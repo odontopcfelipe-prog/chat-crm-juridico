@@ -2382,6 +2382,27 @@ export class PaymentGatewayService {
     }
   }
 
+  /**
+   * Onda 18.x — expõe a conversa do FINANCEIRO do paciente (acha/cria) pro botão
+   * "Falar no Financeiro" da ficha. Resolve o telefone pelo próprio lead. Retorna
+   * { id: null } se a clínica não tem chip Financeiro, ou o lead não existe / é de
+   * outra clínica (anti-IDOR) — aí o front esconde/avisa. NUNCA abre conversa de
+   * outra instância (Comercial/Clínica): o resolver filtra por inbox purpose=FINANCEIRO.
+   */
+  async getFinanceiroConversationForLead(
+    leadId: string,
+    tenantId: string | null | undefined,
+  ): Promise<{ id: string | null }> {
+    if (!leadId || !tenantId) return { id: null };
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: leadId },
+      select: { phone: true, tenant_id: true },
+    });
+    if (!lead || (lead.tenant_id && lead.tenant_id !== tenantId)) return { id: null };
+    const conv = await this.findOrCreateFinanceiroConversation(leadId, tenantId, lead.phone);
+    return { id: conv?.id ?? null };
+  }
+
   private async notifyClientPaymentReceived(paymentData: any, charge: any) {
     const customerId = paymentData.customer;
     if (!customerId) return;

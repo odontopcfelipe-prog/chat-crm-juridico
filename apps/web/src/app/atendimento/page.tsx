@@ -125,6 +125,10 @@ export default function Dashboard() {
   // conversas do chip FINANCEIRO (cobrança/lembrete), isoladas de Leads/Clientes.
   const [financialMode, setFinancialMode] = useState(false);
   const financialModeRef = useRef(false);
+  // Onda 18.x — protege a seleção de um DEEP-LINK pro Financeiro do reset que a
+  // restauração da aba dispara no mount (senão o chat abriria vazio). Ver os dois
+  // effects abaixo (restore da aba + deseleção por troca de aba).
+  const deepLinkPendingRef = useRef(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Onda 14.55 — modo split: 1 = chat unico (default), 4 = 2x2 grid, 6 = 3x2 grid.
   // Quando > 1, o main panel renderiza SplitGrid em vez do chat unico.
@@ -1154,8 +1158,11 @@ export default function Dashboard() {
   }, [fetchConversations]);
 
   // Ao trocar de aba (clientMode/financialMode): deseleciona conversa ativa
-  // para evitar contexto errado
+  // para evitar contexto errado. EXCEÇÃO: um deep-link pro Financeiro (botão "Falar
+  // no Financeiro") pré-seleciona a conversa no mount, e a restauração da aba dispara
+  // este reset UMA vez — pulamos essa única vez pra não abrir o chat vazio.
   useEffect(() => {
+    if (deepLinkPendingRef.current) { deepLinkPendingRef.current = false; return; }
     setSelectedId(null);
   }, [clientMode, financialMode]);
 
@@ -1172,6 +1179,12 @@ export default function Dashboard() {
   useEffect(() => {
     const pendingConvId = sessionStorage.getItem('crm_open_conv');
     if (pendingConvId) {
+      // Se o deep-link é pro Financeiro (aba restaurada p/ 'financial'), protege a
+      // seleção do reset disparado pela troca de aba no mount. Só nesse caso — os
+      // deep-links normais (Leads/Clientes) não flipam a aba, então não precisam.
+      try {
+        if (localStorage.getItem('atendimento_tab') === 'financial') deepLinkPendingRef.current = true;
+      } catch { /* localStorage indisponível */ }
       setSelectedId(pendingConvId);
       sessionStorage.removeItem('crm_open_conv');
     }
