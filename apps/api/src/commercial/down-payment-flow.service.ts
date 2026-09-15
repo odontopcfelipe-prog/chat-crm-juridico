@@ -498,21 +498,18 @@ export class DownPaymentFlowService {
       return;
     }
 
-    const tenantId = plan.patient.tenant_id;
-
-    // createFinancingCharges EXIGE plan.status === 'ACTIVE'. O auto-aceite tardio
-    // (sinal pago em handleChargePaid) ja ativa; mas quando a entrada foi paga por
-    // outro caminho o plano pode ter ficado PENDING_SIGNATURE. Ativa aqui, como o
-    // fluxo upfront faz, antes de gerar as parcelas.
-    if (plan.status !== 'ACTIVE') {
-      await this.prisma.treatmentPlan.update({
-        where: { id: planId },
-        data: { status: 'ACTIVE' },
-      });
-      this.logger.log(
-        `[DOWN-PMT] Plan ${planId} ativado (era ${plan.status}) antes de gerar as parcelas.`,
-      );
+    // NUNCA ressuscita plano ENCERRADO. Se o negocio caiu e o admin cancelou (ou o
+    // plano ja foi concluido) e a entrada for paga assim mesmo (ou chega webhook
+    // atrasado), NAO gera as parcelas — geraria boletos REAIS de um plano morto.
+    // (Cancelar plano nao cancela o boleto da entrada no Asaas, entao esse cenario
+    // e concreto.) A ativacao pra ACTIVE fica DENTRO do bloco de geracao, so quando
+    // realmente vamos gerar.
+    if (plan.status === 'CANCELLED' || plan.status === 'COMPLETED') {
+      this.logger.warn(`[DOWN-PMT] Plan ${planId} esta ${plan.status} — entrada paga NAO gera parcelas.`);
+      return;
     }
+
+    const tenantId = plan.patient.tenant_id;
 
     // Info da notificacao de "entrada paga" — soma o que foi pago de SINAL+ENTRADA
     // e escolhe a forma pra o comprovante. Best-effort: se algo falhar, notifica sem.
@@ -544,21 +541,36 @@ export class DownPaymentFlowService {
       plan.installment_value != null && Number(plan.installment_value) > 0;
 
     if (hasParams) {
+      // CLAIM ATOMICO contra corrida (mesmo padrao do confirmation_notified_at /
+      // advisory lock ja usados no repo). O Asaas manda CONFIRMED+RECEIVED quase
+      // juntos (PIX), o reconcile pode sobrepor o webhook ao vivo, e pode haver 2
+      // workers — sem isto, duas execucoes leem installments_generated_at=null e
+      // geram o parcelado 2x (boletos REAIS duplicados; a dedup-por-KIND interna do
+      // createFinancingCharges tambem e check-then-act, nao segura). So UMA vence.
+      const claim = await this.prisma.treatmentPlan.updateMany({
+        where: { id: planId, installments_generated_at: null },
+        data: { installments_generated_at: new Date() },
+      });
+      if (claim.count !== 1) {
+        this.logger.warn(`[DOWN-PMT] Plan ${planId} — geracao ja reivindicada por outra execucao (corrida), skip.`);
+        return;
+      }
+
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const { TreatmentPlanBillingService } = require('./treatment-plan-billing.service');
       const billingService: any = this.moduleRef.get(TreatmentPlanBillingService, { strict: false });
 
       try {
+        // Ativa (se necessario) SO agora que vencemos o claim e vamos gerar de fato.
+        // CANCELLED/COMPLETED ja foram barrados no inicio; aqui e AWAITING/PENDING/PAUSED.
+        if (plan.status !== 'ACTIVE') {
+          await this.prisma.treatmentPlan.update({ where: { id: planId }, data: { status: 'ACTIVE' } });
+        }
         // createFinancingCharges (idempotente por KIND) gera SO as parcelas
-        // (INSTALLMENT). LE os valores persistidos, NUNCA recalcula. Faz blindagem
-        // de arredondamento/minimo internamente.
-        //
-        // downPaymentValue: 0 de PROPOSITO — a entrada JA foi emitida+paga (o
-        // trigger so dispara quando todas SINAL/ENTRADA estao pagas). No caso mais
-        // comum a entrada inteira virou UMA charge SINAL (parts:['SIGNAL'],
-        // restValue:0) e NAO existe charge ENTRADA; se passassemos o valor da
-        // entrada aqui, createFinancingCharges (entradaBoletoValue = down - sinal,
-        // com sinal=0) criaria um boleto de ENTRADA DUPLICADO. Zerando, ele pula
+        // (INSTALLMENT). LE os valores persistidos, NUNCA recalcula. Blindagem de
+        // arredondamento/minimo interna.
+        // downPaymentValue: 0 de PROPOSITO — a entrada JA foi emitida+paga; passar o
+        // valor da entrada criaria um boleto de ENTRADA DUPLICADO. Zerando, ele pula
         // sinal (hasSignal) e entrada (valor 0) e gera exclusivamente o parcelado.
         await billingService.createFinancingCharges(planId, tenantId, {
           downPaymentValue: 0,
@@ -568,37 +580,34 @@ export class DownPaymentFlowService {
             ? plan.quote.chosen_installments_start_date.toISOString().slice(0, 10)
             : undefined,
         });
+        // Sucesso: aprova (o carimbo de idempotencia ja foi feito pelo claim acima).
+        await this.prisma.treatmentPlan.update({
+          where: { id: planId },
+          data: { proposal_status: 'APPROVED' },
+        });
+        this.logger.log(
+          `[DOWN-PMT] Plan ${planId} APROVADO — ${plan.installment_count}x de ` +
+          `R$ ${Number(plan.installment_value)} geradas.`,
+        );
+        // ClickSign (background, nao bloqueia) — so quando o timing e AFTER.
+        if (plan.clicksign_send_timing === 'AFTER' && quotesService?.fireContractForPlan) {
+          try {
+            quotesService.fireContractForPlan(planId, tenantId);
+          } catch (e: any) {
+            this.logger.warn(`[DOWN-PMT] fireContractForPlan falhou (plan ${planId}): ${e?.message}`);
+          }
+        }
       } catch (err: any) {
-        // Falhou a geracao -> NAO carimba installments_generated_at, pra permitir
-        // retry (webhook re-dispara). Sem isto, um erro transitorio travava o plano
-        // pra sempre (bug original).
+        // Falhou a geracao -> LIMPA o claim (installments_generated_at:null) pra
+        // permitir retry no proximo webhook. Sem isto, o claim travaria o plano.
+        await this.prisma.treatmentPlan
+          .update({ where: { id: planId }, data: { installments_generated_at: null } })
+          .catch(() => undefined);
         this.logger.error(
           `[DOWN-PMT] Plan ${planId}: falha ao gerar parcelas: ${err?.message || err}. ` +
-          `NAO carimbei installments_generated_at (retry possivel no proximo webhook).`,
+          `Claim limpo (retry possivel no proximo webhook).`,
         );
         return;
-      }
-
-      // So APOS sucesso: carimba idempotencia + aprova a proposta.
-      await this.prisma.treatmentPlan.update({
-        where: { id: planId },
-        data: {
-          installments_generated_at: new Date(),
-          proposal_status: 'APPROVED',
-        },
-      });
-      this.logger.log(
-        `[DOWN-PMT] Plan ${planId} APROVADO — ${plan.installment_count}x de ` +
-        `R$ ${Number(plan.installment_value)} geradas.`,
-      );
-
-      // ClickSign (background, nao bloqueia) — so quando o timing e AFTER.
-      if (plan.clicksign_send_timing === 'AFTER' && quotesService?.fireContractForPlan) {
-        try {
-          quotesService.fireContractForPlan(planId, tenantId);
-        } catch (e: any) {
-          this.logger.warn(`[DOWN-PMT] fireContractForPlan falhou (plan ${planId}): ${e?.message}`);
-        }
       }
     } else {
       // Plano legado/edge sem params -> NAO gera nada, NAO carimba (fallback seguro:
