@@ -1179,12 +1179,19 @@ export default function Dashboard() {
   useEffect(() => {
     const pendingConvId = sessionStorage.getItem('crm_open_conv');
     if (pendingConvId) {
-      // Se o deep-link é pro Financeiro (aba restaurada p/ 'financial'), protege a
-      // seleção do reset disparado pela troca de aba no mount. Só nesse caso — os
-      // deep-links normais (Leads/Clientes) não flipam a aba, então não precisam.
-      try {
-        if (localStorage.getItem('atendimento_tab') === 'financial') deepLinkPendingRef.current = true;
-      } catch { /* localStorage indisponível */ }
+      // Deep-link pro FINANCEIRO (botão "Falar no Financeiro"): força o modo
+      // Financeiro SÓ desta vez (one-shot em sessionStorage), SEM depender/gravar a
+      // preferência DURÁVEL de aba. Protege a seleção do reset que a troca de aba
+      // dispara no mount (senão o chat abriria vazio). Deep-links normais
+      // (Leads/Clientes) não têm a flag → comportamento intacto.
+      let wantFinancial = false;
+      try { wantFinancial = sessionStorage.getItem('crm_open_conv_financial') === '1'; } catch { /* storage indisponível */ }
+      if (wantFinancial) {
+        deepLinkPendingRef.current = true;
+        setClientMode(false);
+        setFinancialMode(true);
+        try { sessionStorage.removeItem('crm_open_conv_financial'); } catch { /* storage indisponível */ }
+      }
       setSelectedId(pendingConvId);
       sessionStorage.removeItem('crm_open_conv');
     }

@@ -231,6 +231,7 @@ function PacienteFichaInner() {
   // depois abre a inbox já no modo Financeiro na conversa certa.
   const abrirChatFinanceiro = async () => {
     if (!patient?.lead_id) { showError('Paciente sem contato vinculado ao WhatsApp.'); return; }
+    if (!patient?.phone) { showError('Paciente sem telefone — não dá pra abrir o chat do Financeiro.'); return; }
     try {
       const { data } = await api.get<{ id: string | null }>(
         `/payment-gateway/leads/${patient.lead_id}/financeiro-conversation`,
@@ -240,8 +241,11 @@ function PacienteFichaInner() {
         return;
       }
       try {
-        localStorage.setItem('atendimento_tab', 'financial');
+        // One-shot: abre a inbox no modo Financeiro SÓ desta vez, via um sinal de
+        // sessão — NÃO grava a preferência DURÁVEL de aba (atendimento_tab), pra não
+        // sequestrar a aba padrão do usuário nas próximas visitas.
         sessionStorage.setItem('crm_open_conv', data.id);
+        sessionStorage.setItem('crm_open_conv_financial', '1');
       } catch { /* storage indisponível */ }
       router.push('/atendimento');
     } catch (e: any) {

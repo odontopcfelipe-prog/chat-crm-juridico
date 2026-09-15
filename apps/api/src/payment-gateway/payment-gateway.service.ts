@@ -2398,7 +2398,12 @@ export class PaymentGatewayService {
       where: { id: leadId },
       select: { phone: true, tenant_id: true },
     });
-    if (!lead || (lead.tenant_id && lead.tenant_id !== tenantId)) return { id: null };
+    // Anti-IDOR: só resolve lead da PRÓPRIA clínica. tenant_id NULL (lead órfão)
+    // também é REJEITADO — sem isolamento a jusante aqui, null não pode passar.
+    if (!lead || lead.tenant_id !== tenantId) return { id: null };
+    // Sem telefone válido não dá pra abrir/enviar — evita conversa-casca sem JID
+    // (não-entrega silenciosa depois). O front também avisa antes de chamar.
+    if (!(lead.phone || '').replace(/\D/g, '')) return { id: null };
     const conv = await this.findOrCreateFinanceiroConversation(leadId, tenantId, lead.phone);
     return { id: conv?.id ?? null };
   }

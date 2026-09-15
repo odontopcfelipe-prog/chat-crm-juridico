@@ -20,6 +20,7 @@ import { BoletoDeliveryService } from './boleto-delivery.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { Public } from '../auth/decorators/public.decorator';
 import { Roles } from '../auth/decorators/roles.decorator';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 
 @Controller('payment-gateway')
 export class PaymentGatewayController {
@@ -457,6 +458,7 @@ export class PaymentGatewayController {
   /** Conversa do FINANCEIRO do paciente (acha/cria) — pro botão "Falar no
    *  Financeiro" da ficha. Tenant-scoped + anti-IDOR no service. Retorna
    *  { id: null } se a clínica não tem chip Financeiro (front esconde/avisa). */
+  @RequiresPermission('view_financial')
   @Get('leads/:leadId/financeiro-conversation')
   async getFinanceiroConversation(
     @Param('leadId') leadId: string,
