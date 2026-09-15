@@ -44,6 +44,7 @@ interface PatientFull {
   primary_dentist_id?: string | null;
   referred_by?: string | null;
   referred_by_id?: string | null;
+  referred_by_patient?: { id: string; name: string | null; phone: string } | null;
   notes?: string | null;
   // Programa de Afiliado — paciente que indica e ganha comissao/beneficio
   is_affiliate?: boolean | null;
@@ -51,6 +52,9 @@ interface PatientFull {
   affiliate_commission_pct?: number | null;
   affiliate_notes?: string | null;
 }
+
+/** Item do picker de indicador (paciente que indicou). */
+type ReferrerLite = { id: string; name: string | null; phone: string };
 
 interface Props {
   patient: PatientFull;
@@ -130,23 +134,46 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   const [affiliateNotes, setAffiliateNotes] = useState(patient.affiliate_notes || '');
   const AFFILIATE_COMMISSION_PCT = 3;
 
-  // Picker de paciente indicador (lazy-loaded)
-  const [patientsList, setPatientsList] = useState<Array<{ id: string; name: string | null; phone: string }>>([]);
+  // Picker de paciente indicador — busca NO SERVIDOR (debounce 300ms).
+  // Antes carregava so os 100 primeiros pacientes e filtrava na memoria: quem
+  // estava fora dessa fatia simplesmente "nao existia" no buscador (ex.: o
+  // afiliado nao aparecia ao digitar o nome dele).
+  const [filteredReferrers, setFilteredReferrers] = useState<ReferrerLite[]>([]);
+  const [referrerLoading, setReferrerLoading] = useState(false);
   const [referredSearch, setReferredSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [selectedReferrer, setSelectedReferrer] = useState<ReferrerLite | null>(
+    patient.referred_by_patient
+      ? {
+          id: patient.referred_by_patient.id,
+          name: patient.referred_by_patient.name,
+          phone: patient.referred_by_patient.phone,
+        }
+      : null,
+  );
   useEffect(() => {
-    if (!pickerOpen || patientsList.length > 0) return;
-    api.get('/patients?limit=100&status=ACTIVE')
-      .then((r) => setPatientsList((r.data?.data || []).map((p: any) => ({ id: p.id, name: p.name, phone: p.phone }))))
-      .catch(() => {});
-  }, [pickerOpen, patientsList.length]);
-  const selectedReferrer = patientsList.find((p) => p.id === referredById);
-  const filteredReferrers = referredSearch.trim()
-    ? patientsList.filter((p) =>
-        p.name?.toLowerCase().includes(referredSearch.toLowerCase()) ||
-        p.phone?.includes(referredSearch)
-      ).slice(0, 10)
-    : [];
+    const term = referredSearch.trim();
+    if (term.length < 2) {
+      setFilteredReferrers([]);
+      setReferrerLoading(false);
+      return;
+    }
+    setReferrerLoading(true);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api
+        .get(`/patients?limit=10&status=ACTIVE&search=${encodeURIComponent(term)}`)
+        .then((r) => {
+          if (cancelled) return;
+          setFilteredReferrers(
+            (r.data?.data || []).map((p: any) => ({ id: p.id, name: p.name, phone: p.phone })),
+          );
+        })
+        .catch(() => { if (!cancelled) setFilteredReferrers([]); })
+        .finally(() => { if (!cancelled) setReferrerLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [referredSearch]);
 
   // ─── ViaCEP autocomplete ───────────────────────────────────────
   // Quando o operador digita 8 dígitos no CEP, dispara fetch pra ViaCEP
@@ -445,7 +472,7 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                   </div>
                   <button
                     type="button"
-                    onClick={() => { setReferredById(''); setReferredSearch(''); }}
+                    onClick={() => { setReferredById(''); setSelectedReferrer(null); setReferredSearch(''); }}
                     className="text-xs text-muted-foreground hover:text-foreground"
                   >
                     Trocar
@@ -460,16 +487,21 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
                     placeholder="Buscar paciente por nome ou telefone..."
                     className={inputCls}
                   />
-                  {referredSearch && (
+                  {referredSearch.trim().length > 0 && referredSearch.trim().length < 2 && (
+                    <div className="mt-1 p-2 text-xs text-muted-foreground">Digite pelo menos 2 letras...</div>
+                  )}
+                  {referredSearch.trim().length >= 2 && (
                     <div className="mt-1 max-h-32 overflow-y-auto border border-border rounded-lg bg-background">
-                      {filteredReferrers.length === 0 ? (
+                      {referrerLoading ? (
+                        <div className="p-2 text-xs text-muted-foreground">Buscando...</div>
+                      ) : filteredReferrers.length === 0 ? (
                         <div className="p-2 text-xs text-muted-foreground">Nenhum encontrado</div>
                       ) : (
                         filteredReferrers.map((p) => (
                           <button
                             type="button"
                             key={p.id}
-                            onClick={() => { setReferredById(p.id); setReferredSearch(''); }}
+                            onClick={() => { setReferredById(p.id); setSelectedReferrer(p); setReferredSearch(''); }}
                             className="w-full px-3 py-2 text-left text-sm hover:bg-accent border-b border-border last:border-0"
                           >
                             <div className="font-medium">{p.name || 'Sem nome'}</div>
