@@ -3879,6 +3879,24 @@ function PropostaPainel({
   // Onda 14.28 (resumo "voce esta oferecendo" foi removido). Cada card de
   // pagamento (PIX/Cartao/Boleto) calcula seu proprio valor internamente.
 
+  // Onda 14.60 — MODELO DEFERIDO (entrada primeiro -> parcelas depois): quando o
+  // operador emite SO a entrada (atalhos de espécie/PIX/boleto abaixo) sem
+  // aplicar o financiamento na hora, as parcelas sao geradas pelo TRIGGER do
+  // backend quando a entrada e paga. Pra o trigger nao ter que recalcular
+  // (arriscando centavos), mandamos os valores EXATOS que a tela mostra do
+  // parcelado boleto atualmente selecionado. Só se aplica a variant=parcelado
+  // (o parcelado real do fluxo de entrada); PIX/boleto à vista nao tem parcelas.
+  const deferredInstallmentParams: { installment_count: number; installment_value: number } | null = (() => {
+    const round2 = (n: number) => Math.round(n * 100) / 100;
+    const activeOpt = [...options.avista, ...options.cartao, ...options.parcelado]
+      .find((o) => o.key === activePaymentKey);
+    if (!activeOpt || activeOpt.variant !== 'parcelado' || activeOpt.isAVistaHighlight) return null;
+    const calc = applyPaymentOption(total, activeOpt, customDownPayment);
+    const iv = round2(calc.installmentValue);
+    if (!(activeOpt.installments >= 1) || !(iv > 0)) return null;
+    return { installment_count: activeOpt.installments, installment_value: iv };
+  })();
+
   // Onda 11.1 — Ordena itens: aprovados primeiro (incluidos nesta proposta de
   // pagamento), pendentes depois (em aberto, nao incluidos).
   const itemsSorted = hasPartialApproval
@@ -3921,6 +3939,9 @@ function PropostaPainel({
         signalMethod: 'CASH',
         restValue: 0,
         parts: ['SIGNAL'],
+        // Onda 14.60 — modelo DEFERIDO: persiste os params EXATOS do parcelado
+        // pra o trigger gerar as parcelas quando a entrada for confirmada.
+        ...(deferredInstallmentParams || {}),
       };
       const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, cashBody);
       const cashCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
@@ -3967,6 +3988,8 @@ function PropostaPainel({
         signalMethod: 'PIX',
         restValue: 0,
         parts: ['SIGNAL'],
+        // Onda 14.60 — modelo DEFERIDO: persiste params do parcelado pro trigger.
+        ...(deferredInstallmentParams || {}),
       };
       const { data: emitData } = await api.post(`/quotes/${detail.id}/emit-down-payment`, pixBody);
       const pixCharge = (emitData?.charges ?? []).find((c: any) => c.kind === 'SINAL')
@@ -4101,6 +4124,8 @@ function PropostaPainel({
         signalMethod: 'BOLETO',
         restValue: 0,
         parts: ['SIGNAL'],
+        // Onda 14.60 — modelo DEFERIDO: persiste params do parcelado pro trigger.
+        ...(deferredInstallmentParams || {}),
       };
       if (customEntradaDueDate) {
         boletoBody.signalDueDate = customEntradaDueDate;

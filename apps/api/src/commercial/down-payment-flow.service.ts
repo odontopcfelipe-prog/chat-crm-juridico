@@ -168,6 +168,13 @@ export class DownPaymentFlowService {
        *  individuais no frontend). Idempotente: se ja existe charge
        *  do mesmo kind, retorna existente sem recriar. */
       parts?: ('SIGNAL' | 'REST')[];
+      /** Onda 14.60 — Params EXATOS do parcelamento que o paciente viu, para
+       *  o modelo DEFERIDO (entrada primeiro -> parcelas depois). Persistidos
+       *  no plano AGORA para que triggerDownPaymentConfirmed os LEIA quando a
+       *  entrada for paga (NUNCA recalcula). Opcionais: quando ausentes, o
+       *  comportamento atual nao muda e o trigger cai no fallback seguro. */
+      installmentCount?: number;
+      installmentValue?: number;
     },
   ) {
     const parts = options.parts ?? ['SIGNAL', 'REST'];
@@ -206,6 +213,10 @@ export class DownPaymentFlowService {
       throw new BadRequestException('restDueDate obrigatorio quando restValue > 0');
     }
 
+    // Onda 14.60 — Arredonda o valor da parcela antes de persistir (Asaas
+    // rejeita >2 casas; o trigger le este valor cru e passa pro Asaas).
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+
     // Atualiza plan: marca status awaiting + timestamp da primeira emissao (idempotente)
     await this.prisma.treatmentPlan.update({
       where: { id: planId },
@@ -214,6 +225,15 @@ export class DownPaymentFlowService {
         ...(!plan.down_payment_emitted_at && { down_payment_emitted_at: new Date() }),
         ...(options.clicksignSendTiming !== undefined && {
           clicksign_send_timing: options.clicksignSendTiming,
+        }),
+        // Onda 14.60 — Persiste os params EXATOS do parcelado (modelo DEFERIDO)
+        // para o trigger de confirmacao gerar as parcelas sem recalcular. So
+        // grava quando vierem valores validos (>0); ausencia = nao mexe.
+        ...(options.installmentCount != null && options.installmentCount > 0 && {
+          installment_count: options.installmentCount,
+        }),
+        ...(options.installmentValue != null && options.installmentValue > 0 && {
+          installment_value: round2(options.installmentValue),
         }),
       },
     });
@@ -465,35 +485,142 @@ export class DownPaymentFlowService {
   async triggerDownPaymentConfirmed(planId: string) {
     const plan = await this.prisma.treatmentPlan.findUnique({
       where: { id: planId },
-      include: { patient: true },
+      include: { patient: true, quote: true },
     });
     if (!plan) {
       this.logger.warn(`[DOWN-PMT] triggerDownPaymentConfirmed: plan ${planId} nao encontrado`);
       return;
     }
 
+    // Idempotencia — se ja gerou, nunca refaz.
     if (plan.installments_generated_at) {
       this.logger.warn(`[DOWN-PMT] Plan ${planId} ja gerou parcelas em ${plan.installments_generated_at}, skip trigger`);
       return;
     }
 
-    // Marca proposta como APROVADA + timestamp de geracao (idempotencia)
-    await this.prisma.treatmentPlan.update({
-      where: { id: planId },
-      data: {
-        proposal_status: 'APPROVED',
-        installments_generated_at: new Date(),
-      },
-    });
+    const tenantId = plan.patient.tenant_id;
 
-    this.logger.log(`[DOWN-PMT] Plan ${planId} APROVADO. TODO: gerar parcelas + ClickSign + WhatsApp`);
+    // createFinancingCharges EXIGE plan.status === 'ACTIVE'. O auto-aceite tardio
+    // (sinal pago em handleChargePaid) ja ativa; mas quando a entrada foi paga por
+    // outro caminho o plano pode ter ficado PENDING_SIGNATURE. Ativa aqui, como o
+    // fluxo upfront faz, antes de gerar as parcelas.
+    if (plan.status !== 'ACTIVE') {
+      await this.prisma.treatmentPlan.update({
+        where: { id: planId },
+        data: { status: 'ACTIVE' },
+      });
+      this.logger.log(
+        `[DOWN-PMT] Plan ${planId} ativado (era ${plan.status}) antes de gerar as parcelas.`,
+      );
+    }
 
-    // TODO Onda 14.60:
-    // - Gerar parcelas no Asaas (precisa dos params installmentCount + installmentValue
-    //   salvos previamente no plan ou recebidos como params do emitDownPayment original)
-    // - Se plan.clicksign_send_timing === 'AFTER', disparar ClickSign agora
-    // - Mandar WhatsApp pro paciente "Pagamento confirmado!"
-    // - Emit socket event 'down_payment_confirmed' pra UI atualizar
+    // Info da notificacao de "entrada paga" — soma o que foi pago de SINAL+ENTRADA
+    // e escolhe a forma pra o comprovante. Best-effort: se algo falhar, notifica sem.
+    let notifyTotal = Number(plan.quote?.chosen_down_payment || 0);
+    let notifyForma: string | null = null;
+    try {
+      const downCharges = await this.prisma.paymentGatewayCharge.findMany({
+        where: { treatment_plan_id: planId, kind: { in: ['SINAL', 'ENTRADA'] } },
+        select: { amount: true, billing_type: true, received_in_cash: true },
+      });
+      if (downCharges.length > 0) {
+        notifyTotal = downCharges.reduce((sum, c) => sum + Number(c.amount || 0), 0);
+        const first = downCharges[0];
+        notifyForma = first.received_in_cash ? 'CASH' : first.billing_type || null;
+      }
+    } catch (e: any) {
+      this.logger.warn(`[DOWN-PMT] Falha ao somar charges de entrada do plan ${planId}: ${e?.message}`);
+    }
+
+    // Injecao tardia (padrao recordAffiliateReferral) — require + moduleRef.get pra
+    // evitar dependencia circular no construtor. QuotesService/TreatmentPlanBillingService
+    // sao providers do mesmo CommercialModule.
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { QuotesService } = require('./quotes.service');
+    const quotesService: any = this.moduleRef.get(QuotesService, { strict: false });
+
+    const hasParams =
+      plan.installment_count != null && plan.installment_count > 0 &&
+      plan.installment_value != null && Number(plan.installment_value) > 0;
+
+    if (hasParams) {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { TreatmentPlanBillingService } = require('./treatment-plan-billing.service');
+      const billingService: any = this.moduleRef.get(TreatmentPlanBillingService, { strict: false });
+
+      try {
+        // createFinancingCharges (idempotente por KIND) gera SO as parcelas
+        // (INSTALLMENT). LE os valores persistidos, NUNCA recalcula. Faz blindagem
+        // de arredondamento/minimo internamente.
+        //
+        // downPaymentValue: 0 de PROPOSITO — a entrada JA foi emitida+paga (o
+        // trigger so dispara quando todas SINAL/ENTRADA estao pagas). No caso mais
+        // comum a entrada inteira virou UMA charge SINAL (parts:['SIGNAL'],
+        // restValue:0) e NAO existe charge ENTRADA; se passassemos o valor da
+        // entrada aqui, createFinancingCharges (entradaBoletoValue = down - sinal,
+        // com sinal=0) criaria um boleto de ENTRADA DUPLICADO. Zerando, ele pula
+        // sinal (hasSignal) e entrada (valor 0) e gera exclusivamente o parcelado.
+        await billingService.createFinancingCharges(planId, tenantId, {
+          downPaymentValue: 0,
+          installmentCount: plan.installment_count as number,
+          installmentValue: Number(plan.installment_value),
+          installmentsStartDate: plan.quote?.chosen_installments_start_date
+            ? plan.quote.chosen_installments_start_date.toISOString().slice(0, 10)
+            : undefined,
+        });
+      } catch (err: any) {
+        // Falhou a geracao -> NAO carimba installments_generated_at, pra permitir
+        // retry (webhook re-dispara). Sem isto, um erro transitorio travava o plano
+        // pra sempre (bug original).
+        this.logger.error(
+          `[DOWN-PMT] Plan ${planId}: falha ao gerar parcelas: ${err?.message || err}. ` +
+          `NAO carimbei installments_generated_at (retry possivel no proximo webhook).`,
+        );
+        return;
+      }
+
+      // So APOS sucesso: carimba idempotencia + aprova a proposta.
+      await this.prisma.treatmentPlan.update({
+        where: { id: planId },
+        data: {
+          installments_generated_at: new Date(),
+          proposal_status: 'APPROVED',
+        },
+      });
+      this.logger.log(
+        `[DOWN-PMT] Plan ${planId} APROVADO — ${plan.installment_count}x de ` +
+        `R$ ${Number(plan.installment_value)} geradas.`,
+      );
+
+      // ClickSign (background, nao bloqueia) — so quando o timing e AFTER.
+      if (plan.clicksign_send_timing === 'AFTER' && quotesService?.fireContractForPlan) {
+        try {
+          quotesService.fireContractForPlan(planId, tenantId);
+        } catch (e: any) {
+          this.logger.warn(`[DOWN-PMT] fireContractForPlan falhou (plan ${planId}): ${e?.message}`);
+        }
+      }
+    } else {
+      // Plano legado/edge sem params -> NAO gera nada, NAO carimba (fallback seguro:
+      // melhor emitir manualmente do que gerar boleto com valor recalculado errado).
+      this.logger.warn(
+        `[DOWN-PMT] Plan ${planId} sem installment_count/value — parcelas NAO geradas ` +
+        `automaticamente; emitir manualmente (POST /quotes/:id/emit-installments).`,
+      );
+    }
+
+    // Notificacao "entrada paga" (background/best-effort) — dispara nos dois caminhos.
+    // sendComprovantePagamento e opt-in + dedup por plano + template + DispatchLog.
+    if (quotesService?.sendComprovantePagamento) {
+      Promise.resolve(
+        quotesService.sendComprovantePagamento(tenantId, planId, plan.patient, {
+          total: notifyTotal,
+          forma: notifyForma,
+        }),
+      ).catch((e: any) =>
+        this.logger.warn(`[DOWN-PMT] sendComprovantePagamento falhou (plan ${planId}): ${e?.message}`),
+      );
+    }
   }
 
   /**

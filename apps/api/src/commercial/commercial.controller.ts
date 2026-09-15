@@ -1152,6 +1152,10 @@ export class CommercialController {
       restMethod: 'PIX' | 'BOLETO' | 'CASH';
       restDueDate?: string;
       clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
+      // Onda 14.60 — params EXATOS do parcelado (modelo DEFERIDO): persistidos
+      // no plano pra o trigger gerar as parcelas sem recalcular.
+      installmentCount?: number;
+      installmentValue?: number;
     },
     @Authenticated() user: AuthUser,
   ) {
@@ -1180,6 +1184,10 @@ export class CommercialController {
       restDueDate?: string;
       clicksignSendTiming?: 'BEFORE' | 'AFTER' | null;
       parts?: ('SIGNAL' | 'REST')[];
+      // Onda 14.60 — params EXATOS do parcelado (modelo DEFERIDO): persistidos
+      // no plano pra o trigger gerar as parcelas sem recalcular.
+      installmentCount?: number;
+      installmentValue?: number;
     },
     @Authenticated() user: AuthUser,
   ) {

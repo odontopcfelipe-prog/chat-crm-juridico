@@ -3354,6 +3354,15 @@ model TreatmentPlan {
   /// entrada. Idempotente: se preenchido, trigger nao gera de novo.
   installments_generated_at DateTime?
 
+  /// Onda 14.60 — Params EXATOS do parcelamento apresentado ao paciente,
+  /// persistidos no setup da entrada (emit-down-payment). O trigger de
+  /// confirmacao (triggerDownPaymentConfirmed) LE estes valores para gerar as
+  /// parcelas — NUNCA recalcula (recalculo arrisca centavos de diferenca =
+  /// boleto errado). Nullable: planos legados/edge sem estes valores nao geram
+  /// parcelas automaticamente (fallback seguro + log WARN).
+  installment_count Int?
+  installment_value Decimal? @db.Decimal(10, 2)
+
   /// Onda 17.72 — Gate financeiro: o dentista só confirma os procedimentos DEPOIS
   /// que o Financeiro clicar "Validar" (libera o tratamento). null = aguardando validação.
   validated_by_financial_at DateTime?
