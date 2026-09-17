@@ -1487,14 +1487,32 @@ export class PaymentGatewayService {
    */
   private async claimPaymentNotify(externalId?: string | null): Promise<boolean> {
     if (!externalId) return true; // sem id não dá pra dedupar (raro) — deixa passar
-    try {
-      await this.prisma.paymentNotifyDedup.create({ data: { external_id: externalId } });
-      return true;
-    } catch (e: any) {
-      if (e?.code === 'P2002') return false; // outro evento deste pagamento já avisou
-      this.logger.warn(`[NOTIFY-DEDUP] claim falhou p/ ${externalId} (fail-open): ${e?.message}`);
-      return true;
+    const MAX = 3;
+    for (let attempt = 1; attempt <= MAX; attempt++) {
+      try {
+        await this.prisma.paymentNotifyDedup.create({ data: { external_id: externalId } });
+        return true; // ganhou o direito de notificar
+      } catch (e: any) {
+        if (e?.code === 'P2002') return false; // outro evento deste pagamento já avisou
+        if (e?.code === 'P2021') {
+          // Tabela ausente (migration não aplicada) — fail-OPEN com alerta ruidoso: sem a
+          // trava não dá pra dedupar; melhor notificar que travar tudo até migrar.
+          this.logger.error(`[NOTIFY-DEDUP] tabela ausente (P2021) — fail-open p/ ${externalId}`);
+          return true;
+        }
+        // Onda 18.x — INCIDENTE: antes fail-OPEN (return true) em qualquer erro. Sob a
+        // enxurrada, um timeout de pool transiente derrubava a trava e o MESMO pagamento
+        // notificava 2x (caso Maria Cristina). Agora: retry com backoff+jitter (soluço
+        // transiente costuma passar na 2ª/3ª) e, persistindo, fail-CLOSED (pula o envio)
+        // — perder uma confirmação é menos grave que spammar 2x.
+        this.logger.warn(`[NOTIFY-DEDUP] claim falhou p/ ${externalId} (tentativa ${attempt}/${MAX}): ${e?.message}`);
+        if (attempt < MAX) {
+          const backoff = attempt * 150 + Math.floor(Math.random() * 100);
+          await new Promise((r) => setTimeout(r, backoff));
+        }
+      }
     }
+    return false; // fail-closed: não conseguiu gravar a trava → não notifica
   }
 
   /** Libera a trava (permite retry numa próxima entrega) quando o ENVIO falha. */
@@ -1522,6 +1540,20 @@ export class PaymentGatewayService {
       `[WEBHOOK] Evento: ${event} | Payment: ${paymentData.id} | Status: ${paymentData.status}`,
     );
 
+    // Onda 18.x — GATE DE RECÊNCIA GLOBAL (pós-incidente set/2026). A reentrega em massa
+    // da fila do Asaas re-dispara eventos ANTIGOS; a guarda de idempotência de status só
+    // barra duplicata EXATA e é contornada na reentrega cross-status (evento velho vs
+    // status local já diferente). Este freio é aplicado a TODA notificação ao paciente
+    // (ambos os ramos, com e sem registro local) — NUNCA ao processamento de caixa/status.
+    // Baseado na data do PAGAMENTO (RECEIVED/CONFIRMED/REFUNDED sempre trazem); o OVERDUE
+    // usa o vencimento (dueDate) mais abaixo. Sem data confiável → não-recente (conservador:
+    // perder uma confirmação é muito menos grave que spammar cobrança velha).
+    const eventPayDate =
+      paymentData.paymentDate || paymentData.confirmedDate || paymentData.clientPaymentDate;
+    const eventPayMs = eventPayDate ? Date.parse(eventPayDate) : NaN;
+    const eventIsRecent =
+      Number.isFinite(eventPayMs) && Date.now() - eventPayMs < 48 * 60 * 60 * 1000;
+
     // Buscar cobranca local pelo external_id
     const charge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { external_id: paymentData.id },
@@ -1535,20 +1567,40 @@ export class PaymentGatewayService {
       // Mesmo sem registro local, notificar cliente
       const mappedStatusNoCharge = ASAAS_STATUS_MAP[paymentData.status] || paymentData.status;
 
-      // Notificar exclusão/estorno
+      // INCIDENTE set/2026: religar o webhook do Asaas reentregou EM MASSA eventos
+      // ANTIGOS de cobranças-FANTASMA (que o CRM nunca viu — criadas direto no painel
+      // Asaas / perdidas no import). Este ramo notificou 11 pacientes sobre pagamentos
+      // velhos. Reusa o GATE DE RECÊNCIA hoistado pro topo do handler (cobre ambos os
+      // ramos): sem registro local, só notifica se o pagamento é RECENTE (uso legítimo =
+      // PIX recebido direto, real-time). Reentrega de evento antigo NÃO notifica.
+      const noChargeIsRecent = eventIsRecent;
+      const noChargePayDate = eventPayDate;
+
+      // Notificar exclusão/estorno (mesmo gate de recência)
       if ((mappedStatusNoCharge === 'DELETED' || mappedStatusNoCharge === 'REFUNDED' || event === 'PAYMENT_DELETED') && !opts?.silent) {
-        try {
-          await this.notifyClientChargeDeleted(paymentData, { amount: paymentData.value }, mappedStatusNoCharge === 'REFUNDED' ? 'REFUNDED' : 'DELETED');
-        } catch (e: any) {
-          this.logger.warn(`[WEBHOOK] Falha ao notificar cliente (sem registro local): ${e.message}`);
+        if (!noChargeIsRecent) {
+          this.logger.warn(
+            `[WEBHOOK] Exclusão/estorno sem registro local e não-recente (${noChargePayDate || 'sem data'}) — NÃO notifica (evita spam de reentrega)`,
+          );
+        } else if (await this.claimPaymentNotify(`del:${paymentData.id}`)) {
+          try {
+            await this.notifyClientChargeDeleted(paymentData, { amount: paymentData.value }, mappedStatusNoCharge === 'REFUNDED' ? 'REFUNDED' : 'DELETED');
+          } catch (e: any) {
+            await this.releasePaymentNotify(`del:${paymentData.id}`);
+            this.logger.warn(`[WEBHOOK] Falha ao notificar cliente (sem registro local): ${e.message}`);
+          }
         }
       }
 
-      // Notificar pagamento confirmado
+      // Notificar pagamento confirmado (gate de recência — foi ESTE o ramo do incidente)
       if ((mappedStatusNoCharge === 'RECEIVED' || mappedStatusNoCharge === 'CONFIRMED' || event === 'PAYMENT_RECEIVED' || event === 'PAYMENT_CONFIRMED') && !opts?.silent) {
-        // Trava por payment.id (compartilhada com o ramo com-charge) — sem ela,
-        // CONFIRMED + RECEIVED do mesmo pagamento avisavam 2x aqui (sem charge pra dedupar).
-        if (await this.claimPaymentNotify(paymentData.id)) {
+        if (!noChargeIsRecent) {
+          this.logger.warn(
+            `[WEBHOOK] Pagamento sem registro local e não-recente (${noChargePayDate || 'sem data'}) — NÃO notifica (evita spam de reentrega de fila)`,
+          );
+        } else if (await this.claimPaymentNotify(paymentData.id)) {
+          // Trava por payment.id (compartilhada com o ramo com-charge) — sem ela,
+          // CONFIRMED + RECEIVED do mesmo pagamento avisavam 2x aqui (sem charge pra dedupar).
           try {
             await this.notifyClientPaymentReceived(paymentData, { amount: paymentData.value });
           } catch (e: any) {
@@ -1574,7 +1626,14 @@ export class PaymentGatewayService {
     const updatedCharge = await this.prisma.paymentGatewayCharge.update({
       where: { id: charge.id },
       data: {
-        status: mappedStatus,
+        // Onda 18.x — NÃO regride cobrança já paga (RECEIVED/CONFIRMED/espécie) para
+        // OVERDUE/PENDING: na reentrega fora de ordem, um OVERDUE antigo chegava DEPOIS
+        // do pagamento e corrompia o status (e a régua voltava a cobrar quem já pagou).
+        status:
+          (charge.status === 'RECEIVED' || charge.status === 'CONFIRMED' || charge.received_in_cash) &&
+          (mappedStatus === 'OVERDUE' || mappedStatus === 'PENDING')
+            ? charge.status
+            : mappedStatus,
         paid_at: paymentData.paymentDate
           ? new Date(paymentData.paymentDate)
           : charge.paid_at,
@@ -1619,15 +1678,25 @@ export class PaymentGatewayService {
       (charge as any).kind &&
       ((charge as any).kind === 'SINAL' || (charge as any).kind === 'ENTRADA')
     ) {
-      try {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const mod = require('../commercial/down-payment-flow.service');
-        const downFlow = this.moduleRef.get(mod.DownPaymentFlowService, { strict: false });
-        if (downFlow) {
-          await downFlow.handleChargePaid(charge.id);
+      // Onda 18.x — gate de recência TAMBÉM aqui: o trigger gera boletos REAIS de
+      // parcela E manda o comprovante "entrada paga" ao paciente. Na reentrega em massa,
+      // uma entrada ANTIGA não deve regenerar boletos nem mandar comprovante (plano
+      // travado se regulariza manual via emit-installments). Só dispara p/ evento RECENTE.
+      if (!eventIsRecent) {
+        this.logger.warn(
+          `[WEBHOOK] Entrada antiga (${eventPayDate || 'sem data'}) p/ cobrança ${charge.id} — NÃO dispara trigger de down-payment (evita boleto/comprovante de reentrega)`,
+        );
+      } else {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const mod = require('../commercial/down-payment-flow.service');
+          const downFlow = this.moduleRef.get(mod.DownPaymentFlowService, { strict: false });
+          if (downFlow) {
+            await downFlow.handleChargePaid(charge.id);
+          }
+        } catch (e: any) {
+          this.logger.warn(`[WEBHOOK] Falha ao disparar down-payment trigger pra charge ${charge.id}: ${e.message}`);
         }
-      } catch (e: any) {
-        this.logger.warn(`[WEBHOOK] Falha ao disparar down-payment trigger pra charge ${charge.id}: ${e.message}`);
       }
     }
 
@@ -1726,7 +1795,13 @@ export class PaymentGatewayService {
         where: { id: charge.id, confirmation_notified_at: null },
         data: { confirmation_notified_at: new Date() },
       });
-      if (!opts?.silent && (await this.claimPaymentNotify(paymentData.id))) {
+      if (!opts?.silent && !eventIsRecent) {
+        // Reentrega de evento antigo (mesmo com cobrança local): status defasado
+        // contorna a guarda de idempotência → não re-manda "Pagamento Confirmado".
+        this.logger.warn(
+          `[WEBHOOK] Confirmação de pagamento antiga (${eventPayDate || 'sem data'}) p/ cobrança ${charge.id} — NÃO notifica (evita spam de reentrega)`,
+        );
+      } else if (!opts?.silent && (await this.claimPaymentNotify(paymentData.id))) {
         try {
           await this.notifyClientPaymentReceived(paymentData, charge);
         } catch (e: any) {
@@ -1741,19 +1816,40 @@ export class PaymentGatewayService {
     }
 
     // Onda 17.32.182 — e-mail automatico "pagamento atrasado": o banco
-    // (Asaas) envia PAYMENT_OVERDUE quando a cobranca vence sem pagar
+    // (Asaas) envia PAYMENT_OVERDUE quando a cobranca vence sem pagar.
+    // Onda 18.x — gate anti-reentrega: só e-mail se o vencimento é RECENTE (dueDate nos
+    // últimos 7d = acabou de vencer) E a cobrança ainda NÃO foi paga localmente — senão a
+    // reentrega de OVERDUE antigo re-mandava "atrasado" (inclusive a quem já pagou).
     if (mappedStatus === 'OVERDUE' && !opts?.silent) {
-      void this.sendPaymentOverdueEmail(charge);
+      const dueMs = paymentData.dueDate ? Date.parse(paymentData.dueDate) : NaN;
+      const overdueIsRecent = Number.isFinite(dueMs) && Date.now() - dueMs < 7 * 24 * 60 * 60 * 1000;
+      const alreadyPaid =
+        charge.status === 'RECEIVED' || charge.status === 'CONFIRMED' || charge.received_in_cash;
+      if (overdueIsRecent && !alreadyPaid) {
+        void this.sendPaymentOverdueEmail(charge);
+      } else {
+        this.logger.warn(
+          `[WEBHOOK] OVERDUE antigo/já-pago (due ${paymentData.dueDate || '?'}, status ${charge.status}) p/ ${charge.id} — NÃO envia e-mail`,
+        );
+      }
     }
 
     // Se cobrança DELETADA ou REFUNDED, notificar cliente via WhatsApp
     if (mappedStatus === 'DELETED' || mappedStatus === 'REFUNDED') {
       // Reconcile silencioso: faz a demoção do lead (interno) mas NÃO avisa o
       // paciente sobre exclusão/estorno de um evento que já ocorreu há tempos.
-      if (!opts?.silent) {
+      // Onda 18.x — gate de recência (não re-manda "cobrança cancelada" na reentrega de
+      // DELETE/REFUND antigo) + dedup por payment.id com chave `del:` (o par DELETE+REFUND
+      // do mesmo id, ou reentrega dupla, avisava 2x — mesma classe da dup da Maria Cristina).
+      if (!opts?.silent && !eventIsRecent) {
+        this.logger.warn(
+          `[WEBHOOK] Exclusão/estorno antigo (${eventPayDate || 'sem data'}) p/ cobrança ${charge.id} — NÃO notifica (evita spam de reentrega)`,
+        );
+      } else if (!opts?.silent && (await this.claimPaymentNotify(`del:${paymentData.id}`))) {
         try {
           await this.notifyClientChargeDeleted(paymentData, charge, mappedStatus);
         } catch (e: any) {
+          await this.releasePaymentNotify(`del:${paymentData.id}`);
           this.logger.warn(`[WEBHOOK] Falha ao notificar cliente sobre exclusão: ${e.message}`);
         }
       }
@@ -1766,12 +1862,16 @@ export class PaymentGatewayService {
     }
 
     // Emitir update generico de status
+    // Onda 18.x — emite o status REALMENTE persistido (updatedCharge.status), não o
+    // mappedStatus do evento: com a guarda anti-downgrade, uma reentrega de OVERDUE
+    // antigo mantém RECEIVED no banco mas emitir mappedStatus=OVERDUE faria o front
+    // marcar cobrança PAGA como "Vencido" no meio da reentrega (flip-flop).
     this.emitFinancialUpdate(charge.tenant_id, {
       type: 'charge_status_update',
       chargeId: charge.id,
       externalId: charge.external_id,
       oldStatus: charge.status,
-      newStatus: mappedStatus,
+      newStatus: updatedCharge.status,
     });
 
     return updatedCharge;
