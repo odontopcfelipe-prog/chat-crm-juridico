@@ -195,6 +195,16 @@ export class PatientsController {
     return this.affiliateService.listAffiliatesDashboard(tenantId);
   }
 
+  /** Picker de afiliado pra "afiliado SO desta venda" (aba Propostas). Qualquer
+   *  usuario do tenant (recepcao fecha venda) — devolve so id/nome/telefone/codigo
+   *  dos afiliados ATIVOS, nada financeiro. Rota literal: fica antes de ':id'. */
+  @Get('affiliates/options')
+  listAffiliateOptions(@Request() req: any, @Query('search') search?: string) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.affiliateService.listAffiliateOptions(tenantId, search);
+  }
+
   /** Onda 5e v36 — lista de saques pendentes pra aprovacao (admin). */
   @Get('affiliates/pending-withdrawals')
   listPendingWithdrawals(@Request() req: any) {

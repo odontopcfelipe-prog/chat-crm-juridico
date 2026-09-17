@@ -51,6 +51,10 @@ export class UpdateQuoteDto {
   /// true. Operador seta false pra dispensar consulta em vendas VIP / valor
   /// baixo. Metadata de UI, igual visible_in_proposals.
   @IsOptional() @IsBoolean() requires_credit_check?: boolean;
+  /// Afiliado SO desta venda (Patient afiliado). null limpa. Diferente do
+  /// vinculo permanente Patient.referred_by_id (todas as vendas futuras).
+  /// Bloqueado depois de ACCEPTED (comissao ja creditada).
+  @IsOptional() @IsUUID('4') affiliate_referrer_id?: string | null;
 }
 
 export class RejectQuoteDto {

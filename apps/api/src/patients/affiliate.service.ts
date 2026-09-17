@@ -313,6 +313,33 @@ export class AffiliateService {
    *   - affiliates: lista completa com nome, codigo, qtd indicacoes,
    *     saldo, ultimo saque, status
    */
+  /** Opcoes do picker "afiliado so desta venda": afiliados ativos do tenant,
+   *  filtrados por nome/telefone/codigo. Leve (sem saldo) e sem gate de ADMIN. */
+  async listAffiliateOptions(tenantId: string, search?: string) {
+    const term = (search || '').trim().slice(0, 80);
+    const digits = term.replace(/D/g, '');
+    const rows = await this.prisma.patient.findMany({
+      where: {
+        tenant_id: tenantId,
+        is_affiliate: true,
+        status: 'ACTIVE',
+        ...(term
+          ? {
+              OR: [
+                { name: { contains: term, mode: 'insensitive' } },
+                { affiliate_code: { contains: term, mode: 'insensitive' } },
+                ...(digits.length >= 4 ? [{ phone: { contains: digits } }] : []),
+              ],
+            }
+          : {}),
+      },
+      select: { id: true, name: true, phone: true, affiliate_code: true },
+      orderBy: { name: 'asc' },
+      take: 20,
+    });
+    return rows;
+  }
+
   async listAffiliatesDashboard(tenantId: string) {
     const monthStart = new Date();
     monthStart.setUTCDate(1);
@@ -718,10 +745,29 @@ export class AffiliateService {
         where: { id: params.patientId },
         select: { referred_by_id: true, cpf: true, phone: true },
       });
-      if (!patient?.referred_by_id) return; // sem indicador
+      if (!patient) return;
+
+      // Quem indicou ESTA venda? Dois niveis, o mais especifico ganha:
+      //   1. Quote.affiliate_referrer_id — afiliado SO desta proposta (marcado na
+      //      aba Propostas). Nao contamina vendas futuras do paciente.
+      //   2. Patient.referred_by_id — vinculo permanente do cadastro: o afiliado
+      //      ganha em TODAS as vendas do paciente.
+      const quoteRow = await this.prisma.quote.findUnique({
+        where: { id: params.quoteId },
+        select: { affiliate_referrer_id: true },
+      });
+      const referrerId = quoteRow?.affiliate_referrer_id || patient.referred_by_id;
+      const origem = quoteRow?.affiliate_referrer_id ? 'venda' : 'cadastro';
+      if (!referrerId) return; // sem indicador
+      if (referrerId === params.patientId) {
+        this.logger.warn(
+          `[AFFILIATE] Auto-indicação BLOQUEADA (mesmo paciente): quote=${params.quoteId} — sem comissão`,
+        );
+        return;
+      }
 
       const referrer = await this.prisma.patient.findUnique({
-        where: { id: patient.referred_by_id },
+        where: { id: referrerId },
         select: {
           id: true,
           is_affiliate: true,
@@ -732,7 +778,7 @@ export class AffiliateService {
       });
       if (!referrer?.is_affiliate) {
         this.logger.log(
-          `[AFFILIATE] Referrer ${patient.referred_by_id} nao e afiliado — skip`,
+          `[AFFILIATE] Referrer ${referrerId} (origem=${origem}) nao e afiliado — skip`,
         );
         return;
       }
@@ -790,7 +836,7 @@ export class AffiliateService {
       });
 
       this.logger.log(
-        `[AFFILIATE] Referral criado: id=${referral.id} referrer=${referrer.id} pct=${pct}%${faixaLabel ? ` (faixa ${faixaLabel})` : ''} commission=R$${commission} (quote=${params.quoteId})`,
+        `[AFFILIATE] Referral criado: id=${referral.id} referrer=${referrer.id} origem=${origem} pct=${pct}%${faixaLabel ? ` (faixa ${faixaLabel})` : ''} commission=R${commission} (quote=${params.quoteId})`,
       );
     } catch (e: any) {
       this.logger.warn(

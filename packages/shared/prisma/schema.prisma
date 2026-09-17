@@ -2079,6 +2079,8 @@ model Patient {
   affiliate_referrals_made AffiliateReferral[]   @relation("AffiliateReferrer")
   affiliate_referrals_via  AffiliateReferral[]   @relation("AffiliateReferred")
   affiliate_withdrawals    AffiliateWithdrawal[]
+  // Vendas (Quote) em que este paciente foi marcado como afiliado SO daquela venda
+  affiliate_quotes         Quote[]               @relation("QuoteAffiliateReferrer")
   // Influenciador (Onda 5e v35) — cadastro de marketing tambem e Patient (1:1 opcional)
   influencer_profile       Influencer?
 
@@ -2965,6 +2967,13 @@ model Quote {
   // Onda 2 (Fase 24) — Cupom aplicado
   coupon_id String?
 
+  /// Afiliado desta VENDA (opcional). Quando setado, a comissao de indicacao
+  /// desta proposta vai pra este afiliado — e SO desta proposta. Diferente do
+  /// `Patient.referred_by_id` (vinculo permanente: o afiliado ganha em TODAS
+  /// as vendas futuras do paciente). No aceite, o quote-level tem prioridade
+  /// sobre o patient-level. Snapshot: nao muda depois de ACCEPTED.
+  affiliate_referrer_id String?
+
   created_at DateTime @default(now())
   updated_at DateTime @updatedAt
 
@@ -2994,6 +3003,8 @@ model Quote {
   installments         Installment[]     @relation("QuoteInstallments")
   // Onda 2 (Fase 24) — Cupom aplicado
   coupon               QuoteCoupon?      @relation(fields: [coupon_id], references: [id], onDelete: SetNull)
+  // Afiliado por VENDA (ver affiliate_referrer_id)
+  affiliate_referrer   Patient?          @relation("QuoteAffiliateReferrer", fields: [affiliate_referrer_id], references: [id], onDelete: SetNull)
   // Onda 3 (Fase 24) — Anexos (fotos antes/depois, TCLE, exames, etc)
   attachments          QuoteAttachment[]
   // Onda 3b (Fase 24) — Versionamento + renegociacao
@@ -3023,6 +3034,7 @@ model Quote {
   @@index([patient_id, status])
   @@index([status, valid_until])
   @@index([coupon_id])
+  @@index([affiliate_referrer_id])
   @@index([renegotiated_from_id])
   @@index([accepted_from_id])
   // Onda 25.6 — query rapida de "orcamentos deletados nos ultimos 30 dias"

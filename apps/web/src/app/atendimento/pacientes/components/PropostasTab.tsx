@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import {
   Loader2, DollarSign, ChevronRight, ChevronLeft, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft,
-  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet, Handshake,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -116,6 +116,9 @@ interface QuoteDetailLite {
   avista_discount_pct?: number | string | null;
   /** Onda 18.x — S/J (sem juros nas parcelas do boleto), salvo na proposta. */
   sem_juros_enabled?: boolean | null;
+  /** Afiliado SO desta venda (ver AfiliadoDaVenda). null = usa o vinculo do cadastro, se houver. */
+  affiliate_referrer_id?: string | null;
+  affiliate_referrer?: { id: string; name: string | null; phone: string | null } | null;
   chosen_down_payment?: string | number | null;
   /** Onda 15 (etapa 16.8) — plano de cobranca da entrada congelado quando
    *  operador clica em "Salvar proposta". Restaurado ao reabrir o painel. */
@@ -3502,6 +3505,148 @@ function StepPill({ n, label, active, done }: { n: number; label: string; active
 }
 
 
+// ─── Afiliado SO desta venda ─────────────────────────────────────────
+// Dois niveis de indicacao coexistem: o vinculo PERMANENTE do cadastro
+// (Editar paciente > "Indicado por outro paciente" -> afiliado ganha em TODAS
+// as vendas futuras) e este, POR VENDA (so esta proposta). No aceite, o da
+// venda tem prioridade. Depois de ACCEPTED vira somente-leitura: a comissao
+// ja foi creditada e o backend recusa troca.
+type AffiliateOption = { id: string; name: string | null; phone: string | null; affiliate_code?: string | null };
+
+function AfiliadoDaVenda({
+  quoteId,
+  status,
+  current,
+  readOnly,
+  onChanged,
+}: {
+  quoteId: string;
+  status: string;
+  current: AffiliateOption | null | undefined;
+  readOnly: boolean;
+  onChanged: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [term, setTerm] = useState('');
+  const [options, setOptions] = useState<AffiliateOption[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const locked = readOnly || status === 'ACCEPTED';
+
+  // Fecha o buscador ao trocar de proposta
+  useEffect(() => { setOpen(false); setTerm(''); }, [quoteId]);
+
+  // Busca no servidor (so afiliados ativos), debounce 300ms. Sem termo lista os
+  // primeiros — afiliados sao poucos, da pra escolher direto.
+  useEffect(() => {
+    if (!open) return;
+    setLoading(true);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api.get<AffiliateOption[]>(`/patients/affiliates/options?search=${encodeURIComponent(term.trim())}`)
+        .then((r) => { if (!cancelled) setOptions(Array.isArray(r.data) ? r.data : []); })
+        .catch(() => { if (!cancelled) setOptions([]); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [open, term]);
+
+  const save = async (affiliateId: string | null) => {
+    setSaving(true);
+    try {
+      await api.patch(`/quotes/${quoteId}`, { affiliate_referrer_id: affiliateId });
+      showSuccess(affiliateId ? 'Afiliado vinculado a esta venda' : 'Afiliado removido desta venda');
+      setOpen(false);
+      setTerm('');
+      onChanged();
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao vincular afiliado');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-4 rounded-lg border border-border bg-accent/10 px-3 py-2">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
+        <div className="flex items-center gap-2 min-w-0 text-xs">
+          <Handshake size={13} className="text-emerald-700 shrink-0" />
+          <span className="font-semibold text-foreground shrink-0">Afiliado desta venda</span>
+          {current ? (
+            <span className="text-foreground truncate">
+              {current.name || 'Sem nome'}
+              {current.phone && <span className="text-muted-foreground"> · {current.phone}</span>}
+            </span>
+          ) : (
+            <span className="text-muted-foreground">nenhum (vale o do cadastro, se houver)</span>
+          )}
+        </div>
+        {!locked && (
+          <div className="flex items-center gap-2 shrink-0">
+            {current && (
+              <button
+                type="button"
+                disabled={saving}
+                onClick={() => save(null)}
+                className="text-[11px] text-muted-foreground hover:text-destructive disabled:opacity-50"
+              >
+                Remover
+              </button>
+            )}
+            <button
+              type="button"
+              disabled={saving}
+              onClick={() => setOpen((v) => !v)}
+              className="text-[11px] font-medium text-primary hover:underline disabled:opacity-50"
+            >
+              {current ? 'Trocar' : '+ Vincular afiliado só nesta venda'}
+            </button>
+          </div>
+        )}
+        {locked && status === 'ACCEPTED' && current && (
+          <span className="text-[10px] text-muted-foreground shrink-0">comissão creditada no aceite</span>
+        )}
+      </div>
+      {open && !locked && (
+        <div className="mt-2">
+          <input
+            autoFocus
+            value={term}
+            onChange={(e) => setTerm(e.target.value)}
+            placeholder="Buscar afiliado por nome, telefone ou código..."
+            className="w-full px-2.5 py-1.5 text-xs rounded-md border border-border bg-background focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+          <div className="mt-1 max-h-36 overflow-y-auto border border-border rounded-md bg-background">
+            {loading ? (
+              <div className="p-2 text-[11px] text-muted-foreground">Buscando...</div>
+            ) : options.length === 0 ? (
+              <div className="p-2 text-[11px] text-muted-foreground">
+                Nenhum afiliado encontrado. Pra virar afiliado: Editar paciente → Programa de Afiliado.
+              </div>
+            ) : (
+              options.map((o) => (
+                <button
+                  type="button"
+                  key={o.id}
+                  disabled={saving}
+                  onClick={() => save(o.id)}
+                  className="w-full px-2.5 py-1.5 text-left text-xs hover:bg-accent border-b border-border last:border-0 disabled:opacity-50"
+                >
+                  <div className="font-medium">{o.name || 'Sem nome'}</div>
+                  <div className="text-[10px] text-muted-foreground">
+                    {o.phone || 'sem telefone'}{o.affiliate_code ? ` · ${o.affiliate_code}` : ''}
+                  </div>
+                </button>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Painel inline: proposta selecionada com pagamento + acoes ──────
 // Onda 9 — renderiza abaixo dos cards quando alguma versao esta selecionada.
 // Reune items (top-4 + expand), opcoes de pagamento, resumo da oferta e acoes
@@ -4240,6 +4385,15 @@ function PropostaPainel({
         </div>
       )}
       */}
+
+      {/* Afiliado SO desta venda (comissao de indicacao restrita a esta proposta) */}
+      <AfiliadoDaVenda
+        quoteId={detail.id}
+        status={detail.status}
+        current={detail.affiliate_referrer ?? null}
+        readOnly={readOnly}
+        onChanged={() => onReload?.()}
+      />
 
       {/* Onda 17.32.20 — Lista de itens em cards individuais com check verde
           redondo, espacamento generoso e visual mais limpo (semelhante a

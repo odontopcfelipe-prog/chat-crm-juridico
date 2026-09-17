@@ -369,6 +369,8 @@ export class QuotesService {
           },
         },
         treatment_plan: true,
+        // Afiliado SO desta venda (nome/telefone pro card da proposta)
+        affiliate_referrer: { select: { id: true, name: true, phone: true } },
         // Onda 3 — Anexos (Fase 24): retorna metadata pra UI mostrar contador.
         // Binario eh servido via /quote-attachments/:id/file separado.
         _count: { select: { attachments: true, versions: true } },
@@ -404,7 +406,34 @@ export class QuotesService {
     // Onda 14.26 — `requires_credit_check` idem: metadata de UI que decide
     // se parcelados desta venda exigem credit-check (toggle no painel).
     // Demais campos continuam bloqueados apos envio.
-    const META_FIELDS = new Set(['priority', 'visible_in_proposals', 'requires_credit_check']);
+    const META_FIELDS = new Set(['priority', 'visible_in_proposals', 'requires_credit_check', 'affiliate_referrer_id']);
+
+    // Afiliado SO desta venda. Meta-field (pode em DRAFT/SENT) mas NUNCA depois
+    // de ACCEPTED: a comissao ja foi creditada no aceite — trocar aqui nao
+    // recalcularia nada e deixaria a tela mentindo sobre quem ganhou.
+    if (data.affiliate_referrer_id !== undefined) {
+      if (quote.status === 'ACCEPTED') {
+        throw new BadRequestException(
+          'Proposta ja aceita — a comissao de indicacao ja foi creditada e nao pode ser trocada',
+        );
+      }
+      if (data.affiliate_referrer_id) {
+        const referrerId = String(data.affiliate_referrer_id);
+        if (referrerId === quote.patient_id) {
+          throw new BadRequestException('O paciente nao pode ser afiliado da propria venda');
+        }
+        const referrer = await this.prisma.patient.findFirst({
+          where: { id: referrerId, tenant_id: tenantId },
+          select: { id: true, is_affiliate: true, name: true },
+        });
+        if (!referrer) throw new NotFoundException('Afiliado nao encontrado');
+        if (!referrer.is_affiliate) {
+          throw new BadRequestException(
+            `${referrer.name || 'Este paciente'} nao esta marcado como afiliado (Editar paciente > Programa de Afiliado)`,
+          );
+        }
+      }
+    }
     // Onda 17.71 — BUG FIX: o ValidationPipe (class-transformer, exposeUnsetFields
     // default = true) transforma o body num UpdateQuoteDto com TODOS os campos
     // declarados — os NÃO enviados ficam `undefined` mas AINDA aparecem em
@@ -2523,6 +2552,9 @@ export class QuotesService {
           payment_terms: quote.payment_terms,
           notes: acceptedNotes,
           valid_until: quote.valid_until,
+          // Afiliado desta venda vai junto: e o quote NOVO que dispara o
+          // recordAffiliateReferral, entao o vinculo tem que estar nele.
+          affiliate_referrer_id: (quote as any).affiliate_referrer_id ?? null,
           items: {
             create: selectedItems.map((qi, idx) => ({
               procedure_id: qi.procedure_id,
