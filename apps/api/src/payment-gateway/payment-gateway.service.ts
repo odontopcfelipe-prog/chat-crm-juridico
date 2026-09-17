@@ -39,6 +39,8 @@ export class PaymentGatewayService {
   private readonly logger = new Logger(PaymentGatewayService.name);
   /** Guard de reentrância do reconcile automático (@Cron). */
   private reconcileCronBusy = false;
+  /** Guard de reentrância do backfill de receita perdida (@Cron). */
+  private ensureReceitaCronBusy = false;
 
   constructor(
     private prisma: PrismaService,
@@ -139,7 +141,7 @@ export class PaymentGatewayService {
    */
   private async ensureChargeReceita(
     chargeId: string,
-    opts?: { paymentMethod?: string; receivedInClinic?: boolean; installments?: number },
+    opts?: { paymentMethod?: string; receivedInClinic?: boolean; installments?: number; dateFromCharge?: boolean },
   ): Promise<string | null> {
     const charge = await this.prisma.paymentGatewayCharge.findUnique({
       where: { id: chargeId },
@@ -169,39 +171,71 @@ export class PaymentGatewayService {
     const parcelaSuffix =
       opts?.installments && opts.installments > 1 ? ` · Cartão ${opts.installments}×` : '';
 
-    const tx = await this.prisma.financialTransaction.create({
-      data: {
-        tenant_id: charge.tenant_id,
-        type: 'RECEITA',
-        category: 'PROCEDIMENTO',
-        description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
-        amount: charge.amount,
-        date: now,
-        paid_at: charge.paid_at ?? now,
-        payment_method: method,
-        status: 'PAGO',
-        dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
-        // CLIENTE na tela de Entradas: amarra a receita ao paciente (via Lead) — antes
-        // o nome só ia na descrição e a coluna Cliente ficava "—". Fallback pro
-        // paciente direto (boleto importado do Asaas, sem treatment_plan).
-        lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null,
-        reference_id: charge.external_id,
-        notes: inClinic
-          ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
-          : 'Recebimento de cobrança (Asaas online)',
-      },
-    });
-    await this.prisma.paymentGatewayCharge.update({
-      where: { id: charge.id },
-      data: { transaction_id: tx.id },
-    });
+    // Onda 18.x — TRAVA ANTI-CORRIDA (double-booking). O guard `if (charge.transaction_id)`
+    // acima lê FORA de qualquer lock; dois eventos do MESMO pagamento (CONFIRMED+RECEIVED
+    // do Asaas quase juntos, reconcile sobre webhook, reentrega em massa da fila) leem os
+    // dois `transaction_id` null e criam DUAS receitas — valor DOBRADO nas Entradas/KPIs.
+    // O create da FinancialTransaction + o link em charge.transaction_id são 2 writes
+    // não-atômicos, e o @unique de transaction_id fica no CHARGE (não impede 2 transactions;
+    // a 2ª só sobrescreve o ponteiro e órfã a 1ª receita no caixa). Advisory lock por
+    // cobrança serializa verifica->cria->linka (mesmo padrão de findOrCreateFinanceiroConversation,
+    // keyspace 1 vs 0 do lock de lead). O 2º evento pega o transaction_id já preenchido
+    // DENTRO do lock -> retorna o existente, não duplica.
+    const result = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${chargeId}), 1)`;
+      const fresh = await tx.paymentGatewayCharge.findUnique({
+        where: { id: chargeId },
+        select: { transaction_id: true },
+      });
+      if (fresh?.transaction_id) return { id: fresh.transaction_id, created: false };
+      const created = await tx.financialTransaction.create({
+        data: {
+          tenant_id: charge.tenant_id,
+          type: 'RECEITA',
+          category: 'PROCEDIMENTO',
+          description: `${inClinic ? 'Recebido na clínica' : 'Recebimento'} — ${patientName}${charge.description ? ` · ${charge.description}` : ''}${parcelaSuffix}`,
+          amount: charge.amount,
+          // Onda 18.x — normalmente a receita é datada de HOJE (webhook ao vivo:
+          // RECEIVED = compensação = hoje). No BACKFILL (dateFromCharge) datamos pelo
+          // EVENTO econômico (payment_date/paid_at) — senão a receita curada de uma
+          // cobrança antiga cairia no fechamento de HOJE em vez do dia real, jogando
+          // receita fantasma no caixa atual e deixando os dias corretos a menos.
+          date: opts?.dateFromCharge ? (charge.payment_date ?? charge.paid_at ?? now) : now,
+          paid_at: charge.paid_at ?? now,
+          payment_method: method,
+          status: 'PAGO',
+          dentist_id: charge.treatment_plan?.quote?.created_by_user_id ?? null,
+          // CLIENTE na tela de Entradas: amarra a receita ao paciente (via Lead) — antes
+          // o nome só ia na descrição e a coluna Cliente ficava "—". Fallback pro
+          // paciente direto (boleto importado do Asaas, sem treatment_plan).
+          lead_id: charge.treatment_plan?.patient?.lead_id ?? charge.patient?.lead_id ?? null,
+          reference_id: charge.external_id,
+          notes: inClinic
+            ? 'Venda/atendimento recebido na clínica (fechamento de caixa)'
+            : 'Recebimento de cobrança (Asaas online)',
+        },
+      });
+      await tx.paymentGatewayCharge.update({
+        where: { id: charge.id },
+        data: { transaction_id: created.id },
+      });
+      return { id: created.id, created: true };
+      // maxWait/timeout folgados: sob enxurrada, esperar o advisory lock não deve
+      // abortar a tx cedo (P2024/P2028 deixaria a receita por lançar — o que o backfill
+      // depois cura, mas melhor não cair nisso).
+    }, { maxWait: 5000, timeout: 15000 });
+
+    // Corrida: outro evento já lançou a receita dentro do lock — não loga nem
+    // libera comissão de novo (idempotente).
+    if (!result.created) return result.id;
+
     this.logger.log(
-      `[caixa] RECEITA ${tx.id} (R$ ${charge.amount}, ${method}${inClinic ? ', clínica' : ''}) p/ cobrança ${charge.id}`,
+      `[caixa] RECEITA ${result.id} (R$ ${charge.amount}, ${method}${inClinic ? ', clínica' : ''}) p/ cobrança ${charge.id}`,
     );
     // Onda 17.61 — paciente PAGOU → libera as comissões DEVIDA deste plano (trigger
     // ON_PAYMENT). Cobre clínica E Asaas (ambos passam por aqui). Best-effort.
     await this.releaseCommissionsForPlan(charge.tenant_id, charge.treatment_plan_id, now);
-    return tx.id;
+    return result.id;
   }
 
   /**
@@ -282,45 +316,64 @@ export class PaymentGatewayService {
       );
     }
 
-    const createdIds: string[] = [];
-    for (const p of payments) {
-      const parcelaSuffix = p.installments && p.installments > 1 ? ` ${p.installments}×` : '';
-      const formaLabel = p.debit ? 'Cartão débito' : this.caixaMethodLabel(p.method);
-      const tx = await this.prisma.financialTransaction.create({
-        data: {
-          tenant_id: charge.tenant_id,
-          type: 'RECEITA',
-          category: 'PROCEDIMENTO',
-          description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''} · ${formaLabel}${parcelaSuffix}`,
-          amount: p.value,
-          date: now,
-          paid_at: charge.paid_at ?? now,
-          payment_method: p.method,
-          status: 'PAGO',
-          dentist_id: dentistId,
-          lead_id: leadId,
-          reference_id: charge.external_id,
-          // Cada forma na SUA conta → entra no escopo do caixa (senão sumiria do fechamento).
-          account_id: accountForMethod(p.method),
-          notes: 'Venda recebida na clínica — pagamento dividido em várias formas (fechamento de caixa)',
-        },
+    // Onda 18.x — MESMA TRAVA ANTI-CORRIDA do ensureChargeReceita (double-booking).
+    // O guard `if (charge.transaction_id)` do topo lê FORA de lock; dois recebimentos
+    // concorrentes na recepção (duplo-clique / 2 atendentes) na MESMA cobrança leem os
+    // dois transaction_id null e criam 2 conjuntos completos de receitas split,
+    // órfãando o 1º — PIOR que o caso webhook: cada receita split tem account_id e
+    // entra nos KPIs/fechamento, e o backfill NÃO cura (transaction_id já fica setado).
+    // Advisory lock no MESMO keyspace (hashtext(chargeId), 1) serializa contra o split
+    // concorrente E contra o ensureChargeReceita do webhook.
+    const primary = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${chargeId}), 1)`;
+      const fresh = await tx.paymentGatewayCharge.findUnique({
+        where: { id: chargeId },
+        select: { transaction_id: true },
       });
-      createdIds.push(tx.id);
-    }
+      if (fresh?.transaction_id) return { id: fresh.transaction_id, created: false };
+      const createdIds: string[] = [];
+      for (const p of payments) {
+        const parcelaSuffix = p.installments && p.installments > 1 ? ` ${p.installments}×` : '';
+        const formaLabel = p.debit ? 'Cartão débito' : this.caixaMethodLabel(p.method);
+        const txRow = await tx.financialTransaction.create({
+          data: {
+            tenant_id: charge.tenant_id,
+            type: 'RECEITA',
+            category: 'PROCEDIMENTO',
+            description: `Recebido na clínica — ${patientName}${charge.description ? ` · ${charge.description}` : ''} · ${formaLabel}${parcelaSuffix}`,
+            amount: p.value,
+            date: now,
+            paid_at: charge.paid_at ?? now,
+            payment_method: p.method,
+            status: 'PAGO',
+            dentist_id: dentistId,
+            lead_id: leadId,
+            reference_id: charge.external_id,
+            // Cada forma na SUA conta → entra no escopo do caixa (senão sumiria do fechamento).
+            account_id: accountForMethod(p.method),
+            notes: 'Venda recebida na clínica — pagamento dividido em várias formas (fechamento de caixa)',
+          },
+        });
+        createdIds.push(txRow.id);
+      }
+      // Liga a cobrança à PRIMEIRA receita (1:1 primário + idempotência).
+      await tx.paymentGatewayCharge.update({
+        where: { id: charge.id },
+        data: { transaction_id: createdIds[0] ?? null },
+      });
+      this.logger.log(
+        `[caixa] RECEITA SPLIT (${createdIds.length} formas: ${payments
+          .map((p) => `${p.method} R$${p.value}`)
+          .join(' + ')}) p/ cobrança ${charge.id}`,
+      );
+      return { id: createdIds[0] ?? null, created: true };
+    }, { maxWait: 5000, timeout: 20000 });
 
-    // Liga a cobrança à PRIMEIRA receita (1:1 primário + idempotência).
-    await this.prisma.paymentGatewayCharge.update({
-      where: { id: charge.id },
-      data: { transaction_id: createdIds[0] ?? null },
-    });
-    this.logger.log(
-      `[caixa] RECEITA SPLIT (${createdIds.length} formas: ${payments
-        .map((p) => `${p.method} R$${p.value}`)
-        .join(' + ')}) p/ cobrança ${charge.id}`,
-    );
+    // Corrida: outro recebimento já lançou dentro do lock — não libera comissão de novo.
+    if (!primary.created) return primary.id;
     // Paciente pagou → libera comissões DEVIDA (ON_PAYMENT). Uma vez só.
     await this.releaseCommissionsForPlan(charge.tenant_id, charge.treatment_plan_id, now);
-    return createdIds[0] ?? null;
+    return primary.id;
   }
 
   /** Onda 18.x — rótulo humano da forma de pagamento p/ descrição da receita. */
@@ -2012,6 +2065,80 @@ export class PaymentGatewayService {
       this.logger.warn(`[RECONCILE-CRON] Erro no ciclo: ${e.message}`);
     } finally {
       this.reconcileCronBusy = false;
+    }
+  }
+
+  /**
+   * Onda 18.x — AUTO-CURA de receita perdida no caixa. handleWebhook seta o status
+   * pra RECEIVED (linha ~1521) ANTES de lançar a receita (ensureChargeReceita é
+   * best-effort: se o create falha — ex.: timeout de pool sob enxurrada — o erro é
+   * ENGOLIDO como warning). Aí o guard de idempotência (charge.status === mappedStatus)
+   * BLOQUEIA qualquer retry -> a cobrança fica RECEIVED, transaction_id NULL, SEM
+   * receita no caixa, PRA SEMPRE. Este cron acha essas cobranças e re-chama
+   * ensureChargeReceita (idempotente + trava anti-corrida), curando as futuras E as
+   * já perdidas. Blindagens da revisão: (1) filtra/dateia por paid_at (não updated_at,
+   * que é volátil, nem date=hoje, que distorce o fechamento); (2) RE-VERIFICA no Asaas
+   * antes de lançar (não cura dinheiro estornado cujo REFUNDED se perdeu no backlog);
+   * (3) skip rotativo anti head-of-line; (4) janela de 90d (não ressuscita importado
+   * antigo). Kill-switch: RECEITA_BACKFILL_OFF=1. API 1 réplica (guard de reentrância).
+   */
+  @Cron('*/15 8-20 * * *', { timeZone: 'America/Maceio' })
+  async ensureReceitaBackfillCron() {
+    if (process.env.RECEITA_BACKFILL_OFF === '1') return;
+    if (this.ensureReceitaCronBusy) return;
+    this.ensureReceitaCronBusy = true;
+    try {
+      const BATCH = 50;
+      // Chave temporal ESTÁVEL: paid_at (evento econômico) — updated_at (@updatedAt)
+      // bumpa em qualquer toque na cobrança e puxaria cobrança antiga pra janela.
+      const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+      const where: any = {
+        gateway: 'ASAAS',
+        status: 'RECEIVED',
+        transaction_id: null,
+        lead_honorario_payment_id: null,
+        paid_at: { gte: since },
+      };
+      const count = await this.prisma.paymentGatewayCharge.count({ where });
+      if (count === 0) return;
+      // Offset rotativo (igual reconcile): se um lote falha sempre (dado ruim / getCharge
+      // 404 de conta trocada), não trava a cabeça da fila — varre janelas diferentes.
+      const skip = count > BATCH ? Math.floor(Math.random() * (count - BATCH)) : 0;
+      const batch = await this.prisma.paymentGatewayCharge.findMany({
+        where,
+        take: BATCH,
+        skip,
+        orderBy: { paid_at: 'asc' },
+        select: { id: true, external_id: true, tenant_id: true },
+      });
+      let healed = 0;
+      let skipped = 0;
+      let errors = 0;
+      for (const c of batch) {
+        try {
+          // RE-VERIFICA no Asaas (igual reconcile): não lança receita de dinheiro que
+          // foi ESTORNADO/apagado e cujo webhook REFUNDED/DELETED se perdeu no backlog.
+          const asaasData = await this.asaas.getCharge(c.external_id, c.tenant_id);
+          if (await this.reflectAsaasSoftDelete(c.external_id, asaasData)) { skipped++; continue; }
+          const mapped = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
+          if (mapped !== 'RECEIVED' && mapped !== 'CONFIRMED') { skipped++; continue; }
+          // dateFromCharge: receita datada do pagamento real, não de hoje.
+          const txId = await this.ensureChargeReceita(c.id, { dateFromCharge: true });
+          if (txId) healed++;
+        } catch (e: any) {
+          errors++;
+          this.logger.warn(`[RECEITA-BACKFILL] Falha ao verificar/curar ${c.external_id}: ${e?.message}`);
+        }
+      }
+      if (healed > 0 || skipped > 0 || errors > 0) {
+        this.logger.log(
+          `[RECEITA-BACKFILL] ${count} RECEIVED sem receita (90d) — ${healed} curadas, ${skipped} puladas, ${errors} erros (lote ${batch.length})`,
+        );
+      }
+    } catch (e: any) {
+      this.logger.warn(`[RECEITA-BACKFILL] Erro no ciclo: ${e?.message}`);
+    } finally {
+      this.ensureReceitaCronBusy = false;
     }
   }
 
