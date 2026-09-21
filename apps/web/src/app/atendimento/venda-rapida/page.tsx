@@ -17,7 +17,7 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown,
+  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown, QrCode,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -976,6 +976,12 @@ export default function VendaRapidaPage() {
                 { group: 'Recebido na clínica', key: 'CLINIC_CARD' as BillingType, label: 'Maquineta', sub: 'débito ou crédito · 1 ou 2 cartões', Icon: CreditCard },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX' as BillingType, label: 'PIX da clínica', sub: 'chave PIX da clínica', Icon: DollarSign },
                 { group: 'Recebido na clínica', key: 'CLINIC_PIX_MAQ' as BillingType, label: 'PIX (Maquineta)', sub: 'PIX na máquina de cartão', Icon: CreditCard },
+                // Onda 18.x — TESTE-SISTEMA: reabre o PIX ONLINE do Asaas na venda rápida
+                // (caminho que já existia: billingType='PIX' sem received_in_clinic →
+                // approve-and-bill gera a cobrança PIX no Asaas, o dialog mostra QR +
+                // copia-e-cola e o backend manda o copia-e-cola no WhatsApp do paciente;
+                // a baixa vem pelo webhook). NÃO entra no caixa na hora.
+                { group: 'Cobrança online (Asaas)', key: 'PIX' as BillingType, label: 'TESTE-SISTEMA', sub: 'gera PIX no Asaas · QR code + copia e cola', Icon: QrCode },
               ]).map((m, idx, arr) => {
                 const isActive = billingType === m.key;
                 const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
@@ -1207,9 +1213,19 @@ export default function VendaRapidaPage() {
           <div className="mt-3 text-[10px] text-emerald-700 dark:text-emerald-400 flex items-start gap-1.5">
             <CheckCircle2 size={11} className="shrink-0 mt-0.5" />
             <p className="leading-snug">
-              Ao finalizar: registra o recebimento no caixa e lança os procedimentos
-              no tratamento como <strong>pendentes</strong> — o dentista confirma a
-              conclusão de cada um depois.
+              {!mixMode && billingType === 'PIX' ? (
+                <>
+                  Ao finalizar: gera a cobrança <strong>PIX no Asaas</strong> (QR code na tela e
+                  copia-e-cola no WhatsApp do paciente); o caixa recebe quando o pagamento
+                  confirmar. Os procedimentos entram no tratamento como <strong>pendentes</strong>.
+                </>
+              ) : (
+                <>
+                  Ao finalizar: registra o recebimento no caixa e lança os procedimentos
+                  no tratamento como <strong>pendentes</strong> — o dentista confirma a
+                  conclusão de cada um depois.
+                </>
+              )}
             </p>
           </div>
           </div>{/* fim do rodapé fixo (Total + Finalizar) */}
