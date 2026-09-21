@@ -3,14 +3,14 @@
 /**
  * Onda 17.50/17.52/17.58 — Home "MÓDULOS por papel".
  *
- * Header escuro (breadcrumb + chip do papel + "Boa tarde, X") + grade de cards
- * "MÓDULOS": ícone em quadrado arredondado (canto sup. esq., cor por tone),
+ * Grade de cards "MÓDULOS" (o header escuro de saudacao/breadcrumb foi
+ * removido): ícone em quadrado arredondado (canto sup. esq., cor por tone),
  * badge de contagem ao vivo no canto sup. dir. (GET /home/module-badges via
  * useModuleBadges), título e descrição. Cada card navega direto (Link).
  *
  * 100% dirigido por papel: os cards vêm de resolveHomeActions(setor, grants,
- * revokes), então UM componente cobre os 6 setores. Home sempre clara fora do
- * header (paleta fixa no CSS, decisão do usuário).
+ * revokes), então UM componente cobre os 6 setores. Home sempre clara
+ * (paleta fixa no CSS, decisão do usuário).
  */
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -25,6 +25,7 @@ import './home-por-setor.css';
 
 interface Props {
   sector: Sector;
+  /** @deprecated mantido por compat — header de saudacao foi removido */
   userName?: string;
   /** @deprecated mantido por compat — nao e mais renderizado */
   skySlot?: React.ReactNode;
@@ -34,37 +35,19 @@ interface Props {
   extraRevokes?: Permission[];
 }
 
-const DEFAULT_HOUR = 12; // estado neutro pro SSR
-
 const ICONS: Record<string, LucideIcon> = {
   Calendar, Zap, Users, MessageSquare, RotateCcw, FileText, LineChart,
   Workflow, CheckCheck, Layers, Receipt, PieChart, Wallet, UserCog,
   Megaphone, Settings, Cake,
 };
 
-function greetingFor(hour: number): string {
-  if (hour >= 5  && hour < 12) return 'Bom dia';
-  if (hour >= 12 && hour < 18) return 'Boa tarde';
-  return 'Boa noite';
-}
-
-export default function HomeBySector({ sector, userName, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
-  const [hour, setHour] = useState(DEFAULT_HOUR);
+export default function HomeBySector({ sector, allowSwitch = false, extraGrants = [], extraRevokes = [] }: Props) {
   const [previewSector, setPreviewSector] = useState<Sector>(sector);
-
-  useEffect(() => {
-    setHour(new Date().getHours());
-    const t = setInterval(() => setHour(new Date().getHours()), 60_000);
-    return () => clearInterval(t);
-  }, []);
 
   useEffect(() => { setPreviewSector(sector); }, [sector]);
 
   const active    = previewSector;
   const meta      = getSector(active);
-  const greeting  = greetingFor(hour);
-  const firstName = userName?.trim().split(' ')[0] || 'visitante';
-  const isPreview = active !== sector;
   // Cards EFETIVOS (com grants/revokes do usuário). Só aplica os ajustes no setor
   // REAL; no preview do admin (switcher) mostra só o padrão.
   const actions   = resolveHomeActions(
@@ -72,7 +55,6 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
     active === sector ? extraGrants : [],
     active === sector ? extraRevokes : [],
   );
-  const setorLabel = meta.home.persona;
 
   const { data: badgesData } = useModuleBadges(active);
 
@@ -98,19 +80,6 @@ export default function HomeBySector({ sector, userName, allowSwitch = false, ex
           </span>
         </div>
       )}
-
-      {/* Header escuro */}
-      <header className="hb-hero">
-        <div className="hb-crumb">Início <b>›</b> {setorLabel}</div>
-        <span className="hb-sector-chip">
-          {setorLabel}
-          {isPreview && <em className="hb-preview-tag">prévia</em>}
-        </span>
-        <h1 className="hb-greeting">
-          {greeting}, <span className="hb-greeting-name">{firstName}</span>
-        </h1>
-        <p className="hb-sub">{meta.home.subtitle}</p>
-      </header>
 
       {/* Grade de MÓDULOS */}
       <div className="hb-section-label">Módulos</div>

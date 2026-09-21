@@ -75,64 +75,6 @@
 }
 @media (max-width: 720px) { .home-bs .hb-switcher-hint { display: none; } }
 
-/* ─── Header escuro (Onda 17.58 — padrão mockup) ─────────────────── */
-.home-bs .hb-hero {
-  background: linear-gradient(135deg, #1f1b33 0%, #2b2447 55%, #392e5b 100%);
-  border-radius: 14px;
-  padding: 20px 24px 24px;
-  box-shadow: 0 10px 30px -12px rgba(30, 25, 55, 0.5);
-}
-.home-bs .hb-hero .hb-crumb { color: rgba(255, 255, 255, 0.5); }
-.home-bs .hb-hero .hb-crumb b { color: rgba(255, 255, 255, 0.8); }
-.home-bs .hb-hero .hb-sector-chip {
-  color: #fdba74;
-  background: rgba(249, 115, 22, 0.14);
-  border-color: rgba(249, 115, 22, 0.32);
-}
-.home-bs .hb-hero .hb-preview-tag { background: #f97316; }
-.home-bs .hb-hero .hb-greeting { color: #fff; }
-.home-bs .hb-greeting-name { color: #fb923c; }
-.home-bs .hb-hero .hb-sub { color: rgba(255, 255, 255, 0.66); }
-
-/* ─── Cabeçalho ──────────────────────────────────────────────────── */
-.home-bs .hb-crumb { font-size: 12.5px; color: var(--ink-3); font-weight: 500; margin-bottom: 14px; }
-.home-bs .hb-crumb b { color: var(--ink-2); font-weight: 600; }
-
-.home-bs .hb-sector-chip {
-  display: inline-flex;
-  align-items: center;
-  font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--orange-d);
-  background: var(--orange-soft);
-  border: 1px solid var(--orange-bd);
-  padding: 5px 12px;
-  border-radius: 6px;
-}
-.home-bs .hb-preview-tag {
-  font-style: normal;
-  margin-left: 6px;
-  font-size: 9px;
-  background: var(--orange);
-  color: #fff;
-  padding: 1px 6px;
-  border-radius: 4px;
-  font-weight: 800;
-}
-
-.home-bs .hb-greeting {
-  font-size: clamp(21px, 2.5vw, 24px);
-  font-weight: 700;
-  line-height: 1.15;
-  color: var(--ink);
-  margin: 14px 0 0;
-  letter-spacing: -0.01em;
-}
-.home-bs .hb-count { font-size: 13px; font-weight: 600; color: var(--ink-3); margin-left: 8px; }
-.home-bs .hb-sub { font-size: 14px; color: var(--ink-2); margin: 5px 0 0; max-width: 640px; }
-
 /* ─── Tira fina de KPIs ──────────────────────────────────────────── */
 .home-bs .hb-kpis {
   display: flex;
