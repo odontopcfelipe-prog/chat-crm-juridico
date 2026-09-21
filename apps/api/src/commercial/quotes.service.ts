@@ -842,6 +842,9 @@ export class QuotesService {
       // Forma REAL recebida na clínica (DINHEIRO/CARTAO/PIX/PIX_MAQUININHA), só p/
       // EXIBIÇÃO no comprovante e no aviso interno — não roteia a cobrança.
       received_method?: string;
+      // Onda 18.x — venda RÁPIDA (balcão): NÃO dispara "negociação aprovada" (+PDF)
+      // antes do pagamento — o paciente está na frente do operador; só o PIX sai.
+      quick_sale?: boolean;
     },
   ) {
     if (!this.billingService) {
@@ -967,6 +970,13 @@ export class QuotesService {
           total: Number(data.value) || 0,
           forma: data.received_method || data.manual_payment_method || data.billing_type,
         });
+      } else if (data.quick_sale) {
+        // Venda RÁPIDA com PIX online: o paciente está no balcão, vai pagar agora.
+        // "Negociação aprovada" (+PDF) é disparo de proposta parcelada (o template da
+        // clínica fala em boletos) — sai ERRADO aqui. Só o PIX copia-e-cola vai (abaixo);
+        // a confirmação chega pelo webhook ("Pagamento Confirmado") quando cair.
+        this.logger.log(`[APPROVE-AND-BILL] venda rápida ${data.billing_type} — pulando "negociação aprovada" (plano ${plan.id})`);
+        await this.sendPixDelivery(tenantId, plan.id, quote.patient, (result as any)?.pix?.copyPaste ?? null);
       } else {
         // Venda a receber (boleto/financiamento/PIX Asaas): confirma as condições ao
         // paciente (opt-in). Best-effort: a cobrança já foi criada, não falha o fluxo.

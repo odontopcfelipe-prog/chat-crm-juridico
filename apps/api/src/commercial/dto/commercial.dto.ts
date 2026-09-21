@@ -126,6 +126,9 @@ export class ApproveAndBillDto {
   // roteia a cobrança, diferente de manual_payment_method). O front colapsa as 4
   // formas em billing_type='PIX', então sem isto a mensagem diria "PIX" pra tudo.
   @IsOptional() @IsString() @IsIn(['DINHEIRO', 'PIX', 'PIX_MAQUININHA', 'CARTAO']) received_method?: string;
+  // Onda 18.x — venda RÁPIDA (balcão): pula a "negociação aprovada" (+PDF) no fechamento;
+  // o disparo é de proposta parcelada (fala em boletos). Só o PIX sai antes do pagamento.
+  @IsOptional() @IsBoolean() quick_sale?: boolean;
 }
 
 // Onda 18.6 — Admin edita o preco (total) de um item da proposta.

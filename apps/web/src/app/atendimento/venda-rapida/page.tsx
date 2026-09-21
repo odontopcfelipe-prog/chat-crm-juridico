@@ -521,6 +521,9 @@ export default function VendaRapidaPage() {
           // confirmar a conclusão (aí nasce a comissão de execução). A comissão de
           // VENDA já nasce no fechamento (approveAndBill), pro vendedor.
           auto_execute_items: false,
+          // Onda 18.x — identifica a venda RÁPIDA: com PIX online, o backend NÃO dispara
+          // "negociação aprovada" (+PDF) antes do pagamento — só o PIX copia-e-cola.
+          quick_sale: true,
           executed_by_dentist_id: dentistId || undefined,
         },
       );

@@ -432,6 +432,7 @@ export class CommercialController {
       manual_payment_method: dto.manual_payment_method,
       received_in_clinic: dto.received_in_clinic,
       received_method: dto.received_method,
+      quick_sale: dto.quick_sale,
       auto_execute_items: dto.auto_execute_items,
       executed_by_dentist_id: dto.executed_by_dentist_id,
     });
