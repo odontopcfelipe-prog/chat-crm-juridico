@@ -69,14 +69,37 @@ export default function ChatPane({ leadId, compact = false, scope }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploadingFile, setUploadingFile] = useState(false);
 
-  // Auto-scroll ao adicionar mensagem
+  // Auto-scroll ao adicionar mensagem.
+  // Onda 18.x — regras (antes só "perto do fim", e ao ABRIR o scroll estava no
+  // topo → nunca rolava; enviar também não puxava):
+  //  1. carga inicial / troca de conversa (ou a 2ª carga de 500 msgs que
+  //     substitui as 100 primeiras) → vai pro FIM sempre;
+  //  2. última msg é MINHA (direction out, inclui a otimista) → vai pro fim;
+  //  3. msg recebida → só se já está perto do fim (não tira o operador da leitura).
+  const lastMsgIdRef = useRef<string | null>(null);
+  const firstMsgIdRef = useRef<string | null>(null);
+  const loadedConvoRef = useRef<string | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
-    // Só auto-scroll se já está perto do fim (não tira o operador da leitura)
+    if (!el || loading) return;
+    const last = messages.length ? messages[messages.length - 1] : null;
+    const lastId = last?.id ?? null;
+    const firstId = messages.length ? (messages[0]?.id ?? null) : null;
+    const isNewConvo = loadedConvoRef.current !== convoId;
+    // Histórico antigo entrou POR CIMA (1ª msg mudou, última não): é a 2ª carga
+    // de 500 ou o sync-history — sem isso a visão ficava no meio da conversa.
+    const historyPrepended = firstId !== firstMsgIdRef.current && lastId === lastMsgIdRef.current;
+    const lastChanged = lastId !== lastMsgIdRef.current;
+    const isMine = last?.direction === 'out';
     const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 200;
-    if (isNearBottom) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+    if (isNewConvo || historyPrepended || (lastChanged && isMine) || isNearBottom) {
+      // rAF: espera o DOM medir as bolhas novas antes de rolar.
+      requestAnimationFrame(() => { el.scrollTop = el.scrollHeight; });
+    }
+    loadedConvoRef.current = convoId;
+    lastMsgIdRef.current = lastId;
+    firstMsgIdRef.current = firstId;
+  }, [messages, loading, convoId]);
 
   // Lista plana: separadores de data + mensagens
   const renderItems = useMemo<RenderItem[]>(() => {
