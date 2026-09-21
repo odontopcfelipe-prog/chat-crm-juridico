@@ -192,7 +192,9 @@ export function useChatSocket(leadId: string, opts?: { scope?: 'patient' }): Use
         }
       } catch (e: any) {
         console.error('Erro ao inicializar chat:', e);
-        showError('Erro ao carregar conversa.');
+        // Onda 18.x — no chat embutido da ficha o painel já mostra o estado vazio
+        // com orientação; toast em cima (2× no StrictMode) só polui.
+        if (scope !== 'patient') showError('Erro ao carregar conversa.');
       } finally {
         setLoading(false);
       }

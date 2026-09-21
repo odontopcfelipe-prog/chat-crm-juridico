@@ -1010,7 +1010,7 @@ function PacienteFichaInner() {
           scope="patient" garante a conversa do chip Clínica/Comercial. */}
       {chatOpen && patient.lead_id && (
         <aside
-          className="fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-[400px] md:shrink-0 md:h-full flex flex-col bg-card border-l border-border shadow-xl md:shadow-none"
+          className="fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-[340px] lg:w-[380px] xl:w-[420px] md:shrink-0 md:h-full flex flex-col bg-card border-l border-border shadow-xl md:shadow-none"
           aria-label={`Chat com ${patient.name}`}
         >
           <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-emerald-50/60 dark:bg-emerald-950/30 shrink-0">
