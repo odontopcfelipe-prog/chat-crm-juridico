@@ -1700,6 +1700,21 @@ export class PaymentGatewayService {
       }
     }
 
+    // Onda 18.x — Venda RÁPIDA com PIX online: o aviso interno "Venda realizada" foi
+    // ADIADO no fechamento (o paciente ainda não tinha pago). Dispara agora que caiu.
+    // Só evento RECENTE (reentrega em massa não deve avisar venda velha). ModuleRef
+    // pelo mesmo motivo do down-payment (evita ciclo PaymentGateway↔Commercial).
+    if ((mappedStatus === 'RECEIVED' || mappedStatus === 'CONFIRMED') && eventIsRecent) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const qmod = require('../commercial/quotes.service');
+        const quotes = this.moduleRef.get(qmod.QuotesService, { strict: false });
+        if (quotes?.notifyVendaFeitaOnPaid) await quotes.notifyVendaFeitaOnPaid(charge.id);
+      } catch (e: any) {
+        this.logger.warn(`[WEBHOOK] Falha ao disparar "venda realizada" adiada p/ charge ${charge.id}: ${e.message}`);
+      }
+    }
+
     // STUBBED: HonorarioPayment removido Fase 0.2 — branch desativado
 
     // Fase 18: se pagamento RECEIVED/CONFIRMED e tem installment_id (parcela odonto),

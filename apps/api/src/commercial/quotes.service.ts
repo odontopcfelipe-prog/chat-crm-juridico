@@ -995,11 +995,23 @@ export class QuotesService {
 
       // Notificação interna de VENDA FEITA (a um número configurado) — cobre venda
       // rápida e aprovar-e-cobrar (ambos passam por aqui). Usa a forma REAL recebida.
-      await this.sendVendaFeita(tenantId, plan.id, quote.patient, {
+      const vendaInfo = {
         valor: Number(data.value) || 0,
         forma: data.received_method || data.manual_payment_method || data.billing_type,
         vendedorId: userId,
-      });
+      };
+      if (data.quick_sale && !data.received_in_clinic && !data.manual_payment_method) {
+        // Venda RÁPIDA com cobrança ONLINE (PIX Asaas): o paciente ainda NÃO pagou —
+        // avisar "venda realizada" agora é mentira pro admin. ADIA: grava o marcador e
+        // o webhook do Asaas dispara o aviso quando o pagamento cair
+        // (notifyVendaFeitaOnPaid). Dedup por plano continua no sendVendaFeita.
+        await this.prisma.auditLog
+          .create({ data: { entity: 'VENDA_FEITA_DEFERRED', entity_id: plan.id, action: 'deferred', meta_json: { tenant_id: tenantId, ...vendaInfo } } })
+          .catch((e: any) => this.logger.warn(`[VENDA_FEITA] marcador de adiamento não gravou (plano ${plan.id}): ${e?.message}`));
+        this.logger.log(`[VENDA_FEITA] venda rápida ${data.billing_type} online — aviso ADIADO até o pagamento cair (plano ${plan.id})`);
+      } else {
+        await this.sendVendaFeita(tenantId, plan.id, quote.patient, vendaInfo);
+      }
 
       // Onda 17.40 — "na hora da venda" (Venda Rapida): marca os itens do plano
       // como FEITOS em nome do dentista responsavel -> gera a comissao dele na
@@ -1654,6 +1666,46 @@ export class QuotesService {
         .catch((e: any) => this.logger.warn(`[DISPATCH-LOG] pix_delivery não registrou: ${e?.message}`));
     } catch (e: any) {
       this.logger.warn(`[PIX_DELIVERY] falha (best-effort) no plano ${planId}: ${e?.message || e}`);
+    }
+  }
+
+  /**
+   * Onda 18.x — Chamado pelo webhook do Asaas quando uma cobrança é PAGA. Se a venda
+   * era RÁPIDA com PIX online (marcador VENDA_FEITA_DEFERRED gravado no fechamento),
+   * dispara AGORA o aviso interno "Venda realizada" — o admin só é avisado de venda
+   * que o paciente de fato pagou. Sem marcador = não é caso adiado, sai calado.
+   * Best-effort; dedup por plano (AuditLog VENDA_FEITA) no sendVendaFeita.
+   */
+  async notifyVendaFeitaOnPaid(chargeId: string): Promise<void> {
+    try {
+      const charge = await this.prisma.paymentGatewayCharge.findUnique({
+        where: { id: chargeId },
+        select: { tenant_id: true, treatment_plan_id: true, description: true, billing_type: true, amount: true },
+      });
+      if (!charge?.tenant_id) return;
+      const planId = charge.treatment_plan_id
+        || (charge.description || '').match(/\[plan:([0-9a-f-]{36})\]/i)?.[1]
+        || null;
+      if (!planId) return;
+      const deferred = await this.prisma.auditLog.findFirst({
+        where: { entity: 'VENDA_FEITA_DEFERRED', entity_id: planId },
+        select: { meta_json: true },
+      });
+      if (!deferred) return;
+      const meta = (deferred.meta_json || {}) as any;
+      const plan = await this.prisma.treatmentPlan.findUnique({
+        where: { id: planId },
+        select: { patient: { select: { name: true, tenant_id: true } } },
+      });
+      if (!plan?.patient || plan.patient.tenant_id !== charge.tenant_id) return;
+      this.logger.log(`[VENDA_FEITA] pagamento caiu — disparando aviso adiado (plano ${planId}, cobrança ${chargeId})`);
+      await this.sendVendaFeita(charge.tenant_id, planId, plan.patient, {
+        valor: Number(meta.valor) || Number(charge.amount) || 0,
+        forma: meta.forma || charge.billing_type,
+        vendedorId: meta.vendedorId || null,
+      });
+    } catch (e: any) {
+      this.logger.warn(`[VENDA_FEITA] falha ao disparar aviso adiado (cobrança ${chargeId}): ${e?.message || e}`);
     }
   }
 
