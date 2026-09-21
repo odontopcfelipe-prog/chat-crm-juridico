@@ -123,6 +123,27 @@ export class AsaasClient {
     return !!cfg.apiKey;
   }
 
+  /**
+   * Onda 18.x — a clínica tem conta Asaas PRÓPRIA? Só conta:
+   *   (a) chave cadastrada no TenantSetting ASAAS_API_KEY (POST /payment-gateway/setup), ou
+   *   (b) ser a dona declarada da chave global (ASAAS_GLOBAL_OWNER_TENANT — a matriz).
+   * O fallback LEGADO (chave global pra todo mundo quando o dono não está setado) NÃO
+   * conta aqui: é justamente o caminho que faz a cobrança sair na conta de outra
+   * clínica. Cobrança ONLINE (PIX/boleto/cartão) usa este gate — sem conta própria,
+   * erro claro pro tenant em vez de PIX na conta errada.
+   */
+  async hasOwnAccount(tenantId?: string | null): Promise<boolean> {
+    if (!tenantId) return false;
+    const ts = await this.prisma.tenantSetting
+      .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key: 'ASAAS_API_KEY' } } })
+      .catch(() => null);
+    if (ts?.value) return true;
+    const { getTenantSetting } = await import('../../tenants/tenant-settings.helper.js');
+    const owner = await getTenantSetting(this.prisma, 'ASAAS_GLOBAL_OWNER_TENANT', null);
+    if (owner && owner === tenantId) return !!(await this.settingsService.get('asaas_api_key'));
+    return false;
+  }
+
   // ─── Core HTTP wrapper ─────────────────────────────────
 
   /**

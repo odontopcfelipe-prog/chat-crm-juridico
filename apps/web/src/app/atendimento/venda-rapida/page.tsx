@@ -253,6 +253,19 @@ export default function VendaRapidaPage() {
       .finally(() => setLoadingProc(false));
   }, []);
 
+  // Onda 18.x — PIX online (TESTE-SISTEMA) SÓ sai pela conta Asaas da PRÓPRIA
+  // clínica. `own_account` vem do backend (chave cadastrada no gateway ou matriz
+  // dona da global). null = ainda não sei; false = avisa na opção e barra o
+  // Finalizar com instrução. O backend barra também (defesa em 2 camadas).
+  const [asaasOwn, setAsaasOwn] = useState<boolean | null>(null);
+  useEffect(() => {
+    api.get<{ own_account?: boolean; configured?: boolean }>('/payment-gateway/settings')
+      .then(({ data }) => setAsaasOwn(data?.own_account ?? false))
+      .catch(() => setAsaasOwn(null));
+  }, []);
+  const ASAAS_MISSING_MSG =
+    'Esta clínica não tem a conta Asaas cadastrada. Cadastre a chave de API em Configurações → Gateway de pagamento pra gerar PIX online, ou use uma forma "Recebido na clínica".';
+
   // Onda 17.40 — carrega dentistas pro seletor de responsável (comissão)
   useEffect(() => {
     api.get<any>('/users/lawyers')
@@ -409,6 +422,11 @@ export default function VendaRapidaPage() {
     }
     if (mixMode && !mixOk) {
       showError(`Dividir em várias formas: a soma das formas (R$ ${mixSum.toFixed(2)}) tem que ser igual ao total (R$ ${total.toFixed(2)}).`);
+      return;
+    }
+    // PIX online sem conta Asaas própria: barra aqui (o backend barra de novo).
+    if (!mixMode && billingType === 'PIX' && asaasOwn === false) {
+      showError(ASAAS_MISSING_MSG);
       return;
     }
     setFinishing(true);
@@ -985,6 +1003,8 @@ export default function VendaRapidaPage() {
               ]).map((m, idx, arr) => {
                 const isActive = billingType === m.key;
                 const showHeader = idx === 0 || arr[idx - 1].group !== m.group;
+                // PIX online sem conta Asaas própria da clínica: mostra o aviso na opção.
+                const asaasMissing = m.key === 'PIX' && asaasOwn === false;
                 return (
                   <div key={m.key}>
                     {showHeader && (
@@ -1009,6 +1029,12 @@ export default function VendaRapidaPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-xs font-bold text-foreground">{m.label}</p>
                       <p className="text-[10px] text-muted-foreground">{m.sub}</p>
+                      {asaasMissing && (
+                        <p className="text-[10px] text-red-600 dark:text-red-400 font-semibold mt-0.5 flex items-center gap-1">
+                          <AlertCircle size={10} className="shrink-0" />
+                          Conta Asaas não cadastrada — Configurações → Gateway de pagamento
+                        </p>
+                      )}
                     </div>
                     {isActive && <CheckCircle2 size={14} className="text-emerald-600 shrink-0" />}
                   </button>

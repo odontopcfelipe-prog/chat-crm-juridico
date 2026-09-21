@@ -2251,6 +2251,10 @@ export class PaymentGatewayService {
       provider: 'ASAAS',
       configured: !!config.apiKey,
       sandbox: config.sandbox,
+      // Onda 18.x — conta PRÓPRIA da clínica (chave cadastrada ou dona da global).
+      // `configured` pode ser true pelo fallback legado da chave global; cobrança
+      // ONLINE exige `own_account` (o front avisa antes de tentar).
+      own_account: await this.asaas.hasOwnAccount(tenantId),
     };
   }
 

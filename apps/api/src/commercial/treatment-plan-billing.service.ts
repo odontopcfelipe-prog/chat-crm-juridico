@@ -775,6 +775,19 @@ export class TreatmentPlanBillingService {
       };
     }
 
+    // Onda 18.x — Cobrança ONLINE (PIX/boleto/cartão no Asaas) SÓ com a conta Asaas
+    // da PRÓPRIA clínica (chave cadastrada no gateway, ou a matriz dona da global).
+    // Sem isso, clínica sem chave caía no fallback legado da chave global → PIX
+    // gerado na conta de OUTRA clínica. Agora: erro claro, antes de criar customer.
+    if (!options.receivedInClinic && !(await this.asaas.hasOwnAccount(tenantId))) {
+      this.logger.warn(`[SIMPLE-CHARGE] Plan ${planId}: tenant ${tenantId} sem conta Asaas própria — cobrança online ${options.billingType} BLOQUEADA`);
+      throw new BadRequestException(
+        'Esta clínica não tem a conta Asaas cadastrada. Cadastre a chave de API do Asaas em ' +
+        'Configurações → Gateway de pagamento para gerar PIX/boleto/cartão online, ' +
+        'ou use uma forma "Recebido na clínica".',
+      );
+    }
+
     const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient.id, tenantId);
 
     const asaasCharge = await this.asaas.createCharge({
