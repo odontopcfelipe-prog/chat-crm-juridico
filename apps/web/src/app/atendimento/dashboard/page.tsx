@@ -9,20 +9,18 @@
  *  - Mascote dente animado
  *  - 4 atalhos principais (Novo paciente / Nova avaliacao / Agendar / Metas)
  *  - 4 pilulas secundarias (Agenda do dia / Pagamento / Confirmar / WhatsApp)
- *  - Checklist de afazeres do dia (localStorage, persiste por usuario+dia)
- *  - Bloco de anotacoes rapidas (localStorage, autosave)
  *  - Botao "Dashboard completo" no canto pra acessar a antiga (charts/KPIs)
  *
  * Inspirado em Clinicorp / inicio.html (template Sorrir).
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   UserPlus, FileText, Calendar, Target,
-  Calendar as CalendarIcon, CreditCard, CheckCircle2, MessageCircle,
-  Check, BookOpen, Sparkles,
+  Calendar as CalendarIcon, CreditCard, MessageCircle,
+  BookOpen, Sparkles,
   Users, LayoutGrid, Wallet, // Onda 17.17 — atalhos de secao
 } from 'lucide-react';
 import api from '@/lib/api';
@@ -104,36 +102,6 @@ function getVerseOfDay(date: Date): { text: string; ref: string } {
 ─────────────────────────────────────────────────────────────── */
 
 /* ───────────────────────────────────────────────────────────────
-   Afazeres padrao (template — vira persistente no localStorage)
-─────────────────────────────────────────────────────────────── */
-interface Task {
-  id: string;
-  text: string;
-  detail: string;
-  tag?: 'hoje' | 'atrasado' | 'retorno';
-  done: boolean;
-}
-
-const DEFAULT_TASKS: Task[] = [
-  { id: '1', text: 'Confirmar agendamentos de amanhã', detail: 'Revise quem precisa confirmar presença', tag: 'hoje', done: false },
-  { id: '2', text: 'Cobrar parcelas atrasadas', detail: 'Veja inadimplência no Financeiro', tag: 'atrasado', done: false },
-  { id: '3', text: 'Alertar pacientes de retorno', detail: 'Últimas visitas há 6+ meses', tag: 'retorno', done: false },
-  { id: '4', text: 'Follow-up de orçamentos pendentes', detail: 'Quem foi enviado mas sem resposta', done: false },
-];
-
-const TAG_STYLES: Record<NonNullable<Task['tag']>, string> = {
-  hoje: 'bg-amber-100 text-amber-700 dark:bg-amber-500/15 dark:text-amber-400',
-  atrasado: 'bg-red-100 text-red-700 dark:bg-red-500/15 dark:text-red-400',
-  retorno: 'bg-teal-100 text-teal-700 dark:bg-teal-500/15 dark:text-teal-400',
-};
-
-const TAG_LABEL: Record<NonNullable<Task['tag']>, string> = {
-  hoje: 'Hoje',
-  atrasado: 'Atrasado',
-  retorno: 'Retorno',
-};
-
-/* ───────────────────────────────────────────────────────────────
    Mascote dente — SVG simples animado
 ─────────────────────────────────────────────────────────────── */
 function ToothMascot({ onClick }: { onClick?: () => void }) {
@@ -200,47 +168,6 @@ export default function VisaoGeralPage() {
 
     return () => clearInterval(id);
   }, []);
-
-  // Tasks + Note persistem por dia (key = YYYY-MM-DD)
-  const todayKey = now ? now.toISOString().slice(0, 10) : '';
-  const [tasks, setTasks] = useState<Task[]>(DEFAULT_TASKS);
-  const [note, setNote] = useState('');
-  const [noteSaved, setNoteSaved] = useState(true);
-
-  useEffect(() => {
-    if (!todayKey) return;
-    try {
-      const t = localStorage.getItem(`dashboard:tasks:${todayKey}`);
-      if (t) setTasks(JSON.parse(t));
-      else setTasks(DEFAULT_TASKS);
-      const n = localStorage.getItem(`dashboard:note:${todayKey}`);
-      if (n) setNote(n);
-    } catch {/* ignore */}
-  }, [todayKey]);
-
-  const persistTasks = (next: Task[]) => {
-    setTasks(next);
-    try { localStorage.setItem(`dashboard:tasks:${todayKey}`, JSON.stringify(next)); } catch {/* ignore */}
-  };
-
-  const noteTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const onNoteChange = (v: string) => {
-    setNote(v);
-    setNoteSaved(false);
-    if (noteTimer.current) clearTimeout(noteTimer.current);
-    noteTimer.current = setTimeout(() => {
-      try { localStorage.setItem(`dashboard:note:${todayKey}`, v); } catch {/* ignore */}
-      setNoteSaved(true);
-    }, 600);
-  };
-
-  const toggleTask = (id: string) => {
-    persistTasks(tasks.map((t) => (t.id === id ? { ...t, done: !t.done } : t)));
-  };
-
-  const doneCount = tasks.filter((t) => t.done).length;
-  const allDone = doneCount === tasks.length && tasks.length > 0;
-  const ringPct = tasks.length > 0 ? (doneCount / tasks.length) * 100 : 0;
 
   // Saudacao
   const hour = now?.getHours() ?? 8;
@@ -386,102 +313,6 @@ export default function VisaoGeralPage() {
           </div>
         </section>
 
-        {/* ─── Grid 2 colunas: Afazeres + Anotacoes ─── */}
-        <div className="grid grid-cols-1 md:grid-cols-[1.15fr_0.85fr] gap-4 mt-4">
-
-          {/* Afazeres do dia */}
-          <section className="bg-card border border-border rounded-xl shadow-sm">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border/50">
-              <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
-                <CheckCircle2 size={16} className="text-sky-500" />
-                Afazeres do dia
-              </h3>
-              <div className="flex items-center gap-2 text-xs font-bold text-muted-foreground">
-                <span>{doneCount}/{tasks.length}</span>
-                <svg width="32" height="32" viewBox="0 0 36 36" className="-rotate-90">
-                  <circle cx="18" cy="18" r="15" stroke="hsl(var(--border))" strokeWidth="4" fill="none" />
-                  <circle
-                    cx="18"
-                    cy="18"
-                    r="15"
-                    stroke="#0EA5E9"
-                    strokeWidth="4"
-                    fill="none"
-                    strokeLinecap="round"
-                    strokeDasharray={`${2 * Math.PI * 15}`}
-                    strokeDashoffset={`${2 * Math.PI * 15 * (1 - ringPct / 100)}`}
-                    style={{ transition: 'stroke-dashoffset 0.6s cubic-bezier(0.34, 1.56, 0.4, 1)' }}
-                  />
-                </svg>
-              </div>
-            </div>
-
-            {allDone ? (
-              <div className="px-5 py-8 text-center">
-                <div className="text-4xl mb-2" style={{ animation: 'bob 2s ease-in-out infinite' }}>🎉</div>
-                <p className="text-sm font-bold text-foreground">Tudo resolvido por hoje!</p>
-                <p className="text-xs text-muted-foreground mt-1">Sua clínica está em dia. Mandou bem!</p>
-              </div>
-            ) : (
-              <div className="p-2">
-                {tasks.map((t) => (
-                  <button
-                    key={t.id}
-                    onClick={() => toggleTask(t.id)}
-                    className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-accent/20 transition-colors text-left"
-                  >
-                    <span
-                      className={`w-[22px] h-[22px] rounded-md border-2 flex-none grid place-items-center transition-all ${
-                        t.done
-                          ? 'bg-emerald-500 border-emerald-500 text-white'
-                          : 'border-border bg-background'
-                      }`}
-                    >
-                      {t.done && <Check size={13} strokeWidth={3.5} />}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <div className={`text-sm font-semibold transition-colors ${t.done ? 'text-muted-foreground line-through' : 'text-foreground'}`}>
-                        {t.text}
-                      </div>
-                      <div className="text-xs text-muted-foreground/70 mt-0.5">{t.detail}</div>
-                    </div>
-                    {t.tag && (
-                      <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-md ${TAG_STYLES[t.tag]} ${t.done ? 'opacity-40' : ''}`}>
-                        {TAG_LABEL[t.tag]}
-                      </span>
-                    )}
-                  </button>
-                ))}
-              </div>
-            )}
-          </section>
-
-          {/* Anotações — Onda 17.14: paleta alinhada com tema (sky em
-              vez de amber/yellow). Mantém a sensação de "caderno" mas
-              com tons frios que combinam com a sidebar. */}
-          <section className="bg-gradient-to-b from-sky-50/80 to-blue-50/60 dark:from-sky-500/10 dark:to-blue-500/5 border border-sky-200/50 dark:border-sky-500/20 rounded-xl shadow-sm relative overflow-hidden">
-            {/* Fita decorativa no topo */}
-            <div className="absolute top-[-12px] left-1/2 -translate-x-1/2 w-24 h-6 bg-sky-500/15 border border-dashed border-sky-500/30 rounded-sm" />
-
-            <div className="flex items-center justify-between px-5 py-5">
-              <h3 className="text-lg font-serif font-semibold text-foreground">Anotações</h3>
-              <span className={`flex items-center gap-1.5 text-[11px] font-bold transition-colors ${noteSaved ? 'text-emerald-500' : 'text-muted-foreground/60'}`}>
-                <Check size={13} strokeWidth={2.5} />
-                {noteSaved ? 'Salvo' : 'Salvando...'}
-              </span>
-            </div>
-            <textarea
-              value={note}
-              onChange={(e) => onNoteChange(e.target.value)}
-              placeholder={`Anote algo rápido…\n• Ligar para o protético sobre a coroa da Dona Cida\n• Repor anestésico no estoque`}
-              className="w-full px-5 py-2 pb-5 text-sm leading-[30px] text-foreground placeholder:text-muted-foreground/40 bg-transparent border-0 outline-none resize-none min-h-[200px]"
-              style={{
-                backgroundImage: 'repeating-linear-gradient(transparent, transparent 29px, rgba(186, 230, 253, 0.5) 29px, rgba(186, 230, 253, 0.5) 30px)',
-                fontFamily: 'inherit',
-              }}
-            />
-          </section>
-        </div>
       </div>
     </div>
   );
