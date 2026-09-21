@@ -47,9 +47,12 @@ interface Props {
   /** Header do slot (no parent) já tem nome + trocar + fechar. ChatPane
    *  só renderiza header interno mais compacto. */
   compact?: boolean;
+  /** Onda 18.x — `'patient'`: acha/cria a conversa de PACIENTE do lead (fora do
+   *  Financeiro). Usado pelo chat embutido na ficha do paciente. */
+  scope?: 'patient';
 }
 
-export default function ChatPane({ leadId, compact = false }: Props) {
+export default function ChatPane({ leadId, compact = false, scope }: Props) {
   const router = useRouter();
   const {
     messages, setMessages,
@@ -57,7 +60,7 @@ export default function ChatPane({ leadId, compact = false }: Props) {
     aiMode, setAiMode,
     loading,
     currentUserId,
-  } = useChatSocket(leadId);
+  } = useChatSocket(leadId, scope ? { scope } : undefined);
 
   const [text, setText] = useState('');
   const [sending, setSending] = useState(false);
@@ -232,8 +235,13 @@ export default function ChatPane({ leadId, compact = false }: Props) {
 
   if (!convoId || !lead) {
     return (
-      <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-sm bg-background gap-2">
+      <div className="h-full flex flex-col items-center justify-center text-muted-foreground text-sm bg-background gap-2 px-4 text-center">
         <span>Conversa não encontrada</span>
+        {scope === 'patient' && (
+          <span className="text-xs">
+            Confira se o paciente tem telefone e se a clínica tem um WhatsApp Clínica/Comercial conectado.
+          </span>
+        )}
       </div>
     );
   }

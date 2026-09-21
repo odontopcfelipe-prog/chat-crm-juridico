@@ -47,6 +47,8 @@ import { AddAllergyModal, AddMedicationModal } from '../components/AllergyMedica
 import TimelineTab from '../components/TimelineTab';
 import OverviewClinicalSection from '../components/OverviewClinicalSection';
 import PatientTagsPicker, { type AssignedTag } from '../components/PatientTagsPicker';
+// Onda 18.x — chat embutido na ficha ("Conversar"): reusa o painel do split view.
+import ChatPane from '../../split/components/ChatPane';
 
 interface Patient {
   id: string;
@@ -190,6 +192,24 @@ function PacienteFichaInner() {
     return valid ? (raw as TabId) : 'overview';
   })();
   const [tab, setTab] = useState<TabId>(initialTab);
+  // Onda 18.x — "Conversar": chat do paciente num painel lateral, SEM sair da ficha.
+  // Aberto/fechado lembrado por paciente na sessão (volta como estava ao reabrir a
+  // ficha). Esc fecha. Não interfere na aba durável do inbox (nada de crm_open_conv).
+  const chatStorageKey = params?.id ? `crm_ficha_chat_open:${params.id}` : null;
+  const [chatOpen, setChatOpen] = useState<boolean>(() => {
+    try { return !!chatStorageKey && sessionStorage.getItem(chatStorageKey) === '1'; } catch { return false; }
+  });
+  const toggleChat = (open: boolean) => {
+    setChatOpen(open);
+    try { if (chatStorageKey) sessionStorage.setItem(chatStorageKey, open ? '1' : '0'); } catch { /* storage indisponível */ }
+  };
+  useEffect(() => {
+    if (!chatOpen) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') toggleChat(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [chatOpen]);
   // Onda 17.65 — se cair numa aba sem permissão (ex.: ?tab=financial via link),
   // volta pra Visão Geral (só depois que /users/me carregou as permissões).
   useEffect(() => {
@@ -397,10 +417,14 @@ function PacienteFichaInner() {
     : null;
 
   return (
-    // h-full + overflow-y-auto: pai <main> tem overflow-hidden, entao precisamos
-    // de container scrollavel proprio pra que conteudos longos (orcamento com
-    // anexos, prontuario com muitas evolucoes) nao fiquem cortados na viewport.
-    <div className="h-full overflow-y-auto p-6 w-full">
+    // Onda 18.x — wrapper em linha: ficha (rolável) + painel do chat ao lado.
+    // O painel NÃO é overlay: a ficha encolhe e continua 100% usável com o chat
+    // aberto (trocar aba, editar, etc.). No celular o chat vira tela cheia.
+    <div className="h-full w-full flex min-w-0">
+    {/* h-full + overflow-y-auto: pai <main> tem overflow-hidden, entao precisamos
+        de container scrollavel proprio pra que conteudos longos (orcamento com
+        anexos, prontuario com muitas evolucoes) nao fiquem cortados na viewport. */}
+    <div className="h-full overflow-y-auto p-6 flex-1 min-w-0">
       {/* Back — volta pra página de ONDE veio (Orçamentos, lista de pacientes, CRM…)
           via histórico do navegador. Trocar de aba aqui é só estado (não empurra
           histórico), então o "voltar" sempre retorna à origem. Sem histórico
@@ -521,6 +545,26 @@ function PacienteFichaInner() {
               title="Agendar consulta para este paciente"
             >
               <Calendar size={14} /> Agendar
+            </button>
+          )}
+          {/* Onda 18.x — "Conversar": abre o chat DESTE paciente num painel ao lado,
+              sem sair da ficha (chip Clínica/Comercial — nunca o Financeiro). */}
+          {patient.status !== 'ARCHIVED' && patient.lead_id && (
+            <button
+              type="button"
+              onClick={() => {
+                if (!patient.phone) { showError('Paciente sem telefone — cadastre antes de conversar.'); return; }
+                toggleChat(!chatOpen);
+              }}
+              className={`text-xs px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm border ${
+                chatOpen
+                  ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-300 dark:border-emerald-800'
+                  : 'bg-emerald-600 hover:bg-emerald-700 text-white border-transparent'
+              }`}
+              title={chatOpen ? 'Fechar o chat lateral' : 'Abrir o WhatsApp deste paciente aqui na ficha'}
+              aria-pressed={chatOpen}
+            >
+              <MessageCircle size={14} /> Conversar
             </button>
           )}
           {/* Onda 18.x — "Falar no Financeiro": só na aba Financeiro, abre a conversa
@@ -957,6 +1001,37 @@ function PacienteFichaInner() {
           onClose={() => setAddMedOpen(false)}
           onCreated={() => { setAddMedOpen(false); load(); }}
         />
+      )}
+    </div>
+
+      {/* Onda 18.x — Painel lateral "Conversar": chat do paciente sem sair da ficha.
+          Desktop: coluna fixa de 400px à direita (a ficha encolhe). Mobile: tela
+          cheia por cima. ChatPane usa o SocketProvider do layout (1 socket só) e
+          scope="patient" garante a conversa do chip Clínica/Comercial. */}
+      {chatOpen && patient.lead_id && (
+        <aside
+          className="fixed inset-0 z-40 md:static md:inset-auto md:z-auto md:w-[400px] md:shrink-0 md:h-full flex flex-col bg-card border-l border-border shadow-xl md:shadow-none"
+          aria-label={`Chat com ${patient.name}`}
+        >
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-border bg-emerald-50/60 dark:bg-emerald-950/30 shrink-0">
+            <MessageCircle size={14} className="text-emerald-600 dark:text-emerald-400" />
+            <span className="text-xs font-bold text-foreground truncate flex-1">
+              WhatsApp · {patient.name}
+            </span>
+            <button
+              type="button"
+              onClick={() => toggleChat(false)}
+              className="p-1.5 rounded hover:bg-accent/40 text-muted-foreground hover:text-foreground"
+              title="Fechar chat (Esc)"
+              aria-label="Fechar chat"
+            >
+              <X size={14} />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <ChatPane leadId={patient.lead_id} scope="patient" />
+          </div>
+        </aside>
       )}
     </div>
   );

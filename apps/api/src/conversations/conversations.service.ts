@@ -318,6 +318,102 @@ export class ConversationsService {
     }));
   }
 
+  /**
+   * Onda 18.x — Conversa de PACIENTE do lead (acha/cria) pro chat embutido na
+   * ficha ("Conversar"). É o espelho do findOrCreateFinanceiroConversation do
+   * payment-gateway, só que pro mundo clínico: NUNCA devolve/cria conversa do
+   * inbox FINANCEIRO (mundo isolado — o botão "Falar no Financeiro" cuida dele).
+   *
+   *  - Acha: conversa whatsapp NÃO-ENCERRADA do lead fora do Financeiro, a mais
+   *    recente por last_message_at (vale Clínica OU Comercial — mesmo "mundo").
+   *  - Cria: inbox CLINICA, senão COMERCIAL, senão qualquer inbox não-financeiro
+   *    do tenant; instance_name pelo chip da mesma função (união Clínica↔Comercial,
+   *    igual ao resolver de disparos). Sem inbox elegível → [] (front avisa).
+   *  - Anti-IDOR: lead precisa ser da PRÓPRIA clínica; lead órfão (tenant null)
+   *    é rejeitado. Sem telefone → [] (evita conversa-casca sem JID).
+   *  - Find-or-create ATÔMICO (advisory lock por lead) pra não duplicar quando
+   *    dois operadores abrem a ficha ao mesmo tempo; o índice único parcial
+   *    (lead_id, inbox_id) WHERE status≠ENCERRADO é a segunda trava.
+   *
+   * Devolve no MESMO formato de findAllByLead (array com 0 ou 1 item) pra o
+   * useChatSocket do front tratar as duas rotas igual.
+   */
+  async findOrCreatePatientConversation(lead_id: string, tenantId?: string | null): Promise<any[]> {
+    if (!lead_id || !tenantId) return [];
+    const lead = await this.prisma.lead.findUnique({
+      where: { id: lead_id },
+      select: { phone: true, tenant_id: true },
+    });
+    if (!lead || lead.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado a este recurso');
+    const cleanPhone = (lead.phone || '').replace(/\D/g, '');
+    if (!cleanPhone) return [];
+
+    // Inbox resolvido FORA da transação (não depende do lock).
+    const pickInbox = async (purpose: 'CLINICA' | 'COMERCIAL') =>
+      this.prisma.inbox.findFirst({
+        where: { tenant_id: tenantId, purpose },
+        orderBy: { created_at: 'asc' },
+        select: { id: true, purpose: true },
+      });
+    const inbox =
+      (await pickInbox('CLINICA')) ??
+      (await pickInbox('COMERCIAL')) ??
+      (await this.prisma.inbox.findFirst({
+        where: { tenant_id: tenantId, NOT: { purpose: 'FINANCEIRO' } },
+        orderBy: { created_at: 'asc' },
+        select: { id: true, purpose: true },
+      }));
+
+    const convoId = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lead_id}), 0)`;
+      const existing = await tx.conversation.findFirst({
+        where: {
+          lead_id,
+          channel: 'whatsapp',
+          status: { not: 'ENCERRADO' },
+          NOT: { inbox: { purpose: 'FINANCEIRO' } },
+        },
+        orderBy: { last_message_at: 'desc' },
+        select: { id: true },
+      });
+      if (existing) return existing.id;
+      if (!inbox) return null;
+      const chipPurpose = inbox.purpose === 'COMERCIAL' ? 'COMERCIAL' : 'CLINICA';
+      const sibling = chipPurpose === 'CLINICA' ? 'COMERCIAL' : 'CLINICA';
+      const chip =
+        (await tx.instance.findFirst({
+          where: { tenant_id: tenantId, type: 'whatsapp', purpose: chipPurpose },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        })) ??
+        (await tx.instance.findFirst({
+          where: { tenant_id: tenantId, type: 'whatsapp', purpose: sibling },
+          orderBy: { created_at: 'asc' },
+          select: { name: true },
+        }));
+      const created = await tx.conversation.create({
+        data: {
+          lead_id,
+          channel: 'whatsapp',
+          status: 'ABERTO',
+          external_id: `${cleanPhone}@s.whatsapp.net`,
+          inbox_id: inbox.id,
+          instance_name: chip?.name ?? null,
+          tenant_id: tenantId,
+          // Chat aberto por humano na ficha: IA não deve responder por cima.
+          ai_mode: false,
+          last_message_at: new Date(),
+        } as any,
+        select: { id: true },
+      });
+      this.logger.log(`[FICHA-CHAT] Conversa de paciente criada pro lead ${lead_id}: ${created.id} (inbox ${inbox.purpose ?? 'sem função'})`);
+      return created.id;
+    });
+    if (!convoId) return [];
+    const all = await this.findAllByLead(lead_id, tenantId);
+    return all.filter((c: any) => c.id === convoId);
+  }
+
   async setAssignedLawyer(id: string, dentistId: string | null): Promise<Conversation> {
     const updated = await this.prisma.conversation.update({
       where: { id },

@@ -32,7 +32,11 @@ interface UseChatSocketResult {
  * Hook que encapsula toda a logica de fetch de dados e eventos do socket.
  * Usa o socket compartilhado do SocketProvider (sem io() local).
  */
-export function useChatSocket(leadId: string): UseChatSocketResult {
+/** Onda 18.x — `scope: 'patient'` resolve (acha/cria) a conversa de PACIENTE do lead
+ *  fora do mundo Financeiro — chat embutido na ficha. Default = comportamento antigo
+ *  (primeira conversa do lead, seja de qual chip for). */
+export function useChatSocket(leadId: string, opts?: { scope?: 'patient' }): UseChatSocketResult {
+  const scope = opts?.scope ?? null;
   const router = useRouter();
   const [messages, setMessages] = useState<any[]>([]);
   const [lead, setLead] = useState<any>(null);
@@ -69,7 +73,9 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
 
     const fetchData = async () => {
       try {
-        const convoRes = await api.get(`/conversations/lead/${leadId}`);
+        const convoRes = await api.get(
+          scope === 'patient' ? `/conversations/lead/${leadId}/patient` : `/conversations/lead/${leadId}`,
+        );
         if (convoRes.data && convoRes.data.length > 0) {
           const convo = convoRes.data[0];
           setLead(convo.lead);
@@ -218,7 +224,7 @@ export function useChatSocket(leadId: string): UseChatSocketResult {
         }
       }
     };
-  }, [leadId, router, currentUserId, sharedSocket]);
+  }, [leadId, scope, router, currentUserId, sharedSocket]);
 
   return {
     messages,

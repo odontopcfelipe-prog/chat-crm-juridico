@@ -69,6 +69,13 @@ export class ConversationsController {
     return this.conversationsService.findAllByLead(leadId, req.user?.tenant_id);
   }
 
+  /** Onda 18.x — conversa de PACIENTE (fora do Financeiro) do lead, acha/cria.
+   *  Usada pelo chat embutido na ficha ("Conversar"). Mesmo formato de lead/:leadId. */
+  @Get('lead/:leadId/patient')
+  findOrCreatePatient(@Param('leadId') leadId: string, @Request() req: any) {
+    return this.conversationsService.findOrCreatePatientConversation(leadId, req.user?.tenant_id);
+  }
+
   @Post()
   create(@Body() dto: CreateConversationDto, @Request() req: any) {
     return this.conversationsService.create({
