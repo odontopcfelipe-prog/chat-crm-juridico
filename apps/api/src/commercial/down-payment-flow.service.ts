@@ -509,6 +509,31 @@ export class DownPaymentFlowService {
       return;
     }
 
+    // Onda 18.x — GUARD ANTI-DUPLICACAO por EXISTENCIA de parcela (nao so pelo marcador).
+    // O claim abaixo so checa installments_generated_at, MAS o fechamento UPFRONT
+    // (createFinancingCharges) cria as parcelas SEM carimbar esse marcador — entao um plano
+    // pode ter 24 parcelas ATIVAS + marcador NULL. Sem esta checagem, o trigger passaria o
+    // claim e geraria um 2o lote de boletos REAIS por cima. Se ja existe parcela ATIVA
+    // (ignora DELETED/CANCELLED/REFUNDED — assim re-emissao apos cancelar tudo continua
+    // possivel), carimba o marcador (alinha os caminhos) e NAO regenera.
+    const existingInstallments = await this.prisma.paymentGatewayCharge.count({
+      where: {
+        treatment_plan_id: planId,
+        kind: 'INSTALLMENT',
+        status: { notIn: ['DELETED', 'CANCELLED', 'REFUNDED'] },
+      },
+    });
+    if (existingInstallments > 0) {
+      this.logger.warn(
+        `[DOWN-PMT] Plan ${planId} ja tem ${existingInstallments} parcela(s) ativa(s) (fechamento upfront/emissao anterior) — carimba o marcador e NAO regenera.`,
+      );
+      await this.prisma.treatmentPlan.updateMany({
+        where: { id: planId, installments_generated_at: null },
+        data: { installments_generated_at: new Date() },
+      });
+      return;
+    }
+
     const tenantId = plan.patient.tenant_id;
 
     // Info da notificacao de "entrada paga" — soma o que foi pago de SINAL+ENTRADA
@@ -659,14 +684,31 @@ export class DownPaymentFlowService {
     }
     if (plan.patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
 
-    // Idempotencia
-    if (plan.installments_generated_at) {
-      this.logger.warn(`[INSTALLMENTS] Plan ${plan.id} ja gerou parcelas em ${plan.installments_generated_at}`);
-      const existing = await this.prisma.paymentGatewayCharge.findMany({
-        where: { treatment_plan_id: plan.id, kind: 'INSTALLMENT' },
-        orderBy: { created_at: 'asc' },
-      });
-      return { charges: existing, idempotent: true };
+    // Idempotencia — pelo marcador OU pela existencia de parcela ATIVA. O fechamento
+    // UPFRONT (createFinancingCharges) cria INSTALLMENT sem carimbar installments_generated_at,
+    // entao um plano pode ter parcelas ativas + marcador NULL; sem checar a existencia, um
+    // clique manual aqui geraria um 2o lote (boletos REAIS duplicados). Ignora
+    // DELETED/CANCELLED/REFUNDED pra permitir re-emissao apos cancelar tudo.
+    const activeInstallments = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        treatment_plan_id: plan.id,
+        kind: 'INSTALLMENT',
+        status: { notIn: ['DELETED', 'CANCELLED', 'REFUNDED'] },
+      },
+      orderBy: { created_at: 'asc' },
+    });
+    if (plan.installments_generated_at || activeInstallments.length > 0) {
+      this.logger.warn(
+        `[INSTALLMENTS] Plan ${plan.id} ja tem parcelas (marcador=${plan.installments_generated_at ? 'sim' : 'nao'}, ativas=${activeInstallments.length}) — nao regenera.`,
+      );
+      // Alinha o marcador quando veio nulo (parcelas criadas pelo fechamento upfront).
+      if (!plan.installments_generated_at && activeInstallments.length > 0) {
+        await this.prisma.treatmentPlan.updateMany({
+          where: { id: plan.id, installments_generated_at: null },
+          data: { installments_generated_at: new Date() },
+        });
+      }
+      return { charges: activeInstallments, idempotent: true };
     }
 
     // Verifica sinal+entrada todas pagas
@@ -690,57 +732,88 @@ export class DownPaymentFlowService {
       throw new BadRequestException('installmentValue deve ser positivo');
     }
 
-    // Onda 15 (etapa 16.4) — Veja parseLocalDate em emitDownPayment.
-    const firstDue = options.firstDueDate
-      ? new Date(options.firstDueDate + 'T12:00:00Z')
-      : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-    // Cria 1 charge no Asaas que vira N boletos (Asaas split automatico)
-    const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient_id, tenantId);
-    const total = options.installmentValue * options.installmentCount;
-    const asaasCharge = await this.asaas.createCharge({
-      customer: customer.external_id,
-      billingType: 'BOLETO',
-      value: total,
-      dueDate: firstDue.toISOString().slice(0, 10),
-      description: `Parcelas (${options.installmentCount}x) — ${plan.patient.name} [plan:${plan.id}]`,
-      externalReference: plan.id,
-      installmentCount: options.installmentCount,
-      installmentValue: options.installmentValue,
-    }, tenantId);
-
-    const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
-      data: {
-        tenant_id: tenantId,
-        treatment_plan_id: plan.id,
-        kind: 'INSTALLMENT',
-        gateway: 'ASAAS',
-        external_id: asaasCharge.id,
-        customer_external_id: customer.external_id,
-        billing_type: 'BOLETO',
-        amount: total,
-        due_date: firstDue,
-        status: asaasCharge.status || 'PENDING',
-        description: `Parcelas ${options.installmentCount}x R$ ${options.installmentValue} — ${plan.patient.name} [plan:${plan.id}]`,
-        boleto_url: asaasCharge.bankSlipUrl || null,
-        boleto_barcode: asaasCharge.nossoNumero || null,
-        invoice_url: asaasCharge.invoiceUrl || null,
-      },
+    // Onda 18.x — CLAIM ATOMICO (mesmo padrao do triggerDownPaymentConfirmed): a checagem
+    // por existencia acima e check-then-act; sem este claim, dois cliques concorrentes em
+    // emit-installments (ou o clique manual coincidindo com o trigger do webhook da entrada)
+    // leem ambos marcador:null + 0 parcelas e criam 2 lotes de boletos REAIS. So UMA
+    // execucao vence o claim; a outra retorna as existentes.
+    const claim = await this.prisma.treatmentPlan.updateMany({
+      where: { id: plan.id, installments_generated_at: null },
+      data: { installments_generated_at: new Date() },
     });
+    if (claim.count !== 1) {
+      this.logger.warn(`[INSTALLMENTS] Plan ${plan.id} — geracao ja reivindicada por outra execucao (corrida), retornando existentes.`);
+      const existing = await this.prisma.paymentGatewayCharge.findMany({
+        where: {
+          treatment_plan_id: plan.id,
+          kind: 'INSTALLMENT',
+          status: { notIn: ['DELETED', 'CANCELLED', 'REFUNDED'] },
+        },
+        orderBy: { created_at: 'asc' },
+      });
+      return { charges: existing, idempotent: true };
+    }
 
-    await this.prisma.treatmentPlan.update({
-      where: { id: plan.id },
-      data: {
-        installments_generated_at: new Date(),
-        proposal_status: 'APPROVED',
-      },
-    });
+    try {
+      // Onda 15 (etapa 16.4) — Veja parseLocalDate em emitDownPayment.
+      const firstDue = options.firstDueDate
+        ? new Date(options.firstDueDate + 'T12:00:00Z')
+        : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
-    this.logger.log(
-      `[INSTALLMENTS] Plan ${plan.id} parcelas geradas manualmente: ${options.installmentCount}x R$ ${options.installmentValue}`,
-    );
+      // Cria 1 charge no Asaas que vira N boletos (Asaas split automatico)
+      const customer = await this.paymentGateway.ensureCustomerForPatient(plan.patient_id, tenantId);
+      const total = options.installmentValue * options.installmentCount;
+      const asaasCharge = await this.asaas.createCharge({
+        customer: customer.external_id,
+        billingType: 'BOLETO',
+        value: total,
+        dueDate: firstDue.toISOString().slice(0, 10),
+        description: `Parcelas (${options.installmentCount}x) — ${plan.patient.name} [plan:${plan.id}]`,
+        externalReference: plan.id,
+        installmentCount: options.installmentCount,
+        installmentValue: options.installmentValue,
+      }, tenantId);
 
-    return { charges: [installmentsCharge], idempotent: false };
+      const installmentsCharge = await this.prisma.paymentGatewayCharge.create({
+        data: {
+          tenant_id: tenantId,
+          treatment_plan_id: plan.id,
+          kind: 'INSTALLMENT',
+          gateway: 'ASAAS',
+          external_id: asaasCharge.id,
+          customer_external_id: customer.external_id,
+          billing_type: 'BOLETO',
+          amount: total,
+          due_date: firstDue,
+          status: asaasCharge.status || 'PENDING',
+          description: `Parcelas ${options.installmentCount}x R$ ${options.installmentValue} — ${plan.patient.name} [plan:${plan.id}]`,
+          boleto_url: asaasCharge.bankSlipUrl || null,
+          boleto_barcode: asaasCharge.nossoNumero || null,
+          invoice_url: asaasCharge.invoiceUrl || null,
+        },
+      });
+
+      // Marcador ja foi carimbado pelo claim; aqui so promove a proposta.
+      await this.prisma.treatmentPlan.update({
+        where: { id: plan.id },
+        data: { proposal_status: 'APPROVED' },
+      });
+
+      this.logger.log(
+        `[INSTALLMENTS] Plan ${plan.id} parcelas geradas manualmente: ${options.installmentCount}x R$ ${options.installmentValue}`,
+      );
+
+      return { charges: [installmentsCharge], idempotent: false };
+    } catch (e: any) {
+      // Falha na criacao (Asaas/DB): LIBERA o claim pra permitir retry — senao o plano
+      // ficaria com marcador setado e ZERO parcelas, travado pra sempre.
+      await this.prisma.treatmentPlan.update({
+        where: { id: plan.id },
+        data: { installments_generated_at: null },
+      });
+      this.logger.warn(`[INSTALLMENTS] Plan ${plan.id} — falha ao gerar parcelas, claim liberado: ${e?.message}`);
+      throw e;
+    }
   }
 
   /**
