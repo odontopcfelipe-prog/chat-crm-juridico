@@ -342,6 +342,19 @@ export class PaymentGatewayController {
 
   // ─── ROTAS COM PARÂMETROS (depois das fixas) ──────────────
 
+  /** Onda 18.x — Status LOCAL da cobrança (leve, sem bater no Asaas). Rede de
+   *  segurança do dialog da venda rápida: o socket `financial_update` é o caminho
+   *  principal; este poll pega o caso do socket cair. O webhook mantém o local. */
+  @Get('charges/asaas/status/:chargeId')
+  async getAsaasChargeStatus(@Param('chargeId') chargeId: string, @Req() req: any) {
+    await this.resolveChargeTenant(chargeId, req.user?.tenant_id);
+    const charge = await this.prisma.paymentGatewayCharge.findUnique({
+      where: { external_id: chargeId },
+      select: { status: true, paid_at: true },
+    });
+    return { status: charge?.status ?? null, paid_at: charge?.paid_at ?? null };
+  }
+
   /** Detalhes completos de uma cobrança no Asaas */
   @Get('charges/asaas/detail/:chargeId')
   async getAsaasChargeDetail(@Param('chargeId') chargeId: string, @Req() req: any) {

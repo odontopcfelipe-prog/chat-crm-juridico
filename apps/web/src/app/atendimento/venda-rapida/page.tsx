@@ -20,6 +20,7 @@ import {
   Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown, QrCode,
 } from 'lucide-react';
 import api from '@/lib/api';
+import { useSocketEvent } from '@/lib/SocketProvider';
 import { showError, showSuccess } from '@/lib/toast';
 import { useUserPermissions } from '@/lib/useUserPermissions';
 import NewPatientModal from '../pacientes/components/NewPatientModal';
@@ -240,6 +241,7 @@ export default function VendaRapidaPage() {
     invoiceUrl?: string | null;    // url Asaas (cartao)
     boletoUrl?: string | null;     // pdf boleto (nao usado mas mantido pra extensao)
     mixLabel?: string | null;      // split "várias formas": PIX R$ x + Espécie R$ y
+    chargeExternalId?: string | null; // id Asaas — o dialog escuta a confirmação do PIX
   } | null>(null);
 
   // Carrega procedimentos
@@ -589,6 +591,7 @@ export default function VendaRapidaPage() {
         pixCopyPaste: billData?.pix?.copyPaste || null,
         invoiceUrl: billData?.invoice_url || null,
         boletoUrl: billData?.boleto?.url || null,
+        chargeExternalId: billData?.charge?.external_id || null,
         mixLabel: mixMode
           ? mixLines.map((l) => `${SPLIT_METHOD_LABEL[l.method] || l.method} R$ ${(Number(l.value) || 0).toFixed(2)}`).join(' + ')
           : null,
@@ -1302,6 +1305,7 @@ function SuccessDialog({
     pixCopyPaste?: string | null;
     invoiceUrl?: string | null;
     mixLabel?: string | null;
+    chargeExternalId?: string | null;
   };
   onClose: () => void;
   onGoToPatient: () => void;
@@ -1315,6 +1319,36 @@ function SuccessDialog({
       showError('Nao foi possivel copiar');
     }
   };
+
+  // Onda 18.x — PIX online: quando o Asaas confirma (webhook), a tela troca NA HORA
+  // pra "Pagamento efetuado com sucesso — obrigado por ser nosso paciente" (o dialog
+  // fica virado pro paciente no balcão). Caminho principal = socket `financial_update`
+  // da sala do tenant (o webhook emite {externalId, newStatus}); rede de segurança =
+  // poll leve do status LOCAL a cada 4s (caso o socket caia). Para ao confirmar/fechar.
+  const PAID = ['RECEIVED', 'CONFIRMED', 'RECEIVED_IN_CASH'];
+  const watchingPix = data.billingType === 'PIX' && !!data.chargeExternalId && !isClinicReceived(data.billingType);
+  const [paid, setPaid] = useState(false);
+  useSocketEvent<{ type?: string; externalId?: string; newStatus?: string }>('financial_update', (ev) => {
+    if (!watchingPix || paid) return;
+    if (ev?.externalId === data.chargeExternalId && PAID.includes(String(ev?.newStatus))) setPaid(true);
+  });
+  useEffect(() => {
+    if (!watchingPix || paid) return;
+    let alive = true;
+    const tick = async () => {
+      try {
+        const { data: st } = await api.get<{ status: string | null }>(
+          `/payment-gateway/charges/asaas/status/${data.chargeExternalId}`,
+        );
+        if (alive && st?.status && PAID.includes(st.status)) setPaid(true);
+      } catch { /* silencioso — tenta de novo no próximo tick */ }
+    };
+    const id = setInterval(tick, 4000);
+    return () => { alive = false; clearInterval(id); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchingPix, paid, data.chargeExternalId]);
+  useEffect(() => { if (paid) showSuccess('Pagamento PIX confirmado!'); }, [paid]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4"
@@ -1366,6 +1400,24 @@ function SuccessDialog({
                 o dentista confirma a conclusão de cada um.
               </p>
             </div>
+          ) : paid ? (
+            <div className="text-center py-8">
+              <div className="w-24 h-24 rounded-full bg-emerald-500 text-white flex items-center justify-center mx-auto mb-4 shadow-lg shadow-emerald-500/40 animate-[pulse_1.2s_ease-in-out_2]">
+                <Check size={56} strokeWidth={3} />
+              </div>
+              <p className="text-2xl font-extrabold text-emerald-700 dark:text-emerald-400 mb-2">
+                Pagamento efetuado com sucesso!
+              </p>
+              <p className="text-lg font-semibold text-foreground">
+                Obrigado por ser nosso paciente 💚
+              </p>
+              <p className="text-sm text-muted-foreground mt-3">
+                {data.patientName} · R$ {data.total.toLocaleString('pt-BR', { minimumFractionDigits: 2 })} via PIX
+              </p>
+              <p className="text-[11px] text-muted-foreground mt-4">
+                Pagamento confirmado pelo Asaas e lançado no financeiro do paciente.
+              </p>
+            </div>
           ) : data.billingType === 'PIX' && data.pixQrCode ? (
             <div className="text-center">
               <p className="text-sm font-bold text-foreground mb-1">
@@ -1408,8 +1460,9 @@ function SuccessDialog({
                   </div>
                 </div>
               )}
-              <p className="text-[11px] text-muted-foreground mt-4">
-                Pagamento confirmado automaticamente via webhook do Asaas.
+              <p className="text-[11px] text-muted-foreground mt-4 inline-flex items-center gap-1.5">
+                <Loader2 size={11} className="animate-spin" />
+                Aguardando pagamento — esta tela confirma sozinha assim que o PIX cair.
               </p>
             </div>
           ) : data.billingType === 'CREDIT_CARD' && data.invoiceUrl ? (
