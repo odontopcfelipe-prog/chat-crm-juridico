@@ -1943,6 +1943,59 @@ export class PaymentGatewayService {
   }
 
   /**
+   * Onda 18.x — Reconcile AO VIVO de UM paciente: confere no Asaas só as cobranças
+   * em aberto dele (PENDING/OVERDUE, pelos 3 vínculos charge↔paciente) e aplica a
+   * baixa/cancelamento pela mesma via idempotente e SILENCIOSA do reconcile geral.
+   * Pra o botão "Verificar no Asaas" do selo de devedor na ficha: "pagou mas continua
+   * bloqueado" = status local velho (webhook perdido / importado já-pago) — cura na
+   * hora, sem esperar a janela rotativa do cron. Tenant-scoped (anti-IDOR).
+   */
+  async reconcilePatient(patientId: string, tenantId?: string | null) {
+    if (!patientId || !tenantId) throw new BadRequestException('Paciente/clínica não identificados');
+    const patient = await this.prisma.patient.findUnique({
+      where: { id: patientId },
+      select: { tenant_id: true, lead_id: true },
+    });
+    if (!patient || patient.tenant_id !== tenantId) throw new ForbiddenException('Acesso negado');
+    const or: any[] = [{ patient_id: patientId }, { treatment_plan: { patient_id: patientId } }];
+    if (patient.lead_id) {
+      const custs = await this.prisma.paymentGatewayCustomer.findMany({
+        where: { lead_id: patient.lead_id, tenant_id: tenantId },
+        select: { external_id: true },
+      });
+      const ext = custs.map((c) => c.external_id).filter(Boolean) as string[];
+      if (ext.length) or.push({ customer_external_id: { in: ext } });
+    }
+    const open = await this.prisma.paymentGatewayCharge.findMany({
+      where: { tenant_id: tenantId, gateway: 'ASAAS', status: { in: ['PENDING', 'OVERDUE'] }, received_in_cash: false, OR: or },
+      select: { external_id: true, tenant_id: true, status: true },
+      take: 200,
+    });
+    let updated = 0;
+    let errors = 0;
+    const notFound: string[] = [];
+    for (const c of open) {
+      try {
+        const asaasData = await this.asaas.getCharge(c.external_id, c.tenant_id);
+        if (await this.reflectAsaasSoftDelete(c.external_id, asaasData)) { updated++; continue; }
+        const mapped = ASAAS_STATUS_MAP[asaasData.status] || asaasData.status;
+        if (mapped !== c.status) {
+          await this.handleWebhook({ event: 'PAYMENT_' + asaasData.status, payment: asaasData }, { silent: true });
+          updated++;
+        }
+      } catch (e: any) {
+        errors++;
+        // 404 = "não existe NESSA conta/ambiente" — pode ser chave/ambiente trocado; só
+        // reporta (nunca apaga). O admin vê o id e resolve no painel do Asaas.
+        if (e?.response?.status === 404 || /404/.test(String(e?.message))) notFound.push(c.external_id);
+        this.logger.warn(`[RECONCILE-PATIENT] ${patientId}: falha em ${c.external_id}: ${e?.message}`);
+      }
+    }
+    this.logger.log(`[RECONCILE-PATIENT] ${patientId}: ${open.length} em aberto conferidas — ${updated} baixadas/canceladas, ${errors} erros`);
+    return { checked: open.length, updated, errors, not_found: notFound };
+  }
+
+  /**
    * Auto-heal SEGURO de "cobrança apagada no Asaas". Quando um getCharge retorna
    * HTTP 200 com `deleted:true`, o Asaas diz AUTORITATIVAMENTE que a cobrança foi
    * apagada lá — e como veio 200, a config aponta pra conta/ambiente CERTO (sem o

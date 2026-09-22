@@ -581,6 +581,15 @@ export class PaymentGatewayController {
     return this.service.ensureCustomer(leadId, tenantId);
   }
 
+  /** Onda 18.x — reconcile ao vivo de UM paciente (botão "Verificar no Asaas" do
+   *  selo de devedor). Só as cobranças em aberto dele; silencioso; tenant-scoped. */
+  @RequiresPermission('view_financial')
+  @Post('patients/:patientId/reconcile')
+  async reconcilePatient(@Param('patientId') patientId: string, @Req() req: any) {
+    this.logger.log(`[POST /patients/${patientId}/reconcile] conferindo no Asaas`);
+    return this.service.reconcilePatient(patientId, req.user?.tenant_id);
+  }
+
   @Post('reconcile')
   async reconcile(@Req() req: any) {
     const tenantId = req.user?.tenant_id;
