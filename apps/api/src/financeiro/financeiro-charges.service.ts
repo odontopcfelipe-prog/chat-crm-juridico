@@ -62,6 +62,9 @@ type ChargeRow = {
 const PAID_STATUSES = ['RECEIVED', 'CONFIRMED'];
 const OPEN_STATUSES = ['PENDING', 'OVERDUE'];
 const CANCELLED_STATUSES = ['REFUNDED', 'DELETED', 'CANCELLED'];
+// Teto de linhas do cálculo de KPIs (carteira inteira em memória). Acima disso o
+// resultado sai marcado como truncated — melhor avisar que mentir.
+const KPI_ROW_CAP = 20000;
 
 @Injectable()
 export class FinanceiroChargesService {
@@ -408,7 +411,30 @@ export class FinanceiroChargesService {
     if (billingType) where.billing_type = billingType;
 
     if (patientId) {
-      where.treatment_plan = { patient_id: patientId };
+      // Onda 18.x — BUGFIX: filtrava SÓ pelo plano de tratamento, então boleto com
+      // vínculo direto (patient_id) e importado órfão (resolvido pelo cliente do
+      // gateway) SUMIAM — justo os casos de carteira importada do Asaas. Agora cobre
+      // os MESMOS 3 caminhos que a busca por nome já usava.
+      const patientOr: any[] = [
+        { patient_id: patientId },
+        { treatment_plan: { patient_id: patientId } },
+      ];
+      const pat = await this.prisma.patient.findUnique({
+        where: { id: patientId },
+        select: { lead_id: true, tenant_id: true },
+      });
+      // Anti-IDOR: paciente de outra clínica não resolve nada (o tenant do where já
+      // filtra, mas nem chegamos a buscar os external_ids dele).
+      if (pat?.lead_id && (!tenantId || pat.tenant_id === tenantId)) {
+        const custs = await this.prisma.paymentGatewayCustomer.findMany({
+          where: { lead_id: pat.lead_id, ...(tenantId ? { tenant_id: tenantId } : {}) },
+          select: { external_id: true },
+        });
+        const extIds = [...new Set(custs.map((c) => c.external_id).filter(Boolean) as string[])];
+        if (extIds.length) patientOr.push({ customer_external_id: { in: extIds } });
+      }
+      if (!where.AND) where.AND = [];
+      where.AND.push({ OR: patientOr });
     } else if (dentistId) {
       where.treatment_plan = { quote: { created_by_user_id: dentistId } };
     }
@@ -633,7 +659,7 @@ export class FinanceiroChargesService {
         treatment_plan: { select: { patient_id: true } },
       },
       orderBy: { due_date: 'desc' },
-      take: 20000,
+      take: KPI_ROW_CAP,
     });
     type C = {
       amount: number; due_date: Date; billing_type: string | null; received_in_cash: boolean;
@@ -817,6 +843,9 @@ export class FinanceiroChargesService {
 
     return {
       generated_at: now.toISOString(),
+      // true = a carteira passou do teto e os números abaixo estão INCOMPLETOS
+      // (o front avisa em vez de mostrar número errado em silêncio).
+      truncated: rawRows.length >= KPI_ROW_CAP,
       monthly: months,
       classes,
       base: {

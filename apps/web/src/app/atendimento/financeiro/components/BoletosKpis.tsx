@@ -26,6 +26,8 @@ export type Klass = 'mais_de_2_abertos' | 'atrasa_paga' | 'nunca_atrasa' | 'outr
 
 export interface ChargesKpis {
   generated_at: string;
+  /** true = carteira maior que o teto: os números abaixo estão incompletos. */
+  truncated?: boolean;
   monthly?: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; a_receber: number; a_receber_count: number; expected: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }>;
   classes?: Record<Klass, { patients: number; open_total: number; overdue_total: number; open_count: number }>;
   base: { charges: number; cancelled: number; patients_with_charges: number; patients_debtors: number; patients_up_to_date: number; patients_settled: number };
@@ -427,6 +429,12 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
   return (
     <div className="space-y-3">
       {body}
+      {kpis.truncated && (
+        <p className="text-[11px] font-semibold text-amber-600 dark:text-amber-400 flex items-center gap-1.5">
+          <AlertTriangle size={12} />
+          Carteira maior que o limite do cálculo — os números abaixo estão incompletos. Fale com o suporte pra aumentar o teto.
+        </p>
+      )}
       <p className="text-[10px] text-muted-foreground text-right">
         Calculado sobre a carteira inteira · {new Date(kpis.generated_at).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}
       </p>

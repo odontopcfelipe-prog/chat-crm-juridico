@@ -475,6 +475,15 @@ export default function BoletosTab({ dentistId }: Props) {
         {(statusGroup !== 'report' || searching) && (
         <div className="flex items-center gap-2 pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           <span>{filtered.length} de {total} cobrança(s) carregada(s)</span>
+          {/* Onda 18.x — a agregação por paciente (Negativados/Todos) é feita sobre o
+              que foi CARREGADO. Se a API cortou no teto, os totais por paciente ficam
+              incompletos — avisa em vez de mostrar número errado em silêncio. */}
+          {charges.length < total && (
+            <span className="inline-flex items-center gap-1 normal-case text-amber-600 dark:text-amber-400">
+              <AlertTriangle size={11} />
+              lista cortada no limite — os totais por paciente consideram só {charges.length} de {total}; use a busca pra ver um paciente específico
+            </span>
+          )}
           <span className="ml-auto flex items-center gap-1.5">
             <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">Este mês ({mesLabel})</span>
             {monthStats.count} cobrança(s) · {fmtBRL(monthStats.totalValue)}
