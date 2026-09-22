@@ -541,7 +541,14 @@ export default function BoletosTab({ dentistId }: Props) {
                       </td>
                     </tr>
                   ) : g.label && g.dateGroup ? (
-                    // Pagos — divisória por DIA: faixa verde forte com data, quantidade e total do dia.
+                    <>
+                    {/* Respiro em branco entre um dia e o próximo (não antes do primeiro). */}
+                    {groups[0]?.key !== g.key && (
+                      <tr aria-hidden className="bg-background">
+                        <td colSpan={7} className="h-10 p-0 border-0" />
+                      </tr>
+                    )}
+                    {/* Pagos — divisória por DIA: faixa verde forte com data, quantidade e total do dia. */}
                     <tr className="bg-emerald-500/10 border-t-4 border-t-emerald-500/50 border-b border-border">
                       <td colSpan={7} className="px-3 py-2.5">
                         <div className="flex items-center gap-2.5">
@@ -559,6 +566,7 @@ export default function BoletosTab({ dentistId }: Props) {
                         </div>
                       </td>
                     </tr>
+                    </>
                   ) : g.label ? (
                     <tr className="bg-muted/40 border-y border-border">
                       <td colSpan={7} className="px-3 py-2">
