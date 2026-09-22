@@ -545,24 +545,21 @@ export default function BoletosTab({ dentistId }: Props) {
                     {/* Respiro em branco entre um dia e o próximo (não antes do primeiro). */}
                     {groups[0]?.key !== g.key && (
                       <tr aria-hidden className="bg-background">
-                        <td colSpan={7} className="h-10 p-0 border-0" />
+                        <td colSpan={7} className="h-7 p-0 border-0" />
                       </tr>
                     )}
                     {/* Pagos — divisória por DIA: faixa verde forte com data, quantidade e total do dia. */}
-                    <tr className="bg-emerald-500/10 border-t-4 border-t-emerald-500/50 border-b border-border">
-                      <td colSpan={7} className="px-3 py-2.5">
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-7 h-7 rounded-md bg-emerald-500 text-white grid place-items-center shrink-0">
-                            <Check size={14} strokeWidth={3} />
-                          </div>
-                          <span className="text-sm font-extrabold text-foreground capitalize">{g.label}</span>
-                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
-                            {g.rows.length} pagamento{g.rows.length > 1 ? 's' : ''}
+                    {/* Mesma proporção dos cabeçalhos das outras abas (11px, py-2) — só a
+                        cor verde e a borda de cima marcam a troca de dia. */}
+                    <tr className="bg-emerald-500/[0.07] border-t-2 border-t-emerald-500/40 border-b border-border">
+                      <td colSpan={7} className="px-3 py-2">
+                        <div className="flex items-center gap-2">
+                          <Check size={13} className="text-emerald-500" strokeWidth={3} />
+                          <span className="text-[11px] font-bold uppercase tracking-wide text-foreground">{g.label}</span>
+                          <span className="text-[10px] text-muted-foreground">
+                            ({g.rows.length} pagamento{g.rows.length > 1 ? 's' : ''})
                           </span>
-                          <span className="ml-auto text-right whitespace-nowrap">
-                            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">recebido no dia</span>
-                            <span className="text-sm font-extrabold tabular-nums text-emerald-600 dark:text-emerald-400">{fmtBRL(g.total)}</span>
-                          </span>
+                          <span className="ml-auto text-[11px] font-bold tabular-nums text-emerald-500">{fmtBRL(g.total)}</span>
                         </div>
                       </td>
                     </tr>
