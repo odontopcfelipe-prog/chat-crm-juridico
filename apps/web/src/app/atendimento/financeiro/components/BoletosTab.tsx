@@ -75,7 +75,6 @@ const STATUS_GROUPS = [
   // todos os boletos em aberto dele (atrasados + a vencer). O backend traz a
   // carteira inteira dos devedores (statusGroup=negativados).
   { key: 'negativados', label: 'Negativados', icon: Users, color: 'text-red-400' },
-  { key: 'overdue', label: 'Atrasados', icon: AlertTriangle, color: 'text-red-400' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
   { key: 'all', label: 'Todos', icon: Users, color: 'text-foreground' },

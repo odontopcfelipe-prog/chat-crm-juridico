@@ -2,14 +2,14 @@
 
 /**
  * BoletosKpis — Onda 18.x. Dashboard de KPIs da aba Boletos, CONTEXTUAL por chip
- * (Negativados / Atrasados / Vencem 7d / Pagos / Todos). Os números vêm de
+* (Negativados / Vencem 7d / Pagos / Todos). Os números vêm de
  * GET /financeiro/charges/kpis (carteira INTEIRA, não só as linhas carregadas).
  *
  * Cada chip tem sua lógica:
  *  - Negativados: valor em atraso, nº de devedores, % de negativados entre os
  *    pacientes com boleto, expectativa de recebimento e os PERFIS (atrasa-mas-paga
  *    / risco / não-paga) por comportamento histórico.
- *  - Atrasados: por faixa de idade do atraso (1-30/31-60/61-90/91-180/+180) com
+ *    + idade do atraso (1-30/31-90/+90) com
  *    valor e expectativa; média e o mais antigo.
  *  - Vencem 7d: total, pacientes, expectativa (taxa histórica de pontualidade), por dia.
  *  - Pagos: mês atual × anterior (variação), últimos 30d, pontualidade, ticket, por forma.
@@ -169,26 +169,19 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
               { label: 'Não paga', value: n.profiles.nao_paga.total, count: n.profiles.nao_paga.patients, countLabel: 'pacientes', tone: 'red', hint: 'quase nunca pagou / +90d sem pagar' },
             ]}
           />
-        </>
-      );
-    }
-
-    if (chip === 'overdue') {
-      const b = a.buckets;
-      return (
-        <>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Hero tone="red" icon={AlertTriangle} label="Boletos atrasados" value={fmtBRL(a.total)} sub={`${a.count} boleto(s) · ${a.patients} paciente(s)`} />
+          {/* Idade do atraso (vinha do chip "Atrasados", removido) — quanto mais velho,
+              menor a chance de receber. Atraso médio / mais antigo / provável perda. */}
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <Stat tone="amber" icon={Clock} label="Atraso médio" value={`${a.avg_days} dias`} sub={`mais antigo: ${a.oldest_days} dias`} />
-            <Stat tone="emerald" icon={Target} label="Expectativa de recebimento" value={fmtBRL(a.expected_recovery)} sub={`${fmtPct(a.expected_recovery_pct)} do atraso`} progress={a.expected_recovery_pct} />
             <Stat tone="slate" icon={ShieldAlert} label="Provável perda" value={fmtBRL(Math.max(0, a.total - a.expected_recovery))} sub="atraso − expectativa" />
+            <Stat tone="blue" icon={Layers} label="Média por boleto vencido" value={fmtBRL(a.count ? a.total / a.count : 0)} sub={`${a.count} boleto(s)`} />
           </div>
           <Segments
             title="Idade do atraso — quanto mais velho, menor a chance de receber"
             items={[
-              { label: '1–30 dias', value: b.d1_30.total, count: b.d1_30.count, countLabel: 'boletos', tone: 'amber', hint: `espera ${fmtBRL(b.d1_30.expected)}` },
-              { label: '31–90 dias', value: b.d31_60.total + b.d61_90.total, count: b.d31_60.count + b.d61_90.count, countLabel: 'boletos', tone: 'red', hint: `espera ${fmtBRL(b.d31_60.expected + b.d61_90.expected)}` },
-              { label: '+90 dias', value: b.d91_180.total + b.d180p.total, count: b.d91_180.count + b.d180p.count, countLabel: 'boletos', tone: 'slate', hint: `espera ${fmtBRL(b.d91_180.expected + b.d180p.expected)}` },
+              { label: "1–30 dias", value: a.buckets.d1_30.total, count: a.buckets.d1_30.count, countLabel: "boletos", tone: "amber", hint: `espera ${fmtBRL(a.buckets.d1_30.expected)}` },
+              { label: "31–90 dias", value: a.buckets.d31_60.total + a.buckets.d61_90.total, count: a.buckets.d31_60.count + a.buckets.d61_90.count, countLabel: "boletos", tone: "red", hint: `espera ${fmtBRL(a.buckets.d31_60.expected + a.buckets.d61_90.expected)}` },
+              { label: "+90 dias", value: a.buckets.d91_180.total + a.buckets.d180p.total, count: a.buckets.d91_180.count + a.buckets.d180p.count, countLabel: "boletos", tone: "slate", hint: `espera ${fmtBRL(a.buckets.d91_180.expected + a.buckets.d180p.expected)}` },
             ]}
           />
         </>
