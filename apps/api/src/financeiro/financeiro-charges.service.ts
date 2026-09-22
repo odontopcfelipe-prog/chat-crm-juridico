@@ -595,6 +595,193 @@ export class FinanceiroChargesService {
   }
 
   /**
+   * Onda 18.x — KPIs do dashboard da aba Boletos (por chip). Calculado sobre a
+   * CARTEIRA INTEIRA do tenant (não só as linhas carregadas), em memória, a partir
+   * do mesmo serializador da listagem (mesma régua de PAGO/ATRASADO/EM_ABERTO).
+   *
+   * Expectativa de recebimento (Negativados/Atrasados): cada boleto vencido vale
+   *   amount × comportamento do paciente × decaimento pela idade do atraso
+   *   - comportamento r = pagos / (pagos + vencidos abertos) do paciente (sem
+   *     histórico = 0,5). Quem "sempre atrasa mas paga" tem r alto; quem nunca
+   *     pagou nada tem r = 0.
+   *   - decaimento: ≤30d 1,0 · ≤60d 0,75 · ≤90d 0,5 · ≤180d 0,25 · >180d 0,10
+   * Perfis (por paciente devedor):
+   *   - "atrasa mas paga": r ≥ 0,6 (já pagou a maioria do que venceu)
+   *   - "risco": 0,3 ≤ r < 0,6, ou sem histórico
+   *   - "não paga": r < 0,3 (nunca/quase nunca pagou o que venceu)
+   */
+  async getChargesKpis(opts: { tenantId?: string; dentistId?: string }) {
+    const { tenantId, dentistId } = opts;
+    const { data } = await this.findCharges({ tenantId, dentistId, statusGroup: 'all_patients', limit: 5000 });
+    type C = ReturnType<FinanceiroChargesService['serializeCharge']>;
+    const rows = data as C[];
+    const now = new Date();
+    const sum = (arr: C[]) => arr.reduce((s, c) => s + (Number(c.amount) || 0), 0);
+    const round2 = (v: number) => Math.round(v * 100) / 100;
+    const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
+    const dayMs = 86_400_000;
+
+    const live = rows.filter((c) => c.computed_status !== 'CANCELADO');
+    const cancelled = rows.filter((c) => c.computed_status === 'CANCELADO');
+    const paid = live.filter((c) => c.computed_status === 'PAGO');
+    const overdue = live.filter((c) => c.computed_status === 'ATRASADO');
+    const open = live.filter((c) => c.computed_status === 'EM_ABERTO');
+    const pid = (c: C) => c.patient?.id || null;
+
+    // ── Comportamento por paciente ────────────────────────────────────────
+    type Beh = { paid: number; paidLate: number; overdue: number; overdueTotal: number; maxDays: number; lateDaysSum: number };
+    const beh = new Map<string, Beh>();
+    const getB = (id: string) => {
+      let b = beh.get(id);
+      if (!b) { b = { paid: 0, paidLate: 0, overdue: 0, overdueTotal: 0, maxDays: 0, lateDaysSum: 0 }; beh.set(id, b); }
+      return b;
+    };
+    for (const c of live) {
+      const id = pid(c); if (!id) continue;
+      const b = getB(id);
+      if (c.computed_status === 'PAGO') {
+        b.paid++;
+        const paidAt = c.paid_at || c.payment_date;
+        if (paidAt && new Date(paidAt).getTime() > new Date(c.due_date).getTime() + dayMs) {
+          b.paidLate++;
+          b.lateDaysSum += Math.floor((new Date(paidAt).getTime() - new Date(c.due_date).getTime()) / dayMs);
+        }
+      } else if (c.computed_status === 'ATRASADO') {
+        b.overdue++; b.overdueTotal += Number(c.amount) || 0; b.maxDays = Math.max(b.maxDays, c.days_overdue || 0);
+      }
+    }
+    const rateOf = (id: string | null) => {
+      if (!id) return 0.5;
+      const b = beh.get(id); if (!b) return 0.5;
+      const n = b.paid + b.overdue; return n === 0 ? 0.5 : b.paid / n;
+    };
+    const decay = (d: number) => (d <= 30 ? 1 : d <= 60 ? 0.75 : d <= 90 ? 0.5 : d <= 180 ? 0.25 : 0.1);
+    const expectedOf = (c: C) => (Number(c.amount) || 0) * rateOf(pid(c)) * decay(c.days_overdue || 0);
+
+    // ── Base de pacientes ─────────────────────────────────────────────────
+    const patientsWithCharges = new Set(live.map(pid).filter(Boolean) as string[]);
+    const debtors = new Set(overdue.map(pid).filter(Boolean) as string[]);
+    const withOpen = new Set([...overdue, ...open].map(pid).filter(Boolean) as string[]);
+    const settled = [...patientsWithCharges].filter((id) => !withOpen.has(id)); // sem nada em aberto
+    const upToDate = [...withOpen].filter((id) => !debtors.has(id)); // tem a vencer, nada atrasado
+
+    // ── Perfis dos devedores ──────────────────────────────────────────────
+    const profiles = { paga_atrasado: { patients: 0, total: 0 }, risco: { patients: 0, total: 0 }, nao_paga: { patients: 0, total: 0 } };
+    for (const id of debtors) {
+      const b = beh.get(id)!; const n = b.paid + b.overdue; const r = n === 0 ? 0.5 : b.paid / n;
+      const k = b.paid === 0 && b.overdue > 0 && b.maxDays > 90 ? 'nao_paga' : r >= 0.6 ? 'paga_atrasado' : r >= 0.3 ? 'risco' : 'nao_paga';
+      profiles[k].patients++; profiles[k].total += b.overdueTotal;
+    }
+
+    // ── Atrasados: faixas de idade ────────────────────────────────────────
+    const bucket = (lo: number, hi: number) => {
+      const arr = overdue.filter((c) => (c.days_overdue || 0) >= lo && (c.days_overdue || 0) <= hi);
+      return { count: arr.length, total: round2(sum(arr)), expected: round2(arr.reduce((s, c) => s + expectedOf(c), 0)) };
+    };
+    const overdueExpected = overdue.reduce((s, c) => s + expectedOf(c), 0);
+    const overdueDaysAvg = overdue.length ? Math.round(overdue.reduce((s, c) => s + (c.days_overdue || 0), 0) / overdue.length) : 0;
+    const oldest = overdue.reduce((m, c) => Math.max(m, c.days_overdue || 0), 0);
+
+    // ── Vencem 7d ─────────────────────────────────────────────────────────
+    const in7 = new Date(now.getTime() + 7 * dayMs);
+    const upcoming = open.filter((c) => { const d = new Date(c.due_date); return d >= now && d <= in7; });
+    // Taxa histórica de pagamento EM DIA (pagos no prazo / pagos) — expectativa de quem vence agora.
+    const paidOnTime = paid.filter((c) => { const p = c.paid_at || c.payment_date; return !p || new Date(p).getTime() <= new Date(c.due_date).getTime() + dayMs; });
+    const onTimeRate = paid.length ? paidOnTime.length / paid.length : 0.7;
+    const upcomingExpected = upcoming.reduce((s, c) => s + (Number(c.amount) || 0) * (0.5 + rateOf(pid(c)) / 2) * (0.6 + onTimeRate * 0.4), 0);
+    const upcomingByDay: Record<string, { count: number; total: number }> = {};
+    for (const c of upcoming) { const k = new Date(c.due_date).toISOString().slice(0, 10); (upcomingByDay[k] ||= { count: 0, total: 0 }); upcomingByDay[k].count++; upcomingByDay[k].total = round2(upcomingByDay[k].total + Number(c.amount)); }
+
+    // ── Pagos ─────────────────────────────────────────────────────────────
+    const paidIso = (c: C) => c.paid_at || c.payment_date || null;
+    const y = now.getFullYear(), m = now.getMonth();
+    const inMonth = (c: C, yy: number, mm: number) => { const p = paidIso(c); if (!p) return false; const d = new Date(p); return d.getFullYear() === yy && d.getMonth() === mm; };
+    const paidThisMonth = paid.filter((c) => inMonth(c, y, m));
+    const pm = m === 0 ? 11 : m - 1, py = m === 0 ? y - 1 : y;
+    const paidPrevMonth = paid.filter((c) => inMonth(c, py, pm));
+    const last30 = paid.filter((c) => { const p = paidIso(c); return p && now.getTime() - new Date(p).getTime() <= 30 * dayMs; });
+    const lateDays = paid.map((c) => { const p = paidIso(c); return p ? Math.max(0, Math.floor((new Date(p).getTime() - new Date(c.due_date).getTime()) / dayMs)) : 0; });
+    const avgLateDays = lateDays.length ? Math.round(lateDays.reduce((a, b) => a + b, 0) / lateDays.length) : 0;
+    const paidByMethod: Record<string, { count: number; total: number }> = {};
+    for (const c of paidThisMonth) { const k = c.received_in_cash ? 'CLINICA' : (c.billing_type || 'OUTRO'); (paidByMethod[k] ||= { count: 0, total: 0 }); paidByMethod[k].count++; paidByMethod[k].total = round2(paidByMethod[k].total + Number(c.amount)); }
+
+    const totalCarteira = sum(live);
+    return {
+      generated_at: now.toISOString(),
+      base: {
+        charges: live.length,
+        cancelled: cancelled.length,
+        patients_with_charges: patientsWithCharges.size,
+        patients_debtors: debtors.size,
+        patients_up_to_date: upToDate.length,
+        patients_settled: settled.length,
+      },
+      negativados: {
+        patients: debtors.size,
+        pct_of_patients: pct(debtors.size, patientsWithCharges.size),
+        overdue_total: round2(sum(overdue)),
+        overdue_count: overdue.length,
+        open_total_of_debtors: round2(sum([...overdue, ...open].filter((c) => pid(c) && debtors.has(pid(c)!)))),
+        expected_recovery: round2(overdueExpected),
+        expected_recovery_pct: pct(overdueExpected, sum(overdue)),
+        profiles: {
+          paga_atrasado: { ...profiles.paga_atrasado, total: round2(profiles.paga_atrasado.total) },
+          risco: { ...profiles.risco, total: round2(profiles.risco.total) },
+          nao_paga: { ...profiles.nao_paga, total: round2(profiles.nao_paga.total) },
+        },
+      },
+      atrasados: {
+        count: overdue.length,
+        total: round2(sum(overdue)),
+        patients: debtors.size,
+        avg_days: overdueDaysAvg,
+        oldest_days: oldest,
+        expected_recovery: round2(overdueExpected),
+        expected_recovery_pct: pct(overdueExpected, sum(overdue)),
+        buckets: { d1_30: bucket(0, 30), d31_60: bucket(31, 60), d61_90: bucket(61, 90), d91_180: bucket(91, 180), d180p: bucket(181, 1e9) },
+      },
+      upcoming: {
+        count: upcoming.length,
+        total: round2(sum(upcoming)),
+        patients: new Set(upcoming.map(pid).filter(Boolean)).size,
+        expected: round2(upcomingExpected),
+        expected_pct: pct(upcomingExpected, sum(upcoming)),
+        on_time_rate_pct: Math.round(onTimeRate * 1000) / 10,
+        by_day: upcomingByDay,
+      },
+      pagos: {
+        month_total: round2(sum(paidThisMonth)),
+        month_count: paidThisMonth.length,
+        prev_month_total: round2(sum(paidPrevMonth)),
+        prev_month_count: paidPrevMonth.length,
+        month_delta_pct: paidPrevMonth.length || paidThisMonth.length ? pct(sum(paidThisMonth) - sum(paidPrevMonth), sum(paidPrevMonth) || sum(paidThisMonth)) : 0,
+        last30_total: round2(sum(last30)),
+        last30_count: last30.length,
+        on_time_pct: Math.round(onTimeRate * 1000) / 10,
+        avg_late_days: avgLateDays,
+        avg_ticket: paid.length ? round2(sum(paid) / paid.length) : 0,
+        all_time_total: round2(sum(paid)),
+        all_time_count: paid.length,
+        by_method_month: paidByMethod,
+      },
+      todos: {
+        carteira_total: round2(totalCarteira),
+        received_total: round2(sum(paid)),
+        received_pct: pct(sum(paid), totalCarteira),
+        open_total: round2(sum(open)),
+        overdue_total: round2(sum(overdue)),
+        cancelled_count: cancelled.length,
+        patients_with_charges: patientsWithCharges.size,
+        patients_settled: settled.length,
+        patients_up_to_date: upToDate.length,
+        patients_debtors: debtors.size,
+        pct_settled: pct(settled.length, patientsWithCharges.size),
+        pct_debtors: pct(debtors.size, patientsWithCharges.size),
+      },
+    };
+  }
+
+  /**
    * Agregação por paciente: extrato simplificado tipo "conta-corrente".
    */
   async getPatientsSummary(opts: {

@@ -29,6 +29,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 // Apagar boleto é ADMIN-only.
 import { useRole } from '@/lib/useRole';
+import BoletosKpis, { type ChargesKpis } from './BoletosKpis';
 
 interface Charge {
   id: string;
@@ -136,6 +137,18 @@ export default function BoletosTab({ dentistId }: Props) {
   const [markingCash, setMarkingCash] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const role = useRole(); // role.isAdmin gateia o botão de apagar boleto
+  // Onda 18.x — KPIs do dashboard (carteira inteira, por chip). Recarrega junto com a lista.
+  const [kpis, setKpis] = useState<ChargesKpis | null>(null);
+  const [kpisLoading, setKpisLoading] = useState(true);
+  const fetchKpis = useCallback(async () => {
+    setKpisLoading(true);
+    try {
+      const r = await api.get<ChargesKpis>('/financeiro/charges/kpis', { params: dentistId ? { dentistId } : {} });
+      setKpis(r.data);
+    } catch { /* dashboard é best-effort — a lista continua */ }
+    finally { setKpisLoading(false); }
+  }, [dentistId]);
+  useEffect(() => { fetchKpis(); }, [fetchKpis]);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -194,20 +207,6 @@ export default function BoletosTab({ dentistId }: Props) {
     });
   }, [charges, search]);
 
-  // Stats da lista atual (count + R$)
-  const stats = useMemo(() => {
-    return filtered.reduce(
-      (acc, c) => {
-        acc.totalValue += c.amount;
-        if (c.computed_status === 'PAGO') acc.paid += c.amount;
-        else if (c.computed_status === 'ATRASADO') acc.overdue += c.amount;
-        else if (c.computed_status === 'EM_ABERTO') acc.open += c.amount;
-        return acc;
-      },
-      { totalValue: 0, paid: 0, open: 0, overdue: 0 },
-    );
-  }, [filtered]);
-
   // "Este mês": só as cobranças com VENCIMENTO no mês atual (respeita a busca).
   const monthStats = useMemo(() => {
     const now = new Date();
@@ -236,6 +235,7 @@ export default function BoletosTab({ dentistId }: Props) {
       await api.post(`/payment-gateway/charges/${c.id}/mark-cash-received`);
       showSuccess('Marcado como recebido em espécie');
       fetchData();
+      fetchKpis();
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao marcar como pago');
     } finally {
@@ -261,6 +261,7 @@ export default function BoletosTab({ dentistId }: Props) {
       await api.delete(`/payment-gateway/charges/asaas/${c.external_id}`);
       showSuccess('Boleto apagado (Asaas + sistema).');
       fetchData();
+      fetchKpis();
     } catch (e: any) {
       showError(e?.response?.data?.message || 'Erro ao apagar o boleto.');
     } finally {
@@ -436,46 +437,18 @@ export default function BoletosTab({ dentistId }: Props) {
           </select>
         </div>
 
-        {/* Stats da listagem atual */}
-        <div className="flex items-center gap-x-4 gap-y-1 flex-wrap pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider">
-          {/* Esquerda: geral (todas as cobranças carregadas) */}
-          <span className="text-muted-foreground">
-            {filtered.length} de {total} cobrança(s)
-          </span>
-          <span className="text-foreground">
-            Total: <span className="tabular-nums">{fmtBRL(stats.totalValue)}</span>
-          </span>
-          {stats.overdue > 0 && (
-            <span className="text-red-400">
-              Atrasado: <span className="tabular-nums">{fmtBRL(stats.overdue)}</span>
-            </span>
-          )}
-          {stats.open > 0 && (
-            <span className="text-blue-400">
-              Em aberto: <span className="tabular-nums">{fmtBRL(stats.open)}</span>
-            </span>
-          )}
-
-          {/* Direita: só o mês atual (por vencimento) */}
-          <span className="ml-auto flex items-center gap-1.5 text-muted-foreground">
+        {/* Onda 18.x — contagem da listagem (os KPIs de valor vivem no dashboard abaixo). */}
+        <div className="flex items-center gap-2 pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
+          <span>{filtered.length} de {total} cobrança(s) carregada(s)</span>
+          <span className="ml-auto flex items-center gap-1.5">
             <span className="px-1.5 py-0.5 rounded bg-primary/10 text-primary">Este mês ({mesLabel})</span>
-            {monthStats.count} cobrança(s)
+            {monthStats.count} cobrança(s) · {fmtBRL(monthStats.totalValue)}
           </span>
-          <span className="text-foreground">
-            Total: <span className="tabular-nums">{fmtBRL(monthStats.totalValue)}</span>
-          </span>
-          {monthStats.overdue > 0 && (
-            <span className="text-red-400">
-              Atrasado: <span className="tabular-nums">{fmtBRL(monthStats.overdue)}</span>
-            </span>
-          )}
-          {monthStats.open > 0 && (
-            <span className="text-blue-400">
-              Em aberto: <span className="tabular-nums">{fmtBRL(monthStats.open)}</span>
-            </span>
-          )}
         </div>
       </div>
+
+      {/* Onda 18.x — Dashboard de KPIs contextual ao chip (carteira inteira). */}
+      <BoletosKpis kpis={kpis} chip={searching ? "all" : statusGroup} loading={kpisLoading} />
 
       {/* Lista */}
       {loading ? (
