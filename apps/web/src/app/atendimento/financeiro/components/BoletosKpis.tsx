@@ -77,7 +77,9 @@ function Hero({ tone, icon: Icon, label, value, sub, extra }: {
       <div className="relative flex items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="text-[10px] font-bold uppercase tracking-wider text-white/80">{label}</p>
-          <p className="text-2xl md:text-[28px] leading-tight font-black tabular-nums mt-1 truncate">{value}</p>
+          {/* Valores grandes (R$ 100.400,16) não podem ser cortados: encolhe a fonte
+              conforme o comprimento em vez de truncar. */}
+          <p className={`leading-tight font-black tabular-nums mt-1 break-words ${value.length > 14 ? "text-xl md:text-2xl" : "text-2xl md:text-[28px]"}`}>{value}</p>
           {sub && <p className="text-[11px] text-white/85 mt-1">{sub}</p>}
         </div>
         <div className="w-9 h-9 rounded-xl bg-white/20 grid place-items-center shrink-0"><Icon size={18} /></div>
@@ -388,15 +390,24 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
   if (!kpis || !sections) return null;
   const s = sections;
 
-  const Section = ({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) => (
-    <section className="space-y-3">
-      <h3 className="flex items-center gap-2 text-sm font-extrabold text-foreground pt-2">
-        <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary grid place-items-center"><Icon size={14} /></span>
-        {title}
-      </h3>
-      {children}
-    </section>
-  );
+  // Seção sem conteúdo NÃO renderiza (nem o título): acontece quando a API ainda
+  // não tem os campos novos (ex.: web deployado antes da API) — antes sobrava um
+  // cabeçalho solto sem nada embaixo.
+  const Section = ({ title, icon: Icon, children }: { title: string; icon: any; children: React.ReactNode }) => {
+    const empty = Array.isArray(children)
+      ? children.every((c) => c === null || c === undefined || c === false)
+      : children === null || children === undefined || children === false;
+    if (empty) return null;
+    return (
+      <section className="space-y-3">
+        <h3 className="flex items-center gap-2 text-sm font-extrabold text-foreground pt-2">
+          <span className="w-7 h-7 rounded-lg bg-primary/10 text-primary grid place-items-center"><Icon size={14} /></span>
+          {title}
+        </h3>
+        {children}
+      </section>
+    );
+  };
 
   const body =
     chip === 'report' ? (
