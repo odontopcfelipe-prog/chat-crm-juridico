@@ -638,8 +638,8 @@ export class FinanceiroChargesService {
    *   - "risco": 0,3 ≤ r < 0,6, ou sem histórico
    *   - "não paga": r < 0,3 (nunca/quase nunca pagou o que venceu)
    */
-  async getChargesKpis(opts: { tenantId?: string; dentistId?: string }) {
-    const { tenantId, dentistId } = opts;
+  async getChargesKpis(opts: { tenantId?: string; dentistId?: string; kind?: string; billingType?: string }) {
+    const { tenantId, dentistId, kind, billingType } = opts;
     const now = new Date();
     // Onda 18.x — query PRÓPRIA e ENXUTA (antes reusava findCharges com include
     // profundo: treatment_plan → quote → created_by + installment + patient; em
@@ -651,6 +651,10 @@ export class FinanceiroChargesService {
       where: {
         ...(tenantId ? { tenant_id: tenantId } : {}),
         ...(dentistId ? { treatment_plan: { quote: { created_by_user_id: dentistId } } } : {}),
+        // Onda 18.x — os filtros de tipo/forma da tela também valem aqui: antes os
+        // cartões mostravam a carteira inteira enquanto a lista estava filtrada.
+        ...(kind ? { kind } : {}),
+        ...(billingType ? { billing_type: billingType } : {}),
       },
       select: {
         amount: true, due_date: true, status: true, received_in_cash: true,

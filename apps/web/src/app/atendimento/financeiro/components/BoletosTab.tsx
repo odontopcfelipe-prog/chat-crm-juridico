@@ -148,11 +148,17 @@ export default function BoletosTab({ dentistId }: Props) {
   const fetchKpis = useCallback(async () => {
     setKpisLoading(true);
     try {
-      const r = await api.get<ChargesKpis>('/financeiro/charges/kpis', { params: dentistId ? { dentistId } : {} });
+      // Os filtros de tipo/forma valem pro dashboard também (senão os cartões
+      // mostrariam a carteira inteira com a lista filtrada).
+      const params: any = {};
+      if (dentistId) params.dentistId = dentistId;
+      if (kind) params.kind = kind;
+      if (billingType) params.billingType = billingType;
+      const r = await api.get<ChargesKpis>('/financeiro/charges/kpis', { params });
       setKpis(r.data);
     } catch { /* dashboard é best-effort — a lista continua */ }
     finally { setKpisLoading(false); }
-  }, [dentistId]);
+  }, [dentistId, kind, billingType]);
   useEffect(() => { fetchKpis(); }, [fetchKpis]);
 
   const fetchData = useCallback(async () => {
@@ -278,26 +284,71 @@ export default function BoletosTab({ dentistId }: Props) {
   };
 
   // Apagar boleto (ADMIN) — apaga no Asaas E no sistema, silenciosamente.
+  // Onda 18.x — CSV da lista atual (respeita chip + filtros + busca). Separador ";"
+  // e BOM: é o que o Excel em pt-BR abre com as colunas certas, sem importação.
+  const exportarCsv = () => {
+    const cols = ['Paciente', 'Telefone', 'CPF', 'Tipo', 'Valor', 'Vencimento', 'Status', 'Dias em atraso', 'Pago em', 'Forma', 'Dentista', 'Proposta', 'ID Asaas'];
+    const esc = (v: any) => {
+      const s = v === null || v === undefined ? '' : String(v);
+      return /[";\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    };
+    const STATUS_TXT: Record<string, string> = { PAGO: 'Pago', EM_ABERTO: 'Em aberto', ATRASADO: 'Atrasado', CANCELADO: 'Cancelado' };
+    const linhas = filtered.map((c) => [
+      c.patient?.name || 'Sem nome',
+      c.patient?.phone || '',
+      c.patient?.cpf || '',
+      c.installment_label || KIND_LABEL[c.kind || ''] || '',
+      // Vírgula decimal — o Excel pt-BR soma a coluna direto.
+      c.amount.toFixed(2).replace('.', ','),
+      fmtDate(c.due_date),
+      STATUS_TXT[c.computed_status] || c.computed_status,
+      c.computed_status === 'ATRASADO' ? c.days_overdue : '',
+      c.paid_at ? fmtDate(c.paid_at) : '',
+      c.received_in_cash ? 'Recebido na clínica' : c.billing_type,
+      c.dentist?.name || '',
+      c.quote_number ? `#${c.quote_number}` : '',
+      c.external_id || '',
+    ].map(esc).join(';'));
+    const csv = '﻿' + [cols.join(';'), ...linhas].join('\r\n');
+    const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8;' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `boletos-${statusGroup}-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    showSuccess(`${filtered.length} cobrança(s) exportada(s)`);
+  };
+
   const handleDeleteBoleto = async (c: Charge) => {
     if (deletingId) return;
     if (c.status === 'RECEIVED' || c.status === 'CONFIRMED' || c.received_in_cash) {
-      showError('Cobrança já paga — não pode ser apagada.');
+      showError('Cobrança já paga — não pode ser cancelada.');
       return;
     }
-    if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra apagar.'); return; }
-    if (!confirm(
-      `APAGAR o boleto de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)})?\n\n` +
-      `Apaga NO ASAAS e NO SISTEMA — não dá pra desfazer. O paciente NÃO é avisado.\n` +
-      `Use só pra cobrança gerada por engano (nunca em cobrança já paga).`,
-    )) return;
+    if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra cancelar por aqui.'); return; }
+    // Onda 18.x — mesma régua da ficha do paciente: CANCELAR com rastro (a cobrança
+    // fica no cadastro como "Cancelado" com quem/quando/motivo, prova até judicial).
+    // Antes o texto dizia "apaga, não dá pra desfazer" e o motivo NÃO era enviado —
+    // o rastro nascia sem justificativa.
+    const reason = window.prompt(
+      `CANCELAR a cobrança de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)})?\n\n` +
+      `Apaga o boleto NO ASAAS (o link/QR para de funcionar) e tira da inadimplência,\n` +
+      `MAS ela FICA REGISTRADA no cadastro como "Cancelado", com quem/quando/motivo —\n` +
+      `pra eventual revisão até judicial. O paciente NÃO é avisado.\n\n` +
+      `Digite o MOTIVO do cancelamento:`,
+      'Cobrança gerada por engano',
+    );
+    if (reason === null) return; // fechou/cancelou o prompt
+    const motivo = reason.trim();
+    if (!motivo) { showError('Informe o motivo do cancelamento (fica no rastro da cobrança).'); return; }
     setDeletingId(c.id);
     try {
-      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}`);
-      showSuccess('Boleto apagado (Asaas + sistema).');
+      await api.delete(`/payment-gateway/charges/asaas/${c.external_id}?reason=${encodeURIComponent(motivo)}`);
+      showSuccess('Cobrança cancelada — fica registrada no cadastro.');
       fetchData();
       fetchKpis();
     } catch (e: any) {
-      showError(e?.response?.data?.message || 'Erro ao apagar o boleto.');
+      showError(e?.response?.data?.message || 'Erro ao cancelar a cobrança.');
     } finally {
       setDeletingId(null);
     }
@@ -469,6 +520,18 @@ export default function BoletosTab({ dentistId }: Props) {
             <option value="BOLETO">Boleto</option>
             <option value="CREDIT_CARD">Cartão</option>
           </select>
+          {/* Onda 18.x — exporta o que está na tela (mesmos filtros) pra conferência
+              offline / envio ao contador. Gera no navegador, sem passar pela API. */}
+          {filtered.length > 0 && (
+            <button
+              type="button"
+              onClick={exportarCsv}
+              title="Baixar a lista atual em CSV (abre no Excel)"
+              className="px-3 py-1.5 text-xs font-semibold bg-background border border-border rounded-lg hover:bg-accent/40 inline-flex items-center gap-1.5"
+            >
+              <FileText size={13} /> CSV
+            </button>
+          )}
         </div>
 
         {/* Onda 18.x — contagem da listagem (os KPIs de valor vivem no dashboard abaixo). */}
@@ -739,7 +802,7 @@ export default function BoletosTab({ dentistId }: Props) {
                               onClick={() => handleDeleteBoleto(c)}
                               disabled={deletingId === c.id}
                               className="p-1.5 rounded-lg hover:bg-red-500/15 text-red-500 transition-colors disabled:opacity-50"
-                              title="Apagar cobrança no Asaas e no sistema (admin)"
+                              title="Cancelar a cobrança (fica registrada como Cancelado, com motivo) — admin"
                             >
                               {deletingId === c.id ? <Loader2 size={13} className="animate-spin" /> : <Trash2 size={13} />}
                             </button>

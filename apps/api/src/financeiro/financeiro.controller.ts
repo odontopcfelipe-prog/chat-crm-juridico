@@ -233,8 +233,18 @@ export class FinanceiroController {
 
   /** Onda 18.x — KPIs do dashboard da aba Boletos (por chip), carteira inteira. */
   @Get('charges/kpis')
-  chargesKpis(@Query('dentistId') dentistId: string, @Request() req: any) {
-    return this.chargesService.getChargesKpis({ tenantId: req.user.tenant_id, dentistId: dentistId || undefined });
+  chargesKpis(
+    @Query('dentistId') dentistId: string,
+    @Query('kind') kind: string,
+    @Query('billingType') billingType: string,
+    @Request() req: any,
+  ) {
+    return this.chargesService.getChargesKpis({
+      tenantId: req.user.tenant_id,
+      dentistId: dentistId || undefined,
+      kind: kind || undefined,
+      billingType: billingType || undefined,
+    });
   }
 
   @Get('charges')
