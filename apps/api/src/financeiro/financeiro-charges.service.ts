@@ -741,10 +741,12 @@ export class FinanceiroChargesService {
 
     // Janela: 8 meses pra trás + atual + 3 pra frente (por VENCIMENTO).
     const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    const months: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }> = [];
+    // a_receber = ainda EM ABERTO no mês (a vencer + vencido); expected = quanto se
+    // espera receber de fato (vencido usa histórico×idade; a vencer usa pontualidade).
+    const months: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; a_receber: number; a_receber_count: number; expected: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }> = [];
     for (let i = -8; i <= 3; i++) {
       const d = new Date(y, m + i, 1);
-      months.push({ month: monthKey(d), label: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''), count: 0, total: 0, paid_total: 0, open_total: 0, overdue_total: 0, by_class: emptyK(), by_class_count: emptyK() });
+      months.push({ month: monthKey(d), label: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''), count: 0, total: 0, paid_total: 0, open_total: 0, overdue_total: 0, a_receber: 0, a_receber_count: 0, expected: 0, by_class: emptyK(), by_class_count: emptyK() });
     }
     const byMonth = new Map(months.map((x) => [x.month, x]));
     for (const c of live) {
@@ -753,12 +755,21 @@ export class FinanceiroChargesService {
       const amt = Number(c.amount) || 0;
       row.count++; row.total += amt;
       if (c.computed_status === 'PAGO') row.paid_total += amt;
-      else if (c.computed_status === 'ATRASADO') { row.overdue_total += amt; row.open_total += amt; }
-      else if (c.computed_status === 'EM_ABERTO') row.open_total += amt;
+      else if (c.computed_status === 'ATRASADO') {
+        row.overdue_total += amt; row.open_total += amt;
+        row.a_receber += amt; row.a_receber_count++;
+        row.expected += expectedOf(c); // vencido: histórico do paciente × idade do atraso
+      } else if (c.computed_status === 'EM_ABERTO') {
+        row.open_total += amt;
+        row.a_receber += amt; row.a_receber_count++;
+        // A vencer: histórico do paciente (mesma régua do card "Vencem 7d").
+        row.expected += amt * (0.5 + rateOf(pid(c)) / 2);
+      }
       const k = klassOf(pid(c)); row.by_class[k] += amt; row.by_class_count[k]++;
     }
     for (const row of months) {
       row.total = round2(row.total); row.paid_total = round2(row.paid_total); row.open_total = round2(row.open_total); row.overdue_total = round2(row.overdue_total);
+      row.a_receber = round2(row.a_receber); row.expected = round2(row.expected);
       for (const k of Object.keys(row.by_class) as Klass[]) row.by_class[k] = round2(row.by_class[k]);
     }
 

@@ -26,7 +26,7 @@ export type Klass = 'mais_de_2_abertos' | 'atrasa_paga' | 'nunca_atrasa' | 'outr
 
 export interface ChargesKpis {
   generated_at: string;
-  monthly?: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }>;
+  monthly?: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; a_receber: number; a_receber_count: number; expected: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }>;
   classes?: Record<Klass, { patients: number; open_total: number; overdue_total: number; open_count: number }>;
   base: { charges: number; cancelled: number; patients_with_charges: number; patients_debtors: number; patients_up_to_date: number; patients_settled: number };
   negativados: {
@@ -273,6 +273,46 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
     const classes = kpis.classes;
     const curMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
     const maxMonth = Math.max(...monthly.map((x) => x.total), 1);
+    // "Quanto temos a receber por mês": só os meses do atual pra frente, com o que
+    // AINDA está em aberto (a vencer + vencido daquele mês) e a expectativa realista.
+    const future = monthly.filter((x) => x.month >= curMonth);
+    const aReceberTotal = future.reduce((s, x) => s + x.a_receber, 0);
+    const aReceberExpected = future.reduce((s, x) => s + x.expected, 0);
+    const maxReceber = Math.max(...future.map((x) => x.a_receber), 1);
+    const aReceberCards = future.length > 0 ? (
+      <>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <Hero tone="blue" icon={Wallet} label="A receber (deste mês em diante)" value={fmtBRL(aReceberTotal)}
+            sub={`${future.reduce((s, x) => s + x.a_receber_count, 0)} boleto(s) em aberto · inclui vencidos do período`} />
+          <Hero tone="emerald" icon={Target} label="Expectativa realista" value={fmtBRL(aReceberExpected)}
+            sub={`${fmtPct(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)} do que está em aberto, pelo histórico dos pacientes`}
+            extra={bar(aReceberTotal > 0 ? (aReceberExpected / aReceberTotal) * 100 : 0)} />
+          <Hero tone="amber" icon={CalendarDays} label={`Vence em ${future[0]?.label || '—'}`} value={fmtBRL(future[0]?.a_receber || 0)}
+            sub={`${future[0]?.a_receber_count || 0} boleto(s) · espera ${fmtBRL(future[0]?.expected || 0)}`} />
+        </div>
+        <div className="rounded-2xl p-3.5 bg-card border border-border shadow-sm">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mb-3">
+            Quanto temos a receber, mês a mês <span className="normal-case font-normal">(barra cheia = em aberto · faixa escura = expectativa)</span>
+          </p>
+          <div className="flex gap-2 overflow-x-auto pb-1">
+            {future.map((mo) => (
+              <div key={mo.month} className="min-w-[104px] flex-1 rounded-xl bg-blue-500/10 p-2.5 text-center">
+                <p className="text-[10px] font-bold uppercase text-blue-600 dark:text-blue-400 capitalize">{mo.label}</p>
+                <p className="text-sm font-black tabular-nums text-foreground mt-1">{fmtBRL(mo.a_receber)}</p>
+                <div className="h-2 rounded-full bg-blue-500/20 my-1.5 overflow-hidden relative">
+                  <div className="h-full bg-blue-500/60 rounded-full absolute inset-y-0 left-0" style={{ width: `${(mo.a_receber / maxReceber) * 100}%` }} />
+                  <div className="h-full bg-emerald-500 rounded-full absolute inset-y-0 left-0" style={{ width: `${(mo.expected / maxReceber) * 100}%` }} />
+                </div>
+                <p className="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold">espera {fmtBRL(mo.expected)}</p>
+                <p className="text-[10px] text-muted-foreground">{mo.a_receber_count} boleto{mo.a_receber_count === 1 ? '' : 's'}</p>
+                {mo.overdue_total > 0 && <p className="text-[10px] text-red-500 font-bold">{fmtBRL(mo.overdue_total)} vencido</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      </>
+    ) : null;
+
     const monthlyDetails = monthly.length > 0 ? (
       <>
         {classes && (
@@ -312,7 +352,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
               <thead>
                 <tr className="text-left text-[9px] uppercase tracking-wider text-muted-foreground border-b border-border">
                   <th className="py-1 pr-2">Mês</th><th className="py-1 pr-2 text-right">Boletos</th><th className="py-1 pr-2 text-right">Total</th>
-                  <th className="py-1 pr-2 text-right text-emerald-500">Pago</th><th className="py-1 pr-2 text-right text-red-500">Vencido</th>
+                  <th className="py-1 pr-2 text-right text-emerald-500">Pago</th><th className="py-1 pr-2 text-right text-blue-500">A receber</th><th className="py-1 pr-2 text-right text-red-500">Vencido</th>
                   {KLASS.map((k) => <th key={k.key} className={`py-1 pr-2 text-right ${TONE[k.tone].text}`}>{k.label}</th>)}
                 </tr>
               </thead>
@@ -323,6 +363,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
                     <td className="py-1 pr-2 text-right tabular-nums">{mo.count}</td>
                     <td className="py-1 pr-2 text-right tabular-nums font-bold">{fmtBRL(mo.total)}</td>
                     <td className="py-1 pr-2 text-right tabular-nums text-emerald-500">{fmtBRL(mo.paid_total)}</td>
+                    <td className="py-1 pr-2 text-right tabular-nums text-blue-500">{mo.a_receber > 0 ? fmtBRL(mo.a_receber) : '—'}</td>
                     <td className="py-1 pr-2 text-right tabular-nums text-red-500">{fmtBRL(mo.overdue_total)}</td>
                     {KLASS.map((k) => <td key={k.key} className="py-1 pr-2 text-right tabular-nums">{mo.by_class_count[k.key] > 0 ? `${fmtBRL(mo.by_class[k.key])} (${mo.by_class_count[k.key]})` : '—'}</td>)}
                   </tr>
@@ -334,7 +375,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
       </>
     ) : null;
 
-    return { negativadosCards, negativadosDetails, upcomingCards, upcomingDetails, paidCards, paidDetails, todosCards, todosDetails, monthlyDetails };
+    return { negativadosCards, negativadosDetails, upcomingCards, upcomingDetails, paidCards, paidDetails, todosCards, todosDetails, monthlyDetails, aReceberCards };
   }, [kpis]);
 
   if (loading && !kpis) {
@@ -361,6 +402,7 @@ export default function BoletosKpis({ kpis, chip, loading }: { kpis: ChargesKpis
     chip === 'report' ? (
       <>
         <Section title="Carteira" icon={Layers}>{s.todosCards}{s.todosDetails}</Section>
+        <Section title="A receber por mês" icon={Wallet}>{s.aReceberCards}</Section>
         <Section title="Boletos por mês × perfil do paciente" icon={CalendarDays}>{s.monthlyDetails}</Section>
         <Section title="Negativados" icon={AlertTriangle}>{s.negativadosCards}{s.negativadosDetails}</Section>
         <Section title="Vencem nos próximos 7 dias" icon={CalendarDays}>{s.upcomingCards}{s.upcomingDetails}</Section>
