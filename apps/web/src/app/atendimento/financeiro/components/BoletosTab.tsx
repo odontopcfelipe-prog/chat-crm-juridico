@@ -158,7 +158,7 @@ export default function BoletosTab({ dentistId }: Props) {
     try {
       const term = debouncedSearch.trim();
       // Negativados/Todos agrupam por paciente no front → pedem a carteira (tetos 2000/5000 no back).
-      const params: any = { limit: term ? 500 : statusGroup === 'negativados' ? 2000 : statusGroup === 'all' ? 5000 : 200 };
+      const params: any = { limit: term ? 500 : statusGroup === 'negativados' || statusGroup === 'all' ? 2000 : 200 };
       // Buscando um paciente → traz TODOS os status dele (pago/aberto/atrasado):
       // manda `search` e NÃO manda statusGroup (o chip é ignorado durante a busca).
       if (term) params.search = term;

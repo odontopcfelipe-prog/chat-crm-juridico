@@ -395,7 +395,7 @@ export class FinanceiroChargesService {
   }) {
     const { tenantId, dentistId, patientId, search, status, statusGroup, kind, billingType, startDate, endDate } = opts;
     // Negativados precisa da carteira INTEIRA dos devedores (agrupa no front) — teto maior.
-    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' ? 2000 : statusGroup === 'all_patients' ? 5000 : 500);
+    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' || statusGroup === 'all_patients' ? 2000 : 500);
     const offset = opts.offset || 0;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -612,10 +612,50 @@ export class FinanceiroChargesService {
    */
   async getChargesKpis(opts: { tenantId?: string; dentistId?: string }) {
     const { tenantId, dentistId } = opts;
-    const { data } = await this.findCharges({ tenantId, dentistId, statusGroup: 'all_patients', limit: 5000 });
-    type C = ReturnType<FinanceiroChargesService['serializeCharge']>;
-    const rows = data as C[];
     const now = new Date();
+    // Onda 18.x — query PRÓPRIA e ENXUTA (antes reusava findCharges com include
+    // profundo: treatment_plan → quote → created_by + installment + patient; em
+    // 2-5 mil linhas isso estourava tempo/pool e derrubava a listagem que roda em
+    // paralelo → 500 na tela). Aqui só as colunas que os KPIs usam, sem joins de
+    // exibição. A identidade do paciente vem do vínculo direto, do plano ou (pra
+    // importado órfão) do próprio cliente do gateway — sem consultas extras.
+    const rawRows = await this.prisma.paymentGatewayCharge.findMany({
+      where: {
+        ...(tenantId ? { tenant_id: tenantId } : {}),
+        ...(dentistId ? { treatment_plan: { quote: { created_by_user_id: dentistId } } } : {}),
+      },
+      select: {
+        amount: true, due_date: true, status: true, received_in_cash: true,
+        paid_at: true, payment_date: true, billing_type: true,
+        patient_id: true, customer_external_id: true,
+        treatment_plan: { select: { patient_id: true } },
+      },
+      orderBy: { due_date: 'desc' },
+      take: 20000,
+    });
+    type C = {
+      amount: number; due_date: Date; billing_type: string | null; received_in_cash: boolean;
+      paid_at: Date | null; payment_date: Date | null; days_overdue: number;
+      computed_status: 'PAGO' | 'CANCELADO' | 'ATRASADO' | 'EM_ABERTO'; patientKey: string | null;
+    };
+    const rows: C[] = rawRows.map((r: any) => {
+      const isPaid = PAID_STATUSES.includes(r.status) || r.received_in_cash === true;
+      const isCancelled = CANCELLED_STATUSES.includes(r.status);
+      const isOverdue = !isPaid && !isCancelled && new Date(r.due_date) < now;
+      return {
+        amount: Number(r.amount) || 0,
+        due_date: r.due_date,
+        billing_type: r.billing_type,
+        received_in_cash: r.received_in_cash,
+        paid_at: r.paid_at,
+        payment_date: r.payment_date,
+        days_overdue: isOverdue ? Math.floor((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000) : 0,
+        computed_status: isPaid ? 'PAGO' : isCancelled ? 'CANCELADO' : isOverdue ? 'ATRASADO' : 'EM_ABERTO',
+        // Chave de paciente: vínculo direto → plano → cliente do gateway (importado
+        // órfão vira um "paciente" estável pela chave do cliente, sem join extra).
+        patientKey: r.patient_id || r.treatment_plan?.patient_id || (r.customer_external_id ? `cust:${r.customer_external_id}` : null),
+      };
+    });
     const sum = (arr: C[]) => arr.reduce((s, c) => s + (Number(c.amount) || 0), 0);
     const round2 = (v: number) => Math.round(v * 100) / 100;
     const pct = (a: number, b: number) => (b > 0 ? Math.round((a / b) * 1000) / 10 : 0);
@@ -626,7 +666,7 @@ export class FinanceiroChargesService {
     const paid = live.filter((c) => c.computed_status === 'PAGO');
     const overdue = live.filter((c) => c.computed_status === 'ATRASADO');
     const open = live.filter((c) => c.computed_status === 'EM_ABERTO');
-    const pid = (c: C) => c.patient?.id || null;
+    const pid = (c: C) => c.patientKey;
 
     // ── Comportamento por paciente ────────────────────────────────────────
     type Beh = { paid: number; paidLate: number; overdue: number; overdueTotal: number; maxDays: number; lateDaysSum: number; open: number };
