@@ -629,11 +629,11 @@ export class FinanceiroChargesService {
     const pid = (c: C) => c.patient?.id || null;
 
     // ── Comportamento por paciente ────────────────────────────────────────
-    type Beh = { paid: number; paidLate: number; overdue: number; overdueTotal: number; maxDays: number; lateDaysSum: number };
+    type Beh = { paid: number; paidLate: number; overdue: number; overdueTotal: number; maxDays: number; lateDaysSum: number; open: number };
     const beh = new Map<string, Beh>();
     const getB = (id: string) => {
       let b = beh.get(id);
-      if (!b) { b = { paid: 0, paidLate: 0, overdue: 0, overdueTotal: 0, maxDays: 0, lateDaysSum: 0 }; beh.set(id, b); }
+      if (!b) { b = { paid: 0, paidLate: 0, overdue: 0, overdueTotal: 0, maxDays: 0, lateDaysSum: 0, open: 0 }; beh.set(id, b); }
       return b;
     };
     for (const c of live) {
@@ -648,6 +648,8 @@ export class FinanceiroChargesService {
         }
       } else if (c.computed_status === 'ATRASADO') {
         b.overdue++; b.overdueTotal += Number(c.amount) || 0; b.maxDays = Math.max(b.maxDays, c.days_overdue || 0);
+      } else if (c.computed_status === 'EM_ABERTO') {
+        b.open++;
       }
     }
     const rateOf = (id: string | null) => {
@@ -706,8 +708,64 @@ export class FinanceiroChargesService {
     for (const c of paidThisMonth) { const k = c.received_in_cash ? 'CLINICA' : (c.billing_type || 'OUTRO'); (paidByMethod[k] ||= { count: 0, total: 0 }); paidByMethod[k].count++; paidByMethod[k].total = round2(paidByMethod[k].total + Number(c.amount)); }
 
     const totalCarteira = sum(live);
+
+    // ── Relatório: boletos POR MÊS (vencimento) × classe do paciente ──────
+    // Classe (por paciente, sobre o histórico inteiro; prioridade de cima pra baixo):
+    //   mais_de_2_abertos — tem MAIS de 2 boletos em aberto (a vencer + atrasados)
+    //   atrasa_paga       — já pagou ≥1 boleto DEPOIS do vencimento (atrasa, mas paga)
+    //   nunca_atrasa      — já pagou ≥1, nunca atrasou e não tem nada vencido
+    //   outros            — sem histórico de pagamento (novo) ou só a vencer
+    type Klass = 'mais_de_2_abertos' | 'atrasa_paga' | 'nunca_atrasa' | 'outros';
+    const klassOf = (id: string | null): Klass => {
+      if (!id) return 'outros';
+      const b = beh.get(id); if (!b) return 'outros';
+      if (b.open + b.overdue > 2) return 'mais_de_2_abertos';
+      if (b.paidLate >= 1) return 'atrasa_paga';
+      if (b.paid >= 1 && b.paidLate === 0 && b.overdue === 0) return 'nunca_atrasa';
+      return 'outros';
+    };
+    const emptyK = () => ({ mais_de_2_abertos: 0, atrasa_paga: 0, nunca_atrasa: 0, outros: 0 });
+    const classes: Record<Klass, { patients: number; open_total: number; overdue_total: number; open_count: number }> = {
+      mais_de_2_abertos: { patients: 0, open_total: 0, overdue_total: 0, open_count: 0 },
+      atrasa_paga: { patients: 0, open_total: 0, overdue_total: 0, open_count: 0 },
+      nunca_atrasa: { patients: 0, open_total: 0, overdue_total: 0, open_count: 0 },
+      outros: { patients: 0, open_total: 0, overdue_total: 0, open_count: 0 },
+    };
+    for (const id of patientsWithCharges) classes[klassOf(id)].patients++;
+    for (const c of [...overdue, ...open]) {
+      const k = klassOf(pid(c));
+      classes[k].open_total += Number(c.amount) || 0; classes[k].open_count++;
+      if (c.computed_status === 'ATRASADO') classes[k].overdue_total += Number(c.amount) || 0;
+    }
+    for (const k of Object.keys(classes) as Klass[]) { classes[k].open_total = round2(classes[k].open_total); classes[k].overdue_total = round2(classes[k].overdue_total); }
+
+    // Janela: 8 meses pra trás + atual + 3 pra frente (por VENCIMENTO).
+    const monthKey = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const months: Array<{ month: string; label: string; count: number; total: number; paid_total: number; open_total: number; overdue_total: number; by_class: Record<Klass, number>; by_class_count: Record<Klass, number> }> = [];
+    for (let i = -8; i <= 3; i++) {
+      const d = new Date(y, m + i, 1);
+      months.push({ month: monthKey(d), label: d.toLocaleDateString('pt-BR', { month: 'short', year: '2-digit' }).replace('.', ''), count: 0, total: 0, paid_total: 0, open_total: 0, overdue_total: 0, by_class: emptyK(), by_class_count: emptyK() });
+    }
+    const byMonth = new Map(months.map((x) => [x.month, x]));
+    for (const c of live) {
+      const mk = monthKey(new Date(c.due_date));
+      const row = byMonth.get(mk); if (!row) continue;
+      const amt = Number(c.amount) || 0;
+      row.count++; row.total += amt;
+      if (c.computed_status === 'PAGO') row.paid_total += amt;
+      else if (c.computed_status === 'ATRASADO') { row.overdue_total += amt; row.open_total += amt; }
+      else if (c.computed_status === 'EM_ABERTO') row.open_total += amt;
+      const k = klassOf(pid(c)); row.by_class[k] += amt; row.by_class_count[k]++;
+    }
+    for (const row of months) {
+      row.total = round2(row.total); row.paid_total = round2(row.paid_total); row.open_total = round2(row.open_total); row.overdue_total = round2(row.overdue_total);
+      for (const k of Object.keys(row.by_class) as Klass[]) row.by_class[k] = round2(row.by_class[k]);
+    }
+
     return {
       generated_at: now.toISOString(),
+      monthly: months,
+      classes,
       base: {
         charges: live.length,
         cancelled: cancelled.length,

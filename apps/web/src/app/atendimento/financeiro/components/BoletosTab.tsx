@@ -22,7 +22,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
-  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2, Users, ChevronRight, ChevronDown,
+  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2, Users, ChevronRight, ChevronDown, BarChart3,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -78,6 +78,8 @@ const STATUS_GROUPS = [
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
   { key: 'all', label: 'Todos', icon: Users, color: 'text-foreground' },
+  // Onda 18.x — Relatório: só o dashboard completo (todos os detalhes), sem lista.
+  { key: 'report', label: 'Relatório', icon: BarChart3, color: 'text-primary' },
 ] as const;
 // Abas EXCLUSIVAS: cada chip mostra SÓ o seu status (lista única). O chip "Todos"
 // (Onda 18.x) é POR PACIENTE: todo mundo que tem boleto, com pagos/abertos/atrasados/
@@ -150,6 +152,8 @@ export default function BoletosTab({ dentistId }: Props) {
   useEffect(() => { fetchKpis(); }, [fetchKpis]);
 
   const fetchData = useCallback(async () => {
+    // Relatório: só o dashboard — não carrega lista.
+    if (statusGroup === 'report' && !debouncedSearch.trim()) { setCharges([]); setTotal(0); setLoading(false); return; }
     setLoading(true);
     try {
       const term = debouncedSearch.trim();
@@ -437,6 +441,7 @@ export default function BoletosTab({ dentistId }: Props) {
         </div>
 
         {/* Onda 18.x — contagem da listagem (os KPIs de valor vivem no dashboard abaixo). */}
+        {(statusGroup !== 'report' || searching) && (
         <div className="flex items-center gap-2 pt-2 border-t border-border/50 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">
           <span>{filtered.length} de {total} cobrança(s) carregada(s)</span>
           <span className="ml-auto flex items-center gap-1.5">
@@ -444,13 +449,14 @@ export default function BoletosTab({ dentistId }: Props) {
             {monthStats.count} cobrança(s) · {fmtBRL(monthStats.totalValue)}
           </span>
         </div>
+        )}
       </div>
 
       {/* Onda 18.x — Dashboard de KPIs contextual ao chip (carteira inteira). */}
       <BoletosKpis kpis={kpis} chip={searching ? "all" : statusGroup} loading={kpisLoading} />
 
       {/* Lista */}
-      {loading ? (
+      {statusGroup === 'report' && !searching ? null : loading ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <Loader2 size={24} className="mx-auto animate-spin text-primary" />
         </div>
