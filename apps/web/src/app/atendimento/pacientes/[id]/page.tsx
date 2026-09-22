@@ -16,7 +16,7 @@
 import { useEffect, useRef, useState, Suspense } from 'react';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import {
-  ArrowLeft, Loader2, User, Phone, Mail, IdCard, RefreshCw,
+  ArrowLeft, Loader2, User, Phone, Mail, IdCard,
   FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
@@ -179,27 +179,6 @@ function PacienteFichaInner() {
     has_overdue: boolean; count: number; total: number; block_enabled: boolean; blocked: boolean;
   } | null>(null);
   const [loading, setLoading] = useState(true);
-  // "Verificar no Asaas": reconcile ao vivo só das cobranças em aberto DESTE paciente.
-  // "Pagou mas continua bloqueado" = status local velho — cura na hora.
-  const [reconciling, setReconciling] = useState(false);
-  const verificarNoAsaas = async () => {
-    if (!params?.id || reconciling) return;
-    setReconciling(true);
-    try {
-      const { data } = await api.post<{ checked: number; updated: number; errors: number; not_found: string[] }>(
-        `/payment-gateway/patients/${params.id}/reconcile`,
-      );
-      const r = await api.get(`/calendar/patients/${params.id}/block-status`).catch(() => null);
-      if (r) setBlockStatus(r.data);
-      if (data.updated > 0) showSuccess(`${data.updated} cobrança(s) atualizada(s) pelo Asaas.`);
-      else if (data.errors > 0) showError(`Não consegui conferir ${data.errors} cobrança(s) no Asaas${data.not_found?.length ? ' (não encontradas nessa conta: ' + data.not_found.join(', ') + ')' : ''}.`);
-      else showSuccess(`Conferido: ${data.checked} cobrança(s) continuam em aberto no Asaas.`);
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Falha ao conferir no Asaas.');
-    } finally {
-      setReconciling(false);
-    }
-  };
   // Aceita ?tab=odontogram (e variantes) na URL pra que outras páginas
   // (ex: botão "Atender" do CRM Kanban) abram direto na aba certa.
   // Lista permitida = TabId — qualquer valor inválido cai em 'overview'.
@@ -505,20 +484,8 @@ function PacienteFichaInner() {
                   {blockStatus.total.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}
                 </button>
               )}
-              {/* "Verificar no Asaas" — só quem vê financeiro. Confere ao vivo as
-                  cobranças em aberto do paciente e cura status local velho. */}
-              {blockStatus?.has_overdue && canFinancial && (
-                <button
-                  type="button"
-                  onClick={verificarNoAsaas}
-                  disabled={reconciling}
-                  title="Conferir agora no Asaas se essas cobranças ainda estão em aberto (cura status desatualizado)"
-                  className="text-xs px-2 py-0.5 rounded border border-border text-muted-foreground hover:text-foreground hover:bg-accent/40 inline-flex items-center gap-1 disabled:opacity-50"
-                >
-                  <RefreshCw size={11} className={reconciling ? 'animate-spin' : ''} />
-                  {reconciling ? 'Conferindo…' : 'Verificar no Asaas'}
-                </button>
-              )}
+              {/* A conferência no Asaas é AUTOMÁTICA no backend (block-status confere as
+                  vencidas ao vivo, 1×/10min por paciente) — sem botão manual. */}
             </h1>
             <div className="flex items-center gap-3 text-sm text-muted-foreground mt-1 flex-wrap">
               {patient.phone && <span className="flex items-center gap-1"><Phone size={14} /> {formatPhone(patient.phone)}</span>}

@@ -247,13 +247,51 @@ export class CalendarService {
     return { count: rows.length, total };
   }
 
+  /** Última conferência ao vivo no Asaas por paciente (anti-martelo: 1× a cada 10 min). */
+  private readonly overdueVerifiedAt = new Map<string, number>();
+  private static readonly OVERDUE_VERIFY_TTL_MS = 10 * 60 * 1000;
+
+  /**
+   * Onda 18.x — Atraso VERIFICADO: se o banco local diz que há boleto vencido, confere
+   * AUTOMATICAMENTE no Asaas (só as vencidas do paciente) antes de responder. "Pagou
+   * mas continua bloqueado" era status local velho (webhook perdido / importado já
+   * pago) esperando a janela rotativa do cron — agora cura no ato, sem botão. Throttle
+   * de 10 min por paciente; best-effort (Asaas fora → usa o local). ModuleRef evita
+   * ciclo Calendar↔PaymentGateway.
+   */
+  private async getPatientOverdueVerified(
+    patientId: string,
+    tenantId?: string | null,
+  ): Promise<{ count: number; total: number }> {
+    const local = await this.getPatientOverdue(patientId, tenantId);
+    if (local.count === 0 || !tenantId) return local;
+    const last = this.overdueVerifiedAt.get(patientId) || 0;
+    if (Date.now() - last < CalendarService.OVERDUE_VERIFY_TTL_MS) return local;
+    this.overdueVerifiedAt.set(patientId, Date.now());
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const { PaymentGatewayService } = require('../payment-gateway/payment-gateway.service');
+      const pg: any = this.moduleRef.get(PaymentGatewayService, { strict: false });
+      if (!pg?.reconcilePatient) return local;
+      const r = await pg.reconcilePatient(patientId, tenantId, { onlyOverdue: true });
+      if (r?.updated > 0) {
+        this.logger.log(`[OVERDUE-VERIFY] paciente ${patientId}: ${r.updated} cobrança(s) baixada(s)/cancelada(s) pelo Asaas — recalculando atraso`);
+        return this.getPatientOverdue(patientId, tenantId);
+      }
+    } catch (e: any) {
+      this.logger.warn(`[OVERDUE-VERIFY] paciente ${patientId}: conferência no Asaas falhou (usando local): ${e?.message}`);
+    }
+    return local;
+  }
+
   /**
    * Status do bloqueio de agendamento por devedor — pra SINALIZAR no cadastro do
    * paciente (selo "bloqueado"). Diz se a clínica tem o gate ligado, se o paciente
    * tem atraso AO VIVO (qtd/valor) e se HOJE ele seria bloqueado (gate + atraso).
+   * Confere no Asaas automaticamente quando há atraso (getPatientOverdueVerified).
    */
   async getSchedulingBlockStatus(patientId: string, tenantId?: string | null) {
-    const overdue = await this.getPatientOverdue(patientId, tenantId);
+    const overdue = await this.getPatientOverdueVerified(patientId, tenantId);
     let blockEnabled = false;
     if (tenantId) {
       const flag = await this.prisma.globalSetting.findUnique({
@@ -353,7 +391,8 @@ export class CalendarService {
         where: { key: `BLOCK_SCHED_ON_OVERDUE_${data.tenant_id}` },
       });
       if (flag?.value === 'true') {
-        const overdue = await this.getPatientOverdue(resolvedPatientId, data.tenant_id);
+        // Confere no Asaas antes de BARRAR (status local velho não pode travar agenda).
+        const overdue = await this.getPatientOverdueVerified(resolvedPatientId, data.tenant_id);
         if (overdue.count > 0) {
           const isAdmin = (data.actor_roles || []).some((r) => r === 'ADMIN' || r === 'SUPER_ADMIN');
           const reason = (data.override_overdue_reason || '').trim();

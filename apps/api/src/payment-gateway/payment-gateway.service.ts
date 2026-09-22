@@ -1950,7 +1950,7 @@ export class PaymentGatewayService {
    * bloqueado" = status local velho (webhook perdido / importado já-pago) — cura na
    * hora, sem esperar a janela rotativa do cron. Tenant-scoped (anti-IDOR).
    */
-  async reconcilePatient(patientId: string, tenantId?: string | null) {
+  async reconcilePatient(patientId: string, tenantId?: string | null, opts?: { onlyOverdue?: boolean }) {
     if (!patientId || !tenantId) throw new BadRequestException('Paciente/clínica não identificados');
     const patient = await this.prisma.patient.findUnique({
       where: { id: patientId },
@@ -1967,7 +1967,12 @@ export class PaymentGatewayService {
       if (ext.length) or.push({ customer_external_id: { in: ext } });
     }
     const open = await this.prisma.paymentGatewayCharge.findMany({
-      where: { tenant_id: tenantId, gateway: 'ASAAS', status: { in: ['PENDING', 'OVERDUE'] }, received_in_cash: false, OR: or },
+      where: {
+        tenant_id: tenantId, gateway: 'ASAAS', status: { in: ['PENDING', 'OVERDUE'] }, received_in_cash: false, OR: or,
+        // onlyOverdue (conferência automática do selo/agenda): só as VENCIDAS — menos
+        // chamadas ao Asaas; as a vencer não mudam o bloqueio.
+        ...(opts?.onlyOverdue ? { due_date: { lt: new Date() } } : {}),
+      },
       select: { external_id: true, tenant_id: true, status: true },
       take: 200,
     });
