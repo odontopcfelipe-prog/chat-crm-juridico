@@ -284,6 +284,8 @@ export default function BoletosTab({ dentistId }: Props) {
     // Negativados (por paciente): cabeçalho recolhível + resumo.
     patient?: Charge['patient'];
     overdueCount?: number; overdueTotal?: number; openCount?: number;
+    // Pagos: divisória por DIA do pagamento.
+    dateGroup?: boolean;
   };
   const groups = useMemo<Group[]>(() => {
     // Onda 18.x — NEGATIVADOS: um grupo POR PACIENTE (ordem alfabética), recolhido por
@@ -314,6 +316,32 @@ export default function BoletosTab({ dentistId }: Props) {
           if (b.key === 'p-__sem_nome__') return -1;
           return a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' });
         });
+    }
+    // Onda 18.x — PAGOS: uma divisória por DIA do pagamento (mais recente primeiro),
+    // com quantidade e total do dia. Dentro do dia, do pagamento mais recente ao mais
+    // antigo. Sem data de pagamento → "Sem data" no fim.
+    if (statusGroup === 'paid' && !searching) {
+      const paidIso = (c: Charge) => c.paid_at || c.payment_date || null;
+      const dayKey = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString('sv-SE') : '');
+      const byDay = new Map<string, Group>();
+      for (const c of filtered) {
+        const iso = paidIso(c);
+        const k = dayKey(iso);
+        let g = byDay.get(k);
+        if (!g) {
+          const label = iso
+            ? new Date(iso).toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' }).replace('.', '')
+            : 'Sem data de pagamento';
+          g = { key: `d-${k || 'none'}`, label, icon: Check, color: 'text-emerald-400', rows: [], total: 0, dateGroup: true };
+          byDay.set(k, g);
+        }
+        g.rows.push(c);
+        g.total += c.amount;
+      }
+      const t = (c: Charge) => new Date(paidIso(c) || 0).getTime();
+      return [...byDay.entries()]
+        .sort(([a], [b]) => (a === '' ? 1 : b === '' ? -1 : b.localeCompare(a))) // dia mais recente primeiro
+        .map(([, g]) => ({ ...g, rows: g.rows.sort((a, b) => t(b) - t(a)) }));
     }
     // Buscando um paciente → sempre a visão agrupada (mostra pago + aberto + atrasado
     // dele de uma vez), ignorando o chip de status que estiver ativo.
@@ -508,6 +536,25 @@ export default function BoletosTab({ dentistId }: Props) {
                           <span className="ml-auto text-right whitespace-nowrap">
                             <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">{g.rows.length} boleto{g.rows.length > 1 ? 's' : ''} · total</span>
                             <span className="text-[12px] font-bold tabular-nums text-foreground">{fmtBRL(g.total)}</span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : g.label && g.dateGroup ? (
+                    // Pagos — divisória por DIA: faixa verde forte com data, quantidade e total do dia.
+                    <tr className="bg-emerald-500/10 border-t-4 border-t-emerald-500/50 border-b border-border">
+                      <td colSpan={7} className="px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-7 h-7 rounded-md bg-emerald-500 text-white grid place-items-center shrink-0">
+                            <Check size={14} strokeWidth={3} />
+                          </div>
+                          <span className="text-sm font-extrabold text-foreground capitalize">{g.label}</span>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                            {g.rows.length} pagamento{g.rows.length > 1 ? 's' : ''}
+                          </span>
+                          <span className="ml-auto text-right whitespace-nowrap">
+                            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">recebido no dia</span>
+                            <span className="text-sm font-extrabold tabular-nums text-emerald-600 dark:text-emerald-400">{fmtBRL(g.total)}</span>
                           </span>
                         </div>
                       </td>

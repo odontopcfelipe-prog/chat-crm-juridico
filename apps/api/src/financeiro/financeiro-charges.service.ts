@@ -542,7 +542,11 @@ export class FinanceiroChargesService {
           // Onda 18.x — vinculo direto (boletos importados do Asaas sem treatment_plan).
           patient: { select: { id: true, name: true, phone: true, cpf: true, avatar_url: true } },
         },
-        orderBy: { due_date: 'asc' },
+        // Pagos: do pagamento mais RECENTE ao mais antigo (senão, com o teto de 200,
+        // a aba mostrava só os pagamentos mais velhos da carteira). Demais: por vencimento.
+        orderBy: statusGroup === 'paid'
+          ? [{ paid_at: { sort: 'desc' as const, nulls: 'last' as const } }, { payment_date: { sort: 'desc' as const, nulls: 'last' as const } }, { due_date: 'desc' as const }]
+          : { due_date: 'asc' as const },
         take: limit,
         skip: offset,
       }),
