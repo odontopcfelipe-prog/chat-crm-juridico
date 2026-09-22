@@ -12,6 +12,9 @@ export * from './tenant-defaults';
 export * from './sectors.config';
 // Onda 17.56 — normalizacao de numero BR pro WhatsApp (adiciona o 55 no envio)
 export * from './phone.util';
+
+// Onda 18.x — régua única de "boleto vencido" (vence hoje NÃO é atraso).
+export * from './overdue.util';
 // Onda 17.57 — endereco da clinica do tenant -> string pra {local} nos disparos
 export * from './address.util';
 // Onda 18.17 — templates de cobranca (fonte unica: api edita, worker le)

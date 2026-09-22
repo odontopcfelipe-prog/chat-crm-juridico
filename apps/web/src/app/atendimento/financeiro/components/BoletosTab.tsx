@@ -29,6 +29,7 @@ import { showError, showSuccess } from '@/lib/toast';
 import { PatientAvatar } from '@/components/PatientAvatar';
 // Apagar boleto é ADMIN-only.
 import { useRole } from '@/lib/useRole';
+import { toBrazilWhatsappNumber } from '@crm/shared';
 import BoletosKpis, { type ChargesKpis } from './BoletosKpis';
 
 interface Charge {
@@ -107,10 +108,13 @@ const computedStatusBadge = (status: Charge['computed_status']) => {
   );
 };
 
+// Onda 18.x — BUGFIX: usava só os dígitos do telefone. Salvo como "(82) 9940-3053"
+// virava 8299403053 (SEM o 55) e o wa.me abria contato errado/inexistente.
+// toBrazilWhatsappNumber é o helper único do projeto (nunca refazer essa lógica).
 const waLink = (phone: string | null, msg: string) => {
-  if (!phone) return null;
-  const clean = phone.replace(/\D/g, '');
-  return `https://wa.me/${clean}?text=${encodeURIComponent(msg)}`;
+  const num = toBrazilWhatsappNumber(phone);
+  if (!num) return null;
+  return `https://wa.me/${num}?text=${encodeURIComponent(msg)}`;
 };
 
 export default function BoletosTab({ dentistId }: Props) {
@@ -231,12 +235,39 @@ export default function BoletosTab({ dentistId }: Props) {
   }, [filtered]);
   const mesLabel = new Date().toLocaleDateString('pt-BR', { month: 'short' }).replace('.', '');
 
+  // Onda 18.x — BUGFIX: a rota chamada aqui (/payment-gateway/charges/:id/mark-cash-
+  // received) NÃO existe → todo clique dava erro. Cada gateway tem a sua:
+  //   ASAAS → POST /payment-gateway/charges/asaas/:external_id/receive-in-cash
+  //           (dá baixa no Asaas + marca local + lança a RECEITA no caixa)
+  //   CASH  → POST /charges/:id/mark-cash-received (cobrança local, sem Asaas)
+  // A forma (espécie/PIX/cartão) é escolhida na hora — vai pro caixa e pro
+  // comprovante; antes ia tudo como "dinheiro".
   const handleMarkCash = async (c: Charge) => {
-    if (!confirm(`Marcar ${c.installment_label || 'cobrança'} de ${c.patient?.name} (${fmtBRL(c.amount)}) como recebida em espécie?`)) return;
+    const METHODS = [
+      { key: 'DINHEIRO', label: 'Espécie (dinheiro)' },
+      { key: 'PIX', label: 'PIX da clínica' },
+      { key: 'PIX_MAQUININHA', label: 'PIX na maquineta' },
+      { key: 'CARTAO', label: 'Cartão (maquineta)' },
+    ];
+    const escolha = prompt(
+      `Receber ${c.installment_label || 'cobrança'} de ${c.patient?.name || 'paciente'} (${fmtBRL(c.amount)}).\n\n` +
+      `Como foi pago?\n${METHODS.map((m, i) => `${i + 1} - ${m.label}`).join('\n')}\n\n` +
+      `Digite o número (1-${METHODS.length}) ou cancele.`,
+      '1',
+    );
+    if (escolha === null) return;
+    const idx = parseInt((escolha || '').trim(), 10) - 1;
+    const method = METHODS[idx];
+    if (!method) { showError('Opção inválida — informe um número de 1 a 4.'); return; }
     setMarkingCash(c.id);
     try {
-      await api.post(`/payment-gateway/charges/${c.id}/mark-cash-received`);
-      showSuccess('Marcado como recebido em espécie');
+      if (c.gateway === 'CASH') {
+        await api.post(`/charges/${c.id}/mark-cash-received`);
+      } else {
+        if (!c.external_id) { showError('Cobrança sem ID do Asaas — não dá pra dar baixa por aqui.'); return; }
+        await api.post(`/payment-gateway/charges/asaas/${c.external_id}/receive-in-cash`, { payment_method: method.key });
+      }
+      showSuccess(`Recebimento registrado (${method.label})`);
       fetchData();
       fetchKpis();
     } catch (e: any) {
@@ -682,12 +713,13 @@ export default function BoletosTab({ dentistId }: Props) {
                               <MessageCircle size={13} />
                             </a>
                           )}
-                          {!isPaid && c.gateway !== 'CASH' && (
+                          {/* Vale pros dois gateways: ASAAS dá baixa no Asaas + caixa; CASH marca local. */}
+                          {!isPaid && c.computed_status !== 'CANCELADO' && (
                             <button
                               onClick={() => handleMarkCash(c)}
                               disabled={markingCash === c.id}
                               className="p-1.5 rounded-lg hover:bg-emerald-500/15 text-emerald-400 transition-colors disabled:opacity-50"
-                              title="Marcar como recebido em espécie"
+                              title="Registrar recebimento na clínica (espécie, PIX ou cartão)"
                             >
                               {markingCash === c.id ? <Loader2 size={13} className="animate-spin" /> : <DollarSign size={13} />}
                             </button>

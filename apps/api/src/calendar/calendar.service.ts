@@ -3,6 +3,8 @@ import { ModuleRef } from '@nestjs/core';
 import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
+// Onda 18.x — régua única de vencido (vence hoje NÃO bloqueia agendamento).
+import { startOfTodayMaceioUtc } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -238,7 +240,8 @@ export class CalendarService {
         tenant_id: tenantId,
         status: { in: ['PENDING', 'OVERDUE'] },
         received_in_cash: false,
-        due_date: { lt: new Date() },
+        // Onda 18.x — vence HOJE ainda está no prazo: não pode bloquear agendamento.
+        due_date: { lt: startOfTodayMaceioUtc() },
         OR: or,
       },
       select: { amount: true },

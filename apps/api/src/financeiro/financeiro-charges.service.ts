@@ -17,6 +17,8 @@
  */
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+// Onda 18.x — régua ÚNICA de vencido: quem vence HOJE não é atraso (fuso da clínica).
+import { startOfTodayMaceioUtc, endOfTodayMaceioUtc, isOverdueDate, daysOverdueFrom } from '@crm/shared';
 
 type ChargeRow = {
   id: string;
@@ -126,11 +128,11 @@ export class FinanceiroChargesService {
     };
     const overdueWhere: any = {
       ...openWhere,
-      due_date: { lt: now },
+      due_date: { lt: startOfTodayMaceioUtc(now) }, // vence HOJE ainda não é atraso
     };
     const upcoming7dWhere: any = {
       ...openWhere,
-      due_date: { gte: now, lte: in7d },
+      due_date: { gte: startOfTodayMaceioUtc(now), lte: in7d }, // inclui o que vence hoje
     };
 
     // Realização (contratado x recebido acumulado). Contratado = soma do total_value
@@ -471,11 +473,11 @@ export class FinanceiroChargesService {
     } else if (statusGroup === 'overdue') {
       where.status = { in: OPEN_STATUSES };
       where.received_in_cash = false;
-      where.due_date = { lt: now };
+      where.due_date = { lt: startOfTodayMaceioUtc(now) }; // vence hoje NÃO é atraso
     } else if (statusGroup === 'upcoming') {
       where.status = { in: OPEN_STATUSES };
       where.received_in_cash = false;
-      where.due_date = { gte: now, lte: in7d };
+      where.due_date = { gte: startOfTodayMaceioUtc(now), lte: in7d }; // inclui hoje
     } else if (statusGroup === 'negativados') {
       // Passo 1: quem tem cobrança ATRASADA (pelos 3 caminhos de vínculo do paciente —
       // direto, via plano, ou órfão pelo cliente do gateway).
@@ -484,7 +486,7 @@ export class FinanceiroChargesService {
           ...(tenantId ? { tenant_id: tenantId } : {}),
           status: { in: OPEN_STATUSES },
           received_in_cash: false,
-          due_date: { lt: now },
+          due_date: { lt: startOfTodayMaceioUtc(now) },
         },
         select: { patient_id: true, customer_external_id: true, treatment_plan: { select: { patient_id: true } } },
       });
@@ -641,7 +643,7 @@ export class FinanceiroChargesService {
     const rows: C[] = rawRows.map((r: any) => {
       const isPaid = PAID_STATUSES.includes(r.status) || r.received_in_cash === true;
       const isCancelled = CANCELLED_STATUSES.includes(r.status);
-      const isOverdue = !isPaid && !isCancelled && new Date(r.due_date) < now;
+      const isOverdue = !isPaid && !isCancelled && isOverdueDate(r.due_date, now);
       return {
         amount: Number(r.amount) || 0,
         due_date: r.due_date,
@@ -649,7 +651,7 @@ export class FinanceiroChargesService {
         received_in_cash: r.received_in_cash,
         paid_at: r.paid_at,
         payment_date: r.payment_date,
-        days_overdue: isOverdue ? Math.floor((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000) : 0,
+        days_overdue: isOverdue ? daysOverdueFrom(r.due_date, now) : 0,
         computed_status: isPaid ? 'PAGO' : isCancelled ? 'CANCELADO' : isOverdue ? 'ATRASADO' : 'EM_ABERTO',
         // Chave de paciente: vínculo direto → plano → cliente do gateway (importado
         // órfão vira um "paciente" estável pela chave do cliente, sem join extra).
@@ -1002,11 +1004,8 @@ export class FinanceiroChargesService {
     const isPaid =
       PAID_STATUSES.includes(r.status) || r.received_in_cash === true;
     const isCancelled = CANCELLED_STATUSES.includes(r.status);
-    const isOverdue =
-      !isPaid && !isCancelled && new Date(r.due_date) < now;
-    const daysOverdue = isOverdue
-      ? Math.floor((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000)
-      : 0;
+    const isOverdue = !isPaid && !isCancelled && isOverdueDate(r.due_date, now);
+    const daysOverdue = isOverdue ? daysOverdueFrom(r.due_date, now) : 0;
 
     return {
       id: r.id,
@@ -1062,10 +1061,7 @@ export class FinanceiroChargesService {
       amount: Number(r.amount),
       due_date: r.due_date,
       status: r.status,
-      days_overdue:
-        r.due_date && new Date(r.due_date) < now
-          ? Math.floor((now.getTime() - new Date(r.due_date).getTime()) / 86_400_000)
-          : 0,
+      days_overdue: r.due_date ? daysOverdueFrom(r.due_date, now) : 0,
       boleto_url: r.boleto_url || null,
       patient: r.treatment_plan?.patient || null,
     }));
