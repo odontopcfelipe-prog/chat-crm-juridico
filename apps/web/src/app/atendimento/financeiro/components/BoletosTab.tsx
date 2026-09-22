@@ -77,10 +77,11 @@ const STATUS_GROUPS = [
   { key: 'overdue', label: 'Atrasados', icon: AlertTriangle, color: 'text-red-400' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
-  { key: 'all', label: 'Todos', icon: FileText, color: 'text-foreground' },
+  { key: 'all', label: 'Todos', icon: Users, color: 'text-foreground' },
 ] as const;
 // Abas EXCLUSIVAS: cada chip mostra SÓ o seu status (lista única). O chip "Todos"
-// mostra a visão agrupada (Em Aberto / Vencidos / Pagos). Abre em "Negativados".
+// (Onda 18.x) é POR PACIENTE: todo mundo que tem boleto, com pagos/abertos/atrasados/
+// cancelados. Abre em "Negativados".
 type StatusGroup = 'all' | typeof STATUS_GROUPS[number]['key'];
 
 const KIND_LABEL: Record<string, string> = {
@@ -140,12 +141,12 @@ export default function BoletosTab({ dentistId }: Props) {
     setLoading(true);
     try {
       const term = debouncedSearch.trim();
-      // Negativados agrupa a carteira dos devedores no front → pede tudo (teto 2000 no back).
-      const params: any = { limit: term ? 500 : statusGroup === 'negativados' ? 2000 : 200 };
+      // Negativados/Todos agrupam por paciente no front → pedem a carteira (tetos 2000/5000 no back).
+      const params: any = { limit: term ? 500 : statusGroup === 'negativados' ? 2000 : statusGroup === 'all' ? 5000 : 200 };
       // Buscando um paciente → traz TODOS os status dele (pago/aberto/atrasado):
       // manda `search` e NÃO manda statusGroup (o chip é ignorado durante a busca).
       if (term) params.search = term;
-      else if (statusGroup !== 'all') params.statusGroup = statusGroup;
+      else params.statusGroup = statusGroup === 'all' ? 'all_patients' : statusGroup;
       if (kind) params.kind = kind;
       if (billingType) params.billingType = billingType;
       if (dentistId) params.dentistId = dentistId;
@@ -284,32 +285,42 @@ export default function BoletosTab({ dentistId }: Props) {
     // Negativados (por paciente): cabeçalho recolhível + resumo.
     patient?: Charge['patient'];
     overdueCount?: number; overdueTotal?: number; openCount?: number;
+    paidCount?: number; paidTotal?: number; cancelledCount?: number; openTotal?: number;
     // Pagos: divisória por DIA do pagamento.
     dateGroup?: boolean;
   };
   const groups = useMemo<Group[]>(() => {
-    // Onda 18.x — NEGATIVADOS: um grupo POR PACIENTE (ordem alfabética), recolhido por
-    // padrão. Backend já trouxe só a carteira em aberto dos devedores; aqui agrupa e
-    // resume (atrasados / a vencer / total). Sem paciente resolvido → "Sem nome" no fim.
-    if (statusGroup === 'negativados' && !searching) {
+    // Onda 18.x — POR PACIENTE (ordem alfabética, recolhido por padrão):
+    //  • NEGATIVADOS: só quem tem ≥1 atrasado (back manda a carteira em aberto deles);
+    //  • TODOS: todo paciente com boleto no sistema, com TUDO que negociou — pagos,
+    //    em aberto, atrasados e cancelados/apagados (back manda a carteira inteira).
+    // Sem paciente resolvido → "Sem nome" no fim.
+    if ((statusGroup === 'negativados' || statusGroup === 'all') && !searching) {
+      const onlyDebtors = statusGroup === 'negativados';
       const byPatient = new Map<string, Group>();
       for (const c of filtered) {
         const pid = c.patient?.id || '__sem_nome__';
         let g = byPatient.get(pid);
         if (!g) {
-          g = { key: `p-${pid}`, label: c.patient?.name || 'Sem nome', icon: Users, color: 'text-red-400', rows: [], total: 0, patient: c.patient, overdueCount: 0, overdueTotal: 0, openCount: 0 };
+          g = {
+            key: `p-${pid}`, label: c.patient?.name || 'Sem nome', icon: Users, color: onlyDebtors ? 'text-red-400' : 'text-foreground',
+            rows: [], total: 0, patient: c.patient,
+            overdueCount: 0, overdueTotal: 0, openCount: 0, paidCount: 0, paidTotal: 0, cancelledCount: 0, openTotal: 0,
+          };
           byPatient.set(pid, g);
         }
         g.rows.push(c);
         g.total += c.amount;
-        if (c.computed_status === 'ATRASADO') { g.overdueCount!++; g.overdueTotal! += c.amount; }
-        else if (c.computed_status === 'EM_ABERTO') g.openCount!++;
+        if (c.computed_status === 'ATRASADO') { g.overdueCount!++; g.overdueTotal! += c.amount; g.openTotal! += c.amount; }
+        else if (c.computed_status === 'EM_ABERTO') { g.openCount!++; g.openTotal! += c.amount; }
+        else if (c.computed_status === 'PAGO') { g.paidCount!++; g.paidTotal! += c.amount; }
+        else if (c.computed_status === 'CANCELADO') g.cancelledCount!++;
       }
       const byDueAsc = (a: Charge, b: Charge) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
       return [...byPatient.values()]
-        // Só quem tem ≥1 atrasado (o back já garante; defesa se um filtro secundário
-        // — tipo/forma — deixou o paciente só com boletos a vencer).
-        .filter((g) => (g.overdueCount || 0) > 0)
+        // Negativados: só quem tem ≥1 atrasado (o back já garante; defesa se um filtro
+        // secundário — tipo/forma — deixou o paciente só com boletos a vencer).
+        .filter((g) => !onlyDebtors || (g.overdueCount || 0) > 0)
         .map((g) => ({ ...g, rows: g.rows.sort(byDueAsc) }))
         .sort((a, b) => {
           if (a.key === 'p-__sem_nome__') return 1;
@@ -525,17 +536,36 @@ export default function BoletosTab({ dentistId }: Props) {
                             </button>
                             {g.patient?.phone && <span className="text-[10px] text-muted-foreground">{g.patient.phone}</span>}
                           </div>
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 whitespace-nowrap">
-                            {g.overdueCount} atrasado{(g.overdueCount || 0) > 1 ? 's' : ''} · {fmtBRL(g.overdueTotal || 0)}
+                          {/* Badges por status — só os que existem pro paciente. */}
+                          <span className="flex items-center gap-1 flex-wrap">
+                            {(g.overdueCount || 0) > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 whitespace-nowrap">
+                                {g.overdueCount} atrasado{(g.overdueCount || 0) > 1 ? 's' : ''} · {fmtBRL(g.overdueTotal || 0)}
+                              </span>
+                            )}
+                            {(g.openCount || 0) > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 whitespace-nowrap">
+                                {g.openCount} a vencer
+                              </span>
+                            )}
+                            {(g.paidCount || 0) > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/15 text-emerald-500 whitespace-nowrap">
+                                {g.paidCount} pago{(g.paidCount || 0) > 1 ? 's' : ''} · {fmtBRL(g.paidTotal || 0)}
+                              </span>
+                            )}
+                            {(g.cancelledCount || 0) > 0 && (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted text-muted-foreground whitespace-nowrap">
+                                {g.cancelledCount} cancelado{(g.cancelledCount || 0) > 1 ? 's' : ''}
+                              </span>
+                            )}
                           </span>
-                          {(g.openCount || 0) > 0 && (
-                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 whitespace-nowrap">
-                              {g.openCount} a vencer
-                            </span>
-                          )}
                           <span className="ml-auto text-right whitespace-nowrap">
-                            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">{g.rows.length} boleto{g.rows.length > 1 ? 's' : ''} · total</span>
-                            <span className="text-[12px] font-bold tabular-nums text-foreground">{fmtBRL(g.total)}</span>
+                            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">
+                              {g.rows.length} boleto{g.rows.length > 1 ? 's' : ''} · {(g.openTotal || 0) > 0 ? 'em aberto' : 'nada em aberto'}
+                            </span>
+                            <span className={`text-[12px] font-bold tabular-nums ${(g.openTotal || 0) > 0 ? 'text-foreground' : 'text-emerald-500'}`}>
+                              {(g.openTotal || 0) > 0 ? fmtBRL(g.openTotal || 0) : '✓ quitado'}
+                            </span>
                           </span>
                         </div>
                       </td>

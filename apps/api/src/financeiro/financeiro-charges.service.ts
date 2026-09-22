@@ -383,7 +383,9 @@ export class FinanceiroChargesService {
     // Onda 18.x — 'negativados': TODAS as cobranças em aberto (a vencer + atrasadas)
     // dos pacientes que têm ≥1 atrasada. O front agrupa por paciente (ordem
     // alfabética) — visão "quem está devendo e quanto".
-    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'negativados' | 'all';
+    // 'all_patients': a carteira INTEIRA (inclusive canceladas/apagadas) — a aba "Todos"
+    // agrupa por paciente no front, com tudo que ele já negociou.
+    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'negativados' | 'all_patients' | 'all';
     kind?: string; // SINAL|ENTRADA|INSTALLMENT
     billingType?: string;
     startDate?: string;
@@ -393,7 +395,7 @@ export class FinanceiroChargesService {
   }) {
     const { tenantId, dentistId, patientId, search, status, statusGroup, kind, billingType, startDate, endDate } = opts;
     // Negativados precisa da carteira INTEIRA dos devedores (agrupa no front) — teto maior.
-    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' ? 2000 : 500);
+    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' ? 2000 : statusGroup === 'all_patients' ? 5000 : 500);
     const offset = opts.offset || 0;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -505,6 +507,8 @@ export class FinanceiroChargesService {
       where.AND = where.AND || [];
       // Sem devedor nenhum → nada (condição impossível, evita listar a carteira toda).
       where.AND.push(who.length ? { OR: who } : { id: { in: [] } });
+    } else if (statusGroup === 'all_patients') {
+      // Tudo, sem filtro de status (canceladas/apagadas entram — o front mostra "Cancelado").
     } else if (!statusGroup || statusGroup === 'all') {
       // Sem filtro — exclui cancelados por padrão
       where.status = { notIn: CANCELLED_STATUSES };
