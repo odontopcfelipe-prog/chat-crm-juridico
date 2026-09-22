@@ -380,7 +380,10 @@ export class FinanceiroChargesService {
     patientId?: string;
     search?: string; // busca por nome/telefone/CPF do paciente (server-side, atravessa toda a carteira)
     status?: string; // PENDING|RECEIVED|OVERDUE|CONFIRMED|...
-    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'all';
+    // Onda 18.x — 'negativados': TODAS as cobranças em aberto (a vencer + atrasadas)
+    // dos pacientes que têm ≥1 atrasada. O front agrupa por paciente (ordem
+    // alfabética) — visão "quem está devendo e quanto".
+    statusGroup?: 'open' | 'paid' | 'overdue' | 'upcoming' | 'negativados' | 'all';
     kind?: string; // SINAL|ENTRADA|INSTALLMENT
     billingType?: string;
     startDate?: string;
@@ -389,7 +392,8 @@ export class FinanceiroChargesService {
     offset?: number;
   }) {
     const { tenantId, dentistId, patientId, search, status, statusGroup, kind, billingType, startDate, endDate } = opts;
-    const limit = Math.min(opts.limit || 100, 500);
+    // Negativados precisa da carteira INTEIRA dos devedores (agrupa no front) — teto maior.
+    const limit = Math.min(opts.limit || 100, statusGroup === 'negativados' ? 2000 : 500);
     const offset = opts.offset || 0;
     const now = new Date();
     const in7d = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
@@ -470,6 +474,37 @@ export class FinanceiroChargesService {
       where.status = { in: OPEN_STATUSES };
       where.received_in_cash = false;
       where.due_date = { gte: now, lte: in7d };
+    } else if (statusGroup === 'negativados') {
+      // Passo 1: quem tem cobrança ATRASADA (pelos 3 caminhos de vínculo do paciente —
+      // direto, via plano, ou órfão pelo cliente do gateway).
+      const overdue = await this.prisma.paymentGatewayCharge.findMany({
+        where: {
+          ...(tenantId ? { tenant_id: tenantId } : {}),
+          status: { in: OPEN_STATUSES },
+          received_in_cash: false,
+          due_date: { lt: now },
+        },
+        select: { patient_id: true, customer_external_id: true, treatment_plan: { select: { patient_id: true } } },
+      });
+      const patIds = new Set<string>();
+      const orphanExt = new Set<string>();
+      for (const c of overdue as any[]) {
+        const pid = c.patient_id || c.treatment_plan?.patient_id;
+        if (pid) patIds.add(pid);
+        else if (c.customer_external_id) orphanExt.add(c.customer_external_id);
+      }
+      // Passo 2: TODAS as cobranças em aberto (a vencer + atrasadas) desses pacientes.
+      where.status = { in: OPEN_STATUSES };
+      where.received_in_cash = false;
+      const who: any[] = [];
+      if (patIds.size) {
+        const ids = [...patIds];
+        who.push({ patient_id: { in: ids } }, { treatment_plan: { patient_id: { in: ids } } });
+      }
+      if (orphanExt.size) who.push({ customer_external_id: { in: [...orphanExt] } });
+      where.AND = where.AND || [];
+      // Sem devedor nenhum → nada (condição impossível, evita listar a carteira toda).
+      where.AND.push(who.length ? { OR: who } : { id: { in: [] } });
     } else if (!statusGroup || statusGroup === 'all') {
       // Sem filtro — exclui cancelados por padrão
       where.status = { notIn: CANCELLED_STATUSES };

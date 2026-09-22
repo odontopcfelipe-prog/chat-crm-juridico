@@ -22,7 +22,7 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Loader2, Search, AlertTriangle, Clock, Check, ExternalLink,
-  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2,
+  Copy, MessageCircle, DollarSign, FileText, Filter, X, Trash2, Users, ChevronRight, ChevronDown,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -69,14 +69,18 @@ const fmtBRL = (v: number) =>
 const fmtDate = (iso: string) => new Date(iso).toLocaleDateString('pt-BR');
 
 const STATUS_GROUPS = [
-  { key: 'open', label: 'Em aberto', icon: Clock, color: 'text-blue-400' },
+  // Onda 18.x — "Negativados" no lugar de "Em aberto": visão POR PACIENTE (ordem
+  // alfabética) de quem tem ≥1 boleto atrasado; cada paciente expande e mostra
+  // todos os boletos em aberto dele (atrasados + a vencer). O backend traz a
+  // carteira inteira dos devedores (statusGroup=negativados).
+  { key: 'negativados', label: 'Negativados', icon: Users, color: 'text-red-400' },
   { key: 'overdue', label: 'Atrasados', icon: AlertTriangle, color: 'text-red-400' },
   { key: 'upcoming', label: 'Vencem 7d', icon: Clock, color: 'text-amber-400' },
   { key: 'paid', label: 'Pagos', icon: Check, color: 'text-emerald-400' },
   { key: 'all', label: 'Todos', icon: FileText, color: 'text-foreground' },
 ] as const;
 // Abas EXCLUSIVAS: cada chip mostra SÓ o seu status (lista única). O chip "Todos"
-// mostra a visão agrupada (Em Aberto / Vencidos / Pagos). Abre em "Em aberto".
+// mostra a visão agrupada (Em Aberto / Vencidos / Pagos). Abre em "Negativados".
 type StatusGroup = 'all' | typeof STATUS_GROUPS[number]['key'];
 
 const KIND_LABEL: Record<string, string> = {
@@ -111,9 +115,12 @@ export default function BoletosTab({ dentistId }: Props) {
   const [loading, setLoading] = useState(true);
   const [charges, setCharges] = useState<Charge[]>([]);
   const [total, setTotal] = useState(0);
-  // Abre em "Em aberto". Chips são abas exclusivas — clicar troca o status mostrado
+  // Abre em "Negativados". Chips são abas exclusivas — clicar troca o status mostrado
   // (o chip "Todos" volta pra visão agrupada). Nunca fica sem nenhum ativo.
-  const [statusGroup, setStatusGroup] = useState<StatusGroup>('open');
+  const [statusGroup, setStatusGroup] = useState<StatusGroup>('negativados');
+  // Negativados: pacientes expandidos (id → true). Começa tudo recolhido.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const toggleExpanded = (id: string) => setExpanded((p) => ({ ...p, [id]: !p[id] }));
   const [kind, setKind] = useState<string>('');
   const [billingType, setBillingType] = useState<string>('');
   const [search, setSearch] = useState('');
@@ -133,7 +140,8 @@ export default function BoletosTab({ dentistId }: Props) {
     setLoading(true);
     try {
       const term = debouncedSearch.trim();
-      const params: any = { limit: term ? 500 : 200 };
+      // Negativados agrupa a carteira dos devedores no front → pede tudo (teto 2000 no back).
+      const params: any = { limit: term ? 500 : statusGroup === 'negativados' ? 2000 : 200 };
       // Buscando um paciente → traz TODOS os status dele (pago/aberto/atrasado):
       // manda `search` e NÃO manda statusGroup (o chip é ignorado durante a busca).
       if (term) params.search = term;
@@ -271,7 +279,42 @@ export default function BoletosTab({ dentistId }: Props) {
   // Agrupa a visão "Todos" em Em Aberto / Vencidos / Pagos, cada grupo por data
   // (aberto e vencidos por vencimento; pagos pelo pagamento mais recente). Com um
   // chip específico selecionado o backend já filtrou → lista única, sem cabeçalho.
-  const groups = useMemo(() => {
+  type Group = {
+    key: string; label: string; icon: any; color: string; rows: Charge[]; total: number;
+    // Negativados (por paciente): cabeçalho recolhível + resumo.
+    patient?: Charge['patient'];
+    overdueCount?: number; overdueTotal?: number; openCount?: number;
+  };
+  const groups = useMemo<Group[]>(() => {
+    // Onda 18.x — NEGATIVADOS: um grupo POR PACIENTE (ordem alfabética), recolhido por
+    // padrão. Backend já trouxe só a carteira em aberto dos devedores; aqui agrupa e
+    // resume (atrasados / a vencer / total). Sem paciente resolvido → "Sem nome" no fim.
+    if (statusGroup === 'negativados' && !searching) {
+      const byPatient = new Map<string, Group>();
+      for (const c of filtered) {
+        const pid = c.patient?.id || '__sem_nome__';
+        let g = byPatient.get(pid);
+        if (!g) {
+          g = { key: `p-${pid}`, label: c.patient?.name || 'Sem nome', icon: Users, color: 'text-red-400', rows: [], total: 0, patient: c.patient, overdueCount: 0, overdueTotal: 0, openCount: 0 };
+          byPatient.set(pid, g);
+        }
+        g.rows.push(c);
+        g.total += c.amount;
+        if (c.computed_status === 'ATRASADO') { g.overdueCount!++; g.overdueTotal! += c.amount; }
+        else if (c.computed_status === 'EM_ABERTO') g.openCount!++;
+      }
+      const byDueAsc = (a: Charge, b: Charge) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      return [...byPatient.values()]
+        // Só quem tem ≥1 atrasado (o back já garante; defesa se um filtro secundário
+        // — tipo/forma — deixou o paciente só com boletos a vencer).
+        .filter((g) => (g.overdueCount || 0) > 0)
+        .map((g) => ({ ...g, rows: g.rows.sort(byDueAsc) }))
+        .sort((a, b) => {
+          if (a.key === 'p-__sem_nome__') return 1;
+          if (b.key === 'p-__sem_nome__') return -1;
+          return a.label.localeCompare(b.label, 'pt-BR', { sensitivity: 'base' });
+        });
+    }
     // Buscando um paciente → sempre a visão agrupada (mostra pago + aberto + atrasado
     // dele de uma vez), ignorando o chip de status que estiver ativo.
     if (statusGroup !== 'all' && !searching) {
@@ -403,7 +446,9 @@ export default function BoletosTab({ dentistId }: Props) {
       ) : filtered.length === 0 ? (
         <div className="bg-card border border-border rounded-xl p-12 text-center">
           <FileText size={32} className="mx-auto text-muted-foreground mb-2" />
-          <p className="text-sm text-muted-foreground">Nenhuma cobrança encontrada nos filtros</p>
+          <p className="text-sm text-muted-foreground">
+            {statusGroup === 'negativados' && !searching ? 'Nenhum paciente negativado — carteira em dia 🎉' : 'Nenhuma cobrança encontrada nos filtros'}
+          </p>
         </div>
       ) : (
         <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -423,9 +468,51 @@ export default function BoletosTab({ dentistId }: Props) {
               <tbody>
                 {groups.map((g) => {
                   const GIcon = g.icon;
+                  const isPatientGroup = g.patient !== undefined;
+                  const isOpen = !isPatientGroup || !!expanded[g.key];
                   return (
                   <Fragment key={g.key}>
-                  {g.label && (
+                  {g.label && isPatientGroup ? (
+                    // Negativados — linha do PACIENTE: clica pra expandir/recolher os boletos dele.
+                    <tr
+                      className="bg-muted/40 border-y border-border cursor-pointer hover:bg-accent/20 transition-colors"
+                      onClick={() => toggleExpanded(g.key)}
+                    >
+                      <td colSpan={7} className="px-3 py-2.5">
+                        <div className="flex items-center gap-2.5">
+                          {isOpen ? <ChevronDown size={14} className="text-muted-foreground shrink-0" /> : <ChevronRight size={14} className="text-muted-foreground shrink-0" />}
+                          {g.patient ? (
+                            <PatientAvatar patientId={g.patient.id} patientName={g.label} avatarUrl={g.patient.avatar_url} size={28} shape="circle" />
+                          ) : (
+                            <div className="w-7 h-7 rounded-full bg-muted grid place-items-center"><Users size={13} className="text-muted-foreground" /></div>
+                          )}
+                          <div className="flex flex-col min-w-0">
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); g.patient?.id && router.push(`/atendimento/pacientes/${g.patient.id}?tab=financial`); }}
+                              className="text-sm font-bold text-foreground hover:text-primary text-left truncate"
+                              title="Abrir a ficha financeira do paciente"
+                            >
+                              {g.label}
+                            </button>
+                            {g.patient?.phone && <span className="text-[10px] text-muted-foreground">{g.patient.phone}</span>}
+                          </div>
+                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-red-500/15 text-red-400 whitespace-nowrap">
+                            {g.overdueCount} atrasado{(g.overdueCount || 0) > 1 ? 's' : ''} · {fmtBRL(g.overdueTotal || 0)}
+                          </span>
+                          {(g.openCount || 0) > 0 && (
+                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 text-blue-400 whitespace-nowrap">
+                              {g.openCount} a vencer
+                            </span>
+                          )}
+                          <span className="ml-auto text-right whitespace-nowrap">
+                            <span className="block text-[9px] uppercase tracking-wider text-muted-foreground">{g.rows.length} boleto{g.rows.length > 1 ? 's' : ''} · total</span>
+                            <span className="text-[12px] font-bold tabular-nums text-foreground">{fmtBRL(g.total)}</span>
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : g.label ? (
                     <tr className="bg-muted/40 border-y border-border">
                       <td colSpan={7} className="px-3 py-2">
                         <div className="flex items-center gap-2">
@@ -436,8 +523,8 @@ export default function BoletosTab({ dentistId }: Props) {
                         </div>
                       </td>
                     </tr>
-                  )}
-                  {g.rows.map((c) => {
+                  ) : null}
+                  {isOpen && g.rows.map((c) => {
                   const isOverdue = c.computed_status === 'ATRASADO';
                   const isPaid = c.computed_status === 'PAGO';
                   const reminderMsg = `Olá ${c.patient?.name || ''}! Lembrando do pagamento de ${fmtBRL(c.amount)} (${c.installment_label}) com vencimento em ${fmtDate(c.due_date)}.${
