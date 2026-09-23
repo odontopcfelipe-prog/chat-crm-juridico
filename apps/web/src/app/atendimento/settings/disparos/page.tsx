@@ -554,6 +554,7 @@ export default function CentralDisparosPage() {
               preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/pagar', codigo: '📋 Pra facilitar, copie o código e pague por PIX:\n00020126...br', clinica: 'Instituto Odonto Passos' }}
               onCurrentTextChange={setLiveText}
               defaultText={defaultCobrancaTemplate(openItem.operacionalKey || '', cobrancaTipo)}
+              simulateBoleto
             />
           </div>
         )}

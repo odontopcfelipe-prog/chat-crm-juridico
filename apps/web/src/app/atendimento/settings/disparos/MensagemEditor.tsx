@@ -28,6 +28,10 @@ export interface MensagemEditorProps {
   /** Onda 18.18 — texto-padrão de fallback: se o backend devolver vazio ou falhar
    *  (ex.: API ainda subindo), mostra ESTE no lugar de um textarea em branco. */
   defaultText?: string;
+  /** Onda 18.x — cobrança de boleto: o robô manda o PDF ANEXO (sem link) e o código
+   *  copiável. O PREVIEW simula isso (tira a linha do {link}, garante o {codigo}) pra
+   *  mostrar o que o paciente REALMENTE recebe — mesmo que o texto salvo tenha {link}. */
+  simulateBoleto?: boolean;
 }
 
 function applyPreview(t: string, vars: Record<string, string>, local: string): string {
@@ -39,7 +43,15 @@ function applyPreview(t: string, vars: Record<string, string>, local: string): s
     .trim();
 }
 
-export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText }: MensagemEditorProps) {
+/** Simula o que o worker faz num boleto: tira a LINHA do {link} (vira PDF anexo) e
+ *  garante o {codigo}. Assim o preview não mostra um link que no envio real não sai. */
+function simulaBoletoTpl(t: string): string {
+  let r = (t || '').replace(/^[^\n]*\{link\}[^\n]*\n?/gm, '').replace(/\{link\}/g, '');
+  if (!/\{codigo\}/.test(r)) r = `${r.trimEnd()}\n\n{codigo}`;
+  return r;
+}
+
+export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview, usaLocal, maxLen = 1500, onCurrentTextChange, defaultText, simulateBoleto }: MensagemEditorProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [template, setTemplate] = useState('');
@@ -136,7 +148,7 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
             <Eye size={11} /> Preview (como o paciente vai receber)
           </div>
           <div className="text-xs text-foreground whitespace-pre-wrap">
-            {applyPreview(template, preview, clinicAddress) || <em className="text-muted-foreground">(mensagem vazia)</em>}
+            {applyPreview(simulateBoleto ? simulaBoletoTpl(template) : template, preview, clinicAddress) || <em className="text-muted-foreground">(mensagem vazia)</em>}
           </div>
         </div>
 
