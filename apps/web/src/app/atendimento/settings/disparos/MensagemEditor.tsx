@@ -66,7 +66,17 @@ export function MensagemEditor({ titulo, descricao, endpoint, variaveis, preview
     // (o default do axios). Editores SEM padrão mantêm o timeout longo pra não
     // perder texto customizado durante um restart.
     api.get(endpoint, defaultText ? { timeout: 8000 } : undefined)
-      .then((r) => setTemplate(r.data?.template || defaultText || ''))
+      .then((r) => {
+        let tpl = r.data?.template || defaultText || '';
+        // Onda 18.x — cobrança de boleto: MIGRA texto salvo antigo. Se ainda tem a
+        // linha do {link} (o robô não manda link em boleto), troca por {codigo} já na
+        // caixa — aí o que a clínica VÊ e EDITA bate com o que sai. Basta Salvar pra
+        // gravar. Só mexe quando realmente há {link} (não toca em quem já usa {codigo}).
+        if (simulateBoleto && /\{link\}/.test(tpl)) {
+          tpl = simulaBoletoTpl(tpl);
+        }
+        setTemplate(tpl);
+      })
       .catch((e: any) => {
         if (defaultText) setTemplate(defaultText); // API lenta/subindo: mostra o padrão
         else showError(e?.response?.data?.message || 'Falha ao carregar a mensagem');
