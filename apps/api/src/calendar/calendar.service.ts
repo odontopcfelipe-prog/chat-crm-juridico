@@ -4,7 +4,7 @@ import { InjectQueue } from '@nestjs/bullmq';
 import { Queue } from 'bullmq';
 import { PrismaService } from '../prisma/prisma.service';
 // Onda 18.x — régua única de vencido (vence hoje NÃO bloqueia agendamento).
-import { startOfTodayMaceioUtc } from '@crm/shared';
+import { startOfTodayMaceioUtc, isCobrancaStage } from '@crm/shared';
 import { ChatGateway } from '../gateway/chat.gateway';
 import { isAdmin, canViewAllAgenda } from '../common/utils/permissions.util';
 import { WaitlistService } from '../waitlist/waitlist.service';
@@ -2137,6 +2137,8 @@ export class CalendarService {
       clinica: (tenantRow as any)?.name || 'sua clínica', antecedencia: '1 dia', qtd: '1',
       // Onda 18.17 — exemplos das variáveis de cobrança (senão sairiam vazias).
       valor: 'R$ 350,00', link: 'https://cobranca.exemplo/boleto/teste', descricao: ' (Pix recebido)',
+      // Código de pagamento copiável (bloco pronto, igual ao worker) — pro teste da régua.
+      codigo: '📋 Pra facilitar, copie o código e pague por PIX:\n00020126...EXEMPLO...5204000053039865802BR',
       // Negociação aprovada — exemplos dos blocos/valores (senão o teste sai sem eles).
       condicoes: '• Entrada: R$ 10,00\n• 8x de R$ 5,34\n• Total: R$ 52,74',
       condicoes_sem_total: '• Entrada: R$ 10,00\n• 8x de R$ 5,34',
@@ -2160,8 +2162,20 @@ export class CalendarService {
     // Onda 17.59 — se o editor mandou o texto ATUAL da tela (`text`), testa ELE
     // (fiel ao que o usuário vê, mesmo ANTES de salvar). Senão, lê o texto SALVO
     // do disparo (comportamento antigo). Mesma substituição de variáveis nos dois.
+    // Onda 18.x — COBRANÇA (régua): o teste tem que refletir o worker. Pro boleto o
+    // robô manda o PDF anexo (SEM link na legenda) + o código copiável. Aqui simulamos
+    // isso: tira a linha do {link} e garante o {codigo}, pra o teste não mostrar um
+    // link que no disparo real não sai. (PIX à vista sem boleto seguiria com o link,
+    // mas no teste priorizamos a visão do boleto, que é a régua padrão.)
+    const simulaBoleto = (t: string) => {
+      let r = (t || '').replace(/^[^\n]*\{link\}[^\n]*\n?/gm, '').replace(/\{link\}/g, '');
+      if (!/\{codigo\}/.test(r)) r = `${r.trimEnd()}\n\n{codigo}`;
+      return r;
+    };
+    const isCobranca = isCobrancaStage(disparo);
+
     if (text && text.trim()) {
-      msg = apply(text);
+      msg = apply(isCobranca ? simulaBoleto(text) : text);
     } else switch (disparo) {
       case 'confirmacao':
         msg = apply((await this.getAppointmentConfirmationConfig(tenant_id)).template);
@@ -2233,8 +2247,10 @@ export class CalendarService {
           break;
         }
         // Onda 18.17 — cobrança: sem texto da tela, testa o default do estágio.
+        // Estágio de boleto → simula o boleto (PDF anexo + código, sem link).
         if (isFinTemplateId(disparo)) {
-          msg = apply(defaultFinTemplate(disparo));
+          const tpl = defaultFinTemplate(disparo);
+          msg = apply(isCobranca ? simulaBoleto(tpl) : tpl);
           break;
         }
         throw new BadRequestException('Esse disparo ainda não tem teste disponível.');
