@@ -80,6 +80,7 @@ interface OperacionalData {
   comercial_reagendamento?: { enabled: boolean };
   // Negociação aprovada — disparo no fechamento da venda (opt-in).
   negociacao_aprovada?: { enabled: boolean };
+  negociacao_aprovada_avista?: { enabled: boolean };
   comprovante_pagamento?: { enabled: boolean };
   // Envio do PIX (D+0) — card dedicado (opt-in).
   pix_delivery?: { enabled: boolean };

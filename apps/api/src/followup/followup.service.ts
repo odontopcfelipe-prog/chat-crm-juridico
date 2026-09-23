@@ -105,7 +105,7 @@ export class FollowupService {
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
-      bolAtrasadoSetting, blockSchedSetting,
+      bolAtrasadoSetting, blockSchedSetting, negocAvistaSetting,
     ] = await Promise.all([
       this.prisma.globalSetting.findUnique({ where: { key: `APPOINTMENT_CONFIRMATION_ENABLED_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `REMINDER_CONFIG_${tenantId}` } }),
@@ -159,6 +159,9 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASADO_${tenantId}` } }),
       // POLÍTICA — bloquear agendamento de paciente com boleto atrasado. Default OFF (opt-in).
       this.prisma.globalSetting.findUnique({ where: { key: `BLOCK_SCHED_ON_OVERDUE_${tenantId}` } }),
+      // Onda 18.x — "Negociação aprovada · à vista": toggle PRÓPRIO. Sem valor salvo,
+      // HERDA o da negociação aprovada (não silencia quem já usava o card único).
+      this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_AVISTA_ENABLED_${tenantId}` } }),
     ]);
     const reminderCfg = this.parseJson(reminderSetting?.value);
     const posCfg = this.parseJson(posSetting?.value);
@@ -357,6 +360,12 @@ export class FollowupService {
       ),
       // Negociação aprovada — disparo no fechamento da venda. Default OFF (opt-in).
       negociacao_aprovada: { enabled: negocSetting?.value === 'true' },
+      // Onda 18.x — à vista: toggle próprio; sem valor salvo, HERDA o de cima.
+      negociacao_aprovada_avista: {
+        enabled: (negocAvistaSetting as any)?.value !== undefined
+          ? (negocAvistaSetting as any)?.value === 'true'
+          : negocSetting?.value === 'true',
+      },
       // Envio do PIX (D+0) — card dedicado (par do envio dos boletos). Default OFF.
       pix_delivery: { enabled: (pixDeliverySetting as any)?.value === 'true' },
       // Resumo diário do dia (número configurado). Default OFF (opt-in).
@@ -515,6 +524,7 @@ export class FollowupService {
       comercial_lembrete_1h: ['comercial_lembrete_1h'],
       comercial_lembrete_15min: ['comercial_lembrete_15min'],
       negociacao_aprovada: ['negociacao_aprovada'],
+      negociacao_aprovada_avista: ['negociacao_aprovada'],
       comprovante_pagamento: ['comprovante_pagamento'],
       pix_delivery: ['pix_delivery'],
       daily_summary: ['daily_summary'],
@@ -767,6 +777,14 @@ export class FollowupService {
       // Negociação aprovada — disparo no fechamento (quotes.service lê esta key).
       case 'negociacao_aprovada': {
         const key = `NEGOCIACAO_APROVADA_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Negociação aprovada À VISTA — toggle próprio (quotes.service lê esta key;
+      // ausente = herda a de cima, pra não silenciar quem já usava o card único).
+      case 'negociacao_aprovada_avista': {
+        const key = `NEGOCIACAO_APROVADA_AVISTA_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

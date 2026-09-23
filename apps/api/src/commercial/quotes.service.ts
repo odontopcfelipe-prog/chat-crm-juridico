@@ -1312,10 +1312,22 @@ export class QuotesService {
         return;
       }
 
-      // Opt-in — desligado por padrão. Liga na Central de Disparos.
-      const on = await this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } });
-      if (on?.value !== 'true') {
-        this.logger.log(`[NEGOCIACAO_APROVADA] desligado pro tenant ${tenantId} (Central de Disparos) — plano ${planId}.`);
+      // Onda 18.x — CARDS SEPARADOS: a venda À VISTA (PIX/cartão, sem parcelas) tem
+      // toggle próprio ("Negociação aprovada · à vista"); sem valor salvo, HERDA o do
+      // card parcelado/boleto (não silencia quem já usava o card único). O template
+      // é escolhido pela mesma régua, mais abaixo.
+      const isAVista = terms.forma !== 'BOLETO' && !(terms.parcelas && terms.parcelas > 1);
+      const [on, onAvista] = await Promise.all([
+        this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_ENABLED_${tenantId}` } }),
+        isAVista
+          ? this.prisma.globalSetting.findUnique({ where: { key: `NEGOCIACAO_APROVADA_AVISTA_ENABLED_${tenantId}` } })
+          : Promise.resolve(null),
+      ]);
+      const ligado = isAVista
+        ? (onAvista?.value !== undefined ? onAvista.value === 'true' : on?.value === 'true')
+        : on?.value === 'true';
+      if (!ligado) {
+        this.logger.log(`[NEGOCIACAO_APROVADA] card ${isAVista ? 'à vista' : 'parcelado/boleto'} desligado pro tenant ${tenantId} (Central de Disparos) — plano ${planId}.`);
         return;
       }
 
@@ -1336,7 +1348,7 @@ export class QuotesService {
       // À VISTA (PIX/cartão) não existe boleto nenhum: o paciente ficava esperando
       // um PDF que nunca vinha. Boleto/financiamento seguem no template de sempre;
       // à vista usa o próprio (negociacao_aprovada_avista), editável na Central.
-      const aVista = terms.forma !== 'BOLETO' && !(terms.parcelas && terms.parcelas > 1);
+      const aVista = isAVista; // mesma régua do gate acima (uma fonte só)
       const tplId = aVista ? 'negociacao_aprovada_avista' : 'negociacao_aprovada';
       let template = aVista ? DEFAULT_NEGOCIACAO_APROVADA_AVISTA : DEFAULT_NEGOCIACAO_APROVADA;
       const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey(tplId, tenantId) } });
