@@ -78,6 +78,7 @@ export class CreatePatientDto {
 
   // Programa de Afiliado (Onda 5e v34, Fase 25)
   @IsOptional() @IsBoolean() is_affiliate?: boolean;
+  @IsOptional() @IsBoolean() no_overdue_dunning?: boolean;
   @IsOptional() @IsString() affiliate_code?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
   @IsOptional() @IsString() affiliate_notes?: string;
@@ -130,6 +131,7 @@ export class UpdatePatientDto {
 
   // Programa de Afiliado (Onda 5e v34, Fase 25)
   @IsOptional() @IsBoolean() is_affiliate?: boolean;
+  @IsOptional() @IsBoolean() no_overdue_dunning?: boolean;
   @IsOptional() @IsString() affiliate_code?: string;
   @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
   @IsOptional() @IsString() affiliate_notes?: string;

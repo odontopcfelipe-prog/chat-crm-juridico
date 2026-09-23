@@ -36,6 +36,10 @@ import axios from 'axios';
 
 type Stage = CobrancaStage;
 const STAGES = COBRANCA_STAGES;
+// Onda 18.x — estágios de ATRASO (pós-vencimento): o opt-out por paciente
+// (Patient.no_overdue_dunning, botão na ficha) pula ESTES. Os lembretes de antes/no
+// dia do vencimento seguem indo.
+const OVERDUE_STAGES = new Set<Stage>(['boleto_atraso_1d', 'boleto_atraso_15d', 'boleto_atraso_30d', 'boleto_atrasado']);
 
 /** diffDays (hoje Maceió − vencimento) → estágio. -1 = vence amanhã; 0 = hoje. */
 const STAGE_BY_DIFF: Record<number, Stage> = {
@@ -377,11 +381,11 @@ export class PaymentAlertsCronService {
         billing_type: true,
         pix_copy_paste: true,
         boleto_barcode: true,
-        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
-        installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } } } },
+        installment: { select: { patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } } } },
         // Onda 18.x — boleto IMPORTADO do Asaas não tem plano/parcela; tem só o
         // paciente vinculado DIRETO. Sem isto, a régua nunca cobra os importados.
-        patient: { select: { id: true, name: true, phone: true } },
+        patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } },
       },
       orderBy: { due_date: 'asc' }, // a mais antiga (mais atrasada) primeiro
       take: 500,
@@ -424,6 +428,9 @@ export class PaymentAlertsCronService {
       const patient = c.treatment_plan?.patient || c.installment?.patient || c.patient;
       const phone = patient?.phone?.trim();
       if (!patient || !patient.id || !phone) continue;
+      // Opt-out do paciente: não cobrar boleto ATRASADO (botão na ficha). Só barra os
+      // estágios de atraso; lembrete de antes/no dia do vencimento segue indo.
+      if ((patient as any).no_overdue_dunning && OVERDUE_STAGES.has(stage)) continue;
 
       const link =
         c.invoice_url ||
@@ -539,9 +546,9 @@ export class PaymentAlertsCronService {
         billing_type: true,
         pix_copy_paste: true,
         boleto_barcode: true,
-        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
-        installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
-        patient: { select: { id: true, name: true, phone: true } },
+        treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } } } },
+        installment: { select: { patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } } } },
+        patient: { select: { id: true, name: true, phone: true, no_overdue_dunning: true } },
       },
       orderBy: { due_date: 'asc' }, // a mais antiga (mais atrasada) primeiro
       take: OVERDUE_SCAN_CAP,
@@ -565,6 +572,8 @@ export class PaymentAlertsCronService {
       const patient = c.treatment_plan?.patient || c.installment?.patient || c.patient;
       const phone = patient?.phone?.trim();
       if (!patient || !patient.id || !phone) continue;
+      // Opt-out do paciente: carteira vencida é 100% atraso → pula quem desligou.
+      if ((patient as any).no_overdue_dunning) continue;
 
       const link =
         c.invoice_url ||

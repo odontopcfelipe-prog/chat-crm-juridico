@@ -20,7 +20,7 @@ import {
   FileText, Stethoscope, Activity, DollarSign,
   AlertTriangle, Pill, Trash2, Sparkles, MessageCircle,
   Pencil, Plus, Camera, Check, X, Clock, ChevronRight, Calendar,
-  Layers, HandCoins,
+  Layers, HandCoins, BellOff, Bell,
 } from 'lucide-react';
 import api, { API_BASE_URL } from '@/lib/api';
 import { useAuthedImage } from '@/lib/use-authed-image';
@@ -89,6 +89,7 @@ interface Patient {
   referred_by_patient?: { id: string; name: string | null; phone: string } | null;
   // Programa de Afiliado — paciente parceiro que indica e recebe 3%
   is_affiliate?: boolean | null;
+  no_overdue_dunning?: boolean | null;
   affiliate_code?: string | null;
   affiliate_commission_pct?: number | null;
   affiliate_notes?: string | null;
@@ -294,6 +295,26 @@ function PacienteFichaInner() {
       }
     } catch (err: any) {
       showError(err?.response?.data?.message || 'Erro ao gerar link');
+    }
+  };
+
+  // Onda 18.x — pausar/retomar a cobrança de boleto ATRASADO deste paciente (a régua
+  // de vencidos pula os disparos de atraso; lembrete de antes/no dia segue). Botão no
+  // header. Etapa 2: disparo próprio 2 dias após o vencimento.
+  const [savingDunning, setSavingDunning] = useState(false);
+  const toggleOverdueDunning = async () => {
+    if (!patient || savingDunning) return;
+    const novo = !patient.no_overdue_dunning;
+    if (novo && !confirm(`Pausar a cobrança de boletos ATRASADOS de ${patient.name}?\n\nEle deixa de receber os avisos de atraso (1, 15, 30 dias e recorrente). Os lembretes de antes/no dia do vencimento continuam.`)) return;
+    setSavingDunning(true);
+    try {
+      await api.patch(`/patients/${patient.id}`, { no_overdue_dunning: novo });
+      setPatient((p) => (p ? { ...p, no_overdue_dunning: novo } : p));
+      showSuccess(novo ? 'Cobrança de atraso pausada pra este paciente.' : 'Cobrança de atraso reativada.');
+    } catch (e: any) {
+      showError(e?.response?.data?.message || 'Não foi possível alterar.');
+    } finally {
+      setSavingDunning(false);
     }
   };
 
@@ -567,6 +588,29 @@ function PacienteFichaInner() {
               aria-pressed={chatOpen}
             >
               <MessageCircle size={14} /> Conversar
+            </button>
+          )}
+          {/* Onda 18.x — Pausar cobrança de boleto ATRASADO deste paciente (quem vê
+              financeiro). Vermelho quando pausado (chama atenção), neutro quando ativo. */}
+          {canFinancial && patient.status !== 'ARCHIVED' && (
+            <button
+              type="button"
+              onClick={toggleOverdueDunning}
+              disabled={savingDunning}
+              className={`text-xs px-3 py-2 rounded-lg flex items-center gap-1 font-semibold shadow-sm border disabled:opacity-50 ${
+                patient.no_overdue_dunning
+                  ? 'bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border-red-300 dark:border-red-800'
+                  : 'bg-card text-muted-foreground hover:text-foreground border-border hover:bg-accent/40'
+              }`}
+              title={patient.no_overdue_dunning
+                ? 'Cobrança de atraso PAUSADA pra este paciente — clique pra reativar'
+                : 'Pausar a cobrança de boletos atrasados deste paciente (não recebe avisos de atraso)'}
+              aria-pressed={!!patient.no_overdue_dunning}
+            >
+              {savingDunning
+                ? <Loader2 size={14} className="animate-spin" />
+                : patient.no_overdue_dunning ? <BellOff size={14} /> : <Bell size={14} />}
+              {patient.no_overdue_dunning ? 'Cobrança de atraso pausada' : 'Pausar cobrança de atraso'}
             </button>
           )}
           {/* Onda 18.x — "Falar no Financeiro": só na aba Financeiro, abre a conversa

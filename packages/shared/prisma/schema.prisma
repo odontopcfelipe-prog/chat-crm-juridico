@@ -2027,6 +2027,10 @@ model Patient {
   // indicacao dele. Saldo acumula e pode ser sacado (PIX/dinheiro) ou
   // usado como credito em tratamentos proprios.
   is_affiliate             Boolean @default(false)
+  // Onda 18.x — opt-out da COBRANÇA de boleto ATRASADO (régua de vencidos): quando
+  // true, o paciente NÃO recebe os disparos de atraso (1d/15d/30d/atrasado). Os
+  // lembretes de antes/no dia do vencimento seguem. Botão na ficha do paciente.
+  no_overdue_dunning       Boolean @default(false)
   affiliate_code           String? // codigo unico de divulgacao (ex: "ANDRELUSTOSA")
   affiliate_commission_pct Decimal @default(3) @db.Decimal(5, 2)
   affiliate_notes          String?
