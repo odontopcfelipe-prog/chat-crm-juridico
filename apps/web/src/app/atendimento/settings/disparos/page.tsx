@@ -548,9 +548,10 @@ export default function CentralDisparosPage() {
                 { key: 'valor', desc: 'Valor da cobrança (ex.: R$ 350,00)' },
                 { key: 'data', desc: 'Vencimento (DD/MM)' },
                 { key: 'link', desc: 'Link do boleto/pix pra pagar' },
+                { key: 'codigo', desc: 'Código PIX copia-e-cola pra pagar sem abrir o boleto (boleto já vai como PDF anexo). Se não usar, o robô anexa o código sozinho no boleto.' },
                 { key: 'clinica', desc: 'Nome da sua clínica' },
               ]}
-              preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/pagar', clinica: 'Instituto Odonto Passos' }}
+              preview={{ nome: 'Felipe', valor: 'R$ 350,00', data: '05/07', link: 'https://cobranca.exemplo/pagar', codigo: '📋 Pra facilitar, copie o código e pague por PIX:\n00020126...br', clinica: 'Instituto Odonto Passos' }}
               onCurrentTextChange={setLiveText}
               defaultText={defaultCobrancaTemplate(openItem.operacionalKey || '', cobrancaTipo)}
             />

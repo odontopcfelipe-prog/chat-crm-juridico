@@ -89,6 +89,9 @@ interface ChargeCandidate {
   link: string;
   /** Links a MOSTRAR na legenda — só os SEM PDF (ex.: PIX). Boleto vira anexo. */
   links: string[];
+  /** Código de pagamento copiável (PIX copia-e-cola do boleto, ou linha digitável).
+   *  Só num boleto ÚNICO — agrupado com vários vira undefined (não dá pra pôr N). */
+  codigo?: string;
   /** PDFs dos boletos a anexar — 1 por boleto (cada boleto = 1 documento separado).
    *  Vazio = cobrança sem PDF (PIX/sem-URL) → segue como texto+link. */
   pdfUrls: string[];
@@ -362,6 +365,7 @@ export class PaymentAlertsCronService {
         boleto_url: true,
         billing_type: true,
         pix_copy_paste: true,
+        boleto_barcode: true,
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
         installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
         // Onda 18.x — boleto IMPORTADO do Asaas não tem plano/parcela; tem só o
@@ -441,6 +445,7 @@ export class PaymentAlertsCronService {
         link,
         // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         venceEm,
         tipo,
@@ -461,6 +466,7 @@ export class PaymentAlertsCronService {
       } else {
         g.amount += cand.amount;
         g.count += 1;
+        g.codigo = undefined; // grupo com vários boletos → sem código único na legenda
         for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
         // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
         // recebe N anexos, não 1 texto com N links).
@@ -517,6 +523,7 @@ export class PaymentAlertsCronService {
         boleto_url: true,
         billing_type: true,
         pix_copy_paste: true,
+        boleto_barcode: true,
         treatment_plan: { select: { patient: { select: { id: true, name: true, phone: true } } } },
         installment: { select: { patient: { select: { id: true, name: true, phone: true } } } },
         patient: { select: { id: true, name: true, phone: true } },
@@ -569,6 +576,7 @@ export class PaymentAlertsCronService {
         link,
         // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         tipo,
       });
@@ -586,6 +594,7 @@ export class PaymentAlertsCronService {
       } else {
         g.amount += cand.amount;
         g.count += 1;
+        g.codigo = undefined; // grupo com vários boletos → sem código único na legenda
         for (const l of cand.links) if (!g.links.includes(l)) g.links.push(l);
         // Cada boleto do grupo entra como um PDF próprio (paciente c/ vários vencidos
         // recebe N anexos, não 1 texto com N links).
@@ -710,6 +719,19 @@ export class PaymentAlertsCronService {
         .trimEnd();
     } else {
       msg = msg.replace(/\{link\}/g, c.link);
+    }
+    // Onda 18.x — CÓDIGO DE PAGAMENTO copiável. Se a clínica pôs {codigo} no texto,
+    // preenche (ou remove a linha quando não há código). Se NÃO pôs e é um boleto
+    // ÚNICO (PDF anexo, sem link na legenda), anexa o código no fim automaticamente —
+    // assim o paciente copia e paga por PIX sem abrir o PDF. Agrupado (vários boletos)
+    // não recebe código (seria ambíguo). O `includes` evita duplicar se já saiu via {codigo}.
+    const codigoBloco = c.codigo ? `📋 Pra facilitar, copie o código e pague por PIX:\n${c.codigo}` : '';
+    if (/\{codigo\}/.test(msg)) {
+      msg = codigoBloco
+        ? msg.replace(/\{codigo\}/g, codigoBloco)
+        : msg.replace(/^[^\n]*\{codigo\}[^\n]*\n?/gm, '').replace(/\{codigo\}/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
+    } else if (c.codigo && c.pdfUrls.length === 1 && !msg.includes(c.codigo)) {
+      msg = `${msg.trimEnd()}\n\n${codigoBloco}`;
     }
     return msg;
   }
