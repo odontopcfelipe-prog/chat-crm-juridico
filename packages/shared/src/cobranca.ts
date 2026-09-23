@@ -187,6 +187,21 @@ export const DEFAULT_NEGOCIACAO_APROVADA =
   '{condicoes}\n\n' +
   'Qualquer dúvida, é só chamar por aqui! 💙';
 
+// NEGOCIAÇÃO APROVADA — VENDA À VISTA (PIX/cartão online, SEM boleto).
+// Par do template acima, que é o da venda A RECEBER — e cujo texto costuma ser
+// personalizado pela clínica prometendo "amanhã envio seus boletos". Numa venda
+// à vista não existe boleto nenhum: a promessa confundia o paciente (ele ficava
+// esperando um PDF que nunca vinha) e virava atendimento no suporte.
+// {instrucao} é montada pelo backend conforme a forma: PIX → "já te envio o
+// código"; cartão → "já te envio o link". Placeholders: {nome} {clinica}
+// {itens} {condicoes} {condicoes_sem_total} {total} {forma} {instrucao}.
+export const DEFAULT_NEGOCIACAO_APROVADA_AVISTA =
+  'Olá, {nome}! 🎉 Seu tratamento foi *aprovado*.\n\n' +
+  '{itens}\n\n' +
+  '{condicoes}\n\n' +
+  '{instrucao}\n\n' +
+  'Qualquer dúvida, é só chamar por aqui! 💙';
+
 // COMPROVANTE DE PAGAMENTO — venda PAGA na clínica na hora (espécie/cartão/PIX).
 // Substitui a "negociação aprovada" (que fala em boletos) nesses casos: aqui NÃO
 // há boleto — o paciente já pagou. Confirma a compra, o valor pago e a forma.
@@ -262,6 +277,7 @@ export function isFinTemplateId(s: string): boolean {
     s === 'boleto_intro' ||
     s === 'boleto_delivery' ||
     s === 'negociacao_aprovada' ||
+    s === 'negociacao_aprovada_avista' ||
     s === 'pix_delivery' ||
     s === 'comprovante_pagamento'
   );
@@ -274,6 +290,7 @@ export function defaultFinTemplate(id: string, tipo?: CobrancaTipo): string {
   if (id === 'boleto_intro') return DEFAULT_BOLETO_INTRO;
   if (id === 'boleto_delivery') return DEFAULT_BOLETO_DELIVERY;
   if (id === 'negociacao_aprovada') return DEFAULT_NEGOCIACAO_APROVADA;
+  if (id === 'negociacao_aprovada_avista') return DEFAULT_NEGOCIACAO_APROVADA_AVISTA;
   if (id === 'pix_delivery') return DEFAULT_PIX_DELIVERY;
   if (id === 'comprovante_pagamento') return DEFAULT_COMPROVANTE_PAGAMENTO;
   if (isCobrancaStage(id)) return defaultCobrancaTemplate(id, tipo ?? 'parcelado');

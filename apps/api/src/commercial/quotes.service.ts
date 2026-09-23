@@ -13,7 +13,7 @@ import { QuotePdfService } from './quote-pdf.service';
 import { LeadsService } from '../leads/leads.service';
 import { getTenantSetting, setTenantSetting } from '../tenants/tenant-settings.helper';
 import { logCtx, fmtError } from '../common/logger/structured-logger';
-import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
+import { Prisma, mapBackendRole, resolvePermissions, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, receivedMethodLabel, cobrancaTemplateKey, buildCondicoesBlock, type Permission, type Sector } from '@crm/shared';
 import { normalizeBrazilianPhone, brazilPhoneMatchVariants } from '../common/utils/phone';
 
 type ItemInput = {
@@ -1331,11 +1331,23 @@ export class QuotesService {
       }
 
       // Template salvo (Central de Disparos) → senão o default
-      let template = DEFAULT_NEGOCIACAO_APROVADA;
-      const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey('negociacao_aprovada', tenantId) } });
+      // Onda 18.x — TEMPLATE POR FORMA. Antes era um texto só pra tudo, e o texto
+      // personalizado da clínica promete "amanhã envio seus boletos" — numa venda
+      // À VISTA (PIX/cartão) não existe boleto nenhum: o paciente ficava esperando
+      // um PDF que nunca vinha. Boleto/financiamento seguem no template de sempre;
+      // à vista usa o próprio (negociacao_aprovada_avista), editável na Central.
+      const aVista = terms.forma !== 'BOLETO' && !(terms.parcelas && terms.parcelas > 1);
+      const tplId = aVista ? 'negociacao_aprovada_avista' : 'negociacao_aprovada';
+      let template = aVista ? DEFAULT_NEGOCIACAO_APROVADA_AVISTA : DEFAULT_NEGOCIACAO_APROVADA;
+      const tplRow = await this.prisma.globalSetting.findUnique({ where: { key: cobrancaTemplateKey(tplId, tenantId) } });
       if (tplRow?.value) {
         try { const p = JSON.parse(tplRow.value); if (typeof p?.template === 'string' && p.template.trim()) template = p.template; } catch { /* usa default */ }
       }
+      // {instrucao} — o que vem A SEGUIR, pela forma real (só na venda à vista).
+      const instrucao = !aVista ? ''
+        : terms.forma === 'PIX' ? 'Já te envio o código PIX aqui mesmo pra você pagar. 😊'
+        : terms.forma === 'CREDIT_CARD' ? 'Já te envio o link pra pagamento no cartão aqui mesmo. 😊'
+        : '';
 
       const clinica = (await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }))?.name || 'a clínica';
       const brl = (v?: number) => (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -1370,6 +1382,7 @@ export class QuotesService {
       const msg = template
         .replace(/\{nome\}/g, firstName)
         .replace(/\{itens\}/g, itensStr)
+        .replace(/\{instrucao\}/g, instrucao)
         // {codigo_pix} saiu daqui pro card "Envio do PIX"; limpa qualquer resíduo
         // em template customizado pra não aparecer literal.
         .replace(/\{codigo_pix\}/g, '')

@@ -76,6 +76,7 @@ export type OperacionalKey =
   | 'recall_preventivo' | 'task_alerts'
   // Negociação aprovada — disparo no fechamento da venda (confirma as condições).
   | 'negociacao_aprovada'
+  | 'negociacao_aprovada_avista'
   // Comprovante de pagamento — venda paga na clínica (espécie/cartão/PIX), sem boleto.
   | 'comprovante_pagamento'
   // Envio do PIX (D+0) — card dedicado: manda o copia-e-cola ao fechar venda PIX.
@@ -181,9 +182,14 @@ export const DISPAROS: DisparoItem[] = [
   // pagamento). Editável, sai pelo chip Financeiro, só dispara se o toggle estiver ON.
   // Negociação aprovada — no FECHAMENTO da venda, confirma as condições ao paciente
   // (entrada, parcelas, total). Substitui a apresentação; os boletos saem no dia seguinte.
-  { id: 'negociacao_aprovada', nome: 'Negociação aprovada · no fechamento', categoria: 'financeiro',
-    gatilho: 'Ao aprovar/encaminhar ao financeiro · confirma o que foi vendido + as condições', canal: 'WhatsApp', tags: ['Template'],
+  { id: 'negociacao_aprovada', nome: 'Negociação aprovada · parcelado/boleto', categoria: 'financeiro',
+    gatilho: 'Ao fechar venda A RECEBER (boleto/financiamento) · confirma as condições; os boletos saem no dia seguinte', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'negociacao_aprovada' },
+  // Onda 18.x — par do card acima, pra venda À VISTA: sem a promessa de boletos
+  // (à vista não existe boleto; o texto do outro card confundia o paciente).
+  { id: 'negociacao_aprovada_avista', nome: 'Negociação aprovada · à vista (PIX/cartão)', categoria: 'financeiro',
+    gatilho: 'Ao fechar venda À VISTA em PIX ou cartão · confirma o que foi vendido, SEM falar em boleto', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'negociacao_aprovada_avista' },
   { id: 'comprovante_pagamento', nome: 'Comprovante de pagamento · venda paga na hora', categoria: 'financeiro',
     gatilho: 'Ao fechar uma venda PAGA na clínica (espécie/cartão/PIX) · comprovante com compra, valor pago e forma (sem boleto)', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'comprovante_pagamento' },

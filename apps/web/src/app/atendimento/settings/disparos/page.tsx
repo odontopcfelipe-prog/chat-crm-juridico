@@ -18,7 +18,7 @@ import {
   CATEGORIAS, DISPAROS, SETORES, CATEGORIA_SETOR,
   type DisparoCategoria, type DisparoItem, type OperacionalKey, type Setor,
 } from './disparos.config';
-import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
+import { DEFAULT_CONFIRMACAO_PAGAMENTO, DEFAULT_BOLETO_INTRO, DEFAULT_BOLETO_DELIVERY, DEFAULT_NEGOCIACAO_APROVADA, DEFAULT_NEGOCIACAO_APROVADA_AVISTA, DEFAULT_PIX_DELIVERY, DEFAULT_COMPROVANTE_PAGAMENTO, DEFAULT_CONFIRMACAO_ORTO, DEFAULT_ORTO_REMINDER, DEFAULT_ORTO_IMMEDIATE, DEFAULT_RECALL_TEMPLATE, defaultComercialAgendaTemplate, defaultCobrancaTemplate, COBRANCA_TIPOS, COBRANCA_TIPO_LABEL, type CobrancaTipo } from '@crm/shared';
 import { RemindersConfigModal } from '../../followup/components/RemindersConfigModal';
 import { PosAtendimentoTab } from '../../followup/components/PosAtendimentoTab';
 import { DentistSummaryTab } from '../../followup/components/DentistSummaryTab';
@@ -464,6 +464,25 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_NEGOCIACAO_APROVADA}
           />
         )}
+        {openItem.editor === 'cobranca' && openItem.operacionalKey === 'negociacao_aprovada_avista' && (
+          <MensagemEditor
+            titulo={openItem.nome}
+            descricao="Enviada ao paciente pelo chip Financeiro quando a venda é À VISTA (PIX ou cartão, sem parcelas): confirma o que foi vendido + o valor, SEM prometer boleto — à vista não existe boleto pra enviar. A variável {instrucao} vira 'já te envio o código PIX' ou 'já te envio o link do cartão', conforme a forma. Edite e Salve. Deixe em branco pra voltar ao padrão."
+            endpoint="/followup/cobranca-template/negociacao_aprovada_avista"
+            variaveis={[
+              { key: 'nome', desc: 'Primeiro nome do paciente' },
+              { key: 'itens', desc: 'Lista do que foi vendido (procedimentos do plano)' },
+              { key: 'condicoes', desc: 'Bloco pronto com o valor total (à vista)' },
+              { key: 'instrucao', desc: 'Frase automática: código PIX ou link do cartão, conforme a forma' },
+              { key: 'total', desc: 'Total do tratamento (ex.: 52,74)' },
+              { key: 'forma', desc: 'Forma de pagamento (PIX/cartão)' },
+              { key: 'clinica', desc: 'Nome da sua clínica' },
+            ]}
+            preview={{ nome: 'Ana', itens: '• Clareamento dental\n• Limpeza', condicoes: '• Pagamento à vista (PIX)\n• Total: R$ 350,00', instrucao: 'Já te envio o código PIX aqui mesmo pra você pagar. 😊', total: '350,00', forma: 'PIX', clinica: 'Instituto Odonto Passos' }}
+            onCurrentTextChange={setLiveText}
+            defaultText={DEFAULT_NEGOCIACAO_APROVADA_AVISTA}
+          />
+        )}
         {openItem.editor === 'cobranca' && openItem.operacionalKey === 'pix_delivery' && (
           <MensagemEditor
             titulo={openItem.nome}
@@ -496,7 +515,7 @@ export default function CentralDisparosPage() {
             defaultText={DEFAULT_COMPROVANTE_PAGAMENTO}
           />
         )}
-        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && openItem.operacionalKey !== 'pix_delivery' && openItem.operacionalKey !== 'comprovante_pagamento' && (
+        {openItem.editor === 'cobranca' && openItem.operacionalKey !== 'confirmacao_pagamento' && openItem.operacionalKey !== 'boleto_intro' && openItem.operacionalKey !== 'boleto_delivery' && openItem.operacionalKey !== 'negociacao_aprovada' && openItem.operacionalKey !== 'negociacao_aprovada_avista' && openItem.operacionalKey !== 'pix_delivery' && openItem.operacionalKey !== 'comprovante_pagamento' && (
           <div className="space-y-3">
             {/* Abas por TIPO de pagamento: cada uma tem seu texto. PIX à vista não é
                 "parcela"/"boleto"; boleto 1× não é "parcela". O robô escolhe pelo
