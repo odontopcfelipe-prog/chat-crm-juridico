@@ -6,6 +6,7 @@ import {
   Logger,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { startOfTodayMaceioUtc } from '@crm/shared';
 
 /**
  * AffiliateService — Onda 5e v34 (Fase 25).
@@ -60,6 +61,46 @@ function nextAffiliateTier(volume: number, tiers: AffiliateTier[]): AffiliateTie
   const above = [...tiers].filter((t) => t.min > volume).sort((a, b) => a.min - b.min);
   return above[0] ?? null;
 }
+
+
+// ─── Contexto do indicado (Onda: "acompanhar quem eu indiquei") ──────────────
+// O afiliado (e a clinica) precisam ver mais que "R$ 0,30 creditado": o indicado
+// esta pagando? sumiu? o tratamento andou? tem proposta parada em negociacao?
+// Tudo isso em UMA query por dimensao (batch por lista de pacientes), nunca N+1.
+export type ReferralContext = {
+  pagamento: {
+    status: 'ATRASADO' | 'EM_DIA' | 'QUITADO' | 'SEM_COBRANCA';
+    atrasadas: number;
+    valor_atrasado: number;
+    abertas: number;
+    valor_aberto: number;
+    valor_pago: number;
+    proxima_due: string | null;
+  };
+  tratamento: {
+    status: 'SEM_PLANO' | 'PENDING_SIGNATURE' | 'ACTIVE' | 'PAUSED' | 'COMPLETED' | string;
+    itens_total: number;
+    itens_feitos: number;
+    pct: number;
+  };
+  atendimento: {
+    status: 'AGENDADO' | 'EM_ATENDIMENTO' | 'SUMIDO' | 'NUNCA_VEIO';
+    ultimo_at: string | null;
+    proximo_at: string | null;
+    dias_sem_vir: number | null;
+  };
+  negociacao: { propostas_abertas: number; valor_em_negociacao: number };
+  /** Semaforo pronto pra UI: o que MAIS pede acao neste indicado. */
+  alerta: 'ATRASO' | 'SUMIDO' | 'NEGOCIACAO_PARADA' | 'OK';
+};
+
+/** Dias corridos entre duas datas (positivo = `a` mais antiga que `b`). */
+function diffDays(a: Date, b: Date): number {
+  return Math.floor((b.getTime() - a.getTime()) / 86400000);
+}
+
+/** Paciente e considerado "sumido" depois deste tempo sem vir e sem agenda. */
+const DIAS_PRA_SUMIR = 60;
 
 @Injectable()
 export class AffiliateService {
@@ -135,6 +176,31 @@ export class AffiliateService {
           indicacoesCreditadas,
         };
 
+    // Contexto dos indicados que JA fecharam + pipeline dos que ainda nao.
+    // Uma chamada em lote pra cada grupo (sem N+1).
+    const fechadosIds = Array.from(new Set(referrals.map((r) => r.referred_id).filter(Boolean)));
+    const [contextos, pipeline] = await Promise.all([
+      this.buildReferralContexts(tenantId, fechadosIds),
+      this.listPipeline(tenantId, patientId, new Set(fechadosIds)),
+    ]);
+
+    // Resumo pra barra de alertas no topo da aba: quantos indicados pedem acao.
+    const todosContextos = [
+      ...Array.from(contextos.values()),
+      ...pipeline.map((p) => p.contexto).filter(Boolean),
+    ] as ReferralContext[];
+    const alertas = {
+      atrasados: todosContextos.filter((c) => c.alerta === 'ATRASO').length,
+      sumidos: todosContextos.filter((c) => c.alerta === 'SUMIDO').length,
+      em_negociacao: todosContextos.filter((c) => c.alerta === 'NEGOCIACAO_PARADA').length,
+      valor_atrasado: +todosContextos
+        .reduce((s, c) => s + c.pagamento.valor_atrasado, 0)
+        .toFixed(2),
+      valor_em_negociacao: +todosContextos
+        .reduce((s, c) => s + c.negociacao.valor_em_negociacao, 0)
+        .toFixed(2),
+    };
+
     return {
       patient: {
         id: patient.id,
@@ -157,7 +223,12 @@ export class AffiliateService {
         commission_pct: Number(r.commission_pct),
         status: r.status as 'creditado' | 'pendente' | 'cancelado',
         quote_id: r.quote_id,
+        /** Como o indicado esta HOJE (pagamento/tratamento/agenda/negociacao). */
+        contexto: contextos.get(r.referred_id) ?? null,
       })),
+      /** Indicados que ainda NAO fecharam — quem a clinica precisa correr atras. */
+      pipeline,
+      alertas,
       withdrawals: withdrawals.map((w) => ({
         id: w.id,
         amount: Number(w.amount),
@@ -313,6 +384,279 @@ export class AffiliateService {
    *   - affiliates: lista completa com nome, codigo, qtd indicacoes,
    *     saldo, ultimo saque, status
    */
+
+  /**
+   * Contexto operacional dos indicados, em lote. Uma query por dimensao
+   * (cobrancas / planos / agenda / propostas) pros N pacientes de uma vez.
+   *
+   * Cobrancas seguem a MESMA regra do Financeiro e do bloqueio de devedor:
+   * em aberto = PENDING|OVERDUE, nao recebido em especie; atrasado = em aberto
+   * com vencimento ANTERIOR a hoje (vence hoje ainda esta no prazo). Cobre os
+   * tres vinculos charge<->paciente (direto, via plano, e via cliente do
+   * gateway pra boleto importado sem patient_id).
+   */
+  async buildReferralContexts(
+    tenantId: string,
+    patientIds: string[],
+  ): Promise<Map<string, ReferralContext>> {
+    const out = new Map<string, ReferralContext>();
+    const ids = Array.from(new Set(patientIds.filter(Boolean)));
+    if (ids.length === 0) return out;
+
+    const hoje = startOfTodayMaceioUtc();
+    const agora = new Date();
+
+    // Cadeia do cliente do gateway: boleto importado costuma nao ter patient_id.
+    const pacientes = await this.prisma.patient.findMany({
+      where: { id: { in: ids }, tenant_id: tenantId },
+      select: { id: true, lead_id: true },
+    });
+    const leadToPatient = new Map<string, string>();
+    for (const p of pacientes) if (p.lead_id) leadToPatient.set(p.lead_id, p.id);
+    const extToPatient = new Map<string, string>();
+    if (leadToPatient.size > 0) {
+      const custs = await this.prisma.paymentGatewayCustomer.findMany({
+        where: { tenant_id: tenantId, lead_id: { in: Array.from(leadToPatient.keys()) } },
+        select: { external_id: true, lead_id: true },
+      });
+      for (const c of custs) {
+        const pid = c.lead_id ? leadToPatient.get(c.lead_id) : undefined;
+        if (c.external_id && pid) extToPatient.set(c.external_id, pid);
+      }
+    }
+
+    const chargeOr: any[] = [
+      { patient_id: { in: ids } },
+      { treatment_plan: { patient_id: { in: ids } } },
+    ];
+    if (extToPatient.size > 0) {
+      chargeOr.push({ customer_external_id: { in: Array.from(extToPatient.keys()) } });
+    }
+
+    const [charges, plans, eventos, quotesAbertas] = await Promise.all([
+      this.prisma.paymentGatewayCharge.findMany({
+        where: { tenant_id: tenantId, OR: chargeOr },
+        select: {
+          patient_id: true,
+          customer_external_id: true,
+          status: true,
+          amount: true,
+          due_date: true,
+          received_in_cash: true,
+          treatment_plan: { select: { patient_id: true } },
+        },
+      }),
+      this.prisma.treatmentPlan.findMany({
+        where: { patient_id: { in: ids }, status: { not: 'CANCELLED' } },
+        select: {
+          patient_id: true,
+          status: true,
+          updated_at: true,
+          items: { select: { status: true, executed_at: true } },
+        },
+        orderBy: { updated_at: 'desc' },
+      }),
+      this.prisma.calendarEvent.findMany({
+        where: {
+          patient_id: { in: ids },
+          type: 'CONSULTA',
+          status: { notIn: ['CANCELADO'] },
+        },
+        select: { patient_id: true, start_at: true, status: true },
+      }),
+      this.prisma.quote.findMany({
+        where: {
+          patient_id: { in: ids },
+          status: { in: ['DRAFT', 'SENT'] },
+          deleted_at: null,
+          archived_at: null,
+        },
+        select: { patient_id: true, total_value: true },
+      }),
+    ]);
+
+    const base = (): ReferralContext => ({
+      pagamento: {
+        status: 'SEM_COBRANCA',
+        atrasadas: 0,
+        valor_atrasado: 0,
+        abertas: 0,
+        valor_aberto: 0,
+        valor_pago: 0,
+        proxima_due: null,
+      },
+      tratamento: { status: 'SEM_PLANO', itens_total: 0, itens_feitos: 0, pct: 0 },
+      atendimento: { status: 'NUNCA_VEIO', ultimo_at: null, proximo_at: null, dias_sem_vir: null },
+      negociacao: { propostas_abertas: 0, valor_em_negociacao: 0 },
+      alerta: 'OK',
+    });
+    for (const id of ids) out.set(id, base());
+
+    // ── Cobrancas
+    for (const c of charges) {
+      const pid =
+        c.patient_id ||
+        c.treatment_plan?.patient_id ||
+        (c.customer_external_id ? extToPatient.get(c.customer_external_id) : undefined);
+      const ctx = pid ? out.get(pid) : undefined;
+      if (!ctx) continue;
+      const valor = Number(c.amount) || 0;
+      const pago = c.received_in_cash || c.status === 'RECEIVED' || c.status === 'CONFIRMED';
+      if (pago) {
+        ctx.pagamento.valor_pago += valor;
+        continue;
+      }
+      const aberta = (c.status === 'PENDING' || c.status === 'OVERDUE') && !c.received_in_cash;
+      if (!aberta) continue; // cancelada/estornada nao conta
+      ctx.pagamento.abertas += 1;
+      ctx.pagamento.valor_aberto += valor;
+      if (c.due_date && c.due_date < hoje) {
+        ctx.pagamento.atrasadas += 1;
+        ctx.pagamento.valor_atrasado += valor;
+      } else if (c.due_date) {
+        const atual = ctx.pagamento.proxima_due ? new Date(ctx.pagamento.proxima_due) : null;
+        if (!atual || c.due_date < atual) ctx.pagamento.proxima_due = c.due_date.toISOString();
+      }
+    }
+
+    // ── Plano de tratamento (o mais recente que nao esteja cancelado)
+    const planoVisto = new Set<string>();
+    for (const p of plans) {
+      const ctx = out.get(p.patient_id);
+      if (!ctx || planoVisto.has(p.patient_id)) continue;
+      planoVisto.add(p.patient_id);
+      const total = p.items.length;
+      const feitos = p.items.filter((i) => i.status === 'DONE' || !!i.executed_at).length;
+      ctx.tratamento = {
+        status: p.status,
+        itens_total: total,
+        itens_feitos: feitos,
+        pct: total > 0 ? Math.round((feitos / total) * 100) : 0,
+      };
+    }
+
+    // ── Agenda: ultimo atendimento (passado) + proximo agendamento (futuro)
+    for (const e of eventos) {
+      const ctx = e.patient_id ? out.get(e.patient_id) : undefined;
+      if (!ctx) continue;
+      if (e.start_at <= agora) {
+        const atual = ctx.atendimento.ultimo_at ? new Date(ctx.atendimento.ultimo_at) : null;
+        if (!atual || e.start_at > atual) ctx.atendimento.ultimo_at = e.start_at.toISOString();
+      } else {
+        const atual = ctx.atendimento.proximo_at ? new Date(ctx.atendimento.proximo_at) : null;
+        if (!atual || e.start_at < atual) ctx.atendimento.proximo_at = e.start_at.toISOString();
+      }
+    }
+
+    // ── Propostas ainda em negociacao
+    for (const q of quotesAbertas) {
+      const ctx = out.get(q.patient_id);
+      if (!ctx) continue;
+      ctx.negociacao.propostas_abertas += 1;
+      ctx.negociacao.valor_em_negociacao += Number(q.total_value) || 0;
+    }
+
+    // ── Derivados: status de pagamento, de atendimento e o semaforo
+    for (const ctx of out.values()) {
+      ctx.pagamento.valor_atrasado = +ctx.pagamento.valor_atrasado.toFixed(2);
+      ctx.pagamento.valor_aberto = +ctx.pagamento.valor_aberto.toFixed(2);
+      ctx.pagamento.valor_pago = +ctx.pagamento.valor_pago.toFixed(2);
+      ctx.negociacao.valor_em_negociacao = +ctx.negociacao.valor_em_negociacao.toFixed(2);
+      ctx.pagamento.status = ctx.pagamento.atrasadas > 0
+        ? 'ATRASADO'
+        : ctx.pagamento.abertas > 0
+          ? 'EM_DIA'
+          : ctx.pagamento.valor_pago > 0
+            ? 'QUITADO'
+            : 'SEM_COBRANCA';
+
+      const ultimo = ctx.atendimento.ultimo_at ? new Date(ctx.atendimento.ultimo_at) : null;
+      ctx.atendimento.dias_sem_vir = ultimo ? diffDays(ultimo, agora) : null;
+      const tratamentoAcabou = ctx.tratamento.status === 'COMPLETED';
+      ctx.atendimento.status = ctx.atendimento.proximo_at
+        ? 'AGENDADO'
+        : !ultimo
+          ? 'NUNCA_VEIO'
+          : !tratamentoAcabou && (ctx.atendimento.dias_sem_vir ?? 0) >= DIAS_PRA_SUMIR
+            ? 'SUMIDO'
+            : 'EM_ATENDIMENTO';
+
+      // Semaforo: dinheiro parado dói mais que agenda; negociacao parada vem por ultimo.
+      ctx.alerta = ctx.pagamento.status === 'ATRASADO'
+        ? 'ATRASO'
+        : ctx.atendimento.status === 'SUMIDO' || ctx.atendimento.status === 'NUNCA_VEIO'
+          ? 'SUMIDO'
+          : ctx.negociacao.propostas_abertas > 0
+            ? 'NEGOCIACAO_PARADA'
+            : 'OK';
+    }
+
+    return out;
+  }
+
+  /**
+   * Indicados que AINDA NAO fecharam (pipeline do afiliado). Sem isso a aba so
+   * mostra quem ja virou comissao — o afiliado nunca ve que indicou 3 e fechou 1,
+   * e a clinica perde o lembrete de correr atras dos outros 2.
+   *
+   * Duas origens, igual ao motor de comissao: vinculo do CADASTRO
+   * (Patient.referred_by_id, vale pra todas as vendas) e vinculo da VENDA
+   * (Quote.affiliate_referrer_id, so aquela proposta).
+   */
+  private async listPipeline(tenantId: string, affiliateId: string, jaFechados: Set<string>) {
+    const [porCadastro, porVenda] = await Promise.all([
+      this.prisma.patient.findMany({
+        where: { tenant_id: tenantId, referred_by_id: affiliateId },
+        select: { id: true, name: true, phone: true, created_at: true },
+      }),
+      this.prisma.quote.findMany({
+        where: {
+          affiliate_referrer_id: affiliateId,
+          patient: { tenant_id: tenantId },
+          deleted_at: null,
+        },
+        select: {
+          patient_id: true,
+          created_at: true,
+          patient: { select: { id: true, name: true, phone: true, created_at: true } },
+        },
+      }),
+    ]);
+
+    const candidatos = new Map<string, { id: string; name: string | null; phone: string | null; origem: 'cadastro' | 'venda'; desde: Date }>();
+    for (const p of porCadastro) {
+      candidatos.set(p.id, { id: p.id, name: p.name, phone: p.phone, origem: 'cadastro', desde: p.created_at });
+    }
+    for (const q of porVenda) {
+      if (!q.patient) continue;
+      // Vinculo de VENDA e mais especifico: sobrescreve a origem exibida.
+      candidatos.set(q.patient.id, {
+        id: q.patient.id,
+        name: q.patient.name,
+        phone: q.patient.phone,
+        origem: 'venda',
+        desde: q.created_at,
+      });
+    }
+    // Quem ja gerou comissao sai do pipeline (ja aparece na tabela de indicacoes).
+    for (const id of jaFechados) candidatos.delete(id);
+
+    const ids = Array.from(candidatos.keys());
+    if (ids.length === 0) return [];
+    const ctxs = await this.buildReferralContexts(tenantId, ids);
+    return ids.map((id) => {
+      const c = candidatos.get(id)!;
+      return {
+        patient_id: id,
+        name: c.name,
+        phone: c.phone,
+        origem: c.origem,
+        desde: c.desde.toISOString(),
+        contexto: ctxs.get(id) ?? null,
+      };
+    });
+  }
+
   /** Opcoes do picker "afiliado so desta venda": afiliados ativos do tenant,
    *  filtrados por nome/telefone/codigo. Leve (sem saldo) e sem gate de ADMIN. */
   async listAffiliateOptions(tenantId: string, search?: string) {

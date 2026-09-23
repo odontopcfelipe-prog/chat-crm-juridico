@@ -41,6 +41,51 @@ interface Referral {
   commission_pct: number;
   status: 'pendente' | 'creditado' | 'cancelado';
   quote_id?: string | null;
+  /** id do paciente indicado — link direto pra ficha dele */
+  indicated_id?: string | null;
+  /** Como o indicado esta hoje (pagamento/tratamento/agenda/negociacao) */
+  contexto?: ReferralContext | null;
+}
+
+
+/** Contexto operacional do indicado — como ele esta HOJE (vem do backend). */
+interface ReferralContext {
+  pagamento: {
+    status: 'ATRASADO' | 'EM_DIA' | 'QUITADO' | 'SEM_COBRANCA';
+    atrasadas: number;
+    valor_atrasado: number;
+    abertas: number;
+    valor_aberto: number;
+    valor_pago: number;
+    proxima_due: string | null;
+  };
+  tratamento: { status: string; itens_total: number; itens_feitos: number; pct: number };
+  atendimento: {
+    status: 'AGENDADO' | 'EM_ATENDIMENTO' | 'SUMIDO' | 'NUNCA_VEIO';
+    ultimo_at: string | null;
+    proximo_at: string | null;
+    dias_sem_vir: number | null;
+  };
+  negociacao: { propostas_abertas: number; valor_em_negociacao: number };
+  alerta: 'ATRASO' | 'SUMIDO' | 'NEGOCIACAO_PARADA' | 'OK';
+}
+
+/** Indicado que ainda NAO fechou — o que a clinica precisa correr atras. */
+interface PipelineRow {
+  patient_id: string;
+  name: string | null;
+  phone: string | null;
+  origem: 'cadastro' | 'venda';
+  desde: string;
+  contexto: ReferralContext | null;
+}
+
+interface Alertas {
+  atrasados: number;
+  sumidos: number;
+  em_negociacao: number;
+  valor_atrasado: number;
+  valor_em_negociacao: number;
 }
 
 interface Withdrawal {
@@ -66,6 +111,8 @@ interface DashboardData {
   stats: { disponivel: number; totalAcumulado: number; totalSacado: number; pendenteSaque: number };
   faixa?: FaixaInfo;
   referrals: Referral[];
+  pipeline?: PipelineRow[];
+  alertas?: Alertas;
   withdrawals: Withdrawal[];
   patient: { affiliate_commission_pct: number };
 }
@@ -76,6 +123,146 @@ function brl(v: number): string {
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+
+/** Bolinha do semaforo + rotulo curto. Verde = nada a fazer. */
+function SemaforoDot({ alerta }: { alerta: ReferralContext['alerta'] }) {
+  const cfg = {
+    ATRASO: { cls: 'bg-red-500', label: 'Em atraso' },
+    SUMIDO: { cls: 'bg-amber-500', label: 'Sem agenda' },
+    NEGOCIACAO_PARADA: { cls: 'bg-sky-500', label: 'Negociando' },
+    OK: { cls: 'bg-emerald-500', label: 'Em dia' },
+  }[alerta];
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" title={cfg.label}>
+      <span className={`w-2 h-2 rounded-full shrink-0 ${cfg.cls}`} />
+      <span className="text-[11px] text-muted-foreground">{cfg.label}</span>
+    </span>
+  );
+}
+
+/** Coluna "Pagamentos": o que importa e se tem boleto vencido e quanto. */
+function PagamentoCell({ ctx }: { ctx: ReferralContext | null }) {
+  if (!ctx) return <span className="text-xs text-muted-foreground">—</span>;
+  const pg = ctx.pagamento;
+  if (pg.status === 'ATRASADO') {
+    return (
+      <div className="text-xs">
+        <span className="font-bold text-red-600 dark:text-red-400">
+          {brl(pg.valor_atrasado)} vencido
+        </span>
+        <div className="text-[10px] text-muted-foreground">
+          {pg.atrasadas} boleto{pg.atrasadas === 1 ? '' : 's'} em atraso
+        </div>
+      </div>
+    );
+  }
+  if (pg.status === 'EM_DIA') {
+    return (
+      <div className="text-xs">
+        <span className="font-semibold text-emerald-700 dark:text-emerald-400">Em dia</span>
+        <div className="text-[10px] text-muted-foreground">
+          {brl(pg.valor_aberto)} a vencer
+          {pg.proxima_due ? ` · próx. ${formatDate(pg.proxima_due)}` : ''}
+        </div>
+      </div>
+    );
+  }
+  if (pg.status === 'QUITADO') {
+    return (
+      <div className="text-xs">
+        <span className="font-semibold text-emerald-700 dark:text-emerald-400">Quitado</span>
+        <div className="text-[10px] text-muted-foreground">{brl(pg.valor_pago)} pago</div>
+      </div>
+    );
+  }
+  return <span className="text-xs text-muted-foreground">sem cobrança</span>;
+}
+
+/** Coluna "Tratamento": andou ou parou? */
+function TratamentoCell({ ctx }: { ctx: ReferralContext | null }) {
+  if (!ctx || ctx.tratamento.status === 'SEM_PLANO') {
+    return <span className="text-xs text-muted-foreground">sem plano</span>;
+  }
+  const t = ctx.tratamento;
+  const LABEL: Record<string, string> = {
+    PENDING_SIGNATURE: 'aguardando assinatura',
+    ACTIVE: 'em tratamento',
+    PAUSED: 'pausado',
+    COMPLETED: 'concluído',
+  };
+  return (
+    <div className="text-xs">
+      <div className="flex items-center gap-1.5">
+        <div className="w-14 h-1.5 rounded-full bg-muted overflow-hidden shrink-0">
+          <div
+            className={`h-full ${t.pct >= 100 ? 'bg-emerald-500' : 'bg-sky-500'}`}
+            style={{ width: `${Math.min(100, t.pct)}%` }}
+          />
+        </div>
+        <span className="tabular-nums font-semibold text-foreground">{t.pct}%</span>
+      </div>
+      <div className="text-[10px] text-muted-foreground">
+        {t.itens_feitos}/{t.itens_total} itens · {LABEL[t.status] || t.status.toLowerCase()}
+      </div>
+    </div>
+  );
+}
+
+/** Coluna "Atendimento": quando veio, quando volta. */
+function AtendimentoCell({ ctx }: { ctx: ReferralContext | null }) {
+  if (!ctx) return <span className="text-xs text-muted-foreground">—</span>;
+  const a = ctx.atendimento;
+  if (a.status === 'AGENDADO') {
+    return (
+      <div className="text-xs">
+        <span className="font-semibold text-sky-700 dark:text-sky-400">
+          Agendado {a.proximo_at ? formatDate(a.proximo_at) : ''}
+        </span>
+        {a.ultimo_at && (
+          <div className="text-[10px] text-muted-foreground">últ. {formatDate(a.ultimo_at)}</div>
+        )}
+      </div>
+    );
+  }
+  if (a.status === 'NUNCA_VEIO') {
+    return <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">Nunca veio</span>;
+  }
+  if (a.status === 'SUMIDO') {
+    return (
+      <div className="text-xs">
+        <span className="font-semibold text-amber-700 dark:text-amber-400">
+          {a.dias_sem_vir} dias sem vir
+        </span>
+        <div className="text-[10px] text-muted-foreground">sem próxima consulta</div>
+      </div>
+    );
+  }
+  return (
+    <div className="text-xs">
+      <span className="text-foreground">Ativo</span>
+      {a.ultimo_at && (
+        <div className="text-[10px] text-muted-foreground">últ. {formatDate(a.ultimo_at)}</div>
+      )}
+    </div>
+  );
+}
+
+/** Coluna "Negociação": proposta aberta parada e dinheiro na mesa. */
+function NegociacaoCell({ ctx }: { ctx: ReferralContext | null }) {
+  if (!ctx || ctx.negociacao.propostas_abertas === 0) {
+    return <span className="text-xs text-muted-foreground">—</span>;
+  }
+  const n = ctx.negociacao;
+  return (
+    <div className="text-xs">
+      <span className="font-semibold text-sky-700 dark:text-sky-400">
+        {n.propostas_abertas} proposta{n.propostas_abertas === 1 ? '' : 's'}
+      </span>
+      <div className="text-[10px] text-muted-foreground">{brl(n.valor_em_negociacao)} em aberto</div>
+    </div>
+  );
 }
 
 export default function AfiliadoTab({ patientId, patientName, affiliateCode }: Props) {
@@ -100,6 +287,8 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
   }, [fetchDashboard]);
 
   const referrals = data?.referrals ?? [];
+  const pipeline = data?.pipeline ?? [];
+  const alertas = data?.alertas;
   const withdrawals = data?.withdrawals ?? [];
   const stats = data?.stats ?? { disponivel: 0, totalAcumulado: 0, totalSacado: 0, pendenteSaque: 0 };
   const faixa = data?.faixa;
@@ -265,6 +454,34 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
         </button>
       </div>
 
+      {/* Barra de acompanhamento: o que pede ação AGORA entre os indicados.
+          Só aparece quando há algo a fazer — tela limpa quando está tudo em dia. */}
+      {alertas && (alertas.atrasados > 0 || alertas.sumidos > 0 || alertas.em_negociacao > 0) && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-border bg-muted/20 px-3 py-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-muted-foreground">
+            Precisa de atenção
+          </span>
+          {alertas.atrasados > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-red-700 dark:text-red-400 bg-red-500/10 border border-red-500/30 rounded-full px-2.5 py-1">
+              <AlertCircle size={12} />
+              {alertas.atrasados} em atraso · {brl(alertas.valor_atrasado)}
+            </span>
+          )}
+          {alertas.sumidos > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-700 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 rounded-full px-2.5 py-1">
+              <Clock size={12} />
+              {alertas.sumidos} sem agenda
+            </span>
+          )}
+          {alertas.em_negociacao > 0 && (
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-sky-700 dark:text-sky-400 bg-sky-500/10 border border-sky-500/30 rounded-full px-2.5 py-1">
+              <TrendingUp size={12} />
+              {alertas.em_negociacao} negociando · {brl(alertas.valor_em_negociacao)}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Indicacoes */}
       <section className="rounded-xl border border-border bg-card overflow-hidden">
         <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
@@ -287,11 +504,15 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
             </p>
           </div>
         ) : (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
               <tr>
                 <th className="px-4 py-2 text-left font-bold">Paciente indicado</th>
-                <th className="px-4 py-2 text-left font-bold">Data fechamento</th>
+                <th className="px-4 py-2 text-left font-bold">Situação</th>
+                <th className="px-4 py-2 text-left font-bold">Pagamentos</th>
+                <th className="px-4 py-2 text-left font-bold">Tratamento</th>
+                <th className="px-4 py-2 text-left font-bold">Atendimento</th>
                 <th className="px-4 py-2 text-right font-bold">Valor tratamento</th>
                 <th className="px-4 py-2 text-right font-bold">Comissão ({COMMISSION_PCT}%)</th>
                 <th className="px-4 py-2 text-center font-bold">Status</th>
@@ -299,16 +520,31 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
             </thead>
             <tbody>
               {referrals.map((r) => (
-                <tr key={r.id} className="border-t border-border hover:bg-accent/40">
+                <tr key={r.id} className="border-t border-border hover:bg-accent/40 align-top">
                   <td className="px-4 py-2.5">
-                    <div className="font-semibold text-foreground">{r.indicated_name}</div>
+                    {r.indicated_id ? (
+                      <a
+                        href={`/atendimento/pacientes/${r.indicated_id}`}
+                        className="font-semibold text-foreground hover:text-primary hover:underline"
+                      >
+                        {r.indicated_name}
+                      </a>
+                    ) : (
+                      <span className="font-semibold text-foreground">{r.indicated_name}</span>
+                    )}
                     {r.indicated_phone && (
                       <div className="text-xs text-muted-foreground">{r.indicated_phone}</div>
                     )}
+                    <div className="text-[10px] text-muted-foreground mt-0.5">
+                      fechou {r.closed_at ? formatDate(r.closed_at) : '—'}
+                    </div>
                   </td>
-                  <td className="px-4 py-2.5 text-muted-foreground">
-                    {r.closed_at ? formatDate(r.closed_at) : <span className="italic opacity-60">pendente</span>}
+                  <td className="px-4 py-2.5">
+                    <SemaforoDot alerta={r.contexto?.alerta ?? 'OK'} />
                   </td>
+                  <td className="px-4 py-2.5"><PagamentoCell ctx={r.contexto ?? null} /></td>
+                  <td className="px-4 py-2.5"><TratamentoCell ctx={r.contexto ?? null} /></td>
+                  <td className="px-4 py-2.5"><AtendimentoCell ctx={r.contexto ?? null} /></td>
                   <td className="px-4 py-2.5 text-right tabular-nums text-foreground">
                     {brl(r.treatment_value)}
                   </td>
@@ -322,8 +558,66 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
+
+      {/* Pipeline: indicados que ainda NAO fecharam. Sem isso a aba so conta
+          comissao — e ninguem lembra de correr atras de quem ficou pelo caminho. */}
+      {pipeline.length > 0 && (
+        <section className="rounded-xl border border-border bg-card overflow-hidden">
+          <header className="flex items-center justify-between px-4 py-3 border-b border-border bg-muted/30">
+            <div className="flex items-center gap-2">
+              <Clock size={14} className="text-sky-600" />
+              <h3 className="text-sm font-bold text-foreground">Indicados que ainda não fecharam</h3>
+              <span className="text-xs text-muted-foreground">({pipeline.length})</span>
+            </div>
+            <span className="text-[10px] text-muted-foreground">
+              ainda não geram comissão
+            </span>
+          </header>
+          <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-muted/40 text-[10px] uppercase tracking-wider text-muted-foreground">
+              <tr>
+                <th className="px-4 py-2 text-left font-bold">Indicado</th>
+                <th className="px-4 py-2 text-left font-bold">Situação</th>
+                <th className="px-4 py-2 text-left font-bold">Negociação</th>
+                <th className="px-4 py-2 text-left font-bold">Atendimento</th>
+                <th className="px-4 py-2 text-left font-bold">Vínculo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pipeline.map((row) => (
+                <tr key={row.patient_id} className="border-t border-border hover:bg-accent/40 align-top">
+                  <td className="px-4 py-2.5">
+                    <a
+                      href={`/atendimento/pacientes/${row.patient_id}`}
+                      className="font-semibold text-foreground hover:text-primary hover:underline"
+                    >
+                      {row.name || 'Sem nome'}
+                    </a>
+                    {row.phone && (
+                      <div className="text-xs text-muted-foreground">{row.phone}</div>
+                    )}
+                  </td>
+                  <td className="px-4 py-2.5">
+                    <SemaforoDot alerta={row.contexto?.alerta ?? 'OK'} />
+                  </td>
+                  <td className="px-4 py-2.5"><NegociacaoCell ctx={row.contexto} /></td>
+                  <td className="px-4 py-2.5"><AtendimentoCell ctx={row.contexto} /></td>
+                  <td className="px-4 py-2.5">
+                    <span className="text-[10px] text-muted-foreground">
+                      {row.origem === 'venda' ? 'só nesta venda' : 'cadastro (todas as vendas)'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          </div>
+        </section>
+      )}
 
       {/* Saques */}
       <section className="rounded-xl border border-border bg-card overflow-hidden">
