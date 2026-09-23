@@ -728,14 +728,20 @@ export class PaymentAlertsCronService {
     // {codigo} preferido = PIX copia-e-cola / linha digitável. Sem código (edge raro:
     // cobrança sem PIX e sem barcode), cai no LINK pra nunca deixar o paciente sem como
     // pagar (o template padrão já não tem mais {link}).
+    // Onda 18.x — SEMPRE um jeito de pagar no TEXTO (backup do PDF). Código PIX
+    // copia-e-cola quando existe; senão, o LINK — inclusive quando há PDF anexo.
+    // Sem isto, boleto sem PIX guardado + PDF que falha (chip/Evolution) deixava a
+    // mensagem só com "vence sua parcela de R$ X" e NENHUMA forma de pagar.
     const codigoBloco = c.codigo
       ? `📋 Pra facilitar, copie o código e pague por PIX:\n${c.codigo}`
-      : (c.link && !c.pdfUrls.length ? `Pra pagar, acesse:\n${c.link}` : '');
+      : (c.link ? `Pra pagar, acesse:\n${c.link}` : '');
     if (/\{codigo\}/.test(msg)) {
       msg = codigoBloco
         ? msg.replace(/\{codigo\}/g, codigoBloco)
         : msg.replace(/^[^\n]*\{codigo\}[^\n]*\n?/gm, '').replace(/\{codigo\}/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-    } else if (c.codigo && c.pdfUrls.length === 1 && !msg.includes(c.codigo)) {
+    } else if (codigoBloco && !msg.includes(c.codigo || '\0') && !msg.includes(c.link || '\0')) {
+      // Template sem {codigo} (ex.: texto antigo com {link} já removido no boleto):
+      // anexa o meio de pagamento no fim pra nunca ficar sem.
       msg = `${msg.trimEnd()}\n\n${codigoBloco}`;
     }
     return msg;
