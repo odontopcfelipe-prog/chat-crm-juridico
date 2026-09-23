@@ -26,7 +26,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 // Onda 17.52 — Etapa 3: leitura de paciente exige view_patients (antes aberta a
 // qualquer logado). Todos os 6 setores têm view_patients por default.
 import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
-import { CreatePatientDto, UpdatePatientDto } from './dto/create-patient.dto';
+import { CreatePatientDto, UpdatePatientDto, CreateManualReferralDto } from './dto/create-patient.dto';
 import {
   canEditPatientPersonalData,
   canArchivePatient,
@@ -574,6 +574,39 @@ export class PatientsController {
    * com status='solicitado'. Admin depois confirma com POST
    * /patients/:id/affiliate/withdraw/:withdrawalId/pay
    */
+  /**
+   * Lancamento RETROATIVO de indicacao (ADMIN). Pras vendas antigas que nunca
+   * foram registradas — o motor automatico so pega venda nova.
+   */
+  @Post(':id/affiliate/referrals')
+  createManualReferral(
+    @Request() req: any,
+    @Param('id') id: string,
+    @Body() body: CreateManualReferralDto,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode lancar indicacao retroativa');
+    }
+    return this.affiliateService.createManualReferral(id, tenantId, req.user.id, body);
+  }
+
+  /** Cancela uma indicacao (ADMIN) — desfaz erro de lancamento sem apagar historico. */
+  @Post(':id/affiliate/referrals/:referralId/cancel')
+  cancelReferral(
+    @Request() req: any,
+    @Param('referralId') referralId: string,
+    @Body() body: { reason?: string },
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    if (!isAdmin(req.user?.roles)) {
+      throw new ForbiddenException('Apenas ADMIN pode cancelar indicacao');
+    }
+    return this.affiliateService.cancelReferral(referralId, tenantId, req.user.id, body?.reason);
+  }
+
   @Post(':id/affiliate/withdraw')
   async requestAffiliateWithdrawal(
     @Param('id') id: string,

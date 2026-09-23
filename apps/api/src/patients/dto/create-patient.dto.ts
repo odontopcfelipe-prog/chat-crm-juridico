@@ -136,3 +136,32 @@ export class UpdatePatientDto {
   @IsOptional() @IsNumber() @Min(0) @Max(100) affiliate_commission_pct?: number;
   @IsOptional() @IsString() affiliate_notes?: string;
 }
+
+/**
+ * Lancamento RETROATIVO de indicacao de afiliado (POST /patients/:id/affiliate/referrals).
+ *
+ * Existe porque o motor automatico so credita comissao em venda NOVA: tudo que
+ * fechou antes do afiliado ser cadastrado precisa entrar na mao.
+ *
+ * `treatment_value` e o valor ACERTADO da negociacao, SEM juros de parcelamento.
+ * Amarrando em `quote_id`, o valor sai de quote.total_value (que ja e o combinado).
+ *
+ * ValidationPipe roda com forbidNonWhitelisted: campo que nao estiver declarado
+ * aqui derruba o request com 400.
+ */
+export class CreateManualReferralDto {
+  @IsUUID('4') referred_patient_id!: string;
+  /** Valor acertado do tratamento, sem juros. Opcional quando vem de quote_id. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) treatment_value?: number;
+  /** Proposta que originou a venda (opcional — da rastreabilidade e preenche o valor). */
+  @IsOptional() @IsUUID('4') quote_id?: string;
+  /** % da comissao. Default: o do cadastro do afiliado. */
+  @IsOptional() @IsNumber({ maxDecimalPlaces: 2 }) @Min(0) @Max(100) commission_pct?: number;
+  /** Data do fechamento (YYYY-MM-DD). Default: hoje. */
+  @IsOptional() @IsDateString() closed_at?: string;
+  @IsOptional() @IsString() notes?: string;
+  /** Comissao ja foi paga por fora: registra o repasse junto, sem mexer no caixa. */
+  @IsOptional() @IsBoolean() ja_repassado?: boolean;
+  @IsOptional() @IsString() @IsIn(['PIX', 'DINHEIRO', 'CREDITO_TRATAMENTO'])
+  repasse_method?: 'PIX' | 'DINHEIRO' | 'CREDITO_TRATAMENTO';
+}

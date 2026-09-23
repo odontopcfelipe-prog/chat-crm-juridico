@@ -657,6 +657,207 @@ export class AffiliateService {
     });
   }
 
+
+  /**
+   * Lancamento RETROATIVO de indicacao (admin). Serve pras vendas que ja
+   * fecharam ha tempo e nunca foram registradas como indicacao — o motor
+   * automatico so pega venda nova, entao o historico precisa entrar na mao.
+   *
+   * VALOR: entra o valor ACERTADO da negociacao, sem juros de parcelamento.
+   * Quando o lancamento e amarrado a uma proposta, o valor vem de
+   * `quote.total_value`, que ja e o combinado (juros vivem nas cobrancas,
+   * nunca na proposta) — mas o admin pode sobrescrever.
+   *
+   * `ja_repassado`: pra comissao que ja foi paga por fora, cria junto o saque
+   * como 'pago' — o saldo nasce e morre no mesmo lancamento, e o valor NAO
+   * aparece como "disponivel pra sacar". De proposito NAO lanca DESPESA no
+   * caixa: o dinheiro saiu no passado e fora do sistema; lancar hoje sujaria o
+   * fechamento de hoje com uma despesa que nao aconteceu hoje.
+   */
+  async createManualReferral(
+    affiliateId: string,
+    tenantId: string,
+    userId: string,
+    data: {
+      referred_patient_id: string;
+      treatment_value?: number;
+      quote_id?: string | null;
+      commission_pct?: number | null;
+      closed_at?: string | null;
+      notes?: string | null;
+      ja_repassado?: boolean;
+      repasse_method?: 'PIX' | 'DINHEIRO' | 'CREDITO_TRATAMENTO' | null;
+    },
+  ) {
+    const afiliado = await this.prisma.patient.findFirst({
+      where: { id: affiliateId, tenant_id: tenantId },
+      select: { id: true, name: true, is_affiliate: true, affiliate_commission_pct: true, cpf: true },
+    });
+    if (!afiliado) throw new NotFoundException('Afiliado nao encontrado');
+    if (!afiliado.is_affiliate) {
+      throw new BadRequestException(
+        'Este paciente nao esta marcado como afiliado (Editar paciente > Programa de Afiliado)',
+      );
+    }
+    if (data.referred_patient_id === affiliateId) {
+      throw new BadRequestException('O afiliado nao pode indicar a si mesmo');
+    }
+
+    const indicado = await this.prisma.patient.findFirst({
+      where: { id: data.referred_patient_id, tenant_id: tenantId },
+      select: { id: true, name: true, cpf: true },
+    });
+    if (!indicado) throw new NotFoundException('Paciente indicado nao encontrado');
+
+    // Mesma regra do motor automatico: CPF igual = a mesma pessoa.
+    const digits = (s?: string | null) => (s || '').replace(/\D/g, '');
+    const cpfA = digits(afiliado.cpf);
+    const cpfI = digits(indicado.cpf);
+    if (cpfA.length >= 11 && cpfA === cpfI) {
+      throw new BadRequestException('Afiliado e indicado tem o mesmo CPF — auto-indicacao nao gera comissao');
+    }
+
+    // Valor: da proposta escolhida (valor ACERTADO, sem juros) ou digitado.
+    let treatmentValue = Number(data.treatment_value) || 0;
+    let quoteId: string | null = null;
+    if (data.quote_id) {
+      const quote = await this.prisma.quote.findFirst({
+        where: { id: data.quote_id, patient_id: indicado.id, patient: { tenant_id: tenantId } },
+        select: { id: true, total_value: true },
+      });
+      if (!quote) throw new NotFoundException('Proposta nao encontrada para este paciente');
+      quoteId = quote.id;
+      if (!treatmentValue) treatmentValue = Number(quote.total_value) || 0;
+
+      // Ja existe comissao viva pra essa proposta? Nao duplica.
+      const existente = await this.prisma.affiliateReferral.findFirst({
+        where: { quote_id: quoteId, status: { not: 'cancelado' } },
+        select: { id: true, referrer_id: true },
+      });
+      if (existente) {
+        throw new BadRequestException(
+          existente.referrer_id === affiliateId
+            ? 'Essa proposta ja gerou comissao para este afiliado'
+            : 'Essa proposta ja gerou comissao para OUTRO afiliado',
+        );
+      }
+    }
+    if (!(treatmentValue > 0)) {
+      throw new BadRequestException('Informe o valor acertado do tratamento (sem juros)');
+    }
+
+    // % : o admin pode sobrescrever (acordo antigo podia ser outro); senao o do cadastro.
+    const pctBruto = data.commission_pct != null ? Number(data.commission_pct) : Number(afiliado.affiliate_commission_pct ?? 3);
+    if (!(pctBruto > 0) || pctBruto > 100) {
+      throw new BadRequestException('Percentual de comissao invalido');
+    }
+    const pct = +pctBruto.toFixed(2);
+    const commission = +(treatmentValue * (pct / 100)).toFixed(2);
+
+    const closedAt = data.closed_at && /^\d{4}-\d{2}-\d{2}/.test(String(data.closed_at))
+      ? new Date(String(data.closed_at).slice(0, 10) + 'T12:00:00Z')
+      : new Date();
+
+    const notas = [
+      '[retroativo] lancado manualmente',
+      data.notes?.trim() || null,
+    ].filter(Boolean).join(' — ');
+
+    const referral = await this.prisma.affiliateReferral.create({
+      data: {
+        tenant_id: tenantId,
+        referrer_id: affiliateId,
+        referred_id: indicado.id,
+        quote_id: quoteId,
+        treatment_value: treatmentValue,
+        commission_pct: pct,
+        commission_value: commission,
+        status: 'creditado',
+        closed_at: closedAt,
+        notes: notas,
+      },
+    });
+
+    // Rastro na proposta: quem indicou essa venda (so quando ainda esta vazio,
+    // pra nunca sobrescrever um vinculo que alguem ja tinha registrado).
+    if (quoteId) {
+      try {
+        await this.prisma.quote.updateMany({
+          where: { id: quoteId, affiliate_referrer_id: null },
+          data: { affiliate_referrer_id: affiliateId },
+        });
+      } catch (e: any) {
+        this.logger.warn(`[AFFILIATE] Nao consegui carimbar o afiliado na quote ${quoteId}: ${e?.message}`);
+      }
+    }
+
+    let withdrawalId: string | null = null;
+    if (data.ja_repassado) {
+      const metodo = data.repasse_method && VALID_METHODS.includes(data.repasse_method)
+        ? data.repasse_method
+        : 'DINHEIRO';
+      const w = await this.prisma.affiliateWithdrawal.create({
+        data: {
+          tenant_id: tenantId,
+          patient_id: affiliateId,
+          amount: commission,
+          method: metodo,
+          status: 'pago',
+          requested_at: closedAt,
+          paid_at: closedAt,
+          paid_by_user_id: userId,
+          notes: 'Repasse retroativo (comissao paga por fora) — registro historico, NAO lancado no caixa',
+        },
+      });
+      withdrawalId = w.id;
+    }
+
+    this.logger.log(
+      `[AFFILIATE] Referral RETROATIVO: id=${referral.id} referrer=${affiliateId} referred=${indicado.id} ` +
+      `valor=R${treatmentValue} pct=${pct}% comissao=R${commission}` +
+      (quoteId ? ` quote=${quoteId}` : ' (sem proposta)') +
+      (withdrawalId ? ` + repasse ja registrado (${withdrawalId})` : '') +
+      ` by=${userId}`,
+    );
+
+    return {
+      id: referral.id,
+      commission_value: commission,
+      commission_pct: pct,
+      treatment_value: treatmentValue,
+      withdrawal_id: withdrawalId,
+    };
+  }
+
+  /**
+   * Cancela uma indicacao (admin). Serve principalmente pra desfazer erro de
+   * digitacao num lancamento retroativo: sai do saldo, mas fica no historico
+   * como 'cancelado' (nao apaga — auditoria).
+   */
+  async cancelReferral(referralId: string, tenantId: string, userId: string, reason?: string) {
+    const r = await this.prisma.affiliateReferral.findFirst({
+      where: { id: referralId, tenant_id: tenantId },
+      select: { id: true, status: true, commission_value: true, notes: true },
+    });
+    if (!r) throw new NotFoundException('Indicacao nao encontrada');
+    if (r.status === 'cancelado') return { ok: true, idempotent: true };
+
+    await this.prisma.affiliateReferral.update({
+      where: { id: referralId },
+      data: {
+        status: 'cancelado',
+        notes: [r.notes, `[cancelado por ${userId}${reason ? `: ${reason.trim().slice(0, 200)}` : ''}]`]
+          .filter(Boolean)
+          .join(' '),
+      },
+    });
+    this.logger.log(
+      `[AFFILIATE] Referral ${referralId} CANCELADO (R$ ${Number(r.commission_value)}) by=${userId}` +
+      (reason ? ` motivo="${reason}"` : ''),
+    );
+    return { ok: true };
+  }
+
   /** Opcoes do picker "afiliado so desta venda": afiliados ativos do tenant,
    *  filtrados por nome/telefone/codigo. Leve (sem saldo) e sem gate de ADMIN. */
   async listAffiliateOptions(tenantId: string, search?: string) {

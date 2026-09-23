@@ -269,6 +269,8 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DashboardData | null>(null);
   const [showWithdrawModal, setShowWithdrawModal] = useState(false);
+  // Lancamento retroativo: vendas antigas que nunca viraram indicacao.
+  const [showRetroModal, setShowRetroModal] = useState(false);
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -492,6 +494,15 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
               ({referralsByStatus.fechados} fechadas · {referralsByStatus.pendentes} pendentes)
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => setShowRetroModal(true)}
+            className="text-xs font-semibold text-primary hover:underline inline-flex items-center gap-1"
+            title="Registrar uma venda antiga que este afiliado indicou"
+          >
+            <Clock size={12} />
+            Lançar indicação antiga
+          </button>
         </header>
 
         {referrals.length === 0 ? (
@@ -676,6 +687,20 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
         </div>
       </div>
 
+      {/* Lancamento retroativo de indicacao */}
+      {showRetroModal && (
+        <LancarRetroativoModal
+          affiliateId={patientId}
+          affiliateName={patientName}
+          defaultPct={COMMISSION_PCT}
+          onClose={() => setShowRetroModal(false)}
+          onSuccess={() => {
+            setShowRetroModal(false);
+            fetchDashboard();
+          }}
+        />
+      )}
+
       {/* Modal de saque */}
       {showWithdrawModal && (
         <WithdrawModal
@@ -688,6 +713,317 @@ export default function AfiliadoTab({ patientId, patientName, affiliateCode }: P
           }}
         />
       )}
+    </div>
+  );
+}
+
+
+/**
+ * Lancamento RETROATIVO de indicacao (admin).
+ *
+ * O motor automatico so credita comissao em venda NOVA. Tudo que fechou antes
+ * do afiliado existir no sistema entra por aqui, na mao.
+ *
+ * O valor e sempre o ACERTADO na negociacao, SEM juros do parcelamento —
+ * amarrando numa proposta, o campo ja vem preenchido com o valor da proposta
+ * (que e o combinado; juros vivem nas cobrancas, nunca na proposta).
+ */
+type PacienteLite = { id: string; name: string | null; phone: string | null };
+type QuoteLite = { id: string; status: string; title: string | null; quote_number?: number; total_value: string | number; created_at: string };
+
+function LancarRetroativoModal({
+  affiliateId,
+  affiliateName,
+  defaultPct,
+  onClose,
+  onSuccess,
+}: {
+  affiliateId: string;
+  affiliateName: string;
+  defaultPct: number;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [term, setTerm] = useState('');
+  const [busca, setBusca] = useState<Array<{ id: string; name: string | null; phone: string | null }>>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [indicado, setIndicado] = useState<{ id: string; name: string | null; phone: string | null } | null>(null);
+
+  const [quotes, setQuotes] = useState<QuoteLite[]>([]);
+  const [quoteId, setQuoteId] = useState('');
+
+  const [valor, setValor] = useState('');
+  const [pct, setPct] = useState(String(defaultPct));
+  const [data, setData] = useState('');
+  const [notas, setNotas] = useState('');
+  const [jaRepassado, setJaRepassado] = useState(false);
+  const [metodo, setMetodo] = useState<'DINHEIRO' | 'PIX' | 'CREDITO_TRATAMENTO'>('DINHEIRO');
+  const [salvando, setSalvando] = useState(false);
+
+  // Busca do paciente indicado — no servidor, debounce 300ms.
+  useEffect(() => {
+    const q = term.trim();
+    if (indicado || q.length < 2) { setBusca([]); setBuscando(false); return; }
+    setBuscando(true);
+    let cancelled = false;
+    const t = setTimeout(() => {
+      api.get(`/patients?limit=10&status=ACTIVE&search=${encodeURIComponent(q)}`)
+        .then((r) => { if (!cancelled) setBusca((r.data?.data || []).map((x: PacienteLite) => ({ id: x.id, name: x.name, phone: x.phone }))); })
+        .catch(() => { if (!cancelled) setBusca([]); })
+        .finally(() => { if (!cancelled) setBuscando(false); });
+    }, 300);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [term, indicado]);
+
+  // Propostas ACEITAS do indicado: amarrar a venda da o rastro e o valor certo.
+  useEffect(() => {
+    if (!indicado) { setQuotes([]); return; }
+    api.get(`/patients/${indicado.id}/quotes`)
+      .then((r) => setQuotes((r.data || []).filter((q: QuoteLite) => q.status === 'ACCEPTED')))
+      .catch(() => setQuotes([]));
+  }, [indicado]);
+
+  const escolherQuote = (id: string) => {
+    setQuoteId(id);
+    const q = quotes.find((x) => x.id === id);
+    if (q) {
+      setValor(String(Number(q.total_value) || 0));
+      if (!data) setData(String(q.created_at).slice(0, 10));
+    }
+  };
+
+  const valorNum = Number(String(valor).replace(',', '.')) || 0;
+  const pctNum = Number(String(pct).replace(',', '.')) || 0;
+  const comissao = +(valorNum * (pctNum / 100)).toFixed(2);
+
+  const salvar = async () => {
+    if (!indicado) { showError('Escolha o paciente indicado'); return; }
+    if (!(valorNum > 0)) { showError('Informe o valor acertado do tratamento'); return; }
+    if (!(pctNum > 0)) { showError('Informe o percentual da comissão'); return; }
+    setSalvando(true);
+    try {
+      const body: Record<string, unknown> = {
+        referred_patient_id: indicado.id,
+        treatment_value: +valorNum.toFixed(2),
+        commission_pct: +pctNum.toFixed(2),
+      };
+      if (quoteId) body.quote_id = quoteId;
+      if (data) body.closed_at = data;
+      if (notas.trim()) body.notes = notas.trim();
+      if (jaRepassado) { body.ja_repassado = true; body.repasse_method = metodo; }
+      await api.post(`/patients/${affiliateId}/affiliate/referrals`, body);
+      showSuccess(
+        jaRepassado
+          ? `Indicação lançada e comissão marcada como repassada (${brl(comissao)})`
+          : `Indicação lançada — ${brl(comissao)} creditados`,
+      );
+      onSuccess();
+    } catch (e: unknown) {
+      const err = e as { response?: { data?: { message?: string } } };
+      showError(err?.response?.data?.message || 'Erro ao lançar indicação');
+    } finally {
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-card border border-border rounded-xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="px-4 py-3 border-b border-border">
+          <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+            <Clock size={15} className="text-sky-600" />
+            Lançar indicação antiga
+          </h3>
+          <p className="text-[11px] text-muted-foreground mt-0.5">
+            Venda que <strong>{affiliateName}</strong> indicou e já fechou, mas nunca foi registrada.
+          </p>
+        </div>
+
+        <div className="p-4 space-y-3">
+          {/* 1. Paciente indicado */}
+          <div>
+            <label className="block text-xs font-semibold mb-1">Paciente indicado</label>
+            {indicado ? (
+              <div className="flex items-center justify-between gap-2 p-2 rounded-lg border border-border bg-background">
+                <div className="text-sm min-w-0">
+                  <div className="font-medium truncate">{indicado.name || 'Sem nome'}</div>
+                  <div className="text-[11px] text-muted-foreground">{indicado.phone || 'sem telefone'}</div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setIndicado(null); setTerm(''); setQuoteId(''); setQuotes([]); }}
+                  className="text-xs text-muted-foreground hover:text-foreground shrink-0"
+                >
+                  Trocar
+                </button>
+              </div>
+            ) : (
+              <>
+                <input
+                  autoFocus
+                  value={term}
+                  onChange={(e) => setTerm(e.target.value)}
+                  placeholder="Buscar por nome, telefone ou CPF..."
+                  className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+                />
+                {term.trim().length >= 2 && (
+                  <div className="mt-1 max-h-36 overflow-y-auto border border-border rounded-md bg-background">
+                    {buscando ? (
+                      <div className="p-2 text-[11px] text-muted-foreground">Buscando...</div>
+                    ) : busca.length === 0 ? (
+                      <div className="p-2 text-[11px] text-muted-foreground">Nenhum paciente encontrado</div>
+                    ) : (
+                      busca.map((b) => (
+                        <button
+                          type="button"
+                          key={b.id}
+                          onClick={() => { setIndicado(b); setTerm(''); }}
+                          className="w-full px-2.5 py-1.5 text-left text-sm hover:bg-accent border-b border-border last:border-0"
+                        >
+                          <div className="font-medium">{b.name || 'Sem nome'}</div>
+                          <div className="text-[10px] text-muted-foreground">{b.phone || 'sem telefone'}</div>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+          </div>
+
+          {/* 2. Proposta (opcional) — preenche o valor acertado */}
+          {indicado && (
+            <div>
+              <label className="block text-xs font-semibold mb-1">
+                Proposta que gerou a venda <span className="font-normal text-muted-foreground">(opcional)</span>
+              </label>
+              {quotes.length === 0 ? (
+                <p className="text-[11px] text-muted-foreground">
+                  Nenhuma proposta aceita neste cadastro — informe o valor na mão abaixo.
+                </p>
+              ) : (
+                <select
+                  value={quoteId}
+                  onChange={(e) => escolherQuote(e.target.value)}
+                  className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+                >
+                  <option value="">Sem vínculo com proposta</option>
+                  {quotes.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.quote_number ? `#${q.quote_number} · ` : ''}{q.title || 'Sem nome'} — {brl(Number(q.total_value) || 0)}
+                    </option>
+                  ))}
+                </select>
+              )}
+            </div>
+          )}
+
+          {/* 3. Valor + % */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Valor acertado (R$)</label>
+              <input
+                value={valor}
+                onChange={(e) => setValor(e.target.value)}
+                inputMode="decimal"
+                placeholder="0,00"
+                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background tabular-nums"
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">sem os juros do parcelamento</p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Comissão (%)</label>
+              <input
+                value={pct}
+                onChange={(e) => setPct(e.target.value)}
+                inputMode="decimal"
+                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background tabular-nums"
+              />
+              <p className="text-[10px] text-muted-foreground mt-0.5">padrão do cadastro: {defaultPct}%</p>
+            </div>
+          </div>
+
+          {/* 4. Data + observação */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-1">Data do fechamento</label>
+              <input
+                type="date"
+                value={data}
+                onChange={(e) => setData(e.target.value)}
+                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Observação</label>
+              <input
+                value={notas}
+                onChange={(e) => setNotas(e.target.value)}
+                placeholder="ex: acerto verbal de 2025"
+                className="w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+              />
+            </div>
+          </div>
+
+          {/* 5. Já repassei */}
+          <div className="rounded-lg border border-border bg-muted/20 p-2.5">
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={jaRepassado}
+                onChange={(e) => setJaRepassado(e.target.checked)}
+                className="mt-0.5"
+              />
+              <span className="text-xs">
+                <strong>Já repassei essa comissão</strong>
+                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                  Registra como pago no mesmo lançamento — não entra no saldo disponível. Não lança
+                  despesa no caixa de hoje (o dinheiro saiu no passado, fora do sistema).
+                </span>
+              </span>
+            </label>
+            {jaRepassado && (
+              <select
+                value={metodo}
+                onChange={(e) => setMetodo(e.target.value as 'DINHEIRO' | 'PIX' | 'CREDITO_TRATAMENTO')}
+                className="mt-2 w-full px-2.5 py-1.5 text-sm rounded-md border border-border bg-background"
+              >
+                <option value="DINHEIRO">Dinheiro</option>
+                <option value="PIX">PIX</option>
+                <option value="CREDITO_TRATAMENTO">Crédito em tratamento</option>
+              </select>
+            )}
+          </div>
+
+          {/* Resumo */}
+          <div className="flex items-center justify-between rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2">
+            <span className="text-xs font-semibold text-foreground">Comissão</span>
+            <span className="text-sm font-bold tabular-nums text-emerald-700 dark:text-emerald-400">
+              {brl(comissao)}
+            </span>
+          </div>
+        </div>
+
+        <div className="px-4 py-3 border-t border-border flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={salvando}
+            className="px-3 py-1.5 text-xs rounded-lg border border-border hover:bg-accent disabled:opacity-50"
+          >
+            Cancelar
+          </button>
+          <button
+            type="button"
+            onClick={salvar}
+            disabled={salvando || !indicado || !(valorNum > 0)}
+            className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+          >
+            {salvando && <Loader2 size={12} className="animate-spin" />}
+            Lançar indicação
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
