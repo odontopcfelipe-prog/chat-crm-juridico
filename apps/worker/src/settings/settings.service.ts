@@ -23,6 +23,42 @@ export class SettingsService {
     };
   }
 
+  /**
+   * Onda 18.x — config Asaas por TENANT (mesmo isolamento da API): chave própria no
+   * TenantSetting ASAAS_API_KEY; senão, só a matriz dona (ASAAS_GLOBAL_OWNER_TENANT)
+   * usa a chave global. baseUrl do TenantSetting ASAAS_BASE_URL, senão do flag global
+   * asaas_sandbox. Usado pra buscar o boleto/PIX ao vivo quando a cobrança veio sem
+   * boleto_url/código guardado (carteira importada). Retorna null se não puder cobrar.
+   */
+  async getAsaasConfig(tenantId?: string | null): Promise<{ apiKey: string; baseUrl: string } | null> {
+    const gs = async (key: string) => (await this.prisma.globalSetting.findUnique({ where: { key } }))?.value || null;
+    const ts = async (key: string) =>
+      !tenantId ? null : (await (this.prisma as any).tenantSetting
+        .findUnique({ where: { tenant_id_key: { tenant_id: tenantId, key } } })
+        .catch(() => null))?.value || null;
+
+    let apiKey: string | null = null;
+    if (tenantId) {
+      apiKey = await ts('ASAAS_API_KEY');
+      if (!apiKey) {
+        const owner = await gs('ASAAS_GLOBAL_OWNER_TENANT');
+        if (!owner) apiKey = await gs('asaas_api_key');           // isolamento não ativado (legado)
+        else if (owner === tenantId) apiKey = await gs('asaas_api_key'); // matriz dona
+        else apiKey = null;                                        // clínica sem chave própria → bloqueada
+      }
+    } else {
+      apiKey = (await ts('ASAAS_API_KEY')) || (await gs('asaas_api_key'));
+    }
+    if (!apiKey) return null;
+
+    const baseRaw = (await ts('ASAAS_BASE_URL')) || null;
+    const sandbox = (await gs('asaas_sandbox')) === 'true';
+    const baseUrl = baseRaw
+      ? (baseRaw.endsWith('/v3') ? baseRaw : `${baseRaw}/v3`)
+      : sandbox ? 'https://api-sandbox.asaas.com/v3' : 'https://api.asaas.com/v3';
+    return { apiKey: this.decryptIfNeeded(apiKey), baseUrl };
+  }
+
   async getOpenAiKey(): Promise<string | null> {
     const row = await this.prisma.globalSetting.findUnique({ where: { key: 'OPENAI_API_KEY' } });
     const raw = row?.value || process.env.OPENAI_API_KEY || null;

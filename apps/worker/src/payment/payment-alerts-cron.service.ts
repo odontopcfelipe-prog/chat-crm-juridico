@@ -74,6 +74,9 @@ const OVERDUE_SCAN_CAP = 4000;
 interface ChargeCandidate {
   /** Boleto REPRESENTANTE do grupo (o mais atrasado). Só métrica/log. */
   chargeId: string;
+  /** external_id (Asaas) + gateway — pra buscar boleto/PIX ao vivo quando faltam. */
+  externalId?: string;
+  gateway?: string;
   /** Onda 18.x — chave de dedup e agrupamento é o PACIENTE (não o boleto), pra
    *  paciente com N parcelas atrasadas receber 1 aviso por estágio (não N). */
   patientId: string;
@@ -177,6 +180,12 @@ export class PaymentAlertsCronService {
    * marca-passo. Extraído pra ser reusado pelos dois passes (marcos + carteira).
    */
   private async sendPacedCharge(pick: ChargeCandidate, nowMs: number): Promise<'sent' | 'failed' | 'cooldown'> {
+    // Onda 18.x — carteira IMPORTADA: cobrança sem boleto_url/PIX guardado (o import
+    // não trouxe). Antes ia texto seco. Agora busca no Asaas AO VIVO (só 1 cobrança
+    // única, sem PDF e/ou sem código) e enche PDF + código; faz backfill no banco.
+    if (pick.count === 1 && (pick.pdfUrls.length === 0 || !pick.codigo)) {
+      await this.enrichFromAsaas(pick);
+    }
     const instanceName = await this.resolveFinanceiroInstance(pick.tenantId);
     const template = await this.resolveTemplate(pick.tenantId, pick.stage, pick.tipo);
     const clinica = await this.resolveClinicName(pick.tenantId);
@@ -357,6 +366,8 @@ export class PaymentAlertsCronService {
       },
       select: {
         id: true,
+        external_id: true,
+        gateway: true,
         created_at: true,
         tenant_id: true,
         amount: true,
@@ -445,6 +456,8 @@ export class PaymentAlertsCronService {
         link,
         // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        externalId: c.external_id || undefined,
+        gateway: c.gateway || undefined,
         codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         venceEm,
@@ -516,6 +529,8 @@ export class PaymentAlertsCronService {
       },
       select: {
         id: true,
+        external_id: true,
+        gateway: true,
         tenant_id: true,
         amount: true,
         due_date: true,
@@ -576,6 +591,8 @@ export class PaymentAlertsCronService {
         link,
         // Boleto vai como PDF anexo → não mostra link na legenda; só PIX/sem-URL mostra link.
         links: c.billing_type === 'BOLETO' && c.boleto_url ? [] : [link],
+        externalId: c.external_id || undefined,
+        gateway: c.gateway || undefined,
         codigo: (c.pix_copy_paste || c.boleto_barcode || undefined),
         pdfUrls: c.billing_type === 'BOLETO' && c.boleto_url ? [c.boleto_url] : [],
         tipo,
@@ -677,6 +694,53 @@ export class PaymentAlertsCronService {
       this.logger.warn(`[COBRANCA] Falha ao resolver instância do tenant ${tenantId}: ${e.message}`);
     }
     return fallback;
+  }
+
+  /**
+   * Onda 18.x — busca boleto (bankSlipUrl) + PIX copia-e-cola no Asaas AO VIVO pra uma
+   * cobrança que veio sem eles (carteira importada). Mutaciona o `pick` (pdfUrls, link,
+   * codigo, links) e faz BACKFILL no banco (best-effort) pro próximo disparo já ter.
+   * Só cobrança ASAAS com external_id; falha silenciosa (segue com o que tinha).
+   */
+  private async enrichFromAsaas(pick: ChargeCandidate): Promise<void> {
+    try {
+      if ((pick.gateway && pick.gateway !== 'ASAAS') || !pick.externalId) return;
+      const cfg = await this.settings.getAsaasConfig(pick.tenantId);
+      if (!cfg) return;
+      const headers = { access_token: cfg.apiKey, 'User-Agent': 'LexCRM/1.0' };
+      const dbUpdate: any = {};
+
+      // 1) Boleto/fatura: bankSlipUrl (PDF) + invoiceUrl (fallback de link).
+      if (pick.pdfUrls.length === 0) {
+        try {
+          const { data } = await axios.get(`${cfg.baseUrl}/payments/${pick.externalId}`, { headers, timeout: 15000 });
+          const pdf = data?.bankSlipUrl || null;
+          const inv = data?.invoiceUrl || null;
+          if (pdf) { pick.pdfUrls = [pdf]; pick.links = []; dbUpdate.boleto_url = pdf; }
+          if (inv && !pick.link) { pick.link = inv; dbUpdate.invoice_url = inv; }
+        } catch (e: any) {
+          this.logger.warn(`[COBRANCA] Asaas payment ${pick.externalId} falhou: ${e?.message}`);
+        }
+      }
+      // 2) PIX copia-e-cola (código) — todo boleto/cobrança Asaas tem.
+      if (!pick.codigo) {
+        try {
+          const { data } = await axios.get(`${cfg.baseUrl}/payments/${pick.externalId}/pixQrCode`, { headers, timeout: 15000 });
+          const payload = data?.payload || null;
+          if (payload) { pick.codigo = payload; dbUpdate.pix_copy_paste = payload; }
+        } catch (e: any) {
+          this.logger.warn(`[COBRANCA] Asaas pixQrCode ${pick.externalId} falhou: ${e?.message}`);
+        }
+      }
+      if (Object.keys(dbUpdate).length) {
+        await this.prisma.paymentGatewayCharge
+          .update({ where: { id: pick.chargeId }, data: dbUpdate })
+          .then(() => this.logger.log(`[COBRANCA] enriquecido do Asaas + backfill (charge ${pick.chargeId}): ${Object.keys(dbUpdate).join(', ')}`))
+          .catch((e: any) => this.logger.warn(`[COBRANCA] backfill não gravou (charge ${pick.chargeId}): ${e?.message}`));
+      }
+    } catch (e: any) {
+      this.logger.warn(`[COBRANCA] enrichFromAsaas falhou (charge ${pick.chargeId}): ${e?.message}`);
+    }
   }
 
   /** Monta a mensagem do estágio com nome/valor/data/link. */
