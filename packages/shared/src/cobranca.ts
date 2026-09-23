@@ -81,33 +81,34 @@ const COBRANCA_TIPO_WORDS: Record<CobrancaTipo, { item: string; meio: string }> 
   parcelado: { item: 'sua parcela', meio: 'o link de pagamento' },
 };
 
-/** Base ÚNICA de cada estágio com {item}/{meio} — os 3 defaults por tipo saem
- *  daqui preenchendo as palavras (DRY). {item} nunca abre frase (evita maiúscula). */
+/** Base ÚNICA de cada estágio com {item}/{codigo} — os 3 defaults por tipo saem
+ *  daqui preenchendo as palavras (DRY). {item} nunca abre frase (evita maiúscula).
+ *  Onda 18.x — o pagamento saiu do {link} (o robô manda o boleto em PDF ANEXO) pro
+ *  {codigo}: o robô troca por um bloco copia-e-cola ("📋 …código…"). Boleto → PDF +
+ *  código; PIX/parcela → código. {codigo} vazio (edge sem código) cai no link. */
 const COBRANCA_STAGE_BASE: Record<CobrancaStage, string> = {
   boleto_1d_antes:
     'Oi {nome}! 😊 Passando pra lembrar que {item} de *{valor}* vence *amanhã ({data})*.\n\n' +
-    'Segue {meio} pra facilitar: {link}\n\nQualquer dúvida, é só chamar aqui!',
+    '{codigo}\n\nQualquer dúvida, é só chamar aqui!',
   boleto_no_dia:
     'Oi {nome}! 📅 Hoje ({data}) vence {item} de *{valor}*.\n\n' +
-    'Pra não perder o prazo, segue {meio}: {link}\n\nSe já pagou, pode desconsiderar 🙏',
+    '{codigo}\n\nSe já pagou, pode desconsiderar 🙏',
   boleto_atraso_1d:
     'Oi {nome}, tudo bem? Notamos que {item} de *{valor}* venceu ontem ({data}) e ainda consta em aberto — ' +
-    'deve ser só um esquecimento 😉\n\nSegue {meio} atualizado: {link}\n\nSe já pagou, é só desconsiderar!',
+    'deve ser só um esquecimento 😉\n\n{codigo}\n\nSe já pagou, é só desconsiderar!',
   boleto_atraso_15d:
     'Oi {nome}, {item} de *{valor}* está em aberto há *15 dias* (venceu em {data}).\n\n' +
-    'Pra regularizar e evitar juros maiores, segue {meio} atualizado: {link}\n\n' +
-    'Precisa de ajuda ou quer renegociar? É só chamar a gente aqui.',
+    '{codigo}\n\nPrecisa de ajuda ou quer renegociar? É só chamar a gente aqui.',
   boleto_atraso_30d:
     'Oi {nome}, {item} de *{valor}* está com *30 dias* de atraso (venceu em {data}).\n\n' +
-    'Pedimos a gentileza de regularizar pra manter seu tratamento em dia: {link}\n\n' +
-    'Se estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
+    '{codigo}\n\nSe estiver com dificuldade, fale com a gente — podemos encontrar uma solução juntos.',
   boleto_atrasado:
     'Oi {nome}, tudo bem? {item} de *{valor}* venceu em {data} e ainda consta em aberto por aqui.\n\n' +
-    'Quando puder, é só usar {meio} atualizado pra regularizar: {link}\n\n' +
-    'Se já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!',
+    '{codigo}\n\nSe já pagou, é só desconsiderar 🙏 Se preferir combinar um novo prazo ou renegociar, é só me chamar!',
 };
 
-/** Texto padrão do estágio PARA UM TIPO (preenche {item}/{meio} da base). */
+/** Texto padrão do estágio PARA UM TIPO (preenche {item} da base; {codigo}/{meio}
+ *  ficam pro worker/preview). {meio} mantido por compat com textos antigos. */
 export function defaultCobrancaTemplate(stage: string, tipo: CobrancaTipo): string {
   const base = COBRANCA_STAGE_BASE[stage as CobrancaStage];
   if (!base) return (DEFAULT_COBRANCA_TEMPLATES as Record<string, string>)[stage] || '';

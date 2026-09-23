@@ -725,7 +725,12 @@ export class PaymentAlertsCronService {
     // ÚNICO (PDF anexo, sem link na legenda), anexa o código no fim automaticamente —
     // assim o paciente copia e paga por PIX sem abrir o PDF. Agrupado (vários boletos)
     // não recebe código (seria ambíguo). O `includes` evita duplicar se já saiu via {codigo}.
-    const codigoBloco = c.codigo ? `📋 Pra facilitar, copie o código e pague por PIX:\n${c.codigo}` : '';
+    // {codigo} preferido = PIX copia-e-cola / linha digitável. Sem código (edge raro:
+    // cobrança sem PIX e sem barcode), cai no LINK pra nunca deixar o paciente sem como
+    // pagar (o template padrão já não tem mais {link}).
+    const codigoBloco = c.codigo
+      ? `📋 Pra facilitar, copie o código e pague por PIX:\n${c.codigo}`
+      : (c.link && !c.pdfUrls.length ? `Pra pagar, acesse:\n${c.link}` : '');
     if (/\{codigo\}/.test(msg)) {
       msg = codigoBloco
         ? msg.replace(/\{codigo\}/g, codigoBloco)
