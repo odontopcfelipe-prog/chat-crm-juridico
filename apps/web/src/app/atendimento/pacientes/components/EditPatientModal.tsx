@@ -11,12 +11,11 @@
  * a recepção precisa preencher tudo (cadastro completo, atualização de dados).
  */
 import { useState, FormEvent, useEffect } from 'react';
-import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins, Tag, BellOff } from 'lucide-react';
+import { X, Loader2, Save, MapPin, User, Heart, Shield, HandCoins, Tag } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
 import { maskCPFInput, maskPhoneInput, maskCEPInput, vPhone, vCPF, vCEP, vRG, vBirth } from '@/lib/utils';
 import TagChipsSelector from './TagChipsSelector';
-import { useRole } from '@/lib/useRole';
 
 interface PatientFull {
   id: string;
@@ -131,9 +130,6 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
   // Programa de Afiliado — comissao fixa 3% (regra do programa, nao editavel
   // por paciente). Saldo pode acumular ou ser sacado.
   const [isAffiliate, setIsAffiliate] = useState(!!patient.is_affiliate);
-  // Onda 18.x — opt-out da cobrança de boleto ATRASADO (só ADM edita). Guarda no cadastro.
-  const { isAdmin } = useRole();
-  const [noOverdueDunning, setNoOverdueDunning] = useState(!!(patient as any).no_overdue_dunning);
   const [affiliateCode, setAffiliateCode] = useState(patient.affiliate_code || '');
   const [affiliateNotes, setAffiliateNotes] = useState(patient.affiliate_notes || '');
   const AFFILIATE_COMMISSION_PCT = 3;
@@ -254,8 +250,6 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
         // entao quando NAO e afiliado, omite o campo (em vez de mandar null)
         // pra Prisma nao tentar setar null e jogar exceção (500).
         is_affiliate: isAffiliate,
-        // Só o ADM controla o opt-out; pra não-admin nem manda o campo (mantém o atual).
-        ...(isAdmin ? { no_overdue_dunning: noOverdueDunning } : {}),
         ...(isAffiliate
           ? {
               affiliate_code: affiliateCode.trim() || null,
@@ -617,34 +611,6 @@ export default function EditPatientModal({ patient, onClose, onUpdated }: Props)
               </>
             )}
           </Section>
-
-          {/* ─── Cobrança (ADM) — opt-out de boleto atrasado ─────────────
-              Fica no cadastro (só ADM vê/edita). Quando ligado, o paciente NÃO
-              recebe os avisos de boleto ATRASADO; lembrete de antes/no dia segue. */}
-          {isAdmin && (
-            <Section icon={<BellOff size={14} />} title="Cobrança">
-              <Field label="Não cobrar boletos atrasados">
-                <label className="inline-flex items-center gap-3 cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    checked={noOverdueDunning}
-                    onChange={(e) => setNoOverdueDunning(e.target.checked)}
-                    className="sr-only peer"
-                  />
-                  <div className="relative w-11 h-6 bg-muted peer-focus:ring-2 peer-focus:ring-red-500/40 rounded-full peer peer-checked:bg-red-500 transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:border after:border-border after:rounded-full after:h-5 after:w-5 after:transition-transform peer-checked:after:translate-x-5"></div>
-                  <span className="text-sm text-foreground">
-                    {noOverdueDunning
-                      ? <span className="text-red-600 dark:text-red-400 font-bold">Cobrança de atraso pausada</span>
-                      : <span className="text-muted-foreground">Recebe cobrança normalmente</span>}
-                  </span>
-                </label>
-              </Field>
-              <p className="text-[11px] text-muted-foreground leading-relaxed">
-                Pausa só os disparos de <strong>boleto atrasado</strong> (1, 15, 30 dias e recorrente).
-                Os lembretes de <strong>antes</strong> e <strong>no dia</strong> do vencimento continuam.
-              </p>
-            </Section>
-          )}
 
           {/* Footer sticky */}
           <div className="flex justify-end gap-2 pt-2 border-t border-border sticky bottom-0 bg-card -mx-4 px-4 py-3 -mb-4">
