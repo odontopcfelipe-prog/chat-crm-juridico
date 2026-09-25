@@ -756,7 +756,7 @@ export class AiProcessor extends WorkerHost {
       const formatDateBR = (d: Date) =>
         d.toLocaleDateString('pt-BR', { timeZone: tz, weekday: 'short', day: '2-digit', month: '2-digit' });
       // Coleta dias com vaga (UTC-consistente + rótulo ancorado ao meio-dia UTC).
-      const daysWithSlots: { label: string; times: string[] }[] = [];
+      const daysWithSlots: { label: string; dateStr: string; times: string[] }[] = [];
       const startDate = new Date(Date.now() - 3 * 60 * 60 * 1000); // -3h = "agora" em Maceió (naive-UTC)
       startDate.setUTCDate(startDate.getUTCDate() + 1); // começa amanhã (UTC naive)
       for (let i = 0; i < 14 && daysWithSlots.length < 5; i++) {
@@ -767,19 +767,23 @@ export class AiProcessor extends WorkerHost {
         if (anchor.getUTCDay() === 0) continue; // pula domingo
         const dayslots = await this.getAvailability(dentistId, dateStr, 60);
         if (dayslots.length > 0) {
-          daysWithSlots.push({ label: formatDateBR(anchor), times: dayslots.map((s) => s.start) });
+          daysWithSlots.push({ label: formatDateBR(anchor), dateStr, times: dayslots.map((s) => s.start) });
         }
       }
       if (daysWithSlots.length === 0) return null;
       // Mesma curadoria da PROPOSTA SUGERIDA: máx 2 dias, 1 por dia + completa
       // até 3 com o 2º horário do dia mais próximo (nunca 3 do mesmo dia).
       const nearDays = daysWithSlots.slice(0, 2);
-      const picks: { label: string; time: string }[] = [];
-      for (const d of nearDays) picks.push({ label: d.label, time: d.times[0] });
+      const picks: { label: string; dateStr: string; time: string }[] = [];
+      for (const d of nearDays) picks.push({ label: d.label, dateStr: d.dateStr, time: d.times[0] });
       for (const d of nearDays) {
         if (picks.length >= 3) break;
-        if (d.times[1]) picks.push({ label: d.label, time: d.times[1] });
+        if (d.times[1]) picks.push({ label: d.label, dateStr: d.dateStr, time: d.times[1] });
       }
+      // Ordena cronologicamente pra não "voltar" pra um dia já citado.
+      picks.sort((a, b) =>
+        a.dateStr === b.dateStr ? a.time.localeCompare(b.time) : a.dateStr.localeCompare(b.dateStr),
+      );
       const firstName = (convo.lead?.name || '').split(' ')[0] || '';
       const greeting = firstName ? `${firstName}, ` : '';
       const intro = `${greeting}sem problema! Consegui te encaixar bem pertinho:`;
@@ -1347,16 +1351,22 @@ export class AiProcessor extends WorkerHost {
             //   2) se faltar pra chegar a 3, completa com o 2º horário do dia
             //      mais próximo (MÁX 2 por dia — nunca 3 do mesmo dia).
             const nearDays = daysWithSlots.slice(0, 2); // preferência: no máx 2 dias
-            const suggestion: { label: string; time: string; isEncaixe: boolean }[] = [];
+            const suggestion: { label: string; dateStr: string; time: string }[] = [];
             for (const d of nearDays) {
-              suggestion.push({ label: d.label, time: d.times[0], isEncaixe: suggestion.length === 0 });
+              suggestion.push({ label: d.label, dateStr: d.dateStr, time: d.times[0] });
             }
             for (const d of nearDays) {
               if (suggestion.length >= 3) break;
-              if (d.times[1]) suggestion.push({ label: d.label, time: d.times[1], isEncaixe: false });
+              if (d.times[1]) suggestion.push({ label: d.label, dateStr: d.dateStr, time: d.times[1] });
             }
+            // Ordena CRONOLOGICAMENTE (dia, depois hora) pra agrupar o mesmo dia e
+            // NÃO "voltar" pra um dia já citado (ex.: seg 08:00 → seg 08:30 → ter
+            // 08:00, e nunca seg → ter → seg). O 1º após ordenar = ENCAIXE (o mais cedo).
+            suggestion.sort((a, b) =>
+              a.dateStr === b.dateStr ? a.time.localeCompare(b.time) : a.dateStr.localeCompare(b.dateStr),
+            );
             const suggLines = suggestion
-              .map((s) => `  • ${s.label} às ${s.time}${s.isEncaixe ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
+              .map((s, idx) => `  • ${s.label} às ${s.time}${idx === 0 ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
               .join('\n');
             // Agenda completa compacta — fallback só pra quando o lead pedir um
             // dia/horário específico ou recusar as sugeridas.
@@ -1599,10 +1609,13 @@ REGRAS DE TOM E FORMATO (INVIOLÁVEIS):
 - NUNCA ser MAIS informal que o lead. O lead define o tom. Se ele escreve formal, responda formal.
 - Vá DIRETO para a próxima pergunta. Sem preâmbulos.
 
-PROIBIDO REPETIR PERGUNTAS:
+PROIBIDO REPETIR PERGUNTAS E INFORMAÇÕES JÁ DADAS:
 - O histórico COMPLETO da conversa está nos turns acima (user/assistant). LEIA TUDO.
 - A MEMÓRIA DO LEAD contém TODOS os fatos já extraídos.
 - ANTES de perguntar algo, verifique SE a informação já foi dita no histórico OU na memória.
+- NÃO REPITA informação que você já deu nesta conversa. Em especial o VALOR DA CONSULTA
+  (R$150): se já informou o preço antes, NÃO repita — vá direto pro próximo passo
+  (propor o encaixe). Ficar repetindo o valor soa robótico e trava a conversão.
 - Se perceber que repetiu, reconheça e avance.
 
 PROIBIDO CONFUNDIR A IDENTIDADE DO CONTATO:
@@ -1696,16 +1709,20 @@ REGRA 1 — SE O LEAD QUER MARCAR, OFEREÇA A "PROPOSTA SUGERIDA" (não a agenda
   bloco {{available_slots}} (no máx 3, espalhados em até 2 dias, o mais cedo primeiro).
   ⛔ NUNCA jogue a AGENDA COMPLETA nem 3 horários do MESMO dia — isso passa
      impressão de agenda vazia/cheia de buracos e reduz o comparecimento.
-  ✅ Enquadre o horário mais próximo como um ENCAIXE (mostra esforço e valoriza
-     a vaga). Formato:
-    "Deixa eu ver se consigo um encaixe pra você o quanto antes… 🙌
-     Consegui! Posso te encaixar:
+  ✅ Enquadre o horário mais próximo como um ENCAIXE que AGREGA VALOR (não só
+     "garantir um encaixe pra consulta"): deixe claro que é uma consulta com a
+     Dra. Suellen, onde ELA AVALIA como está o sorriso do paciente. Formato:
+    "Quer que eu veja um encaixe pra uma consulta com a Dra. Suellen, onde ela
+     avalia como está o seu sorriso? Consigo:
      • [ENCAIXE mais próximo] às HH:MM
-     • [outro dia] às HH:MM
+     • [outro horário] às HH:MM
      Qual fica melhor pra você?"
   Se só houver vaga em 1 dia, ofereça no máximo 2 horários desse dia (NUNCA 3).
   A AGENDA COMPLETA só entra se o lead recusar as sugeridas ou pedir um
   dia/horário específico.
+  ⛔ Se o VALOR da consulta (R$150) JÁ foi informado antes nesta conversa, NÃO
+     repita ao propor o horário — vá direto pro encaixe. Repetir preço já dito
+     soa robótico.
 
 REGRA 2 — DIA PEDIDO INDISPONÍVEL ≠ EMPURRAR DECISÃO PRO LEAD.
   Se o lead pediu "amanhã" mas amanhã não está em {{available_slots}}
