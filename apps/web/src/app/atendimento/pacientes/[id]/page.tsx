@@ -1162,25 +1162,6 @@ function OverviewTab({
   onGoToTimelineAll?: () => void;
 }) {
   const canEditPersonal = !!onEdit;
-  // Onda 18.x — opt-out de cobrança de boleto ATRASADO, no PRÓPRIO cadastro (card
-  // Dados pessoais), visível/editável só pra ADMIN. Salva inline e recarrega.
-  const overviewRole = useRole();
-  const [savingDunning, setSavingDunning] = useState(false);
-  const toggleOverdueDunning = async () => {
-    if (savingDunning) return;
-    const novo = !patient.no_overdue_dunning;
-    if (novo && !confirm(`Pausar a cobrança de boletos ATRASADOS de ${patient.name}?\n\nEle deixa de receber os avisos de atraso (1, 15, 30 dias e recorrente). Os lembretes de antes/no dia do vencimento continuam.`)) return;
-    setSavingDunning(true);
-    try {
-      await api.patch(`/patients/${patient.id}`, { no_overdue_dunning: novo });
-      showSuccess(novo ? 'Cobrança de atraso pausada pra este paciente.' : 'Cobrança de atraso reativada.');
-      onReload();
-    } catch (e: any) {
-      showError(e?.response?.data?.message || 'Não foi possível alterar.');
-    } finally {
-      setSavingDunning(false);
-    }
-  };
   const enderecoFmt = [
     patient.address && `${patient.address}${patient.address_number ? ', ' + patient.address_number : ''}`,
     patient.address_complement,
@@ -1257,39 +1238,6 @@ function OverviewTab({
             <>
               <div className="border-t border-border my-2" />
               <Field label="Emergência" value={[patient.emergency_contact_name, patient.emergency_contact_phone ? formatPhone(patient.emergency_contact_phone) : null].filter(Boolean).join(' · ')} />
-            </>
-          )}
-          {/* Onda 18.x — Cobrança de boleto atrasado: SÓ ADMIN/SUPER_ADMIN vê/edita, aqui
-              no cadastro. (isAdmin cobre só o papel ADMIN literal; o dono é SUPER_ADMIN.) */}
-          {(overviewRole.isAdmin || overviewRole.isSuperAdmin) && patient.status !== 'ARCHIVED' && (
-            <>
-              <div className="border-t border-border my-2" />
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-muted-foreground">Cobrança de boleto atrasado</p>
-                  <p className="text-[10px] text-muted-foreground/80 leading-snug">
-                    {patient.no_overdue_dunning
-                      ? 'Pausada — não recebe avisos de atraso (lembrete de vencimento segue).'
-                      : 'Ativa — recebe os avisos de boleto atrasado normalmente.'}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={toggleOverdueDunning}
-                  disabled={savingDunning}
-                  aria-pressed={!!patient.no_overdue_dunning}
-                  title={patient.no_overdue_dunning ? 'Reativar cobrança de atraso' : 'Pausar cobrança de atraso'}
-                  className="shrink-0 inline-flex items-center gap-1.5 disabled:opacity-50"
-                >
-                  {savingDunning && <Loader2 size={12} className="animate-spin text-muted-foreground" />}
-                  <span className={`relative w-10 h-5 rounded-full transition-colors ${patient.no_overdue_dunning ? 'bg-red-500' : 'bg-muted'}`}>
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white border border-border transition-transform ${patient.no_overdue_dunning ? 'translate-x-5' : ''}`} />
-                  </span>
-                  <span className={`text-xs font-semibold ${patient.no_overdue_dunning ? 'text-red-600 dark:text-red-400' : 'text-muted-foreground'}`}>
-                    {patient.no_overdue_dunning ? 'Pausada' : 'Ativa'}
-                  </span>
-                </button>
-              </div>
             </>
           )}
         </dl>
