@@ -7,6 +7,8 @@ export type CobrancaStage =
   | 'boleto_1d_antes'
   | 'boleto_no_dia'
   | 'boleto_atraso_1d'
+  | 'boleto_atraso_2d'
+  | 'boleto_atraso_3d'
   | 'boleto_atraso_15d'
   | 'boleto_atraso_30d'
   // "Cobrar atrasados (recorrente)": os 3 marcos acima disparam UMA vez, em datas
@@ -20,6 +22,8 @@ export const COBRANCA_STAGES: CobrancaStage[] = [
   'boleto_1d_antes',
   'boleto_no_dia',
   'boleto_atraso_1d',
+  'boleto_atraso_2d',
+  'boleto_atraso_3d',
   'boleto_atraso_15d',
   'boleto_atraso_30d',
   'boleto_atrasado',
@@ -36,6 +40,13 @@ export const DEFAULT_COBRANCA_TEMPLATES: Record<CobrancaStage, string> = {
   boleto_atraso_1d:
     'Oi {nome}, tudo bem? Notamos que sua parcela de *{valor}* venceu ontem ({data}) e ainda consta em aberto — ' +
     'deve ser só um esquecimento 😉\n\nSegue o boleto atualizado: {link}\n\nSe já pagou, é só desconsiderar!',
+  boleto_atraso_2d:
+    'Oi {nome}, sua parcela de *{valor}* venceu em {data} e continua em aberto.\n\n' +
+    'Segue o boleto atualizado pra regularizar: {link}\n\nSe já pagou, é só desconsiderar 🙏',
+  boleto_atraso_3d:
+    'Oi {nome}, sua parcela de *{valor}* está em aberto há *3 dias* (venceu em {data}).\n\n' +
+    'Consegue regularizar hoje? Segue o boleto atualizado: {link}\n\n' +
+    'Se precisar de um novo prazo, fala com a gente que a gente ajeita.',
   boleto_atraso_15d:
     'Oi {nome}, sua parcela de *{valor}* está em aberto há *15 dias* (venceu em {data}).\n\n' +
     'Pra regularizar e evitar juros maiores, segue o boleto atualizado: {link}\n\n' +
@@ -96,6 +107,12 @@ const COBRANCA_STAGE_BASE: Record<CobrancaStage, string> = {
   boleto_atraso_1d:
     'Oi {nome}, tudo bem? Notamos que {item} de *{valor}* venceu ontem ({data}) e ainda consta em aberto — ' +
     'deve ser só um esquecimento 😉\n\n{codigo}\n\nSe já pagou, é só desconsiderar!',
+  boleto_atraso_2d:
+    'Oi {nome}, {item} de *{valor}* venceu em {data} e continua em aberto.\n\n' +
+    '{codigo}\n\nSe já pagou, é só desconsiderar 🙏',
+  boleto_atraso_3d:
+    'Oi {nome}, {item} de *{valor}* está em aberto há *3 dias* (venceu em {data}).\n\n' +
+    '{codigo}\n\nConsegue regularizar hoje? Se precisar de um novo prazo, fala com a gente que a gente ajeita.',
   boleto_atraso_15d:
     'Oi {nome}, {item} de *{valor}* está em aberto há *15 dias* (venceu em {data}).\n\n' +
     '{codigo}\n\nPrecisa de ajuda ou quer renegociar? É só chamar a gente aqui.',

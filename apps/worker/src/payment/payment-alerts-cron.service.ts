@@ -39,13 +39,22 @@ const STAGES = COBRANCA_STAGES;
 // Onda 18.x — estágios de ATRASO (pós-vencimento): o opt-out por paciente
 // (Patient.no_overdue_dunning, botão na ficha) pula ESTES. Os lembretes de antes/no
 // dia do vencimento seguem indo.
-const OVERDUE_STAGES = new Set<Stage>(['boleto_atraso_1d', 'boleto_atraso_15d', 'boleto_atraso_30d', 'boleto_atrasado']);
+const OVERDUE_STAGES = new Set<Stage>([
+  'boleto_atraso_1d',
+  'boleto_atraso_2d',
+  'boleto_atraso_3d',
+  'boleto_atraso_15d',
+  'boleto_atraso_30d',
+  'boleto_atrasado',
+]);
 
 /** diffDays (hoje Maceió − vencimento) → estágio. -1 = vence amanhã; 0 = hoje. */
 const STAGE_BY_DIFF: Record<number, Stage> = {
   [-1]: 'boleto_1d_antes',
   0: 'boleto_no_dia',
   1: 'boleto_atraso_1d',
+  2: 'boleto_atraso_2d',
+  3: 'boleto_atraso_3d',
   15: 'boleto_atraso_15d',
   30: 'boleto_atraso_30d',
 };
@@ -55,6 +64,8 @@ const STAGE_SETTING_PREFIX: Record<Stage, string> = {
   boleto_1d_antes: 'BOLETO_1D_ANTES',
   boleto_no_dia: 'BOLETO_NO_DIA',
   boleto_atraso_1d: 'BOLETO_ATRASO_1D',
+  boleto_atraso_2d: 'BOLETO_ATRASO_2D',
+  boleto_atraso_3d: 'BOLETO_ATRASO_3D',
   boleto_atraso_15d: 'BOLETO_ATRASO_15D',
   boleto_atraso_30d: 'BOLETO_ATRASO_30D',
   boleto_atrasado: 'BOLETO_ATRASADO',

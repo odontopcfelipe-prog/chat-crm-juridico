@@ -101,7 +101,7 @@ export class FollowupService {
 
     const [
       confSetting, reminderSetting, posSetting, dentSetting, birthdaySetting, reagSetting,
-      bol1dSetting, bolDiaSetting, bolA1Setting, bolA15Setting, bolA30Setting, payConfSetting,
+      bol1dSetting, bolDiaSetting, bolA1Setting, bolA2Setting, bolA3Setting, bolA15Setting, bolA30Setting, payConfSetting,
       confOrtoSetting, ortoRemSetting, ortoImmSetting, semAgendSetting, boletoIntroSetting, negocSetting,
       boletoDeliverySetting, comercialAgendaSettings, recallSetting, taskAlertsSetting,
       pixDeliverySetting, dailySummarySetting, vendaFeitaSetting, comprovanteSetting,
@@ -118,6 +118,8 @@ export class FollowupService {
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_1D_ANTES_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_NO_DIA_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_1D_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_2D_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_3D_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_15D_${tenantId}` } }),
       this.prisma.globalSetting.findUnique({ where: { key: `BOLETO_ATRASO_30D_${tenantId}` } }),
       // Onda 18.28 — confirmação de pagamento (por evento). Default LIGADA.
@@ -318,6 +320,8 @@ export class FollowupService {
       boleto_1d_antes: { enabled: bol1dSetting?.value === 'true' },
       boleto_no_dia: { enabled: bolDiaSetting?.value === 'true' },
       boleto_atraso_1d: { enabled: bolA1Setting?.value === 'true' },
+      boleto_atraso_2d: { enabled: bolA2Setting?.value === 'true' },
+      boleto_atraso_3d: { enabled: bolA3Setting?.value === 'true' },
       boleto_atraso_15d: { enabled: bolA15Setting?.value === 'true' },
       boleto_atraso_30d: { enabled: bolA30Setting?.value === 'true' },
       // "Cobrar atrasados (recorrente)" — carteira vencida, re-toque semanal. Default OFF.
@@ -534,6 +538,8 @@ export class FollowupService {
       boleto_1d_antes: ['boleto_1d_antes'],
       boleto_no_dia: ['boleto_no_dia'],
       boleto_atraso_1d: ['boleto_atraso_1d'],
+      boleto_atraso_2d: ['boleto_atraso_2d'],
+      boleto_atraso_3d: ['boleto_atraso_3d'],
       boleto_atraso_15d: ['boleto_atraso_15d'],
       boleto_atraso_30d: ['boleto_atraso_30d'],
       boleto_atrasado: ['boleto_atrasado'],
@@ -728,6 +734,8 @@ export class FollowupService {
       case 'boleto_1d_antes':
       case 'boleto_no_dia':
       case 'boleto_atraso_1d':
+      case 'boleto_atraso_2d':
+      case 'boleto_atraso_3d':
       case 'boleto_atraso_15d':
       case 'boleto_atraso_30d':
       // "Cobrar atrasados (recorrente)": BOLETO_ATRASADO_${tenant} (o worker lê a

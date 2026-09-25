@@ -59,6 +59,8 @@ interface OperacionalData {
   boleto_1d_antes?: { enabled: boolean };
   boleto_no_dia?: { enabled: boolean };
   boleto_atraso_1d?: { enabled: boolean };
+  boleto_atraso_2d?: { enabled: boolean };
+  boleto_atraso_3d?: { enabled: boolean };
   boleto_atraso_15d?: { enabled: boolean };
   boleto_atraso_30d?: { enabled: boolean };
   confirmacao_pagamento?: { enabled: boolean };

@@ -56,7 +56,8 @@ export type OperacionalKey =
   | 'confirmacao' | 'lembrete' | 'pos' | 'dentista' | 'aniversario' | 'reagendamento'
   // Onda 18.16 — cobrança financeira (chip FINANCEIRO). Cada estágio liga/desliga
   // sozinho; o cron do worker varre o que está em aberto e dispara o certo.
-  | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_15d' | 'boleto_atraso_30d'
+  | 'boleto_1d_antes' | 'boleto_no_dia' | 'boleto_atraso_1d' | 'boleto_atraso_2d' | 'boleto_atraso_3d'
+  | 'boleto_atraso_15d' | 'boleto_atraso_30d'
   // "Cobrar atrasados (recorrente)" — varre a carteira vencida (inclui a antiga
   // migrada do Asaas, fora dos marcos 1/15/30) e re-toca 1×/semana por paciente.
   | 'boleto_atrasado'
@@ -218,6 +219,12 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'boleto_atraso_1d', nome: 'Cobrança · 1 dia de atraso', categoria: 'financeiro',
     gatilho: '1 dia após vencer · lembrete', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_1d' },
+  { id: 'boleto_atraso_2d', nome: 'Cobrança · 2 dias de atraso', categoria: 'financeiro',
+    gatilho: '2 dias após vencer · reforço', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'boleto_atraso_2d' },
+  { id: 'boleto_atraso_3d', nome: 'Cobrança · 3 dias de atraso', categoria: 'financeiro',
+    gatilho: '3 dias após vencer · pede prazo', canal: 'WhatsApp', tags: ['Template'],
+    editor: 'cobranca', operacionalKey: 'boleto_atraso_3d' },
   { id: 'boleto_atraso_15d', nome: 'Cobrança · 15 dias de atraso', categoria: 'financeiro',
     gatilho: '15 dias após vencer · firme', canal: 'WhatsApp', tags: ['Template'],
     editor: 'cobranca', operacionalKey: 'boleto_atraso_15d' },
