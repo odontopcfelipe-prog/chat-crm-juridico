@@ -409,7 +409,7 @@ export class PaymentAlertsCronService {
     const candidates: ChargeCandidate[] = [];
     for (const c of charges) {
       const diff = todayIdx - this.dayIndexUTC(new Date(c.due_date));
-      let stage = STAGE_BY_DIFF[diff];
+      let stage: Stage | undefined = STAGE_BY_DIFF[diff];
       let venceEm: string | undefined;
       // O cron só roda seg-sex: o "1 dia antes" de um boleto que vence DOMINGO cai no
       // sábado, e o de SEGUNDA cai no domingo — dias sem cron. Sem isto, esses boletos
@@ -422,7 +422,32 @@ export class PaymentAlertsCronService {
         stage = 'boleto_1d_antes';
         venceEm = diff === -2 ? 'no domingo' : 'na segunda-feira';
       }
-      if (!stage) continue;
+      // REPESCAGEM DE FIM DE SEMANA (marcos de ATRASO). O cron só roda seg-sex e a
+      // janela de cada marco é a data EXATA — então o marco que cai no sábado ou no
+      // domingo não sai NUNCA. Com marcos em dias seguidos (1/2/3) isso engole
+      // metade da régua: boleto que vence na quarta tem o D+3 no sábado.
+      //
+      // Na SEGUNDA, olhamos pra trás os dois dias mortos (domingo = diff-1,
+      // sábado = diff-2) e mandamos UM só: o marco MAIS AVANÇADO que estiver
+      // LIGADO (a escolha acontece lá embaixo, depois de carregar os toggles do
+      // tenant — senão perderíamos o sábado quando o domingo está desligado).
+      // Regras que isso NÃO quebra:
+      //   - só entra quando HOJE não tem marco próprio (`!stage`): se o dia de
+      //     hoje já é um marco, ele é o mais avançado e manda sozinho;
+      //   - só marcos de ATRASO (OVERDUE_STAGES) — lembrete de "vence amanhã"
+      //     perdido não faz sentido depois do vencimento;
+      //   - a dedup por paciente+estágio (once-ever) segue valendo, então nada
+      //     repete o que já foi enviado;
+      //   - nunca dois numa segunda: escolhemos UM da lista.
+      // Feriado em dia útil continua descoberto (o cron não conhece feriado).
+      const perdidosNoFds: Stage[] = [];
+      if (!stage && todayDow === 1) {
+        for (const d of [diff - 1, diff - 2]) {
+          const s = STAGE_BY_DIFF[d];
+          if (s && OVERDUE_STAGES.has(s)) perdidosNoFds.push(s);
+        }
+      }
+      if (!stage && perdidosNoFds.length === 0) continue;
 
       // Anti-rajada na venda: NÃO cobrar cobrança NASCIDA HOJE. A entrada/parcela de
       // uma venda fechada agora nasce com vencimento HOJE (diff 0 = boleto_no_dia), e a
@@ -441,7 +466,8 @@ export class PaymentAlertsCronService {
       if (!patient || !patient.id || !phone) continue;
       // Opt-out do paciente: não cobrar boleto ATRASADO (botão na ficha). Só barra os
       // estágios de atraso; lembrete de antes/no dia do vencimento segue indo.
-      if ((patient as any).no_overdue_dunning && OVERDUE_STAGES.has(stage)) continue;
+      // (repescagem só carrega marcos de atraso, então sem marco de hoje = atraso)
+      if ((patient as any).no_overdue_dunning && (stage ? OVERDUE_STAGES.has(stage) : true)) continue;
 
       const link =
         c.invoice_url ||
@@ -451,7 +477,18 @@ export class PaymentAlertsCronService {
 
       const tid = c.tenant_id || '';
       if (!stageCache.has(tid)) stageCache.set(tid, await this.loadEnabledStages(tid));
-      if (!stageCache.get(tid)!.has(stage)) continue; // estágio desligado pro tenant
+      const ligados = stageCache.get(tid)!;
+      if (!stage) {
+        // Repescagem da segunda: o mais avançado que a clínica LIGOU. Se o marco de
+        // domingo está desligado e o de sábado ligado, vai o de sábado.
+        stage = perdidosNoFds.find((s) => ligados.has(s));
+        if (!stage) continue;
+        this.logger.log(
+          `[COBRANCA] Repescagem de fim de semana: charge ${c.id} (${diff}d de atraso) → ${stage}`,
+        );
+      } else if (!ligados.has(stage)) {
+        continue; // estágio desligado pro tenant
+      }
 
       // Tipo de pagamento: parcela (tem installment) → 'parcelado'; senão PIX →
       // 'pix'; boleto/cartão → 'boleto'. Escolhe a variante do texto no disparo.
