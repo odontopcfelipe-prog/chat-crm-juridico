@@ -374,10 +374,14 @@ export class BookAppointmentHandler implements ToolHandler {
     // respondera naturalmente no proximo turno, mas essa mensagem garante
     // que o paciente tem uma confirmacao "oficial" estruturada no historico
     // do WhatsApp pra consultar depois.
-    try {
-      await this.notifyPatient(event, prisma);
-    } catch (e: any) {
-      this.logger.warn(`[book_appointment] Falha ao notificar paciente: ${e.message}`);
+    // skipPatientNotify: quando chamado pelo confirm_slot da IA, a confirmação ao paciente
+    // é o próprio finalText da IA — sem isto o paciente recebe 2 mensagens de confirmação.
+    if (!(context as any).skipPatientNotify) {
+      try {
+        await this.notifyPatient(event, prisma);
+      } catch (e: any) {
+        this.logger.warn(`[book_appointment] Falha ao notificar paciente: ${e.message}`);
+      }
     }
 
     return {

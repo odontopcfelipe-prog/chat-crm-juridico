@@ -1336,7 +1336,18 @@ export class AiProcessor extends WorkerHost {
       // [] pra dias sem turnos. Window ampliada de 7 pra 14 dias pra cobrir
       // sabados que podem cair na semana seguinte.
       let availableSlots = 'Nenhum dentista atribuído — horários indisponíveis.';
-      const assignedDentistId = (convo as any).assigned_dentist_id;
+      // Onda 18.x — os horários da CONSULTA têm que vir da agenda do MESMO dentista que o
+      // confirm_slot vai marcar (a Orçamentista, Dra. Suellen). Antes lia
+      // convo.assigned_dentist_id CRU (podia ser o especialista de ÁREA, ex. Dr. Fellipe) e
+      // o confirm_slot reatribuía pra Suellen → oferecia horário do Fellipe e a marcação na
+      // Suellen era recusada (conflito/turno). Resolve o Orçamentista aqui, igual o check_availability.
+      let assignedDentistId: string | null = null;
+      try {
+        assignedDentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
+      } catch (e: any) {
+        this.logger.warn(`[AI] Falha ao resolver Orçamentista pros slots (conv ${convo.id}): ${e?.message}`);
+      }
+      if (!assignedDentistId) assignedDentistId = (convo as any).assigned_dentist_id;
       if (assignedDentistId) {
         try {
           const now = new Date();
@@ -2467,26 +2478,72 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             this.logger.warn(
               `[AI] confirm_slot ${scheduling_action.date} ${scheduling_action.time} — NENHUM Orçamentista cadastrado no tenant. CalendarEvent NÃO criado. Lead ${convo.lead.id} ficará em "avaliacao-aceita" sem evento — operador precisa atribuir um Orçamentista (Settings → Usuários) e agendar manualmente.`,
             );
+            // Sem Orçamentista não há evento — NÃO deixa a IA dizer "agendei" (falso).
+            finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
           } else {
-            const [h, m] = scheduling_action.time.split(':').map(Number);
-            const startAt = new Date(scheduling_action.date + 'T00:00:00');
-            startAt.setHours(h, m, 0, 0);
-            const endAt = new Date(startAt.getTime() + 60 * 60 * 1000);
+            // Onda 18.x — DELEGA pro book_appointment em vez do createCalendarEvent CRU.
+            // O caminho antigo criava o evento SEM validação (conflito/feriado/passado/
+            // turno/dedup/devedor) e com FUSO LOCAL errado (setHours) — a agenda é
+            // naive-UTC. book_appointment tem TODAS as guardas + Date.UTC + lembretes
+            // (1d/1h/15min) + notifica dentista. ensureOrcamentistaAssigned acima já
+            // travou a Dra. Suellen em assigned_dentist_id, que o handler lê.
 
-            await this.createCalendarEvent({
-              type: 'CONSULTA',
-              title: `Avaliação — ${convo.lead.name || 'Lead'}`,
-              description: `Avaliação agendada automaticamente pela IA — Orçamentista`,
-              start_at: startAt,
-              end_at: endAt,
-              assigned_user_id: dentistId,
-              lead_id: convo.lead.id,
-              conversation_id: convo.id,
-              created_by_id: dentistId,
-            });
-            this.logger.log(
-              `[AI] Avaliação agendada: ${scheduling_action.date} ${scheduling_action.time} — Orçamentista ${dentistId}`,
+            // (1) REMARCAÇÃO — o createCalendarEvent antigo CANCELAVA as consultas ativas
+            // da MESMA conversa antes de criar; o book_appointment NÃO faz isso (só dedup
+            // ±3h por lead). Sem restaurar, remarcar geraria 2 consultas (fora de ±3h) ou
+            // diria um horário e manteria o outro (dentro de ±3h). Cancela as anteriores
+            // desta conversa ANTES de marcar a nova.
+            try {
+              const prev = await (this.prisma as any).calendarEvent.findMany({
+                where: { conversation_id: convo.id, type: 'CONSULTA', status: { notIn: ['CANCELADO', 'CONCLUIDO'] } },
+                select: { id: true },
+              });
+              for (const old of prev) {
+                await (this.prisma as any).calendarEvent.update({
+                  where: { id: old.id },
+                  data: { status: 'CANCELADO', description: `[CANCELADO — reagendamento via IA em ${new Date().toISOString()}]` },
+                });
+                await (this.prisma as any).eventReminder.deleteMany({ where: { event_id: old.id, sent_at: null } });
+              }
+              if (prev.length) {
+                this.logger.log(`[AI] Reagendamento: ${prev.length} consulta(s) anterior(es) da conv ${convo.id} CANCELADA(s) antes de remarcar.`);
+              }
+            } catch (e: any) {
+              this.logger.warn(`[AI] Falha ao cancelar consulta anterior (reagendamento) conv ${convo.id}: ${e?.message}`);
+            }
+
+            // (2) DELEGA. skipPatientNotify=true — a confirmação ao paciente é o próprio
+            // finalText da IA; sem isso o handler manda a confirmação DELE tambem → 2 msgs.
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
+            const { BookAppointmentHandler } = require('./tool-handlers/book-appointment');
+            const bookResult = await new BookAppointmentHandler().execute(
+              {
+                date: scheduling_action.date,
+                time: scheduling_action.time,
+                title: `Consulta — ${convo.lead.name || 'Lead'}`,
+                description: 'Consulta agendada pela IA',
+              },
+              {
+                prisma: this.prisma,
+                conversationId: convo.id,
+                leadId: convo.lead.id,
+                reminderQueue: this.reminderQueue,
+                skipPatientNotify: true,
+              } as any,
             );
+            if (bookResult?.success) {
+              this.logger.log(
+                `[AI] Consulta agendada (Dra. Suellen): ${scheduling_action.date} ${scheduling_action.time} evt=${bookResult.eventId}${bookResult.already_booked ? ' (ja existia)' : ''}`,
+              );
+            } else {
+              // (3) Guarda recusou (conflito/feriado/turno/passado/devedor). O finalText
+              // ("agendei") ainda NÃO foi enviado (o envio é ~L2670, depois daqui) → SOBRESCREVE
+              // pra NÃO confirmar falso. Oferece handoff honesto em vez de mentir "agendei".
+              this.logger.warn(
+                `[AI] confirm_slot RECUSADO pela guarda (${scheduling_action.date} ${scheduling_action.time}): ${bookResult?.error} — evento NÃO criado; corrigindo a resposta e sinalizando recepção (conv ${convo.id}).`,
+              );
+              finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
+            }
           }
           }
         } catch (e: any) {
