@@ -15,6 +15,7 @@ import { computeBusinessHoursInfo } from '@crm/shared';
 import { MemoryRetrievalService } from '../memory/memory-retrieval.service';
 import { loadPipelinesForTenant, buildPipelinesPromptBlock, resolveStageUpdate } from './pipeline-context';
 import { ensureOrcamentistaAssigned } from './orcamentista';
+import { computeDaySlots } from './tool-handlers/check-availability';
 import { isAiAutobookEnabled } from './auto-book-gate';
 
 // Modelos com suporte a visão (imagens)
@@ -744,32 +745,45 @@ export class AiProcessor extends WorkerHost {
    */
   private async buildRescheduleSuggestion(convo: any): Promise<string | null> {
     try {
-      const dentistId = convo.assigned_dentist_id || convo.assigned_user_id;
+      // Onda 19: usa o Orçamentista (o MESMO dentista que o confirm_slot marca),
+      // não o assigned cru — o convo em memória pode estar desatualizado e o
+      // fallback assigned_user_id podia ser um operador (não-dentista).
+      const dentistId =
+        (await ensureOrcamentistaAssigned(this.prisma as any, convo.id)) ||
+        (convo as any).assigned_dentist_id;
       if (!dentistId) return null;
-      const now = new Date();
       const tz = 'America/Maceio';
       const formatDateBR = (d: Date) =>
         d.toLocaleDateString('pt-BR', { timeZone: tz, weekday: 'short', day: '2-digit', month: '2-digit' });
-      const slots: { date: string; time: string; label: string }[] = [];
-      // Busca 7 dias a frente
-      for (let i = 1; i <= 14 && slots.length < 3; i++) {
-        const day = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-        if (day.getDay() === 0) continue; // pula domingo
+      // Coleta dias com vaga (UTC-consistente + rótulo ancorado ao meio-dia UTC).
+      const daysWithSlots: { label: string; times: string[] }[] = [];
+      const startDate = new Date(Date.now() - 3 * 60 * 60 * 1000); // -3h = "agora" em Maceió (naive-UTC)
+      startDate.setUTCDate(startDate.getUTCDate() + 1); // começa amanhã (UTC naive)
+      for (let i = 0; i < 14 && daysWithSlots.length < 5; i++) {
+        const day = new Date(startDate.getTime());
+        day.setUTCDate(day.getUTCDate() + i);
         const dateStr = day.toISOString().split('T')[0];
+        const anchor = new Date(`${dateStr}T12:00:00Z`);
+        if (anchor.getUTCDay() === 0) continue; // pula domingo
         const dayslots = await this.getAvailability(dentistId, dateStr, 60);
         if (dayslots.length > 0) {
-          slots.push({
-            date: dateStr,
-            time: dayslots[0].start,
-            label: `${formatDateBR(day)} às ${dayslots[0].start}`,
-          });
+          daysWithSlots.push({ label: formatDateBR(anchor), times: dayslots.map((s) => s.start) });
         }
       }
-      if (slots.length === 0) return null;
+      if (daysWithSlots.length === 0) return null;
+      // Mesma curadoria da PROPOSTA SUGERIDA: máx 2 dias, 1 por dia + completa
+      // até 3 com o 2º horário do dia mais próximo (nunca 3 do mesmo dia).
+      const nearDays = daysWithSlots.slice(0, 2);
+      const picks: { label: string; time: string }[] = [];
+      for (const d of nearDays) picks.push({ label: d.label, time: d.times[0] });
+      for (const d of nearDays) {
+        if (picks.length >= 3) break;
+        if (d.times[1]) picks.push({ label: d.label, time: d.times[1] });
+      }
       const firstName = (convo.lead?.name || '').split(' ')[0] || '';
       const greeting = firstName ? `${firstName}, ` : '';
-      const intro = `${greeting}sem problema! Tenho esses horários pertinho:`;
-      const lines = slots.map((s) => `• ${s.label}`).join('\n');
+      const intro = `${greeting}sem problema! Consegui te encaixar bem pertinho:`;
+      const lines = picks.map((s) => `• ${s.label} às ${s.time}`).join('\n');
       const cta = '\nAlgum desses serve melhor pra você?';
       return `${intro}\n${lines}${cta}`;
     } catch (e: any) {
@@ -779,93 +793,26 @@ export class AiProcessor extends WorkerHost {
   }
 
   // ─── Consulta disponibilidade de horários de um dentista ───
+  // Onda 19: delega pra computeDaySlots (a MESMA fonte do check_availability e,
+  // por consequência, coerente com o book-appointment). A implementação anterior
+  // aqui estava QUEBRADA desde a migração multi-turno (2026-05-03): usava
+  // findUnique sobre o @@unique([user_id,day_of_week]) que foi REMOVIDO →
+  // PrismaClientValidationError em toda chamada → {{available_slots}} sempre caía
+  // no catch ("Erro ao consultar horários"). Além disso lia hora LOCAL em vez de
+  // UTC naive. computeDaySlots corrige tudo (multi-turno, UTC, ScheduleBlock,
+  // feriado recorrente).
   private async getAvailability(
     userId: string,
     dateStr: string,
     durationMinutes: number,
   ): Promise<{ start: string; end: string }[]> {
-    const date = new Date(dateStr);
-    const dayOfWeek = date.getDay();
-
-    // Verificar feriado
-    const dateOnly = date.toISOString().split('T')[0];
-    const holidayCount = await (this.prisma as any).holiday.count({
-      where: {
-        OR: [
-          { date: new Date(dateOnly) },
-          { date: { gte: new Date(dateOnly + 'T00:00:00'), lte: new Date(dateOnly + 'T23:59:59') } },
-        ],
-      },
+    const starts = await computeDaySlots(this.prisma as any, userId, dateStr, durationMinutes);
+    return starts.map((start) => {
+      const [h, m] = start.split(':').map(Number);
+      const endMin = h * 60 + m + durationMinutes;
+      const end = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+      return { start, end };
     });
-    if (holidayCount > 0) return [];
-
-    // Horário de trabalho do dia
-    const schedule = await (this.prisma as any).userSchedule.findUnique({
-      where: { user_id_day_of_week: { user_id: userId, day_of_week: dayOfWeek } },
-    });
-    if (!schedule) return [];
-
-    // Eventos existentes nesse dia
-    const dayStart = new Date(date);
-    dayStart.setHours(0, 0, 0, 0);
-    const dayEnd = new Date(date);
-    dayEnd.setHours(23, 59, 59, 999);
-
-    const events = await this.prisma.calendarEvent.findMany({
-      where: {
-        assigned_user_id: userId,
-        start_at: { gte: dayStart, lte: dayEnd },
-        status: { notIn: ['CANCELADO'] },
-      },
-      select: { start_at: true, end_at: true },
-      orderBy: { start_at: 'asc' },
-    });
-
-    // Calcular slots livres
-    const [startH, startM] = schedule.start_time.split(':').map(Number);
-    const [endH, endM] = schedule.end_time.split(':').map(Number);
-    const workStart = startH * 60 + startM;
-    const workEnd = endH * 60 + endM;
-
-    const busy = events.map((e: any) => {
-      const s = e.start_at.getHours() * 60 + e.start_at.getMinutes();
-      const eEnd = e.end_at
-        ? e.end_at.getHours() * 60 + e.end_at.getMinutes()
-        : s + 30;
-      return { start: s, end: eEnd };
-    });
-
-    // Adicionar pausa de almoço como período ocupado
-    if (schedule.lunch_start && schedule.lunch_end) {
-      const [lsH, lsM] = (schedule.lunch_start as string).split(':').map(Number);
-      const [leH, leM] = (schedule.lunch_end as string).split(':').map(Number);
-      busy.push({ start: lsH * 60 + lsM, end: leH * 60 + leM });
-      busy.sort((a: any, b: any) => a.start - b.start);
-    }
-
-    const slots: { start: string; end: string }[] = [];
-    let cursor = workStart;
-    for (const b of busy) {
-      while (cursor + durationMinutes <= b.start) {
-        const slotEnd = cursor + durationMinutes;
-        slots.push({
-          start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
-          end: `${String(Math.floor(slotEnd / 60)).padStart(2, '0')}:${String(slotEnd % 60).padStart(2, '0')}`,
-        });
-        cursor = slotEnd;
-      }
-      if (b.end > cursor) cursor = b.end;
-    }
-    while (cursor + durationMinutes <= workEnd) {
-      const slotEnd = cursor + durationMinutes;
-      slots.push({
-        start: `${String(Math.floor(cursor / 60)).padStart(2, '0')}:${String(cursor % 60).padStart(2, '0')}`,
-        end: `${String(Math.floor(slotEnd / 60)).padStart(2, '0')}:${String(slotEnd % 60).padStart(2, '0')}`,
-      });
-      cursor = slotEnd;
-    }
-
-    return slots;
   }
 
   // ─── Encontra o especialista menos ocupado para uma especialidade ───
@@ -1350,7 +1297,6 @@ export class AiProcessor extends WorkerHost {
       if (!assignedDentistId) assignedDentistId = (convo as any).assigned_dentist_id;
       if (assignedDentistId) {
         try {
-          const now = new Date();
           const tz = 'America/Maceio';
           const formatDateBR = (d: Date) =>
             d.toLocaleDateString('pt-BR', { timeZone: tz, day: '2-digit', month: '2-digit' });
@@ -1359,24 +1305,67 @@ export class AiProcessor extends WorkerHost {
             // Capitaliza ("segunda-feira" → "Segunda-feira")
             return wd.charAt(0).toUpperCase() + wd.slice(1);
           };
-          const slotParts: string[] = [];
           // v12: NAO pula sabado. Apenas pula domingo (raramente clinica
           // odontologica atende). Se quiser tambem desbloquear domingo, basta
           // remover o skip abaixo — getAvailability ja respeita UserSchedule.
-          for (let i = 1; i <= 14 && slotParts.length < 5; i++) {
-            const day = new Date(now.getTime() + i * 24 * 60 * 60 * 1000);
-            if (day.getDay() === 0) continue; // pula apenas domingo (clinica fechada)
+          // Coleta ESTRUTURADA dos dias com vaga (nearest-first) pra permitir
+          // a curadoria da PROPOSTA abaixo.
+          // Onda 19: loop UTC-consistente (igual check-availability). O rótulo
+          // legível é ancorado ao meio-dia UTC do MESMO dateStr pra bater com o
+          // dia que o confirm_slot marca — senão, à noite em Maceió o toISOString
+          // rolava pro dia seguinte e a IA falava um dia e agendava outro.
+          const daysWithSlots: { label: string; dateStr: string; times: string[] }[] = [];
+          const startDate = new Date(Date.now() - 3 * 60 * 60 * 1000); // -3h = "agora" em Maceió (naive-UTC)
+          startDate.setUTCDate(startDate.getUTCDate() + 1); // começa amanhã (UTC naive)
+          for (let i = 0; i < 14 && daysWithSlots.length < 5; i++) {
+            const day = new Date(startDate.getTime());
+            day.setUTCDate(day.getUTCDate() + i);
             const dateStr = day.toISOString().split('T')[0];
+            const anchor = new Date(`${dateStr}T12:00:00Z`); // 12:00Z = 09:00 Maceió, mesmo dia
+            if (anchor.getUTCDay() === 0) continue; // pula domingo (clinica fechada)
             const slots = await this.getAvailability(assignedDentistId, dateStr, 60);
             if (slots.length > 0) {
-              const slotsStr = slots.slice(0, 6).map((s) => s.start).join(', ');
-              slotParts.push(`${formatWeekday(day)} ${formatDateBR(day)} (${dateStr}): ${slotsStr}`);
+              daysWithSlots.push({
+                label: `${formatWeekday(anchor)} ${formatDateBR(anchor)} (${dateStr})`,
+                dateStr,
+                times: slots.map((s) => s.start),
+              });
             }
           }
-          if (slotParts.length > 0) {
-            availableSlots = slotParts.join(' | ');
-          } else {
+
+          if (daysWithSlots.length === 0) {
             availableSlots = 'Sem horários disponíveis nos próximos dias.';
+          } else {
+            // ── Curadoria da PROPOSTA (Onda 19 — regra de oferta do dono) ──
+            // Objetivo: propor POUCAS opções, o mais CEDO possível, ESPALHADAS
+            // em dias diferentes (NUNCA 3 do mesmo dia — isso expõe "buracos" na
+            // agenda e passa impressão de agenda vazia), dentro dos 2 dias mais
+            // próximos com vaga. O 1º horário = "encaixe mais próximo" (mostra
+            // esforço e valoriza a vaga → aumenta o comparecimento).
+            // Regra determinística:
+            //   1) 1 horário (o mais cedo) de cada um dos 2 dias mais próximos;
+            //   2) se faltar pra chegar a 3, completa com o 2º horário do dia
+            //      mais próximo (MÁX 2 por dia — nunca 3 do mesmo dia).
+            const nearDays = daysWithSlots.slice(0, 2); // preferência: no máx 2 dias
+            const suggestion: { label: string; time: string; isEncaixe: boolean }[] = [];
+            for (const d of nearDays) {
+              suggestion.push({ label: d.label, time: d.times[0], isEncaixe: suggestion.length === 0 });
+            }
+            for (const d of nearDays) {
+              if (suggestion.length >= 3) break;
+              if (d.times[1]) suggestion.push({ label: d.label, time: d.times[1], isEncaixe: false });
+            }
+            const suggLines = suggestion
+              .map((s) => `  • ${s.label} às ${s.time}${s.isEncaixe ? '  ← ENCAIXE mais próximo (ofereça como prioridade)' : ''}`)
+              .join('\n');
+            // Agenda completa compacta — fallback só pra quando o lead pedir um
+            // dia/horário específico ou recusar as sugeridas.
+            const fullLines = daysWithSlots
+              .map((d) => `${d.label}: ${d.times.slice(0, 6).join(', ')}`)
+              .join(' | ');
+            availableSlots =
+              `PROPOSTA SUGERIDA (ofereça SÓ estas — no máx 3, espalhados em até 2 dias, a mais cedo primeiro; NUNCA 3 do mesmo dia):\n${suggLines}\n` +
+              `AGENDA COMPLETA (use APENAS se o lead recusar as sugeridas ou pedir um dia/horário específico): ${fullLines}`;
           }
         } catch (e: any) {
           this.logger.warn(`[AI] Falha ao buscar disponibilidade: ${e.message}`);
@@ -1569,16 +1558,19 @@ IMPORTANTE: Este é um CLIENTE já contratado. NÃO faça triagem, NÃO investig
 
 🚨🚨🚨 REGRAS PRIORITÁRIAS DE AGENDAMENTO (LEIA TAMBÉM AS REGRAS DETALHADAS NO FINAL DESTE PROMPT) 🚨🚨🚨
 
-Ao tratar agendamento de avaliação/consulta, OBRIGATORIAMENTE:
-1. SEMPRE proponha 1-3 horários CONCRETOS quando o lead demonstrar interesse em marcar.
+Ao tratar agendamento de consulta, OBRIGATORIAMENTE:
+1. SEMPRE proponha os horários da PROPOSTA SUGERIDA (2-3, espalhados em até 2 dias, o mais
+   cedo como ENCAIXE — NUNCA 3 do mesmo dia) quando o lead demonstrar interesse em marcar.
 2. Se o lead disser "não vou poder", "não consigo", "preciso remarcar", "tenho imprevisto",
-   "não conseguirei", trate como REMARCAÇÃO e proponha 2-3 horários novos imediatamente.
+   "não conseguirei", trate como REMARCAÇÃO e proponha imediatamente os horários da PROPOSTA
+   SUGERIDA (2-3, espalhados em até 2 dias, o mais cedo como ENCAIXE).
    NUNCA aceite passivamente ("ok, te aviso") — perdemos paciente assim.
 3. Se você FALAR que cancelou ("cancelei", "removi da agenda"), OBRIGATÓRIO emitir
    scheduling_action: { "action": "cancel_appointment" } no JSON. Sem isso, fica
    inconsistente: paciente acha que cancelou mas o evento permanece na agenda.
 4. PROIBIDO falar "alguém entrará em contato", "aguarde retorno", "vou passar pra
-   atendente" — perdemos lead a cada vez. SEMPRE oferte horários da {{available_slots}}.
+   atendente" — perdemos lead a cada vez. SEMPRE oferte os horários da PROPOSTA SUGERIDA
+   de {{available_slots}} (nunca a AGENDA COMPLETA nem 3 do mesmo dia).
 
 A versão DETALHADA dessas regras está no FINAL deste prompt sob "🚨 REGRAS INVIOLÁVEIS DE
 AGENDAMENTO". Aquelas têm prioridade sobre QUALQUER outra instrução acima.
@@ -1643,7 +1635,8 @@ REGRAS DE AGENDAMENTO (CRÍTICAS — viole isso e perdemos pacientes):
 2. SEMPRE PROPONHA AGENDAMENTO QUANDO O LEAD DEMONSTRAR INTERESSE.
    Sinais de interesse: "quero agendar", "qual horário", "tem vaga", "marca pra mim",
    "posso ir tal dia?", "consigo um horário?", "quanto tempo demora pra atender", e
-   variações. Reaja SEMPRE oferecendo 2-3 horários concretos da lista acima.
+   variações. Reaja SEMPRE oferecendo os horários da PROPOSTA SUGERIDA (2-3,
+   espalhados em até 2 dias, o mais cedo primeiro — NUNCA 3 do mesmo dia).
 
 3. PROIBIDAS estas respostas (perdemos paciente cada vez que falamos isso):
    ❌ "Alguém da equipe vai entrar em contato"
@@ -1652,7 +1645,8 @@ REGRAS DE AGENDAMENTO (CRÍTICAS — viole isso e perdemos pacientes):
    ❌ "Aguarde nosso retorno"
    ❌ "Vamos analisar e respondemos depois"
    ❌ "Não temos vaga no sábado" (se sábado estiver na lista)
-   ✅ Em vez disso, OFERECA 2-3 horários da lista {{available_slots}} e pergunte
+   ✅ Em vez disso, OFERECA os horários da PROPOSTA SUGERIDA (2-3, espalhados
+      em até 2 dias, o mais cedo primeiro; enquadre o 1º como ENCAIXE) e pergunte
       qual prefere.
 
 4. SE A LISTA DE HORÁRIOS ESTIVER VAZIA ou disser "Sem horários disponíveis":
@@ -1695,16 +1689,23 @@ CONFLITAR COM ESTA SEÇÃO, VOCÊ DEVE OBEDECER ESTA SEÇÃO.
 Você está numa CLÍNICA ODONTOLÓGICA. Cada lead que pede pra agendar e não
 recebe horário concreto = paciente PERDIDO. Por isso:
 
-REGRA 1 — SE O LEAD QUER MARCAR, SEMPRE PROPONHA HORÁRIOS CONCRETOS.
+REGRA 1 — SE O LEAD QUER MARCAR, OFEREÇA A "PROPOSTA SUGERIDA" (não a agenda inteira).
   Sinais de querer marcar: "agendar", "marcar", "tem vaga", "qual horário",
   "amanhã", "tal dia", "consigo ir", "próxima semana", etc.
-  Reação OBRIGATÓRIA: pegar 1 a 3 horários da lista {{available_slots}} e
-  oferecer no formato:
-    "Posso encaixar você em uma dessas opções:
-     • [Dia DD/MM] às HH:MM
-     • [Dia DD/MM] às HH:MM
-     • [Dia DD/MM] às HH:MM
-     Qual fica melhor?"
+  Reação OBRIGATÓRIA: ofereça SOMENTE os horários da "PROPOSTA SUGERIDA" do
+  bloco {{available_slots}} (no máx 3, espalhados em até 2 dias, o mais cedo primeiro).
+  ⛔ NUNCA jogue a AGENDA COMPLETA nem 3 horários do MESMO dia — isso passa
+     impressão de agenda vazia/cheia de buracos e reduz o comparecimento.
+  ✅ Enquadre o horário mais próximo como um ENCAIXE (mostra esforço e valoriza
+     a vaga). Formato:
+    "Deixa eu ver se consigo um encaixe pra você o quanto antes… 🙌
+     Consegui! Posso te encaixar:
+     • [ENCAIXE mais próximo] às HH:MM
+     • [outro dia] às HH:MM
+     Qual fica melhor pra você?"
+  Se só houver vaga em 1 dia, ofereça no máximo 2 horários desse dia (NUNCA 3).
+  A AGENDA COMPLETA só entra se o lead recusar as sugeridas ou pedir um
+  dia/horário específico.
 
 REGRA 2 — DIA PEDIDO INDISPONÍVEL ≠ EMPURRAR DECISÃO PRO LEAD.
   Se o lead pediu "amanhã" mas amanhã não está em {{available_slots}}
@@ -1712,13 +1713,13 @@ REGRA 2 — DIA PEDIDO INDISPONÍVEL ≠ EMPURRAR DECISÃO PRO LEAD.
   responda "amanhã não temos horários, quer escolher outro dia?". Errado.
   Em vez disso, RESPONDA ASSIM:
     "Amanhã nossa agenda já está fechada [opcionalmente: por ser sábado/domingo/
-     feriado]. Mas tenho essas opções pertinho:
-     • [PRIMEIRO horário disponível em {{available_slots}}]
-     • [SEGUNDO horário disponível]
-     • [TERCEIRO se houver]
+     feriado]. Mas consegui te encaixar bem pertinho:
+     • [ENCAIXE mais próximo da PROPOSTA SUGERIDA] às HH:MM
+     • [outro dia da PROPOSTA SUGERIDA] às HH:MM
      Alguma dessas serve?"
-  Sempre PROPONHA os 3 mais próximos. Nunca pergunte "quer escolher outro dia?"
-  sem antes oferecer alternativas.
+  Sempre ofereça as opções da PROPOSTA SUGERIDA (2 a 3, espalhados em até 2 dias, a
+  mais cedo primeiro — NUNCA 3 do mesmo dia). Nunca pergunte "quer escolher
+  outro dia?" sem antes oferecer alternativas concretas.
 
 REGRA 3 — FIM DE SEMANA SE NÃO ESTIVER EM {{available_slots}}.
   Se sábado/domingo NÃO aparecer na lista {{available_slots}}, voce pode
@@ -1768,14 +1769,14 @@ REGRA 7 — RESPOSTA AO LEMBRETE DE 1 DIA ANTES (Onda 5e v18, Fase B).
     → AÇÃO ESTRATÉGICA DE VENDA (CRITICA — perdemos paciente se errar):
       1. NÃO aceite passivamente. Cada paciente que cancela e nao remarca
          imediatamente = ~70% chance de NUNCA voltar.
-      2. Resposta empática + PROPOSTA ATIVA de remarcacao:
-         "Tranquilo, [nome]! Sem problema. Tenho esses outros horarios:
-          • [Dia DD/MM] às HH:MM
-          • [Dia DD/MM] às HH:MM
-          • [Dia DD/MM] às HH:MM
+      2. Resposta empática + PROPOSTA ATIVA de remarcacao (enquadre como ENCAIXE):
+         "Tranquilo, [nome]! Consegui te encaixar bem pertinho:
+          • [ENCAIXE mais próximo da PROPOSTA SUGERIDA] às HH:MM
+          • [outro dia da PROPOSTA SUGERIDA] às HH:MM
           Algum desses serve melhor?"
       3. Emita scheduling_action: {"action": "reschedule_appointment"}.
-      4. Use SEMPRE 2-3 horarios da lista {{available_slots}}.
+      4. Use SEMPRE os horários da PROPOSTA SUGERIDA de {{available_slots}} (2-3, espalhados
+         em até 2 dias, o mais cedo como ENCAIXE; NUNCA 3 do mesmo dia).
 
   CANCELAMENTO DEFINITIVO (apenas casos EXPLÍCITOS — NUNCA por default):
     Sinais EXPLÍCITOS exigidos (precisa de pelo menos UM destes):
@@ -1946,12 +1947,13 @@ ROTEIRO (siga na ordem, UMA pergunta por vez):
    resolver (ex: "Oi! Conta pra mim, o que você gostaria de tratar?").
 2. Faça 1-2 perguntas de qualificação rápida sobre o problema (ex: "É algo que dói? Tem
    muito tempo?"). NÃO interrogue — duas perguntas no MÁXIMO.
-3. Onda 5e v12: ASSIM QUE TIVER NOÇÃO BÁSICA do que o paciente quer, OFEREÇA 2-3 horários
-   da lista {{available_slots}}. Exemplo:
-     "Posso te encaixar pra uma avaliação. Tenho essas opções:
+3. Onda 5e v12: ASSIM QUE TIVER NOÇÃO BÁSICA do que o paciente quer, OFEREÇA os horários
+   da PROPOSTA SUGERIDA do bloco {{available_slots}} (no máx 3, espalhados em até 2 dias, o mais
+   cedo primeiro; NUNCA 3 do mesmo dia). Enquadre o 1º como ENCAIXE. Exemplo:
+     "Deixa eu ver se consigo um encaixe pra sua consulta o quanto antes… 🙌
+      Consegui! Posso te encaixar:
       • Terça 06/05 às 09:00
       • Quarta 07/05 às 14:00
-      • Sábado 10/05 às 10:00
       Qual fica melhor pra você?"
 4. Quando o paciente escolher, CONFIRME e use scheduling_action pra registrar.
 
@@ -1964,8 +1966,9 @@ PROIBIDO (perdemos paciente cada vez que falamos isso):
 
 OBRIGATÓRIO:
 ✅ Toda mensagem que indique vontade de agendar ("quero marcar", "tem vaga",
-   "qual horário", "pode ser tal dia") DEVE virar uma proposta concreta de
-   horários da lista acima. Sem desvio.
+   "qual horário", "pode ser tal dia") DEVE virar uma proposta concreta com os
+   horários da PROPOSTA SUGERIDA (2-3, espalhados em até 2 dias, o mais cedo primeiro;
+   1º como ENCAIXE). Sem desvio.
 ✅ Se a lista estiver vazia ("Sem horários disponíveis"), oferecer lista de
    espera: "Os próximos dias estão lotados. Quer que eu te coloque na lista
    de espera pra avisar assim que abrir?"
@@ -2471,6 +2474,11 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
             this.logger.warn(
               `[AI] Auto-agendamento DESATIVADO (tenant ${(convo as any)?.tenant_id ?? 'null'}) — Avaliação NÃO criada; operador confirma manualmente.`,
             );
+            // Autobook OFF → NENHUM evento é criado. Não deixa a IA dizer "Agendei"
+            // (falso) — igual aos ramos "sem Orçamentista" e "guarda recusou" abaixo.
+            // Sem isso, com a disponibilidade voltando a funcionar (Onda 19), a IA
+            // ofertaria horário, o lead aceitaria e ela confirmaria sem marcar nada.
+            finalText = 'Deixa eu confirmar esse horário certinho e já te retorno, tá? 😊';
           } else {
           const dentistId = await ensureOrcamentistaAssigned(this.prisma as any, convo.id);
 

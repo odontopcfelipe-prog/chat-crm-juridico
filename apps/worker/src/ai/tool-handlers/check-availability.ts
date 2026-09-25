@@ -46,7 +46,9 @@ export class CheckAvailabilityHandler implements ToolHandler {
     }
 
     const daysToCheck = params.days_ahead ?? 14; // ampliado pra cobrir sabados na proxima semana
-    const startDate = params.date ? new Date(`${params.date}T00:00:00Z`) : new Date();
+    // -3h = "agora" em Maceió (naive-UTC) — senão, à noite (21h-23h59) o getUTCDate
+    // já aponta o dia seguinte e o +1 pularia o dia mais próximo.
+    const startDate = params.date ? new Date(`${params.date}T00:00:00Z`) : new Date(Date.now() - 3 * 60 * 60 * 1000);
     if (!params.date) {
       // Começa no próximo dia (UTC naive)
       startDate.setUTCDate(startDate.getUTCDate() + 1);
@@ -81,6 +83,28 @@ export class CheckAvailabilityHandler implements ToolHandler {
     dateStr: string,
     durationMinutes: number,
   ): Promise<string[]> {
+    return computeDaySlots(prisma, userId, dateStr, durationMinutes);
+  }
+}
+
+/**
+ * Onda 19 — EXTRAÍDO de CheckAvailabilityHandler.getSlots pra ser a ÚNICA fonte
+ * de verdade de disponibilidade lida pela IA. O getAvailability do ai.processor
+ * usava uma cópia velha e QUEBRADA (findUnique sobre o @@unique removido na
+ * migração multi-turno de 2026-05-03 → estourava PrismaClientValidationError em
+ * TODA chamada + acessores de hora LOCAL em vez de UTC). Agora ambos chamam esta.
+ *
+ * Calcula os horários livres (HH:MM) de um dentista num dia, respeitando
+ * multi-turno (UserSchedule.findMany), feriados (exato + recorrente), bloqueios
+ * (dia inteiro + parcial), eventos existentes e almoço por turno. Tudo em UTC
+ * naive (getUTCDay/getUTCHours) pra bater com book-appointment.ts.
+ */
+export async function computeDaySlots(
+  prisma: any,
+  userId: string,
+  dateStr: string,
+  durationMinutes: number,
+): Promise<string[]> {
     const dayStart = new Date(`${dateStr}T00:00:00Z`);
     const dayEnd = new Date(`${dateStr}T23:59:59Z`);
 
@@ -188,7 +212,6 @@ export class CheckAvailabilityHandler implements ToolHandler {
     // Remove duplicados (improvavel mas seguro: dois turnos com overlap raro)
     // e ordena cronologicamente pra IA mostrar manha antes de tarde
     return Array.from(new Set(available)).sort();
-  }
 }
 
 /**
