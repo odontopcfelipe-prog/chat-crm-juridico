@@ -66,7 +66,9 @@ const DEFAULT_REMINDER_FALLBACK = [
 ];
 
 interface ReminderAntecedencia {
-  minutes: number;
+  // A config do tenant devolve `minutes_before`; `minutes` é aceito por compat.
+  minutes_before?: number;
+  minutes?: number;
   channel?: string;
 }
 
@@ -136,10 +138,17 @@ export function AgendaPanel({
             ? data.default_antecedencias
             : [];
           if (list.length > 0) {
-            setReminderDefaults(list.map((r) => ({
-              minutes_before: r.minutes,
-              channel: r.channel || 'WHATSAPP',
-            })));
+            // BUGFIX: a config devolve `minutes_before` (não `minutes`) — ler o campo
+            // errado deixava minutes_before=undefined e o backend recusava o agendamento
+            // ("reminders.N.minutes_before must be a number"). Lê os dois + filtra inválidos.
+            setReminderDefaults(
+              list
+                .map((r) => ({
+                  minutes_before: Number(r.minutes_before ?? r.minutes),
+                  channel: r.channel || 'WHATSAPP',
+                }))
+                .filter((r) => Number.isFinite(r.minutes_before) && r.minutes_before >= 0),
+            );
           }
         }
       })
@@ -202,8 +211,11 @@ export function AgendaPanel({
       if (roomId) payload.location = rooms.find((r) => r.id === roomId)?.name || undefined;
       // Onda 17.32.57 — Lembretes automaticos: usa a config global do tenant
       // (default_antecedencias). Sem campo no formulario.
-      if (reminderDefaults.length > 0) {
-        payload.reminders = reminderDefaults;
+      // Só manda reminders com minutes_before numérico válido (defesa extra: config
+      // corrompida nunca bloqueia o agendamento).
+      const validReminders = reminderDefaults.filter((r) => Number.isFinite(r.minutes_before) && r.minutes_before >= 0);
+      if (validReminders.length > 0) {
+        payload.reminders = validReminders;
       }
       builtPayload = payload;
 
