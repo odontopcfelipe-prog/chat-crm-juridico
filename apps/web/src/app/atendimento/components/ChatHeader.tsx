@@ -494,8 +494,10 @@ export function ChatHeader({
             </button>
           )}
           {/* Onda 17.32.56 — Atalho de agendamento. Abre painel lateral
-              a direita sem fechar a conversa. */}
-          {selected?.leadId && isRealConvo && !isClosed && !isFinanceiro && onCreateAppointment && (
+              a direita sem fechar a conversa.
+              Onda 18.x — TAMBÉM no Financeiro: a recepção negocia o dia na própria
+              conversa de cobrança e agenda ali mesmo (antes ficava escondido). */}
+          {selected?.leadId && isRealConvo && !isClosed && onCreateAppointment && (
             <button
               onClick={onCreateAppointment}
               title="Agendar atendimento (abre painel sem sair da conversa)"
