@@ -8,7 +8,7 @@ import {
   IsDateString,
   ValidateNested,
 } from 'class-validator';
-import { Type } from 'class-transformer';
+import { Type, Transform } from 'class-transformer';
 
 // Tipos de evento da clinica odontologica.
 // AUDIENCIA/PERICIA/PRAZO sao mantidos por compat com dados antigos do
@@ -83,6 +83,12 @@ export class CreateEventDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  // Onda 18.x — blinda: descarta reminder sem minutes_before numérico (client antigo
+  // mandava undefined → 400 travava o agendamento inteiro). Coage e filtra ANTES
+  // da validação; se sobrar 0, o evento cria sem lembrete em vez de recusar.
+  @Transform(({ value }) => Array.isArray(value)
+    ? value.filter((r: any) => r && Number.isFinite(Number(r.minutes_before))).map((r: any) => ({ ...r, minutes_before: Number(r.minutes_before) }))
+    : value)
   @Type(() => ReminderDto)
   reminders?: ReminderDto[];
 
@@ -155,6 +161,12 @@ export class UpdateEventDto {
   @IsOptional()
   @IsArray()
   @ValidateNested({ each: true })
+  // Onda 18.x — blinda: descarta reminder sem minutes_before numérico (client antigo
+  // mandava undefined → 400 travava o agendamento inteiro). Coage e filtra ANTES
+  // da validação; se sobrar 0, o evento cria sem lembrete em vez de recusar.
+  @Transform(({ value }) => Array.isArray(value)
+    ? value.filter((r: any) => r && Number.isFinite(Number(r.minutes_before))).map((r: any) => ({ ...r, minutes_before: Number(r.minutes_before) }))
+    : value)
   @Type(() => ReminderDto)
   reminders?: ReminderDto[];
 }
