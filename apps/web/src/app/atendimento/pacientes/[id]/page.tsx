@@ -1259,8 +1259,9 @@ function OverviewTab({
               <Field label="Emergência" value={[patient.emergency_contact_name, patient.emergency_contact_phone ? formatPhone(patient.emergency_contact_phone) : null].filter(Boolean).join(' · ')} />
             </>
           )}
-          {/* Onda 18.x — Cobrança de boleto atrasado: SÓ ADMIN vê/edita, aqui no cadastro. */}
-          {overviewRole.isAdmin && patient.status !== 'ARCHIVED' && (
+          {/* Onda 18.x — Cobrança de boleto atrasado: SÓ ADMIN/SUPER_ADMIN vê/edita, aqui
+              no cadastro. (isAdmin cobre só o papel ADMIN literal; o dono é SUPER_ADMIN.) */}
+          {(overviewRole.isAdmin || overviewRole.isSuperAdmin) && patient.status !== 'ARCHIVED' && (
             <>
               <div className="border-t border-border my-2" />
               <div className="flex items-center justify-between gap-3">
