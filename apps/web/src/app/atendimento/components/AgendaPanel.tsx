@@ -99,6 +99,10 @@ export function AgendaPanel({
   const [reminderDefaults, setReminderDefaults] = useState<Array<{ minutes_before: number; channel: string }>>(DEFAULT_REMINDER_FALLBACK);
   const [notes, setNotes] = useState('');
   const [sending, setSending] = useState(false);
+  // Onda 18.x — horários LIVRES do dentista no dia escolhido (respeita agenda,
+  // eventos, feriado e a duração). Vem de GET /calendar/availability/:userId.
+  const [availSlots, setAvailSlots] = useState<{ start: string; end: string }[] | null>(null);
+  const [loadingSlots, setLoadingSlots] = useState(false);
 
   // Listas
   const [dentists, setDentists] = useState<Specialist[]>([]);
@@ -154,6 +158,21 @@ export function AgendaPanel({
       })
       .finally(() => setLoadingLists(false));
   }, [open]);
+
+  // Onda 18.x — busca os horários LIVRES sempre que muda dentista/data/duração.
+  // Enquanto não escolheu dentista, não busca (mostra dica). Debounce leve.
+  useEffect(() => {
+    if (!open || !dentistId || !date) { setAvailSlots(null); return; }
+    let alive = true;
+    setLoadingSlots(true);
+    const t = setTimeout(() => {
+      api.get<{ start: string; end: string }[]>(`/calendar/availability/${dentistId}`, { params: { date, duration } })
+        .then((r) => { if (alive) setAvailSlots(Array.isArray(r.data) ? r.data : []); })
+        .catch(() => { if (alive) setAvailSlots([]); })
+        .finally(() => { if (alive) setLoadingSlots(false); });
+    }, 250);
+    return () => { alive = false; clearTimeout(t); };
+  }, [open, dentistId, date, duration]);
 
   // Reseta form ao fechar
   useEffect(() => {
@@ -399,6 +418,43 @@ export function AgendaPanel({
             ))}
           </select>
         </div>
+
+        {/* Onda 18.x — Horários LIVRES do dentista no dia (clica pra preencher a HORA). */}
+        {dentistId && (
+          <div>
+            <label className="text-[10px] uppercase tracking-wider font-bold text-muted-foreground mb-1 flex items-center gap-1">
+              <Clock size={10} /> Horários livres
+              <span className="normal-case font-normal text-muted-foreground/70">· {duration}min</span>
+            </label>
+            {loadingSlots ? (
+              <p className="text-xs text-muted-foreground py-1">Buscando horários…</p>
+            ) : availSlots === null ? null : availSlots.length === 0 ? (
+              <p className="text-xs text-amber-600 dark:text-amber-400 py-1">
+                Sem horário livre nesse dia (dentista sem agenda, feriado ou dia cheio). Você ainda pode digitar a hora acima.
+              </p>
+            ) : (
+              <div className="flex flex-wrap gap-1.5">
+                {availSlots.map((s) => {
+                  const ativo = time === s.start;
+                  return (
+                    <button
+                      key={s.start}
+                      type="button"
+                      onClick={() => setTime(s.start)}
+                      className={`px-2.5 py-1 text-xs font-semibold rounded-md border transition-colors ${
+                        ativo
+                          ? 'bg-emerald-500 text-white border-emerald-500'
+                          : 'bg-background text-foreground border-border hover:bg-emerald-500/10 hover:border-emerald-500/40'
+                      }`}
+                    >
+                      {s.start}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Procedimento */}
         <div>
