@@ -205,9 +205,16 @@ export function AgendaPanel({
     let builtPayload: any = null;
     let notifyPatient: (() => void) | null = null;
     try {
-      // 1. Monta start_at ISO
-      const startISO = new Date(`${date}T${time}:00`).toISOString();
-      const endISO = new Date(new Date(`${date}T${time}:00`).getTime() + duration * 60_000).toISOString();
+      // 1. Monta start_at — NAIVE-UTC (a app guarda a hora LOCAL de Maceió direto nos
+      // campos UTC). Antes usava new Date('...').toISOString(), que convertia pelo fuso
+      // do NAVEGADOR (17:00 BRT → 20:00Z): o evento nascia 3h adiantado e sumia da grade
+      // no horário certo. Usar Date.UTC com os componentes locais = mesma régua do resto
+      // da agenda (toISOFromLocal).
+      const [dy, dmo, dd] = date.split('-').map(Number);
+      const [th, tmi] = time.split(':').map(Number);
+      const startMs = Date.UTC(dy, dmo - 1, dd, th, tmi, 0);
+      const startISO = new Date(startMs).toISOString();
+      const endISO = new Date(startMs + duration * 60_000).toISOString();
       const procName = procedureId ? procedures.find((p) => p.id === procedureId)?.name : null;
       const dentistName = dentists.find((d) => d.id === dentistId)?.name || 'profissional';
       const typeLabel = APPT_TYPES.find((t) => t.value === type)?.label || 'Atendimento';
