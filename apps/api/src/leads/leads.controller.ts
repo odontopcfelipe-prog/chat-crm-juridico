@@ -152,14 +152,9 @@ export class LeadsController {
   async demoteToLead(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
     if (!tenantId) throw new Error('tenant_id ausente no JWT');
-    const patient = await this.leadsService['prisma'].patient.findFirst({
-      where: { lead_id: id, tenant_id: tenantId },
-      select: { id: true },
-    });
-    if (!patient?.id) {
-      return { ok: false, error: 'Paciente nao encontrado pra esse lead' };
-    }
-    return this.leadsService.demoteLeadFromClient(patient.id, tenantId);
+    // Onda 18.x — demove DIRETO pelo lead (is_client=false). Antes exigia um Patient
+    // vinculado: cliente sem cadastro (lead importado promovido) não voltava pra Lead.
+    return this.leadsService.demoteLeadById(id, tenantId);
   }
 
   @Delete(':id/memory')

@@ -1192,12 +1192,26 @@ export class LeadsService {
     if (!patient) return { ok: false };
     if (patient.tenant_id !== tenantId) return { ok: false };
     if (!patient.lead_id) return { ok: false };
+    return this.demoteLeadById(patient.lead_id, tenantId);
+  }
 
+  /**
+   * Onda 18.x — Demove Cliente → Lead DIRETO pelo lead. O demote é só
+   * `lead.is_client=false`, então NÃO precisa de Patient vinculado — antes o
+   * controller exigia um Patient e um cliente sem cadastro (lead importado
+   * promovido) não voltava pra Lead (retornava ok:false calado → front mostrava
+   * "sucesso" e nada mudava). Escopo por tenant (anti-IDOR).
+   */
+  async demoteLeadById(
+    leadId: string,
+    tenantId: string,
+  ): Promise<{ ok: boolean; leadId?: string; alreadyLead?: boolean; error?: string }> {
     const lead = await this.prisma.lead.findUnique({
-      where: { id: patient.lead_id },
-      select: { id: true, is_client: true, stage: true },
+      where: { id: leadId },
+      select: { id: true, is_client: true, stage: true, tenant_id: true },
     });
-    if (!lead) return { ok: false };
+    if (!lead) return { ok: false, error: 'Contato não encontrado' };
+    if (lead.tenant_id && lead.tenant_id !== tenantId) return { ok: false, error: 'Acesso negado' };
     if (!lead.is_client) {
       return { ok: true, leadId: lead.id, alreadyLead: true };
     }
@@ -1218,7 +1232,7 @@ export class LeadsService {
     });
 
     this.logger.log(
-      `[CLIENT→LEAD] Lead ${lead.id} (patient ${patientId}) demovido a lead (is_client=false)`,
+      `[CLIENT→LEAD] Lead ${lead.id} demovido a lead (is_client=false)`,
     );
 
     // Religa IA em modo COMERCIAL se estava em POS_VENDA (volta pra

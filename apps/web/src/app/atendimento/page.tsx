@@ -2644,8 +2644,16 @@ export default function Dashboard() {
                 if (!selected?.leadId) return;
                 if (!confirm(`Reverter ${selected.contactName || 'esse cliente'} pra Lead?\n\nEle volta pra aba "Leads" e a IA volta pro modo Comercial.`)) return;
                 try {
-                  await api.post(`/leads/${selected.leadId}/demote-to-lead`);
-                  showSuccess('Contato voltou pra Lead');
+                  // A rota responde 200 com { ok:false, error } quando NÃO reverte —
+                  // sem checar isto, o front mostrava "sucesso" e nada mudava.
+                  const { data } = await api.post(`/leads/${selected.leadId}/demote-to-lead`);
+                  if (data && data.ok === false) {
+                    showError(data.error || 'Não foi possível reverter pra Lead.');
+                    return;
+                  }
+                  showSuccess(data?.alreadyLead ? 'Esse contato já era Lead.' : 'Contato voltou pra Lead');
+                  // Atualiza a lista pra o contato sair de "Clientes" e ir pra "Leads".
+                  fetchConversations(selectedInboxIdRef.current, true);
                 } catch (err: any) {
                   showError(err?.response?.data?.message || 'Falha ao reverter');
                 }
