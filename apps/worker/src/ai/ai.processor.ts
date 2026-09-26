@@ -2732,6 +2732,18 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       const instanceName =
         convo.instance_name || process.env.EVOLUTION_INSTANCE_NAME || '';
 
+      // Onda 18.x — tira o TRAVESSÃO (— em dash / – en dash) das respostas da IA: a
+      // clínica não quer esse traço no WhatsApp. Troca por vírgula (leitura natural em
+      // pt-BR) e limpa pontuação/espaço dobrados. NÃO mexe no hífen comum "-" (bem-estar,
+      // pós-venda). Vale pro texto ENVIADO e pro SALVO (ambos usam finalText).
+      finalText = finalText
+        .replace(/\s*[—–]\s*/g, ', ')
+        .replace(/\s+,/g, ',')
+        .replace(/,\s*,/g, ',')
+        .replace(/,\s*([.!?])/g, '$1')
+        .replace(/[ \t]{2,}/g, ' ')
+        .trim();
+
       // Assinatura "Sophia:" em negrito no WhatsApp (salva sem assinatura no DB)
       const textToSend = `*Sophia:* ${finalText}`;
 
