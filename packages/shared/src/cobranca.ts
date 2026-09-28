@@ -150,10 +150,13 @@ export function stripInternalTags(s?: string | null): string {
 // em COBRANCA_STAGES (o cron não a agenda), mas é um template EDITÁVEL igual aos
 // boletos. {descricao} já vem com parênteses (ou vazio) pronto do backend.
 // {metodo} = " via PIX" / " via boleto" / " via cartão" (com espaço), ou vazio.
+// {vencimento} = linha "📅 Boleto com vencimento em DD/MM/AAAA." — preenchida SÓ
+// quando o pagamento é de BOLETO; nas outras formas fica vazia (a linha some).
 export const DEFAULT_CONFIRMACAO_PAGAMENTO =
   '✅ *Pagamento Confirmado!*\n\n' +
   'Olá, {nome}!\n\n' +
-  'Confirmamos o recebimento do seu pagamento{metodo} no valor de *{valor}*{descricao}.\n\n' +
+  'Confirmamos o recebimento do seu pagamento{metodo} no valor de *{valor}*{descricao}.\n' +
+  '{vencimento}\n\n' +
   'Agradecemos pela pontualidade! Qualquer dúvida, estamos à disposição.';
 
 /** Rótulo do método pra confirmação de pagamento (com espaço à esquerda, colável

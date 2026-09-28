@@ -409,9 +409,10 @@ export default function CentralDisparosPage() {
               { key: 'valor', desc: 'Valor pago (ex.: R$ 350,00)' },
               { key: 'metodo', desc: 'Meio do pagamento (ex.: " via PIX", " via boleto", " via cartão") — vazio se desconhecido' },
               { key: 'descricao', desc: 'Descrição do pagamento (já vem com parênteses, ou vazio)' },
+              { key: 'vencimento', desc: 'Linha "📅 Boleto com vencimento em DD/MM/AAAA." — só aparece quando o pagamento é de BOLETO; nas outras formas fica vazia' },
               { key: 'clinica', desc: 'Nome da sua clínica' },
             ]}
-            preview={{ nome: 'Felipe', valor: 'R$ 350,00', metodo: ' via PIX', descricao: ' (Pix recebido)', clinica: 'Instituto Odonto Passos' }}
+            preview={{ nome: 'Felipe', valor: 'R$ 350,00', metodo: ' via boleto', descricao: '', vencimento: '📅 Boleto com vencimento em 05/07/2026.', clinica: 'Instituto Odonto Passos' }}
             onCurrentTextChange={setLiveText}
             defaultText={DEFAULT_CONFIRMACAO_PAGAMENTO}
           />

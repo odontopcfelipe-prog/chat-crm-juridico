@@ -2752,7 +2752,25 @@ export class PaymentGatewayService {
     const { cobrancaTemplateKey, DEFAULT_CONFIRMACAO_PAGAMENTO, stripInternalTags, confirmacaoMetodoLabel } = await import('@crm/shared');
     const descricao = stripInternalTags(paymentData.description);
     // {metodo} = " via PIX" / " via boleto" / " via cartão" (do billing_type da cobrança).
-    const metodoLabel = confirmacaoMetodoLabel(paymentData.billingType || (charge as any)?.billing_type);
+    const billingType = paymentData.billingType || (charge as any)?.billing_type;
+    const metodoLabel = confirmacaoMetodoLabel(billingType);
+    // Onda 18.x — quando é BOLETO, a confirmação mostra a DATA DE VENCIMENTO. due_date
+    // é naive-UTC (lê os componentes em UTC); Asaas manda 'YYYY-MM-DD'. Só p/ boleto.
+    const isBoleto = billingType === 'BOLETO';
+    const vencRaw: any = (charge as any)?.due_date ?? paymentData.dueDate ?? null;
+    let vencStr = '';
+    if (isBoleto && vencRaw) {
+      if (typeof vencRaw === 'string' && /^\d{4}-\d{2}-\d{2}/.test(vencRaw)) {
+        const [y, m, d] = vencRaw.slice(0, 10).split('-');
+        vencStr = `${d}/${m}/${y}`;
+      } else {
+        const dt = new Date(vencRaw);
+        if (!isNaN(dt.getTime())) {
+          vencStr = `${String(dt.getUTCDate()).padStart(2, '0')}/${String(dt.getUTCMonth() + 1).padStart(2, '0')}/${dt.getUTCFullYear()}`;
+        }
+      }
+    }
+    const vencimentoLinha = vencStr ? `📅 Boleto com vencimento em *${vencStr}*.` : '';
 
     // Onda 18.28 — usa o texto EDITÁVEL da Central de Disparos (mesma infra dos
     // boletos); cai no default se não editado. {descricao} já vem com parênteses.
@@ -2774,12 +2792,20 @@ export class PaymentGatewayService {
       const t = await this.prisma.tenant.findUnique({ where: { id: tenantId }, select: { name: true } }).catch(() => null);
       if (t?.name) clinicaNome = t.name;
     }
-    const msg = tpl
+    let msg = tpl
       .replace(/\{nome\}/g, firstName)
       .replace(/\{valor\}/g, valor)
       .replace(/\{metodo\}/g, metodoLabel)
       .replace(/\{descricao\}/g, descricao ? ` (${descricao})` : '')
-      .replace(/\{clinica\}/g, clinicaNome);
+      .replace(/\{vencimento\}/g, vencimentoLinha)
+      .replace(/\{clinica\}/g, clinicaNome)
+      .replace(/[ \t]*\n[ \t]*\n[ \t]*\n+/g, '\n\n')
+      .trim();
+    // Boleto: se o template não posicionou o {vencimento}, anexa a data no fim
+    // automaticamente — funciona até com o texto salvo antigo, sem a clínica editar.
+    if (vencimentoLinha && !msg.includes(vencStr)) {
+      msg = `${msg}\n\n${vencimentoLinha}`;
+    }
 
     let clientPhone = lead.phone.replace(/\D/g, '');
     if (clientPhone.length <= 11) clientPhone = '55' + clientPhone;
