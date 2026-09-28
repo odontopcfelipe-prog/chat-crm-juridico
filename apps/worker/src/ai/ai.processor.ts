@@ -2747,10 +2747,12 @@ scheduling_action: {"action":"confirm_slot","date":"YYYY-MM-DD","time":"HH:MM"} 
       // Assinatura "Sophia:" em negrito no WhatsApp (salva sem assinatura no DB)
       const textToSend = `*Sophia:* ${finalText}`;
 
-      // Exibe "digitando..." por 5s via endpoint dedicado da Evolution API.
-      // Fire-and-forget (sem await): dispara o indicador e imediatamente começa
-      // a contar os 5s em paralelo — evita dupla espera (API delay + setTimeout).
-      const TYPING_DELAY_MS = 2000;
+      // Exibe "digitando..." antes de enviar. Onda 18.x — a resposta chegava muito
+      // rápida (robótica). Agora o tempo de digitação é PROPORCIONAL ao tamanho da
+      // mensagem (~pessoa digitando), com piso e teto — mensagem curta ~2,5s, longa
+      // até ~9s. Some-se ao cooldown (AI_COOLDOWN_SECONDS, Configurações › IA) que já
+      // segura a IA antes de começar a responder.
+      const TYPING_DELAY_MS = Math.min(Math.max(finalText.length * 28, 2500), 9000);
       // Formato flat (sem wrapper "options") — conforme comportamento real da API
       axios
         .post(
