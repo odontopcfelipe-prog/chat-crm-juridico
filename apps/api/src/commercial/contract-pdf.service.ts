@@ -109,26 +109,22 @@ export class ContractPdfService {
       throw new ForbiddenException('Contrato de outro tenant');
     }
 
-    // Tenant pra cabecalho. Por enquanto so o nome — campos estruturados
-    // (CNPJ, endereco, telefone, email) vao ficar pra Fase 3 quando
-    // implementarmos config de clinica no admin com campos proprios. Por
-    // ora extraimos do OrganizationProfile.facts (JSON livre) com fallback.
-    const tenant = await this.prisma.tenant.findUnique({
-      where: { id: tenantId },
-      select: {
-        name: true,
-        organization_profile: { select: { facts: true } },
-      },
-    });
-
-    const facts = (tenant?.organization_profile?.facts as Record<string, unknown> | null) || {};
-    const officeInfo = (facts.office_info as Record<string, unknown> | undefined) || {};
+    // Identidade da CONTRATADA (clinica) vem dos campos ESTRUTURADOS do Tenant
+    // (cadastro em Configuracoes > Identidade): CNPJ, endereco completo e
+    // responsavel tecnico + CRO. Antes lia do OrganizationProfile.facts (JSON
+    // livre), que fica vazio na pratica — o contrato saia sem CNPJ e sem
+    // responsavel tecnico, descaracterizando o documento. Ver resolveContratado().
+    const contratado = await this.resolveContratado(tenantId);
     const tenantInfo = {
-      name: tenant?.name || null,
-      cnpj: (officeInfo.cnpj as string | undefined) || (officeInfo.tax_id as string | undefined) || null,
-      address: (officeInfo.address as string | undefined) || null,
-      phone: (officeInfo.phone as string | undefined) || null,
-      email: (officeInfo.email as string | undefined) || null,
+      name: contratado.nome,
+      cnpj: contratado.cnpj || null,
+      address: contratado.endereco || null,
+      phone: contratado.phone || null,
+      email: contratado.email || null,
+      cidadeUf: contratado.cidadeUf || null,
+      qualificacao: contratado.qualificacao || null,
+      responsavel: contratado.resp || null,
+      cro: contratado.cro || null,
     };
 
     // Onda 14.32 — Identifica quais docs extras tem PDF anexo. Esses sao
@@ -158,6 +154,85 @@ export class ContractPdfService {
     // 3. Mescla via pdf-lib: principal + cada PDF anexo na ordem dos
     //    selected_documents.
     return this.mergeWithAttachments(mainPdfBuffer, docsWithAttachment);
+  }
+
+  /**
+   * Monta a identidade da CONTRATADA (clinica) a partir dos campos
+   * ESTRUTURADOS do Tenant (Onda 17.32.154): CNPJ, endereco completo e
+   * responsavel tecnico + CRO. Fonte oficial do cadastro em
+   * Configuracoes > Identidade — NAO usar OrganizationProfile.facts (JSON
+   * livre, quase sempre vazio). Espelha o resolveContratado() do
+   * contracts.service.ts (contrato trabalhista legado) pra manter a mesma
+   * qualificacao juridica sem acoplar os dois modulos.
+   */
+  private async resolveContratado(tenantId: string): Promise<{
+    nome: string;
+    cnpj: string;
+    phone: string;
+    email: string;
+    endereco: string;
+    cidadeUf: string;
+    resp: string;
+    cro: string;
+    qualificacao: string;
+  }> {
+    const tenant = await this.prisma.tenant
+      .findUnique({
+        where: { id: tenantId },
+        select: {
+          name: true,
+          cpf_cnpj: true,
+          phone: true,
+          email: true,
+          address: true,
+          address_number: true,
+          address_complement: true,
+          neighborhood: true,
+          city: true,
+          state: true,
+          zip_code: true,
+          responsible_name: true,
+          responsible_cro: true,
+        },
+      })
+      .catch(() => null);
+
+    const clean = (s?: string | null) => (s && s.trim() ? s.trim() : '');
+    const nome = clean(tenant?.name) || 'Clínica Odontológica';
+    const cnpj = clean(tenant?.cpf_cnpj);
+    const phone = clean(tenant?.phone);
+    const email = clean(tenant?.email);
+    const resp = clean(tenant?.responsible_name);
+    const cro = clean(tenant?.responsible_cro);
+
+    const cidade = clean(tenant?.city);
+    const uf = clean(tenant?.state);
+    const cidadeUf = cidade ? (uf ? `${cidade} - ${uf}` : cidade) : '';
+
+    const numero = clean(tenant?.address_number);
+    const enderecoParts = [
+      clean(tenant?.address),
+      numero ? `nº ${numero}` : '',
+      clean(tenant?.address_complement),
+      clean(tenant?.neighborhood),
+      cidade ? (uf ? `${cidade}/${uf}` : cidade) : '',
+      clean(tenant?.zip_code) ? `CEP ${clean(tenant?.zip_code)}` : '',
+    ].filter(Boolean);
+    const endereco = enderecoParts.join(', ');
+
+    // Frase de qualificacao pra secao "Qualificação das partes".
+    const qualParts: string[] = [];
+    if (cnpj) qualParts.push(`inscrita no CNPJ sob o nº ${cnpj}`);
+    if (endereco) qualParts.push(`com sede na ${endereco}`);
+    if (resp) {
+      qualParts.push(
+        `neste ato representada por seu(sua) responsável técnico(a) ${resp}` +
+          (cro ? `, inscrito(a) no CRO sob o nº ${cro}` : ''),
+      );
+    }
+    const qualificacao = qualParts.join(', ');
+
+    return { nome, cnpj, phone, email, endereco, cidadeUf, resp, cro, qualificacao };
   }
 
   /**
@@ -225,7 +300,11 @@ export class ContractPdfService {
 
   private renderPdf(
     contract: any,
-    tenant: { name: string | null; cnpj: string | null; address: string | null; phone: string | null; email: string | null },
+    tenant: {
+      name: string | null; cnpj: string | null; address: string | null;
+      phone: string | null; email: string | null; cidadeUf?: string | null;
+      qualificacao?: string | null; responsavel?: string | null; cro?: string | null;
+    },
     /** Onda 14.32 — IDs dos docs extras que devem ser renderizados como
      *  secoes textuais (porque NAO tem PDF anexo). Docs com PDF anexo
      *  NAO entram aqui — sao mesclados depois via pdf-lib. */
@@ -294,7 +373,10 @@ export class ContractPdfService {
 
       doc.moveDown(0.5);
       doc.font('Helvetica-Bold').text('CONTRATADA: ', { continued: true })
-        .font('Helvetica').text(tenant?.name || 'Clínica');
+        .font('Helvetica').text(
+          (tenant?.name || 'Clínica') + (tenant?.qualificacao ? `, ${tenant.qualificacao}` : ''),
+          { align: 'justify' },
+        );
 
       doc.moveDown(0.8);
 
@@ -401,15 +483,31 @@ export class ContractPdfService {
       // ── Assinaturas ──────────────────────────────────────────
       doc.fontSize(10).font('Helvetica');
       const today = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' });
-      doc.text(`${(tenant?.address?.split(',').pop() || 'Local').trim()}, ${today}`, { align: 'right' });
+      // Local de assinatura = cidade/UF do cadastro da clinica (nao mais um
+      // pedaco solto do endereco).
+      const localAssinatura = tenant?.cidadeUf || (tenant?.address?.split(',').pop() || 'Local').trim();
+      doc.text(`${localAssinatura}, ${today}`, { align: 'right' });
 
       doc.moveDown(2);
       const yPos = doc.y;
-      doc.text('_______________________________________', 60, yPos);
-      doc.text('CONTRATANTE (paciente)', 60, yPos + 15);
+      doc.fontSize(9);
 
-      doc.text('_______________________________________', 320, yPos);
-      doc.text('CONTRATADA (clínica)', 320, yPos + 15);
+      // CONTRATANTE (paciente) — nome + CPF sob a linha
+      doc.font('Helvetica').fillColor('black').text('_______________________________________', 60, yPos);
+      doc.font('Helvetica-Bold').text(patient.name || 'CONTRATANTE (paciente)', 60, yPos + 15, { width: 230 });
+      doc.font('Helvetica').fillColor('#555')
+        .text(patient.cpf ? `CPF: ${patient.cpf}` : 'CONTRATANTE (paciente)', 60, yPos + 28, { width: 230 });
+
+      // CONTRATADA (clínica) — nome + responsável técnico/CRO sob a linha
+      doc.font('Helvetica').fillColor('black').text('_______________________________________', 320, yPos);
+      doc.font('Helvetica-Bold').text(tenant?.name || 'CONTRATADA (clínica)', 320, yPos + 15, { width: 230 });
+      doc.font('Helvetica').fillColor('#555').text(
+        tenant?.responsavel
+          ? `${tenant.responsavel}${tenant.cro ? ` — CRO ${tenant.cro}` : ''}`
+          : 'CONTRATADA (clínica)',
+        320, yPos + 28, { width: 230 },
+      );
+      doc.fillColor('black').fontSize(10);
 
       // ── Footer ───────────────────────────────────────────────
       const footerY = doc.page.height - 50;
