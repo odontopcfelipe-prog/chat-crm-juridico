@@ -15,6 +15,37 @@ export class StockMovementsService {
   constructor(private prisma: PrismaService) {}
 
   /**
+   * Politica de saldo negativo POR CLINICA. Key GlobalSetting
+   * `INVENTORY_BLOCK_NEGATIVE_<tenant>`:
+   *   'true'  = bloqueia a saida que deixaria o saldo negativo (400)
+   *   ausente/'false' = deixa passar e registra (DEFAULT — nao trava o balcao
+   *                     com paciente na frente; saldo errado quase sempre e
+   *                     estoque desatualizado, nao falta real)
+   * Decisao do dono: e um botao que cada clinica liga quando o estoque estiver
+   * confiavel o bastante pra sustentar o bloqueio.
+   */
+  async blocksNegativeStock(tenantId: string): Promise<boolean> {
+    if (!tenantId) return false;
+    const row = await this.prisma.globalSetting
+      .findUnique({ where: { key: `INVENTORY_BLOCK_NEGATIVE_${tenantId}` } })
+      .catch(() => null);
+    return row?.value === 'true';
+  }
+
+  /** Liga/desliga a trava de saldo negativo da clinica. */
+  async setBlocksNegativeStock(tenantId: string, block: boolean) {
+    const key = `INVENTORY_BLOCK_NEGATIVE_${tenantId}`;
+    const value = String(block);
+    await this.prisma.globalSetting.upsert({
+      where: { key },
+      create: { key, value },
+      update: { value },
+    });
+    this.logger.log(`[ESTOQUE] Bloqueio de saida sem saldo ${block ? 'LIGADO' : 'DESLIGADO'} (tenant ${tenantId})`);
+    return { block_negative: block };
+  }
+
+  /**
    * Cria movimento e atualiza current_stock atomicamente em transacao.
    * - Para produtos com requires_lot_tracking, batch_number e expiration_date sao obrigatorios.
    * - SAIDA/PERDA/DESCARTE_VENCIMENTO descontam estoque; ENTRADA soma; AJUSTE substitui.
@@ -56,36 +87,57 @@ export class StockMovementsService {
         },
       });
 
-      const currentStock = new Prisma.Decimal(product.current_stock);
       const qty = new Prisma.Decimal(dto.quantity);
-      let newStock: Prisma.Decimal;
 
+      // ATOMICO de verdade: increment/decrement deixam a soma no BANCO. Antes
+      // liamos current_stock aqui e gravavamos o valor ABSOLUTO calculado — duas
+      // baixas simultaneas (duas recepcoes vendendo junto) liam o mesmo saldo e a
+      // segunda sobrescrevia a primeira: uma das saidas sumia do saldo, calada.
+      // AJUSTE continua absoluto por definicao ("o saldo real e X").
+      let updated;
       switch (dto.type) {
         case 'ENTRADA':
-          newStock = currentStock.plus(qty);
+          updated = await tx.product.update({
+            where: { id: product.id },
+            data: { current_stock: { increment: qty } },
+            select: { current_stock: true },
+          });
           break;
         case 'SAIDA':
         case 'PERDA':
         case 'DESCARTE_VENCIMENTO':
-          newStock = currentStock.minus(qty);
-          if (newStock.isNegative()) {
-            // Permite estoque negativo mas loga (clinica pode usar p/ acerto retroativo)
+          updated = await tx.product.update({
+            where: { id: product.id },
+            data: { current_stock: { decrement: qty } },
+            select: { current_stock: true },
+          });
+          // A trava roda DEPOIS do decremento, olhando o saldo real pos-operacao:
+          // dentro da transacao, lancar a excecao desfaz tudo (movimento + saldo).
+          // Checar antes voltaria a ser read-then-write — a corrida que acabamos
+          // de fechar.
+          if (new Prisma.Decimal(updated.current_stock).isNegative()) {
+            if (await this.blocksNegativeStock(tenantId)) {
+              throw new BadRequestException(
+                `Estoque insuficiente de "${product.name}": saldo ${product.current_stock.toString()} ` +
+                `e a saida e de ${qty.toString()}. Dê entrada no produto ou desligue o bloqueio ` +
+                `em Estoque → "bloquear saída sem saldo".`,
+              );
+            }
             this.logger.warn(
-              `Estoque negativo: produto ${product.id} ficou em ${newStock.toString()}`,
+              `Estoque negativo: produto ${product.id} ficou em ${updated.current_stock.toString()}`,
             );
           }
           break;
         case 'AJUSTE':
-          newStock = qty; // ajuste substitui
+          updated = await tx.product.update({
+            where: { id: product.id },
+            data: { current_stock: qty },
+            select: { current_stock: true },
+          });
           break;
         default:
           throw new BadRequestException(`Tipo de movimento invalido: ${dto.type}`);
       }
-
-      await tx.product.update({
-        where: { id: product.id },
-        data: { current_stock: newStock },
-      });
 
       return movement;
     });

@@ -24,6 +24,7 @@ export type Permission =
   | 'view_proposals'     | 'manage_proposals'
   | 'override_price'
   | 'view_reports'
+  | 'manage_inventory'
   | 'view_marketing'
   | 'manage_users'
   | 'view_settings'      | 'manage_settings'
@@ -74,6 +75,8 @@ export const PERMISSIONS: PermissionMeta[] = [
     description: 'Dar desconto (preco abaixo da tabela) na Venda Rapida', group: 'financeiro' },
   { key: 'view_reports', label: 'Ver relatorios',
     description: 'Dashboards e relatorios consolidados', group: 'financeiro' },
+  { key: 'manage_inventory', label: 'Gerenciar estoque',
+    description: 'Dar entrada, saida e AJUSTE de saldo no estoque', group: 'financeiro' },
   { key: 'operate_cash', label: 'Operar caixa',
     description: 'Lancar entradas/saidas e fechar o caixa do dia (sem mexer em cobrancas)', group: 'financeiro' },
 
@@ -183,6 +186,9 @@ export const SECTORS: SectorMeta[] = [
       // OU acrescimo, ex.: aparelho orto que vende acima da tabela). Decisao do
       // usuario: liberar edicao de preco pra todo o setor recepcao.
       'override_price',
+      // Estoque: recepcao recebe mercadoria e da baixa no balcao. Sem isto, a
+      // venda de balcao com baixa de estoque ficaria travada no dia a dia.
+      'manage_inventory',
     ],
     home: {
       persona: 'Recepcionista',
@@ -274,6 +280,8 @@ export const SECTORS: SectorMeta[] = [
       // e sem balão. Recepção/CRC cuidam do chat.
       'view_clinical',     // acompanha prontuario do paciente
       'edit_clinical',     // ASB pode preencher evolucao supervisionada
+      // Estoque: ACD/ASB e quem controla instrumental e insumo da sala.
+      'manage_inventory',
     ],
     home: {
       persona: 'Auxiliar de Consultorio',

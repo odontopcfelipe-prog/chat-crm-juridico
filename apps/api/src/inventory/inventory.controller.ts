@@ -12,6 +12,7 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RequiresPermission } from '../auth/decorators/requires-permission.decorator';
 import { SuppliersService } from './suppliers.service';
 import { ProductsService } from './products.service';
 import { StockMovementsService } from './stock-movements.service';
@@ -26,6 +27,15 @@ function parseBool(v?: string): boolean | undefined {
   return v === 'true' || v === '1';
 }
 
+/**
+ * Estoque. LEITURA fica aberta a qualquer usuario do tenant (a tela lista pra
+ * todo mundo); toda ESCRITA exige `manage_inventory`. Antes o controller tinha
+ * so o JwtAuthGuard: qualquer pessoa logada dava entrada, saida e — pior —
+ * AJUSTE de saldo, que e a operacao mais sensivel de um estoque (reescreve o
+ * saldo sem deixar rastro de quanto entrou ou saiu). Admin tem a permissao
+ * automaticamente; recepcao e ACD/ASB recebem por padrao; os demais setores o
+ * admin libera individualmente em Usuarios.
+ */
 @UseGuards(JwtAuthGuard)
 @Controller()
 export class InventoryController {
@@ -36,8 +46,28 @@ export class InventoryController {
     private readonly consumables: ProcedureConsumablesService,
   ) {}
 
+  // ─── Politica de estoque do tenant (o "botao" por clinica) ────
+
+  /** Le a politica de saldo negativo. Aberto (a tela mostra o estado do botao). */
+  @Get('inventory/policy')
+  async getPolicy(@Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return { block_negative: await this.movements.blocksNegativeStock(tenantId) };
+  }
+
+  /** Liga/desliga o bloqueio de saida sem saldo. So quem gerencia estoque. */
+  @RequiresPermission('manage_inventory')
+  @Patch('inventory/policy')
+  async setPolicy(@Body() body: { block_negative?: boolean }, @Request() req: any) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.movements.setBlocksNegativeStock(tenantId, body?.block_negative === true);
+  }
+
   // ─── Suppliers ────────────────────────────────────────────────
 
+  @RequiresPermission('manage_inventory')
   @Post('suppliers')
   createSupplier(@Body() dto: CreateSupplierDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -72,6 +102,7 @@ export class InventoryController {
     return this.suppliers.findOne(id, tenantId);
   }
 
+  @RequiresPermission('manage_inventory')
   @Patch('suppliers/:id')
   updateSupplier(@Param('id') id: string, @Body() dto: UpdateSupplierDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -79,6 +110,7 @@ export class InventoryController {
     return this.suppliers.update(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_inventory')
   @Delete('suppliers/:id')
   archiveSupplier(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -88,6 +120,7 @@ export class InventoryController {
 
   // ─── Products ────────────────────────────────────────────────
 
+  @RequiresPermission('manage_inventory')
   @Post('products')
   createProduct(@Body() dto: CreateProductDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -133,6 +166,7 @@ export class InventoryController {
     return this.products.findOne(id, tenantId);
   }
 
+  @RequiresPermission('manage_inventory')
   @Patch('products/:id')
   updateProduct(@Param('id') id: string, @Body() dto: UpdateProductDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -140,6 +174,7 @@ export class InventoryController {
     return this.products.update(id, tenantId, dto);
   }
 
+  @RequiresPermission('manage_inventory')
   @Delete('products/:id')
   archiveProduct(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -165,6 +200,7 @@ export class InventoryController {
 
   // ─── Stock Movements ────────────────────────────────────────────────
 
+  @RequiresPermission('manage_inventory')
   @Post('stock-movements')
   createMovement(@Body() dto: CreateStockMovementDto, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
@@ -212,6 +248,7 @@ export class InventoryController {
 
   // ─── Procedure Consumables ────────────────────────────────────────────────
 
+  @RequiresPermission('manage_inventory')
   @Post('procedures/:procedureId/consumables')
   linkConsumable(
     @Param('procedureId') procedureId: string,
@@ -230,6 +267,7 @@ export class InventoryController {
     return this.consumables.findByProcedure(tenantId, procedureId);
   }
 
+  @RequiresPermission('manage_inventory')
   @Delete('procedure-consumables/:id')
   unlinkConsumable(@Param('id') id: string, @Request() req: any) {
     const tenantId = req.user?.tenant_id;
