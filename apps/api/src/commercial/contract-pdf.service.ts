@@ -109,11 +109,87 @@ export class ContractPdfService {
       throw new ForbiddenException('Contrato de outro tenant');
     }
 
+    return this.buildPdf(contract, tenantId);
+  }
+
+  /**
+   * Preview TRANSITORIO do contrato ANTES de criar o Contract: gera o PDF
+   * direto do Quote + docs marcados, SEM persistir nada. Usado pelo card de
+   * contrato pra conferir/imprimir antes de clicar "Criar contrato".
+   */
+  async generatePreviewForQuote(
+    quoteId: string,
+    tenantId: string,
+    selectedDocuments: string[],
+  ): Promise<Buffer> {
+    const quote = await this.prisma.quote.findUnique({
+      where: { id: quoteId },
+      include: {
+        patient: {
+          select: {
+            id: true, name: true, cpf: true, rg: true, birth_date: true,
+            phone: true, email: true, tenant_id: true,
+            address: true, address_number: true, neighborhood: true,
+            city: true, state: true, zip_code: true,
+          },
+        },
+        items: {
+          orderBy: { order_index: 'asc' },
+          include: {
+            procedure: { select: { name: true, code_tuss: true, specialty: { select: { name: true } } } },
+          },
+        },
+        created_by: { select: { name: true } },
+      },
+    });
+    if (!quote) throw new NotFoundException('Orcamento nao encontrado');
+    if (quote.patient.tenant_id !== tenantId) {
+      throw new ForbiddenException('Orcamento de outro tenant');
+    }
+    // Sanitiza (mesma regra do createForQuote): strings, dedup, max 20.
+    const docs = Array.isArray(selectedDocuments)
+      ? Array.from(new Set(selectedDocuments.filter((d): d is string => typeof d === 'string').slice(0, 20)))
+      : [];
+    const contractLike = {
+      id: 'preview',
+      status: 'DRAFT',
+      template_type: this.inferTemplateType(quote.items as any),
+      selected_documents: docs,
+      quote,
+    };
+    return this.buildPdf(contractLike, tenantId);
+  }
+
+  /** Infere o template pela especialidade mais frequente dos items. Espelha o
+   *  inferTemplateType do contracts.service — usado SO no preview transitorio;
+   *  o contrato ja criado usa o template_type persistido. */
+  private inferTemplateType(
+    items: Array<{ procedure?: { specialty?: { name?: string | null } | null } | null }>,
+  ): string {
+    const counts = new Map<string, number>();
+    for (const item of items) {
+      const name = item.procedure?.specialty?.name?.toUpperCase() || '';
+      if (!name) continue;
+      counts.set(name, (counts.get(name) || 0) + 1);
+    }
+    let maxName = '';
+    let maxCount = 0;
+    for (const [name, count] of counts.entries()) {
+      if (count > maxCount) { maxName = name; maxCount = count; }
+    }
+    if (maxName.includes('ORTOD')) return 'ORTODONTIA';
+    if (maxName.includes('IMPLANTE') || maxName.includes('IMPLANTOLOGIA')) return 'IMPLANTE';
+    if (maxName.includes('LENTE') || maxName.includes('FACETA')) return 'LENTES';
+    return 'CLINICO_BASICO';
+  }
+
+  /** Nucleo de geracao: recebe o contrato (real ou sintetico do preview) ja
+   *  validado (tenant conferido pelo chamador) e monta o PDF (contrato
+   *  principal + docs anexos mesclados). */
+  private async buildPdf(contract: any, tenantId: string): Promise<Buffer> {
     // Identidade da CONTRATADA (clinica) vem dos campos ESTRUTURADOS do Tenant
     // (cadastro em Configuracoes > Identidade): CNPJ, endereco completo e
-    // responsavel tecnico + CRO. Antes lia do OrganizationProfile.facts (JSON
-    // livre), que fica vazio na pratica — o contrato saia sem CNPJ e sem
-    // responsavel tecnico, descaracterizando o documento. Ver resolveContratado().
+    // responsavel tecnico + CRO. Ver resolveContratado().
     const contratado = await this.resolveContratado(tenantId);
     const tenantInfo = {
       name: contratado.nome,

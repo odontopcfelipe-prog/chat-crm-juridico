@@ -347,7 +347,7 @@ export class QuotesService {
     const quote = await this.prisma.quote.findUnique({
       where: { id },
       include: {
-        patient: { select: { id: true, name: true, tenant_id: true, phone: true } },
+        patient: { select: { id: true, name: true, tenant_id: true, phone: true, cpf: true, address: true, city: true } },
         coupon: { select: { id: true, code: true, description: true, discount_type: true, discount_amount: true } },
         created_by: { select: { id: true, name: true } },
         items: {

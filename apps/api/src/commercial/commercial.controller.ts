@@ -1326,6 +1326,25 @@ export class CommercialController {
     });
   }
 
+  /**
+   * Preview do contrato ANTES de criar (transitorio, nao persiste nada). Recebe
+   * os docs marcados via ?docs=A,B,C. Permite o operador conferir/imprimir a
+   * previa direto do orcamento, sem precisar clicar "Criar contrato" primeiro.
+   */
+  @Get('quotes/:id/contract-preview-pdf')
+  async previewQuoteContractPdf(
+    @Param('id') id: string,
+    @Query('docs') docs: string | undefined,
+    @Authenticated() user: AuthUser,
+    @Res() res: Response,
+  ) {
+    const selected = (docs || '').split(',').map((s) => s.trim()).filter(Boolean);
+    const buffer = await this.contractPdfService.generatePreviewForQuote(id, user.tenant_id, selected);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="contrato-previa.pdf"');
+    res.send(buffer);
+  }
+
   /** Detalhe do contrato + events. */
   @Get('contracts/:id')
   getContract(@Param('id') id: string, @Authenticated() user: AuthUser) {

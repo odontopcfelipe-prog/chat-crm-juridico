@@ -21,7 +21,7 @@ import { createPortal } from 'react-dom';
 import {
   Loader2, DollarSign, ChevronRight, ChevronLeft, Layers, AlertTriangle, Check, Flame,
   Plus, X, Clock, MessageSquare, Pencil, Send, ChevronDown, ChevronUp, ArrowLeft,
-  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet, Handshake,
+  Building2, ShieldCheck, XCircle, Search, Trash2, Gift, FileText, Eye, Wallet, Handshake, Download,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { showError, showSuccess } from '@/lib/toast';
@@ -3050,7 +3050,7 @@ interface ContractMinimal {
 }
 
 interface QuoteWithSigners {
-  patient: { id: string; name: string; phone: string | null };
+  patient: { id: string; name: string; phone: string | null; cpf?: string | null; address?: string | null; city?: string | null };
   created_by: { id: string; name: string } | null;
 }
 
@@ -3145,6 +3145,51 @@ function ContratoCard({
     }
   };
 
+  // Pré-visualiza a PRÉVIA do contrato ANTES de criar (transitório, não
+  // persiste). Usa os documentos marcados no momento — deixa o operador
+  // conferir/imprimir sem precisar clicar "Criar contrato" primeiro.
+  const previewDraft = async () => {
+    try {
+      const extras = Array.from(selectedDocs).filter(
+        (id) => !CONTRACT_DOCUMENTS.find((d) => d.id === id)?.core,
+      );
+      const res = await api.get(`/quotes/${quoteId}/contract-preview-pdf`, {
+        params: { docs: extras.join(',') },
+        responseType: 'blob',
+      });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao gerar prévia');
+    }
+  };
+
+  // Baixa o PDF do contrato como arquivo (nome pelo paciente), pra imprimir/
+  // guardar. Complementa o "Pré-visualizar" (que abre inline pra Ctrl+P).
+  const downloadPdf = async (id: string) => {
+    try {
+      const res = await api.get(`/contracts/${id}/preview-pdf`, { responseType: 'blob' });
+      const blob = new Blob([res.data], { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      const safeName = (quote?.patient?.name || 'paciente')
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'paciente';
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `contrato-${safeName}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 60 * 1000);
+    } catch (err: unknown) {
+      const e = err as { response?: { data?: { message?: string } } };
+      showError(e?.response?.data?.message || 'Erro ao baixar PDF');
+    }
+  };
+
   // Onda 17.32.30 — Pre-visualiza o PDF de um termo (clareamento, facetas...)
   // direto do diretorio contract-templates do servidor. Permite o operador
   // ler o conteudo antes de marcar o checkbox.
@@ -3210,6 +3255,14 @@ function ContratoCard({
   const patientName = quote?.patient?.name || 'Paciente';
   const patientPhone = fmtPhone(quote?.patient?.phone);
   const dentistName = quote?.created_by?.name || 'Dentista responsável';
+  // Aviso não-bloqueante: campos do paciente que sairiam em branco no contrato.
+  // (Só quando o quote já carregou, pra não piscar durante o load.)
+  const missingPatientFields = quote
+    ? ([
+        !quote.patient?.cpf ? 'CPF' : null,
+        !quote.patient?.address ? 'endereço' : null,
+      ].filter(Boolean) as string[])
+    : [];
   const totalCoreDocs = CONTRACT_DOCUMENTS.filter((d) => d.core).length;
   const totalAvailableDocs = CONTRACT_DOCUMENTS.length;
   const selectedDocsCount = selectedDocs.size;
@@ -3386,6 +3439,16 @@ function ContratoCard({
         </div>
       </div>
 
+      {/* Aviso não-bloqueante: campos do paciente que sairiam em branco no PDF. */}
+      {missingPatientFields.length > 0 && (
+        <div className="px-5 py-2 bg-amber-500/10 border-t border-amber-500/20 flex items-start gap-2 text-[11px] text-amber-700 dark:text-amber-400">
+          <AlertTriangle size={12} className="shrink-0 mt-0.5" />
+          <span>
+            Faltam dados do paciente: <span className="font-semibold">{missingPatientFields.join(' e ')}</span> — o contrato vai imprimir com {missingPatientFields.length > 1 ? 'esses campos' : 'esse campo'} em branco. Complete no cadastro do paciente.
+          </span>
+        </div>
+      )}
+
       {/* Footer */}
       <div className="px-5 py-3 border-t border-border bg-muted/20 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-[11px] text-emerald-700 dark:text-emerald-400 font-semibold flex items-center gap-1.5">
@@ -3394,25 +3457,47 @@ function ContratoCard({
         </p>
         <div className="flex items-center gap-2 flex-wrap">
           {contract && (
-            <button
-              type="button"
-              onClick={() => previewPdf(contract.id)}
-              className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
-            >
-              <Eye size={12} />
-              Pré-visualizar PDF
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => previewPdf(contract.id)}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+              >
+                <Eye size={12} />
+                Pré-visualizar PDF
+              </button>
+              <button
+                type="button"
+                onClick={() => downloadPdf(contract.id)}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+                title="Baixar o PDF do contrato pra imprimir/guardar"
+              >
+                <Download size={12} />
+                Baixar PDF
+              </button>
+            </>
           )}
           {!contract && (
-            <button
-              type="button"
-              onClick={createContract}
-              disabled={busy}
-              className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
-            >
-              {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
-              Criar contrato
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={previewDraft}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-border bg-card hover:bg-accent/40 text-foreground inline-flex items-center gap-1.5 transition-colors"
+                title="Ver a prévia do contrato com os documentos marcados (sem criar ainda)"
+              >
+                <Eye size={12} />
+                Pré-visualizar PDF
+              </button>
+              <button
+                type="button"
+                onClick={createContract}
+                disabled={busy}
+                className="text-xs font-semibold px-3 py-2 rounded-md border border-violet-500/30 bg-violet-500/10 hover:bg-violet-500/20 text-violet-700 dark:text-violet-400 inline-flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <FileText size={12} />}
+                Criar contrato
+              </button>
+            </>
           )}
           {contract && !isTerminal && contract.status === 'DRAFT' && (
             <>
