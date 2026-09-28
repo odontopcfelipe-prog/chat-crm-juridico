@@ -170,6 +170,13 @@ export class FollowupService {
     const dentCfg = this.parseJson(dentSetting?.value);
     const birthdayCfg = this.parseJson(birthdaySetting?.value);
 
+    // TRIAGEM NÃO-PACIENTE (fornecedor/currículo/parceria/spam) — a IA (Sophia) encaminha
+    // ao responsável e ENCERRA, em vez de tentar vender. Default OFF (opt-in). O worker
+    // (ai.processor) lê a MESMA key NAO_PACIENTE_TRIAGE_ENABLED_${tenant}.
+    const naoPacienteSetting = await this.prisma.globalSetting.findUnique({
+      where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
+    });
+
     // Defaults: confirmacao/lembrete/pos LIGADOS por default; dentista DESLIGADO.
     const confEnabled = (confSetting?.value ?? 'true') !== 'false';
     // Onda 17.59 — re-agendamento (avisa o paciente quando o horário muda). Default ON.
@@ -381,6 +388,8 @@ export class FollowupService {
       comprovante_pagamento: {
         enabled: comprovanteSetting ? (comprovanteSetting as any).value === 'true' : negocSetting?.value === 'true',
       },
+      // Triagem não-paciente (fornecedor/currículo/parceria/spam). Default OFF (opt-in).
+      nao_paciente_triage: { enabled: (naoPacienteSetting as any)?.value === 'true' },
     };
   }
 
@@ -554,6 +563,7 @@ export class FollowupService {
       recall_preventivo: ['recall_preventivo'],
       task_alerts: ['task_alert'],
       followup_lead: ['followup_lead'],
+      nao_paciente_triage: ['nao_paciente_handoff'],
     };
 
     // Lembretes clínicos → faixa de antecedência no EventReminder.
@@ -843,6 +853,13 @@ export class FollowupService {
       // Fase 3 — alertas de tarefa à equipe (task-alerts-cron; default ON no cron).
       case 'task_alerts': {
         const key = `TASK_ALERTS_ENABLED_${tenantId}`;
+        const value = String(enabled);
+        await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
+        break;
+      }
+      // Triagem não-paciente (o ai.processor lê esta key). Default OFF (opt-in).
+      case 'nao_paciente_triage': {
+        const key = `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}`;
         const value = String(enabled);
         await this.prisma.globalSetting.upsert({ where: { key }, create: { key, value }, update: { value } });
         break;

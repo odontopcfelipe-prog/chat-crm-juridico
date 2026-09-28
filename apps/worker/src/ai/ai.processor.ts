@@ -7,6 +7,7 @@ import { S3Service } from '../s3/s3.service';
 import OpenAI, { toFile } from 'openai';
 import axios from 'axios';
 import { SkillRouter } from './skill-router';
+import { NonPatientClassifier } from './non-patient-classifier';
 import { ToolExecutor } from './tool-executor';
 import { PromptBuilder } from './prompt-builder';
 import { buildHandlerMap } from './tool-handlers';
@@ -35,6 +36,7 @@ const VISION_MODELS = ['gpt-4o', 'gpt-4.1', 'gpt-5', 'claude-'];
 export class AiProcessor extends WorkerHost {
   private readonly logger = new Logger(AiProcessor.name);
   private skillRouter = new SkillRouter();
+  private nonPatientClassifier = new NonPatientClassifier();
   private promptBuilder = new PromptBuilder();
 
   constructor(
@@ -45,6 +47,192 @@ export class AiProcessor extends WorkerHost {
     private memoryRetrieval: MemoryRetrievalService,
   ) {
     super();
+  }
+
+  // ─── TRIAGEM NÃO-PACIENTE ────────────────────────────────────────────────
+  /**
+   * Detecta fornecedor/currículo/parceria/propaganda e, se for o caso: (a) responde
+   * educado que vai encaminhar ao responsável e encerra; (b) pausa a IA nesta conversa
+   * SEM religar (ai_mode_source='MANUAL' — o cron de reativação e o after-hours não
+   * mexem); (c) avisa os ADMs no número fixo configurado. Retorna true se tratou (o
+   * caller deve `return` e pular todo o fluxo de venda), false pra seguir normal.
+   * Opt-in por tenant: NAO_PACIENTE_TRIAGE_ENABLED_<tenant> (default OFF).
+   */
+  private async maybeHandleNonPatient(convo: any, chronological: any[]): Promise<boolean> {
+    const tenantId = convo.tenant_id || convo.lead?.tenant_id;
+    if (!tenantId) return false;
+
+    // Gate opt-in por tenant (default OFF).
+    const on = await this.prisma.globalSetting.findUnique({
+      where: { key: `NAO_PACIENTE_TRIAGE_ENABLED_${tenantId}` },
+    });
+    if (on?.value !== 'true') return false;
+
+    // Classifica SÓ pelas mensagens do contato (inbound) — nunca pelas da Sophia.
+    const inboundMessages = chronological
+      .filter((m: any) => m.direction === 'in')
+      .map((m: any) => (m.text || '[mídia]').slice(0, 300));
+    if (inboundMessages.length === 0) return false;
+
+    // Mesmo provider/model do router (chamada barata). Sem chave → segue normal.
+    const routerConfig = await this.settings.getRouterConfig();
+    const apiKey = routerConfig.provider === 'anthropic'
+      ? await this.settings.getAnthropicKey()
+      : await this.settings.getOpenAiKey();
+    if (!apiKey) return false;
+
+    const { category, reason } = await this.nonPatientClassifier.classify({
+      inboundMessages,
+      model: routerConfig.model,
+      provider: routerConfig.provider as LLMProvider,
+      apiKey,
+    });
+
+    if (category === 'PACIENTE') return false; // segue o fluxo de venda normal
+
+    this.logger.log(
+      `[AI][NÃO-PACIENTE] Conv ${convo.id} classificada como ${category} (${reason}) — encaminhando ao responsável + pausando IA + alertando ADMs.`,
+    );
+
+    // (a) Resposta educada de encerramento (com a assinatura padrão da Sophia).
+    const handoffMsg =
+      'Olá! Muito obrigada pelo contato. 😊 Aqui é o canal de atendimento aos pacientes, ' +
+      'mas já vou encaminhar sua mensagem para o responsável, combinado? Qualquer retorno ' +
+      'será por aqui. Tenha um ótimo dia!';
+    await this.sendPlainWhatsApp(convo.lead?.phone, `*Sophia:* ${handoffMsg}`, convo.instance_name);
+
+    // Salva a mensagem de saída (best-effort — não bloqueia o handoff).
+    try {
+      await this.prisma.message.create({
+        data: {
+          conversation_id: convo.id,
+          direction: 'out',
+          type: 'text',
+          text: handoffMsg,
+          external_message_id: `sys_ai_np_${Date.now()}`,
+          status: 'enviado',
+          skill_id: null,
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] Falha ao salvar mensagem de handoff: ${e?.message}`);
+    }
+
+    // (b) Pausa a IA sem religar. MANUAL é OBRIGATÓRIO: o ai-reactivation-cron só
+    // religa `ai_mode_source: { not: 'MANUAL' }`, e o after-hours respeita MANUAL.
+    await this.prisma.conversation.update({
+      where: { id: convo.id },
+      data: {
+        ai_mode: false,
+        ai_mode_disabled_at: new Date(),
+        ai_mode_source: 'MANUAL',
+        last_message_at: new Date(),
+      },
+    });
+
+    // (c) Alerta pros ADMs (número fixo), best-effort.
+    await this.alertAdminsNonPatient(tenantId, category, convo).catch((e: any) =>
+      this.logger.warn(`[AI][NÃO-PACIENTE] alerta admin falhou: ${e?.message}`),
+    );
+
+    return true;
+  }
+
+  /** Alerta interno pros ADMs no número fixo (mesmo do "Venda feita / Resumo diário"). */
+  private async alertAdminsNonPatient(tenantId: string, category: string, convo: any): Promise<void> {
+    const [vf, ds] = await Promise.all([
+      this.prisma.globalSetting.findUnique({ where: { key: `VENDA_FEITA_PHONE_${tenantId}` } }),
+      this.prisma.globalSetting.findUnique({ where: { key: `DAILY_SUMMARY_PHONE_${tenantId}` } }),
+    ]);
+    const phone = (vf?.value || ds?.value || '').trim();
+    if (!phone) {
+      this.logger.warn(
+        `[AI][NÃO-PACIENTE] Sem número de alerta configurado (VENDA_FEITA_PHONE/DAILY_SUMMARY_PHONE) — tenant ${tenantId}. Handoff feito, mas ninguém avisado.`,
+      );
+      return;
+    }
+
+    const label: Record<string, string> = {
+      FORNECEDOR: 'Fornecedor / proposta comercial',
+      CURRICULO: 'Currículo / vaga de emprego',
+      PARCERIA: 'Proposta de parceria',
+      SPAM: 'Propaganda / spam',
+    };
+    const nome = convo.lead?.name || 'Contato';
+    const tel = convo.lead?.phone || '';
+    const lastIn = (convo.messages || []).find((m: any) => m.direction === 'in');
+    const trecho = (lastIn?.text || '').slice(0, 160);
+    const msg =
+      `🔔 *Contato não-paciente na Sophia (Comercial)*\n\n` +
+      `Tipo: *${label[category] || category}*\n` +
+      `Contato: *${nome}*${tel ? ` (${tel})` : ''}\n` +
+      (trecho ? `Mensagem: "${trecho}"\n` : '') +
+      `\nA IA já respondeu que vai encaminhar e foi pausada nessa conversa. ` +
+      `Assumam pelo painel se quiserem responder.`;
+
+    // Envia por um chip do tenant (FINANCEIRO → CLINICA → resto), padrão sendInternalAlert.
+    const instances = await this.prisma.instance.findMany({
+      where: { tenant_id: tenantId },
+      select: { name: true, purpose: true },
+    });
+    const rank = (p?: string | null) => (p === 'FINANCEIRO' ? 0 : p === 'CLINICA' ? 1 : 2);
+    const tryList = instances
+      .sort((a: any, b: any) => rank(a.purpose) - rank(b.purpose))
+      .map((i: any) => i.name)
+      .filter(Boolean);
+    if (tryList.length === 0) tryList.push(process.env.EVOLUTION_INSTANCE_NAME || '');
+
+    let sent = false;
+    for (const inst of tryList) {
+      if (await this.sendPlainWhatsApp(phone, msg, inst)) {
+        sent = true;
+        break;
+      }
+    }
+
+    try {
+      await this.prisma.dispatchLog.create({
+        data: {
+          tenant_id: tenantId,
+          type: 'nao_paciente_handoff',
+          channel: 'WHATSAPP',
+          recipient_name: nome,
+          recipient_phone: phone,
+          status: sent ? 'SENT' : 'FAILED',
+          sent_at: new Date(),
+        },
+      });
+    } catch (e: any) {
+      this.logger.warn(`[AI][NÃO-PACIENTE] DispatchLog não gravou: ${e?.message}`);
+    }
+  }
+
+  /** Envio WhatsApp cru via Evolution com checagem de entrega REAL (estilo wasSent). */
+  private async sendPlainWhatsApp(
+    phone: string | null | undefined,
+    text: string,
+    instanceName?: string | null,
+  ): Promise<boolean> {
+    if (!phone) return false;
+    const { apiUrl, apiKey } = await this.settings.getEvolutionConfig();
+    if (!apiUrl) return false;
+    const inst = instanceName || process.env.EVOLUTION_INSTANCE_NAME || '';
+    try {
+      const res = await axios.post(
+        `${apiUrl}/message/sendText/${inst}`,
+        { number: phone, text },
+        { headers: { 'Content-Type': 'application/json', apikey: apiKey }, timeout: 30000 },
+      );
+      const d: any = res.data || {};
+      // Evolution não lança em não-entrega: devolve statusCode/error ou exists:false.
+      if (d?.error || (typeof d?.status === 'number' && d.status >= 400) || d?.exists === false) {
+        return false;
+      }
+      return true;
+    } catch (e: any) {
+      this.logger.warn(`[AI] sendPlainWhatsApp falhou (${inst}): ${e?.message}`);
+      return false;
+    }
   }
 
   // ─── Retorna o parâmetro correto de tokens conforme o modelo ───
@@ -1099,8 +1287,8 @@ export class AiProcessor extends WorkerHost {
       // radar). Erro ao resolver = fallback seguro (usa todas), não silêncio.
       let activeSkills = allActiveSkills;
       let silentNoSkill = false;
+      let chipPurpose: string | null = null;
       try {
-        let chipPurpose: string | null = null;
         if (convo.instance_name) {
           const inst = await this.prisma.instance.findFirst({
             where: { name: convo.instance_name },
@@ -1157,6 +1345,21 @@ export class AiProcessor extends WorkerHost {
         }
       } catch (e: any) {
         this.logger.warn(`[AI] Falha ao verificar status de cliente: ${e.message}`);
+      }
+
+      // 8.7 TRIAGEM NÃO-PACIENTE — quando quem escreve NÃO é paciente/lead (fornecedor
+      // oferecendo serviço, currículo/emprego, parceria, propaganda), a IA encaminha ao
+      // responsável e ENCERRA (em vez de "tentar vender dente"), pausa a si mesma (sem
+      // religar) e avisa os ADMs. Só no chip COMERCIAL (ou sem função definida) e só
+      // quando NÃO é cliente já cadastrado. Opt-in por tenant (default OFF). Best-effort:
+      // qualquer dúvida/erro → trata como PACIENTE e segue o fluxo normal de venda.
+      if (!isActiveClient && chipPurpose !== 'CLINICA' && chipPurpose !== 'FINANCEIRO') {
+        try {
+          const handled = await this.maybeHandleNonPatient(convo, chronological);
+          if (handled) return;
+        } catch (e: any) {
+          this.logger.warn(`[AI][NÃO-PACIENTE] Falha na triagem (segue fluxo normal): ${e?.message}`);
+        }
       }
 
       // 9. Selecionar skill — via Router inteligente ou fallback area-matching

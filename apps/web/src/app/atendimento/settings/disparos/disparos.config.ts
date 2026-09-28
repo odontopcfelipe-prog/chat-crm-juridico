@@ -91,7 +91,9 @@ export type OperacionalKey =
   // Notificação de venda feita (a cada venda) a um número configurado
   | 'venda_feita'
   // POLÍTICA (não é disparo) — bloquear agendamento de paciente com boleto atrasado.
-  | 'block_sched_on_overdue';
+  | 'block_sched_on_overdue'
+  // Triagem não-paciente (IA): fornecedor/currículo/parceria/spam → encaminha e encerra.
+  | 'nao_paciente_triage';
 
 export interface DisparoItem {
   id: string;
@@ -318,4 +320,10 @@ export const DISPAROS: DisparoItem[] = [
   { id: 'venda_feita', nome: 'Venda feita · notificação', categoria: 'equipe',
     gatilho: 'A cada venda (venda rápida ou aprovar-e-cobrar) · paciente, valor, forma, itens · a um número', canal: 'WhatsApp', tags: ['Interno'],
     editor: 'venda_feita', operacionalKey: 'venda_feita' },
+  // Triagem não-paciente: quando quem escreve é fornecedor / currículo / parceria /
+  // propaganda, a IA encaminha ao responsável e encerra (em vez de tentar vender) e
+  // avisa os adms no mesmo número do "Venda feita / Resumo diário". Default OFF.
+  { id: 'nao_paciente_triage', nome: 'Triagem não-paciente (IA)', categoria: 'equipe',
+    gatilho: 'IA detecta fornecedor/currículo/parceria/propaganda · encaminha ao responsável, encerra e avisa os adms', canal: 'WhatsApp', tags: ['IA', 'Interno'],
+    operacionalKey: 'nao_paciente_triage' },
 ];
