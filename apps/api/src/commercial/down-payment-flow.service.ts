@@ -622,6 +622,35 @@ export class DownPaymentFlowService {
             this.logger.warn(`[DOWN-PMT] fireContractForPlan falhou (plan ${planId}): ${e?.message}`);
           }
         }
+
+        // NEGOCIACAO APROVADA (fluxo DEFERIDO — entrada primeiro). REUSA o disparo
+        // que ja existe (o mesmo que o fechamento UPFRONT/applyFinancing dispara),
+        // NAO cria estrutura nova. Confirma ao paciente o planejamento (entrada +
+        // parcelas + total + forma), anexa o PDF dos procedimentos e ANCORA a entrega
+        // D+1 dos boletos (AuditLog BOLETO_INTRO, quando "Envio dos boletos" ligado) —
+        // que e o "disparo no dia seguinte" que ja era feito. Sem isto, o paciente do
+        // fluxo "entrada primeiro" so recebia "Pagamento Confirmado" e nunca via o plano
+        // nem recebia os boletos das parcelas. sendNegociacaoAprovada e opt-in
+        // (NEGOCIACAO_APROVADA_ENABLED) + dedup por plano (AuditLog NEGOCIACAO_APROVADA).
+        // Best-effort ISOLADO: try/catch proprio pra NUNCA cair no catch externo (que
+        // limparia o claim e permitiria regenerar as parcelas).
+        if (quotesService?.sendNegociacaoAprovada) {
+          try {
+            const parcelas = plan.installment_count as number;
+            const valorParcela = Number(plan.installment_value);
+            const entrada = notifyTotal; // soma sinal+entrada ja pagos
+            const total = entrada + parcelas * valorParcela;
+            await quotesService.sendNegociacaoAprovada(tenantId, planId, plan.patient, {
+              entrada,
+              parcelas,
+              valorParcela,
+              total,
+              forma: 'BOLETO', // financiamento e sempre boleto -> habilita a ancora D+1
+            });
+          } catch (e: any) {
+            this.logger.warn(`[DOWN-PMT] sendNegociacaoAprovada falhou (plan ${planId}): ${e?.message}`);
+          }
+        }
       } catch (err: any) {
         // Falhou a geracao -> LIMPA o claim (installments_generated_at:null) pra
         // permitir retry no proximo webhook. Sem isto, o claim travaria o plano.
