@@ -3572,6 +3572,11 @@ model StockMovement {
 
   // Vinculos
   appointment_id       String? // Saida ligada a um atendimento
+  /// Venda que consumiu este insumo (venda de balcao / execucao ligada a um orcamento).
+  /// Coluna de verdade, nao tag em texto: e a chave de IDEMPOTENCIA (retry da tela nao
+  /// pode dar baixa duas vezes) e o rastro de "qual venda gastou este material".
+  /// Sem relation de proposito: o movimento e registro contabil e sobrevive ao orcamento.
+  quote_id             String?
   notes                String?
   performed_by_user_id String?
   performed_at         DateTime @default(now())
@@ -3584,6 +3589,7 @@ model StockMovement {
   performed_by User?          @relation("StockMover", fields: [performed_by_user_id], references: [id], onDelete: SetNull)
 
   @@index([tenant_id, product_id])
+  @@index([quote_id])
   @@index([type, performed_at])
   @@index([batch_number])
   @@index([expiration_date])

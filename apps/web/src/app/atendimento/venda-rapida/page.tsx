@@ -17,7 +17,7 @@ import {
   Loader2, Search, Plus, Minus, ShoppingCart, Zap, X,
   Sparkles, Droplet, Smile, Stethoscope, Scissors, Image as ImageIcon,
   CheckCircle2, AlertCircle, User as UserIcon, CreditCard, DollarSign,
-  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown, QrCode,
+  Copy, ExternalLink, ArrowRight, UserPlus, Pencil, Check, ChevronDown, QrCode, Package,
 } from 'lucide-react';
 import api from '@/lib/api';
 import { useSocketEvent } from '@/lib/SocketProvider';
@@ -202,6 +202,35 @@ export default function VendaRapidaPage() {
   const [search, setSearch] = useState('');
   const [tab, setTab] = useState<string>('TODOS');
   const [cart, setCart] = useState<CartItem[]>([]);
+
+  // ─── Baixa de estoque (fase 2) ────────────────────────────────────────
+  // A venda de balcão pode tirar do estoque o material que o procedimento
+  // consome (cadastro Estoque → insumo por procedimento). Opcional POR VENDA:
+  // o operador desmarca quando o material não saiu de fato (ex.: cortesia com
+  // insumo do paciente). Só aparece quando há insumo cadastrado.
+  type ConsumoItem = { product_id: string; name: string; unit: string; needed: number; current_stock: number; falta: number; custo_total: number | null; origens: string[] };
+  const [consumo, setConsumo] = useState<{ items: ConsumoItem[]; custo_total: number; tem_falta: boolean; bloqueado: boolean; bloqueia_sem_saldo: boolean } | null>(null);
+  const [baixarEstoque, setBaixarEstoque] = useState(true);
+
+  // Recalcula o que sairia do estoque sempre que o carrinho muda (debounce).
+  // Rodar ANTES de fechar evita o pior caso: descobrir que faltou material
+  // depois de já ter cobrado o paciente.
+  useEffect(() => {
+    if (cart.length === 0) { setConsumo(null); return; }
+    let cancelled = false;
+    const t = setTimeout(() => {
+      const items = cart.flatMap((it) =>
+        it.toothFdis.length > 0
+          ? it.toothFdis.map(() => ({ procedure_id: it.procedure.id, quantity: 1 }))
+          : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
+      );
+      api.post('/inventory/consumption/preview', { items })
+        .then((r) => { if (!cancelled) setConsumo(r.data?.items?.length ? r.data : null); })
+        .catch(() => { if (!cancelled) setConsumo(null); });
+    }, 350);
+    return () => { cancelled = true; clearTimeout(t); };
+  }, [cart]);
+
   const [patient, setPatient] = useState<PatientOption | null>(null);
   const [patientQuery, setPatientQuery] = useState('');
   const [patientResults, setPatientResults] = useState<PatientOption[]>([]);
@@ -493,6 +522,31 @@ export default function VendaRapidaPage() {
       );
       const quoteId = quoteData?.id || quoteData?.quote?.id;
       if (!quoteId) throw new Error('Falha ao criar orcamento');
+
+      // 1.5. Baixa do material no estoque. Idempotente por quote_id no backend,
+      // então um retry desta tela não baixa duas vezes. Best-effort DE PROPÓSITO:
+      // a venda já existe e o paciente já está pagando — falhar a baixa aqui não
+      // pode desfazer a venda. Se der errado, avisa pra alguém ajustar na mão.
+      if (baixarEstoque && consumo && consumo.items.length > 0) {
+        try {
+          await api.post('/inventory/consumption/commit', {
+            quote_id: quoteId,
+            items: cart.flatMap((it) =>
+              it.toothFdis.length > 0
+                ? it.toothFdis.map(() => ({ procedure_id: it.procedure.id, quantity: 1 }))
+                : [{ procedure_id: it.procedure.id, quantity: it.quantity }],
+            ),
+            notes: 'Venda rápida (balcão)',
+          });
+        } catch (e: unknown) {
+          const err = e as { response?: { data?: { message?: string } } };
+          showError(
+            'A venda foi registrada, mas a baixa do estoque falhou: ' +
+            (err?.response?.data?.message || 'erro desconhecido') +
+            ' — ajuste em Estoque → Movimentações.',
+          );
+        }
+      }
 
       // 2. approveAndBill — cria charge. Recebido na clínica usa PIX como tipo
       // (Asaas só aceita PIX/BOLETO/CREDIT_CARD) e é marcado como recebido no
@@ -1206,11 +1260,59 @@ export default function VendaRapidaPage() {
             </div>
           </div>
 
+          {/* Baixa de estoque — só quando o procedimento tem insumo cadastrado */}
+          {consumo && (
+            <div className={`border rounded-xl px-3 py-2.5 mb-3 ${
+              consumo.tem_falta
+                ? 'border-amber-500/40 bg-amber-500/10'
+                : 'border-border bg-muted/20'
+            }`}>
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={baixarEstoque}
+                  onChange={(e) => setBaixarEstoque(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span className="min-w-0">
+                  <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                    <Package size={12} />
+                    Dar baixa no estoque
+                  </span>
+                  <span className="block text-[10px] text-muted-foreground mt-0.5">
+                    {consumo.custo_total > 0
+                      ? `custo do material: R$ ${fmtBRL(consumo.custo_total)}`
+                      : 'material consumido por estes procedimentos'}
+                  </span>
+                </span>
+              </label>
+              {baixarEstoque && (
+                <ul className="mt-2 space-y-1 pl-6">
+                  {consumo.items.map((i) => (
+                    <li key={i.product_id} className="text-[11px] flex items-center justify-between gap-2">
+                      <span className="truncate text-foreground">
+                        {i.needed}{i.unit} · {i.name}
+                      </span>
+                      <span className={`shrink-0 tabular-nums ${i.falta > 0 ? 'text-amber-700 dark:text-amber-400 font-semibold' : 'text-muted-foreground'}`}>
+                        {i.falta > 0 ? `faltam ${i.falta}${i.unit}` : `saldo ${i.current_stock}${i.unit}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {baixarEstoque && consumo.bloqueado && (
+                <p className="mt-2 text-[10px] text-red-600 dark:text-red-400 font-semibold pl-6">
+                  Esta clínica bloqueia saída sem saldo — dê entrada no produto, ou desmarque a baixa pra fechar a venda mesmo assim.
+                </p>
+              )}
+            </div>
+          )}
+
           {/* CTA */}
           <button
             type="button"
             onClick={handleFinish}
-            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk || !mixOk}
+            disabled={finishing || !patient || cart.length === 0 || !dentistId || !splitOk || !mixOk || (baixarEstoque && !!consumo?.bloqueado)}
             className="w-full text-sm font-bold px-4 py-3.5 rounded-xl bg-gradient-to-b from-emerald-500 to-emerald-600 hover:from-emerald-600 hover:to-emerald-700 text-white shadow-lg shadow-emerald-600/25 transition-all disabled:from-muted disabled:to-muted disabled:text-muted-foreground disabled:shadow-none inline-flex items-center justify-center gap-2"
           >
             {finishing ? (

@@ -65,6 +65,35 @@ export class InventoryController {
     return this.movements.setBlocksNegativeStock(tenantId, body?.block_negative === true);
   }
 
+  // ─── Consumo de insumo pela venda (fase 2) ────────────────────
+
+  /** O que sairia do estoque se esta venda fechasse agora (tela de venda rápida). */
+  @Post('inventory/consumption/preview')
+  previewConsumption(
+    @Body() body: { items: Array<{ procedure_id: string; quantity?: number }> },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.consumables.previewConsumption(tenantId, body?.items || []);
+  }
+
+  /** Gera as saídas de estoque da venda. Idempotente por quote_id. */
+  @RequiresPermission('manage_proposals')
+  @Post('inventory/consumption/commit')
+  commitConsumption(
+    @Body() body: {
+      items: Array<{ procedure_id: string; quantity?: number }>;
+      quote_id?: string;
+      notes?: string;
+    },
+    @Request() req: any,
+  ) {
+    const tenantId = req.user?.tenant_id;
+    if (!tenantId) throw new BadRequestException('tenant_id ausente');
+    return this.consumables.commitConsumption(tenantId, req.user?.id, body || { items: [] });
+  }
+
   // ─── Suppliers ────────────────────────────────────────────────
 
   @RequiresPermission('manage_inventory')
