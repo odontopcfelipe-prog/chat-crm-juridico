@@ -222,6 +222,19 @@ export class PaymentAlertsCronService {
       if (messageId === 'NO_CONFIG') return 'cooldown';
     }
 
+    // Onda 18.x — MENSAGEM 2: só o CÓDIGO PIX (copia-e-cola do boleto), num disparo
+    // separado, pra o paciente copiar limpo (long-press pega só o código). Só quando a
+    // msg 1 SAIU (messageId ok) e há PIX. Boleto único (count===1): agrupado não manda
+    // código (ambíguo). É o PIX do próprio boleto → pagar dá baixa automática nele.
+    if (messageId && pick.codigo && pick.count === 1) {
+      const r2 = await this.sendWhatsApp(pick.phone, pick.codigo, instanceName);
+      if (r2 && r2 !== 'NO_CONFIG') {
+        this.logger.log(`[COBRANCA] código PIX enviado em msg separada (charge ${pick.chargeId})`);
+      } else {
+        this.logger.warn(`[COBRANCA] falha ao enviar o código PIX separado (charge ${pick.chargeId}) — msg 1 já saiu`);
+      }
+    }
+
     // Marca na TENTATIVA (sucesso OU falha) e avança o marca-passo — assim um
     // número inválido não trava as próximas cobranças. Onda 18.x — dedup por
     // PACIENTE (não por boleto): grava o patientId no AuditLog.
@@ -853,16 +866,22 @@ export class PaymentAlertsCronService {
     // copia-e-cola quando existe; senão, o LINK — inclusive quando há PDF anexo.
     // Sem isto, boleto sem PIX guardado + PDF que falha (chip/Evolution) deixava a
     // mensagem só com "vence sua parcela de R$ X" e NENHUMA forma de pagar.
+    // Onda 18.x — o CÓDIGO PIX vai num disparo SEPARADO (mensagem 2 — só o código,
+    // pra copiar limpo). A mensagem 1 só AVISA que ele vem a seguir (quando há PIX) e
+    // menciona o boleto anexo. Sem PIX mas com link → mostra o link aqui mesmo (fallback,
+    // numa msg só). O envio da mensagem 2 acontece no sendPacedCharge.
     const codigoBloco = c.codigo
-      ? `📋 Pra facilitar, copie o código e pague por PIX:\n${c.codigo}`
+      ? (c.pdfUrls.length
+          ? '📎 Segue o boleto em anexo. Se preferir pagar por *PIX*, o código vai na *próxima mensagem* 👇'
+          : 'O código *PIX* pra pagar vai na *próxima mensagem* 👇')
       : (c.link ? `Pra pagar, acesse:\n${c.link}` : '');
     if (/\{codigo\}/.test(msg)) {
       msg = codigoBloco
         ? msg.replace(/\{codigo\}/g, codigoBloco)
         : msg.replace(/^[^\n]*\{codigo\}[^\n]*\n?/gm, '').replace(/\{codigo\}/g, '').replace(/\n{3,}/g, '\n\n').trimEnd();
-    } else if (codigoBloco && !msg.includes(c.codigo || '\0') && !msg.includes(c.link || '\0')) {
+    } else if (codigoBloco && !msg.includes(codigoBloco) && !msg.includes(c.link || '\0')) {
       // Template sem {codigo} (ex.: texto antigo com {link} já removido no boleto):
-      // anexa o meio de pagamento no fim pra nunca ficar sem.
+      // anexa o aviso/link no fim pra nunca ficar sem forma de pagar.
       msg = `${msg.trimEnd()}\n\n${codigoBloco}`;
     }
     return msg;
